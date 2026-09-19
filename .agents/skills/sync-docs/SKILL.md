@@ -24,7 +24,7 @@ milestone, before a release, or on request ("sync the docs").
 Docs must describe working code. Run and require green:
 
 ```bash
-uv run ruff check src/ tests/ plugins/ && uv run ruff format --check src/ tests/ plugins/
+uv run ruff check src/ tests/ plugins/ examples/ && uv run ruff format --check src/ tests/ plugins/ examples/
 uv run mypy src/
 uv run lint-imports
 uv run pytest -x -q --no-header

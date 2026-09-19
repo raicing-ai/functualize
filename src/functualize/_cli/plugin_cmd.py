@@ -1,11 +1,16 @@
 """``func builtin plugin`` — what extends this installation, and changing it.
 
 An *extension* is anything registered under a ``functualize.*`` entry-point
-group. Listing them is not the same question as "which plugins loaded": a
-plugin can register in a group this process never consults, and
-``functualize-inline`` is exactly that case — it appears only under
-``functualize.interactivity_providers``, so a listing built from
-``loaded_plugins`` would omit the document's own canonical example.
+group. Listing them is not the same question as "which plugins loaded": the
+plugin loader reads one group (``functualize.plugins``), while extensions
+register across seven, and ``functualize-aws`` is the plain case — it appears
+only under ``functualize.remote_providers``, which ``_config`` reads and the
+loader never sees, so a listing built from ``loaded_plugins`` would omit it.
+
+Until `plugin-taxonomy`/T5 this paragraph named ``functualize-inline`` and a
+group **nothing** consulted. That was a defect rather than an illustration:
+installing the plugin did nothing at all. It now registers under
+``functualize.plugins``.
 
 **Two names per entry, because they differ and both are needed.** The
 registered name is what the framework calls it (``inline``); the distribution is
@@ -48,6 +53,7 @@ __all__ = [
     "discover_extensions",
     "extensions_from",
     "load_catalog",
+    "load_retired",
     "plugin_app",
     "recommended_distributions",
 ]
@@ -83,7 +89,7 @@ class ExtensionEntry:
 
     @property
     def short_group(self) -> str:
-        """``interactivity_providers`` — the prefix is on every row."""
+        """``remote_providers`` — the prefix is on every row."""
         return (
             self.group[len(_PREFIX) :] if self.group.startswith(_PREFIX) else self.group
         )
@@ -217,6 +223,27 @@ def load_catalog() -> tuple[CatalogEntry, ...]:
     return tuple(entries)
 
 
+def load_retired() -> frozenset[str]:
+    """Distributions this project published under a name it no longer uses.
+
+    Read from the same manifest as the catalog and degraded the same way — a
+    malformed file yields an empty set, so a packaging accident costs the
+    suppression rather than the command.
+    """
+    import tomllib
+
+    path = Path(__file__).parent / "data" / CATALOG_FILENAME
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return frozenset()
+
+    rows = data.get("retired", [])
+    if not isinstance(rows, list):
+        return frozenset()
+    return frozenset(str(row) for row in rows)
+
+
 def recommended_distributions() -> tuple[str, ...]:
     """What ``install --recommended`` installs, in manifest order.
 
@@ -257,6 +284,7 @@ def available_rows(
     catalog: Iterable[CatalogEntry],
     installed: Iterable[ExtensionEntry],
     remote: Iterable[str] = (),
+    retired: Iterable[str] = (),
 ) -> list[AvailableRow]:
     """Merge the three sources into one listing.
 
@@ -266,7 +294,14 @@ def available_rows(
     its live group, and one the manifest has never heard of still appears --
     which is what makes a third-party plugin visible here at all.
 
-    Takes its three inputs as arguments for the reason ``extensions_from``
+    **A retired name is dropped from the remote half only.** Those are
+    distributions this project published and then renamed; they stay on PyPI
+    forever, and rendering them as *"not vetted by this project"* is false
+    about our own releases. An *installed* one still appears, from the loop
+    above — what is on the machine is a fact, and hiding that would be the
+    worse lie.
+
+    Takes its four inputs as arguments for the reason ``extensions_from``
     does: a merge rule exercised only against whatever happens to be installed
     is untestable in precisely the cases that matter.
     """
@@ -313,7 +348,7 @@ def available_rows(
             )
         )
 
-    for distribution in sorted(set(remote) - seen):
+    for distribution in sorted(set(remote) - seen - set(retired)):
         rows.append(
             AvailableRow(
                 name=distribution.removeprefix("functualize-"),
@@ -468,7 +503,9 @@ def available(output_format: str, remote: bool) -> None:
                 err=True,
             )
 
-    rows = available_rows(load_catalog(), discover_extensions(), remote_names)
+    rows = available_rows(
+        load_catalog(), discover_extensions(), remote_names, load_retired()
+    )
 
     if output_format == "json":
         click.echo(json.dumps([r.to_json() for r in rows], indent=2))

@@ -103,7 +103,7 @@ class TestTemplateManifestFields:
         assert t.template_dir == "full-interactivity"
         assert len(t.dependencies) > 0
         assert "functualize-inline" in t.dependencies
-        assert "functualize-state-sqlite" in t.dependencies
+        assert "functualize-substrate-sqlite" in t.dependencies
 
     def test_plugin_project_template_manifest(self) -> None:
         """Plugin-project template has correct fields."""

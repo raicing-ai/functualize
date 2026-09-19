@@ -383,7 +383,7 @@ class TestListDomains:
                 capability_class="functualize_state.StateBackend",
                 provider_protocol="functualize_state.StateBackend",
                 config_section="state",
-                entry_point_group="functualize.state_providers",
+                entry_point_group="functualize.widget_providers",
                 events_prefix="state.",
             ),
         ]

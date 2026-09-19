@@ -411,8 +411,17 @@ class TestStateIsDurable:
                 import sys
                 from functualize import FunctualizeApp, RunContext
                 from functualize._types.run_request import RunRequest
+                from functualize.app import PluginSources
 
-                app = FunctualizeApp(name="probe")
+                # Pinned to the filesystem substrate: the assertions below name
+                # `.functualize/scopes.json`. `plugin-taxonomy`/T5 made the
+                # SQLite plugin load for real, and this is a subprocess.
+                app = FunctualizeApp(
+                    name="probe",
+                    plugin_sources=PluginSources(
+                        disabled=["substrate-sqlite"]
+                    ),
+                )
 
                 def writer(rc: RunContext) -> str:
                     rc.state.set("fetch.rows", 500)

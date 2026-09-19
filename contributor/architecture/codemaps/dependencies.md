@@ -22,17 +22,28 @@ See `contributor/architecture/dependency-graph.md` for the authoritative, human-
                    _cli/            <- DELIVERY (public API only -- no `_` imports)
 ```
 
-Enforced in CI by `import-linter` (`uv run lint-imports`), five contracts defined in `pyproject.toml` `[tool.importlinter]`:
+Enforced in CI by `import-linter` (`uv run lint-imports`), seven contracts defined in `pyproject.toml` `[tool.importlinter]`:
 
 1. "Peer layers are independent" — independence contract over `_discovery`, `_config`, `_engine`, `_plugins`.
-2. "Primitives import nothing internal" — forbidden contract.
-3. "Types import nothing internal" — forbidden contract.
-4. "Internal never imports public" — forbidden contract (blocks `_app` etc. from importing `functualize.app`).
-5. "`_cli` uses public API only" — forbidden contract (blocks `_cli` from importing any `_`-prefixed package).
+2. "Events depends on foundation only" — forbidden contract.
+3. "Primitives import nothing internal" — forbidden contract.
+4. "Types import nothing internal" — forbidden contract. This is what keeps `PluginHost` nameable by a plugin: `_types/host.py` imports stdlib and `_types` only, so annotating against the port never drags in the application.
+5. "Internal never imports public" — forbidden contract (blocks `_app` etc. from importing `functualize.app`).
+6. "`_cli` uses public API only" — forbidden contract (blocks `_cli` from importing any `_`-prefixed package).
+7. "Delivery adapters go through the request, not the engine" — forbidden contract.
 
-`exclude_type_checking_imports = true` — imports inside `if TYPE_CHECKING:` blocks are not evaluated by the contracts.
+The list above previously named five of the seven and the prose said "five"; `pyproject.toml` and `.spec/CONSTITUTION.md` both said "six". All three are now the number `grep -c '^\[\[tool.importlinter.contracts\]\]' pyproject.toml` returns (`plugin-host-protocol` AC-21).
 
-**Verified compliant**: a grep across `_discovery/`, `_config/`, `_engine/`, `_plugins/` found exactly one cross-peer reference — `_engine/capabilities/runcontext.py:31` imports `functualize._config.job_config.JobConfigView`, but it's inside `TYPE_CHECKING` and therefore excluded by contract 1. No runtime peer-layer violation exists.
+`exclude_type_checking_imports = true` — imports inside `if TYPE_CHECKING:` blocks are not evaluated by the contracts. **This is a real hole, not a footnote**: a deferred `_types → _app` import leaves `lint-imports` reporting "7 kept, 0 broken", measured by adding one. Where that matters, a test reads the import lines instead — see `tests/types/test_plugin_host_port.py` and `contributor/architecture/layer-contract-blind-spot.md` §7.
+
+**New in `declared-plugin-directories` (2026-09-19)**: `_config/project_dirs.py`
+is imported by `_app/boot.py` (composition root → peer, legal) and by
+`app/utils.py` (public → internal, legal). It is **not** imported by `_plugins/`,
+and must not be — the plugin loader receives a resolved `list[str]` from the
+composition root rather than reaching across the peer boundary for it. That is
+the whole shape of the fix; an import edge here would undo it.
+
+**Verified compliant**: a grep across `_discovery/`, `_config/`, `_engine/`, `_plugins/` found exactly one cross-peer reference — `_engine/capabilities/runcontext.py:25` imports `functualize._config.job_config.JobConfigView`, but it's inside `TYPE_CHECKING` and therefore excluded by contract 1. No runtime peer-layer violation exists.
 
 ## Highest Fan-In Modules (measured)
 
@@ -46,7 +57,7 @@ Ranked by raw import-statement count across `src/functualize/**/*.py`:
 | 4 | `functualize.app` (public facade) | 17 | Re-export surface for `app/` symbols |
 | 5 | `functualize._engine.capabilities.runcontext` | 15 | Concrete `RunContext` capability wiring |
 | 5 | `functualize.app.core` | 15 | `FunctualizeApp` public class definition |
-| 6 | `functualize._config.job_config` | 13 | `JobConfigView` — scoped config access |
+| 8 | `functualize._config.job_config` | 10 | `JobConfigView` — scoped config access |
 | 6 | `functualize._app.decorators` | 13 | Boot-time decorator wiring |
 | 6 | `functualize.app.config` | 13 | `JobSources`/`ConfigSources`/`PluginSources`/`ExecutionConfig` dataclasses |
 | 7 | `functualize.app.utils` | 12 | `coerce_kwargs`, `import_job`, `auto_discover` |
@@ -110,7 +121,7 @@ functualize[all] = [cli] + 13 workspace plugins (see modules.md)
 ## Build & CI Wiring
 
 - **Build backend**: `hatchling.build`; wheel packages `src/functualize`.
-- **Workspace**: `[tool.uv.workspace] members = ["plugins/*"]` — all 13 plugins auto-included, single `uv.lock`.
+- **Workspace**: `[tool.uv.workspace] members = ["plugins/*/*"]` — all 12 plugins auto-included, single `uv.lock`. The glob is **two** levels since `plugin-taxonomy` grouped the plugin directories by role; a plugin at any other depth is silently not a workspace member.
 - **CI** (`.github/workflows/ci.yml`, triggers on `push`/`pull_request`): `lint` → `lint-imports` → `typecheck` (mypy) → `test-fast` → `test-full` (matrix, Python 3.11/3.12/3.13).
 - **Security** (`security.yml`): gitleaks secret scan, on push/PR to `main` plus a weekly Monday 06:00 UTC cron.
 - **Release** (`release.yml`, on tag `v*`): `build` → `publish` (PyPI Trusted Publishing/OIDC) → `github-release`.

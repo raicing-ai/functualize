@@ -160,6 +160,7 @@ Zero function bodies beyond `...`, `pass`, or trivial property accessors.
 | `sources.py` | CliSource, EnvSource, FileSource, RemoteSource, DefaultSource |
 | `job_config.py` | JobConfigView implementation + validation |
 | `providers/` | TomlFormatProvider, IniFormatProvider |
+| `project_dirs.py` | Walk A — project-config walk, layer merge (`root = true`), directory precedence chain |
 
 ### `_engine/` — Execution Lifecycle
 
@@ -181,7 +182,10 @@ Zero function bodies beyond `...`, `pass`, or trivial property accessors.
 
 | Module | Contains |
 |--------|----------|
-| `loader.py` | PluginLoader (discovery + topological sort + loading) |
+| `loader.py` | PluginLoader (entry-point discovery + topological sort + registration) |
+| `file_source.py` | FilePluginSource — the on-disk plugin format; takes paths, not an app |
+| `metadata.py` | `_validate_metadata` / `_validate_pep440`, shared by the two above |
+| `domain_registry.py` | Domain SDK discovery; reads `[<domain>] provider` from boot's merged config |
 | `config.py` | PluginConfigRegistry |
 
 ### `_app/` — Composition Root
@@ -258,6 +262,6 @@ Located in `plugins/`, these are maintained as part of the core monorepo:
 | `functualize-lambda` | AWS Lambda | AWS Lambda deployment and invocation adapter |
 | `functualize-mcp` | Model Context Protocol | Claude MCP server integration for model-assisted execution |
 | `functualize-state` | State management | In-memory key-value state backend |
-| `functualize-state-sqlite` | SQLite state | Persistent state backend using SQLite |
+| `functualize-substrate-sqlite` | SQLite state | Persistent state backend using SQLite |
 | `functualize-tasks` | Task scheduling | Task queue abstraction for async job scheduling |
 | `functualize-tasks-local` | Local task queue | Local in-memory task queue implementation |

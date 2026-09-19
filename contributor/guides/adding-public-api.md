@@ -66,6 +66,34 @@ from functualize.types import CacheInfo  # ← should work without lint-imports 
 - Add to `docs/` (mkdocs) if it's user-facing
 - Add to `contributor/reference/code-map.md` for contributor reference
 
+
+### 8. Exercise it in `examples/`
+
+**Required** (maintainer, 2026-09-17). A public symbol, and every public member
+of a public class, must have at least one caller under `examples/`.
+
+```python
+# examples/standalone/<topic>/<name>.py — a user-shaped call, not a smoke test
+from functualize.types import CacheInfo
+
+info: CacheInfo = app.cache_stats
+print(f"{info.hits} hits / {info.misses} misses")
+```
+
+Two reasons, and the second is the one that made it a rule:
+
+1. `examples/conftest.py` puts every standalone example on `sys.path` and the
+   directory runs as its own pytest suite — so the example **is** the
+   end-to-end integration test for that API, entered through the user's door.
+2. It makes "no callers" mean something. A dead-code sweep reads serena's zero
+   references as evidence of deadness, which is invalid for public API because
+   the callers live in other people's repositories. With this rule, zero means
+   dead again — the caller that should exist is the example.
+
+Full rationale, the measured backlog (108 of 161 public symbols have no example
+today) and the re-measurement script:
+`contributor/reference/public-api-example-coverage.md`.
+
 ## Important: Internal → Public Import Direction
 
 The public `__init__.py` files are the ONE place where internal modules are imported into public space:

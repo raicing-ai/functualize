@@ -80,7 +80,7 @@ functualize/                          ← Root workspace
 │   ├── functualize-ai/               ← Domain SDK: AI capability
 │   ├── functualize-tasks/            ← Domain SDK: Tasks capability
 │   ├── functualize-ai-pydantic/      ← Implementation: PydanticAI + LiteLLM
-│   ├── functualize-state-sqlite/     ← Storage: a SQLite StoreSubstrate
+│   ├── functualize-substrate-sqlite/     ← Storage: a SQLite StoreSubstrate
 │   ├── functualize-tasks-local/      ← Implementation: tasks on the project substrate
 │   ├── functualize-mcp/              ← Delivery: MCP adapter (FastMCP)
 │   ├── functualize-http/             ← Delivery: HTTP adapter
@@ -447,13 +447,13 @@ uv run pytest -v
 Check for code issues with ruff:
 
 ```bash
-uv run ruff check src/ tests/
+uv run ruff check src/ tests/ plugins/ examples/
 ```
 
 Auto-fix linting issues:
 
 ```bash
-uv run ruff check --fix src/ tests/
+uv run ruff check --fix src/ tests/ plugins/ examples/
 ```
 
 ### Formatting
@@ -461,13 +461,13 @@ uv run ruff check --fix src/ tests/
 Check formatting without making changes:
 
 ```bash
-uv run ruff format --check src/ tests/
+uv run ruff format --check src/ tests/ plugins/ examples/
 ```
 
 Apply formatting:
 
 ```bash
-uv run ruff format src/ tests/
+uv run ruff format src/ tests/ plugins/ examples/
 ```
 
 ### Type Checking
@@ -490,8 +490,8 @@ uv run lint-imports
     Ensure all checks pass before pushing your branch:
 
     ```bash
-    uv run ruff check src/ tests/
-    uv run ruff format --check src/ tests/
+    uv run ruff check src/ tests/ plugins/ examples/
+    uv run ruff format --check src/ tests/ plugins/ examples/
     uv run mypy src/
     uv run lint-imports
     HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto
@@ -554,8 +554,8 @@ git checkout -b docs/update-api-reference
 1. Ensure all checks pass locally:
 
     ```bash
-    uv run ruff check src/ tests/
-    uv run ruff format --check src/ tests/
+    uv run ruff check src/ tests/ plugins/ examples/
+    uv run ruff format --check src/ tests/ plugins/ examples/
     uv run mypy src/
     uv run lint-imports
     uv run pytest
@@ -598,7 +598,7 @@ Use [GitHub Issues](https://github.com/raicing-ai/functualize/issues) with the p
 Domain SDK packages live in `plugins/` and follow a consistent structure:
 
 ```
-plugins/functualize-{domain}/
+plugins/<group>/functualize-{domain}/
 ├── pyproject.toml                    # hatchling build, pydantic-only deps
 ├── src/functualize_{domain}/
 │   ├── __init__.py                   # Re-exports all public API
@@ -624,7 +624,7 @@ plugins/functualize-{domain}/
 ### Rules for Implementation Plugins
 
 1. **Depend on the Domain SDK** — Not on functualize core internals
-2. **Register via the domain's entry point group** — e.g., `functualize.state_providers`
+2. **Register via the domain's entry point group** — e.g., `functualize.ai_providers`
 3. **Implement the provider protocol** from the Domain SDK
 4. **Register with DI** via `app.di.provide()` in the plugin boot class
 
@@ -664,7 +664,7 @@ uv run pytest examples/standalone/ -v
 uv run pytest examples/standalone/showcase/ -v
 
 # Per-plugin examples (run explicitly, like plugin tests)
-uv run pytest plugins/functualize-mcp/examples/ -v
+uv run pytest plugins/adapters/functualize-mcp/examples/ -v
 ```
 
 ---

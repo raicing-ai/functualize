@@ -16,7 +16,7 @@ shape — the tree of groups, jobs, and plugin commands. It replaces:
 
 The trie sits at the top of the layer order (in `_types/`, not `_discovery/`), making it
 importable by all five consumers without peer-layer violations: CLI dispatch (`_cli/`),
-TUI (`_cli/tui/`), engine (`_engine/`), MCP metadata (`plugins/functualize-mcp/`), and
+TUI (`_cli/tui/`), engine (`_engine/`), MCP metadata (`plugins/adapters/functualize-mcp/`), and
 the CLI **adapter** (`app/adapters/cli.py`), which mirrors the trie into a click command
 tree and hangs each declaring group's options on the matching node (ADR-009 decision 11).
 

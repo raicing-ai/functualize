@@ -306,6 +306,23 @@ def cli_app(
         cwd, overrides={"scan_depth": effective_scan_depth}
     )
 
+    # `[plugins] disabled`, the same rule `_handle_bare`, `_handle_group` and
+    # `_handle_job` apply. It was missing here, and the omission was invisible
+    # until `plugin-taxonomy`/T5 made a plugin that changes a *default* actually
+    # load: with `disabled = ["sqlite"]` in config, `func <job>` honoured it and
+    # wrote to files while `func builtin why` and `func builtin data show` --
+    # which boot through this path -- did not, and read a database the run had
+    # never written to. Three of the four doors agreeing is worse than none,
+    # because the disagreement only shows up in the answers.
+    from functualize.app.config import PluginSources
+
+    _builtin_plugins_section = (discovery_result.merged_config or {}).get("plugins")
+    _builtin_disabled = (
+        list(_builtin_plugins_section.get("disabled", []))
+        if isinstance(_builtin_plugins_section, dict)
+        else []
+    )
+
     # Construct FunctualizeApp
     app = FunctualizeApp(
         name="functualize",
@@ -315,6 +332,9 @@ def cli_app(
             dotenv=cli_config.dotenv,
             dotenv_path=cli_config.dotenv_path,
         ),
+        plugin_sources=PluginSources(disabled=_builtin_disabled)
+        if _builtin_disabled
+        else None,
     )
 
     # Wire config_directory on the app if provided

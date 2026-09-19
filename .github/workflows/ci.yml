@@ -207,7 +207,7 @@ jobs:
   # (pyproject.toml) never collects plugin tests, and the grouped-job serve
   # crash (F1, `fix/mcp-server-fixes`) shipped precisely because no check ran
   # a live serve. The capability tests in
-  # plugins/functualize-mcp/tests/test_live_serve.py and the grouped_tools
+  # plugins/adapters/functualize-mcp/tests/test_live_serve.py and the grouped_tools
   # example harness are the regression net for it; this job is what keeps
   # that net running.
   plugin-mcp:
@@ -229,10 +229,45 @@ jobs:
         run: uv sync --all-packages
 
       - name: Run functualize-mcp plugin tests
-        run: uv run pytest plugins/functualize-mcp/tests -q
+        run: uv run pytest plugins/adapters/functualize-mcp/tests -q
 
       - name: Run functualize-mcp examples
-        run: uv run pytest plugins/functualize-mcp/examples -v
+        run: uv run pytest plugins/adapters/functualize-mcp/examples -v
+
+  # The substrate plugin's own suite and its one example.
+  #
+  # `plugin-taxonomy`/T8 found that `examples/persistent_counter/` imported a
+  # `SQLiteStateBackend` defined nowhere in the repository, and that the
+  # package README documented five classes where it exports two. Both had been
+  # broken for a release, and neither was catchable: the root
+  # `testpaths = ["tests"]` never collects a plugin's examples, and the only
+  # job that ran any plugin's examples ran functualize-mcp's.
+  #
+  # A substrate is where a project's data lives, so its example being the
+  # published proof that the package works is worth a check that runs it.
+  plugin-substrate-sqlite:
+    needs: spec-only-change
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies (workspace packages, not just extras)
+        run: uv sync --all-packages
+
+      - name: Run functualize-substrate-sqlite plugin tests
+        run: uv run pytest plugins/substrates/functualize-substrate-sqlite/tests -q
+
+      - name: Run functualize-substrate-sqlite examples
+        run: uv run pytest plugins/substrates/functualize-substrate-sqlite/examples -v
 
   # Every example command this repository publishes, run from a CLEAN CLONE.
   #

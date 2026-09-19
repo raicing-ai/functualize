@@ -146,35 +146,54 @@ class TestDescribe:
 
 class TestThePlugin:
     def test_it_installs_the_substrate_at_app_ready(self):
-        """The whole of "bring your own storage": one assignment, at one hook."""
+        """The whole of "bring your own storage": one call, at one hook."""
         plugin = MemoryStatePlugin()
         assert plugin.substrate is None
 
         class _App:
-            substrate = None
+            """`app.substrate` is read-only now; `install_substrate` is the door.
+
+            It was `app.substrate = …` until `plugin-host-protocol`/T3 split
+            one name into three: `substrate` is the storage in effect,
+            `substrate_override` is the slot, and installing is a *call* whose
+            guard refuses a late one rather than half-applying it.
+            """
+
+            installed = None
+
+            def install_substrate(self, substrate):
+                self.installed = substrate
 
         app = _App()
         plugin._on_app_ready(app)
 
-        assert isinstance(app.substrate, MemorySubstrate)
-        assert app.substrate is plugin.substrate
+        assert isinstance(app.installed, MemorySubstrate)
+        assert app.installed is plugin.substrate
 
     def test_it_registers_on_app_ready_and_not_before(self):
+        """Through `app.hooks.on_ready`, which is the whole public surface.
+
+        Until `plugin-host-protocol`/T6 this said
+        `app.hook_registry.register_global(HookEvent.APP_READY, …)` — three
+        names deep, and two of them (`hook_registry`, `HookEvent`) reached into
+        `functualize._events`, a private package. An example that has to import
+        an underscore module to register a hook is teaching the wrong thing.
+        """
         registered = []
 
         class _Hooks:
-            def register_global(self, event, handler):
-                registered.append((event, handler))
+            def on_ready(self, handler):
+                registered.append(handler)
+                return handler
 
         class _App:
-            hook_registry = _Hooks()
-            substrate = None
+            hooks = _Hooks()
+
+            def install_substrate(self, substrate):  # pragma: no cover
+                raise AssertionError("installing before APP_READY is too early")
 
         plugin = MemoryStatePlugin()
         plugin(_App())
 
-        assert len(registered) == 1
-        from functualize._events.hooks import HookEvent
-
-        assert registered[0][0] == HookEvent.APP_READY
+        assert registered == [plugin._on_app_ready]
         assert plugin.substrate is None, "installing before APP_READY is too early"

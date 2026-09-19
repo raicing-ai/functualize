@@ -10,7 +10,9 @@ Steps execute in this fixed order. Do not reorder.
 | 1 | `core_infra` | HookRegistry, DIRegistry, JobExecutionEngine instantiated |
 | 2 | `provider_registry` | Built-in TOML format provider registered. `IniFormatProvider` is in-tree but must be registered by a plugin (ADR-007) |
 | 3 | `observability` | EventBus, MiddlewareStack created (before plugins so they can subscribe) |
-| 4 | `plugins` | Entry-point + file-based plugins loaded via PluginLoader (topological sort) |
+| 3.5 | `project_dirs` | The project read **once** — anchor, merged config, project root, plugin directories (`_config/project_dirs.resolve_project_directories`). Steps 4 and 4b both need configuration and both run before the chain exists at step 6, so this is the read that does not go through it |
+| 4 | `plugins` | Entry-point + file-based plugins loaded via PluginLoader (topological sort). Directories are **passed in** from step 3.5; the loader resolves nothing itself |
+| 4b | `domains` | `functualize.domains` entry points discovered; `[<domain>] provider` read from step 3.5's merged config |
 | 5 | `config_entry_points` | Format/remote provider entry points discovered |
 | 6 | `config_resolution` | ResourceLocator + ResolutionChain built once |
 | 7 | — | `AFTER_CONFIG_INIT` hook fires |
@@ -42,20 +44,30 @@ for strictly zero I/O.
 
 Within step 4, plugins load in three sub-phases:
 
-1. **Discovery**: `entry_points(group="functualize.plugins")` scan
+1. **Discovery**: `entry_points(group="functualize.plugins")` scan, then
+   file-based discovery — `FilePluginSource.discover(directories)` over the list
+   step 3.5 resolved (declared first, then the project root's
+   `.functualize/plugins/`)
 2. **Ordering**: Topological sort via `depends_on` (Kahn's algorithm)
 3. **Registration**: Each plugin's `__call__(app)` invoked in sorted order
 
-Plugins may call `app.provide()`, `app.register_plugin_command()`, subscribe to EventBus, register middleware — all during their `__call__`.
+**Why step 3.5 exists.** Plugins load before the resolution chain so they can
+register config *format providers* (ADR-007), which means the loader cannot ask
+the chain where its directories are — it has no chain. It used to try anyway,
+behind a `hasattr` guard that was always False, and fall back to an exact match
+on `Path.cwd()`. Resolution is a decision about the project, so it belongs to
+the composition root; step 3.5 is where it is made.
+
+Plugins may call `app.di.provide()`, `app.extensions.register_plugin_command()`, subscribe to EventBus, register middleware — all during their `__call__`.
 
 ## DI Registry Lifecycle
 
 ```
 UNFROZEN (during boot)                    FROZEN (after APP_READY)
 ─────────────────────────                 ────────────────────────
-app.provide(Type, inst)     ← allowed     RegistryFrozenError
-app.provide_factory(...)    ← allowed     RegistryFrozenError
-app.provide_named(...)      ← allowed     RegistryFrozenError
+app.di.provide(Type, inst)  ← allowed     RegistryFrozenError
+app.di.provide_factory(...) ← allowed     RegistryFrozenError
+app.di.provide_named(...)   ← allowed     RegistryFrozenError
 
 resolve(Type)               ← works       resolve(Type) ← still works
 ```

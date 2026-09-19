@@ -135,12 +135,12 @@ class TestPrecedence:
         discovered = RecordingPlugin(name="collide")
         explicit = RecordingPlugin(name="collide")
 
-        import functualize._plugins.loader as loader_mod
+        import functualize._plugins.file_source as file_source_mod
 
         monkeypatch.setattr(
-            loader_mod.PluginLoader,
-            "_discover_from_files",
-            lambda self, app: [discovered],
+            file_source_mod.FilePluginSource,
+            "discover",
+            lambda self, directories: [discovered],
         )
 
         _app(tmp_path, PluginSources(explicit_plugins=[explicit]))

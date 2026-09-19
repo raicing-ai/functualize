@@ -22,7 +22,6 @@ import sys
 # Paths whose modification requires a task list. Shipped code only: tests,
 # per-plugin tests, conftest, packaging metadata and docs are deliberately free.
 GATED_DIR = "src/functualize"
-GATED_GLOB_PARTS = ("plugins", "src")  # plugins/<pkg>/src/**
 
 REASON_NO_FEATURES = (
     "This repository requires an atomized task list before shipped code is "
@@ -82,9 +81,27 @@ def is_gated(file_path, cwd):
     plugins_root = os.path.realpath(os.path.join(root, "plugins"))
     if not contained(plugins_root):
         return False
-    rel = os.path.relpath(target, plugins_root).split(os.sep)
-    # plugins/<pkg>/src/... -> gated. plugins/<pkg>/tests/..., conftest -> free.
-    return len(rel) >= 3 and rel[1] == "src"
+    parts = os.path.relpath(target, plugins_root).split(os.sep)
+    # A plugin package root holds `src/`, and the workspace groups packages one
+    # level deeper than it used to:
+    #
+    #   plugins/<pkg>/src/**          -> gated   (the old layout)
+    #   plugins/<group>/<pkg>/src/**  -> gated   (the grouped layout)
+    #   plugins/<...>/tests/**        -> free
+    #   plugins/conftest.py           -> free
+    #
+    # Asking whether any directory component *is* `src` keeps both, and keeps
+    # whatever comes next. `parts[1:-1]` excludes the filename, so a file named
+    # `src` is not a package, and excludes the first component, so a stray
+    # `plugins/src/x.py` is not either -- neither is a package layout.
+    #
+    # Deliberately indexes nothing. `rel[1] == "src"` was correct for exactly
+    # one tree shape and failed **open** on every other, which is the dangerous
+    # direction: this hook denies on demand and is silent on a pass, so a
+    # predicate that stops matching stops guarding with no error, no failing
+    # test and no log line. A directory named `src` under a plugin's tests is
+    # now gated too; erring toward gated is the safe error here.
+    return "src" in parts[1:-1]
 
 
 def has_wave_graph(text):

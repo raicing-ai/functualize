@@ -39,7 +39,7 @@ sabotaging uncommitted work discards it.
 
 `.spec/STATE.md` is updated after each task, and records wave transitions.
 
-Modifying `src/functualize/**` or `plugins/*/src/**` requires an atomized task
+Modifying `src/functualize/**` or `plugins/**/src/**` requires an atomized task
 list on disk. Writes to `.spec/`, `tests/`, `docs/`, and `contributor/` are not
 gated, so the Specify and Plan phases operate normally.
 """

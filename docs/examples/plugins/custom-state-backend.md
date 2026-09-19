@@ -6,7 +6,7 @@ store follows, because there is one place that decides and one object handed to
 all of them.
 
 This example's implementation is a dict. The shape is what transfers: it is the
-same shape `functualize-state-sqlite` fills with a database.
+same shape `functualize-substrate-sqlite` fills with a database.
 
 ## Source
 
@@ -49,16 +49,16 @@ and reports refusal rather than assuming a lock was held.
 ## Plugin Boot Class
 
 ```python
+from functualize.plugin import PluginHost
+
 class MyPlugin:
     name = "state-my-substrate"
 
-    def __call__(self, app):
-        from functualize._events.hooks import HookEvent
-
-        app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
+    def __call__(self, app: PluginHost) -> None:
+        app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app):
-        app.substrate = MySubstrate()
+        app.install_substrate(MySubstrate())
 ```
 
 `APP_READY` and not later: the engine resolves its substrate lazily, on the

@@ -468,13 +468,12 @@ class TestBootDomainRegistry:
 
         mock_eps.side_effect = side_effect
 
-        # Mock app with resolution chain returning "pydantic" for [ai] provider
-        app = MagicMock()
-        resolved = MagicMock()
-        resolved.value = "pydantic"
-        app._resolution_chain.resolve.return_value = resolved
-
-        registry = boot_domain_registry(app)
+        # The project's merged config, as boot step 3.5 resolves it. This used
+        # to build `app._resolution_chain` — a state boot never produces at step
+        # 4b, which is why `[ai] provider` had never once been read.
+        registry = boot_domain_registry(
+            MagicMock(), config={"ai": {"provider": "pydantic"}}
+        )
 
         info = registry.get("ai")
         assert info is not None
@@ -503,3 +502,47 @@ class TestBootDomainRegistry:
         assert info is not None
         assert info.available_providers == {}
         assert info.active_provider_name is None
+
+
+class TestTheConfiguredProviderReachesBoot:
+    """AC-7 — `[<domain>] provider` is read by a real boot, not just a unit call.
+
+    The unit test above proves `_read_configured_provider` extracts the key.
+    This proves boot *hands it the config*, which is the half that was missing:
+    the function was correct all along and simply never received anything,
+    because its `hasattr(app, "_resolution_chain")` guard ran at step 4b and the
+    chain is built at step 6.
+
+    Written as a probe on the real boot rather than a mock, because a mock is
+    what hid this for two releases.
+    """
+
+    def test_a_declared_domain_provider_is_read_during_boot(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Boot in a project declaring `[ai] provider` and observe it arrive."""
+        (tmp_path / ".functualize.toml").write_text('[ai]\nprovider = "pydantic"\n')
+        monkeypatch.chdir(tmp_path)
+
+        import functualize._plugins.domain_registry as domain_registry
+        from functualize import FunctualizeApp
+
+        seen: list[tuple[str, str | None]] = []
+        real = domain_registry._read_configured_provider
+
+        def _spy(config, metadata):
+            result = real(config, metadata)
+            seen.append((metadata.name, result))
+            return result
+
+        monkeypatch.setattr(domain_registry, "_read_configured_provider", _spy)
+        FunctualizeApp(name="probe")
+
+        assert seen, "no domain was consulted; the probe never ran"
+        by_domain = dict(seen)
+        assert by_domain.get("ai") == "pydantic", (
+            f"boot did not deliver the [ai] section: {seen}"
+        )
+        # A domain with no section of its own still reads None — the config is
+        # scoped, not applied to everything that asks.
+        assert all(v is None for k, v in seen if k != "ai"), seen

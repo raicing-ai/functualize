@@ -6,7 +6,7 @@ boot. Every store follows, because there is one place that decides and one
 object handed to all of them.
 
 The implementation here is a dict, so it is gone when the process is. The
-**shape** is what transfers: it is the same shape `functualize-state-sqlite`
+**shape** is what transfers: it is the same shape `functualize-substrate-sqlite`
 fills with a database.
 
 ## What This Demonstrates
@@ -50,7 +50,7 @@ custom_state_backend/
 ## Entry Point Registration
 
 ```toml
-[project.entry-points."functualize.state_providers"]
+[project.entry-points."functualize.plugins"]
 memory = "functualize_state_memory:MemoryStatePlugin"
 ```
 
@@ -59,12 +59,10 @@ memory = "functualize_state_memory:MemoryStatePlugin"
 ```python
 class MemoryStatePlugin:
     def __call__(self, app):
-        from functualize._events.hooks import HookEvent
-
-        app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
+        app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app):
-        app.substrate = MemorySubstrate()
+        app.install_substrate(MemorySubstrate())
 ```
 
 `APP_READY` and not later: the engine resolves its substrate lazily, on the

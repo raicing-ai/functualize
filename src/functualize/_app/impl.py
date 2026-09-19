@@ -29,8 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize._primitives import compute_project_id
-from functualize._primitives.cache_format import find_functualize_dir
-from functualize._primitives.locator import ResourceLocator
+from functualize._primitives.locator import ResourceLocator, find_functualize_dir
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
         ConfigFileInfo,
         JobDescriptor,
     )
+    from functualize._types.host import OnReadyHandler
     from functualize.app.config import ConfigSources, JobSources, PluginSources
 
 logger = logging.getLogger(__name__)
@@ -514,8 +514,17 @@ def make_on_invoke_end_decorator(app: Any) -> Callable[..., Any]:
     )
 
 
-def make_on_ready_decorator(app: Any) -> Callable[..., Any]:
-    """Create APP_READY hook decorator (global only)."""
+def make_on_ready_decorator(app: Any) -> Callable[[OnReadyHandler], OnReadyHandler]:
+    """Create APP_READY hook decorator (global only).
+
+    Typed alongside the `HooksFacade.on_ready` property it backs, so the
+    property's narrower declaration is checked rather than asserted: returning
+    `Callable[..., Any]` here would satisfy any annotation up there, `Any`
+    being compatible in both directions.
+
+    The `callable(fn)` guard below is now also a static error, so the
+    TypeError it raises is the second line of defence rather than the first.
+    """
     from functualize._app.decorators import _make_global_only_decorator
     from functualize._events.hooks import HookEvent
 
@@ -1044,7 +1053,7 @@ def explain_verdicts(app: Any, job_name: str) -> tuple[Any, list[Any], str, str 
             "  no @job declaration — nothing guards or caches this job",
         )
 
-    store = FreshStore(app.execution_engine.substrate)
+    store = FreshStore(app.substrate)
     preflight = Preflight(store, root=app.fresh_root)
 
     def config_for(name: str) -> Any:

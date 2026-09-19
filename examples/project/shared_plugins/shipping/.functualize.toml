@@ -1,0 +1,6 @@
+# Declares no plugin directories at all — the contrast with `billing/`.
+#
+# It still gets `audit-log`, because the shared root's `.functualize/plugins/`
+# is found by walking up. It does not get `timing`, because nothing here names
+# `../team_plugins`.
+jobs_directories = ["jobs"]

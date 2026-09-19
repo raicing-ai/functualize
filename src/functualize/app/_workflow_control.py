@@ -121,7 +121,7 @@ class GateToolPolicy:
         if self._store is None:
             from functualize._primitives.scope_store import ScopeStore
 
-            self._store = ScopeStore(self._app.execution_engine.substrate)
+            self._store = ScopeStore(self._app.substrate)
         return self._store
 
     def permitted(self, tool_name: str) -> bool:

@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
-from functualize._plugins.loader import (
-    PluginLoader,
+from functualize._plugins.loader import PluginLoader
+from functualize._plugins.metadata import (
     _validate_metadata,
     _validate_pep440,
 )

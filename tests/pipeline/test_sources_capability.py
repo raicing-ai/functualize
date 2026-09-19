@@ -25,10 +25,19 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 _MAIN = """
-from functualize.app import FunctualizeApp, JobSources
+from functualize.app import FunctualizeApp, JobSources, PluginSources
 from functualize.app.adapters import CliAdapter
 
-app = FunctualizeApp("s", job_sources=JobSources(directories=["jobs"]))
+# `disabled` pins the filesystem substrate: this test reads
+# `.functualize/fresh.json` directly, and `plugin-taxonomy`/T5 made
+# `functualize-substrate-sqlite` load for real -- with it installed the fingerprints
+# are rows in a database and the file is absent. A subprocess, so no in-process
+# fixture can do it.
+app = FunctualizeApp(
+    "s",
+    job_sources=JobSources(directories=["jobs"]),
+    plugin_sources=PluginSources(disabled=["substrate-sqlite"]),
+)
 adapter = CliAdapter()
 
 if __name__ == "__main__":

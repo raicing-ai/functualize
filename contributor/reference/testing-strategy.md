@@ -126,9 +126,9 @@ Each property test validates specific requirements (traced via `**Validates: Req
 Plugin-specific tests live in each plugin's own `tests/` directory:
 
 ```
-plugins/functualize-inline/tests/
-plugins/functualize-state-sqlite/tests/
-plugins/functualize-flow-viz/tests/
+plugins/adapters/functualize-inline/tests/
+plugins/substrates/functualize-substrate-sqlite/tests/
+plugins/adapters/functualize-flow-viz/tests/
 tests/ui/  # functualize.ui (TextualApp, fullscreen)
 ```
 
@@ -161,3 +161,41 @@ Run them directly with `pytest plugins/<name>/tests/`; they are not collected by
 5. **For a bug fix**: Write a regression test that fails without the fix, place in the relevant domain directory
 
 Always ensure `lint-imports` passes — a test importing the wrong layer is itself a violation.
+
+## A test that spawns a `func` subprocess must give it its own HOME
+
+`tests/conftest.py::_isolate_home` is autouse and points `HOME` at a **fixed**
+path — `/tmp/functualize_test_fakehome_nonexistent` — so no test reads the
+developer's real configuration. It is one path, shared by every checkout on the
+machine, and a subprocess **inherits it** through `os.environ`.
+
+Meanwhile `func` registers itself in `<config>/functualize/install.json` on
+every run, and that registry is **append-only by design**: `self doctor` reports
+a record whose binary no longer exists as a WARNING and never prunes it. The
+file is not under `tmp_path`, so nothing cleans it between runs — or between
+worktrees.
+
+Put together: a child launched as `python -c "…main()"` has `argv[0] == "-c"`,
+which `main.py` resolves to `<venv>/bin/-c`. That path cannot exist, so
+`tests/_cli/test_self_doctor.py::test_a_recognised_installation_reports_ok`
+fails — **for every future run, in every checkout, permanently**. Measured: it
+did, and the record had to be deleted by hand.
+
+So set all four:
+
+```python
+env = dict(os.environ)
+home = tmp_path / "_home"
+home.mkdir()
+env["HOME"] = str(home)
+env["XDG_CONFIG_HOME"] = str(home / ".config")
+env["XDG_DATA_HOME"] = str(home / ".local" / "share")
+env["XDG_CACHE_HOME"] = str(home / ".cache")
+subprocess.run([...], env=env, ...)
+```
+
+`HOME` alone is not enough to reason about — `_isolate_home` *strips* every
+`XDG_*` variable, so the child falls back to `$HOME/.config`; setting them
+explicitly means the isolation does not depend on that fallback staying true.
+
+Worked example: `tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py`.

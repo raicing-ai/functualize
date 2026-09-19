@@ -104,13 +104,33 @@ def _module_path(path: Path) -> str:
 
 
 def _discovered_tables() -> set[tuple[str, str]]:
-    """Every `(module, attribute)` in `src/` that declares a provider table."""
+    """Every `(module, attribute)` in `src/` that declares a provider table.
+
+    The regex finds *candidates*; the value decides. A provider table maps a
+    name to the package that supplies it, so anything that is not a mapping is
+    not one — and the name alone cannot tell you, because a constant holding an
+    entry-point *group* reads exactly the same:
+
+        FORMAT_PROVIDERS: Final = "functualize.format_providers"   # a string
+        FORMAT_PROVIDERS: dict[str, str] = {...}                   # a table
+
+    `plugin-taxonomy`/T5 added `_primitives/entry_point_groups.py`, which
+    declares the first shape, and this scan reported both of its constants as
+    unlisted tables. Importing and asking is cheaper than trying to tell them
+    apart from the source text, and it cannot be fooled by a future spelling.
+    """
+    from collections.abc import Mapping
+
     found: set[tuple[str, str]] = set()
     for path in sorted((_SRC / "functualize").rglob("*.py")):
-        found.update(
-            (_module_path(path), name)
-            for name in _TABLE_DEFINITION.findall(path.read_text(encoding="utf-8"))
-        )
+        module_path = _module_path(path)
+        for name in _TABLE_DEFINITION.findall(path.read_text(encoding="utf-8")):
+            try:
+                value = getattr(importlib.import_module(module_path), name)
+            except Exception:  # pragma: no cover - an unimportable module
+                continue
+            if isinstance(value, Mapping):
+                found.add((module_path, name))
     return found
 
 

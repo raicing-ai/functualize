@@ -53,8 +53,25 @@ class TestTheReportIsProducedAtAll:
 
         Pinning `argv[0]` to a real console script keeps the actual resolver in
         the loop rather than stubbing detection out.
+
+        *Registry*: the third axis, and the one that made this test a time bomb.
+        `_check_registry` reads `<config>/functualize/install.json`, which
+        `_isolate_home` leaves under a **fixed** path shared by every checkout on
+        the machine. `func` appends itself there on every run and the file is
+        **append-only by design** -- doctor reports a record whose binary is gone
+        as a WARNING and never prunes it. So deleting any worktree you had ever
+        run tests in turned this assertion red **for every checkout, forever**,
+        with the only remedy being to hand-edit a file in `/tmp` that no
+        documentation mentions. Measured: a sibling worktree was removed and this
+        test failed from then on.
+
+        Pointing `XDG_CONFIG_HOME` at `tmp_path` gives each run an empty registry,
+        which doctor reports as `installations: none registered yet` (INFO). The
+        check still runs -- it is not stubbed -- it simply observes a registry
+        this test owns.
         """
         monkeypatch.setenv("FUNCTUALIZE_RUNTIME", "tool_uv")
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
         monkeypatch.setattr(sys, "argv", ["func"])
         report = build_report(cwd=tmp_path)
         assert report.worst is CheckStatus.OK, "unexpected non-OK checks: " + "; ".join(
@@ -110,10 +127,12 @@ class TestItReportsWhatItCannotAssume:
         (plugins / "bad_plugin.py").write_text('raise RuntimeError("boom-from-plugin")')
 
         # Only top-level check names. `_check_installations` appends one
-        # indented child per registered binary, named by its *path* — so on a
+        # indented child per registered binary, named by its *path* -- so on a
         # machine whose checkout happens to sit under a directory containing
         # "plugin", a substring scan over every name fails here for a reason
-        # that has nothing to do with doctor growing a plugin check.
+        # that has nothing to do with doctor growing a plugin check. Both
+        # branches hit this independently; it was reproduced from a worktree
+        # named `feat-plugin-host-protocol`.
         names = [n for n in _names(build_report(cwd=tmp_path)) if not n.startswith(" ")]
         assert not any("plugin" in n for n in names), (
             f"doctor grew a plugin check ({names}) while the loader still keeps "

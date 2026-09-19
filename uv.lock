@@ -21,7 +21,7 @@ members = [
     "functualize-inline",
     "functualize-lambda",
     "functualize-mcp",
-    "functualize-state-sqlite",
+    "functualize-substrate-sqlite",
     "functualize-tasks",
     "functualize-tasks-local",
 ]
@@ -1240,7 +1240,7 @@ all = [
     { name = "functualize-inline" },
     { name = "functualize-lambda" },
     { name = "functualize-mcp" },
-    { name = "functualize-state-sqlite" },
+    { name = "functualize-substrate-sqlite" },
     { name = "functualize-tasks" },
     { name = "functualize-tasks-local" },
     { name = "keyring" },
@@ -1288,17 +1288,17 @@ requires-dist = [
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "functualize", extras = ["cli"], marker = "extra == 'all'" },
     { name = "functualize", extras = ["keychain"], marker = "extra == 'all'" },
-    { name = "functualize-ai", marker = "extra == 'all'", editable = "plugins/functualize-ai" },
-    { name = "functualize-ai-pydantic", marker = "extra == 'all'", editable = "plugins/functualize-ai-pydantic" },
-    { name = "functualize-aws", marker = "extra == 'all'", editable = "plugins/functualize-aws" },
-    { name = "functualize-flow-viz", marker = "extra == 'all'", editable = "plugins/functualize-flow-viz" },
-    { name = "functualize-http", marker = "extra == 'all'", editable = "plugins/functualize-http" },
-    { name = "functualize-inline", marker = "extra == 'all'", editable = "plugins/functualize-inline" },
-    { name = "functualize-lambda", marker = "extra == 'all'", editable = "plugins/functualize-lambda" },
-    { name = "functualize-mcp", marker = "extra == 'all'", editable = "plugins/functualize-mcp" },
-    { name = "functualize-state-sqlite", marker = "extra == 'all'", editable = "plugins/functualize-state-sqlite" },
-    { name = "functualize-tasks", marker = "extra == 'all'", editable = "plugins/functualize-tasks" },
-    { name = "functualize-tasks-local", marker = "extra == 'all'", editable = "plugins/functualize-tasks-local" },
+    { name = "functualize-ai", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai" },
+    { name = "functualize-ai-pydantic", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai-pydantic" },
+    { name = "functualize-aws", marker = "extra == 'all'", editable = "plugins/credentials/functualize-aws" },
+    { name = "functualize-flow-viz", marker = "extra == 'all'", editable = "plugins/adapters/functualize-flow-viz" },
+    { name = "functualize-http", marker = "extra == 'all'", editable = "plugins/adapters/functualize-http" },
+    { name = "functualize-inline", marker = "extra == 'all'", editable = "plugins/adapters/functualize-inline" },
+    { name = "functualize-lambda", marker = "extra == 'all'", editable = "plugins/adapters/functualize-lambda" },
+    { name = "functualize-mcp", marker = "extra == 'all'", editable = "plugins/adapters/functualize-mcp" },
+    { name = "functualize-substrate-sqlite", marker = "extra == 'all'", editable = "plugins/substrates/functualize-substrate-sqlite" },
+    { name = "functualize-tasks", marker = "extra == 'all'", editable = "plugins/domains/functualize-tasks" },
+    { name = "functualize-tasks-local", marker = "extra == 'all'", editable = "plugins/domains/functualize-tasks-local" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "keyring", marker = "extra == 'keychain'", specifier = ">=24.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
@@ -1313,7 +1313,7 @@ provides-extras = ["keychain", "cli", "all"]
 [package.metadata.requires-dev]
 dev = [
     { name = "debugpy", specifier = ">=1.8.21" },
-    { name = "functualize-bitwarden", editable = "plugins/functualize-bitwarden" },
+    { name = "functualize-bitwarden", editable = "plugins/credentials/functualize-bitwarden" },
     { name = "hypothesis", specifier = ">=6.82.0" },
     { name = "import-linter", specifier = ">=2.0" },
     { name = "invoke", specifier = ">=2.2.0" },
@@ -1337,7 +1337,7 @@ docs = [
 [[package]]
 name = "functualize-ai"
 version = "0.3.0"
-source = { editable = "plugins/functualize-ai" }
+source = { editable = "plugins/domains/functualize-ai" }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -1359,7 +1359,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-ai-pydantic"
 version = "0.3.0"
-source = { editable = "plugins/functualize-ai-pydantic" }
+source = { editable = "plugins/domains/functualize-ai-pydantic" }
 dependencies = [
     { name = "functualize-ai" },
     { name = "litellm" },
@@ -1374,7 +1374,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "functualize-ai", editable = "plugins/functualize-ai" },
+    { name = "functualize-ai", editable = "plugins/domains/functualize-ai" },
     { name = "litellm", specifier = ">=1.0.0" },
     { name = "pydantic-ai", specifier = ">=0.1.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
@@ -1385,7 +1385,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-aws"
 version = "0.3.0"
-source = { editable = "plugins/functualize-aws" }
+source = { editable = "plugins/credentials/functualize-aws" }
 dependencies = [
     { name = "boto3" },
     { name = "functualize" },
@@ -1409,7 +1409,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-bitwarden"
 version = "0.3.0"
-source = { editable = "plugins/functualize-bitwarden" }
+source = { editable = "plugins/credentials/functualize-bitwarden" }
 dependencies = [
     { name = "bitwarden-sdk" },
     { name = "functualize" },
@@ -1433,7 +1433,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-flow-viz"
 version = "0.3.0"
-source = { editable = "plugins/functualize-flow-viz" }
+source = { editable = "plugins/adapters/functualize-flow-viz" }
 dependencies = [
     { name = "functualize" },
     { name = "textual" },
@@ -1457,7 +1457,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-http"
 version = "0.3.0"
-source = { editable = "plugins/functualize-http" }
+source = { editable = "plugins/adapters/functualize-http" }
 dependencies = [
     { name = "functualize" },
 ]
@@ -1479,7 +1479,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-inline"
 version = "0.3.0"
-source = { editable = "plugins/functualize-inline" }
+source = { editable = "plugins/adapters/functualize-inline" }
 dependencies = [
     { name = "functualize" },
     { name = "textual" },
@@ -1503,7 +1503,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-lambda"
 version = "0.3.0"
-source = { editable = "plugins/functualize-lambda" }
+source = { editable = "plugins/adapters/functualize-lambda" }
 dependencies = [
     { name = "functualize" },
 ]
@@ -1525,7 +1525,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-mcp"
 version = "0.3.0"
-source = { editable = "plugins/functualize-mcp" }
+source = { editable = "plugins/adapters/functualize-mcp" }
 dependencies = [
     { name = "fastmcp" },
     { name = "functualize" },
@@ -1549,9 +1549,9 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "functualize-state-sqlite"
+name = "functualize-substrate-sqlite"
 version = "0.3.0"
-source = { editable = "plugins/functualize-state-sqlite" }
+source = { editable = "plugins/substrates/functualize-substrate-sqlite" }
 dependencies = [
     { name = "functualize" },
 ]
@@ -1575,7 +1575,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-tasks"
 version = "0.3.0"
-source = { editable = "plugins/functualize-tasks" }
+source = { editable = "plugins/domains/functualize-tasks" }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -1597,7 +1597,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "functualize-tasks-local"
 version = "0.3.0"
-source = { editable = "plugins/functualize-tasks-local" }
+source = { editable = "plugins/domains/functualize-tasks-local" }
 dependencies = [
     { name = "functualize-tasks" },
 ]
@@ -1610,7 +1610,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "functualize-tasks", editable = "plugins/functualize-tasks" },
+    { name = "functualize-tasks", editable = "plugins/domains/functualize-tasks" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
 ]

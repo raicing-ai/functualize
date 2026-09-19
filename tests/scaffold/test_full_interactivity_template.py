@@ -202,7 +202,7 @@ class TestFullInteractivityPluginDependencies:
         assert any("functualize-flow-viz" in d for d in deps)
 
     def test_has_execution_state_plugin_dependency(self, full_project):
-        """pyproject.toml lists functualize-state-sqlite as a dependency."""
+        """pyproject.toml lists functualize-substrate-sqlite as a dependency."""
         try:
             import tomllib
         except ImportError:
@@ -211,7 +211,7 @@ class TestFullInteractivityPluginDependencies:
         content = (full_project / "pyproject.toml").read_text()
         data = tomllib.loads(content)
         deps = data["project"]["dependencies"]
-        assert any("functualize-state-sqlite" in d for d in deps)
+        assert any("functualize-substrate-sqlite" in d for d in deps)
 
     def test_has_plugin_entry_points(self, full_project):
         """pyproject.toml has functualize.plugins entry-point group (R5-AC4)."""

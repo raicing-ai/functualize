@@ -405,6 +405,12 @@ class TestShowInfoDotenv:
         # on the render width -- which differs under xdist, splitting even the
         # short ".env" suffix. `_packed` removes the wrapping so this asserts on
         # behaviour rather than on layout.
+        #
+        # Measured at width 80, what a captured run gets: the 78-character path
+        # does not fit the 76-column interior, so the line breaks after
+        # "shows_path0/." and "env" lands on the next one. Only `-n auto`
+        # reaches that length, because the worker directory ("popen-gw0") is
+        # part of the path.
         packed = _packed(result.output)
         assert "DotenvFile" in packed
         assert ".env" in packed

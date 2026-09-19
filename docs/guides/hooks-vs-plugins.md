@@ -42,6 +42,13 @@ class MetricsPlugin:
             rc.log(f"[metrics] Job completed in {duration:.3f}s")
 ```
 
+!!! note "Why `app` is untyped here"
+    `hook_registry` is not a `PluginHost` member — only `APP_READY` has a
+    port door, `app.hooks.on_ready`. Every other event still goes through
+    `app.hook_registry`, which is public on `FunctualizeApp` but off the
+    narrow plugin port, so annotate such a plugin `app: FunctualizeApp`
+    rather than `Any`.
+
 But plugins can also do things hooks cannot:
 
 - Add CLI commands (via `app.cli_command`)
@@ -162,6 +169,7 @@ Is this behavior reusable across projects?
 | Scenario | Approach |
 |----------|----------|
 | Quick logging/metrics in your own app | Hook directly |
+| Plugin-shaped behaviour, one project, no packaging | [File-based plugin](plugins.md#file-based-plugins-no-packaging) in `.functualize/plugins/` |
 | Job-specific error handling | `register_for_job` hook |
 | Behavior shared with one colleague | Plugin (editable install) |
 | Behavior shared across your org | Plugin (Git install or private index) |

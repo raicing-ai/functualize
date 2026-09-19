@@ -214,13 +214,13 @@ Two things to do about it:
 1. **Depend on a substrate plugin** and let it be installed alongside you:
 
    ```toml
-   dependencies = ["functualize", "functualize-state-sqlite"]
+   dependencies = ["functualize", "functualize-substrate-sqlite"]
    ```
 
    Then point it somewhere shared, in your own config defaults:
 
    ```toml
-   [plugin.sqlite-state]
+   [plugin.substrate-sqlite]
    db_path = "/var/lib/yourapp/state.db"
    ```
 

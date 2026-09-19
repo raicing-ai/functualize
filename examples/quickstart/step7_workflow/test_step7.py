@@ -53,8 +53,21 @@ def app() -> FunctualizeApp:
     return instance
 
 
-def _store() -> ScopeStore:
-    return ScopeStore.for_project(Path.cwd())
+def _store(app: FunctualizeApp) -> ScopeStore:
+    """The scope records **the app actually wrote**, not the ones on disk.
+
+    `ScopeStore.for_project(Path.cwd())` resolves the filesystem default and
+    ignores whatever storage the app is using. That was invisible until
+    `plugin-taxonomy` made `functualize-substrate-sqlite` load for real: with it
+    installed the workflow's scopes are rows in a database, this helper read an
+    empty `scopes.json`, and the assertions below found nothing.
+
+    The same defect, in the same shape, was fixed in `func builtin data show`,
+    `data clear`, `run list`, `run show` and `history` — and had been fixed once
+    before in `builtin workflow` (`store-substrate`/T7). Asking the app is the
+    only spelling that cannot drift from it.
+    """
+    return ScopeStore(app.substrate)
 
 
 # --- Declaration -----------------------------------------------------------
@@ -123,7 +136,7 @@ def test_the_gate_publishes_the_schema_a_caller_must_satisfy(app):
         )
     )
 
-    gate = _store().get_gate("trip-1", "preferences")
+    gate = _store(app).get_gate("trip-1", "preferences")
     assert gate is not None
     assert gate["model"] == "TripPreferences"
     assert set(gate["input_schema"]["required"]) == {"budget", "interests"}
@@ -137,7 +150,7 @@ def test_answering_the_gate_lets_the_workflow_finish(app):
             workflow_scope_id="trip-1",
         )
     )
-    _store().deposit_gate_payload(
+    _store(app).deposit_gate_payload(
         "trip-1",
         "preferences",
         {"budget": "mid-range", "interests": ["food", "temples"]},
@@ -165,7 +178,7 @@ def test_resuming_does_not_rerun_completed_steps(app):
             workflow_scope_id="trip-1",
         )
     )
-    _store().deposit_gate_payload(
+    _store(app).deposit_gate_payload(
         "trip-1", "preferences", {"budget": "budget", "interests": ["hiking"]}
     )
     app.execute(
@@ -176,7 +189,7 @@ def test_resuming_does_not_rerun_completed_steps(app):
         )
     )
 
-    scope = _store().get_scope("trip-1")
+    scope = _store(app).get_scope("trip-1")
     assert scope["status"] == "completed"
     assert scope["steps"]["forecast::"]["status"] == "success"
 
@@ -200,4 +213,4 @@ def test_a_fresh_scope_starts_over(app):
 
     assert first.status is RunStatus.BLOCKED
     assert second.status is RunStatus.BLOCKED
-    assert set(_store().scope_ids()) == {"trip-1", "trip-2"}
+    assert set(_store(app).scope_ids()) == {"trip-1", "trip-2"}

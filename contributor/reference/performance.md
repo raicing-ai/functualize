@@ -113,7 +113,7 @@ class MCPPlugin:
     def __call__(self, app: Any) -> None:
         """Register capabilities — still no heavy imports."""
         self._app = app
-        app.register_plugin_command("mcp", self._start_server, "Start MCP server")
+        app.extensions.register_plugin_command("mcp", self._start_server, "Start MCP server")
 
     def _start_server(self, port: int = 6789) -> None:
         """Heavy imports happen here — only when actually needed."""
@@ -130,7 +130,7 @@ class MCPPlugin:
 |---|---|---|
 | `typing`, `dataclasses`, `enum` | Lightweight app registration | Heavy SDK imports |
 | `functualize.plugin` protocols | `app.event_bus.subscribe(...)` | Network clients |
-| Metadata constants | `app.register_plugin_command(...)` | Database connections |
+| Metadata constants | `app.extensions.register_plugin_command(...)` | Database connections |
 | Lightweight stdlib | DI bindings (lazy factories) | Pydantic model validation |
 
 ### Pattern: Lazy DI Factory

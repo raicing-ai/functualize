@@ -37,7 +37,7 @@ mutations for one node takes the lock once with ``ScopeStore.batch``.
 **Relationship to ``functualize-state``.** Every section in both files is a flat
 ``{str: record}`` mapping, which is exactly the shape the plugin's
 ``StateBackend`` KV protocol addresses (``get``/``set``/``delete``/``keys``).
-That correspondence is deliberate so ``functualize-state-sqlite`` can back these
+That correspondence is deliberate so ``functualize-substrate-sqlite`` can back these
 stores later without a record-format change. The backend indirection itself is
 not built here — there is no second backend to serve yet, and a swap seam with
 one implementation is speculation, not design.

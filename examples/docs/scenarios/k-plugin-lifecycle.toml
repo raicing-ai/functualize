@@ -33,9 +33,9 @@ uv tool install '/src[cli]' >/dev/null 2>&1
 func builtin self doctor | grep -E 'install-mode|owning-distribution'
 
 echo '--- plugin A ---'
-func builtin plugin install /src/plugins/functualize-http --yes
+func builtin plugin install /src/plugins/adapters/functualize-http --yes
 echo '--- plugin B ---'
-func builtin plugin install /src/plugins/functualize-mcp --yes
+func builtin plugin install /src/plugins/adapters/functualize-mcp --yes
 
 echo '--- both present? ---'
 func builtin plugin list | grep -E 'functualize-http|functualize-mcp'
@@ -64,8 +64,8 @@ set -e
 pip install uv >/dev/null 2>&1
 export PATH="$HOME/.local/bin:$PATH"
 uv tool install '/src[cli]' >/dev/null 2>&1
-func builtin plugin install /src/plugins/functualize-http --yes >/dev/null
-func builtin plugin install /src/plugins/functualize-mcp --yes >/dev/null
+func builtin plugin install /src/plugins/adapters/functualize-http --yes >/dev/null
+func builtin plugin install /src/plugins/adapters/functualize-mcp --yes >/dev/null
 cat "$(uv tool dir)/functualize/uv-receipt.toml"
 """
 expected = { stdout_contains = "functualize-http", exit_code = 0 }
@@ -82,7 +82,7 @@ set -e
 pip install uv >/dev/null 2>&1
 export PATH="$HOME/.local/bin:$PATH"
 uv tool install '/src[cli]' >/dev/null 2>&1
-func builtin plugin install /src/plugins/functualize-http --yes >/dev/null
+func builtin plugin install /src/plugins/adapters/functualize-http --yes >/dev/null
 func builtin plugin uninstall functualize-http --yes >/dev/null
 python - <<'PY'
 import json, os, pathlib

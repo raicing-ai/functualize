@@ -6,8 +6,23 @@ Official plugins live in the monorepo under `plugins/` and are published as sepa
 
 ### 1. Create the package structure
 
+Plugins are grouped by **what they serve**, one level under `plugins/`:
+
+| Group | Holds | Members today |
+|---|---|---|
+| `adapters/` | ways to reach jobs — commands, delivery surfaces, terminal I/O | http, lambda, mcp, flow-viz, inline |
+| `substrates/` | where a project's documents live | state-sqlite |
+| `credentials/` | where secrets are fetched from | aws, bitwarden |
+| `domains/` | a capability protocol, **and its implementations beside it** | ai + ai-pydantic, tasks + tasks-local |
+
+An implementation is a *sibling* of the domain it implements, not a child:
+`functualize-ai` and `functualize-ai-pydantic` sort adjacent, so the tree shows
+the relationship, and **every plugin stays at exactly two levels** — the one
+depth `members = ["plugins/*/*"]` and `.claude/hooks/spec_gate.py` are taught.
+A third level would be a special case in both.
+
 ```
-plugins/functualize-my-plugin/
+plugins/<group>/functualize-my-plugin/
 ├── pyproject.toml
 ├── src/
 │   └── functualize_my_plugin/
@@ -50,7 +65,7 @@ from functualize_my_plugin.plugin import MyPlugin
 __all__ = ["MyPlugin"]
 
 # src/functualize_my_plugin/plugin.py
-from typing import Any
+from functualize.plugin import PluginHost
 
 
 class MyPlugin:
@@ -66,12 +81,12 @@ class MyPlugin:
     # config_model = MyPluginConfig
     # config_section = "my_plugin"
 
-    def __call__(self, app: Any) -> None:
+    def __call__(self, app: PluginHost) -> None:
         """Called during boot. Register hooks, middleware, etc."""
         # Examples:
-        # app.provide(MyService, MyServiceImpl())
-        # app.register_plugin_command("my-cmd", self._handle, "Help text")
-        # app.event_bus.subscribe("job.execute.*", self._on_job)
+        # app.di.provide(MyService, MyServiceImpl())
+        # app.extensions.register_plugin_command("my-cmd", self._handle, "Help text")
+        # app.hooks.on_ready(self._on_app_ready)
         pass
 ```
 
@@ -81,7 +96,7 @@ In the root `pyproject.toml`:
 
 ```toml
 [tool.uv.workspace]
-members = ["plugins/*"]  # Already a glob — your plugin is auto-included
+members = ["plugins/*/*"]  # A glob — but two levels: see the layout below
 
 [tool.uv.sources]
 functualize-my-plugin = { workspace = true }
@@ -98,7 +113,7 @@ The workspace setup makes your plugin available in the dev environment immediate
 ### 6. Test it
 
 ```python
-# plugins/functualize-my-plugin/tests/test_my_plugin.py
+# plugins/<group>/functualize-my-plugin/tests/test_my_plugin.py
 from functualize.app import FunctualizeApp, JobSources, PluginSources
 from functualize_my_plugin import MyPlugin
 
@@ -114,6 +129,9 @@ def test_plugin_loads():
 
 ## Plugin Patterns
 
+Each pattern below assumes `from functualize.plugin import PluginHost`.
+*Observer Plugin* is the one exception, and says why.
+
 ### Capability Plugin (registers a CLI command)
 
 ```python
@@ -122,8 +140,8 @@ class HttpServerPlugin:
     version = "1.0.0"
     description = "HTTP server for job execution"
 
-    def __call__(self, app):
-        app.register_plugin_command("serve", self._start_server, "Start HTTP server")
+    def __call__(self, app: PluginHost) -> None:
+        app.extensions.register_plugin_command("serve", self._start_server, "Start HTTP server")
 
     def _start_server(self, port: int = 8000):
         # Start server using app reference
@@ -168,7 +186,7 @@ class LambdaAdapter:
     description = "AWS Lambda adapter"
     adapter_type = "lambda"
 
-    def __call__(self, app):
+    def __call__(self, app: PluginHost) -> None:
         self._app = app
 
     def run(self, event, context):
@@ -182,6 +200,18 @@ class LambdaAdapter:
 ```
 
 ### Observer Plugin (subscribes to events)
+
+**The one pattern that cannot take `PluginHost`.** `event_bus` is not a port
+member, so `app` here is the concrete `FunctualizeApp`. That is a measured
+exclusion, not an oversight: the port takes the members with two or more
+first-party plugin clients, and `rg 'app[.]event_bus' plugins/*/*/src` finds
+**zero** — every shipped subscriber is in `src/`. `event_bus` remains a public
+member of `FunctualizeApp`, so this example is correct as written; it is simply
+outside the narrow door. The same is true of `hook_registry` for every event but
+`APP_READY` (see `docs/guides/hooks.md`).
+
+If you write a plugin that needs either, annotate it
+`app: FunctualizeApp` and say so — do not reach for `Any`.
 
 ```python
 class SlackNotifier:
@@ -206,8 +236,8 @@ class InlinePromptPlugin:
     version = "1.0.0"
     description = "Inline Textual prompts"
 
-    def __call__(self, app):
-        app.register_surface(self)
+    def __call__(self, app: PluginHost) -> None:
+        app.extensions.register_surface(self)
 
     # Surface method — receives the StructuredEvent fan-out:
     def handle_event(self, event) -> None: ...
@@ -221,7 +251,7 @@ class InlinePromptPlugin:
 Every plugin ships runnable examples in `plugins/<name>/examples/`:
 
 ```
-plugins/functualize-my-plugin/
+plugins/<group>/functualize-my-plugin/
 ├── examples/
 │   ├── README.md              ← Table of scenarios + how to run them
 │   └── <scenario>/            ← One focused scenario (jobs + optional test)
@@ -237,7 +267,7 @@ Rules:
 - **Runnable without secrets where possible** — use the domain's testing double (`MockAI`, `InMemoryState`, `AutoPrompt`, `MockTasks`). If the plugin's whole point is a real external service (e.g. `functualize-ai-pydantic`), document the required env vars in the README and skip the automated test.
 - **Interactive plugins** (inline widgets, fullscreen TUI) get a README with manual verification steps instead of a pytest file.
 - Example tests are **not collected by root pytest** (same isolation rule as `plugins/<name>/tests/`) — run them explicitly: `uv run pytest plugins/<name>/examples/ -v`.
-- Larger examples that are full projects (own `pyproject.toml`) pin workspace deps with relative `[tool.uv.sources]` paths — see `plugins/functualize-http/examples/http_service/`.
+- Larger examples that are full projects (own `pyproject.toml`) pin workspace deps with relative `[tool.uv.sources]` paths — see `plugins/adapters/functualize-http/examples/http_service/`.
 
 ## Key Rules
 

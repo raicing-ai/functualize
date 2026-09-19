@@ -46,19 +46,23 @@ functualize/
 │   ├── _plugins/             ← Internal: plugin loader, domain registry
 │   ├── _primitives/          ← Internal: DI, lazy, locator, resilient
 │   └── _types/               ← Internal: shared type vocabulary
-├── plugins/                  ← Workspace plugins (uv workspace members)
-│   ├── functualize-state/
-│   ├── functualize-state-sqlite/
-│   ├── functualize-http/
-│   ├── functualize-lambda/
-│   ├── functualize-inline/
-│   ├── functualize-flow-viz/
-│   ├── functualize-fullscreen-tui/   ← source only, no pyproject.toml: not a workspace member
-│   ├── functualize-ai/
-│   ├── functualize-ai-pydantic/
-│   ├── functualize-tasks/
-│   ├── functualize-tasks-local/
-│   └── functualize-mcp/
+├── plugins/                  ← Workspace plugins, grouped by what they serve
+│   ├── adapters/             ← ways to reach jobs: commands, delivery, terminal I/O
+│   │   ├── functualize-http/
+│   │   ├── functualize-lambda/
+│   │   ├── functualize-mcp/
+│   │   ├── functualize-flow-viz/
+│   │   └── functualize-inline/
+│   ├── substrates/           ← where a project's documents live
+│   │   └── functualize-substrate-sqlite/
+│   ├── credentials/          ← where secrets are fetched from
+│   │   ├── functualize-aws/
+│   │   └── functualize-bitwarden/
+│   └── domains/              ← a capability protocol, and its implementations beside it
+│       ├── functualize-ai/
+│       ├── functualize-ai-pydantic/
+│       ├── functualize-tasks/
+│       └── functualize-tasks-local/
 ├── tests/                    ← Test suite
 ├── examples/                 ← Working examples (quickstart, standalone, project, plugins)
 ├── docs/                     ← MkDocs documentation source
@@ -178,13 +182,12 @@ uv venv /tmp/func-test && \
 uv pip install --no-cache --reinstall \
   "dist/functualize-0.1.0-py3-none-any.whl[cli]" --python /tmp/func-test/bin/python && \
 uv pip install \
-  plugins/functualize-ai \
-  plugins/functualize-state \
-  plugins/functualize-tasks \
-  plugins/functualize-mcp \
-  plugins/functualize-http \
-  plugins/functualize-lambda \
-  plugins/functualize-flow-viz \
+  plugins/domains/functualize-ai \
+  plugins/domains/functualize-tasks \
+  plugins/adapters/functualize-mcp \
+  plugins/adapters/functualize-http \
+  plugins/adapters/functualize-lambda \
+  plugins/adapters/functualize-flow-viz \
   --python /tmp/func-test/bin/python && \
 cd examples/quickstart/step1_basic && \
 time /tmp/func-test/bin/func --perf-report text forecast
@@ -361,12 +364,12 @@ in the commit footer instead.
 # 1. Bump the version in all SEVENTEEN places it is declared:
 #    - pyproject.toml               version = "X.Y.Z"
 #    - src/functualize/__init__.py  __version__ = "X.Y.Z"
-#    - plugins/*/pyproject.toml     version = "X.Y.Z"   (11 packages)
+#    - plugins/*/*/pyproject.toml     version = "X.Y.Z"   (11 packages)
 #    - skills/*/SKILL.md            metadata.version    (4 skills)
 #
 #    Then verify none was missed. This must print exactly one line, "17":
 { grep -h -e '^version = ' -e '^__version__ = ' \
-    pyproject.toml src/functualize/__init__.py plugins/*/pyproject.toml
+    pyproject.toml src/functualize/__init__.py plugins/*/*/pyproject.toml
   grep -h -m1 '^  version:' skills/*/SKILL.md; } \
   | grep -o '"[^"]*"' | sort | uniq -c
 
@@ -459,9 +462,16 @@ are *floors*, not exact versions, and deliberately do not track the release.
 Raise one only when that plugin starts requiring core API that older versions do
 not have — otherwise it forces an upgrade nobody needs.
 
-`plugins/functualize-fullscreen-tui/` has no `pyproject.toml`. It is not a
-package, is not in `[tool.uv.sources]`, and is not published; it does not count
-toward the thirteen.
+**Twelve** workspace plugins, all at exactly two levels below `plugins/` —
+the depth `members = ["plugins/*/*"]` and `.claude/hooks/spec_gate.py` are
+taught. An implementation is a *sibling* of the domain it implements rather than
+a child, so the tree shows the relationship without adding a third level that
+both of those would need teaching about.
+
+This paragraph used to describe `plugins/functualize-fullscreen-tui/` and say it
+"does not count toward the thirteen". **That directory does not exist**, at
+either depth, and there are twelve plugins, not thirteen. Measured:
+`ls -d plugins/*/functualize-*/ | wc -l`.
 
 ## Commit Message Convention
 
@@ -638,10 +648,10 @@ for fast local iteration.
 
 ```bash
 # Test a specific plugin directly
-pytest plugins/functualize-lambda/tests/ -v
+pytest plugins/adapters/functualize-lambda/tests/ -v
 
 # Test a plugin + its root tests
-pytest plugins/functualize-mcp/tests/ tests/plugins/test_mcp_*.py -v
+pytest plugins/adapters/functualize-mcp/tests/ tests/plugins/test_mcp_*.py -v
 
 # Run all plugin tests
 pytest tests/plugins/ -v
@@ -662,7 +672,7 @@ mypy src/functualize
 ## Architecture
 
 ```
-plugins/functualize-{name}/
+plugins/<group>/functualize-{name}/
 ├── src/...                 # Plugin source
 ├── tests/
 │   ├── __init__.py
@@ -724,20 +734,20 @@ class TestJobExecution:
 
 ### Running multiple plugin tests together locally
 
-If you run `pytest plugins/*/tests/` in a single invocation, pytest may
+If you run `pytest plugins/*/*/tests/` in a single invocation, pytest may
 complain about conftest path collisions (`ImportPathMismatchError`) because
 multiple plugins have identically-named `tests/conftest.py`.
 
 **Workarounds:**
-- Run one plugin at a time: `pytest plugins/functualize-mcp/tests/ -v`
-- Use a loop: `for p in plugins/*/tests; do pytest "$p" -v; done`
+- Run one plugin at a time: `pytest plugins/adapters/functualize-mcp/tests/ -v`
+- Use a loop: `for p in plugins/*/*/tests; do pytest "$p" -v; done`
 
 This is by design — each plugin is independently testable, not meant to be
 collected as a single flat namespace.
 
 ## Adding Tests to a New Plugin
 
-1. Create `plugins/functualize-{name}/tests/`:
+1. Create `plugins/<group>/functualize-{name}/tests/`:
    ```
    tests/__init__.py
    tests/conftest.py

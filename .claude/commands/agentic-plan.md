@@ -15,17 +15,23 @@ complete without either. The contract and the reasoning are in
    and not the same as step 7's pass: this one asks *what shape is this*, before
    any approach exists to measure blast radius against.
    - *What does the surrounding prose say this is for?* — **zvec-grep**. The
-     `zg` CLI is **installed but not on the default PATH** — it lives under
-     mise's node install, so `command -v zg` returns nothing and the MCP server
-     is frequently refused with a connection error. Neither means absent.
-     Resolve it with `mise which zg` (observed here:
-     `~/.local/share/mise/installs/node/24.14.1/bin/zg`, v0.2.2) and call it by
-     that absolute path. The subcommand is `zg query "<question>"` — there is no
+     `zg` CLI **may or may not be on the default PATH, and where it lives
+     differs per machine** — observed at `/usr/local/bin/zg` (on PATH) on one
+     host and under mise's node install
+     (`~/.local/share/mise/installs/node/24.14.1/bin/zg`, v0.2.2, *not* on
+     PATH) on another. The MCP server is also frequently refused with a
+     connection error. **None of that means absent.** Resolve it with
+     `command -v zg`, then `mise which zg`, then a `find`, and call it by
+     absolute path. If the index itself is missing, build it — standing
+     authorization, command and cost in `/agentic-specify` step 3 and
+     `.claude/skills/code-intel/SKILL.md`. The subcommand is `zg query "<question>"` — there is no
      `search` and no `--root` flag, so the workspace is resolved by **walking up
      from cwd**: run it with cwd at `git rev-parse --show-toplevel` and confirm
      with `zg status`, which prints the root and glob it bound to. Get this
      wrong in a worktree and you are silently told about the parent checkout. An
-     index refresh costs ~20 s; budget it rather than skipping the pass.
+     index refresh costs ~20 s on a warm index and **~1 m 17 s to build from
+     scratch** (780 files, 12 627 entities, 81 MB); budget it rather than
+     skipping the pass.
    - *What is actually in these modules?* — **serena**
      `get_symbols_overview` / `find_symbol` for the real surface, not the
      remembered one. Activate by **absolute path** first:

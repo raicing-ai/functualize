@@ -23,24 +23,35 @@ requires = []
 # step timed out rather than reporting anything. Note that ADR-003 puts the
 # fast tier's target at <= 60s; at ~595s it has drifted an order of magnitude
 # past that. Raising this timeout accommodates the drift, it does not fix it.
+#
+# Raised 1200 -> 3000 on 2026-09-19, and the drift the note above predicted has
+# continued: the fast tier now takes **1961s** (10,782 passed) on a slow host.
+# The step was hitting its timeout at exactly 1200.0s and reporting a failure
+# that looked like a red suite — the suite was green, the clock ran out. That is
+# the same "asserts nothing / reports the wrong thing" class this scenario was
+# written to close, arriving from the other direction.
+#
+# 3000s is ~1.5x the measured 1961s. ADR-003's <= 60s target is now off by a
+# factor of ~33, and no timeout here will fix that; the number only keeps the
+# scenario honest about what it observed.
 [[steps]]
 engine = "shell"
 description = "uv run pytest (fast tier — must actually pass, not merely finish)"
 command = "uv run pytest -x -q --no-header && echo 'PYTEST_OK'"
 expected = { stdout_contains = "PYTEST_OK", exit_code = 0 }
-timeout = 1200
+timeout = 3000
 
 [[steps]]
 engine = "shell"
 description = "uv run ruff check"
-command = "uv run ruff check src/ tests/ 2>&1 && echo 'RUFF_CHECK_OK'"
+command = "uv run ruff check src/ tests/ plugins/ examples/ 2>&1 && echo 'RUFF_CHECK_OK'"
 expected = { stdout_contains = "RUFF_CHECK_OK", exit_code = 0 }
 timeout = 60
 
 [[steps]]
 engine = "shell"
 description = "uv run ruff format --check"
-command = "uv run ruff format --check src/ tests/ 2>&1 && echo 'RUFF_FORMAT_OK'"
+command = "uv run ruff format --check src/ tests/ plugins/ examples/ 2>&1 && echo 'RUFF_FORMAT_OK'"
 expected = { stdout_contains = "RUFF_FORMAT_OK", exit_code = 0 }
 timeout = 60
 

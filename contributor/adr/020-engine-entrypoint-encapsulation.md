@@ -70,7 +70,15 @@ Four consolidations, no new layers, no new registries. Build on existing authori
 
 3. **Sealed construction.** An `EngineHost` protocol in `_types/protocols.py` (job lookup, config
    resolution, gate resolution, state-store root, surface stack) wired once by a single
-   `build_engine(host)` in `_app/boot.py`. All post-hoc private-attribute writes are deleted;
+   `build_engine(host)` in `_app/boot.py`.
+   *(Amended twice since. `store-substrate` added a storage member; and
+   `plugin-host-protocol`/T3 renamed it `substrate_override`, because
+   `substrate` had come to mean two things — the slot a plugin installs into,
+   which is normally `None`, and the storage in effect, which never is. The
+   engine reads the slot; everyone else reads `PluginHost.substrate`.
+   `plugin-host-protocol` also gave this port a peer for the plugin boundary,
+   `PluginHost` in `_types/host.py` — see `dependency-graph.md` → *The Two
+   Ports in `_types/`*.)* All post-hoc private-attribute writes are deleted;
    `refresh()` re-resolves through a sanctioned host method; `Path.cwd()` leaves the kernel;
    `RunContext`'s `engine._app` chains become host accesses.
 

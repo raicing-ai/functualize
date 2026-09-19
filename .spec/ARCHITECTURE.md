@@ -365,7 +365,7 @@ functualize/
 ├── plugins/
 │   ├── functualize-http/     # Published as "functualize-http"
 │   ├── functualize-lambda/   # Published as "functualize-lambda"
-│   ├── functualize-state-sqlite/
+│   ├── functualize-substrate-sqlite/
 │   ├── functualize-inline/
 │   ├── functualize-flow-viz/
 │   └── functualize-fullscreen-tui/

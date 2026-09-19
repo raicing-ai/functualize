@@ -16,7 +16,7 @@ being hidden or a marker that was never needed.
 
 This file asserts nothing about production code. The claim that no *store*
 reaches for a path is made where it can be observed —
-`plugins/functualize-state-sqlite/tests/test_sqlite_substrate.py::
+`plugins/substrates/functualize-substrate-sqlite/tests/test_sqlite_substrate.py::
 TestItNeedsNoSharedDisk::test_no_store_asks_the_substrate_for_a_path` wraps a
 substrate so `path_for`, `root` and `path` raise, then drives all three stores.
 """

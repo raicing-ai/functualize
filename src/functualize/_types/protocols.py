@@ -56,8 +56,14 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from functualize._types.descriptors import JobDescriptor, RegisteredJob
+    from functualize._types.host import PluginHost
     from functualize._types.run_request import RunRequest
     from functualize._types.workflow import Notification
+
+# `PluginHost` is deferred to break a declaration cycle inside this package, not
+# to dodge a layer rule: `_types/host.py` names `StoreSubstrate` from here, and
+# the two ports are peers. Both sides are `TYPE_CHECKING`, so there is no
+# runtime import either way.
 
 
 @runtime_checkable
@@ -100,8 +106,21 @@ class AdapterPlugin(Protocol):
     description: str
     adapter_type: str  # "cli", "http", "lambda", "mcp"
 
-    def __call__(self, app: Any) -> None:
-        """Setup phase — called during boot to wire the adapter."""
+    def __call__(self, app: PluginHost) -> None:
+        """Setup phase — called during boot to wire the adapter.
+
+        ``app: PluginHost`` since `plugin-host-protocol`/T9, replacing ``Any``.
+        This is the framework's own front door: an adapter is the thing the
+        kernel hands itself to, so if any signature in the repository should
+        name what it is being handed, it is this one.
+
+        **Widening, not narrowing.** An adapter that declares
+        ``app: FunctualizeApp`` no longer satisfies this protocol — a parameter
+        type is contravariant, so an implementation must accept *at least* what
+        the protocol promises to pass, and ``FunctualizeApp`` is one
+        ``PluginHost`` rather than any. The four concrete adapters that did
+        were widened by T10.
+        """
         ...
 
     def run(self, *args: Any, **kwargs: Any) -> Any:
@@ -121,11 +140,14 @@ class PluginWithShutdown(Protocol):
     reverse loading order when the application completes execution.
     """
 
-    def on_shutdown(self, app: Any) -> None:
+    def on_shutdown(self, app: PluginHost) -> None:
         """Called during application shutdown for resource cleanup.
 
         Args:
-            app: The application instance being shut down.
+            app: The host being shut down, as the plugin port rather than
+                ``Any`` (`plugin-host-protocol`/T9). A shutdown handler that
+                reaches past these eleven members is reaching into an
+                application that is already tearing itself down.
         """
         ...
 
@@ -445,17 +467,23 @@ class EngineHost(Protocol):
         ...
 
     @property
-    def substrate(self) -> StoreSubstrate | None:
-        """Where this project's documents live, or None for the default.
+    def substrate_override(self) -> StoreSubstrate | None:
+        """The override a plugin installed, or None for "resolve the default".
 
         The **one** place a configured backend is chosen
-        (`store-substrate`/T5). A plugin that wants a database sets this at
+        (`store-substrate`/T5). A plugin that wants a database installs one at
         boot and every store the engine builds follows, so scope records and
         the job state inside them cannot end up in different backends.
 
         None means "resolve the filesystem default from :attr:`fresh_root`",
         which is what an app with no such plugin does. It is not an error and
         not a missing feature — it is the ordinary case.
+
+        **Named `substrate_override` since `plugin-host-protocol`/T3.** It was
+        `substrate`, which collided with the *storage in effect*: the host's
+        member is the slot, and the engine's resolved value is the answer, and
+        ten call sites had to reach through the engine to tell them apart.
+        One name each now.
 
         Deliberately **here rather than discovered by `_primitives`**. The one
         decision lives in `substrate_for_project`, which may not import

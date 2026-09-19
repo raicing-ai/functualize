@@ -18,7 +18,48 @@
 
 version = 1
 
+# ── Retired: distributions this project published and then renamed ───────────
+#
+# `plugin available --remote` enumerates every `functualize-*` project on the
+# PyPI Simple index, and anything outside the curated catalog above renders as
+# `kind = "unknown"` under the heading *"UNCURATED — found on PyPI, not vetted
+# by this project"*. That heading is false for a name this project published
+# itself: all of these were vetted, then renamed, and the old release is still
+# on the index at its final version.
+#
+# Renames land one per pull request, so this list is appended to rather than
+# written once (`.spec/features/plugin-taxonomy/contracts.md` §1.1, §7.2 Q1).
+# A name here is subtracted from the remote listing only — an *installed* old
+# distribution still appears, because a thing on your machine is a fact and
+# hiding it would be the worse lie.
+retired = [
+    "functualize-state-sqlite",  # -> functualize-substrate-sqlite (PR-1)
+]
+
 # ── Adapters: add commands or a delivery surface ─────────────────────────────
+#
+# `sqlite` and `inline` sit here because `functualize.plugins` is the only group
+# with a reader, and `classify_group` maps it to ADAPTER. Neither adds a command
+# and the substrate adds no delivery surface, so the heading is inaccurate for
+# two of six rows — an **accepted compromise**, declared in
+# `.spec/features/plugin-taxonomy/plan.md` §5 and flagged to the maintainer,
+# who chose correctness over the label. Both were previously filed under groups
+# nothing read, so they classified beautifully and did nothing. Each row's
+# `description` carries the truth and `plugin available` prints it alongside.
+
+[[plugin]]
+name = "substrate-sqlite"
+distribution = "functualize-substrate-sqlite"
+group = "functualize.plugins"
+description = "Keeps this project's documents in SQLite"
+recommended = true
+
+[[plugin]]
+name = "inline"
+distribution = "functualize-inline"
+group = "functualize.plugins"
+description = "Textual inline prompts in the terminal"
+recommended = true
 
 [[plugin]]
 name = "mcp"
@@ -66,16 +107,14 @@ recommended = true
 
 # ── Implementations: pick the one matching your infrastructure ───────────────
 #
-# Two of these serve the same domain (secrets), so installing both is a choice
+# An implementation is selected *by a domain* — `_plugins/domain_registry.py`
+# reads a `functualize.<x>_providers` group out of a live `DomainMetadata`. That
+# is what makes this a real category and not a label: every row below is reached
+# through the domain named in its group.
+#
+# Two of them serve the same domain (secrets), so installing both is a choice
 # about what you run, not a richer setup. `plugin available` groups them so
 # that reads as a menu rather than a checklist.
-
-[[plugin]]
-name = "sqlite"
-distribution = "functualize-state-sqlite"
-group = "functualize.state_providers"
-description = "SQLite-backed state persistence"
-recommended = true
 
 [[plugin]]
 name = "local"
@@ -89,13 +128,6 @@ name = "pydantic"
 distribution = "functualize-ai-pydantic"
 group = "functualize.ai_providers"
 description = "PydanticAI-backed implementation of the AI domain"
-recommended = true
-
-[[plugin]]
-name = "inline"
-distribution = "functualize-inline"
-group = "functualize.interactivity_providers"
-description = "Textual inline prompts in the terminal"
 recommended = true
 
 [[plugin]]

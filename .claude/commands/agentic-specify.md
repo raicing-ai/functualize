@@ -9,6 +9,21 @@ Specify phase for: $ARGUMENTS
      `contributor/reference/pitfalls.md`, `docs/`. Use **zvec-grep**; `rg` does
      not find an argument. A design contradicting one of these must say so and
      why.
+
+     **If there is no index, build one — this is not a blocker and not a
+     question to ask.** A fresh checkout or worktree returns
+     `[INDEX_MISSING] … requires explicit user authorization`; that
+     authorization is standing (maintainer, 2026-09-16). Locate the binary
+     (`command -v zg`, else `mise which zg`), then:
+
+     ```bash
+     nohup zg index "$(git rev-parse --show-toplevel)" \
+       -g 'src/**' -g 'docs/**' -g 'contributor/**' -g 'plugins/**' -g '*.md' \
+       --embedding local/potion-code-16m-v2 > /tmp/zg-index.log 2>&1 &
+     ```
+
+     Measured 780 files / 12 627 entities / **1 m 17 s** / 81 MB (gitignored).
+     Background it and do the second question's `rg` work while it builds.
    - *Are the claims I am about to write true?* Run the command behind every
      count, every "the only", every "nothing does X" — negatives are claims about
      the whole repo and reading cannot establish one. Write the number the

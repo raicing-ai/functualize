@@ -692,6 +692,105 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### Declared plugin directories (2026-09-19, `feat/plugin-host-protocol`)
+
+`[tool.functualize] plugins_directories` had been documented since `0.2.3` and
+**never worked**. Not partially — the code reading it was unreachable:
+`PluginLoader._resolve_plugin_directories` guarded on
+`hasattr(app, "_resolution_chain")`, `load_all` has one production call site
+(boot **step 4**), and the chain is built at **step 6**. Loading plugins first
+is deliberate (ADR-007), so the attribute could not exist yet and the branch
+never ran. Discovery fell through to an exact match on
+`Path.cwd()/".functualize"/"plugins"`, and **nothing said so** — at
+`--log-level debug` the string `plugins_directories` never appeared once.
+
+**The shape of the fix is one reversed arrow.** The loader stopped reaching for
+ambient state and now *receives* a `list[str]` from the composition root, which
+reads the project once at a new boot step 3.5. That is house style already
+stated in `docs/contributing.md:224` and prescribed for the same smell in
+`contributor/architecture/audit-engine-encapsulation.md` §Cause 2.
+
+| | |
+|---|---|
+| New | `_config/project_dirs.py` (the one resolver), `_plugins/file_source.py`, `_plugins/metadata.py` |
+| Removed | `_resolve_plugin_directories`, `_discover_from_files`, two always-`False` guards, a hard-coded `Path.cwd()` config path |
+| `PluginLoader` | **595 → 436 LOC**, under the constitution's ~500 bar |
+| Final | root suite **10,771 passed**, examples 212, 12 plugin packages 447, mypy 360 files, lint-imports 7/0 |
+
+**Decisions worth keeping:**
+
+1. **Convention directories anchor on walk C** (`find_functualize_dir`), not on
+   walk A's convention collection. Measured: walk A only collects convention
+   directories at levels that produced a *config hit*, so a directory holding
+   `.functualize/plugins/` but no config file is invisible to it — which was
+   exactly the reported layout. The two walks held different definitions of
+   "this level is the project"; fixing either alone would not have closed it.
+   This also bounds the search at the project root rather than at `/`, which is
+   what keeps an upward search from executing arbitrary Python out of any
+   ancestor.
+2. **`[<domain>] provider` reads File + Convention + Global, not CLI or Env.**
+   Those rungs live on the chain, which cannot exist at step 4b. The value was
+   `None` *always* before, so every project gains and none loses.
+3. **`app.before_job` → `app.hooks.before_job` stays, with no shim** (maintainer,
+   2026-09-18). Pre-1.0. The harm was that `0.3.0` shipped it undocumented; the
+   CHANGELOG now carries the migration with the error text.
+4. **`load_all(directories=None)` scans nothing.** Previously the equivalent call
+   reached `Path.cwd()`, quietly coupling ~38 unit-test call sites to the
+   working directory.
+
+**Open, not this feature's:**
+
+- **Plugins have no cross-process cache, and one plugin dominates boot.**
+  Measured with `--perf-report`: `boot.plugins` is **15.6 ms of 1320 ms (1.2%)`,
+  `boot.app_ready.SQLiteSubstratePlugin` **~480 ms (37%)**,
+  `boot.config_entry_points` **247 ms**. Jobs have a persisted `cache.json`;
+  plugins have only a per-process entry-point snapshot, so every boot imports
+  and executes every plugin module and runs every APP_READY hook. Candidate
+  feature.
+- **A bare-string `jobs_directories` / `import_libs` is still silently dropped.**
+  `plugins_directories` was fixed (Verify found the regression against
+  `contracts.md` §1.1); the same footgun remains for the sibling keys, and
+  widening the rule was out of this feature's mandate.
+- ~~**The warm-command startup budget fails on a slow host**~~ — **resolved
+  2026-09-19, maintainer: loosen for slow-host CI.** `BUDGET_WARM_COMMAND_MS`
+  1800 → **4000 ms**, ~1.5× the worst of eight measured medians (2193–2692 ms;
+  one individual run spiked to 4262 ms and the median-of-three absorbed it).
+  Deliberately *not* the file's 2× convention — 2× would be 5400 ms and would
+  stop catching anything. The pre-feature control measured 2053–2203 ms on the
+  same host, so the hardware moved, not the code. Two notes added to the
+  constant for whoever reads it next: this test spawns the real console script
+  four times and is therefore host-bound (`BUDGET_TOTAL_BOOT_MS`, 500 ms
+  in-process, is what actually guards our boot), and `perf_budget` tests are
+  **skipped under xdist**, so `pytest -n auto` reporting `0 failed` says nothing
+  about it.
+- ~~**No example declares `plugins_directories`**~~ — **filled 2026-09-19**:
+  `examples/project/shared_plugins/`, the monorepo layout from the bug report.
+  Two sibling apps under one root, one declaring an extra directory and one not,
+  so the contrast carries the lesson. Three tests, all three indexes updated.
+
+  <details><summary>original finding</summary>
+
+  **The warm-command startup budget fails on a slow host, and `-n auto` hides it.** `test_a_warm_func_job_stays_within_budget` measures ~2.2 s against an
+  1800 ms budget here, with and without `declared-plugin-directories` (six
+  alternating samples). It spawns the real console script four times, so it is
+  really measuring process-spawn speed. It is **skipped** under `-n auto`
+  (`perf_budget` + xdist guard), so the usual parallel run reports `0 failed`
+  while never exercising it — and `examples/docs/scenarios/j-dev-contrib.toml`
+  runs the serial form, so doc-verify fails on such a host. Either the budget
+  needs a slow-host allowance or the scenario needs to say which hosts it
+  assumes; both are someone's call, not this feature's.
+
+  </details>
+- **`_collect_convention_directories` is still fed only config-hit levels** in
+  `auto_discover`, so `jobs_directories` convention collection keeps the
+  narrower definition of "the project". Correct for this feature (plugins no
+  longer use that path) and a latent inconsistency for the others.
+
+Durable rules migrated to `contributor/guides/wiring-discipline.md` — **17** (a
+mock that supplies what production withholds turns a dead branch into a covered
+one) and **18** (a grep gate matches its own documentation; a gate is not a gate
+until it has been seen to fail).
+
 ### Discovery correctness and job parameter types (2026-09-08, `feat/discovery-and-parameter-fixes`)
 
 Five features, one branch. The `.spec/features/` artifacts are cleared; the
@@ -1225,6 +1324,67 @@ hatch instead, and `tests/config/test_legacy_ini_project.py` proves following
 it works).
 
 ## Potential Follow-ups
+
+0. **The install registry records binaries that cannot exist, permanently.**
+   Found by `plugin-taxonomy`'s Verify phase, 2026-09-18; not that feature's to
+   fix.
+
+   `_cli/main.py` resolves the record's `binary_path` from `argv[0]`, and when
+   that has no path separator it *synthesises* one:
+
+   ```python
+   else:
+       binary_path = str(Path(sys.executable).parent / argv0)
+   ```
+
+   Run functualize as `python -c "from functualize._cli.main import main; main()"`
+   and `argv[0]` is `-c`, so it registers `<venv>/bin/-c` — a path that has never
+   existed. There is a second such branch just above: an empty `argv[0]` records
+   `binary_path = ""`.
+
+   The registry is **append-only by design**, and `self doctor` reports a record
+   whose binary is missing as a WARNING with the remedy *"This binary no longer
+   exists. The record is kept because the registry is append-only."* So a single
+   run through an embedded launcher leaves a permanent warning that no command
+   can clear, and `doctor`'s worst status is WARNING from then on. It is not
+   hypothetical: it happened here, and the record had to be deleted by hand.
+
+   **The fix is a guard at the call site** — do not register unless the path is
+   a real file:
+
+   ```python
+   if not binary_path or not Path(binary_path).is_file():
+       return
+   ```
+
+   Measured against both registries on this machine: **13 of 13 legitimate
+   records survive** (`.venv/bin/func`, `.venv/bin/functualize`,
+   `src/functualize/__main__.py` across four checkouts) and only the synthesised
+   one is rejected. Note `Path("").exists()` is `True` — it is `Path(".")` — so
+   the emptiness check is load-bearing and `is_file()` rather than `exists()` is
+   what rejects it.
+
+   A test-side rule for the same trap is now in
+   `contributor/reference/testing-strategy.md`, but that only stops *our tests*
+   polluting *our* registry; the user-facing half is this guard.
+
+   **The guard does not cover the worse case, which is already fixed
+   separately.** `tests/_cli/test_self_doctor.py::test_a_recognised_installation_
+   reports_ok` asserted `report.worst is OK` while reading the *shared* registry
+   under `_isolate_home`'s fixed fake home. Every record there was written by a
+   real binary that existed at the time — so no registration guard would have
+   helped. Deleting a worktree is what makes those records stale, and the file
+   is append-only, so **deleting any worktree you had run tests in turned that
+   assertion red in every checkout, permanently.** It happened during this
+   Verify phase: `feat-local-vault-access` was removed and the suite failed from
+   then on, remediable only by hand-editing a file under `/tmp`. Fixed in
+   `6fcea19` by pinning `XDG_CONFIG_HOME` to `tmp_path`, which was the test's
+   unpinned third axis — it already pinned mode and owner and documented why.
+
+   The lasting point for this follow-up: the registry is a **shared mutable
+   fixture**, and a test that asserts a global "worst status" over it is
+   asserting something about the machine's history rather than about the code.
+
 
 37. **The unknown-command explanation does not reach a project's own
     `main.py`.** `explain_missing_job` (`_cli/info.py`) is called from both
@@ -2177,6 +2337,167 @@ Items identified during development that are worth doing but not yet designed:
 | local-vault-access | `feat/local-vault-access`: the encrypted vault was a cache for values fetched from a remote provider; it is now also somewhere to put one secret you already have. `func builtin vault init / put / inspect / remove`, the same lifecycle as public API in `functualize.app.vault`, and an ordinary `classic()` app reads a vault its project has. Store format gains provenance columns and upgrades in place; `keyring` becomes the `functualize[keychain]` extra. Three behavioural changes, all in [ADR-023](../contributor/adr/023-local-vault-access.md): a stored entry that cannot be opened refuses the run instead of falling through, one vault key per user rather than per project, and nullable provenance fields in `vault list --json`. See `.spec/features/local-vault-access/` on the branch (cleared before merge). |
 | mcp-server-fixes | `fix/mcp-server-fixes`: `func mcp serve` crashed on grouped jobs with parameters — the plugin compiled `async def {dotted_job_name}(...)` via `exec`, a SyntaxError that killed registration (found live by the NOOA integration probe; verified against 0.2.3 and still present on master). Fix: codegen under a sanitized identifier, dotted name restored on the function object; descriptions attach as `__doc__` instead of being interpolated into source (a `'''` in a docstring broke compilation the same way). Server boots no longer run FastMCP's PyPI update check or print its banner unless `FASTMCP_*` env vars opt back in. `fastmcp` dependency bounded to `<5`. Regression net: unit + registration tests, a live subprocess stdio capability test, and a `grouped_tools` example with its own serve harness. Full plugin + examples suites green; ruff clean. See `.spec/features/mcp-server-fixes/` on the branch (cleared before merge). |
 
+### plugin-host-protocol
+
+`feat/plugin-host-protocol`: plugins annotated the application `Any` in **40 of
+44** parameters (91%), so nothing checked what a plugin reached for. Two shipped
+plugins had reached past the facades into `app._di_registry`, and four `hasattr`
+probes were permanently dead inside bare `except Exception: pass` — asking for
+members (`app.resolve`, `app._tasks`, `app.resolve_model`) that are `False` on a
+live app. Now `functualize.plugin.PluginHost`: a `@runtime_checkable` Protocol
+of **11 members**, with five view protocols standing in for the facades.
+
+**The decision worth keeping.** *The port lives in `_types/`, not next to the
+facades it names.* `_app/host.py` was the obvious home and is wrong: `_types`
+may not import `_app`, so `AdapterPlugin.__call__` — the framework's own front
+door — could never have named the port, and the retype would have been
+unreachable from the protocol that matters. Putting it in `_types/host.py` cost
+five view protocols (the facades' concrete types are unnameable from that
+layer) and bought a port the lifecycle protocols can actually declare.
+`_types/protocols.py` was rejected too, at 882 lines and already diagnosed a
+god module.
+
+**Membership is measured, not remembered.** Members with ≥2 first-party plugin
+clients, plus `hooks.on_ready` and the storage trio. `hook_registry` is
+excluded because four of its seven methods *fire* lifecycle events — on the
+port, any plugin could fire them. `event_bus` and `workflows` have **zero**
+plugin clients. Both remain public on `FunctualizeApp`; a plugin that needs one
+annotates the concrete app and says why (`contributor/guides/plugin-development.md`
+→ *Observer Plugin*).
+
+**Rules that outlive the feature:**
+
+- **A retype with no static consumer is inert, and a green suite will not tell
+  you.** `AdapterPlugin.__call__(app: PluginHost)` changes nothing on its own:
+  reverted to `app: Any`, `uv run mypy` stays green on **all 364 files**,
+  because the repository contains nothing that statically accepts an
+  `AdapterPlugin` — its only consumer does a runtime `isinstance`, blind to
+  signatures, and is called from tests only. The fixture
+  `tests/spec/fixtures/adapters_against_the_port.py` is the missing consumer,
+  and is what makes the declaration bite. Ask of any retype: *what would fail
+  if I put it back?*
+- **`isinstance` against a `@runtime_checkable` Protocol checks attribute
+  presence, never signatures.** So conformance needs two tests, not one, and
+  neither substitutes for the other.
+- **An orphan scan lies about ported members** — new rule 16 in
+  `contributor/guides/wiring-discipline.md`. Annotating a call site against a
+  Protocol hides it from `find_referencing_symbols` on the concrete class, and
+  it lies toward deleting reachable code.
+- **`exclude_type_checking_imports = true` means import-linter cannot see a
+  `TYPE_CHECKING` edge at all.** Measured: a live `_types → _app` deferred
+  import leaves `lint-imports` reporting "7 kept, 0 broken". A layer rule that
+  matters is enforced by a test that reads the import lines, not by the linter.
+- **A reachability gate written at Plan time is a hypothesis, not a gate.** All
+  **six** written for this feature were false when run: five named a test that
+  did not cover the seam and whose sabotage passed, and twice the seam had no
+  caller anywhere in the tree. Six greps also could not reach their stated
+  target, and three counts were low because the path list omitted `examples/`.
+  Write the gate at Plan time; **re-derive it at Execute time**, and never mark
+  `[x]` on a gate that passed under sabotage.
+- **`examples/` is part of the repository's call graph.** Three separate counts
+  in this feature were wrong for leaving it out. It is pytest-collected, and a
+  plugin under `examples/plugins/` is a real client.
+
+**Known gaps, recorded not closed:** `MCPAdapterPlugin` claims `AdapterPlugin`
+in its name, `adapter_type` and docstring but has neither `run` nor `shutdown`
+(unchecked because `validate_adapter` is called from tests only);
+`functualize-ai/_provider_discovery.py:205` still probes
+`hasattr(app, "resolve_model")`, always `False`, so its `[ai]` section has never
+been read there — fixing it changes behaviour; `functualize_ai/__init__.py`'s
+lazy `__getattr__` table has no `TYPE_CHECKING` block, which is why
+`ai-pydantic` sits at 47–48 mypy errors. All three are routed to
+`.spec/features/plugin-taxonomy`, and **all three were closed by its PR-1**
+(2026-09-18): `MCPAdapterPlugin` gained `run` and `shutdown` and the loader now
+warns when any plugin declares `adapter_type` without satisfying the protocol;
+the `[ai]` section is read for the first time, which is a behaviour change with
+a CHANGELOG entry; and the `TYPE_CHECKING` block took `ai-pydantic` from 56
+errors to 11. Separately, `scaffold add plugin` writes a
+plugin where job discovery misreads it as a job (pre-existing, proven by
+reverting the annotation). AC-18 asked for four adapters widened and two were:
+`CliAdapter` reads `app.name` and `TuiAdapter` hands the app to
+`launch_inline_tui`, neither on the port, and both core rather than plugins.
+
+### plugin-taxonomy — PR-1 (2026-09-18)
+
+`feat/plugin-host-protocol`: three entry-point groups were declared by shipped
+distributions and read by **nothing**. `pip install functualize-state-sqlite`
+registered a plugin into `functualize.state_providers`, no call site ever passed
+that group to `entry_points()`, and the install succeeded while the plugin
+loaded never. The only symptom was that nothing changed.
+
+**The decision worth keeping.** *`functualize.<x>_providers` is a mechanism, not
+a naming convention.* Such a group is scanned out of the `entry_point_group`
+field of a live `DomainMetadata` published under `functualize.domains`. Exactly
+two domain SDKs exist — `ai` and `tasks` — so a `_providers` group with no
+domain behind it has no reader **by construction** and cannot be given one
+without inventing the domain. Two successive spec revisions got this backwards:
+revision 1 asked "cheap group or correct group?", revision 2 recommended
+`functualize.substrate_providers` as "`IMPLEMENTATION` for free" — which would
+have been exactly as dead as the group it replaced. Classifying a group and
+loading it are different questions.
+
+All three orphans went to `functualize.plugins`; `vault_key_providers` was
+deleted rather than rehoused. `_primitives/entry_point_groups.py` now names the
+seven groups core reads, and
+`tests/spec/test_every_declared_group_has_a_reader.py` walks every shipped
+manifest and fails **naming the file** when a declared group is neither in that
+set nor a live domain's provider group.
+
+**Making the plugins load exposed eight latent defects**, none reachable while
+the plugins were inert. The two that would have hurt users:
+`SQLiteStatePlugin._db_path` resolved from the cwd, and creating `.functualize/`
+*is* the switch from standalone to project mode — so installing the plugin
+promoted every directory you ran in and littered a database beside every loose
+script. And five commands (`data show`, `data clear`, `run list`, `run show`,
+`history`) built their stores from the filesystem while runs wrote to the
+configured substrate, so `why` reported a project up to date while `data show`
+reported *Fingerprints: 0* about the same project.
+
+**The shape to watch.** Resolving storage from the cwd instead of asking the app
+was found **six times** in this feature, and `store-substrate`/T7 had already
+fixed a seventh (`builtin workflow`) in an earlier cycle. A seventh occurrence
+deserves an ADR, not another one-off fix.
+
+**`TaskDocument` was a middle man**, and deleting it closed three acceptance
+criteria at once: `list()` fell from `1 + N` substrate reads to 1, mutations
+became compare-and-swap with a bounded retry (the old code held a lock and wrote
+with no `expect=`, which is safe only where `lock()` is real — the port
+explicitly permits a no-op), and tasks stopped being JSON strings inside a JSON
+document, so `data show` renders fields.
+
+**Accepted in writing, and not fixed here:**
+
+- **`functualize.plugins` classifies as `PluginKind.ADAPTER`**, so the substrate
+  prints under *"ADAPTERS — add commands or a delivery surface"*, which is false
+  for it. One config line decides both *loads* and *heading*; correctness won
+  and the label was deferred. Maintainer decision, 2026-09-17.
+- **The port cannot express "create if absent."** `write(expect=None)` is
+  unconditional, so the *first* write to a fresh document cannot be
+  compare-and-swapped. Pinned by a test that asserts the limitation rather than
+  a guarantee. Carried to `sdd/substrate-conformance` as its Q2.
+- **`tests/conftest.py` reaches into a plugin by filesystem path**, because a
+  plain `uv sync` does not install workspace plugins. Paths updated, reach not
+  removed.
+
+**One acceptance criterion was mis-specified, and the E2E pass is what caught
+it.** AC-7 read *"`func builtin data show` on a project with tasks renders task
+titles, not escaped JSON"*. It cannot: `data show` reports five fixed stores —
+freshness, scopes, scope state, runs, shell history — and never reads the
+`tasks` document, before the feature or after. No command renders tasks;
+`functualize-tasks` ships no CLI surface. The **defect** AC-7 was written
+against is real and fixed — a task is now a nested mapping rather than a
+`json.dumps` string inside a JSON value, proven by reading the SQLite document
+directly — but the criterion named a door that does not exist. A gate should
+name the storage shape, or name a command that would have to be written first.
+
+**Process note — every reachability gate written during Plan was wrong when
+run**, continuing the run recorded against `plugin-host-protocol`. T4's planned
+sabotage scope was the wrong suite and nearly a false negative: `tests/plugins`
+fails **1** with the group name typo'd while 687 pass, because they mock
+`entry_points`. And an AC-5 concurrency test written during T7 **passed with
+compare-and-swap removed** — its two writes were sequential and could never
+collide. Write the sabotage before believing the test.
+
 ### local-vault-access
 
 **The decision worth keeping.** *A stored entry is the intended value.*
@@ -2358,7 +2679,7 @@ rewriting a replayed step's `completed_at` without re-executing it.
 
 | Feature | Description |
 |---------|-------------|
-| Spec-workflow enforcement | The spec-driven workflow is now mechanically enforced, not advisory. Four harness hooks in `.claude/hooks/`: a `PreToolUse` gate on `Edit`/`Write`/`NotebookEdit` that denies changes to `src/functualize/**` and `plugins/*/src/**` without a `tasks.md` carrying a wave graph; a `PreToolUse` rewrite that gives the built-in `Plan` agent the contract it cannot load; a `PostToolUse` injection of the execution contract at plan approval; and a `PostToolUse` `Bash` auditor that records shell bypasses. All fail open and resolve paths from the hook's `cwd`, so they validate the worktree rather than the session origin. Escape hatch is `.spec/EXEMPT`, logged to the committed `.spec/exemptions.log`. See [ADR-010](../contributor/adr/010-spec-workflow-enforcement-point.md) for why the gate fires on writes rather than at plan approval. |
+| Spec-workflow enforcement | The spec-driven workflow is now mechanically enforced, not advisory. Four harness hooks in `.claude/hooks/`: a `PreToolUse` gate on `Edit`/`Write`/`NotebookEdit` that denies changes to `src/functualize/**` and `plugins/**/src/**` without a `tasks.md` carrying a wave graph; a `PreToolUse` rewrite that gives the built-in `Plan` agent the contract it cannot load; a `PostToolUse` injection of the execution contract at plan approval; and a `PostToolUse` `Bash` auditor that records shell bypasses. All fail open and resolve paths from the hook's `cwd`, so they validate the worktree rather than the session origin. Escape hatch is `.spec/EXEMPT`, logged to the committed `.spec/exemptions.log`. See [ADR-010](../contributor/adr/010-spec-workflow-enforcement-point.md) for why the gate fires on writes rather than at plan approval. |
 | Spec-workflow document repair | The workflow documents referenced four files that never existed and were gitignored — `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, and the `.agentic-coding` marker — across 16 sites. `AGENTS.md` now supplies the project context anchor, Phase 0 keys on the committed `CONSTITUTION.md`, and Phase 5 targets `STATUS.md`. The `spec-driven-developer` tool list gained `Edit`, `Skill`, and `Agent`, without which three of its own instructions could not run. |
 | `.spec/features/` lifecycle | Feature artifacts are tracked on the branch so the spec, contracts, plan and task ledger are reviewable, then cleared before merge by the required `spec-artifacts-cleared` check, so master carries none. Recoverable afterwards via `git fetch origin refs/pull/<N>/head`. |
 

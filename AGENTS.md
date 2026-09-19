@@ -9,8 +9,8 @@ Project context for AI coding agents. This file contains architecture, commands,
 uv sync
 
 # Lint & format (always run first)
-uv run ruff check --fix src/ tests/ plugins/
-uv run ruff format src/ tests/ plugins/
+uv run ruff check --fix src/ tests/ plugins/ examples/
+uv run ruff format src/ tests/ plugins/ examples/
 
 # Type check
 uv run mypy src/
@@ -39,7 +39,7 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
 
 ### Command discipline
 
-- Commands already run from the project root — never prefix with `cd <project-root> &&`. Only `cd` into subdirectories when needed (e.g. `cd plugins/functualize-inline && uv sync`).
+- Commands already run from the project root — never prefix with `cd <project-root> &&`. Only `cd` into subdirectories when needed (e.g. `cd plugins/adapters/functualize-inline && uv sync`).
 - After a change, run the **smallest relevant test scope** (specific file > `-k` keyword > directory > full suite). Run the full suite only when shared infrastructure changed.
 - Maximum 2 pytest invocations per verification: run targeted tests; if a failure appears, fix and re-run only the failing test. If still failing, stop and explain rather than cycling flag variations.
 - **Always redirect command output to a temp file** when the output may be long (pytest, linters, type checkers). Never pipe through `tail`/`head`/`sed` — truncation forces a re-run to see the full output. Use `/tmp/functualize-<command>.log` and read from it. Example: `uv run pytest tests/engine/ > /tmp/functualize-test.log 2>&1`.
@@ -86,7 +86,8 @@ Message Convention, Pull Request Guidelines.
 | Verifying a change by breaking it on purpose (sabotage) | `contributor/guides/wiring-discipline.md` §3 — **commit first**, then sabotage, then `git checkout --`. That restore reverts everything uncommitted in the file, and has silently discarded finished work. Sabotage also catches vacuous *tests*, which running them cannot |
 | Adding a CLI flag, a dispatch behaviour, or anything a job author declares — or wondering whether it must work on **both** `func` and a `FunctualizeApp` | `contributor/architecture/surface-boundary.md` — there are two entry points and `func` has a pre-boot layer the other does not. The rule is one question: is the feature about *the program* (must align) or about *how you reach the program* (may be `func`-only). A `@workflow` `Gate` was unresumable on an app for exactly this reason — the resume flag was `func`-only |
 | Asking whether X happens before Y in a job run — or adding a step to `_execute_lifecycle` | `contributor/reference/execution-lifecycle.md` — the twenty steps and the constraint that fixes each one's position. Ordering constraints used to live only as comments inside a 323-line method; four of them are load-bearing, and `tests/engine/test_lifecycle_order.py` fails if the sequence moves |
-| Writing tests | `contributor/reference/testing-strategy.md` (domain-mirrored dirs + `tests/_support/` fixtures; no `tests/unit/` or `tests/properties/` dirs) |
+| Writing tests | `contributor/reference/testing-strategy.md` (domain-mirrored dirs + `tests/_support/` fixtures; no `tests/unit/` or `tests/properties/` dirs). **A test that spawns a `func` subprocess must set `HOME` and all three `XDG_*` roots** — the autouse fake home is a *fixed* path shared by every checkout, and `func` writes an append-only install registry into it that nothing prunes |
+| Adding a symbol to a public package's `__all__`, or a public member to a public class | `contributor/guides/adding-public-api.md` step 8 + `contributor/reference/public-api-example-coverage.md` — every public API must have a caller in `examples/`. Examples are pytest-collected, so the example *is* the end-to-end test; and it is what makes a later "zero references" finding mean *dead* rather than *unknown* for public surface. Measured backlog: 108 of 161 public symbols have none |
 | Proposing a new layer, public API surface, or dependency-rule change | ADR is mandatory: record the decision in `contributor/adr/` (template: `contributor/adr/000-template.md`) |
 | Opening a PR, writing a release commit, or unsure how to name a branch | `CONTRIBUTING.md` §§ Branching Strategy / Commit Message Convention / Pull Request Guidelines — the summary in **Git discipline** above covers the common case; read these for breaking changes, the release commit, and why the changelog is hand-written |
 | Adding or changing a job-facing surface (CLI flags, MCP tools, a TUI argument form) | `contributor/adr/010-job-schema-in-core.md` — every such surface must publish the *same* inputs, built by `functualize.app.utils.job_input_schema`. Two renderers is how `Stdout` and `Shell` shipped as required MCP arguments |
@@ -283,6 +284,6 @@ Gitignored: `STATE.md` (per-session; if absent, treat as no work in flight),
 
 ## Plugin tests
 
-Plugin-specific tests live in each plugin's own `tests/` directory (e.g. `plugins/functualize-inline/tests/`).
+Plugin-specific tests live in each plugin's own `tests/` directory (e.g. `plugins/adapters/functualize-inline/tests/`).
 Run them directly with `pytest plugins/<name>/tests/`; they are not collected
 by the root `pytest` invocation.

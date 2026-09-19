@@ -1,4 +1,9 @@
-"""Unit tests for file-based discovery integration in load_all()."""
+"""File-based discovery as `load_all` sees it.
+
+The scan itself is `FilePluginSource`'s (tests/plugins/test_file_plugin_edge_cases.py);
+what is under test here is the merge — precedence against entry-point
+plugins, name collisions, and participation in the topological sort.
+"""
 
 import logging
 from unittest.mock import MagicMock, patch
@@ -7,7 +12,7 @@ from functualize._plugins.loader import PluginLoader
 
 
 class TestFileDiscoveryIntegration:
-    """Tests for _discover_from_files integration into load_all() and precedence."""
+    """File plugins reaching `load_all`, and how they rank against entry points."""
 
     @patch("functualize._plugins.loader.entry_points")
     def test_file_plugins_loaded_when_no_entry_points(self, mock_entry_points, caplog):
@@ -23,7 +28,7 @@ class TestFileDiscoveryIntegration:
         loader = PluginLoader()
         app = MagicMock()
 
-        with patch.object(loader, "_discover_from_files", return_value=[file_plugin]):
+        with patch.object(loader._file_source, "discover", return_value=[file_plugin]):
             loader.load_all(app)
 
         file_plugin.assert_called_once_with(app)
@@ -53,7 +58,7 @@ class TestFileDiscoveryIntegration:
         loader = PluginLoader()
         app = MagicMock()
 
-        with patch.object(loader, "_discover_from_files", return_value=[file_plugin]):
+        with patch.object(loader._file_source, "discover", return_value=[file_plugin]):
             loader.load_all(app)
 
         # Both should be registered
@@ -88,7 +93,7 @@ class TestFileDiscoveryIntegration:
         app = MagicMock()
 
         with (
-            patch.object(loader, "_discover_from_files", return_value=[file_plugin]),
+            patch.object(loader._file_source, "discover", return_value=[file_plugin]),
             caplog.at_level(logging.WARNING),
         ):
             loader.load_all(app)
@@ -135,8 +140,8 @@ class TestFileDiscoveryIntegration:
 
         with (
             patch.object(
-                loader,
-                "_discover_from_files",
+                loader._file_source,
+                "discover",
                 return_value=[file_plugin_collides, file_plugin_unique],
             ),
             caplog.at_level(logging.WARNING),
@@ -160,7 +165,7 @@ class TestFileDiscoveryIntegration:
         loader = PluginLoader()
         app = MagicMock()
 
-        with patch.object(loader, "_discover_from_files", return_value=[]):
+        with patch.object(loader._file_source, "discover", return_value=[]):
             loader.load_all(app)
 
         assert loader.loaded_plugins == {}
@@ -190,7 +195,7 @@ class TestFileDiscoveryIntegration:
         loader = PluginLoader()
         app = MagicMock()
 
-        with patch.object(loader, "_discover_from_files", return_value=[file_plugin]):
+        with patch.object(loader._file_source, "discover", return_value=[file_plugin]):
             loader.load_all(app)
 
         # Both should be loaded (topological sort handles ordering)

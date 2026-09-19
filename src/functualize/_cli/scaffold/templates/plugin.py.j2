@@ -6,8 +6,7 @@ Register this plugin in your pyproject.toml:
     {{ plugin_name }} = "{{ module_name }}:register"
 """
 
-from functualize.app import FunctualizeApp
-
+from functualize.plugin import PluginHost
 
 # Plugin metadata — required by the functualize plugin protocol.
 name = "{{ plugin_name }}"
@@ -15,14 +14,17 @@ version = "0.1.0"
 description = "A functualize plugin: {{ plugin_name }}"
 
 
-def register(app: FunctualizeApp) -> None:
+def register(app: PluginHost) -> None:
     """Register this plugin with the functualize application.
 
     This function is called by the plugin loader during boot.
     Use it to register DI capabilities, add commands, or add lifecycle hooks.
 
     Args:
-        app: The FunctualizeApp instance to extend.
+        app: The host, as the plugin port. `PluginHost` rather than the
+            concrete `FunctualizeApp`: it is the eleven members a plugin is
+            meant to use, so a reach past them is a type error here instead of
+            a surprise in someone else's release.
     """
     # Example: register a DI capability
     # app.di.provide(MyService, MyServiceImpl())
@@ -30,6 +32,6 @@ def register(app: FunctualizeApp) -> None:
     # Example: register a plugin command
     # app.extensions.register_plugin_command("my-cmd", my_handler, "Description")
 
-    # Example: register a lifecycle hook
-    # app.hook_registry.register_global("before_job", my_before_hook)
+    # Example: register a lifecycle hook that runs once, after boot
+    # app.hooks.on_ready(my_ready_handler)
     pass

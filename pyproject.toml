@@ -46,10 +46,6 @@ func = "functualize._cli.main:main"
 [project.entry-points."functualize.format_providers"]
 toml = "functualize._config.providers.toml:TomlFormatProvider"
 
-[project.entry-points."functualize.vault_key_providers"]
-env = "functualize._config.vault_keys:EnvKeyProvider"
-keychain = "functualize._config.vault_keys:KeychainKeyProvider"
-
 [project.entry-points."functualize.remote_providers"]
 
 [dependency-groups]
@@ -112,7 +108,7 @@ cli = [
 all = [
     "functualize[cli]",
     "functualize[keychain]",
-    "functualize-state-sqlite",
+    "functualize-substrate-sqlite",
     "functualize-http",
     "functualize-lambda",
     "functualize-inline",
@@ -147,10 +143,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.workspace]
-members = ["plugins/*"]
+members = ["plugins/*/*"]
 
 [tool.uv.sources]
-functualize-state-sqlite = { workspace = true }
+functualize-substrate-sqlite = { workspace = true }
 functualize-http = { workspace = true }
 functualize-inline = { workspace = true }
 functualize-flow-viz = { workspace = true }
@@ -193,6 +189,7 @@ markers = [
     "integration: marks tests as integration tests (test plugin loading and cross-module interactions)",
     "perf_budget: marks wall-clock startup budget assertions (skipped under coverage or xdist; see tests/perf/conftest.py)",
     "real_state_root: opts out of the autouse state-root sandbox, for a test whose subject is the path resolution itself (see tests/conftest.py::_isolate_state_root)",
+    "installed_plugins: opts in to real entry-point plugin discovery, so a test can assert that an installed plugin takes effect; the root suite otherwise hides distributions that would change core's defaults (see tests/conftest.py::_hide_default_changing_plugins)",
     "json_substrate: the subject is JsonFileSubstrate itself — a path, a file size, or a hand-written JSON fixture — so it is skipped when FUNCTUALIZE_TEST_SUBSTRATE names another backend (see tests/conftest.py::_alternate_substrate)",
 ]
 
@@ -250,7 +247,7 @@ ignore_missing_imports = true
 root_package = "functualize"
 # Unchanged deliberately, and measured rather than assumed: an import inside
 # `if TYPE_CHECKING:` is not an edge in import-linter's graph, so it can cross a
-# boundary the six contracts below refuse while CI stays green. The hole is
+# boundary the seven contracts below refuse while CI stays green. The hole is
 # 155 statements wide, of which **8 would be refused as direct edges** — five
 # package pairs, named one by one in
 # `contributor/architecture/layer-contract-blind-spot.md` along with why each is

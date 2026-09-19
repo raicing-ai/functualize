@@ -29,12 +29,12 @@ running the phases — not ad-hoc edits.
 
 ## What is mechanically enforced
 
-**Modifying `src/functualize/**` or `plugins/*/src/**` requires an existing
+**Modifying `src/functualize/**` or `plugins/**/src/**` requires an existing
 `.spec/features/*/tasks.md` carrying a parseable `## Task Dependency Graph`.**
 A `PreToolUse` hook denies the write otherwise.
 
 Not gated, so the Specify and Plan phases work normally: `.spec/`, `tests/`,
-`plugins/*/tests/`, `plugins/conftest.py`, every `pyproject.toml`, `docs/`,
+`plugins/**/tests/`, `plugins/conftest.py`, every `pyproject.toml`, `docs/`,
 `contributor/`, `.claude/`.
 
 The gate fails open. If the validator cannot decide — malformed input, missing
@@ -140,6 +140,22 @@ architecture gate runs *before* any approach exists to blast-radius.
   refused; an agent that reads "command not found" as "unavailable" silently
   drops a required pass. Locate the binary before concluding anything — the
   Plan command carries the paths.
+- **A missing index is built, not worked around.** A fresh checkout or worktree
+  has no zvec-grep index, and the MCP tool says so with `[INDEX_MISSING] …
+  requires explicit user authorization`. That authorization is **standing**
+  (maintainer, 2026-09-16): build the index and carry on, in any checkout of
+  this repo, without asking. Falling back to `rg` is not an equivalent — `rg`
+  cannot find an argument, and the prose pass exists to find arguments. The
+  scoped build command and its measured cost (~1-2 min, ~81 MB, gitignored) are
+  in [`.claude/skills/code-intel/SKILL.md`](../skills/code-intel/SKILL.md) →
+  *zvec-grep*. Start it in the background and run the `rg` half of the same pass
+  while it builds.
+- **A count about syntax is an AST question, not a regex question.** Annotation,
+  signature and arity censuses taken with `rg` silently count docstrings and
+  comments: the `app: Any` census for `plugin-host-protocol` read 42 from `rg`
+  and 40 of 44 from an `ast` walk, because Google-style `app: The FunctualizeApp
+  instance` matches the same pattern. If the number would change a decision,
+  walk the tree.
 
 Routing (which tool for which question) is
 [`.claude/skills/code-intel/SKILL.md`](../skills/code-intel/SKILL.md); timing and

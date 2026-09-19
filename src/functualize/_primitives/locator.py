@@ -481,6 +481,73 @@ class ResourceLocator:
 # =============================================================================
 
 
+def find_functualize_dir(start: Path) -> Path | None:
+    """Search upward from ``start`` for a ``.functualize/`` directory.
+
+    The project-root walk — "walk C" in
+    `.spec/features/declared-plugin-directories/research.md` §5. Returns the
+    ``.functualize/`` directory itself, or None in standalone mode (no such
+    directory anywhere above ``start``). Bounded only by the filesystem root.
+
+    **This used to exist twice**, in ``cache_format.py`` and ``fresh_format.py``,
+    and the two were *not* identical however much they looked it: the freshness
+    copy did ``Path(start).resolve()`` first and the cache copy did not. Measured
+    from ``<root>/sub/deep`` with ``.functualize/`` at ``<root>``::
+
+        cache_format(Path("."))  -> None          # `.`.parent is `.`; walk ends at once
+        fresh_format(Path("."))  -> <root>/.functualize
+
+    They agreed only when the caller had already passed an absolute path. Every
+    caller does today — ``Path.cwd()``, or a path the caller resolved first — so
+    the resolving form is adopted here: it is what the two agreed on in practice,
+    and it closes a latent bug where ``resolve_cache_path`` would silently answer
+    *standalone* for a relative argument.
+
+    Note for anyone re-collapsing this: both ``cache_format`` and ``fresh_format``
+    must **bind this name into their own namespace** and call it unqualified.
+    ``tests/conftest.py::_isolate_state_root`` monkeypatches ``fresh_format``'s
+    binding *only*, to sandbox runtime state into ``tmp_path`` while leaving the
+    discovery cache alone. A qualified ``locator.find_functualize_dir(...)`` call
+    would slip that patch — and the suite would stay green while tests wrote
+    durable state outside ``tmp_path``, which is exactly the flake that fixture
+    exists to stop.
+    """
+    current = Path(start).resolve()
+    while True:
+        candidate = current / ".functualize"
+        if candidate.is_dir():
+            return candidate
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
+def xdg_config_dir(app_name: str = "functualize") -> Path:
+    """Return the XDG *config* directory for ``app_name``.
+
+    ``$XDG_CONFIG_HOME/<app_name>`` when that variable is set to a non-empty
+    string, else ``~/.config/<app_name>``. The empty-string check is load
+    bearing: an exported-but-empty ``XDG_CONFIG_HOME`` must fall back, which
+    ``os.environ.get(...) is None`` would not catch.
+
+    Public, unlike its two siblings below, because it is read from two layers —
+    ``_config/project_dirs.py`` for the *Global* precedence rung, and
+    ``app/utils.py::resolve_user_config_dir`` which wraps it for the public
+    surface. It also returns the path already suffixed with ``app_name``, where
+    the siblings return the bare base and leave suffixing to their caller.
+
+    **Deliberately has no Windows branch**, where ``_xdg_cache_dir`` and
+    ``_xdg_data_dir`` do. That asymmetry predates this function and is preserved
+    rather than tidied: adding one would move every Windows user's config file
+    out from under them. Left as a known difference, not an oversight.
+    """
+    xdg = os.environ.get("XDG_CONFIG_HOME", "")
+    if xdg:
+        return Path(xdg) / app_name
+    return Path.home() / ".config" / app_name
+
+
 def _xdg_cache_dir() -> Path:
     """Return XDG-compliant cache directory.
 

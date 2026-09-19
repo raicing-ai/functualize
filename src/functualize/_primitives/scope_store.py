@@ -20,7 +20,7 @@ for one node takes the lock once with :meth:`ScopeStore.batch`.
 **Record shape is unchanged** from when these records lived in ``fresh.json``.
 Every section is a flat ``{str: record}`` mapping, which is what the
 ``StateBackend`` KV protocol (``get``/``set``/``delete``/``keys``) addresses, so
-``functualize-state-sqlite`` can back this store later without a record-format
+``functualize-substrate-sqlite`` can back this store later without a record-format
 change. That seam is preserved, not built.
 """
 

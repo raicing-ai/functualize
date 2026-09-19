@@ -8,7 +8,7 @@ directly instead; each carries a ``# Deliberate exception`` comment naming why:
   packages (import-linter contract), so it cannot reach the cached helper.
 - ``src/functualize/_cli/tui/display_provider_discovery.py`` — same ``_cli``
   restriction.
-- ``plugins/functualize-ai/src/functualize_ai/_provider_discovery.py`` — a
+- ``plugins/domains/functualize-ai/src/functualize_ai/_provider_discovery.py`` — a
   standalone-published distribution whose pyproject declares no ``functualize``
   dependency, so importing the internal helper would be an undeclared
   dependency.
@@ -19,7 +19,7 @@ count, so a fourth direct caller **in that surface** cannot appear silently —
 it must either use the cached helper or be added here with its reason.
 
 **What "that surface" means, and what it does not.** The scan covers
-``src/functualize/`` and ``plugins/*/src/``: the code that runs during boot,
+``src/functualize/`` and ``plugins/*/*/src/``: the code that runs during boot,
 which is the whole point — the invariant is that *booting* scans the installed
 path once. ``tests/`` is deliberately outside it, and there is a live direct
 caller there (``tests/test_packaging.py``) which is fine: a test that asks the
@@ -43,7 +43,16 @@ import ast
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
-_PLUGINS_SRC = sorted((_ROOT / "plugins").glob("*/src"))
+_PLUGINS_SRC = sorted((_ROOT / "plugins").glob("*/*/src"))
+# `plugin-taxonomy`/T3 grouped the plugin directories one level deeper, so this
+# glob changed shape. Asserted rather than trusted: a glob that stops matching
+# returns `[]`, and this scan would then walk zero plugin files, assert nothing
+# about them, and stay **green** -- a vacuous test reporting success. The same
+# silent-failure shape as the spec gate's old path predicate, which is why it is
+# nailed down here instead of being left to the next person to notice.
+assert _PLUGINS_SRC, (
+    "no plugin src/ directories found -- the layout moved and this glob did not"
+)
 #: The stdlib function a bypass reaches, spelled the way the AST resolves it.
 #: The canonical module is excluded from the scan: it is the cache, not a
 #: bypass.
@@ -59,7 +68,7 @@ _EXCEPTION_MARKER = "# Deliberate exception"
 _DOCUMENTED_SITES = {
     Path("functualize/_cli/skills.py"),
     Path("functualize/_cli/tui/display_provider_discovery.py"),
-    Path("functualize-ai/src/functualize_ai/_provider_discovery.py"),
+    Path("domains/functualize-ai/src/functualize_ai/_provider_discovery.py"),
 }
 
 _CANONICAL_MODULE = Path("functualize/_primitives/entry_points.py")
@@ -70,9 +79,9 @@ def _python_files() -> list[tuple[Path, Path]]:
 
     ``scan_root`` is the directory the file is relative to — ``src/`` for core
     modules (so paths read ``functualize/_cli/…``), the repo root for plugins
-    (so paths read ``plugins/<name>/src/…``). Keeping both rooted consistently
+    (so paths read ``plugins/<group>/<name>/src/…``). Keeping both rooted consistently
     lets the documented-site set below be spelled the same way the gate's
-    ``src/ plugins/*/src/`` invocation sees them.
+    ``src/ plugins/*/*/src/`` invocation sees them.
     """
     files: list[tuple[Path, Path]] = []
     for file in sorted((_ROOT / "src").rglob("*.py")):

@@ -1,0 +1,10 @@
+# The shared root. Both child apps sit under this directory, and both find the
+# plugin in `.functualize/plugins/` by walking up to here — no matter which
+# directory you run `func` from.
+#
+# `root = true` stops the config walk at this directory. Without it the walk
+# continues to the filesystem root, and a `[tool.functualize]` section in some
+# ancestor (your home directory, a parent checkout) would merge in silently.
+# Nothing above this example declares one today; the line is here because a
+# shared root is exactly where you want that guarantee.
+root = true

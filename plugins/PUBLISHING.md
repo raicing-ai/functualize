@@ -99,24 +99,31 @@ Levels below count **plugin-to-plugin** dependencies only. A dependency on the
 `functualize` core package does not create a level, since core is always published
 in the same run.
 
+Read from each plugin's `pyproject.toml`, not from memory — the previous version
+of this graph had `functualize-state` at level 0 with three dependents, and that
+distribution was removed by ADR-022.
+
 ```
 Level 0 — No plugin dependencies
-├── functualize-state           → pydantic          (no core dep)
+├── functualize-ai              → pydantic          (no core dep)
 ├── functualize-tasks           → pydantic          (no core dep)
 ├── functualize-http            → core
 ├── functualize-lambda          → core
 ├── functualize-inline          → core, textual
 ├── functualize-flow-viz        → core, textual
-└── functualize-mcp             → core, fastmcp
+├── functualize-mcp             → core, fastmcp
+├── functualize-substrate-sqlite → core
+├── functualize-aws             → core, boto3
+└── functualize-bitwarden       → core, bitwarden-sdk
 
 Level 1 — Depends on Level 0 plugins
-├── functualize-ai              → functualize-state
-├── functualize-state-sqlite    → functualize-state, core
-└── functualize-tasks-local     → functualize-tasks, functualize-state
-
-Level 2 — Depends on Level 1 plugins
-└── functualize-ai-pydantic     → functualize-ai, pydantic-ai, litellm
+├── functualize-ai-pydantic     → functualize-ai, pydantic-ai, litellm
+└── functualize-tasks-local     → functualize-tasks
 ```
+
+The two domain SDKs (`functualize-ai`, `functualize-tasks`) depend on `pydantic`
+and **not on core**, which is what lets a job be written against a capability
+without pulling the framework in.
 
 **Publishing order in practice:** ordering is informational. `.github/workflows/release.yml`
 builds every workspace package with `uv build --all-packages` and hands the whole
@@ -125,8 +132,8 @@ action. The graph matters when publishing a package by hand, or when reasoning a
 which installs break during a partial release.
 
 **Version pinning:** cross-plugin dependencies are pinned `>=0.1.0,<1.0.0`, except
-`functualize-ai`'s dependency on `functualize-state` and `functualize-ai-pydantic`'s
-on `functualize-ai`, which are unpinned. So is every plugin named in the core
+`functualize-ai-pydantic`'s dependency on `functualize-ai` and
+`functualize-tasks-local`'s on `functualize-tasks`, which are unpinned. So is every plugin named in the core
 package's `[all]` extra. Unpinned names are also unclaimed names — see the note in
 Current Classification.
 
@@ -171,7 +178,7 @@ Public classes and functions exported by this plugin:
 Run plugin tests:
 
 \```bash
-uv run pytest plugins/functualize-<name>/tests/ -v
+uv run pytest plugins/<group>/functualize-<name>/tests/ -v
 \```
 ```
 
@@ -191,7 +198,6 @@ Tier 1 bar*, not *currently downloadable*.
 
 | Plugin | Tier | Level | Notes |
 |--------|------|-------|-------|
-| functualize-state | 1 — Ready | 0 | State management capability |
 | functualize-tasks | 1 — Ready | 0 | Task queue domain protocol |
 | functualize-http | 1 — Ready | 0 | HTTP adapter (FastAPI/Starlette) |
 | functualize-lambda | 1 — Ready | 0 | AWS Lambda adapter |
@@ -199,7 +205,7 @@ Tier 1 bar*, not *currently downloadable*.
 | functualize-flow-viz | 1 — Ready | 0 | Workflow execution visualization |
 | functualize-mcp | 1 — Ready | 0 | MCP (Model Context Protocol) integration |
 | functualize-ai | 1 — Ready | 1 | AI/LLM capability |
-| functualize-state-sqlite | 1 — Ready | 1 | SQLite state backend |
+| functualize-substrate-sqlite | 1 — Ready | 1 | SQLite state backend |
 | functualize-tasks-local | 1 — Ready | 1 | Local state-backed task queue |
 | functualize-ai-pydantic | 1 — Ready | 2 | PydanticAI provider bridge |
 | functualize-fullscreen-tui | 3 — Experimental | — | **Not a package.** No `pyproject.toml`, so it is not a uv workspace member and is never built or published. Source and tests only |
@@ -223,8 +229,7 @@ These are the eleven distributions built by `uv build --all-packages`, alongside
 
 | Plugin Directory | PyPI Package Name | Python Import |
 |-----------------|-------------------|---------------|
-| functualize-state | functualize-state | `functualize_state` |
-| functualize-state-sqlite | functualize-state-sqlite | `functualize_state_sqlite` |
+| functualize-substrate-sqlite | functualize-substrate-sqlite | `functualize_substrate_sqlite` |
 | functualize-http | functualize-http | `functualize_http` |
 | functualize-lambda | functualize-lambda | `functualize_lambda` |
 | functualize-inline | functualize-inline | `functualize_inline` |

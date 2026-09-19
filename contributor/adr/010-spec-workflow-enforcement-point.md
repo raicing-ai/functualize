@@ -47,7 +47,7 @@ available outcome.
 ## Decision
 
 **The hard gate is a `PreToolUse` hook on `Edit` / `Write` / `NotebookEdit`,
-scoped to `src/functualize/**` and `plugins/*/src/**`.** It denies the write
+scoped to `src/functualize/**` and `plugins/**/src/**`.** It denies the write
 unless a `.spec/features/*/tasks.md` with a parseable `## Task Dependency Graph`
 exists.
 

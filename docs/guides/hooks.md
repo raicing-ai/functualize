@@ -55,6 +55,13 @@ class AuditPlugin:
         rc.log(f"[audit] Job '{rc.name}' starting")
 ```
 
+!!! note "Why `app` is untyped here"
+    `hook_registry` is not a `PluginHost` member — only `APP_READY` has a
+    port door, `app.hooks.on_ready`. Every other event still goes through
+    `app.hook_registry`, which is public on `FunctualizeApp` but off the
+    narrow plugin port, so annotate such a plugin `app: FunctualizeApp`
+    rather than `Any`.
+
 **Directly in app bootstrap** (for project-specific concerns):
 
 ```python
@@ -254,12 +261,21 @@ app.hook_registry.register_global(HookEvent.PRE_EXECUTE, inject_defaults)
 Fires once after the full boot sequence completes:
 
 ```python
-def on_ready(app):
-    """Run one-time initialization after all plugins and jobs are loaded."""
-    print(f"App '{app.name}' ready with {len(app.job_registry)} jobs")
+from functualize.plugin import PluginHost
 
-app.hook_registry.register_global(HookEvent.APP_READY, on_ready)
+@app.hooks.on_ready
+def on_ready(host: PluginHost) -> None:
+    """Run one-time initialization after all plugins and jobs are loaded."""
+    print(f"{len(host.get_jobs())} jobs ready")
 ```
+
+`app.hooks.on_ready` is the typed door for this one event: it names the
+handler's signature, so a wrong arity or a non-callable is an error at the
+registration site rather than a hook that silently never fires. The decorator
+returns the function unchanged, so the name stays bound.
+
+The other fourteen events below have no such member yet and still go through
+`app.hook_registry.register_global(HookEvent.X, handler)`.
 
 ### JOB_REGISTERED
 

@@ -112,9 +112,9 @@ class TestNamesToRestore:
         A capture that failed leaves `before` empty; the manifest's records are
         still enough to put the user's plugins back.
         """
-        assert packaging.names_to_restore({}, {}, ("functualize-state-sqlite",)) == (
-            "functualize-state-sqlite",
-        )
+        assert packaging.names_to_restore(
+            {}, {}, ("functualize-substrate-sqlite",)
+        ) == ("functualize-substrate-sqlite",)
 
     def test_a_record_still_present_after_the_update_is_not_reinstalled(self) -> None:
         """Reinstalling what is already there is noise, not safety."""
@@ -251,11 +251,11 @@ class TestReceiptMerge:
             )
         )
         args = packaging.merge_receipt(
-            receipt, "functualize", "functualize-state-sqlite"
+            receipt, "functualize", "functualize-substrate-sqlite"
         )
         assert args[:3] == ("tool", "install", "functualize[cli]")
         assert "functualize-http" in args
-        assert "functualize-state-sqlite" in args
+        assert "functualize-substrate-sqlite" in args
 
     def test_the_owner_is_the_positional_and_not_a_with(self) -> None:
         receipt = Receipt(

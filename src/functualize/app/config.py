@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from functualize._discovery import Job
+from functualize._primitives.entry_point_groups import PLUGINS
 
 if TYPE_CHECKING:
     from functualize._config import ResolutionChain
@@ -172,7 +173,7 @@ class PluginSources:
     a different program entirely.
     """
 
-    entry_point_group: str = "functualize.plugins"
+    entry_point_group: str = PLUGINS
     explicit_plugins: list[Any] | None = None
     disabled: list[str] | None = None
     ambient_directory: bool = True

@@ -20,15 +20,17 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from functualize._plugins.domain_metadata import DomainMetadata
+from functualize._primitives.entry_point_groups import DOMAINS
 from functualize._primitives.entry_points import entry_points
 
 logger = logging.getLogger(__name__)
 
-DOMAINS_ENTRY_POINT_GROUP = "functualize.domains"
+DOMAINS_ENTRY_POINT_GROUP = DOMAINS
 
 
 @dataclass
@@ -247,7 +249,9 @@ def scan_domain_providers(
     return {ep.name: ep for ep in eps}
 
 
-def boot_domain_registry(app: Any) -> DomainRegistry:
+def boot_domain_registry(
+    app: Any, *, config: Mapping[str, Any] | None = None
+) -> DomainRegistry:
     """Discover domains and build the domain registry at boot time.
 
     This is the main integration point called during FunctualizeApp boot.
@@ -260,11 +264,15 @@ def boot_domain_registry(app: Any) -> DomainRegistry:
 
     Args:
         app: The FunctualizeApp instance being booted.
+        config: The project's merged config, resolved at boot step 3.5. Omitted
+            means "no project config" — every domain then auto-selects, which is
+            what happened unconditionally before this was wired.
 
     Returns:
         Populated DomainRegistry instance.
     """
     registry = DomainRegistry()
+    merged_config: Mapping[str, Any] = config or {}
 
     # Step 1: Discover all installed domain SDKs
     domains = discover_domains()
@@ -278,7 +286,7 @@ def boot_domain_registry(app: Any) -> DomainRegistry:
         registry.set_available_providers(metadata.name, providers)
 
         # Step 4: Determine configured provider from app config
-        configured_provider = _read_configured_provider(app, metadata)
+        configured_provider = _read_configured_provider(merged_config, metadata)
 
         # Step 5: Determine active provider (auto-select or configured)
         if providers:
@@ -311,28 +319,42 @@ def boot_domain_registry(app: Any) -> DomainRegistry:
     return registry
 
 
-def _read_configured_provider(app: Any, metadata: DomainMetadata) -> str | None:
-    """Read the configured provider for a domain from the app's config.
+def _read_configured_provider(
+    config: Mapping[str, Any], metadata: DomainMetadata
+) -> str | None:
+    """Read ``[<config_section>] provider`` out of the project's merged config.
 
-    Looks up the ``provider`` key in the domain's config_section.
+    **This used to be unreachable.** The guard read
+    ``hasattr(app, "_resolution_chain")``, and this function runs at boot step
+    4b — before the chain is built at step 6. Measured on a live app rather than
+    read off the source: two calls, `hasattr` False both times. So the branch
+    was always taken, the key had **never** been read, and every project that
+    wrote ``provider = "..."`` silently received the auto-selected default
+    instead. Third instance of that pattern in this repository, after
+    `functualize-ai`'s ``hasattr(app, "resolve_model")``.
+
+    It now takes the merged config the composition root already resolved at step
+    3.5, so there is no chain to be missing and no `app` to reach into.
+
+    **Narrower than the chain, and deliberately so.** This reads the File,
+    Convention and Global rungs — not CLI or Env. Those live on the resolution
+    chain, which cannot exist this early without breaking ADR-007's reason for
+    loading plugins first. Since the value resolved to None *always* before,
+    every project gains and none loses.
 
     Args:
-        app: The FunctualizeApp instance.
+        config: The merged project config (`ProjectDirectories.merged`).
         metadata: The DomainMetadata for the domain.
 
     Returns:
         The configured provider name, or None if not configured.
     """
-    if not hasattr(app, "_resolution_chain") or app._resolution_chain is None:
+    section = config.get(metadata.config_section)
+    if not isinstance(section, Mapping):
         return None
 
-    try:
-        resolved = app._resolution_chain.resolve("provider", metadata.config_section)
-        value = resolved.value
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    except Exception:
-        # Config section or key may not exist — that's fine
-        pass
+    value = section.get("provider")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
 
     return None

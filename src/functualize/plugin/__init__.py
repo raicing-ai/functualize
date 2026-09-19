@@ -15,6 +15,7 @@ from functualize._events.hooks import HookEvent
 from functualize._plugins.domain_registry import discover_domains, scan_domain_providers
 from functualize._plugins.loader import PluginMetadata
 from functualize._types.commands import CommandNode, CommandProvider
+from functualize._types.host import PluginHost
 from functualize._types.input_modes import DEFAULT_SIGIL, InputMode, InputModeRegistry
 from functualize._types.interactivity import (
     LiveConstruct,
@@ -79,6 +80,16 @@ __all__ = [
     "ModulePreFilter",
     # Adapter and plugin protocols
     "AdapterPlugin",
+    # The host port: what a plugin may ask of the application that loaded it.
+    # Annotate `app` with this instead of `Any` or the concrete
+    # `FunctualizeApp` — eleven members, each one earned by a measured client
+    # count, and `AdapterPlugin.__call__` names it too.
+    #
+    # `PluginHost` alone, deliberately: its five view protocols
+    # (`DependencyView` and the rest) are reached *through* it — `app.di` is
+    # already typed — so importing them separately is never necessary to
+    # write a plugin. They stay internal until something needs to name one.
+    "PluginHost",
     "AppSettingsSchema",
     "CommandNode",
     "CommandProvider",

@@ -71,9 +71,15 @@ own rules about meaning.
 
 - `functualize-state` is **removed**.
 - `StateStoreProtocol` and `WorkflowScope.replace_state_store` are **removed**.
-- `functualize-state-sqlite` implements `StoreSubstrate`.
-- A plugin installs one via `EngineHost.substrate`, at `APP_READY`. Every store
-  the engine builds follows, so the choice moves all of them or none.
+- `functualize-state-sqlite` implements `StoreSubstrate`. **Renamed to `functualize-substrate-sqlite` by `plugin-taxonomy` (2026-09-18)** — the name still said *state*, which is the word this ADR retired. The decision below is unchanged; only the distribution's name is.
+- A plugin installs one via `PluginHost.install_substrate()`, at `APP_READY`.
+  Every store the engine builds follows, so the choice moves all of them or
+  none.
+  *(Amended by `plugin-host-protocol`/T3: this said `EngineHost.substrate`,
+  which was one name doing two jobs. `substrate` is now the storage **in
+  effect**, `EngineHost.substrate_override` is the slot the engine reads, and
+  installing is a **call** whose guard can refuse a late one instead of
+  half-applying it.)*
 
 ### Why this is not the same idea renamed
 

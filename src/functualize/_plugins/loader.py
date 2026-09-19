@@ -14,15 +14,17 @@ Only imports from _types/, _primitives/, _events/, and Python stdlib.
 from __future__ import annotations
 
 import contextlib
-import importlib.util
-import inspect
 import logging
-import re
 import time
-from pathlib import Path
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from functualize._plugins.config import PluginConfigRegistry
+from functualize._plugins.file_source import FilePluginSource
+from functualize._plugins.metadata import (
+    _validate_metadata,
+)
+from functualize._primitives.entry_point_groups import PLUGINS
 from functualize._primitives.entry_points import entry_points
 
 if TYPE_CHECKING:
@@ -36,16 +38,6 @@ __all__ = [
     "PluginLoader",
     "topological_sort",
 ]
-
-# PEP 440 version pattern
-_PEP440_PATTERN = re.compile(
-    r"^([1-9][0-9]*!)?"  # epoch
-    r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*"  # release
-    r"((a|b|rc)(0|[1-9][0-9]*))?"  # pre-release
-    r"(\.post(0|[1-9][0-9]*))?"  # post-release
-    r"(\.dev(0|[1-9][0-9]*))?$"  # dev release
-)
-
 
 # --- Dependency Resolution Errors ---
 
@@ -97,55 +89,6 @@ class PluginWithConfigResolved(Protocol):
 
 
 # --- Validation Helpers ---
-
-
-def _validate_pep440(version: str) -> bool:
-    """Check if a version string conforms to PEP 440."""
-    return _PEP440_PATTERN.match(version) is not None
-
-
-def _validate_metadata(plugin: Any, entry_point_name: str) -> list[str]:
-    """Validate plugin metadata attributes.
-
-    Returns a list of validation error messages. Empty list means valid.
-    """
-    errors: list[str] = []
-
-    # Check name attribute
-    if not hasattr(plugin, "name"):
-        errors.append("missing 'name' attribute")
-    else:
-        name = plugin.name
-        if not isinstance(name, str):
-            errors.append(f"'name' must be a string, got {type(name).__name__}")
-        elif len(name) > 64:
-            errors.append(f"'name' exceeds 64 characters (got {len(name)})")
-
-    # Check version attribute
-    if not hasattr(plugin, "version"):
-        errors.append("missing 'version' attribute")
-    else:
-        version = plugin.version
-        if not isinstance(version, str):
-            errors.append(f"'version' must be a string, got {type(version).__name__}")
-        elif not _validate_pep440(version):
-            errors.append(f"'version' does not conform to PEP 440: {version!r}")
-
-    # Check description attribute
-    if not hasattr(plugin, "description"):
-        errors.append("missing 'description' attribute")
-    else:
-        description = plugin.description
-        if not isinstance(description, str):
-            errors.append(
-                f"'description' must be a string, got {type(description).__name__}"
-            )
-        elif len(description) > 256:
-            errors.append(
-                f"'description' exceeds 256 characters (got {len(description)})"
-            )
-
-    return errors
 
 
 def _has_config_declaration(plugin: Any) -> bool:
@@ -246,10 +189,13 @@ class PluginLoader:
     - Plugins without config attributes are loaded without config resolution
     """
 
-    def __init__(self, group: str = "functualize.plugins"):
+    def __init__(self, group: str = PLUGINS):
         self._group = group
         self._loaded: dict[str, str] = {}  # plugin name -> entry point name
         self._loaded_instances: list[Any] = []  # plugin instances in loading order
+        # Composition, not inheritance: the on-disk plugin format is its own
+        # responsibility, and this class was 595 lines against the ~500 bar.
+        self._file_source = FilePluginSource()
 
     @property
     def loaded_plugins(self) -> dict[str, str]:
@@ -268,6 +214,8 @@ class PluginLoader:
         perf_timeline: Any | None = None,
         disabled: set[str] | None = None,
         explicit: list[Any] | None = None,
+        *,
+        directories: Sequence[str] | None = None,
     ) -> None:
         """Load all discovered plugins with dependency ordering and config resolution.
 
@@ -470,7 +418,7 @@ class PluginLoader:
                 )
 
         # --- Phase 1b: File-based discovery ---
-        file_plugins = self._discover_from_files(app)
+        file_plugins = self._file_source.discover(directories or ())
 
         # Merge: entry-point plugins take precedence on name collision
         loaded_names = {p.name for p in loaded_objects}
@@ -660,167 +608,3 @@ class PluginLoader:
         if isinstance(plugin, PluginWithConfigResolved):
             plugin.on_config_resolved(config_instance)
             logger.debug(f"Invoked on_config_resolved for plugin '{plugin_name}'")
-
-    def _resolve_plugin_directories(self, app: Any) -> list[str]:
-        """Resolve plugin directories from config or convention.
-
-        Resolution order:
-        1. Try [tool.functualize] plugins_directories from app._resolution_chain
-        2. Fall back to convention directory: .functualize/plugins/ in CWD,
-           unless the app's ``PluginSources.ambient_directory`` is False
-        3. Return empty list if neither is available
-
-        Args:
-            app: The application instance, potentially with a _resolution_chain.
-
-        Returns:
-            A list of absolute directory path strings for file plugin sources.
-        """
-        # Try config: [tool.functualize] plugins_directories
-        if hasattr(app, "_resolution_chain"):
-            try:
-                resolved = app._resolution_chain.resolve(
-                    "plugins_directories", "tool.functualize"
-                )
-                if resolved:
-                    value = resolved.value
-                    paths = value if isinstance(value, list) else [value]
-                    return [str(Path(p).resolve()) for p in paths]
-            except Exception:
-                logger.debug("Could not resolve plugins_directories from config")
-
-        # Convention fallback: .functualize/plugins/ in CWD.
-        #
-        # Implicit, so a caller that asked for one file rather than a project
-        # can decline it (`PluginSources.ambient_directory`). The config-read
-        # above is unaffected — a declared directory stays declared.
-        sources = getattr(app, "_plugin_sources", None)
-        if sources is not None and not getattr(sources, "ambient_directory", True):
-            return []
-
-        convention = Path.cwd() / ".functualize" / "plugins"
-        if convention.is_dir():
-            return [str(convention)]
-
-        return []
-
-    def _discover_from_files(self, app: Any) -> list[Any]:
-        """Scan plugin directories for *.py files and load as plugins.
-
-        Scans each resolved plugin directory for top-level .py files (non-recursive),
-        skipping files whose name starts with '_'. Files are sorted case-insensitively
-        for deterministic ordering. Same-name duplicates within the scan are detected
-        and only the first (alphabetically) is loaded.
-
-        Args:
-            app: The application instance.
-
-        Returns:
-            A list of valid plugin objects discovered from file-based plugins.
-        """
-        dirs = self._resolve_plugin_directories(app)
-        loaded: list[Any] = []
-        loaded_names: set[str] = set()
-
-        for plugin_dir in dirs:
-            dir_path = Path(plugin_dir)
-            if not dir_path.is_dir():
-                logger.debug(f"Plugin directory does not exist: {plugin_dir}")
-                continue
-
-            # Sort files case-insensitively for deterministic ordering
-            py_files = sorted(dir_path.glob("*.py"), key=lambda f: f.name.lower())
-
-            for py_file in py_files:
-                if py_file.name.startswith("_"):
-                    continue
-
-                plugin = self._load_file_plugin(py_file)
-                if plugin is None:
-                    continue
-
-                # Handle same-name duplicates: first alphabetically wins
-                plugin_name = plugin.name
-                if plugin_name in loaded_names:
-                    logger.warning(
-                        f"Duplicate file plugin name '{plugin_name}' "
-                        f"from '{py_file}'. Already loaded from an earlier "
-                        f"file. Skipping."
-                    )
-                    continue
-
-                loaded_names.add(plugin_name)
-                loaded.append(plugin)
-
-        return loaded
-
-    def _load_file_plugin(self, py_file: Path) -> Any | None:
-        """Load a single file plugin via importlib.
-
-        Attempts to import the file as a module. Checks for a module-level
-        `plugin` attribute first; if absent, inspects module members for any
-        object satisfying the PluginMetadata protocol.
-
-        Args:
-            py_file: Path to the .py file to load.
-
-        Returns:
-            The plugin object if successfully loaded and validated, or None.
-        """
-        try:
-            spec = importlib.util.spec_from_file_location(py_file.stem, py_file)
-            if spec is None or spec.loader is None:
-                logger.warning(
-                    f"Failed to load file plugin '{py_file}': "
-                    f"could not create module spec"
-                )
-                return None
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-        except Exception as e:
-            logger.warning(f"Failed to load file plugin '{py_file}': {e}")
-            return None
-
-        # Check for module-level `plugin` attribute first
-        plugin = getattr(module, "plugin", None)
-        if plugin is None:
-            # Inspect module for PluginMetadata protocol objects
-            plugin = self._find_plugin_in_module(module)
-
-        if plugin is None:
-            return None
-
-        # Validate metadata
-        errors = _validate_metadata(plugin, str(py_file))
-        if errors:
-            logger.warning(f"File plugin '{py_file}' invalid: {'; '.join(errors)}")
-            return None
-
-        return plugin
-
-    def _find_plugin_in_module(self, module: Any) -> Any | None:
-        """Inspect a module for objects satisfying the PluginMetadata protocol.
-
-        Looks for any object in the module that has `name`, `version`,
-        `description` string attributes and is callable.
-
-        Args:
-            module: The imported module to inspect.
-
-        Returns:
-            The first matching plugin object, or None if no candidate found.
-        """
-        for _attr_name, obj in inspect.getmembers(module):
-            if obj is module:
-                continue
-            if (
-                hasattr(obj, "name")
-                and hasattr(obj, "version")
-                and hasattr(obj, "description")
-                and isinstance(getattr(obj, "name", None), str)
-                and isinstance(getattr(obj, "version", None), str)
-                and isinstance(getattr(obj, "description", None), str)
-                and callable(obj)
-            ):
-                return obj
-        return None

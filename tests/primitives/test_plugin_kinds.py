@@ -24,6 +24,16 @@ class TestKnownGroups:
             ("functualize.plugins", PluginKind.ADAPTER),
             ("functualize.domains", PluginKind.DOMAIN),
             ("functualize.remote_providers", PluginKind.IMPLEMENTATION),
+            # Retired groups, kept on purpose. `classify_group` is generic over
+            # the `<x>_providers` shape and knows nothing about which groups are
+            # live, so these still classify -- and that is the point worth
+            # pinning: **classifying a group is not loading it**. Both of these
+            # classified beautifully while nothing read them, which is the
+            # defect `plugin-taxonomy` exists to close. What makes a
+            # `_providers` group readable is a live `DomainMetadata` naming it
+            # (`_plugins/domain_registry.py`), not its spelling; the reachable
+            # set is asserted in
+            # `tests/spec/test_every_declared_group_has_a_reader.py`.
             ("functualize.state_providers", PluginKind.IMPLEMENTATION),
             ("functualize.ai_providers", PluginKind.IMPLEMENTATION),
             ("functualize.tasks_providers", PluginKind.IMPLEMENTATION),

@@ -8,7 +8,9 @@
 # `func greet` failed with "Unknown command 'greet'" while the three functions
 # in test_file_plugin.py registered as jobs in its place.
 #
-# `plugins_directories` is deliberately NOT set. Leaving it unset is what makes
-# the loader fall back to the convention directory `.functualize/plugins/`,
-# which is the behaviour this example exists to demonstrate.
+# `plugins_directories` is deliberately NOT set — this example is about the
+# zero-configuration path, and the convention directory `.functualize/plugins/`
+# is what that path uses. Setting the key would work (it resolves up the config
+# walk and composes *with* the convention directory rather than replacing it),
+# it would just be demonstrating a different thing.
 jobs_directories = ["jobs"]

@@ -13,9 +13,23 @@
 
 ## Entry-Point Groups (plugin/extension discovery)
 
+Core reads **seven** groups from a fixed call site, named in one place —
+`src/functualize/_primitives/entry_point_groups.py`, whose `READ_GROUPS` is the
+authority for this table. Anything else is read only if an installed domain
+SDK's `DomainMetadata.entry_point_group` names it, which is the *only* way a
+`functualize.<x>_providers` group acquires a reader. A `_providers` group with
+no domain behind it loads nothing —
+`tests/spec/test_every_declared_group_has_a_reader.py` fails the build if one
+is declared.
+
 | Group | Populated by | Purpose |
 |---|---|---|
-| `functualize.plugins` | Plugin packages (empty in core `pyproject.toml`) | Dynamic plugin discovery at boot (`_plugins/loader.py`) |
+| `functualize.plugins` | Plugin packages (empty in core `pyproject.toml`) | Dynamic plugin discovery at boot (`_plugins/loader.py`). Also where substrates and the inline prompt surface register — they are not domain providers |
+| `functualize.domains` | Domain SDKs: `functualize-ai`, `functualize-tasks` | `_plugins/domain_registry.py`; each names its own provider group |
+| `functualize.<x>_providers` | Implementations of a domain: `ai_providers`, `tasks_providers` | Scanned by `domain_registry.scan_domain_providers` from a live `DomainMetadata` |
+| `functualize.jobs` | Distributions shipping jobs | `_app/boot.py` — a job *source*, not an extension |
+| `functualize.skills` | Distributions shipping agent skills | `_cli/skills.py` |
+| `functualize.displays` | TUI display providers | `_cli/tui/display_provider_discovery.py` |
 | `functualize.format_providers` | Core: `toml` → `functualize._config.providers.toml:TomlFormatProvider`. `IniFormatProvider` is in-tree but **not** registered by default (ADR-007) — a plugin or a third-party entry point registers it. | Config file format parsers |
 | `functualize.remote_providers` | Reserved, empty in core; populated by plugins | Remote config source providers |
 
@@ -81,9 +95,9 @@ JobResult
 |---|---|---|
 | `CliAdapter` | `app/adapters/cli.py` | Click command dispatch, built into core `[cli]` extras. Builds one `click.Group` per path segment; a segment whose group declares `GroupOptions` also carries those as real click params, consumed **mid-path** (`glab deploy --env prod web run v1.2`) — see ADR-009 decision 11 |
 | `TuiAdapter` | `app/adapters/tui.py` + `_cli/tui/app.py` | inline SmartBar TUI (bare `func` on a TTY) / full-screen TUI |
-| HTTP adapter | `plugins/functualize-http` | asyncio HTTP server, `AdapterPlugin.run()` |
-| Lambda adapter | `plugins/functualize-lambda` | AWS Lambda event → `app.execute()` |
-| MCP adapter | `plugins/functualize-mcp` | FastMCP tool exposure of jobs |
+| HTTP adapter | `plugins/adapters/functualize-http` | asyncio HTTP server, `AdapterPlugin.run()` |
+| Lambda adapter | `plugins/adapters/functualize-lambda` | AWS Lambda event → `app.execute()` |
+| MCP adapter | `plugins/adapters/functualize-mcp` | FastMCP tool exposure of jobs |
 
 All delivery adapters converge on the same `engine.execute(name, fn, config_class, kwargs)` call — see `contributor/architecture/execution-flow.md` and `data-flow.md`.
 

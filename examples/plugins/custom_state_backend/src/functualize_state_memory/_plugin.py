@@ -1,13 +1,13 @@
 """Plugin boot class for the in-memory substrate.
 
-Discovered through the ``functualize.state_providers`` entry point and called
+Discovered through the ``functualize.plugins`` entry point and called
 with the app at boot. It registers **one** thing — the substrate — and every
 store follows, because there is one place that decides where documents live.
 
 This used to register a `StateBackend` into the DI registry, which is a seam
 that no longer exists: `contributor/adr/022` records why a backend-agnostic
 key-value domain was retired. The shape here mirrors
-`functualize-state-sqlite`'s plugin exactly, which is the point — a substrate
+`functualize-substrate-sqlite`'s plugin exactly, which is the point — a substrate
 in a dict and a substrate in a database are installed the same way.
 """
 
@@ -28,7 +28,7 @@ class MemoryStatePlugin:
 
     Entry point configuration in pyproject.toml::
 
-        [project.entry-points."functualize.state_providers"]
+        [project.entry-points."functualize.plugins"]
         memory-ttl = "functualize_state_memory:MemoryStatePlugin"
     """
 
@@ -45,9 +45,7 @@ class MemoryStatePlugin:
         return self._substrate
 
     def __call__(self, app: Any) -> None:
-        from functualize._events.hooks import HookEvent
-
-        app.hook_registry.register_global(HookEvent.APP_READY, self._on_app_ready)
+        app.hooks.on_ready(self._on_app_ready)
 
     def _on_app_ready(self, app: Any) -> None:
         """Choose the substrate once, before anything has resolved one.
@@ -58,5 +56,5 @@ class MemoryStatePlugin:
         another is the state the substrate seam exists to make unreachable.
         """
         self._substrate = MemorySubstrate()
-        app.substrate = self._substrate
+        app.install_substrate(self._substrate)
         logger.debug("state-memory installed an in-memory substrate")

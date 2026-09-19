@@ -51,7 +51,7 @@ NoneType = type(None)
 if TYPE_CHECKING:
     from functualize._engine.middleware import ExecutionMiddlewareChain
     from functualize._engine.result import RegisteredJob
-    from functualize._types.protocols import EngineHost
+    from functualize._types.protocols import EngineHost, StoreSubstrate
     from functualize._types.run_request import RunRequest
 
 logger = logging.getLogger(__name__)
@@ -239,7 +239,7 @@ class JobExecutionEngine:
         self._dependency_runner = DependencyRunner(self)
         self._workflow_state_store: Any = None
         #: Resolved on first use, then held. See :attr:`substrate`.
-        self._substrate: Any = None
+        self._substrate: StoreSubstrate | None = None
         #: Scopes this process has already built, by id, so two runs
         #: naming one scope share it rather than racing on the file.
         self._scopes: dict[str, Any] = {}
@@ -1507,23 +1507,24 @@ class JobExecutionEngine:
         return result
 
     @property
-    def substrate(self) -> Any:
+    def substrate(self) -> StoreSubstrate:
         """Where this project's documents live. **Resolved once per engine.**
 
         The host's, when it has one — that is where a plugin installs a
-        database (`EngineHost.substrate`). Otherwise the one decision,
-        `substrate_for_project`, resolved from :attr:`fresh_root`.
+        database (`EngineHost.substrate_override`). Otherwise the one
+        decision, `substrate_for_project`, resolved from :attr:`fresh_root`.
 
         Either way it is resolved **once and held**, so a run that touches the
         freshness ledger, the scope records, the state inside them and the run
         log walks the filesystem upward for `.functualize/` one time instead of
         five — and cannot be told a different answer halfway through.
         """
-        if self._substrate is None:
-            from functualize._primitives.substrate import substrate_for_project
+        if self._substrate is not None:
+            return self._substrate
+        from functualize._primitives.substrate import substrate_for_project
 
-            chosen = getattr(self.host, "substrate", None)
-            self._substrate = chosen or substrate_for_project(self.fresh_root)
+        chosen: StoreSubstrate | None = getattr(self.host, "substrate_override", None)
+        self._substrate = chosen or substrate_for_project(self.fresh_root)
         return self._substrate
 
     def _state_store(self) -> Any:

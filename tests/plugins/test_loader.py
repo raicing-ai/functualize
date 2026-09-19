@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 from functualize._plugins.loader import (
     PluginLoader,
     PluginMetadata,
+)
+from functualize._plugins.metadata import (
     _validate_metadata,
     _validate_pep440,
 )

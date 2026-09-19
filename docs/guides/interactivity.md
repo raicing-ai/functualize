@@ -143,6 +143,8 @@ def report(config: ReportConfig, rc: RunContext, live: Live,
 A plugin renders events by implementing `Surface` and registering it:
 
 ```python
+from functualize.plugin import PluginHost
+
 class LogFileSurface:
     needs_terminal = False            # keep receiving even while a job owns the screen
     def handle_event(self, event):
@@ -151,7 +153,7 @@ class LogFileSurface:
 
 class MyPlugin:
     name = "log-file"
-    def __call__(self, app):
+    def __call__(self, app: PluginHost) -> None:
         app.extensions.register_surface(LogFileSurface())
 ```
 
