@@ -9,10 +9,12 @@ exercise it at all.
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
+from typing import TYPE_CHECKING
 
 from functualize.app import FunctualizeApp
+
+if TYPE_CHECKING:
+    import pytest
 
 _ROOT = Path(__file__).parent.parent
 
