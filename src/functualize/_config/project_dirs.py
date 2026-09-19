@@ -34,18 +34,26 @@ from __future__ import annotations
 import os
 import sys
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from functualize._config.merge import merge_config_layers
-from functualize._primitives.locator import ResourceLocator
+from functualize._primitives.locator import (
+    ResourceLocator,
+    find_functualize_dir,
+    xdg_config_dir,
+)
 
 __all__ = [
     "PROJECT_CONFIG_CANDIDATES",
+    "ProjectDirectories",
     "collect_convention_directories",
     "read_toml_file",
     "resolve_effective_directories",
+    "resolve_plugin_directories",
     "resolve_project_config",
+    "resolve_project_directories",
 ]
 
 
@@ -420,3 +428,167 @@ def resolve_effective_directories_from_layers(
         result[key] = effective
 
     return result
+
+
+# =============================================================================
+# The one read, for the consumers that run before the resolution chain exists
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class ProjectDirectories:
+    """What one walk-A read of the project yields, resolved once at boot.
+
+    Produced by :func:`resolve_project_directories` at boot step 3.5 and handed
+    to the two consumers that run *before* the resolution chain is built — the
+    plugin loader (step 4) and the domain registry (step 4b). Frozen: the
+    composition root reads it and passes parts of it on; nothing edits it.
+    """
+
+    anchor: Path
+    """Nearest ancestor carrying a project config file, or ``cwd`` if none.
+
+    Relative declared paths resolve against this.
+    """
+
+    project_root: Path | None
+    """The ``.functualize/`` directory itself, or None in standalone mode.
+
+    Walk C's answer (``find_functualize_dir``) — the *same* directory the app
+    already reports as ``Mode: project`` and writes ``fresh.json`` into. The
+    convention plugin directory hangs off this, which is what bounds the
+    convention search at the project root rather than at the filesystem root.
+    """
+
+    merged: dict[str, Any]
+    """Walk-A config layers deep-merged nearest-first.
+
+    ``root = true`` has been applied and the key stripped. The domain registry
+    reads ``[<section>].provider`` out of this.
+    """
+
+    declared_plugin_directories: tuple[str, ...]
+    """Plugin directories the project *asked for*, in precedence order.
+
+    Kept separate from the convention list rather than pre-concatenated, so the
+    caller can warn about one and stay silent about the other: a declared
+    directory that yields nothing is a user mistake worth reporting, an absent
+    convention directory is the ordinary case for most projects.
+    """
+
+    convention_plugin_directories: tuple[str, ...]
+    """``<project_root>/plugins``, if it exists and is wanted.
+
+    Empty when ``ambient_directory`` is False, when there is no project root,
+    or when the directory was already declared.
+    """
+
+    @property
+    def plugin_directories(self) -> tuple[str, ...]:
+        """Every directory to scan, declared first — the loader's input.
+
+        Order is contractual (`spec.md` §C.2): the loader's existing first-wins
+        duplicate-name rule resolves collisions across both in this order.
+        """
+        return self.declared_plugin_directories + self.convention_plugin_directories
+
+
+def resolve_plugin_directories(
+    *,
+    anchor: Path,
+    merged: dict[str, Any],
+    project_root: Path | None,
+    ambient_directory: bool = True,
+    global_config: dict[str, Any] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Return ``(declared, convention)`` plugin directories, in scan order.
+
+    **Two lists, not one concatenated list**, because the caller must treat them
+    differently: a *declared* directory that yields nothing deserves a warning —
+    the user named it — while an absent *convention* directory is the ordinary
+    case and must stay silent. A merged list cannot tell them apart.
+
+    Order is contractual: declared first, convention second.
+
+    The convention directory is ``<project_root>/plugins``, where
+    ``project_root`` comes from walk C — **not** from walk A's convention
+    collection. Walk A only collects convention directories at levels that
+    produced a *config hit*, so a directory holding ``.functualize/plugins/``
+    but no config file is invisible to it. That is precisely the reported
+    layout, and the two walks disagreeing about which level is "the project" is
+    why fixing either one alone would not have closed the bug.
+
+    Args:
+        anchor: Walk A's anchor; relative declared paths resolve against it.
+        merged: Walk A's merged config layers.
+        project_root: Walk C's ``.functualize/`` directory, or None.
+        ambient_directory: When False, the convention list is empty. A
+            *declared* directory is unaffected — ``func <file>.py <job>`` sets
+            this so a neighbour's plugin directory cannot hijack the named
+            file, and that rule has nothing to say about a directory the
+            project declared on purpose.
+        global_config: The XDG global layer.
+
+    Returns:
+        ``(declared, convention)``. Either may be empty.
+    """
+    effective = resolve_effective_directories(
+        anchor,
+        merged,
+        global_config=global_config,
+    )
+    declared = list(effective.get("plugins_directories", ()))
+
+    convention: list[str] = []
+    if ambient_directory and project_root is not None:
+        candidate = project_root / "plugins"
+        if candidate.is_dir():
+            convention.append(str(candidate.resolve()))
+
+    # A directory reachable both ways counts as declared: that is the stronger
+    # statement, and it is what the caller warns about when nothing loads.
+    declared_set = set(declared)
+    convention = [d for d in convention if d not in declared_set]
+
+    return declared, convention
+
+
+def resolve_project_directories(
+    cwd: Path,
+    *,
+    ambient_directory: bool = True,
+) -> ProjectDirectories:
+    """Read the project once, for the consumers that precede the chain.
+
+    Boot step 3.5. This exists because boot loads plugins at step 4 so they can
+    register config *format providers*, and builds the resolution chain at step
+    6 (ADR-007) — so anything the plugin loader or the domain registry needs
+    from configuration must be read here, by a path that does not go through
+    the chain.
+
+    Args:
+        cwd: Where both walks start.
+        ambient_directory: Forwarded to :func:`resolve_plugin_directories`.
+
+    Returns:
+        A frozen :class:`ProjectDirectories`.
+    """
+    anchor, merged = resolve_project_config(cwd)
+    project_root = find_functualize_dir(cwd)
+    global_config = read_toml_file(xdg_config_dir() / "config.toml") or {}
+
+    declared, convention = resolve_plugin_directories(
+        anchor=anchor,
+        merged=merged,
+        project_root=project_root,
+        ambient_directory=ambient_directory,
+        global_config=global_config,
+    )
+
+    return ProjectDirectories(
+        anchor=anchor,
+        project_root=project_root,
+        merged=merged,
+        declared_plugin_directories=tuple(declared),
+        convention_plugin_directories=tuple(convention),
+    )
