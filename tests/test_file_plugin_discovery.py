@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 from hypothesis import given
 from hypothesis import strategies as st
 
+from functualize._plugins.file_source import FilePluginSource
 from functualize._plugins.loader import PluginLoader
 
 # --- Strategies ---
@@ -156,7 +157,7 @@ def plugin_directory_structure(draw: st.DrawFn) -> dict[str, Any]:
 class TestFilePluginDiscoveryFiltering:
     """Property 11: File plugin discovery filtering.
 
-    For any plugin directory structure, _discover_from_files() SHALL:
+    For any plugin directory structure, FilePluginSource.discover() SHALL:
     (a) only scan top-level .py files (non-recursive), and
     (b) skip any file whose name starts with _.
     All other .py files at the top level SHALL be attempted for loading.
@@ -168,7 +169,7 @@ class TestFilePluginDiscoveryFiltering:
     def test_only_top_level_non_underscore_py_files_are_loaded(
         self, structure: dict[str, Any]
     ):
-        """_discover_from_files only loads top-level .py files that don't start with _.
+        """discover() only loads top-level .py files that don't start with _.
 
         # Feature: layered-architecture-lazy-boot, Property 11: File plugin discovery filtering
         **Validates: Requirements 12.1, 12.2**
@@ -197,17 +198,8 @@ class TestFilePluginDiscoveryFiltering:
                 for i, stem in enumerate(subdir_stems):
                     _write_plugin_file(subdir, f"{stem}.py", f"nested-plugin-{i}")
 
-            # Create loader and mock app
-            loader = PluginLoader()
-            app = MagicMock()
-
-            # Mock _resolve_plugin_directories to return our test directory
-            with patch.object(
-                loader,
-                "_resolve_plugin_directories",
-                return_value=[str(plugin_dir)],
-            ):
-                result = loader._discover_from_files(app)
+            # The scan takes directories now; the composition root picks them.
+            result = FilePluginSource().discover([str(plugin_dir)])
 
             # Assert: only valid (non-underscore, top-level) files are loaded
             loaded_names = {p.name for p in result}
@@ -284,18 +276,11 @@ class TestEntryPointPluginPrecedence:
                 app.plugin_config_registry = MagicMock()
                 app.plugin_config_registry.has.return_value = False
 
-                with (
-                    patch(
-                        "functualize._plugins.loader.entry_points",
-                        return_value=[mock_ep],
-                    ),
-                    patch.object(
-                        loader,
-                        "_resolve_plugin_directories",
-                        return_value=[str(plugin_dir)],
-                    ),
+                with patch(
+                    "functualize._plugins.loader.entry_points",
+                    return_value=[mock_ep],
                 ):
-                    loader.load_all(app)
+                    loader.load_all(app, directories=[str(plugin_dir)])
 
                 # Entry-point plugin MUST be loaded (called with app)
                 ep_plugin.assert_called_once_with(app)
@@ -390,15 +375,9 @@ class TestAlphabeticalFilePluginPrecedence:
                 for filename in filenames:
                     _write_plugin_file(plugin_dir, filename, plugin_name)
 
-                loader = PluginLoader()
-                app = MagicMock()
+                source = FilePluginSource()
 
-                with patch.object(
-                    loader,
-                    "_resolve_plugin_directories",
-                    return_value=[str(plugin_dir)],
-                ):
-                    result = loader._discover_from_files(app)
+                result = source.discover([str(plugin_dir)])
 
                 # Exactly one plugin should be loaded
                 assert len(result) == 1, (

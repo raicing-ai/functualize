@@ -532,9 +532,21 @@ def resolve_plugin_directories(
     Returns:
         ``(declared, convention)``. Either may be empty.
     """
-    effective = resolve_effective_directories(
+    # `resolve_effective_directories` folds convention directories into its
+    # result. That is right for `jobs_directories`, and wrong here: this
+    # function's whole job is to keep *declared* and *convention* separable, so
+    # the caller can refuse one (`ambient_directory=False`) and warn about the
+    # other. Going through the from-layers form with no convention input keeps
+    # the CLI/File/Global rungs and leaves the convention half to us.
+    #
+    # Caught by `test_a_cwd_plugin_directory_is_not_executed`: with the folding
+    # in place, `ambient_directory=False` did not suppress the cwd plugin
+    # directory, and `func <file>.py <job>` was hijackable again — the exact
+    # defect `single-file-cwd-isolation` exists to prevent.
+    effective = resolve_effective_directories_from_layers(
         anchor,
         merged,
+        convention_dirs={},
         global_config=global_config,
     )
     declared = list(effective.get("plugins_directories", ()))

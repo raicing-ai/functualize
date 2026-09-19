@@ -1,33 +1,25 @@
-"""Unit tests for _discover_from_files() and _load_file_plugin() edge cases.
+"""Edge cases for FilePluginSource — directory scanning and file loading.
 
 Tests plugin directory resolution and loading with real Python files using tmp_path.
 Validates Requirements: 12.1–12.10, 13.1–13.7
 """
 
 import logging
-from unittest.mock import MagicMock, patch
 
 from functualize._plugins.file_source import FilePluginSource
-from functualize._plugins.loader import PluginLoader
 
 
 class TestDiscoverFromFilesNonExistentDirectory:
-    """Test _discover_from_files() with a non-existent directory."""
+    """A directory that does not exist is skipped, not fatal."""
 
     def test_nonexistent_directory_logs_debug_and_skips(self, tmp_path, caplog):
         """When a resolved plugin dir doesn't exist, log debug and skip it."""
-        loader = PluginLoader()
-        app = MagicMock()
+        source = FilePluginSource()
 
         nonexistent = str(tmp_path / "does_not_exist")
 
-        with (
-            patch.object(
-                loader, "_resolve_plugin_directories", return_value=[nonexistent]
-            ),
-            caplog.at_level(logging.DEBUG, logger="functualize._plugins.file_source"),
-        ):
-            result = loader._discover_from_files(app)
+        with caplog.at_level(logging.DEBUG, logger="functualize._plugins.file_source"):
+            result = source.discover([nonexistent])
 
         assert result == []
         assert "Plugin directory does not exist" in caplog.text
@@ -35,7 +27,7 @@ class TestDiscoverFromFilesNonExistentDirectory:
 
 
 class TestDiscoverFromFilesUnderscorePrefixed:
-    """Test _discover_from_files() skipping underscore-prefixed files."""
+    """Underscore-prefixed files are not plugins."""
 
     def test_skips_underscore_prefixed_files(self, tmp_path):
         """Files starting with _ are skipped during discovery."""
@@ -65,13 +57,9 @@ class TestDiscoverFromFilesUnderscorePrefixed:
             "plugin = Secret()\n"
         )
 
-        loader = PluginLoader()
-        app = MagicMock()
+        source = FilePluginSource()
 
-        with patch.object(
-            loader, "_resolve_plugin_directories", return_value=[str(plugin_dir)]
-        ):
-            result = loader._discover_from_files(app)
+        result = source.discover([str(plugin_dir)])
 
         # Only the valid plugin (not underscore-prefixed) should be loaded
         assert len(result) == 1
@@ -79,7 +67,7 @@ class TestDiscoverFromFilesUnderscorePrefixed:
 
 
 class TestLoadFilePluginWithPluginAttribute:
-    """Test _load_file_plugin() with a module that has a `plugin` attribute."""
+    """A module-level `plugin` attribute is used directly."""
 
     def test_uses_plugin_attribute_when_present(self, tmp_path):
         """When a module defines a module-level `plugin`, it is used directly."""
@@ -256,7 +244,7 @@ class TestLoadFilePluginImportError:
 
 
 class TestDiscoverFromFilesDuplicateNames:
-    """Test _discover_from_files() with same-name duplicates."""
+    """Same-name duplicates: first alphabetically wins."""
 
     def test_first_alphabetically_wins_and_warning_logged(self, tmp_path, caplog):
         """When two files export same plugin name, first alphabetically wins."""
@@ -283,16 +271,12 @@ class TestDiscoverFromFilesDuplicateNames:
             "plugin = BetaPlugin()\n"
         )
 
-        loader = PluginLoader()
-        app = MagicMock()
+        source = FilePluginSource()
 
         with (
-            patch.object(
-                loader, "_resolve_plugin_directories", return_value=[str(plugin_dir)]
-            ),
             caplog.at_level(logging.WARNING, logger="functualize._plugins.file_source"),
         ):
-            result = loader._discover_from_files(app)
+            result = source.discover([str(plugin_dir)])
 
         # Only the first alphabetically should be loaded
         assert len(result) == 1
@@ -343,13 +327,9 @@ class TestDiscoverFromFilesCaseInsensitiveSorting:
             "plugin = BetaPlugin()\n"
         )
 
-        loader = PluginLoader()
-        app = MagicMock()
+        source = FilePluginSource()
 
-        with patch.object(
-            loader, "_resolve_plugin_directories", return_value=[str(plugin_dir)]
-        ):
-            result = loader._discover_from_files(app)
+        result = source.discover([str(plugin_dir)])
 
         # Case-insensitive sort: alpha < Beta < Zebra
         assert len(result) == 3
@@ -381,16 +361,12 @@ class TestDiscoverFromFilesCaseInsensitiveSorting:
             "plugin = MainPlugin()\n"
         )
 
-        loader = PluginLoader()
-        app = MagicMock()
+        source = FilePluginSource()
 
         with (
-            patch.object(
-                loader, "_resolve_plugin_directories", return_value=[str(plugin_dir)]
-            ),
             caplog.at_level(logging.WARNING, logger="functualize._plugins.file_source"),
         ):
-            result = loader._discover_from_files(app)
+            result = source.discover([str(plugin_dir)])
 
         # "Aardvark.py" sorts before "aardvark_alt.py" case-insensitively
         assert len(result) == 1

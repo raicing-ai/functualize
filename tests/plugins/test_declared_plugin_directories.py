@@ -29,8 +29,6 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-import pytest
-
 from tests.conftest import surfaces
 
 MARKER = "MARKER_PLUGIN_REGISTERED"
@@ -103,15 +101,6 @@ def _multi_app_tree(root: Path, *, declare: bool) -> Path:
 # --- AC-1 -------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "TRANSITIONAL(declared-plugin-directories/T5): the config read is "
-        "guarded by hasattr(app, '_resolution_chain'), which is False at boot "
-        "step 4 on every production path. T5 moves resolution to the "
-        "composition root and this flips to a pass."
-    ),
-)
 @surfaces("func")
 def test_a_declared_directory_loads_from_a_subdirectory(cli_run, tmp_path: Path):
     """AC-1 — the headline. A declared directory is honoured from anywhere.
@@ -156,16 +145,6 @@ def test_the_convention_directory_loads_at_the_project_root(cli_run, tmp_path: P
 # --- AC-3 -------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "TRANSITIONAL(declared-plugin-directories/T5): the convention "
-        "directory is looked for at Path.cwd() exactly, with no upward walk — "
-        "while the same boot resolves the project anchor two levels up and "
-        "writes fresh.json into it. T5 anchors the convention directory on "
-        "that same project root."
-    ),
-)
 @surfaces("func")
 def test_the_convention_directory_loads_from_a_subdirectory(cli_run, tmp_path: Path):
     """AC-3 — no config at all; the project root is found by walking up.

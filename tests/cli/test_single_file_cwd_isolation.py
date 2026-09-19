@@ -262,25 +262,27 @@ class TestTheOtherDoorIntoTheWorkingDirectory:
         Asserted against the resolver rather than an end-to-end run, because
         what is being distinguished is which of two directory sources answered
         — and only one of them is reachable from a config file.
+
+        Rewritten by `declared-plugin-directories`/T5. It used to build an
+        `_App` with a hand-rolled `_resolution_chain` and call
+        `PluginLoader._resolve_plugin_directories` — a method, and an attribute,
+        that no production boot ever presented to it. The test passed and the
+        behaviour it described did not exist. It now goes through the resolver
+        the composition root actually calls.
         """
-        from functualize._plugins.loader import PluginLoader
-        from functualize.app.config import PluginSources
+        from functualize._config.project_dirs import resolve_plugin_directories
 
         declared = tmp_path / "myplugins"
         declared.mkdir()
         convention = tmp_path / ".functualize" / "plugins"
         convention.mkdir(parents=True)
 
-        class _Resolved:
-            value = [str(declared)]
+        declared_dirs, convention_dirs = resolve_plugin_directories(
+            anchor=tmp_path,
+            merged={"plugins_directories": [str(declared)]},
+            project_root=tmp_path / ".functualize",
+            ambient_directory=False,
+        )
 
-        class _Chain:
-            def resolve(self, key: str, section: str) -> object:
-                return _Resolved()
-
-        class _App:
-            _resolution_chain = _Chain()
-            _plugin_sources = PluginSources(ambient_directory=False)
-
-        loader = PluginLoader()
-        assert loader._resolve_plugin_directories(_App()) == [str(declared)]
+        assert declared_dirs == [str(declared)]
+        assert convention_dirs == []

@@ -16,7 +16,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from pathlib import Path
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from functualize._plugins.config import PluginConfigRegistry
@@ -214,6 +214,8 @@ class PluginLoader:
         perf_timeline: Any | None = None,
         disabled: set[str] | None = None,
         explicit: list[Any] | None = None,
+        *,
+        directories: Sequence[str] | None = None,
     ) -> None:
         """Load all discovered plugins with dependency ordering and config resolution.
 
@@ -416,7 +418,7 @@ class PluginLoader:
                 )
 
         # --- Phase 1b: File-based discovery ---
-        file_plugins = self._discover_from_files(app)
+        file_plugins = self._file_source.discover(directories or ())
 
         # Merge: entry-point plugins take precedence on name collision
         loaded_names = {p.name for p in loaded_objects}
@@ -606,62 +608,3 @@ class PluginLoader:
         if isinstance(plugin, PluginWithConfigResolved):
             plugin.on_config_resolved(config_instance)
             logger.debug(f"Invoked on_config_resolved for plugin '{plugin_name}'")
-
-    def _resolve_plugin_directories(self, app: Any) -> list[str]:
-        """Resolve plugin directories from config or convention.
-
-        Resolution order:
-        1. Try [tool.functualize] plugins_directories from app._resolution_chain
-        2. Fall back to convention directory: .functualize/plugins/ in CWD,
-           unless the app's ``PluginSources.ambient_directory`` is False
-        3. Return empty list if neither is available
-
-        Args:
-            app: The application instance, potentially with a _resolution_chain.
-
-        Returns:
-            A list of absolute directory path strings for file plugin sources.
-        """
-        # Try config: [tool.functualize] plugins_directories
-        if hasattr(app, "_resolution_chain"):
-            try:
-                resolved = app._resolution_chain.resolve(
-                    "plugins_directories", "tool.functualize"
-                )
-                if resolved:
-                    value = resolved.value
-                    paths = value if isinstance(value, list) else [value]
-                    return [str(Path(p).resolve()) for p in paths]
-            except Exception:
-                logger.debug("Could not resolve plugins_directories from config")
-
-        # Convention fallback: .functualize/plugins/ in CWD.
-        #
-        # Implicit, so a caller that asked for one file rather than a project
-        # can decline it (`PluginSources.ambient_directory`). The config-read
-        # above is unaffected — a declared directory stays declared.
-        sources = getattr(app, "_plugin_sources", None)
-        if sources is not None and not getattr(sources, "ambient_directory", True):
-            return []
-
-        convention = Path.cwd() / ".functualize" / "plugins"
-        if convention.is_dir():
-            return [str(convention)]
-
-        return []
-
-    def _discover_from_files(self, app: Any) -> list[Any]:
-        """Scan the app's plugin directories for file-based plugins.
-
-        Kept as a seam while `_resolve_plugin_directories` still exists;
-        `declared-plugin-directories`/T5 removes both and has `load_all` call
-        `self._file_source.discover(directories)` with directories the
-        composition root resolved.
-
-        Args:
-            app: The application instance.
-
-        Returns:
-            A list of valid plugin objects discovered from file-based plugins.
-        """
-        return self._file_source.discover(self._resolve_plugin_directories(app))

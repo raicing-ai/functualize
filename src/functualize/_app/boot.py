@@ -41,6 +41,10 @@ from functualize._app.environment import detect_environment
 from functualize._app.impl import build_resource_locator
 from functualize._app.state import AppState
 from functualize._config.chain import ResolutionChain
+from functualize._config.project_dirs import (
+    ProjectDirectories,
+    resolve_project_directories,
+)
 from functualize._config.sources import CliSource, DefaultSource, EnvSource, FileSource
 from functualize._discovery.pipeline import ResolutionPipeline
 from functualize._discovery.providers import DirectoryScanProvider, StaticProvider
@@ -716,6 +720,25 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     # init_observability already called during engine setup (idempotent)
     perf_timeline.mark("boot.observability.end")
 
+    # 3.5 Read the project's declared directories, once, before anything that
+    #     needs them runs. Steps 4 and 4b both want configuration and both run
+    #     before the resolution chain exists (step 6) — deliberately, so a
+    #     plugin can register a config *format provider* first (ADR-007). So
+    #     the value has to come from a read that does not go through the chain.
+    #
+    #     This used to be the plugin loader's own business, and it could not
+    #     work: `_resolve_plugin_directories` asked `app._resolution_chain`,
+    #     which does not exist yet here, and fell through to a hard-coded
+    #     `Path.cwd() / ".functualize" / "plugins"`. Resolution is a decision
+    #     about the project, which makes it the composition root's to make.
+    perf_timeline.mark("boot.project_dirs.start")
+    app._project_directories = resolve_project_directories(
+        Path.cwd(),
+        ambient_directory=app._plugin_sources.ambient_directory,
+    )
+    _warn_about_empty_declared_plugin_directories(app._project_directories)
+    perf_timeline.mark("boot.project_dirs.end")
+
     # 4. Load plugins EARLY (so they can register providers)
     perf_timeline.mark("boot.plugins.start")
     disabled_plugins = set(
@@ -726,6 +749,7 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         event_bus=app._event_bus,
         perf_timeline=perf_timeline,
         disabled=disabled_plugins or None,
+        directories=app._project_directories.plugin_directories,
         # `boot_static` has always honoured these; this path used to drop them
         # silently, so `PluginSources(explicit_plugins=[p])` did nothing at all
         # unless jobs, config and plugins were *all* explicit (the condition
@@ -883,6 +907,42 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     perf_timeline.mark("boot.freeze.end")
 
     perf_timeline.mark("boot.total.end")
+
+
+def _warn_about_empty_declared_plugin_directories(
+    project_dirs: ProjectDirectories,
+) -> None:
+    """Say so when a directory the project named yields nothing.
+
+    Only for **declared** directories. An absent convention directory is the
+    ordinary case for most projects and stays silent; a declaration is a
+    statement of intent, so a declaration that produces nothing is worth a line.
+
+    At `WARNING`, on a default run, for the same reason the unreadable-config
+    warning in `boot_standard` is: the operator who needs this most is the one
+    running a job and getting no plugin, who has no reason to suspect the
+    directory they wrote is being ignored and no reason to go looking for a
+    diagnostic command. Before this feature there was no message at any level —
+    measured, `--log-level debug` never once printed the string
+    `plugins_directories`.
+    """
+    for directory in project_dirs.declared_plugin_directories:
+        path = Path(directory)
+        if not path.is_dir():
+            logger.warning(
+                "Declared plugin directory does not exist: %s. "
+                "Check `plugins_directories` in your project config.",
+                directory,
+            )
+        elif not any(
+            f.is_file() and not f.name.startswith("_") for f in path.glob("*.py")
+        ):
+            logger.warning(
+                "Declared plugin directory contains no loadable plugin: %s. "
+                "A file plugin is a top-level .py file whose name does not "
+                "start with '_'.",
+                directory,
+            )
 
 
 def discover_config_path(
