@@ -84,7 +84,32 @@ BUDGET_CHILDREN_MS = 50.0  # No children = fast
 # BUDGET_CONFIG_RESOLUTION_MS uses against its own measurement (300ms against a
 # 158ms max). CI is slower and noisier than this machine, and a perf test that
 # flakes gets muted, which is worse than one that is loose.
-BUDGET_WARM_COMMAND_MS = 1800.0
+#
+# **Raised 1800 -> 4000 on 2026-09-19, for slow hosts.** 1800 was ~2x a max of
+# 850ms on the machine above. A slower host measured eight medians of
+# 2193/2245/2265/2326/2330/2387/2387/2692 ms — every one of them over the old
+# budget, with **no regression involved**: the same tree at the pre-feature
+# commit measured 2053-2203 ms. What moved was the hardware, not the code.
+#
+# 4000 is ~1.5x the worst median observed there (2692). Not the 2x convention
+# above, deliberately — 2x would be 5400, which stops catching anything. One
+# individual run in that sample spiked to 4262 ms and the median-of-three
+# absorbed it, which is the reason the assertion medians rather than takes a
+# single reading.
+#
+# **This number is host-bound and only weakly about functualize.** The test
+# spawns the real console script four times, so it is dominated by interpreter
+# start and imports. The budget that actually guards *our* boot is
+# BUDGET_TOTAL_BOOT_MS (500ms), measured in-process and unaffected by how slow
+# the machine is at fork+exec. Treat a failure here as "this host is slow"
+# until the in-process budgets agree otherwise.
+#
+# **A parallel run does not exercise this.** `perf_budget` tests are skipped
+# under xdist (see `tests/conftest.py` and the marker in `pyproject.toml`), so
+# `pytest -n auto` reporting `0 failed` says nothing about this assertion. It
+# has to be run serially, which is what
+# `examples/docs/scenarios/j-dev-contrib.toml` does.
+BUDGET_WARM_COMMAND_MS = 4000.0
 
 
 @pytest.fixture

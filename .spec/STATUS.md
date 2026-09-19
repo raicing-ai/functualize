@@ -751,8 +751,26 @@ stated in `docs/contributing.md:224` and prescribed for the same smell in
   `plugins_directories` was fixed (Verify found the regression against
   `contracts.md` §1.1); the same footgun remains for the sibling keys, and
   widening the rule was out of this feature's mandate.
-- **The warm-command startup budget fails on a slow host, and `-n auto` hides
-  it.** `test_a_warm_func_job_stays_within_budget` measures ~2.2 s against an
+- ~~**The warm-command startup budget fails on a slow host**~~ — **resolved
+  2026-09-19, maintainer: loosen for slow-host CI.** `BUDGET_WARM_COMMAND_MS`
+  1800 → **4000 ms**, ~1.5× the worst of eight measured medians (2193–2692 ms;
+  one individual run spiked to 4262 ms and the median-of-three absorbed it).
+  Deliberately *not* the file's 2× convention — 2× would be 5400 ms and would
+  stop catching anything. The pre-feature control measured 2053–2203 ms on the
+  same host, so the hardware moved, not the code. Two notes added to the
+  constant for whoever reads it next: this test spawns the real console script
+  four times and is therefore host-bound (`BUDGET_TOTAL_BOOT_MS`, 500 ms
+  in-process, is what actually guards our boot), and `perf_budget` tests are
+  **skipped under xdist**, so `pytest -n auto` reporting `0 failed` says nothing
+  about it.
+- ~~**No example declares `plugins_directories`**~~ — **filled 2026-09-19**:
+  `examples/project/shared_plugins/`, the monorepo layout from the bug report.
+  Two sibling apps under one root, one declaring an extra directory and one not,
+  so the contrast carries the lesson. Three tests, all three indexes updated.
+
+  <details><summary>original finding</summary>
+
+  **The warm-command startup budget fails on a slow host, and `-n auto` hides it.** `test_a_warm_func_job_stays_within_budget` measures ~2.2 s against an
   1800 ms budget here, with and without `declared-plugin-directories` (six
   alternating samples). It spawns the real console script four times, so it is
   really measuring process-spawn speed. It is **skipped** under `-n auto`
@@ -761,6 +779,8 @@ stated in `docs/contributing.md:224` and prescribed for the same smell in
   runs the serial form, so doc-verify fails on such a host. Either the budget
   needs a slow-host allowance or the scenario needs to say which hosts it
   assumes; both are someone's call, not this feature's.
+
+  </details>
 - **`_collect_convention_directories` is still fed only config-hit levels** in
   `auto_discover`, so `jobs_directories` convention collection keeps the
   narrower definition of "the project". Correct for this feature (plugins no
