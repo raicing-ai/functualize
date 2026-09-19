@@ -692,6 +692,75 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### Declared plugin directories (2026-09-19, `feat/plugin-host-protocol`)
+
+`[tool.functualize] plugins_directories` had been documented since `0.2.3` and
+**never worked**. Not partially — the code reading it was unreachable:
+`PluginLoader._resolve_plugin_directories` guarded on
+`hasattr(app, "_resolution_chain")`, `load_all` has one production call site
+(boot **step 4**), and the chain is built at **step 6**. Loading plugins first
+is deliberate (ADR-007), so the attribute could not exist yet and the branch
+never ran. Discovery fell through to an exact match on
+`Path.cwd()/".functualize"/"plugins"`, and **nothing said so** — at
+`--log-level debug` the string `plugins_directories` never appeared once.
+
+**The shape of the fix is one reversed arrow.** The loader stopped reaching for
+ambient state and now *receives* a `list[str]` from the composition root, which
+reads the project once at a new boot step 3.5. That is house style already
+stated in `docs/contributing.md:224` and prescribed for the same smell in
+`contributor/architecture/audit-engine-encapsulation.md` §Cause 2.
+
+| | |
+|---|---|
+| New | `_config/project_dirs.py` (the one resolver), `_plugins/file_source.py`, `_plugins/metadata.py` |
+| Removed | `_resolve_plugin_directories`, `_discover_from_files`, two always-`False` guards, a hard-coded `Path.cwd()` config path |
+| `PluginLoader` | **595 → 436 LOC**, under the constitution's ~500 bar |
+| Final | root suite **10,771 passed**, examples 212, 12 plugin packages 447, mypy 360 files, lint-imports 7/0 |
+
+**Decisions worth keeping:**
+
+1. **Convention directories anchor on walk C** (`find_functualize_dir`), not on
+   walk A's convention collection. Measured: walk A only collects convention
+   directories at levels that produced a *config hit*, so a directory holding
+   `.functualize/plugins/` but no config file is invisible to it — which was
+   exactly the reported layout. The two walks held different definitions of
+   "this level is the project"; fixing either alone would not have closed it.
+   This also bounds the search at the project root rather than at `/`, which is
+   what keeps an upward search from executing arbitrary Python out of any
+   ancestor.
+2. **`[<domain>] provider` reads File + Convention + Global, not CLI or Env.**
+   Those rungs live on the chain, which cannot exist at step 4b. The value was
+   `None` *always* before, so every project gains and none loses.
+3. **`app.before_job` → `app.hooks.before_job` stays, with no shim** (maintainer,
+   2026-09-18). Pre-1.0. The harm was that `0.3.0` shipped it undocumented; the
+   CHANGELOG now carries the migration with the error text.
+4. **`load_all(directories=None)` scans nothing.** Previously the equivalent call
+   reached `Path.cwd()`, quietly coupling ~38 unit-test call sites to the
+   working directory.
+
+**Open, not this feature's:**
+
+- **Plugins have no cross-process cache, and one plugin dominates boot.**
+  Measured with `--perf-report`: `boot.plugins` is **15.6 ms of 1320 ms (1.2%)`,
+  `boot.app_ready.SQLiteSubstratePlugin` **~480 ms (37%)**,
+  `boot.config_entry_points` **247 ms**. Jobs have a persisted `cache.json`;
+  plugins have only a per-process entry-point snapshot, so every boot imports
+  and executes every plugin module and runs every APP_READY hook. Candidate
+  feature.
+- **A bare-string `jobs_directories` / `import_libs` is still silently dropped.**
+  `plugins_directories` was fixed (Verify found the regression against
+  `contracts.md` §1.1); the same footgun remains for the sibling keys, and
+  widening the rule was out of this feature's mandate.
+- **`_collect_convention_directories` is still fed only config-hit levels** in
+  `auto_discover`, so `jobs_directories` convention collection keeps the
+  narrower definition of "the project". Correct for this feature (plugins no
+  longer use that path) and a latent inconsistency for the others.
+
+Durable rules migrated to `contributor/guides/wiring-discipline.md` — **17** (a
+mock that supplies what production withholds turns a dead branch into a covered
+one) and **18** (a grep gate matches its own documentation; a gate is not a gate
+until it has been seen to fail).
+
 ### Discovery correctness and job parameter types (2026-09-08, `feat/discovery-and-parameter-fixes`)
 
 Five features, one branch. The `.spec/features/` artifacts are cleared; the

@@ -404,6 +404,73 @@ recorded it independently: `find_referencing_symbols` on `HooksFacade/on_ready`
 returned nothing, and the second doc surface teaching the raw registry was
 found by `rg`, not by the LSP.
 
+### 17. A mock that supplies what production withholds turns a dead branch into a covered one
+
+`declared-plugin-directories` fixed a config option that had never worked across
+two releases. `PluginLoader._resolve_plugin_directories` read it behind
+`hasattr(app, "_resolution_chain")`; `load_all` has one production call site,
+boot **step 4**, and the chain is built at **step 6**. The guard was `False`
+every time it ran. Measured on a live app rather than read off the source:
+
+```
+AT PLUGIN-LOAD TIME: {'hasattr_resolution_chain': False, 'result': []}
+AFTER BOOT hasattr(_resolution_chain): True
+```
+
+It had **eight** dedicated unit tests. Six of them opened with:
+
+```python
+app = MagicMock()
+app._resolution_chain = chain_mock
+```
+
+That line manufactures the one condition production never produces. The branch
+below it is unreachable in the running system and exhaustively covered in the
+suite, and the suite is the thing people look at. The other three tests used
+`MagicMock(spec=[])` — "no `_resolution_chain`" — which is the *real* boot
+state, so the file encoded the truth and its contradiction side by side and was
+green either way.
+
+**A mock that sets an attribute is asserting that something sets it.** Before
+writing `mock.some_attr = x`, find the production line that assigns
+`some_attr` and check it runs *before* the code under test. If you cannot name
+that line, the test is describing a system that does not exist.
+
+The same feature had the identical defect at
+`_plugins/domain_registry.py` (`[<domain>] provider`, never read) and the repo
+had already fixed a third instance in `functualize-ai`
+(`hasattr(app, "resolve_model")`, always `False`). Three occurrences is a
+pattern, and the pattern is *guard-plus-mock*, not any one module.
+
+Corollary, and the reason this belongs beside rule 6: when a bug of this shape
+is fixed, the tests that covered the dead branch must be **deleted**, not
+adapted. Adapting them preserves the fiction.
+
+### 18. A grep gate matches its own documentation
+
+Three acceptance gates in `declared-plugin-directories` were written as
+substring searches, and three returned a false positive against the very commit
+that satisfied them — because the docstring explaining a removal contains the
+string that was removed:
+
+| Gate as written | Returns | Why |
+|---|---|---|
+| `rg 'hasattr\(app, "_resolution_chain"\)' src/functualize/_plugins/` | **1** | the docstring recording that the guard was deleted |
+| `rg -c "functualize\._plugins" examples/` | **1** | a sentence describing what the test *used to* import |
+
+Anchor the pattern to the syntax you actually mean —
+`rg 'if (not )?hasattr\(app, "_resolution_chain"\)'`,
+`rg '^\s*(from\|import) functualize\._'` — or count with an `ast` walk when
+the question is about code structure (`.claude/rules/spec-workflow.md` already
+says a count about syntax is an AST question).
+
+And the sharper half of the same lesson, from the same feature: a gate can name
+a test that never reaches the code it claims to cover. T1's reachability gate
+named `test_global_config_provides_baseline`, which passes `global_config=`
+explicitly and never calls the function under test — it stayed **green under
+sabotage**. **A gate is not a gate until it has been seen to fail.** Run it
+against the broken state before trusting it against the fixed one.
+
 ## The one-line version
 
 > Code that only tests call is not shipped, however green it is. Before closing
