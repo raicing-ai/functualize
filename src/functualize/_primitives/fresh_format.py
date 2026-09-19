@@ -37,7 +37,11 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from functualize._primitives.locator import _xdg_cache_dir, compute_project_id
+from functualize._primitives.locator import (
+    _xdg_cache_dir,
+    compute_project_id,
+    find_functualize_dir,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -103,19 +107,6 @@ def empty_fresh() -> dict[str, Any]:
         "fingerprints": {},
         "session": {"preconditions": {}},
     }
-
-
-def find_functualize_dir(start: Path) -> Path | None:
-    """Search upward from ``start`` for a ``.functualize/`` directory."""
-    current = Path(start).resolve()
-    while True:
-        candidate = current / ".functualize"
-        if candidate.is_dir():
-            return candidate
-        parent = current.parent
-        if parent == current:
-            return None
-        current = parent
 
 
 #: The two places a freshness ledger can live. Pinned as exactly two strings so

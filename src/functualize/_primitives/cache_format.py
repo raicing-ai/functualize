@@ -23,7 +23,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from functualize._primitives.locator import _xdg_cache_dir, compute_project_id
+from functualize._primitives.locator import (
+    _xdg_cache_dir,
+    compute_project_id,
+    find_functualize_dir,
+)
 
 # Current cache file format version. Bump on any incompatible format change.
 # v4: FieldDescriptor gained is_stdin/stdin_flag (Stdin() marker fidelity in the
@@ -284,27 +288,6 @@ class DisplayCacheEntry:
             source_mtime=float(data["source_mtime"]),
             content_hash=data["content_hash"],
         )
-
-
-def find_functualize_dir(start: Path) -> Path | None:
-    """Search upward from start for a .functualize/ directory.
-
-    Args:
-        start: The directory to start the upward search from.
-
-    Returns:
-        Path to the .functualize/ directory if found, None otherwise.
-    """
-    current = start
-    while True:
-        candidate = current / ".functualize"
-        if candidate.is_dir():
-            return candidate
-        parent = current.parent
-        if parent == current:
-            break
-        current = parent
-    return None
 
 
 def resolve_cache_path(start: Path) -> Path:

@@ -29,8 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize._primitives import compute_project_id
-from functualize._primitives.cache_format import find_functualize_dir
-from functualize._primitives.locator import ResourceLocator
+from functualize._primitives.locator import ResourceLocator, find_functualize_dir
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
