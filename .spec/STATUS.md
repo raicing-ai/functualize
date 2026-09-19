@@ -751,6 +751,16 @@ stated in `docs/contributing.md:224` and prescribed for the same smell in
   `plugins_directories` was fixed (Verify found the regression against
   `contracts.md` §1.1); the same footgun remains for the sibling keys, and
   widening the rule was out of this feature's mandate.
+- **The warm-command startup budget fails on a slow host, and `-n auto` hides
+  it.** `test_a_warm_func_job_stays_within_budget` measures ~2.2 s against an
+  1800 ms budget here, with and without `declared-plugin-directories` (six
+  alternating samples). It spawns the real console script four times, so it is
+  really measuring process-spawn speed. It is **skipped** under `-n auto`
+  (`perf_budget` + xdist guard), so the usual parallel run reports `0 failed`
+  while never exercising it — and `examples/docs/scenarios/j-dev-contrib.toml`
+  runs the serial form, so doc-verify fails on such a host. Either the budget
+  needs a slow-host allowance or the scenario needs to say which hosts it
+  assumes; both are someone's call, not this feature's.
 - **`_collect_convention_directories` is still fed only config-hit levels** in
   `auto_discover`, so `jobs_directories` convention collection keeps the
   narrower definition of "the project". Correct for this feature (plugins no

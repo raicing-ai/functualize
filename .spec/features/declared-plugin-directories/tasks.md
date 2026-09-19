@@ -342,10 +342,36 @@ No production files. Run the full gate set and record measured results.
 | `_resolution_chain = chain_mock` in `tests/` | 6 → **0** |
 | second resolver for `plugins_directories` | none |
 
-**The perf-budget failure is gone**, and was never this feature's:
-`test_a_warm_func_job_stays_within_budget` failed at 2270 ms during T1 and
-passes under `-n auto` here. Proved pre-existing at the time by reverting to
-HEAD and measuring **2315 ms** — worse without the change.
+**The perf-budget failure is NOT gone, and this section said it was — corrected
+2026-09-19 during Verify.**
+
+`test_a_warm_func_job_stays_within_budget` does not pass under `-n auto`; it is
+**skipped** there. `perf_budget`-marked tests carry a guard —
+*"wall-clock budget is not measurable under xdist"* (`tests/conftest.py:167`) —
+so **10 of the 12** perf tests sit out every parallel run. Reading that run's
+`0 failed` as "the perf test passes" was the same substring-shaped mistake as
+rule 18: a skip reads like a pass at a glance.
+
+Run serially it **fails**, and it fails with or without this feature. Six
+samples on the final tree, alternating by checking `src/` out at the
+pre-feature base and back:
+
+| Tree | medians (ms) |
+|---|---|
+| pre-feature (`19022b0`) | 2203, 2053, 2186 |
+| with the feature | 2276, 2368, 2107 |
+
+Ranges overlap; the ~90 ms difference in medians sits inside a ~300 ms
+run-to-run spread, and `boot.project_dirs` is directly measured at **1.99 ms** —
+two orders of magnitude too small to explain it. **Pre-existing and
+environmental**: the test spawns the real console script four times and this
+host is slow at that. The budget's own comment sets it at ~2× the author's
+observed maximum.
+
+Consequence worth knowing: the documented command in
+`examples/docs/scenarios/j-dev-contrib.toml` — `uv run pytest -x -q --no-header`
+— therefore fails on this host, which is the one doc-verify failure in the shell
+subset. Not doc drift, not this feature.
 
 **Orphan scan — production call path for every symbol T1–T6 added:**
 
