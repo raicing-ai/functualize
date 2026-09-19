@@ -169,6 +169,7 @@ Is this behavior reusable across projects?
 | Scenario | Approach |
 |----------|----------|
 | Quick logging/metrics in your own app | Hook directly |
+| Plugin-shaped behaviour, one project, no packaging | [File-based plugin](plugins.md#file-based-plugins-no-packaging) in `.functualize/plugins/` |
 | Job-specific error handling | `register_for_job` hook |
 | Behavior shared with one colleague | Plugin (editable install) |
 | Behavior shared across your org | Plugin (Git install or private index) |

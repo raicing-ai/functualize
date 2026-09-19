@@ -36,7 +36,14 @@ The list above previously named five of the seven and the prose said "five"; `py
 
 `exclude_type_checking_imports = true` — imports inside `if TYPE_CHECKING:` blocks are not evaluated by the contracts. **This is a real hole, not a footnote**: a deferred `_types → _app` import leaves `lint-imports` reporting "7 kept, 0 broken", measured by adding one. Where that matters, a test reads the import lines instead — see `tests/types/test_plugin_host_port.py` and `contributor/architecture/layer-contract-blind-spot.md` §7.
 
-**Verified compliant**: a grep across `_discovery/`, `_config/`, `_engine/`, `_plugins/` found exactly one cross-peer reference — `_engine/capabilities/runcontext.py:31` imports `functualize._config.job_config.JobConfigView`, but it's inside `TYPE_CHECKING` and therefore excluded by contract 1. No runtime peer-layer violation exists.
+**New in `declared-plugin-directories` (2026-09-19)**: `_config/project_dirs.py`
+is imported by `_app/boot.py` (composition root → peer, legal) and by
+`app/utils.py` (public → internal, legal). It is **not** imported by `_plugins/`,
+and must not be — the plugin loader receives a resolved `list[str]` from the
+composition root rather than reaching across the peer boundary for it. That is
+the whole shape of the fix; an import edge here would undo it.
+
+**Verified compliant**: a grep across `_discovery/`, `_config/`, `_engine/`, `_plugins/` found exactly one cross-peer reference — `_engine/capabilities/runcontext.py:25` imports `functualize._config.job_config.JobConfigView`, but it's inside `TYPE_CHECKING` and therefore excluded by contract 1. No runtime peer-layer violation exists.
 
 ## Highest Fan-In Modules (measured)
 
@@ -50,7 +57,7 @@ Ranked by raw import-statement count across `src/functualize/**/*.py`:
 | 4 | `functualize.app` (public facade) | 17 | Re-export surface for `app/` symbols |
 | 5 | `functualize._engine.capabilities.runcontext` | 15 | Concrete `RunContext` capability wiring |
 | 5 | `functualize.app.core` | 15 | `FunctualizeApp` public class definition |
-| 6 | `functualize._config.job_config` | 13 | `JobConfigView` — scoped config access |
+| 8 | `functualize._config.job_config` | 10 | `JobConfigView` — scoped config access |
 | 6 | `functualize._app.decorators` | 13 | Boot-time decorator wiring |
 | 6 | `functualize.app.config` | 13 | `JobSources`/`ConfigSources`/`PluginSources`/`ExecutionConfig` dataclasses |
 | 7 | `functualize.app.utils` | 12 | `coerce_kwargs`, `import_job`, `auto_discover` |

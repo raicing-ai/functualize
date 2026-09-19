@@ -85,7 +85,7 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 
 ### `_config/` — Configuration Resolution
 
-`chain.py` (`ResolutionChain`), `sources.py` (`CliSource`, `EnvSource`, `FileSource`, `RemoteSource`, `DefaultSource`), `job_config.py` (`JobConfigView` + validation — 13 importers), `resolved_field.py` (`ResolvedField` / `resolve_job_fields` — the seam `builtin info --job` and `builtin env` both read, so a display cannot disagree with the run; needs a live model, which is why the TUI does *not* read it — ADR-008 A1), `errors.py` (10 importers), `providers/` (`TomlFormatProvider` — the only provider registered by default; `IniFormatProvider` is in-tree and plugin-registered only, ADR-007).
+`chain.py` (`ResolutionChain`), `sources.py` (`CliSource`, `EnvSource`, `FileSource`, `RemoteSource`, `DefaultSource`), `job_config.py` (`JobConfigView` + validation — 10 importers), `resolved_field.py` (`ResolvedField` / `resolve_job_fields` — the seam `builtin info --job` and `builtin env` both read, so a display cannot disagree with the run; needs a live model, which is why the TUI does *not* read it — ADR-008 A1), `errors.py` (10 importers), `providers/` (`TomlFormatProvider` — the only provider registered by default; `IniFormatProvider` is in-tree and plugin-registered only, ADR-007), `project_dirs.py` (walk A — the upward project-config walk, the nearest-first layer merge with `root = true` stop semantics, and the `CLI + ENV + File + Convention + Global` precedence chain for directory keys. `app/utils.py` re-exports `resolve_project_config`/`resolve_effective_directories` from here rather than owning them, so `_app/boot.py` can reach the same code — a public module cannot be imported by an internal layer, which is why the plugin loader previously grew a second, divergent resolver of its own).
 
 ### `_engine/` — Execution Lifecycle
 
@@ -93,7 +93,7 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 
 ### `_plugins/` — Plugin Loading
 
-`loader.py` (`PluginLoader`: discovery + topological sort + loading), `config.py` (`PluginConfigRegistry`).
+`loader.py` (`PluginLoader`: entry-point discovery + topological sort + registration — 436 LOC, kept under the constitution's ~500 bar by the split below), `file_source.py` (`FilePluginSource`: the on-disk plugin format — which files are eligible, what makes one a plugin, how same-name collisions resolve. Takes **paths, never an app**: choosing directories is the composition root's job, which is what makes this testable without a mock application), `metadata.py` (`_validate_metadata`/`_validate_pep440` and the adapter-claim warning — shared by the two above, which is why it is not in either), `config.py` (`PluginConfigRegistry`), `domain_registry.py` (`boot_domain_registry` — reads `[<domain>] provider` from the merged config boot hands it, not from the resolution chain, which does not exist at step 4b).
 
 ### `_gate/` — Gated Workflow Step Resolution
 

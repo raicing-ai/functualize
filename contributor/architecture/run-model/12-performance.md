@@ -22,6 +22,12 @@ argued, not asserted.
 | `boot.children` | `:62` | 50.0 ms |
 | `boot.tui` | — | asserts the phase **is not recorded** |
 
+`boot.project_dirs` (added 2026-09-19, `declared-plugin-directories`) is
+deliberately **absent** from this table: it has no budget constant, so listing
+one would be fiction. Measured at **1.99 ms** on a warm run — the project is read
+once there, before plugins load, because the resolution chain does not exist yet
+(ADR-007). Worth a constant if it ever grows; it has not.
+
 Two more live elsewhere: `boot_static` cold start < 5 ms
 (`test_static_wiring_fast_path.py:314`), and pre-boot routing at ~3 ms with **zero job-module
 imports** (`test_group_trie_ingestion.py:9`, `test_warm_boot_zero_imports_property.py`).

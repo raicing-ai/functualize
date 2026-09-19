@@ -144,6 +144,7 @@ Zero function bodies beyond `...`, `pass`, or trivial property accessors.
 | `sources.py` | CliSource, EnvSource, FileSource, RemoteSource, DefaultSource |
 | `job_config.py` | JobConfigView implementation + validation |
 | `providers/` | TomlFormatProvider, IniFormatProvider |
+| `project_dirs.py` | Walk A — project-config walk, layer merge (`root = true`), directory precedence chain |
 
 ### `_engine/` — Execution Lifecycle
 
@@ -165,7 +166,10 @@ Zero function bodies beyond `...`, `pass`, or trivial property accessors.
 
 | Module | Contains |
 |--------|----------|
-| `loader.py` | PluginLoader (discovery + topological sort + loading) |
+| `loader.py` | PluginLoader (entry-point discovery + topological sort + registration) |
+| `file_source.py` | FilePluginSource — the on-disk plugin format; takes paths, not an app |
+| `metadata.py` | `_validate_metadata` / `_validate_pep440`, shared by the two above |
+| `domain_registry.py` | Domain SDK discovery; reads `[<domain>] provider` from boot's merged config |
 | `config.py` | PluginConfigRegistry |
 
 ### `_app/` — Composition Root

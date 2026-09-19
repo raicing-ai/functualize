@@ -38,6 +38,105 @@ app = FunctualizeApp(
 
 Plugins would then declare their entry points under `[project.entry-points."my_framework.plugins"]` instead.
 
+## File-Based Plugins (No Packaging)
+
+An installed package is not the only way to add a plugin. A single `.py` file in
+a plugin directory is loaded at boot with no packaging, no `pyproject.toml` and
+no entry point — the lightest way to extend one project.
+
+```
+my_project/
+├── .functualize/
+│   └── plugins/
+│       └── run_notifier.py    ← the plugin
+└── jobs/
+```
+
+The file needs one object carrying `name`, `version` and `description` as
+strings and being callable — the same `PluginMetadata` contract as a packaged
+plugin, described below:
+
+```python title=".functualize/plugins/run_notifier.py"
+class RunNotifier:
+    name = "run-notifier"
+    version = "1.0.0"
+    description = "Announces job success and failure."
+
+    def __call__(self, app) -> None:
+        app.event_bus.subscribe("job.execute.end", self._on_end)
+
+    def _on_end(self, event) -> None:
+        print(f"[run-notifier] {event.resource} {event.payload.get('status')}")
+
+
+plugin = RunNotifier()
+```
+
+The loader looks for a module-level `plugin` first, then falls back to
+inspecting the module for any object satisfying the protocol.
+
+### Where directories come from
+
+Two sources, **both** scanned, declared first:
+
+1. **Declared** — `plugins_directories` in your project config.
+2. **Convention** — `.functualize/plugins/` at the **project root**, i.e. the
+   nearest ancestor holding a `.functualize/` directory. This is the same
+   directory `func builtin info` reports as `Mode: project`, so where you run
+   `func` from does not decide whether your plugins load.
+
+```toml title="pyproject.toml"
+[tool.functualize]
+plugins_directories = ["/srv/shared/.functualize/plugins", "../team-plugins"]
+```
+
+`plugins_directories` follows the same precedence chain as `jobs_directories` —
+`CLI + ENV + File + Convention + Global` — so a value declared in an ancestor
+config is inherited, `root = true` stops that inheritance, and an org-wide
+directory in `~/.config/functualize/config.toml` applies to projects that
+declare none of their own. Relative paths resolve against the config file that
+declared them, not against the current directory.
+
+!!! warning "Before 0.3.x, `plugins_directories` did nothing"
+    It was documented but never read — see the CHANGELOG. If you worked around
+    it by running `func` from a parent directory with `--discovery-depth`
+    raised, you no longer need to.
+
+A declared directory that does not exist, or that contains no loadable plugin,
+is reported on a normal run:
+
+```
+Declared plugin directory does not exist: /srv/shared/.functualize/plugins.
+  Check `plugins_directories` in your project config.
+```
+
+An absent *convention* directory is silent — most projects have none.
+
+### Rules
+
+| Rule | Behaviour |
+|---|---|
+| File selection | Top-level `*.py` only, no recursion; names starting with `_` are skipped |
+| Ordering | Case-insensitive by filename, so discovery is deterministic |
+| Duplicate names | First wins across the whole scan — which is how a declared directory takes precedence over the convention one |
+| Against entry points | An entry-point plugin outranks a file plugin of the same name |
+| Otherwise | File plugins take part in `depends_on` ordering and config resolution exactly like packaged ones |
+
+!!! danger "File plugins are executed, not sandboxed"
+    A file plugin runs arbitrary Python at boot, at the same trust level as any
+    other local `.py` file. They are not sandboxed or verified. `func
+    <file>.py <job>` declines the *convention* directory for this reason
+    (`PluginSources(ambient_directory=False)`) — when you name one file to run,
+    a neighbour's plugin directory should not take over the invocation. A
+    directory you declared is still honoured.
+
+### When to package instead
+
+File plugins are per-project. To share one across projects, or to publish it,
+package it with an entry point — see
+[Hooks vs Plugins](hooks-vs-plugins.md#sharing-with-colleagues), or scaffold one
+with `func builtin scaffold add plugin`.
+
 ## The PluginMetadata Protocol
 
 Every plugin must satisfy the `PluginMetadata` protocol by exposing three attributes:

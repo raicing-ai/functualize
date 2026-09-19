@@ -9,7 +9,9 @@ Fixed order, do not reorder (see `contributor/architecture/boot-sequence.md` for
 | 1 | `core_infra` — HookRegistry, DIRegistry, JobExecutionEngine instantiated | 50ms |
 | 2 | `provider_registry` — built-in TOML format provider registered; `IniFormatProvider` needs a plugin (ADR-007) | 10ms |
 | 3 | `observability` — EventBus, MiddlewareStack created (before plugins, so plugins can subscribe) | 50ms |
-| 4 | `plugins` — entry-point + file-based plugins loaded via `PluginLoader` (topological sort) | 200ms |
+| 3.5 | `project_dirs` — the project read once: anchor, merged config, project root, plugin directories | 2ms |
+| 4 | `plugins` — entry-point + file-based plugins loaded via `PluginLoader` (topological sort); directories passed in from 3.5 | 200ms |
+| 4b | `domains` — `functualize.domains` discovered; `[<domain>] provider` read from 3.5's merged config | 10ms |
 | 5 | `config_entry_points` — format/remote provider entry points discovered | 50ms |
 | 6 | `config_resolution` — `ResourceLocator` + `ResolutionChain` built once | 100ms |
 | 7 | — `AFTER_CONFIG_INIT` hook fires | — |
@@ -20,6 +22,10 @@ Fixed order, do not reorder (see `contributor/architecture/boot-sequence.md` for
 | 12 | `adapter.run()` — active adapter takes over delivery | — (TUI: 20ms) |
 
 Total boot budget: 500ms (CI-enforced via `tests/perf/test_startup_budget.py`). Static wiring (all sources explicit) skips steps 2, 5, 6, 8, 9 → boot in <5ms.
+
+The 3.5 budget is measured, not estimated: `boot.project_dirs` reports **1.99ms**
+on a warm run. For scale, the largest single phase on that same run was one
+plugin's `APP_READY` hook at ~480ms — plugin *loading* was 15.6ms of 1320ms.
 
 ## 2. Job Execution Lifecycle
 
