@@ -160,3 +160,183 @@ def test_the_convention_directory_loads_from_a_subdirectory(cli_run, tmp_path: P
 
     assert result.exit_code == 0, result.stderr
     assert MARKER in (result.stdout + result.stderr)
+
+
+# --- AC-4 ---------------------------------------------------------------------
+
+
+@surfaces("func")
+def test_declared_and_convention_both_load(cli_run, tmp_path: Path):
+    """AC-4 — declaring one directory does not cost you your own.
+
+    The falsifier for the old early-return: the config branch `return`ed its
+    result, so a project that declared an extra directory would have lost
+    `.functualize/plugins/` entirely. It never fired, so nobody hit it — but the
+    bug was there, and this is what pins the fix.
+    """
+    root = tmp_path / "both"
+    convention = root / ".functualize" / "plugins"
+    convention.mkdir(parents=True)
+    (convention / "convention_plugin.py").write_text(
+        _PLUGIN.replace("MARKER_PLUGIN_REGISTERED", "CONVENTION_MARKER").replace(
+            "marker-plugin", "convention-plugin"
+        )
+    )
+
+    extra = root / "shared"
+    extra.mkdir()
+    (extra / "declared_plugin.py").write_text(
+        _PLUGIN.replace("MARKER_PLUGIN_REGISTERED", "DECLARED_MARKER").replace(
+            "marker-plugin", "declared-plugin"
+        )
+    )
+
+    jobs = root / ".functualize" / "jobs"
+    jobs.mkdir(parents=True)
+    (jobs / "sample.py").write_text(_JOB)
+    (root / ".functualize.toml").write_text(
+        f'plugins_directories = ["{extra.resolve()}"]\n'
+    )
+
+    result = cli_run(["sample"], cwd=root)
+
+    combined = result.stdout + result.stderr
+    assert result.exit_code == 0, combined
+    assert "DECLARED_MARKER" in combined, "the declared directory did not load"
+    assert "CONVENTION_MARKER" in combined, "declaring one suppressed the other"
+
+
+# --- AC-5 ---------------------------------------------------------------------
+
+
+@surfaces("func")
+def test_ambient_refusal_holds_one_level_up_too(cli_run, tmp_path: Path):
+    """AC-5 — widening the search must not widen the hijack.
+
+    `func <file>.py <job>` sets `ambient_directory=False` so a neighbour's
+    `.functualize/plugins/` cannot take over an invocation that named a
+    different program. Before this feature the refusal only had to cover the
+    literal cwd, because that was the only place the loader looked. Now the
+    convention directory is found by walking up — so the refusal has to cover
+    the project root as well, which is what this places the hijacker at.
+    """
+    project = tmp_path / "project"
+    plugins = project / ".functualize" / "plugins"
+    plugins.mkdir(parents=True)
+    (plugins / "killer.py").write_text(
+        'import sys\n\nprint("ANCESTOR PLUGIN RAN", file=sys.stderr)\n'
+    )
+
+    here = project / "scripts"
+    here.mkdir()
+    (here / "weather.py").write_text(
+        'def trip_planner() -> None:\n    """Plan."""\n    print("PLANNED")\n'
+    )
+
+    result = cli_run(["weather.py", "trip_planner"], cwd=here)
+
+    combined = result.stdout + result.stderr
+    assert result.exit_code == 0, combined
+    assert "PLANNED" in result.stdout
+    assert "ANCESTOR PLUGIN RAN" not in combined
+
+
+# --- AC-6, AC-6b, AC-6c -------------------------------------------------------
+
+
+@surfaces("func")
+def test_a_missing_declared_directory_warns_by_name(cli_run, tmp_path: Path):
+    """AC-6 — a typo'd path is reported, on a default run, with no flags.
+
+    Before this feature there was no message at any level. Measured: at
+    `--log-level debug`, the most verbose setting the CLI offers, the string
+    `plugins_directories` never appeared once.
+    """
+    root = tmp_path / "typo"
+    jobs = root / ".functualize" / "jobs"
+    jobs.mkdir(parents=True)
+    (jobs / "sample.py").write_text(_JOB)
+    missing = root / "not_here"
+    (root / ".functualize.toml").write_text(
+        f'plugins_directories = ["{missing.resolve()}"]\n'
+    )
+
+    result = cli_run(["sample"], cwd=root)
+
+    combined = result.stdout + result.stderr
+    assert result.exit_code == 0, combined
+    assert "does not exist" in combined
+    assert str(missing.resolve()) in combined, "the warning must name the path"
+
+
+@surfaces("func")
+def test_an_empty_declared_directory_warns_by_name(cli_run, tmp_path: Path):
+    """AC-6b — the directory is there, but nothing in it is a plugin.
+
+    Usually a `.py` file missing its `name`/`version`/`description`. Reported
+    separately from the missing case because the fix is different.
+    """
+    root = tmp_path / "empty"
+    jobs = root / ".functualize" / "jobs"
+    jobs.mkdir(parents=True)
+    (jobs / "sample.py").write_text(_JOB)
+    empty = root / "no_plugins"
+    empty.mkdir()
+    (root / ".functualize.toml").write_text(
+        f'plugins_directories = ["{empty.resolve()}"]\n'
+    )
+
+    result = cli_run(["sample"], cwd=root)
+
+    combined = result.stdout + result.stderr
+    assert result.exit_code == 0, combined
+    assert "no loadable plugin" in combined
+    assert str(empty.resolve()) in combined
+
+
+@surfaces("func")
+def test_a_project_declaring_nothing_stays_silent(cli_run, tmp_path: Path):
+    """AC-6c — the falsifier for over-applying AC-6.
+
+    Most projects have no `.functualize/plugins/` and never will. An absent
+    *convention* directory is not a mistake and must not produce a line on
+    every single run — that is how a warning becomes noise and stops being read.
+    """
+    root = tmp_path / "quiet"
+    jobs = root / ".functualize" / "jobs"
+    jobs.mkdir(parents=True)
+    (jobs / "sample.py").write_text(_JOB)
+
+    result = cli_run(["sample"], cwd=root)
+
+    combined = result.stdout + result.stderr
+    assert result.exit_code == 0, combined
+    assert "plugin directory" not in combined.lower()
+
+
+# --- AC-9b --------------------------------------------------------------------
+
+
+def test_a_programmatic_app_honours_a_declared_directory(tmp_path, monkeypatch):
+    """AC-9b — no CLI anywhere in the picture.
+
+    Walk A runs in `_cli/main.py`, not in boot — measured, `rg auto_discover
+    src/functualize/_app/` returned nothing. So a library user constructing
+    `FunctualizeApp` directly never ran it, and any fix that only touched the
+    CLI would have left them broken. Boot resolves for itself now, and this is
+    the test that says so.
+    """
+    from functualize.app import FunctualizeApp
+
+    root = tmp_path / "programmatic"
+    shared = root / "shared_plugins"
+    shared.mkdir(parents=True)
+    (shared / "marker_plugin.py").write_text(_PLUGIN)
+    (root / ".functualize.toml").write_text(
+        f'plugins_directories = ["{shared.resolve()}"]\n'
+    )
+
+    monkeypatch.chdir(root)
+    app = FunctualizeApp(name="programmatic")
+
+    assert "marker-plugin" in app.plugin_loader.loaded_plugins
