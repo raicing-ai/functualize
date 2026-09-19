@@ -447,13 +447,13 @@ uv run pytest -v
 Check for code issues with ruff:
 
 ```bash
-uv run ruff check src/ tests/
+uv run ruff check src/ tests/ plugins/ examples/
 ```
 
 Auto-fix linting issues:
 
 ```bash
-uv run ruff check --fix src/ tests/
+uv run ruff check --fix src/ tests/ plugins/ examples/
 ```
 
 ### Formatting
@@ -461,13 +461,13 @@ uv run ruff check --fix src/ tests/
 Check formatting without making changes:
 
 ```bash
-uv run ruff format --check src/ tests/
+uv run ruff format --check src/ tests/ plugins/ examples/
 ```
 
 Apply formatting:
 
 ```bash
-uv run ruff format src/ tests/
+uv run ruff format src/ tests/ plugins/ examples/
 ```
 
 ### Type Checking
@@ -490,8 +490,8 @@ uv run lint-imports
     Ensure all checks pass before pushing your branch:
 
     ```bash
-    uv run ruff check src/ tests/
-    uv run ruff format --check src/ tests/
+    uv run ruff check src/ tests/ plugins/ examples/
+    uv run ruff format --check src/ tests/ plugins/ examples/
     uv run mypy src/
     uv run lint-imports
     HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto
@@ -554,8 +554,8 @@ git checkout -b docs/update-api-reference
 1. Ensure all checks pass locally:
 
     ```bash
-    uv run ruff check src/ tests/
-    uv run ruff format --check src/ tests/
+    uv run ruff check src/ tests/ plugins/ examples/
+    uv run ruff format --check src/ tests/ plugins/ examples/
     uv run mypy src/
     uv run lint-imports
     uv run pytest

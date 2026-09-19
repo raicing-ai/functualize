@@ -44,14 +44,14 @@ timeout = 3000
 [[steps]]
 engine = "shell"
 description = "uv run ruff check"
-command = "uv run ruff check src/ tests/ 2>&1 && echo 'RUFF_CHECK_OK'"
+command = "uv run ruff check src/ tests/ plugins/ examples/ 2>&1 && echo 'RUFF_CHECK_OK'"
 expected = { stdout_contains = "RUFF_CHECK_OK", exit_code = 0 }
 timeout = 60
 
 [[steps]]
 engine = "shell"
 description = "uv run ruff format --check"
-command = "uv run ruff format --check src/ tests/ 2>&1 && echo 'RUFF_FORMAT_OK'"
+command = "uv run ruff format --check src/ tests/ plugins/ examples/ 2>&1 && echo 'RUFF_FORMAT_OK'"
 expected = { stdout_contains = "RUFF_FORMAT_OK", exit_code = 0 }
 timeout = 60
 

@@ -92,8 +92,8 @@ Run all verification commands to confirm the codebase is in a healthy state.
 
 | # | Command | Purpose |
 |---|---------|---------|
-| 1 | `uv run ruff check src/ tests/ plugins/` | Lint |
-| 2 | `uv run ruff format --check src/ tests/ plugins/` | Format |
+| 1 | `uv run ruff check src/ tests/ plugins/ examples/` | Lint |
+| 2 | `uv run ruff format --check src/ tests/ plugins/ examples/` | Format |
 | 3 | `uv run mypy src/` | Type check |
 | 4 | `uv run lint-imports` | Architecture enforcement |
 | 5 | `uv run pytest -x -q --no-header` | Fast tests |
@@ -450,8 +450,8 @@ Upon confirmation, execute in order:
 ## Integration with Project Conventions
 
 - **Verification commands** (exact `uv run` invocations, in order):
-  1. `uv run ruff check src/ tests/ plugins/`
-  2. `uv run ruff format --check src/ tests/ plugins/`
+  1. `uv run ruff check src/ tests/ plugins/ examples/`
+  2. `uv run ruff format --check src/ tests/ plugins/ examples/`
   3. `uv run mypy src/`
   4. `uv run lint-imports`
   5. `uv run pytest -x -q --no-header`

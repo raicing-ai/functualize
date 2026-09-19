@@ -9,8 +9,8 @@ Project context for AI coding agents. This file contains architecture, commands,
 uv sync
 
 # Lint & format (always run first)
-uv run ruff check --fix src/ tests/ plugins/
-uv run ruff format src/ tests/ plugins/
+uv run ruff check --fix src/ tests/ plugins/ examples/
+uv run ruff format src/ tests/ plugins/ examples/
 
 # Type check
 uv run mypy src/
