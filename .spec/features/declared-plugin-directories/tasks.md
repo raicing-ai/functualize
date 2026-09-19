@@ -92,7 +92,7 @@ Keep the `$XDG_CONFIG_HOME` handling verbatim — empty string falls back to
 
 ---
 
-## T2 · Extract walk A into `_config/project_dirs.py` — [ ]
+## T2 · Extract walk A into `_config/project_dirs.py` — [x]
 
 `[F]` `src/functualize/_config/project_dirs.py`
 `[M]` `src/functualize/app/utils.py`
@@ -109,7 +109,9 @@ touching them.
 `app/utils.py:24` already imports it from there.
 
 - **Gate** `uv run pytest tests/cli/test_effective_directories.py tests/cli/test_convention_dirs.py tests/test_auto_discover_bug_condition.py`
-  — `now: 21 passed` · `after: 21 passed`, **unmodified files** (AC-14)
+  — measured **`now: 28 passed` · `after: 28 passed`**, files unmodified (AC-14).
+  The plan said 21; that was `def test_` counted in two files, not the
+  collected total across all three.
 - **Gate** `wc -l src/functualize/app/utils.py` — `now: 2380` · `after: ≈2160`
 - **Gate** `uv run lint-imports` — `now: 7 kept, 0 broken` · `after: unchanged`
 - **Reachability** — the wrappers are the production path
@@ -119,7 +121,7 @@ touching them.
 
 ---
 
-## T3 · `ProjectDirectories` and the composition rule — [ ]
+## T3 · `ProjectDirectories` and the composition rule — [x]
 
 `[M]` `src/functualize/_config/project_dirs.py`
 `[F]` `tests/config/test_project_dirs.py`
@@ -149,7 +151,7 @@ AC-3b — a `.functualize/plugins/` **above** the project root is not returned.
 
 ---
 
-## T4 · Extract `FilePluginSource` — [ ]
+## T4 · Extract `FilePluginSource` — [x]
 
 `[F]` `src/functualize/_plugins/file_source.py`
 `[M]` `src/functualize/_plugins/loader.py`
@@ -179,7 +181,7 @@ all, which is the point.
 
 ---
 
-## T5 · The fix — boot resolves, the loader receives — [ ]
+## T5 · The fix — boot resolves, the loader receives — [x]
 
 `[M]` `src/functualize/_plugins/loader.py`
 `[M]` `src/functualize/_app/boot.py`
@@ -224,7 +226,7 @@ T0's file is the replacement.
 
 ---
 
-## T6 · The second dead guard — `[<domain>] provider` — [ ]
+## T6 · The second dead guard — `[<domain>] provider` — [x]
 
 `[M]` `src/functualize/_plugins/domain_registry.py`
 `[M]` `src/functualize/_app/boot.py`
@@ -249,7 +251,7 @@ loses. Mark `# TRANSITIONAL(declared-plugin-directories)` naming the missing run
 
 ---
 
-## T7 · Documentation truth — [ ]
+## T7 · Documentation truth — [x]
 
 `[M]` `docs/examples/plugins/file-based-plugin.md:21`
 `[M]` `examples/plugins/file_based_plugin/README.md:32`
@@ -282,7 +284,7 @@ with a booted app.
 
 ---
 
-## T8 · CHANGELOG — both entries — [ ]
+## T8 · CHANGELOG — both entries — [x]
 
 `[M]` `CHANGELOG.md`
 
@@ -307,7 +309,7 @@ branch — rebase before editing rather than assuming the file is as last read.
 
 ---
 
-## T9 · Verification sweep — [ ]
+## T9 · Verification sweep — [x]
 
 No production files. Run the full gate set and record measured results.
 
@@ -324,17 +326,79 @@ No production files. Run the full gate set and record measured results.
 - **Gate** `rg 'hasattr\(app, "_resolution_chain"\)' src/functualize/_plugins/` — `after: 0` (AC-8)
 - **Reachability** — this task *is* the reachability audit.
 
+### Results — measured 2026-09-19
+
+| Check | Result |
+|---|---|
+| `uv run pytest tests/ -n auto` | **10,762 passed**, 1,605 skipped, 0 failed |
+| `uv run pytest examples/` | **212 passed** |
+| each `plugins/*/tests` separately | **447 passed**, 1 skipped, 12 packages |
+| `uv run mypy src/` | green, **360** files (was 358; +2 modules) |
+| `uv run lint-imports` | **7 kept, 0 broken** |
+| `ruff check` / `format --check` (CI's scope) | clean, 1,454 files |
+| `PluginLoader` LOC (AST walk) | **595 → 436**, bar ~500 — PASS |
+| guard statements in `_plugins/` | **0** |
+| `Path.cwd()` in `_plugins/loader.py` | 1 → **0** |
+| `_resolution_chain = chain_mock` in `tests/` | 6 → **0** |
+| second resolver for `plugins_directories` | none |
+
+**The perf-budget failure is gone**, and was never this feature's:
+`test_a_warm_func_job_stays_within_budget` failed at 2270 ms during T1 and
+passes under `-n auto` here. Proved pre-existing at the time by reverting to
+HEAD and measuring **2315 ms** — worse without the change.
+
+**Orphan scan — production call path for every symbol T1–T6 added:**
+
+| Symbol | Reached from |
+|---|---|
+| `resolve_project_directories` | `boot_standard` step 3.5 |
+| `resolve_plugin_directories` | `resolve_project_directories` |
+| `ProjectDirectories` | `boot.py` — consumed at steps 4 and 4b |
+| `FilePluginSource` | `PluginLoader.__init__` → `load_all` Phase 1b |
+| `xdg_config_dir` | `project_dirs` (Global rung), `app/utils.resolve_user_config_dir` |
+| `find_functualize_dir` | 7 files incl. both `_format` modules and `_app/impl.py` |
+
+### ⚠️ Three of this feature's own gates were false as written
+
+Recorded because the pattern matters more than the individual fixes: **a gate
+written as a substring search can match its own documentation, and a gate can
+name a test that never touches the code.**
+
+1. **T1's reachability gate** named `test_global_config_provides_baseline`,
+   which passes `global_config=` explicitly and never calls
+   `resolve_user_config_dir`. It stayed **green under sabotage**. Real
+   falsifier: `test_auto_discover_properties.py::TestConfigDirsInOutput::test_xdg_global_config_jobs_directories_appear_in_output`
+   (`--run-slow`-gated — without the flag it *skips*, which reads like a pass).
+2. **AC-8's gate** `rg 'hasattr\(app, "_resolution_chain"\)' src/functualize/_plugins/`
+   returns **1** — matching the docstring that explains the removal. Anchored to
+   code, `rg 'if (not )?hasattr\(app, "_resolution_chain"\)'` returns 0.
+3. **AC-12's gate** `rg -c "functualize\._plugins" examples/` returns **1** —
+   matching the sentence describing what the test used to do. Anchored to
+   imports, `rg '^\s*(from|import) functualize\._' examples/` returns 0.
+
+T2's count was also wrong in the plan (21 vs the measured 28 collected), and
+T10's premise — "byte-identical" — was false. Five corrections in eleven tasks.
+
 ---
 
-## T10 · Collapse the duplicated `find_functualize_dir` — [ ]
+## T10 · Collapse the duplicated `find_functualize_dir` — [x]
 
 `[M]` `src/functualize/_primitives/locator.py`
 `[M]` `src/functualize/_primitives/cache_format.py`
 `[M]` `src/functualize/_primitives/fresh_format.py`
 `[M]` `src/functualize/_app/impl.py`, `src/functualize/_app/__init__.py`
 
-**Maintainer decision, 2026-09-18.** Byte-identical in
+**Maintainer decision, 2026-09-18.** In
 `_primitives/cache_format.py:289` and `_primitives/fresh_format.py:108`.
+
+⚠️ **They were *not* byte-identical, as this task and `plan.md` §8.3 both
+claimed.** `fresh_format` did `Path(start).resolve()` first; `cache_format` did
+not. Measured from `<root>/sub/deep` with `.functualize/` at `<root>`:
+`cache_format(Path("."))` → `None`, `fresh_format(Path("."))` →
+`<root>/.functualize`. They agreed only on absolute input, which every caller
+passes today — so the resolving form was adopted: no observable change, and it
+closes a latent bug where `resolve_cache_path` answered *standalone* for a
+relative argument.
 
 **Single definition goes to `_primitives/locator.py`**, not to either
 `*_format.py`. Those modules are named for the formats they read and write;
