@@ -10,7 +10,8 @@ examples/
 ├── quickstart/             ← The README Quick Start, step by step (1–8)
 ├── standalone/             ← Feature reference: discovery, config, AI, inline TUI
 ├── project/                ← Full FunctualizeApp projects
-└── plugins/                ← Creating your own plugins
+├── plugins/                ← Creating your own plugins
+└── docs/                   ← Executable documentation scenarios (not an example project)
 ```
 
 ## Categories
@@ -60,6 +61,20 @@ Create your own plugins for the functualize ecosystem:
 - **custom_state_backend** — Implement the `StoreSubstrate` port
 - **custom_adapter** — Implement the `AdapterPlugin` protocol
 - **file_based_plugin** — Zero-packaging plugin in `.functualize/plugins/`
+
+### [docs/](docs/)
+
+Not an example project — the executable scenarios that keep the documentation
+honest. Each `docs/scenarios/*.toml` names a doc file and line range, runs the
+commands that page claims work, and asserts on what they print, so a doc block
+that drifts from the code fails rather than quietly lying. 24 scenarios today.
+
+Run them all (a subset needs a Docker daemon; the rest run locally):
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" python \
+    .agents/skills/doc-verify/scripts/run-scenario examples/docs/scenarios/
+```
 
 ### Plugin usage examples
 

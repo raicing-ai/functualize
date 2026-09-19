@@ -3,7 +3,7 @@ name = "functualize"
 version = "0.3.0"
 description = "A reusable Python CLI framework with auto-discovery, structured run context, layered configuration, and TUI integration"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]
@@ -82,6 +82,22 @@ docs = [
 ]
 
 [project.optional-dependencies]
+# The OS keyring, for `func builtin vault init` on a workstation. An extra
+# rather than core, and the distinction from `cryptography` above is real:
+# cryptography is what makes the vault *work at all*, while keyring is one key
+# *source* among several whose absence is already a designed-for state --
+# `KeychainKeyProvider.is_available()` reports it, and the environment route
+# works identically with or without it. The surprise that argument warns about
+# is avoided by `init` refusing with instructions naming both routes, rather
+# than by shipping a keyring into every CI image and Lambda bundle that will
+# never have a keyring to talk to (ADR-023 s4).
+#
+# This also *declares* what was previously an accident: the provider has always
+# imported keyring lazily and tolerated its absence, relying on it being present
+# transitively in some environments.
+keychain = [
+    "keyring>=24.0.0",
+]
 cli = [
     "click>=8.0.0",
     "rich>=13.0.0",
@@ -91,6 +107,7 @@ cli = [
 ]
 all = [
     "functualize[cli]",
+    "functualize[keychain]",
     "functualize-substrate-sqlite",
     "functualize-http",
     "functualize-lambda",
@@ -302,12 +319,18 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Internal never imports public"
 type = "forbidden"
+# Every internal layer, and every public folder. Both lists were short of the
+# real thing: `_gate` was absent from the sources and `functualize.ui` from the
+# forbidden set, so an internal layer could import the display surface and
+# `lint-imports` would still report 7/7 kept while `layer-rules.md` told
+# contributors otherwise. Nothing violated either gap when it was closed.
 source_modules = [
     "functualize._types",
     "functualize._primitives",
     "functualize._events",
     "functualize._discovery",
     "functualize._config",
+    "functualize._gate",
     "functualize._engine",
     "functualize._plugins",
     "functualize._app",
@@ -318,6 +341,7 @@ forbidden_modules = [
     "functualize.plugin",
     "functualize.types",
     "functualize.testing",
+    "functualize.ui",
     "functualize.workflow",
 ]
 allow_indirect_imports = true

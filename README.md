@@ -1,1044 +1,364 @@
-# Functualize
+<p align="center">
+  <img
+    src="https://raw.githubusercontent.com/raicing-ai/functualize/master/docs/assets/brand/functualize-banner.png"
+    alt="Functualize — From functions to action."
+    width="100%"
+  />
+</p>
+
+<p align="center">
+  <strong>From functions to action.</strong>
+</p>
+
+<p align="center">
+  Python operations and verifiable workflows for humans, automation, and AI agents.
+</p>
+
+<p align="center">
+  <a href="https://raicing-ai.github.io/functualize/">Docs</a>
+  ·
+  <a href="#quick-start">Quick Start</a>
+  ·
+  <a href="#agents-and-workflows">Agents</a>
+  ·
+  <a href="#installation">Install</a>
+</p>
 
 [![CI](https://github.com/raicing-ai/functualize/actions/workflows/ci.yml/badge.svg)](https://github.com/raicing-ai/functualize/actions/workflows/ci.yml)
 [![Docs](https://github.com/raicing-ai/functualize/actions/workflows/docs.yml/badge.svg)](https://github.com/raicing-ai/functualize/actions/workflows/docs.yml)
-[![Documentation](https://img.shields.io/badge/docs-live_site-blue)](https://raicing-ai.github.io/functualize/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/functualize)](https://pypi.org/project/functualize/)
 [![PyPI version](https://badge.fury.io/py/functualize.svg)](https://pypi.org/project/functualize/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/raicing-ai/functualize/blob/master/LICENSE)
-[![Typing: Typed](https://img.shields.io/badge/typing-typed-blue.svg)](https://peps.python.org/pep-0561/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)]()
 
-> Drop-in CLI framework for Python — auto-discovery, dependency injection, layered config, workflow graphs, and a plugin ecosystem.
+## What is Functualize?
 
-A reusable Python CLI framework with auto-discovery, structured execution context, layered configuration, workflow graphs, and a plugin ecosystem.
+**Functualize turns ordinary Python functions into discoverable, configurable,
+composable operations and verifiable workflows.**
 
-## Why Functualize?
+Use the same underlying jobs from the TUI, CLI, Python, MCP, HTTP, Lambda,
+CI, an AI agent, or another workflow.
 
-Most CLI frameworks give you argument parsing and stop there. Functualize provides the full application lifecycle:
-
-- **No boilerplate discovery** — drop a file in a directory and it becomes a command
-- **Dependency injection** — declare what your job needs via type annotations, the framework wires it
-- **Config without ceremony** — layered resolution means the same job works locally, in CI, and in production
-- **Workflow orchestration** — DAGs with conditional edges and gates, not just sequential scripts
-- **Pluggable everything** — swap state backends, add adapters (HTTP, Lambda, MCP), extend via entry points
-
-If you're building internal tooling, deployment pipelines, or any multi-step automation that outgrows a shell script, Functualize gives you structure without locking you into a monolith.
-
-## Features
-
-- **Auto-discovery** — Drop job files into a directory and they're automatically registered as CLI commands. Six configurable filters control what qualifies.
-- **Job Groups** — `JOB_GROUP` organizes commands into hierarchies (`func infra deploy`). `GroupOptions` declare flags shared by every job under a group.
-- **`@job` decorator** — Declare metadata, visibility, dependencies, caching, guards, and execution policy on any job function.
-- **Structured RunContext** — Capability-based execution: `Log`, `Invoke`, `Prompt`, `Perf`, `State`, plus `FromJob` for declarative dependency injection and `FromStep` for binding a gate tool to an earlier step's result.
-- **Layered Configuration** — Resolution chain with preset strategies (classic, twelve-factor, env-only, remote-first) and `.env` file support.
-- **Declarative Job Config** — Pydantic models drive CLI options, config resolution, and TUI form fields.
-- **Workflow Graphs** — DAGs with `Step(func)`, `Gate(name, awaits=Model, strategy=...)`, and `Edge`. Gates block for human or AI input; `--prompt-gates` resolves them inline, `--wf-resume` advances blocked scopes.
-- **Domain SDK Architecture** — Pluggable capability domains (state, AI, tasks, interactivity) with swappable provider backends.
-- **Plugin System** — Extend via Python entry points: lifecycle hooks, CLI commands, dynamic jobs, adapter plugins, and format providers.
-- **Built-in commands** — `func builtin parallel` (concurrent jobs), `func builtin history` (recent launches), `func builtin run` (the run log — every execution, its origin and outcome), `func builtin env` (config as env vars), `func builtin shell-init` (shell completions), `func builtin workflow` (inspect and resume gates).
-- **Pinned exit codes** — Stable, documented codes: `0` success · `1` job raised · `2` usage/config error · `3` refused pre-flight · `4` stale check · `5` blocked awaiting gate input.
-- **Standalone Mode** — Run single-file jobs with `func file.py function`, or make them self-executing with PEP 723 shebang scripts (`#!/usr/bin/env -S func`).
-- **Inline TUI** — Bare `func` opens a smart command shell under your prompt: SmartBar readiness colors, autocomplete, and config panels showing where every value comes from (via `functualize[cli]`).
-- **Scaffold Generator** — Bootstrap new projects, jobs, plugins, and TUI screens with `func builtin scaffold`.
-- **Testing Utilities** — `TestRunContext`, `CapturingLog`, `MockInvoke`, and other test doubles for unit testing jobs in isolation.
-
-## Installation
-
-Install the `func` CLI globally:
-
-```bash
-# With uv (recommended — isolated install, auto-manages PATH)
-uv tool install "functualize[cli]"
-
-# Or with pipx
-pipx install "functualize[cli]"
-
-# Or with pip (into current environment)
-pip install "functualize[cli]"
+```text
+function → job → workflow → evaluation → outcome
 ```
 
-**No Python on the machine?** Download the standalone binary — one executable with Python
-and every first-party plugin `[all]` carries already inside it. Its first run needs no network:
-
-```bash
-curl -LsSf https://raw.githubusercontent.com/raicing-ai/functualize/master/install.sh | sh
-```
-
-```powershell
-# Windows
-irm https://raw.githubusercontent.com/raicing-ai/functualize/master/install.ps1 | iex
-```
-
-The script picks the archive for your platform — including the **musl** build on Alpine and
-distroless images — and verifies it against the release checksums before installing. Or take
-the archive from the [releases page](https://github.com/raicing-ai/functualize/releases)
-yourself: extract, `chmod +x func`, run. See
-[Installation](https://raicing-ai.github.io/functualize/getting-started/installation/) for
-the full list of targets.
-
-Verify:
-
-```bash
-func builtin version
-# Or use the longer alias:
-functualize builtin version
-```
-
-Both `func` and `functualize` are the same command — use whichever you prefer.
-
-> **Adding to a project** (as a library dependency): use `uv add functualize` or `pip install functualize` inside your project instead. The core library has no CLI dependencies — add `functualize[cli]` only if your project uses the `func` CLI or TUI.
-
-### Managing the installation
-
-```bash
-func builtin self doctor              # how was this installed, and what is wrong with it?
-func builtin self update              # upgrade in place, restoring what you added
-func builtin self install <package>   # a dependency your jobs import
-func builtin plugin list              # what extends this installation
-func builtin plugin install <package> # add an extension
-```
-
-Every mutating command prints the exact command it will run before running it. `func builtin
-self update` then restores anything you had added — including packages installed through the
-`func builtin self python -- ...` escape hatch, which it never recorded.
-
-> **Install method decides whether self-update works.** `self update` manages the standalone
-> binary, a `uv tool` install, a `pipx` install, or a project checkout. A bare `pip install`
-> into a system interpreter is not self-managing: the command prints guidance, changes
-> nothing, and exits `3`. `func builtin self doctor` tells you which kind you have.
->
-> The standalone binary updates by **replacing itself**: it fetches the release for its own
-> platform, verifies it against the release's `SHA256SUMS` before unpacking, and swaps the
-> file. Packages you had added are reinstalled into the new distribution afterwards — a new
-> binary unpacks a new environment, so they do not carry over on their own.
-
-### How `func` finds jobs
-
-The CLI operates in two modes:
-
-| Command | Mode | Description |
-|---------|------|-------------|
-| `func file.py [function]` | Single-file | Run a specific file directly |
-| `func <job_name>` | CWD discovery | Find and run a job by name from the current directory |
-| `func` (no args) | Discovery | List all discovered jobs |
-
-#### What makes a `.py` file invocable?
-
-A Python file qualifies as a job module when **both** conditions are met:
-
-1. **Filename is not underscore-prefixed** — files like `_helpers.py` or `__main__.py` are skipped
-2. **Contains at least one public top-level function** — checked via AST parsing (fast, no import needed)
-
-Once a qualifying file is imported, every **public function** (non-underscore-prefixed, defined in that module) becomes a registered job command. Imported functions, classes, and private `_helper()` functions are ignored.
-
-In **single-file mode** (`func file.py [function]`), the file is imported directly — the same public-function rule applies. If you omit the function name, `func` lists all available functions in the file.
-
-#### Executable scripts (PEP 723)
-
-A script can declare its own entry point and its own dependencies inline, then be run like any other program:
-
-```python
-#!/usr/bin/env -S func
-# /// script
-# dependencies = ["httpx"]
-#
-# [tool.functualize]
-# job = "fetch"
-# ///
-
-import httpx
-
-
-def fetch(url: str, timeout: float = 5.0) -> None:
-    print(httpx.get(url, timeout=timeout).text)
-```
-
-```bash
-chmod +x fetch.py
-./fetch.py https://example.com --timeout 2
-```
-
-`url` has no default, so it is a positional argument; `timeout` has one, so it is `--timeout`. Same rule as every other job — `./fetch.py --help` shows the resulting usage line.
-
-Two things are doing work here:
-
-- **`[tool.functualize] job`** names the function the file runs. Without it, `func` reads the first argument as a *function name* — fine when you are exploring a file (`func fetch.py fetch`), wrong for a script, where `./fetch.py https://example.com` would look for a function called `https://example.com`. Declaring the job means the file **is** that job, and everything on the command line belongs to it.
-- **`dependencies`** is standard PEP 723. If any are missing from the current environment, `func` re-runs the script through `uv run` with them installed. No virtualenv to create, no `requirements.txt` to keep in sync.
-
-`env -S` is what splits `func` from the filename; a plain `#!/usr/bin/env func` also works, since there is nothing to split.
-
-#### CWD discovery
-
-In **CWD discovery mode**, `func` locates job directories in this order:
-
-1. **Explicit config** — `pyproject.toml` `[tool.functualize].jobs_directories`, a `.functualize.toml`, or the global config (`~/.config/functualize/config.toml`)
-2. **Convention directories** — a `.functualize/jobs` (plus `lib` and `plugins`) directory, when present
-3. **CWD scan** — by default only the current directory itself is scanned for qualifying `.py` files. Opt in to a deeper scan with `func --discovery-depth N` (0–5 levels) or persist it in config:
-
-```toml
-# pyproject.toml (optional — scan subdirectories for jobs)
-[tool.functualize.discovery]
-scan_depth = 2
-```
-
-Skipped directories: `.venv`, `__pycache__`, `.git`, `node_modules`, `dist`, `build`, and any dot-prefixed directory.
-
-Skipped files: `test_*.py`, `*_test.py`, `conftest.py`, `setup.py`, and `__init__.py`.
-
-```toml
-# pyproject.toml (optional — explicit job directories)
-[tool.functualize]
-jobs_directories = ["src/myapp/jobs", "scripts"]
-```
+The CLI is only one surface. The underlying operation stays the same.
 
 ## Quick Start
 
-Functualize scales from a single script to a full framework project. Start simple, graduate when you need more.
-
-### Step 1: Run a Python script
-
-Write a function, run it with `func`. No project setup, no config files.
+Drop a function into your workspace:
 
 ```python
-# weather.py
+# deploy.py
 from functualize.job import RunContext
 
-def forecast(rc: RunContext):
-    """Check today's weather forecast."""
-    rc.log("Fetching forecast...")
-    rc.log("Tomorrow: 24°C, sunny")
+
+def deploy(environment: str = "staging", rc: RunContext | None = None) -> None:
+    if rc:
+        rc.log(f"Deploying to {environment}...")
 ```
+
+From that directory:
 
 ```bash
-# Run a function directly
-func weather.py forecast
-```
-
-> Runnable code: [`examples/quickstart/step1_basic/`](examples/quickstart/step1_basic/)
-
-### Step 2: Add typed configuration
-
-Same domain, but now with validated parameters. Pydantic models become CLI options automatically:
-
-```python
-# weather.py
-from pydantic import BaseModel, Field
-from functualize.job import RunContext
-
-class ForecastConfig(BaseModel):
-    city: str = Field(description="City to check")
-    days: int = Field(default=3, ge=1, le=7, description="Days to forecast")
-    api_url: str = Field(default="https://weather.example.com", description="Weather API endpoint")
-
-def forecast(config: ForecastConfig, rc: RunContext) -> str:
-    rc.log(f"Fetching {config.days}-day forecast for {config.city}...")
-    rc.log(f"Using API: {config.api_url}")
-    result = f"{config.city}: 24°C, sunny for the next {config.days} days"
-    rc.log(result)
-    return result
-```
-
-Config fields resolve from multiple sources (highest priority first):
-
-```bash
-# 1. CLI flags
-func weather.py forecast --city Tokyo --days 5 --api-url https://api.prod.example.com
-
-# 2. Environment variables (JOBNAME_FIELD convention)
-export FORECAST_API_URL=https://api.staging.example.com
-func weather.py forecast --city Tokyo
-
-# 3. Config file (if a config.base.toml exists in the directory)
-# [forecast]
-# api_url = https://weather.example.com
-# days = 3
-```
-
-**Auto-discovery:** When you have multiple job files, put them in a `jobs/` directory and point `func` at it once in `pyproject.toml`:
-
-```
-myproject/
-├── pyproject.toml
-└── jobs/
-    ├── weather.py
-    └── deploy.py
-```
-
-```toml
-# pyproject.toml
-[tool.functualize]
-jobs_directories = ["jobs"]
-```
-
-```bash
-cd myproject
-func              # Lists all discovered jobs
-func forecast     # Runs the forecast job directly (no filename needed)
-```
-
-> No `pyproject.toml`? A one-off `func --discovery-depth 1` scans one directory level below the CWD instead.
-
-> Runnable code: [`examples/quickstart/step2_config/`](examples/quickstart/step2_config/)
-
-### Step 3: Invoke jobs with phase tracking
-
-Jobs can invoke other jobs with `rc.invoke()`. Track progress with `rc.track_phase()`:
-
-```python
-# weather.py
-from pydantic import BaseModel, Field
-from functualize.job import RunContext
-from functualize.types import RunStatus
-
-class ForecastConfig(BaseModel):
-    city: str = Field(description="City to check")
-    days: int = Field(default=3, ge=1, le=7, description="Days to forecast")
-    api_url: str = Field(default="https://weather.example.com", description="Weather API endpoint")
-
-def forecast(config: ForecastConfig, rc: RunContext) -> str:
-    rc.log(f"Fetching {config.days}-day forecast for {config.city}...")
-    return f"{config.city}: 24°C, sunny for the next {config.days} days"
-
-def alert(config: ForecastConfig, rc: RunContext):
-    """Check forecast and send alerts if needed."""
-    rc.log("Checking alert conditions...")
-    rc.log("No severe weather — all clear")
-
-def morning_report(config: ForecastConfig, rc: RunContext):
-    """Run the full morning weather pipeline."""
-    rc.track_phase("forecast", "Fetching forecast", RunStatus.RUNNING)
-    rc.invoke("forecast", city=config.city, days=config.days)
-    rc.track_phase("forecast", "Forecast retrieved", RunStatus.SUCCESS)
-
-    rc.track_phase("alerts", "Checking alerts", RunStatus.RUNNING)
-    rc.invoke("alert", city=config.city)
-    rc.track_phase("alerts", "Alerts checked", RunStatus.SUCCESS)
-
-    rc.log("Morning report complete")
-```
-
-```bash
-func weather.py morning_report --city Tokyo --days 5
-```
-
-Install the flow-viz plugin to see a live execution tree — zero code changes to your jobs:
-
-```bash
-pip install "functualize[cli]" functualize-flow-viz
-```
-
-```
-⏳ morning_report
-├─ ✓ forecast — Forecast retrieved (0.1s)
-├─ ✓ alerts — Alerts checked (0.1s)
-└─ ✓ morning_report (0.3s)
-```
-
-The plugin subscribes to `invoke_start`, `invoke_end`, and `phase_change` events automatically — rendering phase status, durations, and nested invocations without touching job code.
-
-> Runnable code: [`examples/quickstart/step3_invoke/`](examples/quickstart/step3_invoke/)
-
-### Step 4: Browse and run jobs interactively
-
-As your `jobs/` directory grows, stop memorizing names and flags. Run bare `func` in a terminal and the **inline TUI** opens — a smart command shell rendered under your prompt (not fullscreen):
-
-```bash
-cd myproject
 func
 ```
 
-- **SmartBar readiness** — the command bar's border tells you the state at a glance: grey (no job) → yellow **PENDING** (required args missing) → green **READY** (executable) → red **INVALID**
-- **Tab** — autocomplete job names, flags, and values (enum choices complete after a trailing space)
-- **Ctrl+Enter** — execute in place; log output streams below the bar, and the shell scrollback stays intact
-- **Ctrl+R** — the config panel ring: every config field with its effective value *and where it came from* (CLI flag, env var, config file, or default)
-- **Ctrl+E** — the general ring: browse all discovered jobs and TUI settings
+`func` discovers the workspace and opens the interactive TUI, where you can
+find jobs, inspect/configure parameters, see where values come from, and run them.
 
-Requires the CLI extra (`pip install "functualize[cli]"`). Inline rendering works on Linux/macOS; on Windows, Textual falls back to a fullscreen driver. See the [Inline TUI reference](https://raicing-ai.github.io/functualize/cli/inline-tui/) for the complete keybinding tables.
-
-> Runnable code: [`examples/quickstart/step4_tui/`](examples/quickstart/step4_tui/)
-
-### Step 5: Add AI with structured output
-
-If you haven't already, install the CLI extras first:
+Or invoke directly:
 
 ```bash
-pip install "functualize[cli]"
+func deploy --environment production
 ```
 
-Then install the AI domain SDK:
+No command-registration boilerplate is required.
+
+## Why Functualize?
+
+A useful function is easy to write. Making it operational usually adds:
+
+- discovery and invocation
+- typed configuration
+- secret and credential provisioning
+- local and remote config / secret sources
+- dependency injection
+- structured logging and execution context
+- state and resumability
+- workflows and conditional execution
+- human or AI gates
+- verification and completion criteria
+- multiple delivery surfaces
+
+Functualize provides that layer while keeping domain logic as ordinary Python.
+
+## Workspace-native operations
+
+Functualize can attach an operational layer to an existing repository without
+taking over its application structure.
+
+```text
+workspace/
+├── src/
+├── docs/
+├── AGENTS.md
+└── .functualize/
+    ├── jobs/
+    ├── lib/
+    └── plugins/
+```
+
+This works whether the repository itself is Python, Go, Rust, Terraform,
+research code, or a mixed agent workspace.
+
+Functualize can combine workspace-local jobs with user-global jobs under
+`~/.config/functualize/jobs/`, following the XDG configuration convention.
+Additional job directories can also be configured explicitly.
+
+### Built for the agent workspace
+
+An emerging pattern in agent systems is to treat the **workspace itself as a
+first-class interface**: files hold context and artifacts, directories provide
+structure, and agents use the filesystem and shell to understand and act on
+their environment.
+
+You can see this direction in [ICMP / Model Workspace Protocol](https://arxiv.org/abs/2603.16021),
+[OpenClaw](https://docs.openclaw.ai/agent-workspace),
+[Hermes Agent](https://github.com/NousResearch/hermes-agent), and
+[Vercel's filesystem-first agent work](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash).
+
+Functualize makes the executable side of that pattern straightforward: keep
+context and artifacts in the workspace, put reusable operations under
+`.functualize/`, and let humans or agents discover and invoke them from the same
+place.
+
+**The workspace provides context. Functualize gives it executable, composable
+operations.**
+
+## Agents and workflows
+
+Functualize complements agents rather than replacing them.
+
+> **Keep your agent. Give it reliable workflows.**
+
+The agent supplies reasoning. Functualize supplies the procedure, state,
+gates, allowed transitions, deterministic checks, and completion criteria.
+
+```text
+Agent / harness
+      │
+      ▼
+Functualize workflow
+      │
+      ├── deterministic step
+      ├── agent step
+      ├── verification gate
+      ├── correction
+      └── evaluator
+      │
+      ▼
+verified outcome
+```
+
+### Drive a workflow over CLI
+
+Start the workflow like any other job:
 
 ```bash
-pip install functualize-ai-pydantic
+func release
 ```
 
-> `functualize-ai-pydantic` pulls in `functualize-ai` (the protocol) automatically. When only one AI provider is installed, it's auto-selected — no config needed.
-
-Set your API key (the PydanticAI provider uses LiteLLM, which supports OpenAI, Anthropic, and others):
+If it blocks on a gate in non-interactive mode, Functualize persists the scope.
+Inspect, answer, and resume the same workflow:
 
 ```bash
-export OPENAI_API_KEY=sk-...
-# Or: export ANTHROPIC_API_KEY=sk-ant-...
+func builtin workflow list
+func builtin workflow show <workflow-id>
+func builtin workflow answer <workflow-id> <gate> --input '{"approved": true}'
+func builtin workflow resume <workflow-id>
 ```
 
-Now add an AI-powered job that uses `rc.invoke()` to call other jobs properly:
-
-```python
-# weather.py (add to the same file)
-from functualize_ai import AI
-
-class TravelPlan(BaseModel):
-    destination: str
-    best_days: list[str]
-    packing_tips: list[str]
-
-def travel_plan(config: ForecastConfig, ai: AI, rc: RunContext):
-    """AI generates a structured travel plan from weather data."""
-    # Use invoke to get forecast (goes through lifecycle, hooks, plugins)
-    result = rc.invoke("forecast", city=config.city, days=config.days)
-    plan = ai.complete(
-        f"Create a travel plan for {config.city} based on: {result.return_value}",
-        response_model=TravelPlan,
-    )
-    rc.log(f"Best days: {', '.join(plan.best_days)}")
-    rc.log(f"Pack: {', '.join(plan.packing_tips)}")
-```
+Or answer and advance in one command:
 
 ```bash
-func weather.py travel_plan --city Tokyo --days 5
+func builtin workflow resume <workflow-id> --input '{"approved": true}'
 ```
 
-> Runnable code (works without API keys via `MockAI`): [`examples/quickstart/step5_ai/`](examples/quickstart/step5_ai/)
+Completed steps are not re-run; recorded branches and gate inputs remain stable
+when the workflow resumes.
 
-### Step 6: Expose jobs to AI agents via MCP
+### Or drive the same workflow over MCP
 
-Make your jobs callable by external AI agents (Claude, Cursor, Goose) using the MCP protocol:
-
-```bash
-pip install "functualize[cli]" functualize-mcp
-```
-
-Mark jobs for external visibility with `@job`:
-
-```python
-from functualize.job.decorators import job
-
-@job(
-    extra_description="Get a weather forecast for a city",
-    visibility="external",
-    tags=["weather", "safe"],
-)
-def forecast(config: ForecastConfig, rc: RunContext) -> str:
-    ...
-
-@job(
-    extra_description="Generate an AI travel plan based on weather data",
-    visibility="external",
-    tags=["weather", "ai"],
-)
-def travel_plan(config: ForecastConfig, ai: AI, rc: RunContext):
-    ...
-```
-
-Serve your jobs as MCP tools:
+Expose the workspace:
 
 ```bash
 func mcp serve
 ```
 
-**Using with Claude Code:** Add the MCP server to your Claude config:
+An agent can discover and start a workflow through the normal MCP job tools:
 
-```json
-{
-  "mcpServers": {
-    "weather": {
-      "command": "func",
-      "args": ["mcp", "serve"],
-      "cwd": "/path/to/your/project"
-    }
-  }
-}
+```text
+discover_jobs()
+get_job_schema("release")
+run_job("release")
 ```
 
-Now Claude can discover and call `forecast` and `travel_plan` directly, passing structured config and receiving typed results. Jobs with `visibility="internal"` are hidden from MCP.
+If it blocks:
 
-> Runnable code: [`examples/quickstart/step6_mcp/`](examples/quickstart/step6_mcp/) — full tool-surface reference in [`plugins/adapters/functualize-mcp/examples/`](plugins/adapters/functualize-mcp/examples/)
+```text
+list_workflows()
+get_workflow_state("<workflow-id>")
+```
 
-### Step 7: Workflow checkpoints for AI agents
+The agent can inspect the pending gate, use tools offered by that gate, provide
+input, and advance the same workflow:
 
-Use declarative workflows with gates to create bounded, multi-turn flows that AI agents can drive:
+```text
+call_gate_tool("<workflow-id>", "inspect_artifact", {...})
+answer_gate({...}, workflow_id="<workflow-id>", gate="review")
+resume_workflow("<workflow-id>")
+```
 
-```python
-# weather.py
-from functualize.workflow import workflow, Step, Gate, Edge, END
-from pydantic import BaseModel, Field
+Or provide the gate input directly while resuming:
 
-class TripPreferences(BaseModel):
-    budget: str = Field(description="Budget level: budget, mid-range, luxury")
-    interests: list[str] = Field(description="Travel interests")
-
-@workflow(
-    steps=[
-        Step(forecast),
-        Gate(name="preferences", awaits=TripPreferences,
-             tools=["run_job"], strategy="ai_outbound"),
-        Step(travel_plan),
-    ],
-    edges=[
-        Edge(source="forecast", target="preferences"),
-        Edge(source="preferences", target="travel_plan"),
-        Edge(source="travel_plan", target=END),
-    ],
+```text
+resume_workflow(
+    "<workflow-id>",
+    input={"approved": true, "reason": "checks passed"}
 )
-def trip_planner(config: ForecastConfig, rc: RunContext) -> str:
-    """Multi-step trip planning that pauses for AI input."""
-    rc.log(f"Itinerary for {config.city} complete.")
-    return f"Itinerary ready for {config.city}"
 ```
 
-The graph is validated at decoration time. Jobs are registered as `Step(func)`; pause points are `Gate(name=..., awaits=Model)`. The decorated function's body is the epilogue — it runs once after the walk reaches `END`.
+The distinction is simple:
 
-**Three gate interaction modes:**
+```text
+answer_gate(...)      records gate input
+resume_workflow(...)  advances the workflow
+```
 
-| Mode | Flag / Strategy | Behavior |
-|------|----------------|----------|
-| **Blocked + Resume** | (default) | Walk stops at gate (exit 5). Answer and advance in one command: `func trip-planner --wf-resume --wf-input '{…}'`. Best for scripts, CI, and MCP agents. |
-| **Interactive Prompt** | `--prompt-gates` or `strategy="prompt"` | Gate prompts inline on a TTY. Walk completes in one invocation. Falls through to block when piped. |
-| **AI Agent** | `strategy="ai_outbound"` | Gate blocks for external AI deliberation via MCP. The agent discovers, inspects state, answers with `answer_gate`, and advances with `resume_workflow`. |
+This gives agents a stable loop:
+
+```text
+discover → start → inspect → act → resume → verify → complete
+```
+
+without requiring a specific agent framework or model.
+
+> **Bring your own agent. Bring your own model. Bring your own harness.
+> Standardize the workflow.**
+
+## What you get
+
+- **Discovery** — CWD, `.functualize/`, explicit directories, and user-global jobs
+- **Configuration** — typed config, layering, remote sources, secrets
+- **Execution** — `RunContext`, DI, lifecycle, stable exit semantics
+- **Workflows** — DAGs, gates, state, resume, `AgentStep`, evaluation
+- **Agents** — MCP tools, AI gates, agent-backed steps, verifiable execution
+- **Surfaces** — TUI, CLI, Python, MCP, HTTP, Lambda
+- **Extensibility** — plugins, providers, adapters, domain SDKs
+
+## Installation
+
+### Standalone — no system Python required
 
 ```bash
-# Blocked (default) — answer and advance in one command
-func trip-planner --city Tokyo
-# → exit 5: "Blocked: gate 'preferences' in scope 'abc123'"
-func trip-planner --wf-resume abc123 --wf-input '{"budget":"mid-range"}'
-
-# Or record now and advance later — the two verbs are separate on purpose,
-# so a second actor can answer a gate without being the one who runs the walk
-func builtin workflow answer abc123 preferences --input '{"budget":"mid-range"}'
-func builtin workflow resume abc123
-
-# Interactive — one invocation, gates prompt inline
-func --prompt-gates trip-planner --city Tokyo
-# → forecast runs → "Budget level?" → "Interests?" → travel-plan runs → exit 0
-
-# AI agent — serve via MCP, agent drives the gate
-func mcp serve
-# → Claude discovers, inspects state, calls answer_gate, then resume_workflow
+curl -LsSf \
+  https://raw.githubusercontent.com/raicing-ai/functualize/master/install.sh \
+  | sh
 ```
 
-When served via MCP (`func mcp serve`), `functualize-mcp` exposes workflow tools that let an AI agent drive paused workflows:
+Windows:
 
-1. **Discover** — `list_workflows()` shows scopes, filterable by workflow, state, or pending gate
-2. **Inspect state** — `get_workflow_state(id)` shows the graph, each step's result, the pending input model, and the tools the gate allows
-3. **Answer** — `answer_gate({"budget": "mid-range", "interests": ["food", "culture"]}, workflow_id=id)` validates against `TripPreferences` and records it. Partial input is held as a draft until it validates whole
-4. **Advance** — `resume_workflow(id)` walks to the next stopping point
-5. **Continue multi-turn** — each gate creates a natural checkpoint where the agent reflects and decides
+```powershell
+irm https://raw.githubusercontent.com/raicing-ai/functualize/master/install.ps1 | iex
+```
 
-This creates bounded AI workflows — the agent operates within defined steps rather than open-ended execution.
+The standalone distribution includes its own Python runtime and first-party
+Functualize components.
 
-> Runnable code: [`examples/quickstart/step7_workflow/`](examples/quickstart/step7_workflow/) — full workflow walkthrough in [`plugins/adapters/functualize-mcp/examples/`](plugins/adapters/functualize-mcp/examples/)
-
-### Step 8: Scaffold and distribute as a CLI
-
-When your jobs grow into a real project, scaffold and install it as a standalone command:
+Then simply run:
 
 ```bash
-func builtin scaffold init weather-app
-cd weather-app
-uv sync
+func
 ```
 
-This generates:
-
-```
-weather-app/
-├── pyproject.toml        # [project.scripts] entry point
-├── README.md
-├── config.base.toml
-├── config.dev.toml
-├── config.prod.toml
-└── src/weather_app/
-    ├── __init__.py
-    ├── main.py           # FunctualizeApp wiring
-    └── jobs/
-        ├── __init__.py
-        └── sample_job.py
-```
-
-Move your weather jobs into `src/weather_app/jobs/weather.py`. The `pyproject.toml` declares a CLI entry point:
-
-```toml
-[project.scripts]
-weather-app = "weather_app.main:run"
-```
-
-Install it as a global command (no `uv run` prefix needed):
+### With Python
 
 ```bash
-# Install globally with uv tool (isolated, on PATH)
-uv tool install -e .
-
-# Now callable directly
-weather-app forecast --city Tokyo --days 5
-weather-app travel-plan --city Paris
+uv tool install "functualize[cli]"
 ```
 
-Or with pip:
+or:
 
 ```bash
-pip install -e .
-weather-app --help
+pipx install "functualize[cli]"
 ```
 
-MCP works in project mode too — add `functualize-mcp` as a dependency in your `pyproject.toml`, and the plugin is auto-discovered at boot via entry points:
+### As a library
 
 ```bash
-weather-app mcp serve
+uv add functualize
 ```
 
-The MCP plugin registers its commands (`mcp serve`, `mcp start`, `mcp stop`, `mcp tools`, `mcp list`, `mcp schema`) automatically when installed. Your project's CLI exposes them alongside your job commands.
-
-> Walkthrough: [`examples/quickstart/step8_scaffold/`](examples/quickstart/step8_scaffold/) — the finished project lives in [`examples/project/weather_app/`](examples/project/weather_app/)
-
-For the full progression guide (directory mode, library mode, adapter mode), see the [Modes documentation](https://raicing-ai.github.io/functualize/guides/modes/).
-
-## Layered Configuration
-
-Every `JobConfig` field resolves from multiple sources automatically. Same job, different environments — zero code changes:
+Use `FunctualizeApp` when you want to build your own named CLI/application on
+top of the runtime, with explicit job sources, configuration, plugins, and
+delivery adapters.
 
 ```python
-# jobs/sync.py
-from pydantic import BaseModel, Field
-from functualize.job import RunContext
-
-class SyncConfig(BaseModel):
-    api_url: str = Field(description="Target API endpoint")
-    batch_size: int = Field(default=100, description="Records per batch")
-    timeout: int = Field(default=30, description="Request timeout in seconds")
-
-def data_sync(config: SyncConfig, rc: RunContext):
-    rc.log(f"Syncing from {config.api_url} (batch={config.batch_size})")
-```
-
-Three ways to provide config — they layer with clear priority. The job is
-`data-sync`: names are canonical lowercase-hyphenated, derived from the Python
-function name (`def data_sync`). Environment variables use underscores because
-shells cannot export a hyphen, and a config section is accepted either way:
-
-```bash
-# 1. CLI flags (highest priority)
-func data-sync --batch-size 2000
-
-# 2. Environment variables (JOBNAME_FIELD convention)
-export DATA_SYNC_BATCH_SIZE=500
-export DATA_SYNC_API_URL=https://api.prod.example.com
-
-# 3. Config files (base + environment overlay)
-# config.base.toml
-# [data_sync]
-# api_url = "https://api.example.com"
-# batch_size = 100
-```
-
-Resolution order: **Runtime override → CLI → Env vars → Config file → Model defaults** (an override is a value `rc.config.set()` deposits mid-run). The same job works locally, in Docker, and in production without any code changes — just swap the config source.
-
-Config files use a **base + environment overlay** pattern. The active environment — `FUNCTUALIZE_ENV`, else `ENVIRONMENT`, else `ENV`, defaulting to `dev` — determines which overlay is merged on top of the base (matched case-insensitively):
-
-```toml
-# config.base.toml — always loaded
-[data_sync]
-api_url = "https://api.example.com"
-batch_size = 100
-
-# config.prod.toml — merged on top when ENVIRONMENT=prod
-[data_sync]
-api_url = "https://api.prod.example.com"
-batch_size = 500
-```
-
-```bash
-# Local dev (default) — uses config.base.toml + config.dev.toml
-func data-sync
-
-# Production — uses config.base.toml + config.prod.toml overlay
-ENVIRONMENT=prod func data-sync
-```
-
-| Preset | Strategy | Best for |
-|--------|----------|----------|
-| `classic()` | CLI → Env → Config files → Defaults | Local dev, desktop tools |
-| `twelve_factor()` | CLI → Env → Defaults | Docker, Kubernetes |
-| `env_only(dotenv=True)` | CLI → Env → Defaults | Serverless, minimal setups |
-| `remote_first()` | CLI → Vault → Env → Files → Defaults | AWS Secrets Manager, Bitwarden |
-
-> **`remote_first()` needs a provider plugin.** A config value declared as
-> `password = "aws-sm://prod/db-password"` names *where* a credential lives and never
-> carries it. `func builtin vault sync` fetches those values into a per-project
-> encrypted vault, and job runs read the vault — never the network. Selecting the
-> preset with no remote provider registered raises at construction rather than quietly
-> resolving from local files.
->
-> ```bash
-> pip install functualize-aws
-> export FUNCTUALIZE_VAULT_KEY=$(func builtin vault keygen)
-> func builtin vault sync
-> ```
->
-> Full guide: [Remote Configuration](docs/guides/configuration.md#remote-configuration).
-
-Presets are selected in your project's `main.py` when constructing `FunctualizeApp`:
-
-```python
-from functualize.app import FunctualizeApp, JobSources, twelve_factor
+from functualize.app import FunctualizeApp, JobSources, classic
 
 app = FunctualizeApp(
-    name="weather-app",
-    job_sources=JobSources(directories=["weather_app.jobs"]),
-    config_sources=twelve_factor(),  # Env-only for Docker/K8s
+    name="my-ops",
+    job_sources=JobSources(directories=["my_ops.jobs"]),
+    config_sources=classic(),
 )
+
+
+def run() -> None:
+    app.run()
 ```
 
-> **Note:** When using `func` CLI in single-file mode, the default preset (`classic()`) is always used — presets only apply to scaffolded projects with a `main.py`.
-
-### Environment Variables and `.env` Files
-
-Functualize reads environment variables from `os.environ` during config resolution. A `.env` file can inject values into `os.environ` before resolution runs — controlled by `ConfigSources.dotenv` / `dotenv_path` for apps, and by the resolved CLI config plus `--dotenv-file` / `--no-dotenv` for the `func` CLI:
-
-```bash
-# Explicit .env loading — injects into os.environ before config resolution
-myapp --dotenv-file .env data_sync
-
-# App boot honors ConfigSources.dotenv (the dataclass default is True):
-# a ./.env in the working directory is loaded at boot. Use
-# ConfigSources(dotenv=False) or the twelve_factor() preset to disable.
-myapp data_sync
-```
-
-**Key points:**
-
-- The `ENVIRONMENT` variable (from shell or `.env`) controls which config overlay file is selected. If your `.env` sets `ENVIRONMENT=prod`, the app loads `config.prod.toml` on top of `config.base.toml`
-- Shell environment variables always take precedence over `.env` file values (python-dotenv does not override existing vars by default)
-- The effective resolution priority: **CLI flags > Shell env vars > `.env` file values > Config files > Model defaults**
-- Only the current working directory's `.env` (or an explicit `dotenv_path`) is considered — there is no upward directory scan, so a `.env` in a parent directory is never silently picked up
-- The `func` CLI defaults to `dotenv = false`; opt in per project via `[tool.functualize] dotenv = true`, `FUNCTUALIZE_DOTENV=true`, or `--dotenv-file`
-
-Because `.env` is loaded into `os.environ` **before** the config system reads it, `.env` can influence both the config values (via `JOBNAME_FIELD` env vars) and which config files are loaded (via the `ENVIRONMENT` variable).
-
-> **Reproducibility tip:** Automatic `.env` loading can cause hard-to-debug differences between environments. For CI and production, use `twelve_factor()` / `ConfigSources(dotenv=False)` (or `--no-dotenv` on the CLI) so environment variables come only from the orchestrator.
-
-## Extending with Plugins
-
-Plugins are standalone packages that extend any Functualize app via Python entry points. Install one and it's active immediately — no code changes in the host app.
-
-### Writing a plugin
-
-A plugin is a class with metadata attributes and a `__call__(app)` method:
-
-```python
-# src/functualize_metrics/__init__.py
-class MetricsPlugin:
-    name = "metrics"
-    version = "1.0.0"
-    description = "Emit job execution metrics to StatsD"
-
-    def __call__(self, app) -> None:
-        """Called at boot — hook into lifecycle events."""
-
-        @app.before_job
-        def on_start(job_name, config):
-            statsd.increment(f"job.{job_name}.started")
-
-        @app.on_job_success
-        def on_success(job_name, result, duration):
-            statsd.timing(f"job.{job_name}.duration", duration)
-
-        @app.on_job_failure
-        def on_failure(job_name, error):
-            statsd.increment(f"job.{job_name}.failed")
-```
-
-Register via entry point in `pyproject.toml`:
-
-```toml
-[project.entry-points."functualize.plugins"]
-metrics = "functualize_metrics:MetricsPlugin"
-```
-
-Once installed (`pip install functualize-metrics`), the plugin is auto-discovered at boot. Every job in every Functualize app gets metrics automatically.
-
-### Registering CLI commands from a plugin
-
-Plugins can add sub-commands to the host CLI:
-
-```python
-class DBPlugin:
-    name = "db-tools"
-    version = "1.0.0"
-    description = "Database management commands"
-
-    def __call__(self, app) -> None:
-        def migrate(target: str = "head"):
-            """Run database migrations."""
-            print(f"Migrating to {target}")
-
-        def seed(count: int = 100):
-            """Seed sample data."""
-            print(f"Seeding {count} records")
-
-        app.extensions.register_plugin_command("migrate", migrate, group="db", help_text="Run migrations")
-        app.extensions.register_plugin_command("seed", seed, group="db", help_text="Seed data")
-```
-
-This creates `my-app db migrate` and `my-app db seed` commands.
-
-### Registering dynamic jobs
-
-Plugins can register jobs that become invocable via `rc.invoke()` and visible in the CLI:
-
-```python
-class HealthPlugin:
-    name = "health-monitor"
-    version = "1.0.0"
-    description = "Registers a health check job"
-
-    def __call__(self, app) -> None:
-        def check_health(config, rc):
-            """Check endpoint health."""
-            import httpx
-            resp = httpx.get(config.endpoint, timeout=config.timeout)
-            rc.log(f"Status: {resp.status_code}")
-
-        app.register_dynamic_job(
-            name="health-check",
-            function=check_health,
-            config_class=HealthCheckConfig,
-            group="monitoring",
-        )
-```
-
-Dynamic jobs are fully functional — invocable via `rc.invoke("health-check")`, visible in the TUI, and trigger lifecycle hooks.
-
-### Public API
-
-| Package | Purpose |
-|---------|---------|
-| `functualize.app` | `FunctualizeApp` constructor, config presets, adapters |
-| `functualize.app.packaging` | How this program was installed, who owns it, and the argv that would change it |
-| `functualize.job` | `RunContext`, capabilities (`Log`, `Invoke`, `Prompt`, `Perf`, `State`), `@job` decorator |
-| `functualize.plugin` | `EventBus`, `JobProvider`, `AdapterPlugin`, `ModulePreFilter` |
-| `functualize.types` | `JobResult`, `JobDescriptor`, enums |
-| `functualize.workflow` | `@workflow`, `Step`, `Gate`, `Edge`, `ConditionalEdge`, `END` |
-| `functualize.testing` | `TestRunContext`, `CapturingLog`, `MockInvoke` |
-
-See the [full plugin and extension docs](https://raicing-ai.github.io/functualize/guides/plugins/) for lifecycle hooks, middleware, event bus, custom providers, and more.
-
-Building a distribution *on* functualize — where your package is what the user
-installs and `func`'s `builtin` subtree is mounted into your CLI — is covered in
-[Hosting Functualize](https://raicing-ai.github.io/functualize/guides/hosting/):
-install detection and command planning, shipping your own agent skills, and
-supplying a discovery pre-filter.
-
-## Plugin Ecosystem
-
-Install the full plugin ecosystem with a single command:
-
-```bash
-pip install "functualize[all]"
-pip install functualize-bitwarden   # not in [all] -- see the note below
-```
-
-| Plugin | Purpose |
-|--------|---------|
-| `functualize-ai` | Provider-agnostic LLM interaction with budget enforcement and tool scoping |
-| `functualize-ai-pydantic` | PydanticAI-backed AI provider with LiteLLM routing and structured output |
-| `functualize-aws` | AWS Secrets Manager and Parameter Store as remote config providers (`aws-sm`, `aws-ssm`) |
-| `functualize-bitwarden` | Bitwarden Secrets Manager as a remote config provider (`bws`) — **install separately** |
-| `functualize-flow-viz` | Live inline execution tree visualization with step status and durations |
-| `functualize-http` | HTTP delivery adapter exposing jobs as API endpoints via stdlib asyncio |
-| `functualize-inline` | Textual-based inline terminal widgets for prompts, selections, and progress |
-| `functualize-lambda` | AWS Lambda delivery adapter for serverless job execution |
-| `functualize-mcp` | Model Context Protocol adapter exposing jobs as tools to AI agents |
-| `functualize-substrate-sqlite` | Installs a SQLite `StoreSubstrate` in WAL mode, so every store keeps its documents in one database |
-| `functualize-tasks` | Task management domain SDK with status tracking and event emission |
-| `functualize-tasks-local` | Local task storage for the tasks domain, on the project's own substrate |
-
-> **Why `functualize-bitwarden` is not in `[all]`.** Its `bitwarden-sdk`
-> dependency is a Rust extension published as wheels for glibc, macOS and
-> Windows only, with no source fallback — so including it makes
-> `functualize[all]` impossible to resolve on musl (Alpine, distroless), and
-> `[all]` is what the standalone binaries bake. There is no PEP 508 marker for
-> musl, so it cannot be excluded conditionally. Install it directly on a
-> platform its SDK supports.
-
-Every plugin ships runnable examples in its own folder: [`plugins/<name>/examples/`](https://github.com/raicing-ai/functualize/tree/master/plugins).
-
-For plugin quality tiers and publishing guidelines, see [plugins/PUBLISHING.md](https://github.com/raicing-ai/functualize/blob/master/plugins/PUBLISHING.md).
-
-## Discovering the Command Surface
-
-Every functualize app describes itself at runtime. One call returns every
-command — your jobs *and* the builtins — with the arguments each accepts, as
-JSON Schema:
-
-```bash
-func builtin info schema
-```
-
-```json
-[{"name": "demo.report", "kind": "job", "path": ["demo", "report"],
-  "description": "Emit a small report.",
-  "inputSchema": {"type": "object",
-                  "properties": {"rows": {"type": "integer", "default": 3}}}}]
-```
-
-No plugin required, and no walking each group's `--help` in turn. Narrow with
-`--kind job` or `--kind builtin`, or name one command by its dotted path
-(`func builtin info schema builtin.skills.materialize`). It is the same
-renderer that builds the MCP tool definitions, so what you read is exactly what
-a tool call would accept.
-
-| Command | Answers |
-|---|---|
-| `func builtin info` | The overview: jobs, config resolution, state path, skills |
-| `func builtin info jobs [<job>]` | The catalogue, or one job in detail (`--json` for structure) |
-| `func builtin info schema [<name>]` | Input contracts as JSON Schema, jobs and builtins — always JSON |
-| `func builtin info all` | Everything above as one document |
-| `func builtin why <job>` | Whether a job would run, and why |
-
-Set the renderer once instead of passing a flag every time:
-
-```bash
-export FUNCTUALIZE_CLI_OUTPUT=json     # or "plain" for no box-drawing
-```
-
-`--help` names all of this at the bottom, so nothing above needs to be
-memorised — on `func` and on your project's own entry point alike, spelled for
-whichever one you invoked:
-
-```
-For AI agents:
-  func builtin info schema                 all commands, as JSON
-  func builtin info schema --kind job      jobs only
-  func builtin info schema --kind builtin  builtin commands only
-  func builtin skills list                 skills for this version
-  export FUNCTUALIZE_CLI_OUTPUT=json       make JSON the default
-```
-
-## AI Agent Skills
-
-Functualize ships [Agent Skills](https://agent-skills.io) that teach a coding
-agent the contracts which are invisible from the file it is editing — that
-capabilities are injected by parameter type, that returning a value does not
-print it, that discovery is convention plus filters, and that `func` is
-frequently not on `PATH`.
-
-They travel **inside the distribution**, so what your agent reads is the version
-you actually installed rather than whatever the main branch says today.
-
-```bash
-func builtin skills list          # what ships, with descriptions
-func builtin skills install       # install into this project (uses npx skills)
-```
-
-| Skill | For |
-|---|---|
-| `functualize` | Writing, running and debugging jobs in an existing project |
-| `functualize-app` | Building a CLI or TUI on functualize, end to end |
-| `functualize-cli` | Installing, upgrading and configuring `func` itself |
-| `functualize-skill` | Authoring an agent skill whose scripts are functualize jobs |
-
-Without Node, copy them yourself. `skills path` prints **one directory per
-line** — a third-party package can host its own skills, so there is not always
-just one — which means it has to be looped over rather than substituted:
-
-```bash
-func builtin skills path | while read -r dir; do
-  cp -R "$dir"/* .claude/skills/
-done
-```
-
-`func builtin skills materialize` writes a version-stamped copy under
-`$XDG_DATA_HOME/functualize/skills/` for when the environment holding the wheel
-is disposable (`uvx`, PEP 723 script envs) or a project that does not depend on
-functualize still needs a stable path.
-
-## Requirements
-
-- Python 3.11+
-
-## Development
-
-```bash
-# Clone and install
-git clone https://github.com/raicing-ai/functualize.git
-cd functualize
-
-# Install tooling (mise manages python + uv versions)
-mise install
-
-# Sync dependencies (creates .venv, installs all workspace packages)
-uv sync
-
-# Run fast tests (unit only, skips property-based tests)
-uv run pytest
-
-# Run full test suite including property-based tests
-uv run pytest --run-slow
-
-# Run full suite exactly as CI does (the ci profile draws 200 examples, not 100)
-HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto
-
-# Lint and format
-uv run ruff check src/ tests/
-uv run ruff format src/ tests/
-
-# Type check
-uv run mypy src/
-
-# Architecture enforcement (import-linter)
-uv run lint-imports
-
-# Run all pre-commit hooks
-uv run pre-commit run --all-files
-```
-
-See [CONTRIBUTING.md](https://github.com/raicing-ai/functualize/blob/master/CONTRIBUTING.md) for the full development guide.
+### Extend Functualize
+
+Functualize supports packaged plugins through Python entry points, and a
+workspace can keep project-local extensions under `.functualize/plugins/` so
+shared behavior can live with the repository and augment operations contributed
+by multiple job authors.
+
+Plugins can add lifecycle hooks, CLI commands, dynamic jobs, providers,
+adapters, and other integrations without changing Functualize core.
+
+## Core concepts
+
+| Concept | Meaning |
+| --- | --- |
+| **Function** | Ordinary Python domain logic |
+| **Job** | A discoverable, configurable executable function |
+| **Workflow** | Jobs and agent steps composed into a bounded procedure |
+| **Evaluation** | Gates, checks, tests, and postconditions |
+| **Operation** | Useful work that can be invoked and executed reliably |
+| **Delivery surface** | TUI, CLI, Python, MCP, HTTP, Lambda, or another adapter |
 
 ## Documentation
 
-```bash
-# Install docs dependencies
-uv sync --group docs
+- [Getting Started](https://raicing-ai.github.io/functualize/getting-started/)
+- [Jobs and Discovery](https://raicing-ai.github.io/functualize/guides/jobs-discovery/)
+- [Configuration](https://raicing-ai.github.io/functualize/guides/configuration/)
+- [Workflows](https://raicing-ai.github.io/functualize/guides/workflows/)
+- [MCP](https://raicing-ai.github.io/functualize/guides/mcp/)
+- [Plugins](https://raicing-ai.github.io/functualize/guides/plugins/)
+- [Architecture](https://raicing-ai.github.io/functualize/guides/architecture/)
 
-# Live preview
-uv run mkdocs serve
+## Project status
 
-# Build (strict mode catches broken links)
-uv run mkdocs build --strict
-```
-
-The full documentation is published at [https://raicing-ai.github.io/functualize/](https://raicing-ai.github.io/functualize/).
-
-Docs deploy automatically to GitHub Pages on push to `master`.
+Functualize is currently **alpha** and actively evolving around workflows,
+agent interoperability, evaluation, secrets/configuration, and adapters.
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](https://github.com/raicing-ai/functualize/blob/master/CONTRIBUTING.md) before submitting a PR.
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feat/my-feature`)
-3. Make your changes with tests
-4. Ensure CI checks pass (lint, type check, tests, import-linter)
-5. Open a Pull Request against `master` (the PR title becomes the squash commit — use a [Conventional Commit](https://www.conventionalcommits.org/) subject)
-
-## Changelog
-
-See [CHANGELOG.md](https://github.com/raicing-ai/functualize/blob/master/CHANGELOG.md) for release history and migration notes.
-
-## Security
-
-See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
+See [Contributing](docs/contributing.md).
 
 ## License
 
-[MIT](https://github.com/raicing-ai/functualize/blob/master/LICENSE) © Mohammad Hakim Adiprasetya
+[Apache 2.0](LICENSE) © 2025-2026 Mohammad Hakim Adiprasetya

@@ -640,6 +640,16 @@ class WiredShell:
             return ShellResult(127, "", str(exc), display, duration_ms, None), False
         os.close(slave)
 
+        # poll(), not select(): select() carries a hard FD_SETSIZE ceiling
+        # (1024 on Linux) and raises "filedescriptor out of range" once the pty
+        # master lands above it -- which a long-lived process, or a test session
+        # running wide under xdist, reaches routinely. poll() has no such limit.
+        # POLLHUP and POLLERR are reported whether or not they are requested, so
+        # registering POLLIN alone still wakes us on the slave closing, and the
+        # read below turns that into the same b"" EOF select() produced.
+        poller = select.poll()
+        poller.register(master, select.POLLIN)
+
         out: list[str] = []
         counts: dict[int, int] = {}
         failure: list[str] = []
@@ -663,7 +673,7 @@ class WiredShell:
                 if deadline is None
                 else max(0.0, min(0.1, deadline - time.monotonic()))
             )
-            ready, _, _ = select.select([master], [], [], wait)
+            ready = [fd for fd, _ in poller.poll(wait * 1000)]
             if master in ready:
                 try:
                     chunk = os.read(master, 4096)
@@ -686,6 +696,7 @@ class WiredShell:
                     failure.append(msg)
             if proc.poll() is not None and master not in ready:
                 break
+        poller.unregister(master)
         os.close(master)
         try:
             proc.wait(timeout=5)

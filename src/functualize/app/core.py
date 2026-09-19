@@ -764,22 +764,19 @@ class FunctualizeApp:
         shutdown_plugins(self.plugin_loader, self)
 
     def _build_resolution_chain(self) -> ResolutionChain:
-        """Build a ResolutionChain [CLI → Env → Files → Defaults].
+        """Delegate to the single builder in `_app/impl`.
 
-        The regex comparison stays here, not in `_app/impl`: the default it
-        compares against is `ConfigSources.file_pattern`, and `_app` may not
-        import a public folder to read it (the "Internal never imports public"
-        contract). Reaching for it there passed ruff and broke `lint-imports`,
-        which is the check that was actually about this.
+        The regex comparison used to live here, because `_app` may not import a
+        public folder to read `ConfigSources.file_pattern` (the "Internal never
+        imports public" contract) — reaching for it there passed ruff and broke
+        `lint-imports`. That is no longer a reason to compute it here: the
+        builder reads the same default off the *instance* the app already
+        holds, which needs no import, and doing it in one place is what stopped
+        boot and `refresh()` from drifting apart.
         """
         from functualize._app.impl import _build_resolution_chain
 
-        custom_regex = (
-            self._config_file_regex
-            if self._config_file_regex != ConfigSources.file_pattern
-            else None
-        )
-        return _build_resolution_chain(self, custom_regex)
+        return _build_resolution_chain(self)
 
     # ─── Private Methods ─────────────────────────────────────────────────
 

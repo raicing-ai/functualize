@@ -83,3 +83,74 @@ class TestPublicSurface:
         import functualize.plugin as plugin_pkg
 
         assert "VaultKeyProvider" in plugin_pkg.__all__
+
+
+class TestVaultKeyInitializer:
+    """The optional write half of the key seam.
+
+    Split from `VaultKeyProvider` rather than added to it, so the test that
+    matters most is the negative one: a read-only provider must still be a
+    valid provider after this exists.
+    """
+
+    def test_a_read_only_provider_is_not_an_initializer(self) -> None:
+        """The whole reason this is a second protocol.
+
+        Widening `VaultKeyProvider` with `initialize_key` would have made every
+        structural implementation that ships today — and every third-party one
+        — silently stop satisfying it.
+        """
+        from functualize.plugin import VaultKeyInitializer, VaultKeyProvider
+
+        class ReadOnly:
+            def identifier(self) -> str:
+                return "read-only"
+
+            def interactive(self) -> bool:
+                return False
+
+            def is_available(self) -> bool:
+                return True
+
+            def get_key(self, project_id: str) -> bytes | None:
+                return b"\x00" * 32
+
+        provider = ReadOnly()
+        assert isinstance(provider, VaultKeyProvider)
+        assert not isinstance(provider, VaultKeyInitializer)
+
+    def test_adding_the_method_opts_in_structurally(self) -> None:
+        """No registration, no inheritance — the method is the opt-in."""
+        from functualize.plugin import VaultKeyInitializer, VaultKeyProvider
+
+        class Writable:
+            def identifier(self) -> str:
+                return "writable"
+
+            def interactive(self) -> bool:
+                return False
+
+            def is_available(self) -> bool:
+                return True
+
+            def get_key(self, project_id: str) -> bytes | None:
+                return b"\x01" * 32
+
+            def initialize_key(self, project_id: str) -> bytes:
+                return b"\x01" * 32
+
+        provider = Writable()
+        assert isinstance(provider, VaultKeyProvider)
+        assert isinstance(provider, VaultKeyInitializer)
+
+    def test_it_is_runtime_checkable_like_its_base(self) -> None:
+        """`isinstance` is how selection works; a non-runtime-checkable
+        protocol would raise at the point of use, not at import."""
+        from functualize.plugin import VaultKeyInitializer
+
+        assert getattr(VaultKeyInitializer, "_is_runtime_protocol", False)
+
+    def test_it_is_reachable_from_the_public_plugin_surface(self) -> None:
+        import functualize.plugin as plugin_api
+
+        assert "VaultKeyInitializer" in plugin_api.__all__

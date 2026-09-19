@@ -10,7 +10,7 @@ description: >
   takes, as JSON Schema — or when the user mentions functualize, `func run`,
   `func builtin`, `builtin info`, RunContext, or @job. Not for installing,
   upgrading, or configuring the `func` tool itself — use functualize-cli.
-license: MIT
+license: Apache-2.0
 metadata:
   version: "0.3.0"
   project: functualize

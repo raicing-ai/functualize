@@ -814,23 +814,14 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
                 Path(candidate).suffix or "(no extension)",
             )
         AppState.set("config_directory", app._config_path)
-        # A non-default file_pattern must reach FileSource, not just anchor
-        # discovery; the dataclass class attribute holds the field default.
-        default_file_regex = type(app._config_sources).file_pattern
-        custom_regex = (
-            app._config_file_regex
-            if app._config_file_regex != default_file_regex
-            else None
-        )
-        app._resolution_chain = build_resolution_chain(
-            app._config_path,
-            app.name,
-            app.config_registry,
-            file_regex=custom_regex,
-            environment=app._environment,
-            event_bus=app.event_bus,
-            remote_source=build_remote_source(app),
-        )
+        # Through `_build_resolution_chain`, not directly: boot and `refresh()`
+        # must produce the same chain, and the way to guarantee that is for
+        # there to be one call site rather than two kept equal by a comment.
+        # They drifted twice that way -- once on `environment`, once on
+        # `remote_source`.
+        from functualize._app.impl import _build_resolution_chain
+
+        app._resolution_chain = _build_resolution_chain(app)
     perf_timeline.mark("boot.config_resolution.end")
 
     # 7. Fire AFTER_CONFIG_INIT hook
@@ -1021,11 +1012,26 @@ def discover_config_path(
     return str(Path.home() / ".config" / app_name)
 
 
-def build_remote_source(app: Any) -> Any:
-    """Build the vault-backed source for a ``remote_first()`` app, or None.
+def build_vault_source(app: Any) -> Any:
+    """Build the vault-backed config source for this app, or None.
 
-    Returns None for every other preset, so ``classic()`` builds exactly the
-    chain it always did.
+    Two reasons a source is built, and they are not the same reason:
+
+    * ``remote_first()`` asked for one. Unchanged, including the refusal below.
+    * **Any other preset, when this project already has a vault file.** That is
+      the local lifecycle: ``vault put`` stored something, so the next ordinary
+      run has to be able to read it. Without this, the value would be
+      provisioned and then silently ignored on every surface but the one that
+      wrote it.
+
+    Returns None when neither holds, which is the overwhelmingly common case —
+    a project that has never touched the vault.
+
+    **The gate is a ``stat``, and the order matters.** ``_config.vault`` imports
+    ``cryptography`` at module level, and ``app/config.py`` records that it is
+    deliberately kept off the cold boot path for every app that never opens a
+    vault. So existence is checked through ``_config.vault_paths``, which
+    imports only ``_primitives``, *before* anything heavier is imported.
 
     Raises:
         RuntimeError: If the app asked for remote resolution and no remote
@@ -1035,7 +1041,7 @@ def build_remote_source(app: Any) -> Any:
             ADR-016 exists to close; refusing is the whole point.
     """
     if not getattr(app._config_sources, "remote", False):
-        return None
+        return _build_dormant_vault_source()
 
     registered = app.config_registry.list_remote_providers()
     if not registered:
@@ -1083,6 +1089,54 @@ def build_remote_source(app: Any) -> Any:
         # never checks its age, so parsing the threshold there would risk
         # warning about a misspelled setting that was never going to be used.
         max_age=resolve_max_age(getattr(app._config_sources, "vault_max_age", None)),
+    )
+
+
+def _build_dormant_vault_source() -> Any:
+    """A vault source for an ordinary app that has a vault, else None.
+
+    "Dormant" because it is built only when there is something to read and
+    answers nothing when there is not. An app whose project has never used the
+    vault gets exactly the chain it always did, and pays one ``stat`` to
+    establish that.
+
+    No remote providers are passed: this app declares none, so there are no
+    annotations to recognise and nothing a fall-through warning could name.
+    ``max_age`` is ``None`` for the same reason — staleness is a statement about
+    synced values, and the fix it would recommend (``vault sync``) is one this
+    app cannot perform. A warning whose remedy is unavailable is noise.
+    """
+    from functualize._config.vault_paths import vault_path_for_project
+
+    # Before any heavy import. `vault_paths` pulls in `_primitives` and nothing
+    # else; reaching for `_config.vault` here would put `cryptography` on every
+    # cold boot, which is exactly what this ordering exists to prevent.
+    path = vault_path_for_project()
+    if not path.exists():
+        return None
+
+    from functualize._config.vault_keys import resolve_vault_key
+    from functualize._config.vault_source import VaultSource
+    from functualize._primitives.locator import compute_project_id
+
+    # Interactive providers are consulted here only on a TTY, as everywhere
+    # else. On a workstation whose key lives in the OS keyring this can raise
+    # an unlock prompt on an ordinary run -- accepted, because the file only
+    # exists if someone deliberately put something in it, and refusing to read
+    # your own vault to avoid asking you to unlock it would be the worse trade.
+    resolution = resolve_vault_key(compute_project_id(Path.cwd()))
+    if resolution is None:
+        # Not fatal, and deliberately not warned about here. With no key, a
+        # *stored* entry now refuses at the point of use with a message naming
+        # the recovery (ADR-023 §1), and a boot-time warning would fire for
+        # every project that has a vault, including the ones about to resolve
+        # every value from somewhere else entirely.
+        return VaultSource(path, encryption_key=None)
+
+    return VaultSource(
+        path,
+        encryption_key=resolution.key,
+        key_provider_id=resolution.provider_id,
     )
 
 

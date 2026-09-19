@@ -3,7 +3,7 @@ name = "functualize-ai-pydantic"
 version = "0.3.0"
 description = "PydanticAI-backed AI implementation plugin for functualize"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]

@@ -351,6 +351,53 @@ class VaultKeyProvider(Protocol):
 
 
 @runtime_checkable
+class VaultKeyInitializer(VaultKeyProvider, Protocol):
+    """A key provider that can also *create* the key, not only read it.
+
+    Separate from :class:`VaultKeyProvider` rather than a method added to it,
+    because widening that protocol would retroactively invalidate every
+    structural implementation that satisfies it today — read-only providers are
+    valid providers and must stay so. A provider opts in by having the method;
+    nothing registers, and nothing inherits.
+
+    ``func builtin vault init`` looks for this capability. A provider that
+    lacks it is not an error: the environment provider cannot create anything,
+    because only the operator can set an environment variable, and `init`
+    refuses with instructions rather than pretending otherwise.
+
+    **Key scope is this provider's choice, and both shipped providers choose
+    user-scope.** `project_id` is carried here for symmetry with
+    :meth:`VaultKeyProvider.get_key` and so a third-party KMS or hosted
+    provider *can* hold one key per project — but the environment provider
+    ignores it (one variable, many projects) and the keychain provider matches
+    it deliberately. Isolation between projects comes from the separate vault
+    files, not from separate keys. A seam whose two implementations disagreed
+    about scope meant that *which* scope applied depended on whether an
+    environment variable happened to be exported.
+    """
+
+    def initialize_key(self, project_id: str) -> bytes:
+        """Return the existing key, or create, persist, and return one.
+
+        Args:
+            project_id: Carried for providers that scope per project. Both
+                shipped implementations ignore it; see the class docstring.
+
+        Returns:
+            Exactly ``KEY_BYTES`` bytes. Idempotent: a second call returns what
+            the first one persisted, never a fresh key — a provider that
+            generated a new key each time would silently strand every value
+            already written under the old one.
+
+        The key is never logged, printed or returned through any report. `init`
+        reports *which provider* holds it, never the key itself; `keygen` is the
+        one command that puts a key on screen, and it is explicitly the
+        operator's to place.
+        """
+        ...
+
+
+@runtime_checkable
 class EngineHost(Protocol):
     """Everything the engine needs from outside itself, wired once.
 
@@ -890,6 +937,7 @@ __all__ = [
     "PluginWithShutdown",
     "Source",
     "StoreSubstrate",
+    "VaultKeyInitializer",
     "VaultKeyProvider",
     # Agent step port payload vocabulary
     "AgentCapability",

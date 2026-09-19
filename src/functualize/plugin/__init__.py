@@ -39,6 +39,7 @@ from functualize._types.protocols import (
     ModulePreFilter,
     PluginWithShutdown,
     Source,
+    VaultKeyInitializer,
     VaultKeyProvider,
 )
 from functualize._types.settings import (
@@ -112,6 +113,7 @@ __all__ = [
     "PluginWithShutdown",
     "Source",
     "FormatProvider",
+    "VaultKeyInitializer",
     "VaultKeyProvider",
     # The agent step port. A step performed by an agent is an executor behind
     # this Protocol; what an executor can enforce is declared, and a step that

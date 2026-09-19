@@ -17,12 +17,27 @@ title                               = "functualize gitleaks config"
 # *line content* rather than by file, which is the narrower of the two: the same
 # fixture in another file stays covered, and a different string in this one is
 # not exempt.
+#
+# **3. A vault *path* read back in a test.** Same heuristic, same shape:
+# `"deploy.api_token", encryption_key=_KEY` puts a word containing `api` beside
+# an `=`. What follows the `=` is the *name of a fixture constant*, not a
+# credential — `_KEY` is `b"\x2b" * 32`, declared in the open at the top of the
+# file, and `deploy.api_token` is a **config path**: the job `deploy` and its
+# field `api_token`. Naming a field is the whole point of the vault's grammar,
+# so the pattern is unavoidable wherever the feature is tested.
+#
+# Scoped by line content, like (2). The real secrets in those tests are the
+# `PLAINTEXT-…` fixtures, which carry their own inline `gitleaks:allow` and stay
+# individually visible; this exempts the *lookup*, not the value. An actual
+# credential assigned to `encryption_key=` would not match, because the regex
+# requires the bare identifier `_KEY` and nothing quoted.
 [allowlist]
-description = "Illustrative secrets in documentation, and one entropy false positive"
+description = "Illustrative secrets in documentation, and two entropy false positives"
 regexTarget = "line"
 paths = [
   '''\.agents/skills/auditing-python-security/VULNERABILITIES\.md''',
 ]
 regexes = [
   '''resource="api\.tar\.gz", duration_ms=\d+''',
+  '''"[a-z][a-z0-9_.-]*\.(api_token|token|password|credential)", encryption_key=_KEY''',
 ]

@@ -40,9 +40,15 @@ back on the run path, which is the thing this store exists to remove.
 Scope
 -----
 
-One vault per project, keyed by the same ``compute_project_id`` the discovery
-cache uses. A repository you cloned to look at cannot read the secrets of a
-project you actually work on.
+One vault per project. *Which* project is decided by
+:mod:`~functualize._config.vault_paths`, which walks upward for
+``.functualize/`` exactly as the discovery cache does — so every subdirectory of
+one project reaches one vault. A repository you cloned to look at cannot read
+the secrets of a project you actually work on.
+
+This module used to make that claim while hashing the working directory
+unconditionally, which is not the same rule and disagreed wherever a
+``.functualize/`` directory existed.
 """
 
 from __future__ import annotations
@@ -53,13 +59,16 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from functualize._primitives.locator import _xdg_data_dir, compute_project_id
+# Re-exported so the two existing importers (`_app/boot.py`, `app/utils.py`)
+# keep working: the function moved for a cold-boot reason, not an API one.
+from functualize._config.vault_paths import vault_path_for_project
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -72,7 +81,11 @@ __all__ = [
     "SecretsVault",
     "VaultDecryptionError",
     "VaultEntry",
+    "VaultOrigin",
+    "VaultEntryExistsError",
+    "VaultEntryUnreadableError",
     "VaultError",
+    "VaultOriginConflictError",
     "format_duration",
     "parse_duration",
     "resolve_max_age",
@@ -114,14 +127,41 @@ _DURATION_RE = re.compile(r"(?:\d+[wdhms])+$")
 #: of the mode entirely, so it is never derived from the key or the row.
 _NONCE_BYTES = 12
 
+#: Bumped when the table shapes below change. Stamped into ``PRAGMA
+#: user_version`` by :func:`_upgrade`, which is what makes the upgrade run once.
+_SCHEMA_VERSION = 1
+
+#: The one row of :data:`_SCHEMA`'s ``vault_meta`` table, encrypted under the
+#: vault key. Fixed and non-secret on purpose: this is a **known-plaintext
+#: check** of the key, which AES-GCM is designed to withstand, and it exists so
+#: that "does this key open this store?" can be answered without decrypting
+#: anybody's secret. It is *not* a key verifier in the KDF sense (ADR-023 §2).
+_CHECK_PLAINTEXT = b"functualize-vault-check-v1"
+
+#: Associated data for the check row. Distinct from a secret's AAD (its key
+#: name), so a check row and a secret row can never be substituted for one
+#: another even by an attacker who can edit the file.
+_CHECK_AAD = b"functualize-vault-check"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS secrets (
-    key         TEXT PRIMARY KEY,
-    annotation  TEXT NOT NULL,
-    provider    TEXT NOT NULL,
-    nonce       BLOB NOT NULL,
-    ciphertext  BLOB NOT NULL,
-    synced_at   TEXT NOT NULL
+    key          TEXT PRIMARY KEY,
+    origin       TEXT NOT NULL DEFAULT 'provider',
+    annotation   TEXT,
+    provider     TEXT,
+    nonce        BLOB NOT NULL,
+    ciphertext   BLOB NOT NULL,
+    created_at   TEXT,
+    updated_at   TEXT,
+    synced_at    TEXT,
+    key_provider TEXT
+);
+
+CREATE TABLE IF NOT EXISTS vault_meta (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    nonce      BLOB NOT NULL,
+    ciphertext BLOB NOT NULL,
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -148,18 +188,78 @@ class VaultDecryptionError(VaultError):
     """
 
 
+class VaultOrigin(StrEnum):
+    """What wrote an entry. A :class:`~enum.StrEnum` so it serializes to the
+    documented spelling without a second mapping.
+
+    The distinction is not cosmetic: a provider entry is recoverable from
+    upstream by ``vault sync`` and a direct one is not, so deletion, refresh and
+    conflict all read this field (ADR-023 §3).
+    """
+
+    DIRECT = "direct"
+    PROVIDER = "provider"
+
+
+class VaultEntryUnreadableError(VaultError):
+    """A stored entry exists and this machine cannot open it.
+
+    Distinct from a *miss*, and that distinction is the whole of ADR-023 §1.
+    An absent entry falls through to the environment or a config file, because
+    nothing was stored and a lower-priority source is the honest answer. An
+    entry that **is** stored is what the operator meant the job to use, so
+    quietly running on something else hands them a different secret than they
+    intended — while the run reports success.
+    """
+
+
+class VaultEntryExistsError(VaultError):
+    """A write would have overwritten an entry without being asked to.
+
+    ``put`` used to upsert unconditionally, which is right for ``sync`` — it
+    exists to refresh — and wrong for a person typing a value at a prompt, who
+    gets no second chance to notice they overwrote something.
+    """
+
+
+class VaultOriginConflictError(VaultError):
+    """A write would have changed what wrote an entry.
+
+    Refused in **both** directions and regardless of ``replace``, because the
+    two failures are different and both are bad: ``sync`` silently replacing a
+    typed-in value destroys the only copy there is, and a typed-in value
+    quietly taking over a provider entry's key makes the next sync's conflict
+    unexplainable. Changing provenance is a decision, so it is made explicitly
+    (delete, then write) rather than as a side effect (ADR-023 §3).
+    """
+
+
 @dataclass(frozen=True)
 class VaultEntry:
     """One stored secret's metadata. Deliberately carries no value.
 
     Returned by listing and status surfaces, which must be able to describe the
     vault without opening it.
+
+    **Three fields are nullable and were not.** ``annotation``, ``provider`` and
+    ``synced_at`` describe where a value was fetched *from*, and a value typed
+    in by hand was not fetched from anywhere. Filler was rejected: a row
+    claiming ``provider = "direct"`` makes every reader see a provider name that
+    is not one, and a ``synced_at`` meaning "when I typed it" is untrue.
+
+    One flat record rather than a per-origin hierarchy, because every consumer
+    wants the whole row; splitting it would push an ``isinstance`` branch into
+    ``list``, ``status`` and ``inspect`` alike.
     """
 
     key: str
-    annotation: str
-    provider: str
-    synced_at: datetime
+    origin: VaultOrigin
+    annotation: str | None
+    provider: str | None
+    created_at: datetime | None
+    updated_at: datetime | None
+    synced_at: datetime | None
+    key_provider: str | None
 
 
 class InvalidDurationError(VaultError):
@@ -273,16 +373,6 @@ def resolve_max_age(configured: str | None = None) -> timedelta:
     return parse_duration(DEFAULT_MAX_AGE)
 
 
-def vault_path_for_project(cwd: str | Path | None = None) -> Path:
-    """Return the vault file path for a project directory.
-
-    Mirrors the discovery cache's per-project layout, using the same
-    ``compute_project_id``, so the two agree on what "this project" means.
-    """
-    project_id = compute_project_id(cwd if cwd is not None else Path.cwd())
-    return _xdg_data_dir() / "functualize" / "vaults" / project_id / "vault.db"
-
-
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
@@ -332,6 +422,7 @@ class SecretsVault:
         # edge case. Reads are frequent; writes happen only during `vault sync`.
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(_SCHEMA)
+        _upgrade(conn)
         return conn
 
     def _audit(
@@ -353,46 +444,97 @@ class SecretsVault:
         key: str,
         value: str,
         *,
-        annotation: str,
-        provider: str,
         encryption_key: bytes,
+        origin: VaultOrigin = VaultOrigin.PROVIDER,
+        annotation: str | None = None,
+        provider: str | None = None,
+        replace: bool = False,
     ) -> None:
-        """Encrypt and store one value, replacing any previous entry.
+        """Encrypt and store one value.
 
         Args:
             key: Config key, e.g. ``"database.password"``.
             value: The plaintext secret. Never logged, never audited.
-            annotation: The ``provider://reference`` it was declared as.
-            provider: Which provider actually answered.
             encryption_key: 32 bytes.
+            origin: What is doing the writing. ``PROVIDER`` is the default
+                because ``sync`` is the older caller and the one that must not
+                change behavior.
+            annotation: The ``provider://reference`` it was declared as.
+                ``None`` for a direct write — a typed-in value was not declared
+                anywhere.
+            provider: Which provider answered. ``None`` for a direct write.
+            replace: Permit overwriting an existing entry of the *same* origin.
+                ``sync`` passes it, because refreshing is what it is for; an
+                interactive ``put`` does not, so a person cannot destroy a
+                value by not knowing it was there.
 
         Raises:
             VaultError: If the key is not exactly :data:`KEY_BYTES` long.
+            VaultEntryExistsError: An entry exists and ``replace`` is False.
+            VaultOriginConflictError: An entry exists with a different origin.
+                Never overridden by ``replace``; see that class.
         """
         _require_key(encryption_key)
         nonce = _random_nonce()
         ciphertext = AESGCM(encryption_key).encrypt(
             nonce, value.encode("utf-8"), key.encode("utf-8")
         )
+        now = _utcnow().isoformat()
+        synced_at = now if origin is VaultOrigin.PROVIDER else None
         with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT origin, created_at FROM secrets WHERE key = ?", (key,)
+            ).fetchone()
+            if existing is not None:
+                if VaultOrigin(existing[0]) is not origin:
+                    msg = (
+                        f"{key!r} already holds a {existing[0]} entry and this "
+                        f"write is {origin.value}. Changing what wrote an entry "
+                        f"is not a side effect of writing it: remove the entry "
+                        f"first if that is what you mean."
+                    )
+                    raise VaultOriginConflictError(msg)
+                if not replace:
+                    msg = (
+                        f"{key!r} already holds a value. Pass --replace to "
+                        f"overwrite it deliberately."
+                    )
+                    raise VaultEntryExistsError(msg)
+
+            # Preserved across a replace: when the entry first appeared is a
+            # fact about the entry, not about this write.
+            created_at = existing[1] if existing is not None else now
+
             conn.execute(
                 "INSERT INTO secrets"
-                " (key, annotation, provider, nonce, ciphertext, synced_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)"
+                " (key, origin, annotation, provider, nonce, ciphertext,"
+                "  created_at, updated_at, synced_at, key_provider)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT(key) DO UPDATE SET"
                 " annotation=excluded.annotation, provider=excluded.provider,"
                 " nonce=excluded.nonce, ciphertext=excluded.ciphertext,"
-                " synced_at=excluded.synced_at",
+                " updated_at=excluded.updated_at,"
+                " synced_at=excluded.synced_at,"
+                " key_provider=excluded.key_provider",
                 (
                     key,
+                    origin.value,
                     annotation,
                     provider,
                     nonce,
                     ciphertext,
-                    _utcnow().isoformat(),
+                    created_at,
+                    now,
+                    synced_at,
+                    self._key_provider_id,
                 ),
             )
-            self._audit(conn, key, "sync", "ok", provider)
+            self._ensure_check_value(conn, encryption_key)
+            # The action names what happened. Recording a typed-in value as a
+            # "sync" would make the only trace of it say it came from a
+            # provider it never touched.
+            action = "sync" if origin is VaultOrigin.PROVIDER else "put"
+            self._audit(conn, key, action, "ok", provider)
 
     def get(self, key: str, *, encryption_key: bytes) -> str | None:
         """Decrypt and return one value, or None when it is not stored.
@@ -430,18 +572,109 @@ class SecretsVault:
             self._audit(conn, key, "read", "ok")
             return plaintext.decode("utf-8")
 
+    def _ensure_check_value(
+        self, conn: sqlite3.Connection, encryption_key: bytes
+    ) -> None:
+        """Write the key check row if this store has none yet.
+
+        Called from the write path rather than from ``init``, so that
+        ``vault init --key-source env`` stays genuinely read-only and the vault
+        file continues to appear on first *write* rather than before it.
+
+        Never overwrites an existing row. If the store already has one written
+        under a different key, replacing it here would erase the only evidence
+        that the key changed — which is the thing the row exists to report.
+        """
+        if conn.execute("SELECT 1 FROM vault_meta WHERE id = 1").fetchone():
+            return
+        nonce = _random_nonce()
+        conn.execute(
+            "INSERT INTO vault_meta (id, nonce, ciphertext, created_at)"
+            " VALUES (1, ?, ?, ?)",
+            (
+                nonce,
+                AESGCM(encryption_key).encrypt(nonce, _CHECK_PLAINTEXT, _CHECK_AAD),
+                _utcnow().isoformat(),
+            ),
+        )
+
+    def opens_with(self, encryption_key: bytes) -> bool | None:
+        """Whether this key is the one this store was written with.
+
+        Returns:
+            ``True`` or ``False`` once the store has a check row; ``None`` when
+            it has none and the question cannot be answered.
+
+        ``None`` is not a failure and must not be treated as one. A store
+        upgraded from before this existed has no check row until its next
+        write, and so does one that was created but never written. Callers
+        treat unknown as "proceed as before", which is what keeps the upgrade
+        from turning a working vault into a refusing one.
+
+        **Decrypts no secret.** The check row is a fixed, non-secret plaintext,
+        so this answers the key question without any value passing through the
+        process — which is what lets ``inspect`` and ``status`` report
+        readability while holding no plaintext at all (ADR-023 §2).
+        """
+        _require_key(encryption_key)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT nonce, ciphertext FROM vault_meta WHERE id = 1"
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            AESGCM(encryption_key).decrypt(bytes(row[0]), bytes(row[1]), _CHECK_AAD)
+        except InvalidTag:
+            return False
+        return True
+
+    def delete(self, key: str) -> VaultEntry | None:
+        """Remove one entry of either origin, returning what was removed.
+
+        **Takes no encryption key, deliberately.** Metadata is stored in clear
+        and a delete decrypts nothing, so this works on a store this machine
+        cannot open — which is the whole point: it is the recovery path for a
+        rotated or lost key, and requiring the key it is meant to rescue you
+        from would make it useless exactly when it is needed (ADR-023 §3).
+
+        Returns:
+            The removed entry, or ``None`` if the key held nothing. A miss is
+            success, not an error: asking for something to be gone that is
+            already gone has been satisfied.
+        """
+        entries = {entry.key: entry for entry in self.list_entries()}
+        removed = entries.get(key)
+        if removed is None:
+            return None
+        with self._connect() as conn:
+            conn.execute("DELETE FROM secrets WHERE key = ?", (key,))
+            self._audit(conn, key, "remove", "ok", removed.provider)
+        return removed
+
     def list_entries(self) -> list[VaultEntry]:
-        """Every stored entry's metadata. Requires **no** key."""
+        """Every stored entry's metadata. Requires **no** key.
+
+        Requiring no key is what makes this the basis for both the listing
+        surfaces and the recovery ones: ``vault remove`` has to work on a store
+        this machine cannot open, and it learns what is there from here.
+        """
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT key, annotation, provider, synced_at FROM secrets ORDER BY key"
+                "SELECT key, origin, annotation, provider, created_at,"
+                " updated_at, synced_at, key_provider"
+                " FROM secrets ORDER BY key"
             ).fetchall()
         return [
             VaultEntry(
                 key=r[0],
-                annotation=r[1],
-                provider=r[2],
-                synced_at=_parse_ts(r[3]),
+                origin=VaultOrigin(r[1]),
+                annotation=r[2],
+                provider=r[3],
+                created_at=_parse_ts(r[4]) if r[4] else None,
+                updated_at=_parse_ts(r[5]) if r[5] else None,
+                synced_at=_parse_ts(r[6]) if r[6] else None,
+                key_provider=r[7],
             )
             for r in rows
         ]
@@ -453,6 +686,9 @@ class SecretsVault:
         is only as fresh as the value most likely to have been rotated behind
         it.
         """
+        # SQLite's MIN ignores NULLs, which is exactly right now that direct
+        # entries carry none: a value typed in by hand has never been synced,
+        # so it cannot make the vault look stale (or look fresh).
         with self._connect() as conn:
             row = conn.execute("SELECT MIN(synced_at) FROM secrets").fetchone()
         return _parse_ts(row[0]) if row and row[0] else None
@@ -486,6 +722,65 @@ class SecretsVault:
         self._path.unlink(missing_ok=True)
         for suffix in ("-wal", "-shm"):
             self._path.with_name(self._path.name + suffix).unlink(missing_ok=True)
+
+
+def _upgrade(conn: sqlite3.Connection) -> None:
+    """Bring an older store up to :data:`_SCHEMA_VERSION`, in place and once.
+
+    Runs after ``_SCHEMA``, which uses ``CREATE TABLE IF NOT EXISTS`` and so
+    adds the *missing* tables but cannot reshape an existing one. A store
+    written before origin tracking has ``annotation``, ``provider`` and
+    ``synced_at`` as ``NOT NULL``, and SQLite cannot drop a ``NOT NULL`` with
+    ``ALTER TABLE`` — so the table is rebuilt.
+
+    Idempotent twice over, deliberately. ``PRAGMA user_version`` is the fast
+    path, and the column check behind it is the honest one: a freshly created
+    store is already v1-shaped but still stamped 0, and rebuilding it would be
+    pointless work on every first connection. Trusting the version alone would
+    also mean a store whose stamp was lost could never be repaired.
+
+    Existing rows are carried across untouched — ``nonce`` and ``ciphertext``
+    are copied, never re-encrypted, because this function has no key and must
+    never need one. Migrated rows take ``origin = 'provider'``, which is not a
+    guess: before this version, ``sync`` was the only writer.
+    """
+    if conn.execute("PRAGMA user_version").fetchone()[0] >= _SCHEMA_VERSION:
+        return
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(secrets)")}
+    if columns and "origin" not in columns:
+        # One transaction. A half-rebuilt store is worse than an old one: the
+        # values are only recoverable from here.
+        conn.execute("""
+            CREATE TABLE secrets_upgraded (
+                key          TEXT PRIMARY KEY,
+                origin       TEXT NOT NULL DEFAULT 'provider',
+                annotation   TEXT,
+                provider     TEXT,
+                nonce        BLOB NOT NULL,
+                ciphertext   BLOB NOT NULL,
+                created_at   TEXT,
+                updated_at   TEXT,
+                synced_at    TEXT,
+                key_provider TEXT
+            )
+        """)
+        # `synced_at` fills both timestamps: it is the only one a v0 row has,
+        # and it is truthful for each -- that *is* when the row was written.
+        conn.execute("""
+            INSERT INTO secrets_upgraded
+                (key, origin, annotation, provider, nonce, ciphertext,
+                 created_at, updated_at, synced_at, key_provider)
+            SELECT key, 'provider', annotation, provider, nonce, ciphertext,
+                   synced_at, synced_at, synced_at, NULL
+            FROM secrets
+        """)
+        conn.execute("DROP TABLE secrets")
+        conn.execute("ALTER TABLE secrets_upgraded RENAME TO secrets")
+
+    # Not parameterizable -- PRAGMA takes no placeholders. The value is our own
+    # module constant, never caller input.
+    conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION:d}")
 
 
 def _require_key(key: bytes) -> None:

@@ -3,7 +3,7 @@ name = "functualize-inline"
 version = "0.3.0"
 description = "Textual inline interactivity plugin for functualize prompts"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Mohammad Hakim Adiprasetya", email = "viltohmyst@gmail.com" }
 ]

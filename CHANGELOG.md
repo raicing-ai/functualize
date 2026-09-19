@@ -223,6 +223,117 @@ types. `from functualize_ai import AI, AIConfig` now yields types, with the lazy
 import intact: mypy errors in `functualize-ai-pydantic` fall **56 → 11** and in
 `functualize-ai` **46 → 23**.
 
+## [0.3.0] - 2026-09-18
+
+### Added — a code of conduct, and one more layer contract enforced
+
+`CODE_OF_CONDUCT.md` adopts the Contributor Covenant 2.1, referenced from both
+contributing guides.
+
+The `Internal never imports public` import-linter contract was narrower than the
+rule `contributor/reference/layer-rules.md` documents: `_gate` was missing from
+its source modules and `functualize.ui` from its forbidden set, so an internal
+layer could import the display surface while `lint-imports` still reported 7/7
+kept. Both are closed. Nothing in the tree violated either gap, so no code moved
+— but the check now fails if something does.
+
+### Changed — functualize is Apache-2.0
+
+The project moves from MIT to the Apache License 2.0, effective with this
+release. `v0.2.3` and earlier remain MIT — a relicence is not retroactive, and
+nothing already published changes terms.
+
+What you gain over MIT is an express patent grant and its termination clause
+(§3). What you take on, if you redistribute, is §4: carry the licence, preserve
+`NOTICE`, and state your changes.
+
+`LICENSE` is the verbatim upstream text, so the copyright notice lives in a new
+`NOTICE` file rather than in the licence's appendix. All thirteen packages —
+`functualize` and the twelve plugins — declare `Apache-2.0`, and each plugin
+wheel now ships the licence text itself, which none of them did before.
+
+Nothing about a *generated* project changes: `func scaffold` still writes
+`license = "MIT"` into the project it creates for you, because that is your
+choice to make rather than ours.
+
+Recorded in [ADR-024](contributor/adr/024-apache-2-0-relicensing.md).
+
+### Added — a secret you have, not only one a provider holds
+
+The encrypted vault was a cache for values fetched from AWS Secrets Manager or
+Bitwarden. It is now also somewhere to put one secret you already have, with no
+provider, no account and no preset:
+
+```bash
+func builtin vault init                    # once per machine
+func builtin vault put deploy.api_token    # masked prompt
+func deploy                                # the job receives it
+```
+
+`deploy.api_token` is the job's published name plus one of its config fields,
+which must be declared `Secret[str]` or marked secret — the vault stores only
+what a job has said is sensitive. The path is validated against the live job
+schema *before* the value is read, so a typo costs you nothing already typed.
+The stored value resolves through the ordinary chain, above the environment and
+below an explicit argument.
+
+Four commands (`init`, `put`, `inspect`, `remove`) and the same lifecycle as
+public API in `functualize.app.vault`, so an embedding application does not
+shell out to `func`. Nothing changes for a project that has never used the
+vault, and a boot that finds no vault file imports no cipher.
+
+`keyring` becomes an optional extra, `functualize[keychain]`. It was previously
+undeclared and relied upon to be present transitively. `init` without it refuses
+and names both ways forward rather than failing obscurely.
+
+### Changed — a stored vault entry is used, or the run stops
+
+**Behavioural.** Resolution used to fall through to the environment or a config
+file whenever the vault could not be opened — including when the vault held a
+value for the key being resolved. The job then ran on a different secret than
+the one provisioned, and reported success.
+
+Now:
+
+```text
+the vault holds nothing for this key  ->  falls through, as before
+the vault HOLDS a value for this key  ->  the run refuses
+```
+
+The first case is unchanged, which is what keeps a first run after adding an
+annotation possible and offline work working. The refusal names three
+recoveries, two of which need no key (`vault remove`, `vault clear`).
+
+CI is structurally unaffected: a fresh runner has no vault file, so no entries,
+so nothing to refuse. If you cache `~/.local/share/functualize` across runs
+*and* rotate the key, `vault sync` now refuses before writing and names what it
+would have stranded, rather than adding rows that can never be read again.
+
+Recorded in [ADR-023](contributor/adr/023-local-vault-access.md), which amends
+ADR-016 §5 and §7.
+
+### Changed — one vault key per user, not per project
+
+**Behavioural.** The keychain provider stored a key per project while the
+environment provider held one for all of them, so which scope applied depended
+on whether `$FUNCTUALIZE_VAULT_KEY` happened to be exported. Both are now
+user-scoped; the vaults stay separate, one encrypted file each.
+
+Nothing in functualize has ever written a keychain key, so in practice this
+affects only someone who ran `keyring set functualize-vault <project-id>` by
+hand. `func builtin vault init` is the supported way to create one.
+
+### Changed — `vault list --json` gains nullable fields
+
+`provider`, `annotation` and `synced_at` may now be `null`: they describe where
+a value was *fetched from*, and a value typed in through `vault put` was not
+fetched from anywhere. `origin`, `created_at` and `updated_at` are added. No
+field is removed or renamed, but a consumer that assumed `provider` was always a
+string must handle `null`.
+
+The store gains those columns and upgrades itself in place on first open.
+Existing rows and their ciphertext are preserved byte for byte.
+
 ### Changed — a cycle in a workflow graph is refused instead of run once
 
 **Breaking.** A `@workflow` whose edges form a cycle now raises
@@ -388,9 +499,6 @@ empty state. Its step records, gates and position are unaffected. The
   say which scope its branches ran in.
 - `state.batch()` held the wrong file's lock after state moved, silently voiding
   its all-or-nothing guarantee.
-
-
-## [0.3.0] - 2026-09-09
 
 ### Added — a workflow can be driven to completion without a shell
 

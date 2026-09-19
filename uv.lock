@@ -1243,6 +1243,7 @@ all = [
     { name = "functualize-substrate-sqlite" },
     { name = "functualize-tasks" },
     { name = "functualize-tasks-local" },
+    { name = "keyring" },
     { name = "rich" },
     { name = "textual", extra = ["syntax"] },
     { name = "textual-autocomplete" },
@@ -1252,6 +1253,9 @@ cli = [
     { name = "rich" },
     { name = "textual", extra = ["syntax"] },
     { name = "textual-autocomplete" },
+]
+keychain = [
+    { name = "keyring" },
 ]
 
 [package.dev-dependencies]
@@ -1283,6 +1287,7 @@ requires-dist = [
     { name = "click", marker = "extra == 'cli'", specifier = ">=8.0.0" },
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "functualize", extras = ["cli"], marker = "extra == 'all'" },
+    { name = "functualize", extras = ["keychain"], marker = "extra == 'all'" },
     { name = "functualize-ai", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai" },
     { name = "functualize-ai-pydantic", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai-pydantic" },
     { name = "functualize-aws", marker = "extra == 'all'", editable = "plugins/credentials/functualize-aws" },
@@ -1295,6 +1300,7 @@ requires-dist = [
     { name = "functualize-tasks", marker = "extra == 'all'", editable = "plugins/domains/functualize-tasks" },
     { name = "functualize-tasks-local", marker = "extra == 'all'", editable = "plugins/domains/functualize-tasks-local" },
     { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "keyring", marker = "extra == 'keychain'", specifier = ">=24.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0.0" },
@@ -1302,7 +1308,7 @@ requires-dist = [
     { name = "textual", extras = ["syntax"], marker = "extra == 'cli'", specifier = ">=8.0" },
     { name = "textual-autocomplete", marker = "extra == 'cli'", specifier = ">=4.0.0" },
 ]
-provides-extras = ["cli", "all"]
+provides-extras = ["keychain", "cli", "all"]
 
 [package.metadata.requires-dev]
 dev = [

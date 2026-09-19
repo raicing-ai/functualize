@@ -527,18 +527,46 @@ class TestTheWarningOnTheRunPath:
             _source(stale, max_age=None).get("password", "database")
         assert caplog.records == []
 
-    def test_an_unusable_vault_never_checks_its_age(
+    def test_an_unopenable_vault_never_checks_its_age(
         self, stale: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """No key means every lookup falls through anyway, and boot has already
-        said so once. Repeating it here would drown that message."""
-        with caplog.at_level(logging.WARNING):
-            assert (
-                _source(stale, max_age=timedelta(hours=24), key=None).get(
-                    "password", "database"
-                )
-                is None
+        """Staleness is not the operator's problem when the vault will not open.
+
+        **Updated for ADR-023 §1.** This used to assert the lookup returned
+        `None` — "no key means every lookup falls through anyway". A stored
+        entry now refuses instead, because falling through hands the job a
+        different secret than the one provisioned while reporting success.
+
+        What the test is actually about is unchanged and still asserted: an
+        age warning here would be noise on top of a refusal that already says
+        what to do, and it would drown the message that matters.
+        """
+        from functualize._config.vault import VaultEntryUnreadableError
+
+        with (
+            caplog.at_level(logging.WARNING),
+            pytest.raises(VaultEntryUnreadableError),
+        ):
+            _source(stale, max_age=timedelta(hours=24), key=None).get(
+                "password", "database"
             )
+        assert caplog.records == []
+
+    def test_an_unopenable_vault_still_falls_through_for_a_key_it_lacks(
+        self, stale: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The half of ADR-016 §7 that ADR-023 leaves alone.
+
+        Presence is what decides. With no key *and* nothing stored under this
+        name, there is no provisioned value to be substituted for, so
+        resolution continues to the next source exactly as it always has —
+        and still says nothing about age.
+        """
+        with caplog.at_level(logging.WARNING):
+            resolved = _source(stale, max_age=timedelta(hours=24), key=None).get(
+                "never-stored", "database"
+            )
+        assert resolved is None
         assert caplog.records == []
 
     def test_a_missing_vault_file_never_checks_its_age(

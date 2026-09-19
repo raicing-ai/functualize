@@ -17,7 +17,7 @@ Independently installable from PyPI. Meets full quality bar for public distribut
 - [ ] `uv build --package <name>` exits with code 0 and produces a `.whl` file
 - [ ] All declared entry points are importable and callable in an isolated environment
 - [ ] PyPI classifiers present: Development Status, Python versions (3, 3.11, 3.12, 3.13), Typing :: Typed
-- [ ] SPDX `license = "MIT"` field present, and **no** `License ::` trove classifier — PEP 639 makes the two mutually exclusive and PyPI rejects any distribution carrying both. Note that `twine check --strict` does *not* catch this
+- [ ] SPDX `license = "Apache-2.0"` field present, and **no** `License ::` trove classifier — PEP 639 makes the two mutually exclusive and PyPI rejects any distribution carrying both. Note that `twine check --strict` does *not* catch this
 - [ ] `examples/` folder with a README and at least one runnable scenario (see the "Examples" section in [`contributor/guides/plugin-development.md`](../contributor/guides/plugin-development.md))
 
 ### Tier 2 — Bundled (monorepo-only)

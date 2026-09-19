@@ -56,8 +56,8 @@ the line where `lint-imports` cannot.
 | `_engine/` | `_types/`, `_primitives/`, `_events/` | `_discovery`, `_config`, `_gate`, `_plugins`, `_app`, `_cli` |
 | `_plugins/` | `_types/`, `_primitives/`, `_events/` | `_discovery`, `_config`, `_gate`, `_engine`, `_app`, `_cli` |
 | `_app/` | ALL internal layers | `_cli`, public folders |
-| `_cli/` | Public folders only (`app/`, `job/`, `plugin/`, `types/`, `testing/`) | ANY `_`-prefixed package |
-| Internal layers (all) | — | Public folders (`app/`, `job/`, `plugin/`, `types/`, `testing/`) |
+| `_cli/` | Public folders only (`app/`, `job/`, `plugin/`, `types/`, `testing/`, `ui/`, `workflow/`) | ANY `_`-prefixed package |
+| Internal layers (all) | — | Public folders (`app/`, `job/`, `plugin/`, `types/`, `testing/`, `ui/`, `workflow/`) |
 
 ## import-linter Enforcement
 

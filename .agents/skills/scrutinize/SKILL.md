@@ -9,7 +9,7 @@ description: >
   fit — against a citable standards index. Use when asked to scrutinize,
   validate, review, or vet a proposal, design doc, ADR, spec, or plan — any document
   that makes assertions about the codebase or proposes changes to it.
-license: MIT
+license: Apache-2.0
 metadata:
   author: raicing-ai
   version: "1.1.0"

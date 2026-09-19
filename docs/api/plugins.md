@@ -26,11 +26,14 @@ from functualize.plugin import (
     PromptCollector,
     LiveConstruct,
     PromptRequest,
+    PromptSeverity,
     PluginMetadata,
     PluginWithShutdown,
     Source,
     FormatProvider,
     ModulePreFilter,
+    DEFAULT_SIGIL,
+    SettingsSources,
 )
 ```
 
@@ -137,6 +140,24 @@ request = PromptRequest(
 
 ---
 
+## `PromptSeverity`
+
+Visual severity level for prompt presentation.
+
+```python
+from functualize.plugin import PromptSeverity
+
+class PromptSeverity(Enum):
+    INFO = "info"
+    WARNING = "warning"
+    DANGER = "danger"
+    SUCCESS = "success"
+```
+
+Largely **derivable from `PromptIntent`** — a destructive confirmation is a danger prompt, everything else is informational — so a `PromptRequest` normally lets the engine's own intent→severity mapping supply it rather than passing it by hand. It remains settable on `PromptRequest` for the cases where a caller genuinely wants to override the styling (e.g. a warning on a non-destructive action).
+
+---
+
 ## `PluginWithShutdown`
 
 A protocol for plugins that need graceful shutdown:
@@ -193,6 +214,56 @@ stack rather than replacing it, and runs last because its cost is unknown.
 See [Jobs and Auto-Discovery](../guides/jobs-discovery.md) for the full
 treatment and [Hosting Functualize](../guides/hosting.md) for the other host
 seams.
+
+---
+
+## `DEFAULT_SIGIL`
+
+The sigil the shell's default (command) input mode is registered under — the empty string. A mode is selected by the first character of the input text; the default mode's sigil is empty so it is the fallback for any input that starts with no other registered sigil, and cannot collide with a real one.
+
+```python
+from functualize.plugin import DEFAULT_SIGIL, InputMode, InputModeRegistry
+
+registry = InputModeRegistry()
+registry.register(InputMode(
+    sigil=DEFAULT_SIGIL,
+    name="command",
+    candidate_source=my_candidates,
+    is_ready=lambda text: True,
+    submit=run_command,
+    history_namespace="command",
+))
+```
+
+`InputModeRegistry.resolve(text)` falls back to whatever mode is registered under `DEFAULT_SIGIL` when `text`'s first character matches no other registered sigil.
+
+---
+
+## `SettingsSources`
+
+Where a host app's settings are read from, in precedence order. Precedence itself is fixed (default < global < project < env); what varies per app is the *file names* — declaring them is what makes the settings store app-agnostic rather than hardcoded to `func`'s own filenames.
+
+```python
+from functualize.plugin import SettingsSources
+
+@dataclass(frozen=True)
+class SettingsSources:
+    global_file_name: str = "config.toml"
+    project_file_names: tuple[str, ...] = (
+        "pyproject.toml",
+        ".functualize.toml",
+        ".functualize/.functualize.toml",
+    )
+    env: bool = True
+```
+
+| Attribute | Type | Description |
+|---|---|---|
+| `global_file_name` | `str` | File inside the user config dir (XDG-resolved). |
+| `project_file_names` | `tuple[str, ...]` | Candidates for the upward project walk, nearest wins, probed in this order at each level. |
+| `env` | `bool` | Whether environment variables participate in resolution at all. |
+
+It is the `sources` field of `AppSettingsSchema` (also exported from `functualize.plugin`) — the full declaration a second app hands to the settings store to get the same machinery `func` uses under its own name.
 
 ---
 

@@ -9,9 +9,12 @@ When source code docstrings are updated, the API reference reflects those change
 | Module | Import Path | Description |
 |--------|-------------|-------------|
 | [App](core.md) | `functualize.app` | Application construction: `FunctualizeApp`, config objects, preset factory functions. |
-| [Job](context.md) | `functualize.job` | Job author API: `RunContext`, capability classes (`Log`, `Invoke`, `Prompt`, `Perf`, `State`, `Sources`). |
+| [Job](context.md) | `functualize.job` | Job author API: `RunContext`, capability classes (`Log`, `Invoke`, `Prompt`, `Perf`, `State`, `Sources`, `Shell`, `Freshness`). |
 | [Plugin](plugins.md) | `functualize.plugin` | Plugin author API: `EventBus`, `Surface`, `PromptCollector`, `LiveConstruct`, protocols. |
 | [Types](discovery.md) | `functualize.types` | Shared types: `JobDescriptor`, `FieldDescriptor`, `JobResult`, `RunStatus`, enums. |
+| [Types — Run Model](types.md) | `functualize.types` | The door a run entered through and its status translation: `RunSurface`, `RUN_SURFACES`, `request_from_envelope`, `wire_value`, `status_from_wire`, `report_line`. |
+| [Workflow](workflow.md) | `functualize.workflow` | Graph-based job orchestration: `@workflow`, `Step`, `Gate`, `AgentStep`, `Edge`, `ConditionalEdge`, `OnFailure`, `Notify`, `Notification`, `END`. |
+| [Testing](testing.md) | `functualize.testing` | Test doubles for job unit tests: `TestRunContext`, `FakeShell`, `FakeShellCall`, `FakeStdout`, and friends. |
 
 ## Internal Module References
 

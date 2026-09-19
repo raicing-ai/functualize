@@ -460,6 +460,41 @@ pickling, and `get_type_hints` all reach back through `sys.modules`.
 
 ---
 
+## 25. A new error below `engine.run()` escapes as a traceback
+
+**Shape:** an error type raised during config resolution or the prelude — below
+`engine.run()` and outside the try that builds a `JobResult` — reaches the
+process boundary uncaught. The user gets a full traceback and **exit 1**, which
+the exit-code table says a refusal must not use because it is indistinguishable
+from a job that ran and threw.
+
+**Why every gate stays green:** the tests assert the exception type and its
+message, and both are correct. Nothing in a unit or CLI-runner test observes
+*how* the exception reaches a terminal — `CliRunner` surfaces the exception
+object, not the rendered traceback and exit code a real process produces.
+
+**This has now happened twice.** First with `AgentExecutorUnavailableError` and
+`AgentCapabilityRefusedError`, found by an adversarial review running the CLI
+path; `prelude_refusal`'s docstring records it. Then with
+`VaultEntryUnreadableError` (`local-vault-access`), found by `verify-e2e`
+running `func` in a real terminal — a ~20-frame traceback with the actionable
+message buried at the bottom.
+
+**The tell that it is a regression and not just rough:** look at the adjacent
+failure. A missing required secret already rendered a framed panel with zero
+stack frames and exit 2. A new path that is worse than the case next door is a
+regression against the repo's own standard, not a matter of taste.
+
+**How to apply:** when you add an error type that can be raised below
+`engine.run()`, add an arm to `prelude_refusal` in
+`app/adapters/click_params.py` — USAGE (2) when the operator's environment or
+arguments are wrong, REFUSED (3) when a declared precondition was not met and
+nothing ran. Then **run it**: assert in a subprocess that `stderr` contains no
+`File "` and that the exit code is the one the table names. A test that
+inspects the exception cannot make that claim.
+
+---
+
 ## See also
 
 - `contributor/guides/steering_textual_tui.md` — Textual HARD rules; claims proven by

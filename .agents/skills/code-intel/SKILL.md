@@ -329,3 +329,14 @@ turns out to be wrong rather than leaving it to mislead.
   Rule: activate by absolute path (`--project "$(pwd)"` / `--project-from-cwd`);
   optionally give worktrees unique names via gitignored
   `.serena/project.local.yml` (verified: serena loads it as an override layer).
+
+- **2026-09-17** — zvec-grep re-index is genuinely incremental *in place*, and
+  genuinely worthless *copied* — measured on this repo's 1,774-file index.
+  In place: **20 s** with nothing changed, **47 s** after 8 changed files
+  (1,768 of 1,776 entries reused), versus **2 m 20 s** from scratch. Copied to a
+  second checkout: `zg status` still printed "100% coverage" (its `Roots` line
+  points at the *old* path) while `zg index` deleted all 1,774 entries and
+  re-embedded every file in **3 m 3 s** — slower than scratch, because the stale
+  entries are purged first. Committing `.zvec-grep/` therefore cannot warm
+  another checkout (entries are absolute-path keyed), and `index.zvec/0` is
+  199 MB, over GitHub's 100 MiB hard blob limit: the gitignore rule stands.

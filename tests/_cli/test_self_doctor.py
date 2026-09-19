@@ -126,13 +126,14 @@ class TestItReportsWhatItCannotAssume:
         plugins.mkdir(parents=True)
         (plugins / "bad_plugin.py").write_text('raise RuntimeError("boom-from-plugin")')
 
-        # Check *names* only. The installations check appends one indented
-        # entry per registered binary, whose name is that binary's absolute
-        # path — so this assertion used to fail in any checkout whose
-        # directory contained the substring "plugin", reporting a plugin check
-        # that does not exist. Found from a worktree named
-        # `feat-plugin-host-protocol`.
-        names = [n for n in _names(build_report(cwd=tmp_path)) if n == n.strip()]
+        # Only top-level check names. `_check_installations` appends one
+        # indented child per registered binary, named by its *path* -- so on a
+        # machine whose checkout happens to sit under a directory containing
+        # "plugin", a substring scan over every name fails here for a reason
+        # that has nothing to do with doctor growing a plugin check. Both
+        # branches hit this independently; it was reproduced from a worktree
+        # named `feat-plugin-host-protocol`.
+        names = [n for n in _names(build_report(cwd=tmp_path)) if not n.startswith(" ")]
         assert not any("plugin" in n for n in names), (
             f"doctor grew a plugin check ({names}) while the loader still keeps "
             "no failure record — it can only report health it did not observe"

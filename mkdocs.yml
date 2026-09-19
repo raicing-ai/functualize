@@ -117,6 +117,8 @@ nav:
     - Hierarchy: api/hierarchy.md
     - Hooks: api/hooks.md
     - Plugins: api/plugins.md
+    - Run Model: api/types.md
+    - Testing: api/testing.md
     - Validation: api/validation.md
     - Workflow: api/workflow.md
   - CLI Reference:

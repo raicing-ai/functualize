@@ -38,6 +38,9 @@
 | `JobConfigView` | `job/` | Scoped config access for jobs |
 | `TTY` | `job/capabilities.py` | Terminal-ownership capability (HARD: forces EXCLUSIVE) |
 | `Live` | `job/capabilities.py` | Live-display channel (always injected, degrading) |
+| `ShellError` | `job/capabilities.py` | Raised when a `Shell` command exits non-zero under `check=True`, on timeout, or when a `FailingResponder` sentinel appears. Carries the failing `ShellResult` |
+| `FailingResponder` | `job/capabilities.py` | A `Responder` that also aborts (raises `ShellError`) when a `sentinel` regex appears in live output |
+| `FreshnessVerdict` | `job/capabilities.py` | What a job's own `@job(cache=Fingerprint(..., decides=True))` decided — `state`, `key`, `recorded_value`, declared sources/generates, `source_map`. Exposed via the `Freshness` capability's `.verdict()` |
 | `suppress_live` | `job/decorators.py` | Opt a job out of ambient live constructs |
 | `surface_hint` | `job/decorators.py` | Per-job render-surface preference ("stdout"/"panel") |
 | `Arg` / `Option` / `Stdin` | `job/markers.py` | CLI parameter annotation markers |
@@ -64,6 +67,9 @@
 | `DisplayProvider` | `plugin/protocols.py` | Protocol: above-header ambient display panel |
 | `PanelProvider` | `plugin/protocols.py` | Protocol: panel-ring panel (reserved shape) |
 | `InteractiveContent` | `plugin/protocols.py` | Protocol: the converged widget interaction contract |
+| `DEFAULT_SIGIL` | `plugin/` (`_types/input_modes.py`) | The empty-string sigil the shell's default (command) `InputMode` registers under |
+| `SettingsSources` | `plugin/` (`_types/settings.py`) | Frozen dataclass: file names + precedence for a host app's settings store (`AppSettingsSchema.sources`) |
+| `PromptSeverity` | `plugin/` (`_types/interactivity.py`) | Enum: visual severity for `PromptRequest.severity` — INFO, WARNING, DANGER, SUCCESS |
 
 ### `ui/` — Job-Owned / Display UI (`[cli]` extra)
 
@@ -84,6 +90,13 @@
 | `RunType` | `types/` | Enum: execution type |
 | `JobPhase` | `types/` | Step tracking dataclass |
 | `CacheInfo` | `types/` | Cache statistics dataclass |
+| `RunSurface` | `types/` (`_types/run_request.py`) | `Literal` of the 19 doors a run can enter through; the required, no-default `RunRequest.surface` field |
+| `RUN_SURFACES` | `types/` (`_types/run_request.py`) | `frozenset[str]` of every `RunSurface` value, derived from the `Literal` via `get_args()` so the two cannot drift |
+| `request_from_envelope` | `types/` (`_types/run_request.py`) | Parses a wire payload (`{"arguments": {...}, "scope_id": ..., "force": ...}`) into a `RunRequest` — the shared implementation for every out-of-process door |
+| `wire_value` / `status_from_wire` | `types/` (`_types/outcome.py`) | The inverse pair translating a `RunStatus` to/from the lowercase status string a tool or HTTP response carries |
+| `report_line` | `types/` (`_types/outcome.py`) | The one line `BLOCKED`/`REFUSED` owe a caller before their exit code/status is delivered; `None` for every other status |
+| `ConfigFileRole` | `types/` (`_types/enums.py`) | Enum: BASE / OVERLAY / INERT — the role a discovered config file plays under the active environment (`ConfigFileInfo.role`) |
+| `EnvironmentSource` | `types/` (`_types/enums.py`) | Enum: where the active environment name came from (`app.configuration.environment_source()`) |
 
 ### `testing/` — Test Helpers
 
@@ -94,6 +107,9 @@
 | `MockInvoke` | `testing/doubles.py` | Returns pre-configured results by job name |
 | `AutoPrompt` | `testing/doubles.py` | FIFO response queue |
 | `NoopPerf` | `testing/doubles.py` | Accepts all calls silently |
+| `FakeShell` | `testing/shell.py` | Scripted, recording `Shell` capability double — matches a pattern→`ShellResult` table, raises loudly on an unmapped command |
+| `FakeShellCall` | `testing/shell.py` | Frozen dataclass: one recorded `FakeShell` invocation (`argv`, `command`, `kwargs`) — appended to `FakeShell.calls` |
+| `FakeStdout` | `testing/stdout.py` | In-memory `Stdout` capability double — `emitted` (objects passed to `emit()`), `writes` (raw `write()` payloads), `text` (rendered stream) |
 
 ---
 
@@ -226,6 +242,8 @@ Decorator and type definitions for workflow-based job composition.
 | `Step` | `_types.py` | Workflow step definition |
 | `Edge` | `_types.py` | Directed edge between workflow steps |
 | `ConditionalEdge` | `_types.py` | Conditional edge with guard clause |
+| `OnFailure` | `_types/workflow.py` | Where control goes when a named step raises — `source`, `target` (or `END`), optional `when` predicate |
+| `Notification` | `_types/workflow.py` | What a registered notifier is handed when a `Notify` declaration fires — `to`, `scope_id`, `workflow`, `status`, `node` |
 | `END` | `_types.py` | Sentinel marking workflow termination |
 
 ---

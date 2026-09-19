@@ -94,7 +94,7 @@ Message Convention, Pull Request Guidelines.
 | Editing anything under `skills/` or `.agents/skills/` | The two-directory rule below — they have different audiences, different lifecycles, and only one of them ships |
 | Cutting a release, or bumping the version | `contributor/guides/docs-example-parity.md` — run the executable docs/examples parity pass. The release audit's doc scan is *static*: it checks that paths, symbols and syntax exist. A behavioural claim like "this field is masked" passes it while being false, which is how a breaking change reached ~50 doc pages and 20 example projects unnoticed |
 | Understanding overall architecture | `contributor/architecture/overview.md` + `contributor/architecture/codemaps/` (module catalog, measured fan-in, entry points, data flow) |
-| About to add a setting, filter, cache, registry, or TUI panel — or to debug one that "resolves but does nothing" | `contributor/reference/pitfalls.md` — 18 defects that already shipped here, each with the shape of the trap named. Several passed review *and* a test; four were only visible on the warm-cache or lazy-boot path |
+| About to add a setting, filter, cache, registry, or TUI panel — or to debug one that "resolves but does nothing" | `contributor/reference/pitfalls.md` — 25 defects that already shipped here, each with the shape of the trap named. Several passed review *and* a test; four were only visible on the warm-cache or lazy-boot path |
 
 ### Two skill directories, one rule
 
