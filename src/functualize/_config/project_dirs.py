@@ -493,6 +493,30 @@ class ProjectDirectories:
         return self.declared_plugin_directories + self.convention_plugin_directories
 
 
+def _with_scalar_wrapped(config: dict[str, Any] | None) -> dict[str, Any]:
+    """Accept ``plugins_directories = "dir"`` as well as ``["dir"]``.
+
+    TOML makes the singular form an easy thing to write, and the loader this
+    feature replaced accepted it: ``paths = value if isinstance(value, list)
+    else [value]``. `contracts.md` §1.1 records that as unchanged, and the
+    shared resolver ignores anything that is not a list — so without this, a
+    bare string would be **silently dropped**, which is precisely the failure
+    this whole feature exists to remove. Caught in Verify by walking the
+    contract rather than the diff.
+
+    Scoped to ``plugins_directories`` deliberately. The same footgun exists for
+    ``jobs_directories`` and ``import_libs``, but widening the rule would change
+    behaviour for keys this feature has no mandate over. Recorded as a finding
+    instead.
+    """
+    if not config:
+        return {}
+    value = config.get("plugins_directories")
+    if isinstance(value, str):
+        return {**config, "plugins_directories": [value]}
+    return dict(config)
+
+
 def resolve_plugin_directories(
     *,
     anchor: Path,
@@ -545,9 +569,9 @@ def resolve_plugin_directories(
     # defect `single-file-cwd-isolation` exists to prevent.
     effective = resolve_effective_directories_from_layers(
         anchor,
-        merged,
+        _with_scalar_wrapped(merged),
         convention_dirs={},
-        global_config=global_config,
+        global_config=_with_scalar_wrapped(global_config),
     )
     declared = list(effective.get("plugins_directories", ()))
 

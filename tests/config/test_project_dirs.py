@@ -273,3 +273,68 @@ def test_standalone_mode_has_no_project_root(tmp_path: Path) -> None:
     result = resolve_project_directories(leaf)
 
     assert result.convention_plugin_directories == ()
+
+
+# --- contracts.md §1.1 — the declaration forms --------------------------------
+
+
+def test_a_bare_string_is_accepted_and_wrapped(tmp_path: Path) -> None:
+    """`plugins_directories = "dir"` works, not just `["dir"]`.
+
+    TOML makes the singular form easy to write, and the loader this feature
+    replaced accepted it. The shared resolver ignores non-lists, so without an
+    explicit wrap a bare string is **silently dropped** — the exact failure mode
+    this feature exists to remove, reintroduced one key over.
+
+    Found in Verify by walking `contracts.md` §1.1 rather than the diff: the
+    contract said "unchanged", and it had changed.
+    """
+    shared = tmp_path / "shared"
+    shared.mkdir()
+
+    as_list, _ = resolve_plugin_directories(
+        anchor=tmp_path,
+        merged={"plugins_directories": [str(shared)]},
+        project_root=None,
+    )
+    as_string, _ = resolve_plugin_directories(
+        anchor=tmp_path,
+        merged={"plugins_directories": str(shared)},
+        project_root=None,
+    )
+
+    assert as_string == as_list == [str(shared.resolve())]
+
+
+def test_a_bare_string_is_accepted_from_the_global_layer_too(tmp_path: Path) -> None:
+    """The wrap applies to the XDG layer, not only the project file."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+
+    declared, _ = resolve_plugin_directories(
+        anchor=tmp_path,
+        merged={},
+        project_root=None,
+        global_config={"plugins_directories": str(shared)},
+    )
+
+    assert declared == [str(shared.resolve())]
+
+
+def test_a_relative_declared_path_resolves_against_the_anchor(tmp_path: Path) -> None:
+    """`contracts.md` §1.1 — relative paths are anchor-relative, not cwd-relative.
+
+    The distinction matters precisely because this feature stopped depending on
+    the working directory: a relative declaration must follow the config file
+    that declared it.
+    """
+    shared = tmp_path / "shared"
+    shared.mkdir()
+
+    declared, _ = resolve_plugin_directories(
+        anchor=tmp_path,
+        merged={"plugins_directories": ["shared"]},
+        project_root=None,
+    )
+
+    assert declared == [str(shared.resolve())]
