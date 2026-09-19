@@ -8,6 +8,7 @@ Full applications using `FunctualizeApp`: the structure your jobs graduate into 
 |-----------|-------------|
 | [`weather_app/`](weather_app/) | The flagship: the README Quick Start weather jobs as a scaffolded project — `src/` layout, console-script entry point, layered config with environment overlays |
 | [`monorepo_children/`](monorepo_children/) | Child project composition: a parent app that composes jobs from multiple sub-projects under namespace prefixes, all sharing one Python environment |
+| [`shared_plugins/`](shared_plugins/) | Plugin sharing across a monorepo: one file-based plugin in the root's `.functualize/plugins/` reaches every app beneath it, while `plugins_directories` lets a single app opt into a directory its siblings do not get. The sibling concern to `monorepo_children/`, which shares *jobs* rather than *plugins* |
 
 Delivery-adapter projects (HTTP, Lambda) live with their plugins:
 

@@ -23,6 +23,7 @@ Also in the repo (source-only): [`showcase/`](https://github.com/raicing-ai/func
 
 - [`weather_app/`](https://github.com/raicing-ai/functualize/tree/master/examples/project/weather_app) — the flagship: the Quick Start jobs as a scaffolded project with an entry point and layered config.
 - [`monorepo_children/`](https://github.com/raicing-ai/functualize/tree/master/examples/project/monorepo_children) — one parent app mounting child projects as namespaced job groups.
+- [`shared_plugins/`](https://github.com/raicing-ai/functualize/tree/master/examples/project/shared_plugins) — one file-based plugin shared by every app under a root, and one app opting into an extra `plugins_directories` its siblings do not get.
 
 Delivery-adapter projects live with their plugins:
 

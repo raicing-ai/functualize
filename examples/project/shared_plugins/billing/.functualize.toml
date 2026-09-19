@@ -1,0 +1,8 @@
+# Opts into one extra plugin directory, on top of what it inherits.
+#
+# Relative to *this file*, not to your shell's working directory — a declared
+# path follows the config that declared it. `billing/` therefore loads two
+# plugins: `timing` from here, and `audit-log` from the shared root's
+# convention directory. Declaring one does not cost you the other.
+jobs_directories = ["jobs"]
+plugins_directories = ["../team_plugins"]

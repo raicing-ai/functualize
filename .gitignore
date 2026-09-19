@@ -100,6 +100,14 @@ examples/plugins/file_based_plugin/.functualize/*
 !examples/plugins/file_based_plugin/.functualize/plugins/
 examples/plugins/file_based_plugin/.functualize/plugins/*
 !examples/plugins/file_based_plugin/.functualize/plugins/*.py
+# Same chain for the monorepo plugin-sharing example. Its whole subject is a
+# plugin living at a shared root, so the one file that must be committed is
+# the one the blanket rule above hides.
+!examples/project/shared_plugins/.functualize/
+examples/project/shared_plugins/.functualize/*
+!examples/project/shared_plugins/.functualize/plugins/
+examples/project/shared_plugins/.functualize/plugins/*
+!examples/project/shared_plugins/.functualize/plugins/*.py
 .import_linter_cache/
 .mypy_cache/
 .pytest_cache/

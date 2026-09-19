@@ -51,6 +51,7 @@ Full applications using `FunctualizeApp`:
 
 - **weather_app** — The flagship: Quick Start jobs as a scaffolded project with an entry point and layered config
 - **monorepo_children** — One parent app mounting child projects as namespaced job groups
+- **shared_plugins** — One file-based plugin shared by every app under a root, plus one app opting into an extra `plugins_directories` the others don't get
 
 ### [plugins/](plugins/)
 
