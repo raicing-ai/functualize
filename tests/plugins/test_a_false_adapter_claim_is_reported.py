@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from functualize._plugins.loader import _validate_metadata
+from functualize._plugins.metadata import _validate_metadata
 
 
 class _HonestPlugin:

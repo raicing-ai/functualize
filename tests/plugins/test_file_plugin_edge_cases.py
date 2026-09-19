@@ -7,6 +7,7 @@ Validates Requirements: 12.1–12.10, 13.1–13.7
 import logging
 from unittest.mock import MagicMock, patch
 
+from functualize._plugins.file_source import FilePluginSource
 from functualize._plugins.loader import PluginLoader
 
 
@@ -24,7 +25,7 @@ class TestDiscoverFromFilesNonExistentDirectory:
             patch.object(
                 loader, "_resolve_plugin_directories", return_value=[nonexistent]
             ),
-            caplog.at_level(logging.DEBUG, logger="functualize._plugins.loader"),
+            caplog.at_level(logging.DEBUG, logger="functualize._plugins.file_source"),
         ):
             result = loader._discover_from_files(app)
 
@@ -93,8 +94,8 @@ class TestLoadFilePluginWithPluginAttribute:
             "plugin = _InternalPlugin()\n"
         )
 
-        loader = PluginLoader()
-        result = loader._load_file_plugin(plugin_file)
+        source = FilePluginSource()
+        result = source._load_file_plugin(plugin_file)
 
         assert result is not None
         assert result.name == "explicit-plugin"
@@ -118,8 +119,8 @@ class TestLoadFilePluginWithoutPluginAttribute:
             "my_instance = AutoPlugin()\n"
         )
 
-        loader = PluginLoader()
-        result = loader._load_file_plugin(plugin_file)
+        source = FilePluginSource()
+        result = source._load_file_plugin(plugin_file)
 
         assert result is not None
         assert result.name == "auto-discovered"
@@ -132,8 +133,8 @@ class TestLoadFilePluginWithoutPluginAttribute:
             "# This module has no plugin-like objects\nx = 42\ndef helper(): pass\n"
         )
 
-        loader = PluginLoader()
-        result = loader._load_file_plugin(plugin_file)
+        source = FilePluginSource()
+        result = source._load_file_plugin(plugin_file)
 
         assert result is None
 
@@ -154,10 +155,12 @@ class TestLoadFilePluginInvalidMetadata:
             "plugin = BadPlugin()\n"
         )
 
-        loader = PluginLoader()
+        source = FilePluginSource()
 
-        with caplog.at_level(logging.WARNING, logger="functualize._plugins.loader"):
-            result = loader._load_file_plugin(plugin_file)
+        with caplog.at_level(
+            logging.WARNING, logger="functualize._plugins.file_source"
+        ):
+            result = source._load_file_plugin(plugin_file)
 
         assert result is None
         assert "invalid" in caplog.text.lower()
@@ -176,10 +179,12 @@ class TestLoadFilePluginInvalidMetadata:
             "plugin = BadVersion()\n"
         )
 
-        loader = PluginLoader()
+        source = FilePluginSource()
 
-        with caplog.at_level(logging.WARNING, logger="functualize._plugins.loader"):
-            result = loader._load_file_plugin(plugin_file)
+        with caplog.at_level(
+            logging.WARNING, logger="functualize._plugins.file_source"
+        ):
+            result = source._load_file_plugin(plugin_file)
 
         assert result is None
         assert "PEP 440" in caplog.text
@@ -198,10 +203,12 @@ class TestLoadFilePluginImportError:
             "        pass\n"
         )
 
-        loader = PluginLoader()
+        source = FilePluginSource()
 
-        with caplog.at_level(logging.WARNING, logger="functualize._plugins.loader"):
-            result = loader._load_file_plugin(plugin_file)
+        with caplog.at_level(
+            logging.WARNING, logger="functualize._plugins.file_source"
+        ):
+            result = source._load_file_plugin(plugin_file)
 
         assert result is None
         assert "Failed to load file plugin" in caplog.text
@@ -221,10 +228,12 @@ class TestLoadFilePluginImportError:
             "plugin = NeverReached()\n"
         )
 
-        loader = PluginLoader()
+        source = FilePluginSource()
 
-        with caplog.at_level(logging.WARNING, logger="functualize._plugins.loader"):
-            result = loader._load_file_plugin(plugin_file)
+        with caplog.at_level(
+            logging.WARNING, logger="functualize._plugins.file_source"
+        ):
+            result = source._load_file_plugin(plugin_file)
 
         assert result is None
         assert "Failed to load file plugin" in caplog.text
@@ -234,10 +243,12 @@ class TestLoadFilePluginImportError:
         plugin_file = tmp_path / "runtime_crash.py"
         plugin_file.write_text('raise RuntimeError("deliberate crash during import")\n')
 
-        loader = PluginLoader()
+        source = FilePluginSource()
 
-        with caplog.at_level(logging.WARNING, logger="functualize._plugins.loader"):
-            result = loader._load_file_plugin(plugin_file)
+        with caplog.at_level(
+            logging.WARNING, logger="functualize._plugins.file_source"
+        ):
+            result = source._load_file_plugin(plugin_file)
 
         assert result is None
         assert "Failed to load file plugin" in caplog.text
@@ -279,7 +290,7 @@ class TestDiscoverFromFilesDuplicateNames:
             patch.object(
                 loader, "_resolve_plugin_directories", return_value=[str(plugin_dir)]
             ),
-            caplog.at_level(logging.WARNING, logger="functualize._plugins.loader"),
+            caplog.at_level(logging.WARNING, logger="functualize._plugins.file_source"),
         ):
             result = loader._discover_from_files(app)
 
@@ -377,7 +388,7 @@ class TestDiscoverFromFilesCaseInsensitiveSorting:
             patch.object(
                 loader, "_resolve_plugin_directories", return_value=[str(plugin_dir)]
             ),
-            caplog.at_level(logging.WARNING, logger="functualize._plugins.loader"),
+            caplog.at_level(logging.WARNING, logger="functualize._plugins.file_source"),
         ):
             result = loader._discover_from_files(app)
 

@@ -374,7 +374,7 @@ class TestAlphabeticalFilePluginPrecedence:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Set up log capture
             log_capture = _LogCapture()
-            logger = logging.getLogger("functualize._plugins.loader")
+            logger = logging.getLogger("functualize._plugins.file_source")
             logger.addHandler(log_capture)
             logger.setLevel(logging.WARNING)
 

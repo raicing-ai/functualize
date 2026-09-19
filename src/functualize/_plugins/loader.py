@@ -14,18 +14,18 @@ Only imports from _types/, _primitives/, _events/, and Python stdlib.
 from __future__ import annotations
 
 import contextlib
-import importlib.util
-import inspect
 import logging
-import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from functualize._plugins.config import PluginConfigRegistry
+from functualize._plugins.file_source import FilePluginSource
+from functualize._plugins.metadata import (
+    _validate_metadata,
+)
 from functualize._primitives.entry_point_groups import PLUGINS
 from functualize._primitives.entry_points import entry_points
-from functualize._types.protocols import AdapterPlugin
 
 if TYPE_CHECKING:
     from functualize._events import EventBus
@@ -38,16 +38,6 @@ __all__ = [
     "PluginLoader",
     "topological_sort",
 ]
-
-# PEP 440 version pattern
-_PEP440_PATTERN = re.compile(
-    r"^([1-9][0-9]*!)?"  # epoch
-    r"(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*"  # release
-    r"((a|b|rc)(0|[1-9][0-9]*))?"  # pre-release
-    r"(\.post(0|[1-9][0-9]*))?"  # post-release
-    r"(\.dev(0|[1-9][0-9]*))?$"  # dev release
-)
-
 
 # --- Dependency Resolution Errors ---
 
@@ -99,99 +89,6 @@ class PluginWithConfigResolved(Protocol):
 
 
 # --- Validation Helpers ---
-
-
-def _validate_pep440(version: str) -> bool:
-    """Check if a version string conforms to PEP 440."""
-    return _PEP440_PATTERN.match(version) is not None
-
-
-def _validate_metadata(plugin: Any, entry_point_name: str) -> list[str]:
-    """Validate plugin metadata attributes.
-
-    Returns a list of validation error messages. Empty list means valid.
-    """
-    errors: list[str] = []
-
-    # Check name attribute
-    if not hasattr(plugin, "name"):
-        errors.append("missing 'name' attribute")
-    else:
-        name = plugin.name
-        if not isinstance(name, str):
-            errors.append(f"'name' must be a string, got {type(name).__name__}")
-        elif len(name) > 64:
-            errors.append(f"'name' exceeds 64 characters (got {len(name)})")
-
-    # Check version attribute
-    if not hasattr(plugin, "version"):
-        errors.append("missing 'version' attribute")
-    else:
-        version = plugin.version
-        if not isinstance(version, str):
-            errors.append(f"'version' must be a string, got {type(version).__name__}")
-        elif not _validate_pep440(version):
-            errors.append(f"'version' does not conform to PEP 440: {version!r}")
-
-    # Check description attribute
-    if not hasattr(plugin, "description"):
-        errors.append("missing 'description' attribute")
-    else:
-        description = plugin.description
-        if not isinstance(description, str):
-            errors.append(
-                f"'description' must be a string, got {type(description).__name__}"
-            )
-        elif len(description) > 256:
-            errors.append(
-                f"'description' exceeds 256 characters (got {len(description)})"
-            )
-
-    _warn_if_the_adapter_claim_is_false(plugin, entry_point_name)
-
-    return errors
-
-
-def _warn_if_the_adapter_claim_is_false(plugin: Any, entry_point_name: str) -> None:
-    """A plugin that says it is an adapter should be one.
-
-    `plugin-taxonomy`/T9. `functualize-mcp` declared ``adapter_type = "mcp"``,
-    said *"Implements the AdapterPlugin protocol"* in its docstring, and had
-    **neither `run` nor `shutdown`** — two of the protocol's three methods —
-    while its two siblings had both. Nothing noticed, for a plain reason:
-    `functualize.app.adapters.validate_adapter` exists to catch exactly this and
-    had **no production caller**, only a re-export and five test files.
-
-    Checked here because this is the one function every load path goes through
-    — entry points, explicit plugins and file-based plugins all reach it — and
-    because `_plugins` may import `_types.protocols` directly. It cannot call
-    `validate_adapter`: that lives in the public `app/` package, and the layer
-    contract forbids an internal layer from importing public. The protocol
-    itself is the shared thing, which is the right shared thing.
-
-    **A warning, not a rejection.** Refusing the plugin would have removed
-    `functualize-mcp` from every installation that had it, over a claim that
-    changes nothing at runtime — `adapter_type` is declarative and nothing
-    dispatches on it. The cost of the defect is a reader believing a docstring,
-    so the fix is to say so where somebody will see it.
-    """
-    if not hasattr(plugin, "adapter_type"):
-        return
-    if isinstance(plugin, AdapterPlugin):
-        return
-    missing = [
-        member
-        for member in ("__call__", "run", "shutdown")
-        if not callable(getattr(plugin, member, None))
-    ]
-    logger.warning(
-        "Plugin %r declares adapter_type=%r but does not satisfy AdapterPlugin: "
-        "missing %s. It will still load — adapter_type is declarative — but the "
-        "claim is false and anything written against the protocol will fail.",
-        entry_point_name,
-        getattr(plugin, "adapter_type", None),
-        ", ".join(missing) or "nothing callable",
-    )
 
 
 def _has_config_declaration(plugin: Any) -> bool:
@@ -296,6 +193,9 @@ class PluginLoader:
         self._group = group
         self._loaded: dict[str, str] = {}  # plugin name -> entry point name
         self._loaded_instances: list[Any] = []  # plugin instances in loading order
+        # Composition, not inheritance: the on-disk plugin format is its own
+        # responsibility, and this class was 595 lines against the ~500 bar.
+        self._file_source = FilePluginSource()
 
     @property
     def loaded_plugins(self) -> dict[str, str]:
@@ -751,12 +651,12 @@ class PluginLoader:
         return []
 
     def _discover_from_files(self, app: Any) -> list[Any]:
-        """Scan plugin directories for *.py files and load as plugins.
+        """Scan the app's plugin directories for file-based plugins.
 
-        Scans each resolved plugin directory for top-level .py files (non-recursive),
-        skipping files whose name starts with '_'. Files are sorted case-insensitively
-        for deterministic ordering. Same-name duplicates within the scan are detected
-        and only the first (alphabetically) is loaded.
+        Kept as a seam while `_resolve_plugin_directories` still exists;
+        `declared-plugin-directories`/T5 removes both and has `load_all` call
+        `self._file_source.discover(directories)` with directories the
+        composition root resolved.
 
         Args:
             app: The application instance.
@@ -764,109 +664,4 @@ class PluginLoader:
         Returns:
             A list of valid plugin objects discovered from file-based plugins.
         """
-        dirs = self._resolve_plugin_directories(app)
-        loaded: list[Any] = []
-        loaded_names: set[str] = set()
-
-        for plugin_dir in dirs:
-            dir_path = Path(plugin_dir)
-            if not dir_path.is_dir():
-                logger.debug(f"Plugin directory does not exist: {plugin_dir}")
-                continue
-
-            # Sort files case-insensitively for deterministic ordering
-            py_files = sorted(dir_path.glob("*.py"), key=lambda f: f.name.lower())
-
-            for py_file in py_files:
-                if py_file.name.startswith("_"):
-                    continue
-
-                plugin = self._load_file_plugin(py_file)
-                if plugin is None:
-                    continue
-
-                # Handle same-name duplicates: first alphabetically wins
-                plugin_name = plugin.name
-                if plugin_name in loaded_names:
-                    logger.warning(
-                        f"Duplicate file plugin name '{plugin_name}' "
-                        f"from '{py_file}'. Already loaded from an earlier "
-                        f"file. Skipping."
-                    )
-                    continue
-
-                loaded_names.add(plugin_name)
-                loaded.append(plugin)
-
-        return loaded
-
-    def _load_file_plugin(self, py_file: Path) -> Any | None:
-        """Load a single file plugin via importlib.
-
-        Attempts to import the file as a module. Checks for a module-level
-        `plugin` attribute first; if absent, inspects module members for any
-        object satisfying the PluginMetadata protocol.
-
-        Args:
-            py_file: Path to the .py file to load.
-
-        Returns:
-            The plugin object if successfully loaded and validated, or None.
-        """
-        try:
-            spec = importlib.util.spec_from_file_location(py_file.stem, py_file)
-            if spec is None or spec.loader is None:
-                logger.warning(
-                    f"Failed to load file plugin '{py_file}': "
-                    f"could not create module spec"
-                )
-                return None
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-        except Exception as e:
-            logger.warning(f"Failed to load file plugin '{py_file}': {e}")
-            return None
-
-        # Check for module-level `plugin` attribute first
-        plugin = getattr(module, "plugin", None)
-        if plugin is None:
-            # Inspect module for PluginMetadata protocol objects
-            plugin = self._find_plugin_in_module(module)
-
-        if plugin is None:
-            return None
-
-        # Validate metadata
-        errors = _validate_metadata(plugin, str(py_file))
-        if errors:
-            logger.warning(f"File plugin '{py_file}' invalid: {'; '.join(errors)}")
-            return None
-
-        return plugin
-
-    def _find_plugin_in_module(self, module: Any) -> Any | None:
-        """Inspect a module for objects satisfying the PluginMetadata protocol.
-
-        Looks for any object in the module that has `name`, `version`,
-        `description` string attributes and is callable.
-
-        Args:
-            module: The imported module to inspect.
-
-        Returns:
-            The first matching plugin object, or None if no candidate found.
-        """
-        for _attr_name, obj in inspect.getmembers(module):
-            if obj is module:
-                continue
-            if (
-                hasattr(obj, "name")
-                and hasattr(obj, "version")
-                and hasattr(obj, "description")
-                and isinstance(getattr(obj, "name", None), str)
-                and isinstance(getattr(obj, "version", None), str)
-                and isinstance(getattr(obj, "description", None), str)
-                and callable(obj)
-            ):
-                return obj
-        return None
+        return self._file_source.discover(self._resolve_plugin_directories(app))
