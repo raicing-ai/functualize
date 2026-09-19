@@ -5,7 +5,7 @@ description = "The two state-store modes, and the commands the guide says report
 
 [source]
 file = "docs/guides/task-runner.md"
-lines = "76-108"
+lines = "76-111"
 description = """
 "Where the freshness ledger lives" — the project/standalone table and the two
 commands it tells the reader to run. The behaviour it documents has always been
@@ -42,11 +42,17 @@ timeout = 60
 [[steps]]
 engine = "shell"
 description = "a declared project keeps its ledger inside itself"
+# Asserts the *directory*, which is what the mode decides and what this step is
+# named for. It used to assert `.functualize/fresh.json` and passed only because
+# the SQLite substrate plugin never loaded: it registered into
+# `functualize.state_providers`, a group nothing read. `plugin-taxonomy` gave it
+# a reader, the substrate now installs, and the ledger is `state.db#fresh`.
+# Pinning either filename here pins a plugin choice, not the documented behaviour.
 command = """
   d=$(mktemp -d) && cd "$d" && mkdir .functualize &&
   func builtin data show | grep 'Freshness path:'
 """
-expected = { exit_code = 0, stdout_contains = ".functualize/fresh.json" }
+expected = { exit_code = 0, stdout_contains = ".functualize/" }
 timeout = 60
 
 [[steps]]

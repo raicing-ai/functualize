@@ -87,6 +87,14 @@ Which one you are in depends on a single directory:
 standalone is the fallback rather than the failure: littering a `.functualize/`
 beside every one-off script would be worse than a keyed cache directory.
 
+**A substrate plugin changes the file, not the directory.** The table above is
+the default layout, where each store is its own JSON file. Install a
+`StoreSubstrate` — `functualize-substrate-sqlite`, say — and every store moves
+into one database in the same directory, so the ledger is reported as
+`.functualize/state.db#fresh` rather than `.functualize/fresh.json`. The mode
+still decides *which* directory; the substrate decides what sits in it. Read
+the path the command prints rather than assuming either form.
+
 **`mkdir .functualize` is the switch.** Do it when you want the ledger versioned
 with the project, shared by everyone working in it, or simply findable — after
 which `rm -rf .functualize` is a full reset.
