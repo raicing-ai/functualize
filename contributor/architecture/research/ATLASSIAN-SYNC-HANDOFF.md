@@ -1,8 +1,12 @@
-# Atlassian sync — handoff for an agent with Jira and Confluence access
+# Handoff — finish the Jira and Confluence sync
+
+**You need:** Jira write access **and** Confluence write access to
+`raicing-ai.atlassian.net`. Both halves are in this document — Jobs 0–3 are **Jira**,
+Job 4 is **Confluence**.
 
 **Written:** 2026-09-21
 **Why this exists:** the Atlassian MCP server disconnected partway through this work. All
-repository and Git work is **done**. Three Atlassian jobs remain, and this document is
+repository and Git work is **done and verified**. Five jobs remain, and this document is
 everything needed to finish them. It assumes you have no other context.
 
 **Site:** `https://raicing-ai.atlassian.net`
@@ -41,17 +45,49 @@ that level rather than adopting someone else's engine.
 | ✅ | **FUN-25** created — Wave 0, six-backend capability probe |
 | ✅ | 1 research branch + 9 ticket branches with worktrees and pre-loaded specs |
 
-### What remains — your three jobs
+### What remains — your five jobs
 
-1. **Job A** — replace one comment on FUN-25 (it is now materially misleading)
-2. **Job B** — update FUN-17 through FUN-23 descriptions
-3. **Job C** — publish 20 Confluence child pages
+| Job | System | What |
+|---|---|---|
+| **0** | Jira | Verify the state described above is real. Two issues were created just before the disconnect and have not been re-read since. |
+| **1** | Jira | Replace one comment on FUN-25 — it is now materially misleading |
+| **2** | Jira | Update FUN-17 → FUN-23 descriptions, and the FUN-16 epic |
+| **3** | Jira | **Create the issue links.** The wave dependencies currently exist only as prose inside descriptions, so the board shows nine unordered tickets |
+| **4** | Confluence | Publish 20 child pages |
 
-Do them in that order. Job A is one call.
+Do them in that order. Job 0 is two calls; Job 1 is one.
 
 ---
 
-## Job A — replace comment `10013` on FUN-25
+## Job 0 — verify, before you change anything
+
+The two issues below were created successfully (the API returned their keys), but the
+connection dropped shortly afterwards and nothing has re-read them since. Confirm, and if
+any is wrong, report it rather than working around it.
+
+Call `getJiraIssue` for each with `fields: ["summary","status","parent","labels","priority"]`:
+
+| Key | Expect |
+|---|---|
+| **FUN-24** | Summary *Repair the four runtime persistence defects before anything reads the legacy data*; Task; parent FUN-16; To Do; priority Highest; labels `defect`, `wave-0`, `persistence`, `substrate`, `north-star-1.0` |
+| **FUN-25** | Summary *Substrate capability probe: measure StoreProfile empirically across six backends*; Task; parent FUN-16; To Do; priority Highest; labels include `spike`, `wave-0`, `conformance` |
+
+Also confirm the three Confluence pages exist and are parented correctly
+(`getConfluencePage`):
+
+| Page | Expect |
+|---|---|
+| `5472849` | *Research Archive — Runtime Persistence (superseded 2026-09-21)*, child of `4816898` |
+| `5308716` | *Archive — Runtime Persistence Architecture — Canonical Design Package (superseded)*, **child of `5472849`** |
+| `6389761` / `6422529` | the two new parents, children of `4816898` |
+
+**If FUN-24 or FUN-25 does not exist**, their full descriptions are not reproduced here —
+say so in your report and stop rather than inventing them; they can be recovered from the
+session that created them.
+
+---
+
+## Job 1 — replace comment `10013` on FUN-25
 
 An earlier comment recommended an AWS emulator more strongly than the evidence supports,
 and named LocalStack from a guess rather than from reading the tool. Replace it in place.
@@ -146,7 +182,7 @@ your report.
 
 ---
 
-## Job B — update FUN-17 through FUN-23
+## Job 2 — update FUN-17 through FUN-23
 
 ### Rules
 
@@ -503,7 +539,62 @@ document store in place.
 
 ---
 
-## Job C — publish 20 Confluence child pages
+## Job 3 — create the issue links
+
+**This is the gap that matters most.** Wave ordering is currently prose inside nine
+descriptions. Nothing on the board expresses it, so a planner looking at the epic sees
+nine tickets that all appear startable. They are not: FUN-24 blocks everything.
+
+### First, discover the link types
+
+Call `getIssueLinkTypes`. Instances differ. You are looking for the **Blocks** family
+(usually inward *is blocked by* / outward *blocks*) and a **Relates** type. Use the exact
+names that call returns — do not assume `"Blocks"` is spelled that way here.
+
+### Then create these links with `createIssueLink`
+
+**Hard dependencies — use the Blocks type.** Read `A -> B` as *A blocks B*:
+
+| From | To | Why |
+|---|---|---|
+| FUN-24 | FUN-17 | a corrupt source stays corrupt; ports must not be built over unrepaired defects |
+| FUN-17 | FUN-18 | the schema encodes the ports' state machines |
+| FUN-18 | FUN-19 | the provider implements the schema |
+| FUN-19 | FUN-20 | atomic workflow writes need a transactional store |
+| FUN-20 | FUN-21 | the outbox commits alongside a workflow transition |
+| FUN-19 | FUN-23 | the workspace split needs the runtime store to exist first |
+| FUN-21 | FUN-22 | the network provider must pass the full conformance suite, outbox tier included |
+| FUN-23 | FUN-22 | same |
+
+**Soft dependencies — use the Relates type.** FUN-25 measures what the others assume:
+
+| From | To | Why |
+|---|---|---|
+| FUN-25 | FUN-17 | supplies the measured `StoreProfile` field values |
+| FUN-25 | FUN-19 | supplies the backend limits the schema must respect |
+| FUN-25 | FUN-22 | decides which backends are worth implementing at all |
+
+That is **8 blocking links and 3 relates**. FUN-24 and FUN-25 are the only two with no
+inbound blocker — they are the two startable today, and they run in parallel.
+
+### Priorities
+
+FUN-24 and FUN-25 are already **Highest**. Suggested for the rest, as a judgment call the
+maintainer may override:
+
+| Tickets | Priority | Reason |
+|---|---|---|
+| FUN-17, FUN-18, FUN-19 | **High** | the critical path; nothing ships without them |
+| FUN-20, FUN-21, FUN-23, FUN-22 | **Medium** | real work, but each is unblocked only after the path above |
+
+### Labels
+
+Every ticket gets a `wave-N` label matching its wave in the table above, **keeping all
+existing labels**. FUN-24 and FUN-25 already carry `wave-0`.
+
+---
+
+## Job 4 — publish 20 Confluence child pages
 
 Two batches. Work **sequentially**; do not parallelise. If you hit a rate limit, stop and
 report exactly which titles completed.
@@ -593,9 +684,14 @@ Header to prepend to each Batch B body (substitute the real filename):
 
 ## Verification before you report done
 
+- [ ] FUN-24 and FUN-25 exist, are Tasks under FUN-16, and are priority Highest
+- [ ] Page `5308716` is titled `Archive — …(superseded)` and sits under `5472849`
 - [ ] FUN-25 comment reads "revised" and mentions floci, not LocalStack-by-guess
 - [ ] FUN-17–FUN-23 each carry a wave number, a branch name, and acceptance criteria
 - [ ] FUN-16 carries the revision block
+- [ ] 8 blocking links and 3 relates links exist; FUN-24 and FUN-25 are the only tickets
+      with no inbound blocker
+- [ ] every ticket carries a `wave-N` label and has kept its pre-existing labels
 - [ ] Every ticket's original `## Outcome` and `## Source` sections are intact
 - [ ] Parent `6389761` has exactly 10 children, titled `00 —` … `09 —`
 - [ ] Parent `6422529` has exactly 10 children, titled `00 —` … `09 —`
