@@ -4,6 +4,14 @@ Prerequisite: verify `.spec/features/<name>/spec.md` exists and is user-confirme
 
 1. Read `.spec/STATE.md` — if absent, treat as: no work in flight
 
+1a. **Read the dead-code audit before any planning work.** Read
+   `.spec/reference/dead-code-audit.md`, the branch-local copy of the accepted
+   Confluence result “Research — Codebase Extensibility & Hygiene Audit
+   (2026-09-16)” (Confluence page `3637249`). Treat it as historical evidence
+   at its recorded commit, not as proof of current behavior: carry relevant
+   findings into the architecture pass and revalidate them against this
+   worktree before putting them in the plan.
+
 **Steps 2–6 are the architecture gate.** Plan opens with architecture, not with
 an approach: nothing below step 7 may name a file to change until the AFTER
 shape is settled. Its two hard outputs are the BEFORE/AFTER diagrams and the

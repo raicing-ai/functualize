@@ -107,6 +107,13 @@ Plan mode is a convenience, not part of the enforcement. Nothing above depends
 on it. Note that plan mode is read-only, so `/agentic-specify` and
 `/agentic-plan` — which write `spec.md` and `tasks.md` — cannot run inside it.
 
+Every Plan phase starts by reading the branch-local
+`.spec/reference/dead-code-audit.md` copy of the accepted Confluence research
+“Research — Codebase Extensibility & Hygiene Audit (2026-09-16)” (page
+`3637249`). The copy travels with the branch; its findings are historical
+evidence and must be revalidated against the live worktree before they become
+plan claims or cleanup tasks.
+
 ## Retrieval discipline
 
 Retrieval is **four named passes across three phases** — never a conditional "if

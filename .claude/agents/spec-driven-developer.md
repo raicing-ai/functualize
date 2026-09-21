@@ -173,6 +173,13 @@ Trigger: `spec.md` confirmed.
 
 Output: `plan.md` + `tasks.md` + optional `schema.md`
 
+Before the architecture gate, read the branch-local
+`.spec/reference/dead-code-audit.md` copy of the accepted Confluence research
+“Research — Codebase Extensibility & Hygiene Audit (2026-09-16)” (page
+`3637249`). Use it to seed the architecture review and cleanup opportunities,
+then revalidate every applicable finding against the live worktree because the
+audit is a historical snapshot.
+
 Steps 1–4 are the **architecture gate** and come first — no file-to-change is
 named until the AFTER shape is settled
 (`.claude/rules/spec-workflow.md` → *The architecture gate*).
