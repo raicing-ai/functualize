@@ -10,38 +10,39 @@ Fixed order, do not reorder (see `contributor/architecture/boot-sequence.md` for
 | 2 | `provider_registry` — built-in TOML format provider registered; `IniFormatProvider` needs a plugin (ADR-007) | 10ms |
 | 3 | `observability` — EventBus, MiddlewareStack created (before plugins, so plugins can subscribe) | 50ms |
 | 4 | `plugins` — entry-point + file-based plugins loaded via `PluginLoader` (topological sort) | 200ms |
+| 4b | `domains` — discover domain SDKs through `functualize.domains` | included |
 | 5 | `config_entry_points` — format/remote provider entry points discovered | 50ms |
-| 6 | `config_resolution` — `ResourceLocator` + `ResolutionChain` built once | 100ms |
-| 7 | — `AFTER_CONFIG_INIT` hook fires | — |
-| 8 | `job_registration` — providers from `JobSources` wired | 50ms |
-| 9 | `children` — child `FunctualizeApp` projects mounted | 50ms |
-| 10 | `app_ready` — `APP_READY` hook fires, boot complete | — |
-| 11 | `registry_frozen` — DI registry frozen, `REGISTRY_FROZEN` emitted | — |
-| 12 | `adapter.run()` — active adapter takes over delivery | — (TUI: 20ms) |
+| 6 | `config_resolution` — active environment + `ResourceLocator` + `ResolutionChain` built once | 100ms |
+| 7 | — `AFTER_CONFIG_INIT` hook fires; max invoke depth resolved | — |
+| 7c | `children` — child projects discovered and wired into the resolution pipeline | 50ms |
+| 8 | `job_registration` — providers resolve and register jobs; declarations validated | 50ms |
+| 9 | `app_ready` — `APP_READY` hooks fire after all boot steps | — |
+| 9b | `di_validation` — report unsatisfiable job declarations | — |
+| 10 | `registry_frozen` — DI registry frozen, `REGISTRY_FROZEN` emitted | — |
+| delivery | `adapter.run()` — active adapter takes over after construction | — (TUI: 20ms) |
 
-Total boot budget: 500ms (CI-enforced via `tests/perf/test_startup_budget.py`). Static wiring (all sources explicit) skips steps 2, 5, 6, 8, 9 → boot in <5ms.
+Total boot budget: 500ms (CI-enforced via `tests/perf/test_startup_budget.py`).
+Static wiring (all sources explicit) uses a separate zero-discovery path: it
+builds minimal registries, uses the supplied resolution chain, loads only
+explicit plugins/jobs, skips entry-point/config/file/child discovery, then
+still validates declarations, fires `APP_READY`, validates DI, and freezes the
+registry. Its target is <5ms; requested dotenv loading is its one filesystem-I/O
+exception.
 
 ## 2. Job Execution Lifecycle
 
-All invocation modes (CLI, `rc.invoke()`, `func` standalone, HTTP, Lambda, MCP) converge on one path:
+All invocation modes (CLI, `rc.invoke()`, `func` standalone, HTTP, Lambda, MCP) converge on one path. The concise list below highlights the persistence-relevant boundaries; the authoritative twenty-step ordering and constraints live in `contributor/reference/execution-lifecycle.md`.
 
 ```
-Trigger → adapter.execute() call
+Trigger → adapter builds RunRequest
   │
   ▼
-JobExecutionEngine.execute(job_name, function, kwargs)
-  1. Get ResolutionPlan (cached by id(function))
-  2. Build per-invocation capabilities (Log, Invoke, Prompt, Perf, State)
-  3. Resolve DI params from registry
-  4. Construct RunContext if function declares it
-  5. Fire PRE_EXECUTE hooks       (can BLOCK or MODIFY kwargs)
-  6. Fire BEFORE_JOB hooks        (observe only)
-  7. Run middleware chain, pre-phase (yield-based generators)
-  8. Call job function(**resolved_kwargs)
-  9. Run middleware chain, post-phase
- 10. Fire AFTER_SUCCESS or AFTER_FAILURE hooks
- 11. Fire ON_TEARDOWN hooks       (always)
- 12. Return JobResult
+FunctualizeApp.execute(request) → JobExecutionEngine.run(request)
+  1. Resolve the registered job and establish/reuse WorkflowScope
+  2. Open the best-effort run record in the current RunStore
+  3. Execute the authoritative twenty-step lifecycle
+  4. Close the run record on every lifecycle exit
+  5. Return JobResult
 ```
 
 **Resolution priority** for function parameters: DI > RunContext > Config > Default value > Skip.
@@ -127,9 +128,9 @@ The engine is output-agnostic — it emits lifecycle events, adapters render the
 ```
 Input Providers                    Engine (pivot point)              Output Renderers
 ─────────────────                  ─────────────────────             ──────────────────
-Programmatic kwargs  ─┐                                          ┌─ Silent (return value)
+Programmatic request ─┐                                          ┌─ Silent (return value)
 CLI (Click parse)    ─┤                                          ├─ Stdout/Rich panels
-Auto TUI form         ┼─► engine.execute() ──► emits events ────►┼─ Inline Textual
+Auto TUI form         ┼─► app.execute(RunRequest) ─► events ────►┼─ Inline Textual
 Custom Input TUI      ─┘                                         ├─ Full-screen TUI (DataTables)
                                                                   └─ External (webhooks/Slack)
 ```
@@ -165,7 +166,7 @@ run_job() launches execution as a thread worker (run_worker(..., thread=True))
 preflight_summary.py shows resolved config when SmartBar is "green"
    │
    ▼
-engine.execute() (same path as CLI/programmatic — see §2)
+app.execute(RunRequest) (same path as CLI/programmatic — see §2)
    │
    ▼
 Results rendered into panels/job_browser.py, panels/config_table.py, dynamic_footer.py
@@ -188,3 +189,39 @@ once (ADR-009 decision 1, and its amendment):
 `missing_args.py` is **not** in the live path despite the name: readiness and
 "what is missing" are answered by `SmartBar.evaluate`. See `STATUS.md`
 follow-up 13. See `contributor/architecture/tui-architecture.md` for the full keybinding map and panel ring structure — there is no separate argument-form modal; missing-argument handling stays inline in the SmartBar/pre-flight flow.
+
+## 8. Runtime Persistence: Current and Target Flow
+
+Current code fans semantic workflow operations through document-oriented stores:
+
+```text
+engine / workflow / state / CLI / MCP
+          |
+ScopeStore + RunStore + ScopeStateStore + FreshStore + ShellHistoryStore
+          |
+StoreSubstrate(read/write/lock/clear/delete/describe)
+          |
+JsonFileSubstrate OR SQLiteSubstrate(documents[key,payload,revision])
+```
+
+The proposed flow replaces that broad document seam for authoritative runtime
+truth while retaining document storage for genuinely document-shaped derived or
+delivery-local data:
+
+```text
+engine + workflow orchestration
+          |
+RuntimeUnitOfWork
+          |
+WorkflowRepository + RunRepository + InteractionRepository + OutboxRepository
+          |
+one boot-selected RuntimePersistenceProvider
+          |
+normalized SQLite (single host) OR network SQL (multi-host)
+```
+
+Transitions, emitted-event rows, and outbox rows commit in one short unit of
+work; EventBus notification follows commit. A transaction never wraps a job
+body or external effect. The C4 views, transaction boundaries, schema, and
+migration sequence are canonical in the
+[`runtime-persistence` research package](../research/runtime-persistence/README.md).

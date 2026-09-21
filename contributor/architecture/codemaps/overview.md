@@ -1,16 +1,20 @@
 # Architecture Overview
 
-Machine-assisted architecture map (regenerate with the `/sync-docs` skill). See `entry-points.md`, `modules.md`, `dependencies.md`, `data-flow.md` for detail.
+Machine-assisted architecture map (regenerate with the `/sync-docs` skill). See
+`entry-points.md`, `modules.md`, `dependencies.md`, `data-flow.md`, and
+`runtime-persistence.md` for detail.
 
 ## What This Is
 
 Functualize is a **job execution framework**: a Python library + CLI (`func`/`functualize`) that discovers job functions, resolves their configuration and dependencies, executes them with a structured lifecycle, and delivers input/output through pluggable surfaces (CLI, TUI, HTTP, Lambda, MCP).
 
-Core insight: the execution engine is **delivery-agnostic**. It never knows whether a job was triggered by a CLI command, a Textual TUI form, an HTTP request, or a Lambda event — adapters translate each surface into a single `engine.execute()` call.
+Core insight: the execution engine is **delivery-agnostic**. It never knows whether a job was triggered by a CLI command, a Textual TUI form, an HTTP request, or a Lambda event — every adapter builds a `RunRequest` and converges on the single `engine.run(request)` path.
 
 ## Audience-Separated Package Structure
 
-The codebase splits `src/functualize/` into six **public** packages (safe for users to import) and ten **internal** (underscore-prefixed) packages (framework-only, never imported by user code):
+The codebase splits `src/functualize/` into seven **public** packages (safe for
+users to import) and ten **internal** (underscore-prefixed) packages
+(framework-only, never imported by user code):
 
 ```
 src/functualize/
@@ -19,9 +23,10 @@ src/functualize/
 ├── plugin/       PUBLIC — Plugin/extension author API (protocols, EventBus)
 ├── types/        PUBLIC — Shared types (JobResult, JobDescriptor, enums)
 ├── testing/      PUBLIC — Test doubles (TestRunContext, CapturingLog, ...)
+├── ui/           PUBLIC — Job-owned/display UI building blocks (`[cli]` extra)
 ├── workflow/     PUBLIC — Declarative multi-step workflow graph API (@workflow)
 │
-├── _types/       INTERNAL — Shared vocabulary (dataclasses/enums/protocols only)
+├── _types/       INTERNAL — Shared vocabulary and rules about that vocabulary
 ├── _primitives/  INTERNAL — Zero-dep utilities (DI, ResourceLocator, MiddlewareChain)
 ├── _events/      INTERNAL — Cross-cutting (EventBus, HookRegistry, PerfTimeline)
 ├── _discovery/   INTERNAL — Job finding + caching
@@ -70,5 +75,12 @@ The full-screen TUI (`_cli/tui/`) is the largest single subsystem in the codebas
 
 - **Highest fan-in module**: `functualize._app.impl` (30 importers) — the internal `FunctualizeApp` implementation is the true hub of the dependency graph, followed by `_types.descriptors` (21) and `_events.hooks` (19). See `dependencies.md`.
 - **Peer-layer independence holds**: the only cross-import found between `_discovery`/`_config`/`_engine`/`_plugins` is a `TYPE_CHECKING`-only reference in `_engine/capabilities/runcontext.py`, which the import-linter contract explicitly excludes. No runtime violation.
-- **13 official plugins** live in the `plugins/` workspace, split into Domain SDKs (ai, interactivity, state, tasks — protocol-only) and their concrete implementations (ai-pydantic, inline/fullscreen-tui, state-sqlite, tasks-local) plus delivery adapters (http, lambda, mcp) and a visualization plugin (flow-viz).
+- **12 official plugins** live in the `plugins/` workspace. The former
+  `functualize-state` SDK was removed by ADR-022; `functualize-state-sqlite`
+  currently implements the private document substrate and is the migration
+  target of FUN-17–FUN-19. AWS and Bitwarden supply remote config providers.
+- **Runtime persistence is a cross-cutting hotspot**: Graphify measures
+  `ScopeStore` at degree 91, `StoreSubstrate` at 33, `RunStore` at 35, and
+  `JobExecutionEngine` at 108. See `runtime-persistence.md` and the canonical
+  C4 design under `../research/runtime-persistence/`.
 - **Potential issue**: no circular dependencies detected; the one notable coupling to watch is `_cli/tui/panels/config_table.py` at 10 importers — a TUI panel with unusually high internal fan-in for a leaf UI module (see `modules.md` for detail).

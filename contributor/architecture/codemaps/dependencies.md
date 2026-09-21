@@ -5,8 +5,8 @@ See `contributor/architecture/dependency-graph.md` for the authoritative, human-
 ## Layer Dependency Flow
 
 ```
-                    _types/         <- Shared vocabulary (everyone imports)
-                   /       \          NO LOGIC -- only dataclasses, enums, protocols
+                    _types/         <- Shared vocabulary and vocabulary rules
+                   /       \          no imports from another internal layer
           _primitives/   _events/   <- Foundation + cross-cutting concern
                |            |
          +-----+------------+----------+
@@ -22,13 +22,15 @@ See `contributor/architecture/dependency-graph.md` for the authoritative, human-
                    _cli/            <- DELIVERY (public API only -- no `_` imports)
 ```
 
-Enforced in CI by `import-linter` (`uv run lint-imports`), five contracts defined in `pyproject.toml` `[tool.importlinter]`:
+Enforced in CI by `import-linter` (`uv run lint-imports`), seven contracts defined in `pyproject.toml` `[tool.importlinter]`:
 
-1. "Peer layers are independent" — independence contract over `_discovery`, `_config`, `_engine`, `_plugins`.
-2. "Primitives import nothing internal" — forbidden contract.
-3. "Types import nothing internal" — forbidden contract.
-4. "Internal never imports public" — forbidden contract (blocks `_app` etc. from importing `functualize.app`).
-5. "`_cli` uses public API only" — forbidden contract (blocks `_cli` from importing any `_`-prefixed package).
+1. "Peer layers are independent" — independence contract over `_discovery`, `_config`, `_engine`, `_plugins`, and `_gate`.
+2. "Events depends on foundation only" — `_events` may depend on `_types` and `_primitives`, not a peer or composition/delivery layer.
+3. "Primitives import nothing internal" — forbidden contract.
+4. "Types import nothing internal" — forbidden contract.
+5. "Internal never imports public" — forbidden contract (blocks `_app` etc. from importing `functualize.app`).
+6. "`_cli` uses public API only" — forbidden contract (blocks `_cli` from importing any `_`-prefixed package).
+7. "Delivery adapters go through the request, not the engine" — public adapters cannot import `_engine`.
 
 `exclude_type_checking_imports = true` — imports inside `if TYPE_CHECKING:` blocks are not evaluated by the contracts.
 
@@ -68,6 +70,27 @@ Peer layers never import each other directly. When Layer A (peer) needs somethin
 
 Example already in the codebase: `_engine/executor.py`'s `JobExecutionEngine` depends on a `JobLookup`-shaped protocol; `_app/boot.py` passes the concrete `_discovery.pipeline.ResolutionPipeline` in.
 
+### Proposed runtime-persistence layer (not shipped)
+
+The runtime-persistence design adds `_persistence` as another independent peer:
+
+```text
+_types/ + _primitives/
+          |
+    _persistence/  <---- protocols and DTOs only across the engine boundary
+          |
+        _app/      <---- selects and binds one provider factory at boot
+          |
+       _engine/    <---- consumes semantic repositories/UoW, never SQL
+```
+
+The final dependency contract must add `_persistence` to peer independence and
+allow it to import only `_types`, `_primitives`, `_events`, and the standard library. The
+proposal is deliberately absent from `pyproject.toml` until the package exists;
+claiming it as an enforced rule now would disguise a transitional state. See
+[`runtime-persistence.md`](runtime-persistence.md) and the canonical
+[`runtime-persistence` research package](../research/runtime-persistence/README.md).
+
 ## CLI/Textual Dependency Isolation
 
 The CLI is **click-native**; `typer` and `trogon` are no longer dependencies.
@@ -92,7 +115,8 @@ never pulls in any CLI dependency. This keeps Lambda/HTTP deployments lean — t
 functualize (core)
 ├── pydantic>=2.0.0            # config/descriptor validation
 ├── python-dotenv>=1.0.0       # .env loading
-└── jinja2>=3.1.0              # scaffold/config templating
+├── jinja2>=3.1.0              # scaffold/config templating
+└── cryptography>=42.0.0       # local secrets-vault encryption
 # The interactivity contract (Surface/PromptCollector/prompt types, the stdin
 # fallback) now lives IN core; functualize.ui (TextualApp/StdoutSurface) is in
 # the [cli] extra below.
@@ -104,14 +128,16 @@ functualize[cli] (optional, needed for `func`/TUI)
 ├── textual[syntax]>=8.0             # syntax highlighting for the TUI
 └── textual-autocomplete>=4.0.0      # SmartBar autocomplete widget
 
-functualize[all] = [cli] + 13 workspace plugins (see modules.md)
+functualize[all] = [cli] + first-party plugins except Bitwarden
+# Bitwarden remains a workspace/dev dependency because its SDK has no musl
+# wheel or sdist; see the declaration comment in pyproject.toml.
 ```
 
 ## Build & CI Wiring
 
 - **Build backend**: `hatchling.build`; wheel packages `src/functualize`.
-- **Workspace**: `[tool.uv.workspace] members = ["plugins/*"]` — all 13 plugins auto-included, single `uv.lock`.
-- **CI** (`.github/workflows/ci.yml`, triggers on `push`/`pull_request`): `lint` → `lint-imports` → `typecheck` (mypy) → `test-fast` → `test-full` (matrix, Python 3.11/3.12/3.13).
-- **Security** (`security.yml`): gitleaks secret scan, on push/PR to `main` plus a weekly Monday 06:00 UTC cron.
+- **Workspace**: `[tool.uv.workspace] members = ["plugins/*"]` — all 12 plugins are workspace members with one `uv.lock`.
+- **CI** (`.github/workflows/ci.yml`, triggers on push/PR to `master`): includes `spec-only-change`, lint, import contracts, mypy, fast tests, docs checks, full-test legs for Python 3.11/3.12/3.13, and the spec-artifact guard.
+- **Security** (`security.yml`): gitleaks secret scan, on push/PR to `master` plus a weekly Monday 06:00 UTC cron.
 - **Release** (`release.yml`, on tag `v*`): `build` → `publish` (PyPI Trusted Publishing/OIDC) → `github-release`.
-- **Docs** (`docs.yml`, on push to `main`): `mkdocs build --strict` → `mkdocs gh-deploy`.
+- **Docs** (`docs.yml`, on push to `master`): `mkdocs build --strict` → `mkdocs gh-deploy`.

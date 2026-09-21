@@ -54,6 +54,7 @@ src/functualize/
 ├── plugin/           PUBLIC — Plugin author API (EventBus, protocols)
 ├── types/            PUBLIC — Shared types (JobResult, JobDescriptor, enums)
 ├── testing/          PUBLIC — Test helpers (TestRunContext, doubles)
+├── ui/               PUBLIC — Job-owned/display UI building blocks (`[cli]` extra)
 ├── workflow/         PUBLIC — Workflow definition API (@workflow decorator, Step/Edge types)
 │
 ├── _types/           INTERNAL — Shared vocabulary: the types every layer names, and the
@@ -153,6 +154,18 @@ Every job passes through three layers with strict separation:
                │  CliAdapter (or other)   │
                └─────────────────────────┘
 ```
+
+## Runtime Persistence Boundary
+
+The shipped v0.3.0 engine resolves one `StoreSubstrate` and places five JSON
+documents on it: freshness, scopes, per-scope state, runs, and shell history.
+This is the current compatibility architecture, not the Northstar endpoint.
+
+The target architecture keeps one provider choice for coherent runtime truth
+but replaces whole-document access with semantic repositories and short units
+of work. Derived/local data and workspace bytes remain separate capabilities.
+See the canonical [runtime-persistence architecture](research/runtime-persistence/README.md)
+and the current/target [runtime-persistence codemap](codemaps/runtime-persistence.md).
 
 ## Interactivity Model (Input/Output Axes)
 

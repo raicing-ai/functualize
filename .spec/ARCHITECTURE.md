@@ -3,7 +3,15 @@
 Implementation-level architectural decisions extracted from pre-release ADRs.
 For high-level rules and invariants, see `CONSTITUTION.md`.
 
-## Runtime storage — five documents, one substrate, two discard rules
+## Runtime persistence — shipped document substrate and target semantic ports
+
+> **Status boundary (2026-09-20):** the document substrate described first is
+> the shipped v0.3.0 implementation. The target redesign is specified in
+> [`contributor/architecture/research/runtime-persistence/`](../contributor/architecture/research/runtime-persistence/README.md)
+> and is not yet implemented. Transitional work must state which side it
+> implements; a target diagram is not evidence that code has shipped.
+
+### Shipped: five documents, one substrate, two discard rules
 
 What a project keeps, and the rule that decides what happens when each cannot be
 read. The rule is the architecture here: it is what says whether a document may
@@ -48,6 +56,50 @@ inside them lives in another is unreachable — not because five call sites agre
 but because there is **one call site to agree with**. A plugin installs a
 substrate at `APP_READY` through `EngineHost.substrate`; installing after the
 engine has resolved one is refused rather than half-applied.
+
+This invariant survives the redesign, but its boundary narrows to one coherent
+**runtime truth family**. Runs, workflow scopes, steps, decisions, per-scope
+state, interactions, evidence, leases, events and effect intents must come from
+one provider and share short transaction boundaries. Freshness fingerprints,
+shell recall, plugin-owned task data and workspace bytes have different
+discard, locality and retention rules; forcing them into that provider merely
+because they currently share `StoreSubstrate` would recreate a god backend.
+
+### Target: provider family, semantic repositories, and short units of work
+
+Northstar 1.0/2.0 needs relational queries, migrations, durable interactions,
+transactional effect intent, distributed fencing, and artifact references. A
+single opaque `documents(key, payload, revision)` table cannot express those
+capabilities without loading and rewriting complete JSON values. ADR-022
+explicitly says a backend with valuable queries reopens the decision; that
+condition is now met.
+
+The target architecture therefore uses:
+
+- one `RuntimePersistenceProvider` selected, migrated, health-checked and bound
+  during boot;
+- an Abstract Factory/Unit of Work that creates a compatible family of run,
+  workflow, interaction and outbox repositories;
+- question-shaped read ports for history, workflow status, resumable work,
+  event watching and pending interactions;
+- a document compatibility adapter so call paths can migrate before on-disk
+  data;
+- a normalized SQLite provider for local/single-host operation and a separate
+  network SQL provider for multi-machine operation;
+- `WorkspaceProvider`/artifact storage as a separate capability, with immutable
+  references recorded in runtime SQL;
+- authoritative events and outbox intents committed with the transition, then
+  EventBus notification after commit.
+
+A database transaction never spans job code, prompting, agent execution or an
+external effect. Start, state batch, step outcome, run outcome, lease renewal
+and effect acknowledgement are individual short transitions. Every scope write
+includes the held fencing generation.
+
+The canonical C4 context/container/component, dynamic and deployment views,
+schema boundary, blast radius and ticket sequence are in the linked research
+folder. Jira FUN-16 through FUN-23 link that folder rather than maintaining a
+second architecture in issue prose.
 
 Underneath, the filesystem substrate still does **one upward walk** for a
 `.functualize/` directory and returns `(path, mode, marker)`. Two walks can

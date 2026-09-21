@@ -52,9 +52,12 @@ Domain/UI extension protocols: `discover_domains`, `scan_domain_providers`, `Bar
 
 ## Internal Implementation
 
-### `_types/` — Shared Vocabulary (No Logic)
+### `_types/` — Shared Vocabulary and Vocabulary Rules
 
-Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDescriptor` et al.) is the single highest-fan-in internal type module (21 importers).
+Frozen dataclasses, enums and protocols plus behavior that is strictly about
+shared vocabulary (naming, flag grammar, outcomes, redaction). It imports no
+internal layer. `descriptors.py` (`JobDescriptor` et al.) is the single
+highest-fan-in internal type module (21 importers).
 
 ### `_primitives/` — Foundation Utilities
 
@@ -72,6 +75,18 @@ Only frozen dataclasses, Enums, Protocol definitions. `descriptors.py` (`JobDesc
 | `lazy.py` | `lazy_cached` descriptor |
 | `resilient.py` | `resilient(iterable, on_error)` generator |
 | `modules.py` | `iter_module_files(directory)` |
+| `substrate.py` | `JsonFileSubstrate` + project-key resolution; current document storage implementation |
+| `fresh_store.py` | Derived fingerprint/precondition document |
+| `scope_store.py` | Current workflow aggregate store; 55 methods / 924 LOC and the primary persistence hotspot |
+| `scope_state_store.py` | Per-scope `rc.state` document |
+| `run_store.py` | Current run records and event document |
+| `shell_history.py` | Delivery-local shell recall document |
+
+The storage modules are historically located in `_primitives`, but workflow,
+interaction, retention and run semantics are not primitives. The target design
+moves semantic runtime ownership to a new `_persistence` peer layer while
+retaining document utilities only where appropriate. See
+`runtime-persistence.md`.
 
 ### `_events/` — Cross-Cutting
 
@@ -148,14 +163,19 @@ See `contributor/guides/tui-panels.md` for the hard rule every panel widget must
 |---|---|---|
 | `functualize-ai` | Domain SDK (protocols) | AI interaction capabilities |
 | `functualize-ai-pydantic` | Implementation | PydanticAI-backed AI plugin |
+| `functualize-aws` | Remote config provider | AWS Secrets Manager and Parameter Store |
+| `functualize-bitwarden` | Remote config provider | Bitwarden Secrets Manager |
 | `functualize-inline` | Implementation | Textual inline interactivity (prompts within terminal flow) |
 | `functualize-flow-viz` | Implementation | Inline flow visualization during job execution |
-| `functualize-state` | Domain SDK (protocols) | State persistence / execution tracking protocols |
-| `functualize-state-sqlite` | Implementation | SQLite-backed state persistence |
+| `functualize-state-sqlite` | Compatibility implementation | Opaque-document `StoreSubstrate` over SQLite; target of FUN-17–FUN-19 |
 | `functualize-tasks` | Domain SDK (protocols) | Task management capabilities |
 | `functualize-tasks-local` | Implementation | Local state-backed task storage |
 | `functualize-http` | Delivery adapter | HTTP server adapter (asyncio-based) |
 | `functualize-lambda` | Delivery adapter | AWS Lambda adapter (fat/thin patterns) |
 | `functualize-mcp` | Delivery adapter | Exposes jobs as MCP tools via FastMCP |
 
-All 13 are `uv` workspace members (`plugins/*`), pinned via `[tool.uv.sources]` in the root `pyproject.toml`.
+All 12 are `uv` workspace members (`plugins/*`), pinned via
+`[tool.uv.sources]` in the root `pyproject.toml`. ADR-022 removed the former
+`functualize-state` package; state-sqlite currently imports private substrate
+types and registers under `functualize.state_providers`, which the target
+public provider API must replace.

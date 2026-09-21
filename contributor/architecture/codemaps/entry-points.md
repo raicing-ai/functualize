@@ -17,7 +17,18 @@
 |---|---|---|
 | `functualize.plugins` | Plugin packages (empty in core `pyproject.toml`) | Dynamic plugin discovery at boot (`_plugins/loader.py`) |
 | `functualize.format_providers` | Core: `toml` → `functualize._config.providers.toml:TomlFormatProvider`. `IniFormatProvider` is in-tree but **not** registered by default (ADR-007) — a plugin or a third-party entry point registers it. | Config file format parsers |
+| `functualize.vault_key_providers` | Core: `env`, `keychain` | Local secrets-vault key sources |
 | `functualize.remote_providers` | Reserved, empty in core; populated by plugins | Remote config source providers |
+| `functualize.domains` | `functualize-ai`, `functualize-tasks` | Domain SDK discovery |
+| `functualize.interactivity_providers` | `functualize-inline` | Prompt/interactivity provider |
+| `functualize.ai_providers` | `functualize-ai-pydantic` | AI domain implementation |
+| `functualize.tasks_providers` | `functualize-tasks-local` | Task domain implementation |
+| `functualize.state_providers` | `functualize-state-sqlite` | Transitional opaque-document substrate registration; replaced by the proposed runtime-persistence provider API |
+
+The target design introduces a public runtime-persistence factory registration
+surface during plugin loading. Its exact entry-point group is an ADR/API
+decision in FUN-17; it is intentionally not presented here as shipped. See the
+[canonical architecture package](../research/runtime-persistence/README.md).
 
 ## Two entry points, one common path
 
@@ -63,13 +74,13 @@ Handler constructs FunctualizeApp (functualize.app)   ◄── THE BOUNDARY.
                                                        starts here.
   │
   ▼
-12-step boot sequence (_app/boot.py) — see data-flow.md
+current boot sequence (_app/boot.py) — see data-flow.md
   │
   ▼
 Active adapter takes delivery: CliAdapter.run() | TuiAdapter.run() | HttpAdapter | LambdaAdapter | MCP server
   │
   ▼
-app.execute(job_name, **kwargs) → JobExecutionEngine.execute() (_engine/executor.py)
+app.execute(RunRequest) → JobExecutionEngine.run(request) (_engine/executor.py)
   │
   ▼
 JobResult
@@ -85,7 +96,11 @@ JobResult
 | Lambda adapter | `plugins/functualize-lambda` | AWS Lambda event → `app.execute()` |
 | MCP adapter | `plugins/functualize-mcp` | FastMCP tool exposure of jobs |
 
-All delivery adapters converge on the same `engine.execute(name, fn, config_class, kwargs)` call — see `contributor/architecture/execution-flow.md` and `data-flow.md`.
+All delivery adapters build the same `RunRequest` and converge on
+`app.execute(request) → engine.run(request)`. The import-linter contract
+"Delivery adapters go through the request, not the engine" prevents public
+adapters from bypassing that boundary. See
+`contributor/architecture/execution-flow.md` and `data-flow.md`.
 
 **One argument beside `kwargs`.** A job reached through a group that declares
 `GroupOptions` also carries `group_option_values` — a flat `{field: value}` map
