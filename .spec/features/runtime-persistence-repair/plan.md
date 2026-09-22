@@ -425,18 +425,18 @@ each is eligible to be accepted. Nothing on that list survives in the AFTER.
    variadicity or removes it. Deleting it here would remove the mechanism the next wave needs.
    Needs maintainer review: **no**.
 
-### Needs maintainer review — put these by name, answer before Execute
+### Maintainer-reviewed decisions
 
-5. ⚠ **The B2 fix settles a plugin-contract shape that FUN-17 will revisit.** Exempting
+5. **The B2 fix settles a plugin-contract shape that FUN-17 will revisit.** Exempting
    `SubstrateInstallError` from the `APP_READY` swallow (§6) keeps `APP_READY` as the install
    point, which the three shipped docs describe. The research's §4 instead moves installation
    into a raising boot step, deleting the problem rather than exempting from it — but that
-   carries `RuntimeStoreFactory`/`StoreProfile` with it and is out of scope here. **Question
-   for the maintainer: accept the exemption as the FUN-24 repair, knowing FUN-17 may replace
-   the whole seam?** The alternative is to declare AC-4 unsatisfiable inside this wave's
-   scope and move it to FUN-17.
+   carries `RuntimeStoreFactory`/`StoreProfile` with it and is out of scope here. **Decision
+   (maintainer, 2026-09-22): accepted for FUN-24.** Both `APP_READY` loops exempt
+   `SubstrateInstallError`; this branch adds no boot step and no FUN-17
+   `RuntimeStoreFactory`/`StoreProfile`. FUN-17 may replace the seam later.
 
-6. ⚠ **Fencing `rc.state` adds one `scopes.json` read per state write, contradicting a
+6. **Fencing `rc.state` adds one `scopes.json` read per state write, contradicting a
    documented property of the path it is on.** `scope_store.py:472` states it outright:
    `_state_store` is *"This scope's state file. **Cheap: no read of `scopes.json`.**"* The
    `_fenced_state` seam must read that document for the current lease, so the docstring
@@ -446,15 +446,12 @@ each is eligible to be accepted. Nothing on that list survives in the AFTER.
    `scopes.json` is also the document this repo has already measured as a cost:
    `_cli/builtins.py:920` records "2,188 records costing 58 ms per state write,
    and nobody noticed until an external review measured the file". A per-write lease read on a
-   large `scopes.json` is the same shape of regression. Mitigation in the plan: `state_batch`
-   checks once at entry and once at the exit write rather than per `set`. **Question for the
-   maintainer: is a per-write lease read acceptable, or should the fence be armed once per
-   walk and re-validated only at batch boundaries?** The second is cheaper and weaker — it
-   reopens a window between the walk's claim and its next write. A third option, cheapest
-   and narrowest: fence only the **five write paths** (`set_state`, `delete_state`,
+   large `scopes.json` is the same shape of regression. **Decision (maintainer,
+   2026-09-22): accept the narrow fence.** Fence only the **five write paths**
+   (`set_state`, `delete_state`,
    `clear_state`, `state_batch`, `discard_state`) and leave the two reads (`get_state`,
    `state_snapshot`) on the unfenced `_state_store`, which keeps the cheap-read property
-   true for reads and is what `tasks.md` 2.1 specifies. That is the recommendation; the
-   question that remains is whether a per-*write* lease read is acceptable.
+   true for reads and is what `tasks.md` 2.1 specifies. The lease is read once per ordinary
+   write and once at each `state_batch` boundary, not once per `set` inside the batch.
 
 **Nothing else survives.** Asked and answered, rather than skipped.

@@ -39,7 +39,7 @@ from functualize._primitives.fresh_format import (
     resolve_fresh_location,
 )
 from functualize._types.errors import SubstrateUnreadableError
-from functualize._types.protocols import Stored, StoreSubstrate
+from functualize._types.protocols import Revision, Stored, StoreSubstrate
 
 __all__ = ["JsonFileSubstrate", "substrate_for_project"]
 
@@ -57,16 +57,15 @@ def _human_size(size: int) -> str:
     return f"{size / (1024 * 1024):.1f} MB"
 
 
-def _revision_of(raw: bytes) -> int:
+def _revision_of(raw: bytes) -> Revision:
     """An opaque revision token for exactly these bytes.
 
     A content hash rather than an mtime: mtime granularity is coarse enough on
     some filesystems that two writes inside the same tick are indistinguishable,
     which is precisely the window compare-and-swap exists to close. Truncated to
-    64 bits because the port types a revision as an int and callers only ever
-    compare it.
+    64 bits because callers only ever compare it.
     """
-    return int.from_bytes(hashlib.blake2b(raw, digest_size=8).digest(), "big")
+    return Revision(hashlib.blake2b(raw, digest_size=8).hexdigest())
 
 
 class JsonFileSubstrate:
@@ -135,7 +134,7 @@ class JsonFileSubstrate:
         return self._load(key)
 
     def write(
-        self, key: str, payload: dict[str, Any], *, expect: int | None = None
+        self, key: str, payload: dict[str, Any], *, expect: Revision | None = None
     ) -> bool:
         """Replace the document, refusing when ``expect`` no longer matches.
 

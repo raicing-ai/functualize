@@ -41,7 +41,7 @@ from functualize_tasks import TaskItem, TaskLink, TaskNotFoundError, TaskStatus
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from functualize._types.protocols import StoreSubstrate
+    from functualize._types.protocols import Revision, StoreSubstrate
 
 __all__ = ["LocalTaskProvider"]
 
@@ -103,7 +103,7 @@ class LocalTaskProvider:
 
     # ── storage ──────────────────────────────────────────────────────────
 
-    def _read(self) -> tuple[dict[str, Any], int | None]:
+    def _read(self) -> tuple[dict[str, Any], Revision | None]:
         """The task map and the revision it was read at.
 
         The two travel together because compare-and-swap cannot work if they can

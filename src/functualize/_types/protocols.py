@@ -39,7 +39,7 @@ from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, NewType, Protocol, runtime_checkable
 
 from functualize._types.interactivity import (
     InputNotAvailable,
@@ -761,6 +761,9 @@ class AgentStepExecutor(Protocol):
         ...
 
 
+Revision = NewType("Revision", str)
+
+
 @dataclass(frozen=True, slots=True)
 class Stored:
     """A document read back out of a substrate, with the revision it was at.
@@ -781,14 +784,14 @@ class Stored:
     """
 
     data: dict[str, Any]
-    revision: int
+    revision: Revision
 
 
 @runtime_checkable
 class StoreSubstrate(Protocol):
     """Where functualize keeps its own bookkeeping.
 
-    Three members, deliberately. The tempting port is the union of what the
+    Six members, deliberately. The tempting port is the union of what the
     stores already do — ``get_scope``, ``record_step``, ``append_event``,
     ``put_fingerprint`` — which is an interface with one implementation that
     every new store verb widens. What the stores actually need from storage is:
@@ -834,7 +837,7 @@ class StoreSubstrate(Protocol):
         ...
 
     def write(
-        self, key: str, payload: dict[str, Any], *, expect: int | None = None
+        self, key: str, payload: dict[str, Any], *, expect: Revision | None = None
     ) -> bool:
         """Replace the document at ``key``. False when ``expect`` did not match.
 

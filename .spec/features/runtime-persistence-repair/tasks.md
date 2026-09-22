@@ -26,7 +26,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
 
 ## Wave 0 — independent foundations
 
-- [ ] **0.1** Make `Stored.revision` an opaque token — **AC-5**
+- [x] **0.1** Make `Stored.revision` an opaque token — **AC-5**
       *Files:* `src/functualize/_types/protocols.py`, `src/functualize/_primitives/substrate.py`,
       `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/substrate.py`,
       `plugins/domains/functualize-tasks-local/src/functualize_tasks_local/_provider.py`

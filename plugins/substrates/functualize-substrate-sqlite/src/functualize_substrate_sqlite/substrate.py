@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 from functualize._types.errors import SubstrateUnreadableError
-from functualize._types.protocols import Stored
+from functualize._types.protocols import Revision, Stored
 
 __all__ = ["SQLiteSubstrate"]
 
@@ -109,10 +109,10 @@ class SQLiteSubstrate:
             raise SubstrateUnreadableError(
                 key, f"expected an object, found {type(data).__name__}"
             )
-        return Stored(data=data, revision=int(row[1]))
+        return Stored(data=data, revision=Revision(str(row[1])))
 
     def write(
-        self, key: str, payload: dict[str, Any], *, expect: int | None = None
+        self, key: str, payload: dict[str, Any], *, expect: Revision | None = None
     ) -> bool:
         """Replace the document, refusing when ``expect`` no longer matches.
 
