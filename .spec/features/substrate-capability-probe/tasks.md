@@ -242,7 +242,7 @@ now: `0` · after: `1`
 **Done when:** an attempt to hold a transaction open across a Python decision raises, and a
 single batch commits — both with no network and no Docker.
 
-### [ ] T5 · 2.2 — `FakeObjectStore` and `FakeItemStore`
+### [x] T5 · 2.2 — `FakeObjectStore` and `FakeItemStore`
 
 **Files:** `tests/substrate_probe/fakes.py`
 

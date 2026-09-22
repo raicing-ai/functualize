@@ -1,31 +1,38 @@
-"""A D1-shaped driver, as an instrument (FUN-25 task 2.1).
+"""Three vendor-driver constraints, as instruments (FUN-25 tasks 2.1 and 2.2).
 
-`BatchOnlySqliteDriver` is not a backend and not a port: `StoreSubstrate` is
-deliberately not implemented (`plan.md` §4 — the fakes model *vendor drivers*,
-not our port). It is the shape the research names as the one that changes the
-design: D1 has no `BEGIN`/`COMMIT` across round trips, so a caller cannot read,
-decide in Python, and then write inside one transaction. Everything atomic must
-be a single `batch` payload (`05-cloudflare.md` §A.3).
+None of these is a backend and none is a port: `StoreSubstrate` is deliberately
+not implemented (`plan.md` §4 — the fakes model *vendor drivers*, not our port).
+Each class is a driver-shaped stand-in for the one constraint the research names
+as decisive, so Tier A can exercise the harness with no network, no Docker and no
+credentials (AC4):
 
-**What an answer from this instrument means.** Every cell it produces is stamped
-`measured (fake)`, and every cell describes *the instrument*, never D1: that this
-driver refuses to hold a transaction open says a D1-shaped driver cannot, not
-that D1 cannot. That is AC2's "instruments, not columns", and AC3 is why no
-shipped field may rest on one — D1's own numbers are task 4.1's measurement, not
-this module's.
+- `BatchOnlySqliteDriver` — a D1, which has no `BEGIN`/`COMMIT`: read, decide in
+  Python, then send **one** batch (`05-cloudflare.md` §A.3).
+- `FakeObjectStore` — an S3: conditional writes per key, and no atomicity across
+  keys (`06-s3.md` §4.1).
+- `FakeItemStore` — a DynamoDB: `TransactWriteItems`, atomic across items.
 
-**No network, no Docker, no credentials** (AC4): the database is in-memory
-SQLite. `reading()` performs its observations against itself with every socket
-refused, which is also where `remote` and `offline_capable` come from
-(`harness.py` → `QUESTIONS`).
+**What an answer from these instruments means.** Every cell they produce is
+stamped `measured (fake)`, and every cell describes *the instrument*, never the
+vendor whose shape it borrows: that `BatchOnlySqliteDriver` refuses to hold a
+transaction open says a D1-shaped driver cannot, not that D1 cannot. That is
+AC2's "instruments, not columns", and AC3 is why no shipped field may rest on one
+— the vendors' own numbers are tasks 4.1–4.3's measurement, not this module's.
+
+**No network, no Docker, no credentials** (AC4): every instrument is a Python
+object with an in-memory SQLite database or a dict behind it. Each `reading()`
+performs its observations against itself with every socket refused, which is also
+where `remote` and `offline_capable` come from (`harness.py` → `QUESTIONS`).
 """
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import socket
 import sqlite3
 from collections.abc import Callable, Iterator, Sequence
+from dataclasses import dataclass
 from typing import NoReturn
 from unittest import mock
 
@@ -312,4 +319,345 @@ class BatchOnlySqliteDriver:
             f"a document announcing schema_version 2 was stored and read back unchanged "
             f"({self.read('migrated')!r}); the instrument carries no schema version of "
             f"its own, so it rejects nothing",
+        )
+
+
+class PreconditionFailedError(RuntimeError):
+    """What S3 answers with 412: the conditional write's condition did not hold."""
+
+
+class FakeObjectStore:
+    """An S3-shaped object store: conditional writes per key, no atomicity across keys.
+
+    `06-s3.md` §4.1 — AWS states it plainly: "There is no way to make atomic
+    updates across keys." Every write names exactly one key, and a conditional
+    write is refused when its condition does not hold, so the store's only atomic
+    unit is one object.
+
+    An object is its body plus an ETag, which is what `If-Match` compares against.
+    """
+
+    def __init__(self) -> None:
+        self._objects: dict[str, tuple[str, str]] = {}
+
+    def put(self, key: str, body: str) -> str:
+        """Unconditional write — S3 has no multi-key form of one. Returns the ETag."""
+        etag = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+        self._objects[key] = (body, etag)
+        return etag
+
+    def get(self, key: str) -> str | None:
+        """The object's body, or `None`."""
+        stored = self._objects.get(key)
+        return None if stored is None else stored[0]
+
+    def put_if_absent(self, key: str, body: str) -> str:
+        """`If-None-Match: *` — create only, refusing when the key is already there."""
+        if key in self._objects:
+            raise PreconditionFailedError(
+                f"{key} was already there and this write was conditioned on its absence"
+            )
+        return self.put(key, body)
+
+    def put_if_match(self, key: str, body: str, etag: str) -> str:
+        """`If-Match` — compare-and-swap on the ETag, refusing a stale one."""
+        stored = self._objects.get(key)
+        if stored is None or stored[1] != etag:
+            raise PreconditionFailedError(
+                f"{key} carries {None if stored is None else stored[1]!r} rather than "
+                f"{etag!r}: the write lost its race and is refused, not queued"
+            )
+        return self.put(key, body)
+
+    def reading(self) -> Reading:
+        """The ten questions, each one answered by observing this instrument."""
+        return reading(
+            "fake — FakeObjectStore (an S3: no atomicity across keys)",
+            (
+                *self._atomicity_answers(),
+                *self._reach_answers(),
+                self._interactive_transaction_answer(),
+                self._fencing_answer(),
+                self._document_size_answer(),
+                self._schema_answer(),
+            ),
+        )
+
+    def _atomicity_answers(self) -> tuple[Answer, ...]:
+        """Advance the state, then have the outbox write that goes with it refused.
+
+        Two keys are two calls and nothing binds them, so the write that landed is
+        not undone by the one that did not — which is what a half-write looks like
+        from outside.
+        """
+        self.put("outbox", "from an earlier run")
+        self.put("state", "2")
+        try:
+            self.put_if_absent("outbox", "for this run")
+        except PreconditionFailedError as refused:
+            companion = f"the outbox write with it was refused ({refused})"
+        else:
+            companion = "the outbox write with it landed"
+        observed = (self.get("state"), self.get("outbox"))
+        detail = (
+            f"the state write landed and {companion}, leaving {observed}: two calls and "
+            f"no unit binding them, so the half-write is observable"
+        )
+        return (
+            _fake("cross_aggregate_atomicity", False, detail),
+            _fake("durable_outbox", False, detail),
+        )
+
+    def _interactive_transaction_answer(self) -> Answer:
+        """Look for a transaction to hold open: an S3 has none to offer."""
+        open_a_transaction = getattr(self, "transaction", None)
+        if open_a_transaction is None:
+            detail = (
+                "there is no transaction surface at all: an S3's conditional write spans "
+                "one object, so there is nothing to hold open across a decision"
+            )
+        else:
+            detail = "a transaction was opened and held across a Python decision"
+        return _fake("interactive_transaction", open_a_transaction is not None, detail)
+
+    def _fencing_answer(self) -> Answer:
+        """Let a stale writer and a second instrument try the same conditional write."""
+        fresh = self.put("fenced", "held")
+        try:
+            self.put_if_match("fenced", "mine", "an-etag-that-moved")
+        except PreconditionFailedError as refused:
+            stale = f"a write carrying a stale ETag was refused ({refused})"
+        else:
+            stale = "a write carrying a stale ETag was accepted"
+        other = FakeObjectStore()
+        other.put("fenced", "theirs")
+        return _fake(
+            "fencing",
+            "process-local",
+            f"{stale}, and the ETag this instrument holds ({fresh!r}) is what every other "
+            f"writer holding it would have to present; a second instrument — an object "
+            f"cannot cross a process boundary, which makes it the closest in-process "
+            f"stand-in for a second process — wrote the same key unfenced",
+        )
+
+    def _reach_answers(self) -> tuple[Answer, ...]:
+        """Who else can reach this store, and does reaching it need a network?"""
+        self.put("shared", "mine")
+        other = FakeObjectStore()
+        off_host = other.get("shared")
+        reached = _offline_round_trip(lambda: self.put("round-trip", "1"))
+        sharing = (
+            f"a second instrument read {off_host!r} for a key this one had written: the "
+            f"store is this Python object and its dict, with no path and no endpoint for "
+            f"another process or host to address it by"
+        )
+        if reached:
+            transport = (
+                f"one round trip reached for {reached[0]}, so every operation crosses "
+                f"a network"
+            )
+        else:
+            transport = (
+                "one round trip completed with every socket refused and reached for "
+                "none, so no operation crosses a network"
+            )
+        return (
+            _fake("multi_process", off_host is not None, sharing),
+            _fake("multi_machine", off_host is not None, sharing),
+            _fake("remote", bool(reached), transport),
+            _fake("offline_capable", not reached, transport),
+        )
+
+    def _document_size_answer(self) -> Answer:
+        """Write until something refuses. Nothing did, so record what was accepted."""
+        size = 4 * 1024 * 1024
+        self.put("large", "x" * size)
+        accepted = len(self.get("large") or "")
+        return _fake(
+            "max_document_bytes",
+            None,
+            f"a {size} byte object was accepted and read back at {accepted} bytes; the "
+            f"instrument has no size cap of its own, so its answer is unbounded — S3's "
+            f"5 TB object limit is context, not a measurement, and task 4.3 measures it",
+        )
+
+    def _schema_answer(self) -> Answer:
+        """Store an object that announces a schema version, and see what objects."""
+        self.put("migrated", '{"schema_version": 2}')
+        return _fake(
+            "versioned_migrations",
+            False,
+            f"an object announcing schema_version 2 was stored and read back unchanged "
+            f"({self.get('migrated')!r}); the instrument has no schema object at all, so "
+            f"it rejects nothing",
+        )
+
+
+class TransactionCanceledError(RuntimeError):
+    """What DynamoDB answers when a transaction's condition fails: nothing written."""
+
+
+@dataclass(frozen=True, slots=True)
+class Put:
+    """One item in a `TransactWriteItems`, and the condition it has to meet."""
+
+    key: str
+    body: str
+    only_if_absent: bool = False
+
+
+class FakeItemStore:
+    """A DynamoDB-shaped item store: `TransactWriteItems`, atomic across items.
+
+    One request carries every item, each with its own condition, and a single
+    violated condition cancels the whole transaction: no sibling item is written
+    and no existing item is modified. That is the shape a D1 lacks (§A.3), and the
+    one task 1.1 measured on floci.
+    """
+
+    def __init__(self) -> None:
+        self._items: dict[str, str] = {}
+
+    def put(self, key: str, body: str) -> None:
+        """Unconditional single-item write."""
+        self._items[key] = body
+
+    def get(self, key: str) -> str | None:
+        """The item's body, or `None`."""
+        return self._items.get(key)
+
+    def transact_write(self, puts: Sequence[Put]) -> None:
+        """Every item or none: every condition is checked before anything lands."""
+        for put in puts:
+            if put.only_if_absent and put.key in self._items:
+                raise TransactionCanceledError(
+                    f"{put.key}: its condition did not hold, so nothing in this "
+                    f"transaction was written"
+                )
+        for put in puts:
+            self._items[put.key] = put.body
+
+    def reading(self) -> Reading:
+        """The ten questions, each one answered by observing this instrument."""
+        return reading(
+            "fake — FakeItemStore (a DynamoDB: TransactWriteItems)",
+            (
+                *self._atomicity_answers(),
+                *self._reach_answers(),
+                self._interactive_transaction_answer(),
+                self._fencing_answer(),
+                self._document_size_answer(),
+                self._schema_answer(),
+            ),
+        )
+
+    def _atomicity_answers(self) -> tuple[Answer, ...]:
+        """One transaction, one violated condition, and what happened to the rest.
+
+        The sibling item is written first in the request and the violation is the
+        second item's, so an item that landed anyway would be visible here.
+        """
+        self.put("existing", "1")
+        try:
+            self.transact_write(
+                (Put("sibling", "2"), Put("existing", "9", only_if_absent=True))
+            )
+        except TransactionCanceledError as cancelled:
+            outcome = f"the transaction was cancelled ({cancelled})"
+        else:
+            outcome = "the transaction committed"
+        sibling, existing = self.get("sibling"), self.get("existing")
+        detail = (
+            f"{outcome}: the item it would have written beside them is {sibling!r} and "
+            f"the item whose condition it violated is {existing!r}, so the whole "
+            f"transaction landed or none of it did"
+        )
+        atomic = (sibling, existing) == (None, "1")
+        return (
+            _fake("cross_aggregate_atomicity", atomic, detail),
+            _fake("durable_outbox", atomic, detail),
+        )
+
+    def _interactive_transaction_answer(self) -> Answer:
+        """Look for a transaction to hold open: `TransactWriteItems` is one request."""
+        open_a_transaction = getattr(self, "transaction", None)
+        if open_a_transaction is None:
+            detail = (
+                "there is no transaction surface to hold open: a transaction here is one "
+                "request, so a Python decision cannot sit between its items"
+            )
+        else:
+            detail = "a transaction was opened and held across a Python decision"
+        return _fake("interactive_transaction", open_a_transaction is not None, detail)
+
+    def _fencing_answer(self) -> Answer:
+        """Let a stale writer and a second instrument try the same guarded write."""
+        self.put("fenced", "held")
+        try:
+            self.transact_write((Put("fenced", "mine", only_if_absent=True),))
+        except TransactionCanceledError as refused:
+            stale = f"a conditional write against the held item was refused ({refused})"
+        else:
+            stale = "a conditional write against the held item was accepted"
+        other = FakeItemStore()
+        other.put("fenced", "theirs")
+        return _fake(
+            "fencing",
+            "process-local",
+            f"{stale}, so every writer holding this instrument is fenced; a second "
+            f"instrument — an object cannot cross a process boundary, which makes it the "
+            f"closest in-process stand-in for a second process — wrote the same item "
+            f"unfenced",
+        )
+
+    def _reach_answers(self) -> tuple[Answer, ...]:
+        """Who else can reach this store, and does reaching it need a network?"""
+        self.put("shared", "mine")
+        other = FakeItemStore()
+        off_host = other.get("shared")
+        reached = _offline_round_trip(lambda: self.put("round-trip", "1"))
+        sharing = (
+            f"a second instrument read {off_host!r} for an item this one had written: the "
+            f"store is this Python object and its dict, with no path and no endpoint for "
+            f"another process or host to address it by"
+        )
+        if reached:
+            transport = (
+                f"one round trip reached for {reached[0]}, so every operation crosses "
+                f"a network"
+            )
+        else:
+            transport = (
+                "one round trip completed with every socket refused and reached for "
+                "none, so no operation crosses a network"
+            )
+        return (
+            _fake("multi_process", off_host is not None, sharing),
+            _fake("multi_machine", off_host is not None, sharing),
+            _fake("remote", bool(reached), transport),
+            _fake("offline_capable", not reached, transport),
+        )
+
+    def _document_size_answer(self) -> Answer:
+        """Write until something refuses. Nothing did, so record what was accepted."""
+        size = 4 * 1024 * 1024
+        self.put("large", "x" * size)
+        accepted = len(self.get("large") or "")
+        return _fake(
+            "max_document_bytes",
+            None,
+            f"a {size} byte item was accepted and read back at {accepted} bytes; the "
+            f"instrument enforces no item limit of its own, so its answer is unbounded — "
+            f"DynamoDB's own item limit is task 4.2's measurement, not this one's",
+        )
+
+    def _schema_answer(self) -> Answer:
+        """Store an item that announces a schema version, and see what objects."""
+        self.put("migrated", '{"schema_version": 2}')
+        return _fake(
+            "versioned_migrations",
+            False,
+            f"an item announcing schema_version 2 was stored and read back unchanged "
+            f"({self.get('migrated')!r}); the instrument is schemaless, so it has no "
+            f"version to carry and nothing to reject",
         )
