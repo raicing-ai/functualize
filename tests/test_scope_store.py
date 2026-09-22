@@ -9,6 +9,8 @@ caller.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -28,6 +30,28 @@ from functualize._types.errors import ScopeStoreUnreadableError
 @pytest.fixture
 def store(tmp_path) -> ScopeStore:
     return ScopeStore(JsonFileSubstrate(tmp_path))
+
+
+def _no_locking(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace the substrate's file lock with a no-op for one test.
+
+    `JsonFileSubstrate.lock` is not re-entrant — a nested acquire on the same
+    key spins to the ten-second timeout — so a test that interleaves a peer
+    write *inside* an open batch would stall with real locking on, and would
+    prove less rather than more: while the lock is held the peer cannot land at
+    all, so the compare-and-swap never has to fire. `file_lock` also proceeds
+    unlocked after that timeout and is a no-op where the OS offers no locking
+    (`fresh_format.py`), so this is a deployment and not a hypothetical. The
+    same statement `tests/primitives/test_lease_fencing.py`'s `_no_locking` and
+    `test_scope_state_store.py`'s `no_locking` fixture make for their own
+    harnesses.
+    """
+
+    @contextmanager
+    def _nothing(self: object, *keys: str) -> Iterator[None]:
+        yield
+
+    monkeypatch.setattr(JsonFileSubstrate, "lock", _nothing)
 
 
 class TestLocation:
@@ -213,6 +237,71 @@ class TestBatch:
         with store.batch(), store.batch():
             store.ensure_scope("s1")
         assert store.scope_ids() == ["s1"]
+
+
+class TestBatchCompareAndSwap:
+    """`batch`'s exit write is compare-and-swapped, not a blind last write.
+
+    Found by this ticket's wave-3 verification, which removed
+    `expect=revision` from that write — `scope_store.py:353`, the only CAS site
+    in the ticket — and watched the entire suite stay green. The failure it
+    prevents is silent by construction: `batch` reads the envelope when the
+    block opens and writes it once at the end, so a peer that commits while the
+    block is open is absent from that envelope, and without the expected
+    revision the exit write replaces the file with it — dropping the peer's
+    scope rather than replaying this batch's mutations onto the newer one.
+
+    Locking is disabled, for the reason AC-1 and AC-2 disable it: while the
+    lock works the peer cannot get in at all, so the two designs are
+    indistinguishable and both look correct.
+    """
+
+    def test_a_peer_scope_committed_during_a_batch_survives(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _no_locking(monkeypatch)
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
+        store.ensure_scope("mine", "release")
+
+        committed: list[str] = []
+        real_write = JsonFileSubstrate.write
+
+        def write_with_one_peer_commit(
+            self: JsonFileSubstrate,
+            key: str,
+            payload: dict,
+            *,
+            expect: object | None = None,
+        ) -> bool:
+            """Commit a peer's scope through the public API, once, first.
+
+            Injected unconditionally rather than only when `expect` is set, so
+            that the test still interleaves when the fix it guards is removed —
+            otherwise the sabotage would simply never fire the injection, and
+            the assertion that failed would say nothing about the clobber.
+            """
+            if not committed:
+                # Marked before the peer writes: that write comes back through
+                # this wrapper, and a second peer would recurse.
+                committed.append("from-the-peer")
+                ScopeStore(JsonFileSubstrate(tmp_path)).ensure_scope(
+                    "from-the-peer", "release"
+                )
+            return real_write(self, key, payload, expect=expect)
+
+        monkeypatch.setattr(JsonFileSubstrate, "write", write_with_one_peer_commit)
+
+        with store.batch():
+            store.set_position("mine", "approve")
+
+        assert committed == ["from-the-peer"], "the interleave never happened"
+        assert store.get_scope("from-the-peer") is not None, (
+            "the batch's exit write clobbered a scope committed while it was "
+            "open — the write is no longer compare-and-swapped"
+        )
+        assert store.get_position("mine") == "approve", (
+            "the batch's own mutation was lost while retrying"
+        )
 
 
 class TestConcurrency:

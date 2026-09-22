@@ -325,7 +325,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       `WorkflowWalker.run()` catches `StaleGenerationError` around the whole walk, so a refusal
       *inside a walk* stops it as `SUPERSEDED`.
 
-- [ ] **3.2** Close the three findings the review and the verification opened
+- [x] **3.2** Close the three findings the review and the verification opened
       *Files:* one new file under `examples/standalone/`, `tests/primitives/test_scope_state_store.py`,
       and one of `tests/test_scope_store.py` / `tests/primitives/test_fenced_writes.py` for the new
       test — plus this file's box when it is green.
@@ -358,6 +358,34 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       (`uv run pytest examples/`) green; and (ii) falsified by its own sabotage.
       *Done when:* all three findings are closed with evidence, the sabotage proves the new test
       bites, and nothing in the tree cites a path the cleanup commit deletes.
+
+      *Result (2026-09-22, light tier, from `bf2b8d9`)* — (i) **F1**:
+      `examples/standalone/substrate_failure/tests/test_substrate_install_failure.py`. A storage
+      plugin pointed at an operator-supplied path opens its backend in the install hook and raises
+      `SubstrateInstallError` when it cannot; the user-shaped `boot()` catches it and reports which
+      path was refused, and a second test boots the same plugin on a usable path as the control, so
+      the refusal is about the backend rather than about a plugin that always raises. (ii) **V1**:
+      `TestBatchCompareAndSwap` in `tests/test_scope_store.py`, with a module-level `_no_locking`
+      helper — a peer scope committed through the public API while a batch is open must survive the
+      batch's exit write. Sabotage (remove `expect=revision` at `scope_store.py:353`) makes it fail
+      on the clobber assertion, `assert None is not None` for the peer's scope, with the injection
+      guard passing first; the file was restored byte-identical (`md5sum -c` OK, `git diff -- src/
+      plugins/` empty). (iii) **V2**: the AC-2 class docstring keeps the defect and the
+      `test_the_defect_b1_shape` name as provenance, with no path into the cleared research
+      directory. Optional item taken: `test_the_fixture_really_disables_locking` guards
+      `no_locking` the way `test_lease_fencing.py` guards its own harness — the fixture had nothing
+      proving the patch landed.
+      Evidence: `uv run ruff check` clean and `ruff format --check` 1468 files already formatted;
+      `uv run mypy src/` 363 files clean; `lint-imports` 7 kept / 0 broken;
+      `uv run pytest -q --no-header tests/test_scope_store.py
+      tests/primitives/test_scope_state_store.py` → `94 passed, 2 skipped`;
+      `uv run pytest -q --no-header examples/` → `224 passed`.
+      **Command-binding note for the gate's two pytest commands: they cannot be merged.** Passing a
+      root `tests/...` path and `examples/` on one command line breaks collection in
+      `examples/project/monorepo_children/tests/test_children.py` — `ModuleNotFoundError: No module
+      named 'tests.test_children'` — because that example's `tests` module and the root `tests`
+      package collide by name under pytest's prepend import mode. Run them as two commands, as
+      written above.
 
 ## Out of scope on this branch — report, do not build
 

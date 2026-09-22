@@ -545,11 +545,16 @@ class TestAStaleRunnersStateWriteIsRefused:
 
     Record writes have been fenced since `durable-run-layer`/T6, and T3 then
     moved job state out of the record into `scope-state/<id>` — so the fence
-    stopped covering the half a job actually writes, and nothing said so.
-    `defect_b1.py` (`contributor/architecture/research/`
-    `runtime-persistence-engine-owned/03-the-four-defects.md`) reproduced the
-    consequence: the same stale runner, correctly refused on its record write,
-    overwrote the live holder's state in the next line.
+    stopped covering the half a job actually writes, and nothing said so. The
+    research pass that opened this ticket wrote a script to check the suspected
+    consequence; it showed the same stale runner correctly refused on its
+    record write and overwriting the live holder's state in the next line.
+    That sequence is what `test_the_defect_b1_shape` asserts, and "defect B1"
+    is the name it keeps.
+
+    The script was never committed, and the research notes that carried it were
+    a branch artifact cleared before merge, so this docstring is the defect's
+    provenance rather than a pointer into a directory that no longer exists.
     """
 
     def test_the_defect_b1_shape(self, tmp_path: Path) -> None:
@@ -721,6 +726,31 @@ class TestAStaleRunnersStateWriteIsRefused:
             store.set_state("wf", "k", "OVERWRITTEN-BY-STALE-A")
 
         assert ScopeStore(substrate).get_state("wf", "k") == "live"
+
+    def test_the_fixture_really_disables_locking(
+        self, tmp_path: Path, no_locking: None
+    ) -> None:
+        """Guards the test above against proving nothing.
+
+        `tests/primitives/test_lease_fencing.py::TestFencingHoldsWithoutLocking`
+        `::test_the_no_op_lock_is_really_in_effect` makes this statement for its
+        own harness; this fixture had nothing proving the patch landed. If it
+        missed, the test above would run with real locking and pass for the
+        wrong reason — which is the failure mode AC-2 is about, a locking
+        implementation and a fencing one being indistinguishable while the lock
+        works.
+        """
+        substrate = JsonFileSubstrate(tmp_path)
+
+        # A key nothing has touched, so any sidecar found must have been made
+        # by this acquisition — the real `lock` opens the `.lock` file whether
+        # or not it goes on to win the `flock`.
+        with substrate.lock("never-locked"):
+            pass
+
+        assert (
+            not substrate.path_for("never-locked").with_suffix(".json.lock").exists()
+        ), "a real lock was taken while locking was supposed to be disabled"
 
 
 class TestTheFenceDoesNotRefuseTheLiveHolder:
