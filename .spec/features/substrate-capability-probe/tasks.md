@@ -484,6 +484,22 @@ its reason. Four, in the order they were decided.
    additional label the parser requires, carried beside the original number, not a
    renumbering.
 
+6. **Wave 2's three findings, adjudicated by the leader 2026-09-22T18:34Z.** (a) T7's
+   census half **stays** — the done-when names two clauses and no runtime call falsifies
+   "never ordered", so `+84` against `~+25` is a prediction miss, not scope drift.
+   (b) Two size overshoots recorded, not corrected in place: `tier_a.py` landed at **346**
+   lines against `plan.md` §6's `~200`, and T7's guard at **+84** against `~+25`.
+   (c) T11's recorded length for `tests/primitives/test_substrate.py` is **493** lines at
+   `69ffee2`, not the `494` written there (`git show 69ffee2:… | wc -l`); recorded rather
+   than edited, since the task's prose is the leader's to move. (d) Two authorized
+   addenda landed ahead of wave 3: the init-path guard in `tests/substrate_probe/
+   conftest.py` — T2's file, so a **cross-wave repair**, authorized because an explicitly
+   named module was collected twice and T1's recorded gate therefore stopped reproducing;
+   and one annotation-only correction in `tests/primitives/test_substrate.py`. The second
+   stale annotation (`InMemory.write`) was **not** corrected: see the report, it cannot be
+   made coherent without changing the double's stored revisions from `int` to `Revision`,
+   which is a runtime change and outside "annotation-only".
+
 **Not in any wave — the leader's, after Code Review and QA** (issue → *Execution contract*
 step 5): the `spec-artifacts-cleared` sequence, as a **deletion-only last commit** removing
 `.spec/features/substrate-capability-probe` *and* `contributor/architecture/research/**`,

@@ -36,7 +36,7 @@ import pytest
 from functualize._primitives import substrate as substrate_module
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.errors import SubstrateUnreadableError
-from functualize._types.protocols import Stored, StoreSubstrate
+from functualize._types.protocols import Revision, Stored, StoreSubstrate
 
 
 @pytest.fixture
@@ -550,7 +550,11 @@ class TestItSatisfiesTheProtocol:
                 return None
 
             def write(
-                self, key: str, payload: dict[str, Any], *, expect: int | None = None
+                self,
+                key: str,
+                payload: dict[str, Any],
+                *,
+                expect: Revision | None = None,
             ) -> bool:
                 return True
 
