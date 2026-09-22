@@ -347,6 +347,46 @@ class TestHandoffExecution:
         assert history[0]["argv"] == ["true"]
         assert history[0]["at"], "a record with no timestamp cannot be merged"
 
+    def test_installed_substrate_write_is_visible_to_builtin_history(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The handoff writer and CLI reader use the same installed backend."""
+        import click
+        from click.testing import CliRunner
+        from functualize_substrate_sqlite import (
+            SQLiteSubstrate,
+            SQLiteSubstratePlugin,
+        )
+
+        from functualize._cli.builtins import register_builtin_commands
+        from functualize.app import FunctualizeApp
+        from functualize.app.config import JobSources, PluginSources
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".functualize").mkdir()
+        app = FunctualizeApp(
+            name="shell-history-round-trip",
+            job_sources=JobSources(directories=[]),
+            plugin_sources=PluginSources(
+                entry_point_group="",
+                explicit_plugins=[SQLiteSubstratePlugin()],
+            ),
+        )
+        assert isinstance(app.substrate, SQLiteSubstrate)
+
+        execute_shell_handoff(app, "true")
+
+        cli = click.Group(name="func")
+        register_builtin_commands(cli)
+        result = CliRunner().invoke(
+            cli,
+            ["builtin", "history", "--namespace", "shell"],
+            obj={"app": app},
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "true" in result.output
+
     def test_history_failure_does_not_fail_the_command(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

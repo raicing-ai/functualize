@@ -89,7 +89,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       *Done when:* no scope record is created with the field, no reader looked for it, and the
       stale expectation in `tests/test_scope_store.py` is gone.
 
-- [ ] **0.4** Route the TUI's shell-history write through the installed substrate — **AC-6**
+- [x] **0.4** Route the TUI's shell-history write through the installed substrate — **AC-6**
       *Files:* `src/functualize/_cli/tui/shell_mode.py`, `tests/_cli/test_shell_mode.py`
       *Do:* `_record_history_quietly(command, code)` (`:295`) takes `app`; `:243` passes the
       `app` that `execute_shell_handoff` (`:217`) already receives; `:312` becomes
