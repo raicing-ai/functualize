@@ -64,7 +64,10 @@ from functualize._types.errors import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from functualize._types.protocols import StoreSubstrate
+    from functualize._types.protocols import Revision, StoreSubstrate
+
+
+_WRITE_ATTEMPTS = 8
 
 
 def _now() -> str:
@@ -154,6 +157,14 @@ class ScopeStore:
     def _batch(self, value: dict[str, Any] | None) -> None:
         self._local.batch = value
 
+    @property
+    def _batch_mutations(self) -> list[Any] | None:
+        return getattr(self._local, "batch_mutations", None)
+
+    @_batch_mutations.setter
+    def _batch_mutations(self, value: list[Any] | None) -> None:
+        self._local.batch_mutations = value
+
     @classmethod
     def for_project(cls, start: Path | str) -> ScopeStore:
         """Build a store on the project's resolved substrate."""
@@ -211,6 +222,11 @@ class ScopeStore:
         as None; everything else it *can* decode goes to
         :func:`normalize_scopes`, which decides.
         """
+        envelope, _ = self._load_with_revision()
+        return envelope
+
+    def _load_with_revision(self) -> tuple[dict[str, Any], Revision | None]:
+        """The current envelope and the revision read with it."""
         try:
             stored = self._substrate.read(self._key)
         except SubstrateUnreadableError as exc:
@@ -218,10 +234,13 @@ class ScopeStore:
                 self._substrate.describe(self._key), expected_version=SCOPES_VERSION
             ) from exc
         if stored is None:
-            return empty_scopes()
-        return normalize_scopes(stored.data, where=self._substrate.describe(self._key))
+            return empty_scopes(), None
+        return (
+            normalize_scopes(stored.data, where=self._substrate.describe(self._key)),
+            stored.revision,
+        )
 
-    def _mutate(self, mutate: Any, *, scope_id: str | None = None) -> None:
+    def _mutate(self, mutate: Any, *, scope_id: str | None = None) -> Any:
         """Apply ``mutate`` to the envelope, honoring an open batch.
 
         **Where fencing happens** (`durable-run-layer`/T6). Putting the check
@@ -234,9 +253,15 @@ class ScopeStore:
         about to modify, so a claim that landed between the caller's last read
         and this write is seen. Checking beforehand would leave exactly that
         window open.
+
+        Compare-and-swap backs up the advisory lock. One limitation belongs to
+        the substrate port: ``write(..., expect=None)`` is unconditional, so a
+        never-written ``scopes.json`` cannot be compare-and-swapped. The claim
+        path is protected because ``frontier`` calls ``ensure_scope`` before
+        ``claim_scope``, creating the document before a generation is minted.
         """
 
-        def _guarded(envelope: dict[str, Any]) -> None:
+        def _guarded(envelope: dict[str, Any]) -> Any:
             held = self._generations.get(scope_id) if scope_id is not None else None
             if held is not None and scope_id is not None:
                 check_generation(
@@ -244,15 +269,26 @@ class ScopeStore:
                     read_lease(envelope["scopes"].get(scope_id)),
                     held,
                 )
-            mutate(envelope)
+            return mutate(envelope)
 
         if self._batch is not None:
-            _guarded(self._batch)
-            return
-        with self._substrate.lock(self._key):
-            envelope = self._load()
-            _guarded(envelope)
-            self._substrate.write(self._key, stamp_scopes(envelope))
+            result = _guarded(self._batch)
+            mutations = self._batch_mutations
+            assert mutations is not None
+            mutations.append(_guarded)
+            return result
+        for _ in range(_WRITE_ATTEMPTS):
+            with self._substrate.lock(self._key):
+                envelope, revision = self._load_with_revision()
+                result = _guarded(envelope)
+                if self._substrate.write(
+                    self._key, stamp_scopes(envelope), expect=revision
+                ):
+                    return result
+        raise RuntimeError(
+            f"could not write {self._key!r} after {_WRITE_ATTEMPTS} attempts; "
+            f"another writer is winning every round"
+        )
 
     def hold(self, scope_id: str, generation: int | None) -> None:
         """Fence writes **to ``scope_id``** on this store to ``generation``.
@@ -294,12 +330,27 @@ class ScopeStore:
             yield self
             return
         with self._substrate.lock(self._key):
-            self._batch = self._load()
+            self._batch, revision = self._load_with_revision()
+            self._batch_mutations = []
             try:
                 yield self
-                self._substrate.write(self._key, stamp_scopes(self._batch))
+                for _ in range(_WRITE_ATTEMPTS):
+                    if self._substrate.write(
+                        self._key, stamp_scopes(self._batch), expect=revision
+                    ):
+                        break
+                    self._batch, revision = self._load_with_revision()
+                    for mutate in self._batch_mutations:
+                        mutate(self._batch)
+                else:
+                    raise RuntimeError(
+                        f"could not write {self._key!r} after "
+                        f"{_WRITE_ATTEMPTS} attempts; another writer is winning "
+                        "every round"
+                    )
             finally:
                 self._batch = None
+                self._batch_mutations = None
 
     # ------------------------------------------------------------------
     # Scopes: steps, branches, gates, position, epilogue
@@ -716,9 +767,8 @@ class ScopeStore:
             LeaseHeldError: Someone else holds it and has not expired.
         """
         when = now or datetime.now(UTC)
-        taken: list[Lease] = []
 
-        def _apply(envelope: dict[str, Any]) -> None:
+        def _apply(envelope: dict[str, Any]) -> Lease:
             scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
             # Re-read *inside* the lock: two runners racing to claim an expired
             # lease must not both see generation 6 and both write 7. Where
@@ -734,10 +784,9 @@ class ScopeStore:
                 force=force,
             )
             write_lease(scope, fresh)
-            taken.append(fresh)
+            return fresh
 
-        self._mutate(_apply)
-        return taken[0]
+        return self._mutate(_apply)
 
     def renew_scope(
         self,
@@ -754,9 +803,8 @@ class ScopeStore:
             StaleGenerationError: Someone claimed the scope after you did.
         """
         when = now or datetime.now(UTC)
-        renewed: list[Lease] = []
 
-        def _apply(envelope: dict[str, Any]) -> None:
+        def _apply(envelope: dict[str, Any]) -> Lease:
             scope = envelope["scopes"].get(scope_id)
             if scope is None:
                 raise StaleGenerationError(
@@ -771,10 +819,9 @@ class ScopeStore:
                 seconds=seconds,
             )
             write_lease(scope, fresh)
-            renewed.append(fresh)
+            return fresh
 
-        self._mutate(_apply)
-        return renewed[0]
+        return self._mutate(_apply)
 
     def release_scope(
         self, scope_id: str, *, generation: int, now: datetime | None = None

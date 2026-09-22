@@ -133,7 +133,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       `_on_app_ready`. Remove the `raise` and gate (i) must fail.
       *Done when:* both assertions pass on both boot paths.
 
-- [ ] **1.2** Compare-and-swap the `scopes.json` write, which makes the claim atomic — **AC-1, AC-3 (records)**
+- [x] **1.2** Compare-and-swap the `scopes.json` write, which makes the claim atomic — **AC-1, AC-3 (records)**
       *Files:* `src/functualize/_primitives/scope_store.py`,
       `tests/primitives/test_lease_fencing.py`
       *Depends on:* 0.1 (the `Revision` type), 0.3 (same file).

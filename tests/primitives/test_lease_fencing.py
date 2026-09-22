@@ -17,6 +17,7 @@ appended to the scope-store tests.
 
 from __future__ import annotations
 
+import multiprocessing
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -40,6 +41,37 @@ from functualize._primitives.substrate import JsonFileSubstrate
 
 NOW = datetime(2026, 9, 12, 12, 0, 0, tzinfo=UTC)
 LATER = NOW + timedelta(seconds=DEFAULT_LEASE_SECONDS + 1)
+
+
+def _race_claim(
+    root: str, owner: str, ready: Any, first_committed: Any, results: Any
+) -> None:
+    """Claim in a separate process after both runners have read one revision."""
+    real_read = JsonFileSubstrate.read
+    waited = False
+
+    def _synchronised_read(self: JsonFileSubstrate, key: str) -> Any:
+        nonlocal waited
+        stored = real_read(self, key)
+        if key == "scopes" and not waited:
+            waited = True
+            ready.wait(timeout=10)
+            if owner == "b":
+                first_committed.wait(timeout=10)
+        return stored
+
+    JsonFileSubstrate.read = _synchronised_read  # type: ignore[method-assign]
+    try:
+        lease = ScopeStore(JsonFileSubstrate(Path(root))).claim_scope(
+            "wf", owner=owner, now=NOW, force=True
+        )
+        if owner == "a":
+            first_committed.set()
+        results.put(("ok", lease.generation))
+    except BaseException as exc:  # noqa: BLE001 - returned to the parent
+        results.put(("error", repr(exc)))
+    finally:
+        JsonFileSubstrate.read = real_read  # type: ignore[method-assign]
 
 
 @pytest.fixture
@@ -251,6 +283,34 @@ class TestFencingHoldsWithoutLocking:
             first = store.claim_scope("wf", owner="a", now=NOW)
             second = store.claim_scope("wf", owner="b", now=LATER)
         assert second.generation == first.generation + 1
+
+    def test_two_process_claims_get_distinct_generations(self, tmp_path: Path) -> None:
+        """CAS keeps claims atomic when the backend's lock is a no-op."""
+        ScopeStore(JsonFileSubstrate(tmp_path)).ensure_scope("wf")
+        context = multiprocessing.get_context("fork")
+        ready = context.Barrier(2)
+        first_committed = context.Event()
+        results = context.Queue()
+
+        with _no_locking():
+            processes = [
+                context.Process(
+                    target=_race_claim,
+                    args=(str(tmp_path), owner, ready, first_committed, results),
+                )
+                for owner in ("a", "b")
+            ]
+            for process in processes:
+                process.start()
+            for process in processes:
+                process.join(timeout=20)
+
+        outcomes = [results.get(timeout=5) for _ in processes]
+        assert all(process.exitcode == 0 for process in processes), outcomes
+        assert all(kind == "ok" for kind, _ in outcomes), outcomes
+        generations = [value for _, value in outcomes]
+        print(f"distinct generations: {len(set(generations))} of {len(generations)}")
+        assert len(set(generations)) == len(generations) == 2
 
     def test_the_no_op_lock_is_really_in_effect(self, store: ScopeStore) -> None:
         """Guards the three tests above against proving nothing.
