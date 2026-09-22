@@ -110,7 +110,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
 
 ## Wave 1 — compare-and-swap, and the boot raise
 
-- [ ] **1.1** Let a substrate install failure escape `APP_READY` — **AC-4 (part 2/2)**
+- [x] **1.1** Let a substrate install failure escape `APP_READY` — **AC-4 (part 2/2)**
       *Files:* `src/functualize/_app/boot.py`,
       `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_plugin.py`,
       `tests/` (the AC-4 gate; pick the file that already owns boot-failure tests)

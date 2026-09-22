@@ -14,6 +14,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +22,8 @@ import pytest
 
 from functualize._app.state import AppState
 from functualize._events.hooks import HookEvent
+from functualize._types.errors import SubstrateInstallError
+from functualize.app.config import ConfigSources, JobSources, PluginSources
 from functualize.app.core import FunctualizeApp
 
 
@@ -30,6 +33,31 @@ def _reset_state() -> Generator[None]:
     AppState.reset()
     yield
     AppState.reset()
+
+
+def _boot_with_plugin(mode: str, tmp_path: Path, plugin: object) -> FunctualizeApp:
+    """Boot one explicit plugin through the named production boot path."""
+    sources = PluginSources(entry_point_group="", explicit_plugins=[plugin])
+    if mode == "standard":
+        jobs = tmp_path / "jobs"
+        jobs.mkdir()
+        return FunctualizeApp(
+            name="app-ready-standard",
+            job_sources=JobSources(directories=[str(jobs)]),
+            plugin_sources=sources,
+        )
+
+    from functualize._config.chain import ResolutionChain
+
+    return FunctualizeApp(
+        name="app-ready-static",
+        job_sources=JobSources(functions=[]),
+        config_sources=ConfigSources(
+            config_resolution_chain=ResolutionChain([]),
+            dotenv=False,
+        ),
+        plugin_sources=sources,
+    )
 
 
 class TestAppReadyHook:
@@ -121,6 +149,56 @@ class TestAppReadyHook:
         assert call_order == ["raiser", "success"]
         assert "APP_READY hook" in caplog.text
         assert "hook error" in caplog.text
+
+    @pytest.mark.parametrize("mode", ["standard", "static"])
+    def test_substrate_install_error_fails_boot(
+        self,
+        mode: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The storage plugin's construction failure escapes both boot loops."""
+        from functualize_substrate_sqlite import SQLiteSubstratePlugin
+
+        def fail_construction(path: object) -> None:  # noqa: ARG001
+            raise OSError("database unavailable")
+
+        monkeypatch.setattr(
+            "functualize_substrate_sqlite._plugin.SQLiteSubstrate",
+            fail_construction,
+        )
+
+        with pytest.raises(SubstrateInstallError, match="database unavailable"):
+            _boot_with_plugin(mode, tmp_path, SQLiteSubstratePlugin())
+
+    @pytest.mark.parametrize("mode", ["standard", "static"])
+    def test_unrelated_ready_error_is_still_swallowed(
+        self,
+        mode: str,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The exemption does not widen the contract for other hook failures."""
+        continued: list[str] = []
+
+        class ReadyFailurePlugin:
+            name = "ready-failure"
+            version = "1.0.0"
+            description = "Raises an unrelated APP_READY error"
+
+            def __call__(self, app: Any) -> None:
+                app.hooks.on_ready(self.fail)
+                app.hooks.on_ready(lambda host: continued.append(host.name))
+
+            @staticmethod
+            def fail(app: Any) -> None:  # noqa: ARG004
+                raise RuntimeError("unrelated hook failure")
+
+        with caplog.at_level(logging.WARNING):
+            app = _boot_with_plugin(mode, tmp_path, ReadyFailurePlugin())
+
+        assert continued == [app.name]
+        assert "unrelated hook failure" in caplog.text
 
     def test_app_ready_fires_after_all_boot_steps(self) -> None:
         """APP_READY fires after plugins, jobs, children, and TUI are set up."""
