@@ -383,7 +383,7 @@ of winning writers, or recorded `NOT MEASURED (no R2 credentials)` — stated, n
 
 ## Wave 4 — Tier C (cheapest-last)
 
-### [ ] T11 · 5.1 — Turso/libSQL and Supabase Postgres, if cheap
+### [x] T11 · 5.1 — Turso/libSQL and Supabase Postgres, if cheap
 
 **Files:** `tests/substrate_probe/tier_c.py`
 
@@ -395,7 +395,8 @@ rg -c 'reading\(' tests/substrate_probe/tier_c.py
 ```
 now: `0` · after: `2`
 
-*(Predicted. Measure and correct when ticking.)*
+*(Predicted `2`; measured `2` at the tick — one `reading()` for a measured column and one
+for a stated-unmeasured column, shared by both backends, rather than one call each.)*
 
 **Done when:** each is measured or carries an explicit `NOT MEASURED` reason; clients or
 credentials absent ⇒ module skip, suite still green.
