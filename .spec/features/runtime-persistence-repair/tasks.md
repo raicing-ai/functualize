@@ -276,7 +276,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
 
 ## Wave 3 — verification sweep and the evidence bar
 
-- [ ] **3.1** Run all five repository checks and every acceptance gate on one commit
+- [x] **3.1** Run all five repository checks and every acceptance gate on one commit
       *Files:* `CHANGELOG.md`, `.spec/STATE.md`, this file
       *Depends on:* every task above.
       *Do:* `uv run ruff check --fix src/ tests/ plugins/ examples/`,
@@ -292,11 +292,38 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       `tests/primitives/test_one_substrate_choice.py` and the new boot-failure test.
       **Do not run the full fast suite** — it needs well over an hour on this host.
       *Then:* paste each of the six gates with its exact command and raw output; write
-      `CHANGELOG.md` by hand (it is prose, never generated); update `.spec/STATE.md` (gitignored
-      and currently **absent**, which reads as "no work in flight"); tick the boxes above only
-      where the gate is green against the code as it actually stands.
+      `CHANGELOG.md` by hand (it is prose, never generated); update `.spec/STATE.md` (gitignored,
+      **absent** when this task was written and written by each wave since); tick the boxes above
+      only where the gate is green against the code as it actually stands.
       *Done when:* all five checks pass, six gates have pasted raw output, and residual risk is
       stated honestly — including the two `plan.md` review items and whether they were answered.
+
+      *Sweep result (2026-09-22, light tier, `8b63022`)* — all five checks green on one commit:
+      `ruff check --fix` `All checks passed!` with no file changed; `ruff format` `1469 files left
+      unchanged`; `mypy src/` `Success: no issues found in 363 source files`; `lint-imports`
+      `Contracts: 7 kept, 0 broken.`; pytest in two invocations — root selection `289 passed,
+      3 skipped` (exit 0) then `plugins/substrates/functualize-substrate-sqlite/tests/` `25 passed`
+      (exit 0). The two invocations are the repo's rule, not a shortcut: plugin tests are not
+      collected by the root run (`AGENTS.md:287-289`), because the two conftests cannot share one
+      pytest process. The 3 skips are this selection's three `@pytest.mark.slow` tests.
+      Six gates, raw output in the issue's reply: AC-1 `distinct generations: 2 of 2`; AC-2
+      `state write : REFUSED` with B reading back `'written-by-A-while-holder'`; AC-3 the four
+      `expect=` write sites; AC-4 `BOOT FAILED as intended: SubstrateInstallError: …` on **both**
+      boot paths, with an unrelated `APP_READY` failure still logged and swallowed; AC-5 one
+      arithmetic hit and it is the SQLite minter's own SQL, `revision: Revision`, mypy clean;
+      AC-6 the TUI handoff written through the installed `SQLiteSubstrate` and read back by the
+      real `func builtin history`.
+      One substitution, stated plainly: the research scripts the spec names (`defect_b1.py`,
+      `defect_b2.py`, `defect_b4.py`) are **not in the tree** — they were inline in
+      `contributor/architecture/research/runtime-persistence-engine-owned/03-the-four-defects.md`
+      and run against an archive of `master`. AC-2 and AC-4 were re-driven first-hand in throwaway
+      `/tmp` scripts against the production objects at this commit, and the committed tests that
+      carry the same shapes are in the swept selection and passed.
+      Residual risk is recorded in `.spec/STATE.md`: both `plan.md` review items were answered by
+      the maintainer on 2026-09-22 and are implemented as decided; `_state_store`'s docstring
+      (`scope_store.py:526`) still reads as if no `scopes.json` read is ever paid for state;
+      `WorkflowWalker.run()` catches `StaleGenerationError` around the whole walk, so a refusal
+      *inside a walk* stops it as `SUPERSEDED`.
 
 ## Out of scope on this branch — report, do not build
 
