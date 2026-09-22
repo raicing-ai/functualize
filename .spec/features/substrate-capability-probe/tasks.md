@@ -226,7 +226,7 @@ first-class type carried by every `Answer`, while each `Question` carries its pr
 
 These model **vendor driver constraints**, not our port. None implements `StoreSubstrate`.
 
-### [ ] T4 · 2.1 — `BatchOnlySqliteDriver`
+### [x] T4 · 2.1 — `BatchOnlySqliteDriver`
 
 **Files:** `tests/substrate_probe/fakes.py`
 
