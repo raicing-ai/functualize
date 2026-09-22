@@ -553,6 +553,46 @@ class ScopeStore:
             scope_id, ScopeStateStore(self._substrate, scope_id)
         )
 
+    def _fenced_state(self, scope_id: str, *, ensure: bool = True) -> ScopeStateStore:
+        """This scope's state file, refused if this store's hold is stale.
+
+        **The one seam for state writes**, as `_mutate` is the one seam for
+        record writes. The check cannot live in `_mutate`: state is a different
+        document with its own lock and nothing here passes through it. It is not
+        repeated on each write method either — that is the design
+        `_mutate`'s own docstring and `tests/primitives/test_fenced_writes.py`
+        argue against: eleven checks fence eleven methods today and miss the
+        twelfth, written next month by someone who did not know the rule.
+
+        **The generation is read at write time**, never handed to
+        `ScopeStateStore` at construction. That reads simpler and cannot work:
+        the instance is memoized per scope by :meth:`_state_store`, so a
+        :meth:`hold` taken after the first state access would never reach the
+        object doing the writing.
+
+        The lease comes from ``scopes.json`` — a second document read per fenced
+        write, accepted deliberately. A stale runner overwriting the live
+        holder's job state is a silent wrong answer, and one read of a small
+        envelope is what refusing it costs. Unheld scopes pay nothing: the CLI,
+        a purge and a job running outside a walk hold no generation, so they
+        never reach the read.
+
+        Reads are **not** fenced. `get_state` and `state_snapshot` stay on
+        :meth:`_state_store`, exactly as `_mutate` fences writes and leaves
+        `get_scope` alone.
+
+        Raises:
+            StaleGenerationError: this store holds a generation for
+                ``scope_id`` and it is no longer the current one.
+        """
+        held = self._generations.get(scope_id)
+        if held is not None:
+            # `get_lease` honours an open record batch, which is the freshest
+            # view there is: that batch holds the record lock for its whole
+            # block, so no competing claim can land while it is open.
+            check_generation(scope_id, self.get_lease(scope_id), held)
+        return self._state_store(scope_id, ensure=ensure)
+
     def get_state(self, scope_id: str, key: str, default: Any = None) -> Any:
         """A value a job stored in this scope, or ``default``."""
         return self._state_store(scope_id, ensure=False).get(key, default)
@@ -563,12 +603,16 @@ class ScopeStore:
         Re-reads inside the scope's own lock, so two jobs writing different
         keys merge rather than clobber. A job writing many keys should hold
         :meth:`state_batch` — every call here is one lock-read-write cycle.
+
+        Raises:
+            StaleGenerationError: this store's claim on the scope has been
+                superseded — see :meth:`_fenced_state`.
         """
-        self._state_store(scope_id).set(key, value)
+        self._fenced_state(scope_id).set(key, value)
 
     def delete_state(self, scope_id: str, key: str) -> bool:
         """Remove one key. True when it was there."""
-        return self._state_store(scope_id).delete(key)
+        return self._fenced_state(scope_id).delete(key)
 
     def state_snapshot(self, scope_id: str) -> dict[str, Any]:
         """Every key this scope holds, as a plain dict."""
@@ -576,16 +620,35 @@ class ScopeStore:
 
     def clear_state(self, scope_id: str) -> None:
         """Drop every key in this scope, leaving the scope itself."""
-        self._state_store(scope_id).clear()
+        self._fenced_state(scope_id).clear()
 
-    def state_batch(self, scope_id: str) -> Any:
+    @contextmanager
+    def state_batch(self, scope_id: str) -> Iterator[ScopeStateStore]:
         """Hold this scope's state lock across many writes.
 
         Separate from :meth:`batch`, which batches *records*. The two files
         have separate locks now, which is the point — batching one must not
         hold the other.
+
+        **Fenced at both ends, and both matter.** The block's writes land as one
+        write when it exits, so the window in which this runner can be
+        superseded is the whole block rather than its first instant. The entry
+        check refuses a runner that was already stale; the exit check refuses
+        one superseded while the block ran, and because `ScopeStateStore.batch`
+        writes on clean exit only, raising inside the block discards it rather
+        than committing state a later claim has already invalidated.
+
+        Raises:
+            StaleGenerationError: as :meth:`set_state`, on entry or at the exit
+                write.
         """
-        return self._state_store(scope_id).batch()
+        state = self._fenced_state(scope_id)
+        with state.batch() as batch:
+            yield batch
+            # Inside the block deliberately: the single write happens in the
+            # batch's own `__exit__`, so a refusal raised here still discards
+            # it. Checked after the `with`, the write would already have landed.
+            self._fenced_state(scope_id, ensure=False)
 
     def discard_state(self, scope_id: str) -> bool:
         """Delete this scope's state file. True if there was one.
@@ -598,8 +661,10 @@ class ScopeStore:
         # Through the cache, never a fresh object: a second `ScopeStateStore`
         # over one path cannot see an open batch and deadlocks against the
         # first on `flock` (review Q1.1, Q2.2). `ensure=False` so purging a
-        # scope cannot recreate the record purge just deleted.
-        return self._state_store(scope_id, ensure=False).discard()
+        # scope cannot recreate the record purge just deleted. Fenced because
+        # it is destructive: purge holds no generation and is unaffected, a
+        # superseded walk discarding the new holder's state is not.
+        return self._fenced_state(scope_id, ensure=False).discard()
 
     def record_branch(self, scope_id: str, source: str, target: str) -> None:
         """Record a chosen ``ConditionalEdge`` target on first evaluation.

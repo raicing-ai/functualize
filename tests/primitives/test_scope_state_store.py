@@ -13,11 +13,13 @@ import json
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from functualize._primitives.lease import StaleGenerationError
 from functualize._primitives.scope_format import SCOPES_KEY, SCOPES_LIMIT
 from functualize._primitives.scope_state_store import (
     ScopeStateStore,
@@ -28,6 +30,8 @@ from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
     from functualize._types.protocols import Revision
 
 
@@ -491,3 +495,293 @@ class TestReviewFindings:
         path.write_text("{}")
 
         assert ScopeStore(scopes).get_state("s1", "k", "default") == "default"
+
+
+@pytest.fixture
+def no_locking(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace the substrate's file lock with a no-op for this test.
+
+    AC-2 is asserted with locking **disabled** because a test that runs with
+    locking working cannot tell a fencing design from an owner-plus-expiry one:
+    both serialise the writes, so both look correct. `file_lock` also proceeds
+    unlocked after its timeout and is a no-op where neither `fcntl` nor
+    `msvcrt` exists, so this is the real deployment, not a hypothetical.
+    `tests/primitives/test_lease_fencing.py` makes the same statement for
+    *record* writes with a block-scoped `_no_locking`; this is the fixture form
+    of it, patched on the one `lock` the substrate now owns.
+    """
+
+    @contextmanager
+    def _nothing(self: Any, *keys: str) -> Iterator[None]:
+        yield
+
+    monkeypatch.setattr(JsonFileSubstrate, "lock", _nothing)
+
+
+def _superseded_holder(
+    substrate: JsonFileSubstrate, scope_id: str = "wf"
+) -> ScopeStore:
+    """A store still holding a generation another runner has taken from it.
+
+    Seeds one live key first, so a refusal can be told apart from a write that
+    landed on an empty file.
+    """
+    store = ScopeStore(substrate)
+    store.ensure_scope(scope_id)
+    mine = store.claim_scope(scope_id, owner="runner-A")
+    store.hold(scope_id, mine.generation)
+    store.set_state(scope_id, "k", "live")
+    ScopeStore(substrate).claim_scope(scope_id, owner="runner-B", force=True)
+    return store
+
+
+def _write_in_a_state_batch(store: ScopeStore) -> None:
+    with store.state_batch("wf") as batch:
+        batch.set("k", "written-by-stale-A")
+
+
+class TestAStaleRunnersStateWriteIsRefused:
+    """AC-2. A superseded runner cannot overwrite the live holder's job state.
+
+    Record writes have been fenced since `durable-run-layer`/T6, and T3 then
+    moved job state out of the record into `scope-state/<id>` — so the fence
+    stopped covering the half a job actually writes, and nothing said so.
+    `defect_b1.py` (`contributor/architecture/research/`
+    `runtime-persistence-engine-owned/03-the-four-defects.md`) reproduced the
+    consequence: the same stale runner, correctly refused on its record write,
+    overwrote the live holder's state in the next line.
+    """
+
+    def test_the_defect_b1_shape(self, tmp_path: Path) -> None:
+        """The reproduction's own sequence, asserted.
+
+        Both halves are the gate. A refusal that still rewrote the file would
+        satisfy the first and fail the second, and the second is what a reader
+        of the state would have seen.
+        """
+        substrate = JsonFileSubstrate(tmp_path)
+        a = ScopeStore(substrate)
+        a.ensure_scope("wf")
+        la = a.claim_scope("wf", owner="runner-A")
+        a.hold("wf", la.generation)
+        a.set_state("wf", "rows", "written-by-A-while-holder")
+
+        b = ScopeStore(substrate)
+        lb = b.claim_scope("wf", owner="runner-B", force=True)
+        b.hold("wf", lb.generation)
+        assert lb.generation > la.generation
+
+        with pytest.raises(StaleGenerationError):
+            a.set_position("wf", "step-by-stale-A")
+        with pytest.raises(StaleGenerationError):
+            a.set_state("wf", "rows", "OVERWRITTEN-BY-STALE-A")
+
+        assert b.get_state("wf", "rows") == "written-by-A-while-holder"
+
+    @pytest.mark.parametrize(
+        ("path", "write"),
+        [
+            ("set_state", lambda s: s.set_state("wf", "k", "written-by-stale-A")),
+            ("delete_state", lambda s: s.delete_state("wf", "k")),
+            ("clear_state", lambda s: s.clear_state("wf")),
+            ("state_batch", _write_in_a_state_batch),
+            ("discard_state", lambda s: s.discard_state("wf")),
+        ],
+    )
+    def test_every_state_write_path_is_refused(
+        self, tmp_path: Path, path: str, write: Callable[[ScopeStore], None]
+    ) -> None:
+        """All five write paths, named one by one.
+
+        Enumerated as behaviour rather than by reading the source: a method can
+        route through the seam and still be reachable by a path that skips it,
+        which only running it shows.
+        """
+        store = _superseded_holder(JsonFileSubstrate(tmp_path))
+
+        with pytest.raises(StaleGenerationError):
+            write(store)
+
+    @pytest.mark.parametrize(
+        ("path", "write"),
+        [
+            ("set_state", lambda s: s.set_state("wf", "k", "written-by-stale-A")),
+            ("delete_state", lambda s: s.delete_state("wf", "k")),
+            ("clear_state", lambda s: s.clear_state("wf")),
+            ("state_batch", _write_in_a_state_batch),
+        ],
+    )
+    def test_the_state_file_is_unchanged_after_a_refusal(
+        self, tmp_path: Path, path: str, write: Callable[[ScopeStore], None]
+    ) -> None:
+        """Refused means nothing was written, not written and then flagged.
+
+        Read back through a *different* store so the assertion cannot be
+        satisfied by a cached object.
+        """
+        substrate = JsonFileSubstrate(tmp_path)
+        store = _superseded_holder(substrate)
+
+        with pytest.raises(StaleGenerationError):
+            write(store)
+
+        assert ScopeStore(substrate).state_snapshot("wf") == {"k": "live"}
+
+    def test_the_file_still_exists_after_a_refused_discard(
+        self, tmp_path: Path
+    ) -> None:
+        """`discard_state` is fenced because it is the destructive one."""
+        substrate = JsonFileSubstrate(tmp_path)
+        store = _superseded_holder(substrate)
+
+        with pytest.raises(StaleGenerationError):
+            store.discard_state("wf")
+
+        assert substrate.path_for(scope_state_key("wf")).exists()
+
+    def test_the_reads_are_not_fenced(self, tmp_path: Path) -> None:
+        """The narrow fence, stated: writes are refused, reads are not.
+
+        `_mutate` fences record *writes* and leaves `get_scope` alone; state
+        follows the same line. A stale runner reading its own scope's state —
+        while logging, while deciding to stop — gets an answer rather than an
+        exception.
+        """
+        store = _superseded_holder(JsonFileSubstrate(tmp_path))
+
+        assert store.get_state("wf", "k") == "live"
+        assert store.state_snapshot("wf") == {"k": "live"}
+
+    def test_a_batch_superseded_while_open_writes_nothing(self, tmp_path: Path) -> None:
+        """The exit check, and why the entry one is not enough.
+
+        A `state_batch` block writes once, on clean exit, so the window in
+        which its holder can be superseded is the whole block. Checked only on
+        entry, a claim landing mid-block would be overwritten by a commit that
+        was authorised before it existed.
+        """
+        substrate = JsonFileSubstrate(tmp_path)
+        store = ScopeStore(substrate)
+        store.ensure_scope("wf")
+        mine = store.claim_scope("wf", owner="runner-A")
+        store.hold("wf", mine.generation)
+        store.set_state("wf", "k", "live")
+
+        with (
+            pytest.raises(StaleGenerationError),
+            store.state_batch("wf") as batch,
+        ):
+            batch.set("k", "written-in-the-block")
+            ScopeStore(substrate).claim_scope("wf", owner="runner-B", force=True)
+
+        assert ScopeStore(substrate).state_snapshot("wf") == {"k": "live"}
+
+    def test_the_generation_is_read_at_write_time(self, tmp_path: Path) -> None:
+        """Not at construction — the design this one rules out.
+
+        `_state_store` memoises one `ScopeStateStore` per scope, so the object
+        that performs the write is built on the **first** state access. Here
+        that is a read taken before any claim exists, so a generation handed to
+        its constructor would stay `None` for the rest of the process and every
+        later write would go through unfenced.
+
+        The write under test is the **second** one, deliberately. The first
+        state write to a scope also ensures its record, and `ensure_scope` is
+        fenced already — so a test that refused there would pass with this
+        seam removed entirely. Found by sabotaging the seam: an earlier version
+        of this test survived it.
+        """
+        substrate = JsonFileSubstrate(tmp_path)
+        store = ScopeStore(substrate)
+        store.ensure_scope("wf")
+        assert store.get_state("wf", "k") is None
+
+        mine = store.claim_scope("wf", owner="runner-A")
+        store.hold("wf", mine.generation)
+        store.set_state("wf", "k", "live")  # pays the record ensure while current
+        ScopeStore(substrate).claim_scope("wf", owner="runner-B", force=True)
+
+        with pytest.raises(StaleGenerationError):
+            store.set_state("wf", "k", "written-by-stale-A")
+
+    def test_locking_is_not_the_mechanism(
+        self, tmp_path: Path, no_locking: None
+    ) -> None:
+        """AC-2 with the file lock disabled entirely.
+
+        The fence is a comparison of two integers read from the record, so it
+        holds where the lock does not — a network filesystem, a timed-out
+        `flock`, a substrate whose lock is a no-op. That is exactly where two
+        runners are most likely to meet.
+        """
+        substrate = JsonFileSubstrate(tmp_path)
+        store = _superseded_holder(substrate)
+
+        with pytest.raises(StaleGenerationError):
+            store.set_state("wf", "k", "OVERWRITTEN-BY-STALE-A")
+
+        assert ScopeStore(substrate).get_state("wf", "k") == "live"
+
+
+class TestTheFenceDoesNotRefuseTheLiveHolder:
+    """The other half of AC-2: a fence that refused everything would pass above.
+
+    Every test here would fail if the seam read the wrong generation, checked a
+    scope it was not asked about, or fenced a store that holds no lease at all.
+    """
+
+    def test_the_current_holder_still_writes(self, tmp_path: Path) -> None:
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
+        store.ensure_scope("wf")
+        mine = store.claim_scope("wf", owner="runner-A")
+        store.hold("wf", mine.generation)
+
+        store.set_state("wf", "k", "mine")
+        with store.state_batch("wf") as batch:
+            batch.set("in-a-batch", True)
+
+        assert store.state_snapshot("wf") == {"k": "mine", "in-a-batch": True}
+
+    def test_a_renewed_lease_does_not_move_the_generation(self, tmp_path: Path) -> None:
+        """Renewal extends the claim without minting a generation, so the
+        holder's writes must survive it."""
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
+        store.ensure_scope("wf")
+        mine = store.claim_scope("wf", owner="runner-A")
+        store.hold("wf", mine.generation)
+        store.renew_scope("wf", owner="runner-A", generation=mine.generation)
+
+        store.set_state("wf", "k", "still-mine")
+
+        assert store.get_state("wf", "k") == "still-mine"
+
+    def test_a_store_with_no_hold_writes_freely(self, tmp_path: Path) -> None:
+        """Most callers have no lease: the CLI reading and clearing, a purge, a
+        job running outside a walk. Requiring one would break all of them."""
+        substrate = JsonFileSubstrate(tmp_path)
+        walker = ScopeStore(substrate)
+        walker.ensure_scope("wf")
+        walker.hold("wf", walker.claim_scope("wf", owner="runner-A").generation)
+        walker.set_state("wf", "k", "live")
+
+        unleased = ScopeStore(substrate)
+        unleased.set_state("wf", "k", "by-the-cli")
+        assert unleased.get_state("wf", "k") == "by-the-cli"
+        assert unleased.discard_state("wf") is True
+
+    def test_holding_one_scope_does_not_fence_anothers_state(
+        self, tmp_path: Path
+    ) -> None:
+        """Per scope, not per store — `hold`'s reason, applied to state.
+
+        A nested workflow claims its own scope through the **same** store
+        object. One generation for the whole store fenced the child's writes to
+        a different scope and stopped it creating its own record at all; the
+        integration statement of that property is
+        `test_a_nested_workflow_still_owns_its_own_scope`.
+        """
+        store = _superseded_holder(JsonFileSubstrate(tmp_path))
+
+        store.set_state("wf::child", "k", "by-the-child")
+
+        assert store.get_state("wf::child", "k") == "by-the-child"

@@ -181,7 +181,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
 
 ## Wave 2 — the fence reaches `rc.state`
 
-- [ ] **2.1** Fence every `rc.state` write behind one seam in `ScopeStore` — **AC-2**
+- [x] **2.1** Fence every `rc.state` write behind one seam in `ScopeStore` — **AC-2**
       *Files:* `src/functualize/_primitives/scope_store.py`,
       `tests/primitives/test_scope_state_store.py`
       *Depends on:* 1.2 (same file, and the fence reads a document 1.2 made CAS-correct).
