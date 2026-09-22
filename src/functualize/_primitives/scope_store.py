@@ -30,7 +30,7 @@ import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from functualize._primitives.lease import (
     DEFAULT_LEASE_SECONDS,
@@ -62,9 +62,15 @@ from functualize._types.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
-    from functualize._types.protocols import StoreSubstrate
+    from functualize._types.protocols import Revision, StoreSubstrate
+
+
+_WRITE_ATTEMPTS = 8
+
+#: What one mutation returns, carried through `_mutate` to its caller.
+_R = TypeVar("_R")
 
 
 def _now() -> str:
@@ -89,17 +95,6 @@ def _blank_scope() -> dict[str, Any]:
         "position": None,
         "epilogue": None,
         "tool_calls": [],
-        #: Keys a *job body* wrote through `rc.state` / `state: State`.
-        #:
-        #: Here rather than in `fresh.json` by that file's own rule: this one
-        #: holds records — not recomputable, refuse rather than discard — and
-        #: what a job stored is a record by that test. `fresh.json` may throw
-        #: its contents away on a bad read, which for job state is the silent
-        #: data loss this section exists to avoid.
-        #:
-        #: Namespaced under the scope, so two runs of one workflow share
-        #: nothing and a resumed run finds what its earlier half wrote.
-        "state": {},
         #: What the walk emitted, in order, for a watcher to follow.
         #:
         #: On the scope rather than in the run log because the two answer
@@ -165,6 +160,14 @@ class ScopeStore:
     def _batch(self, value: dict[str, Any] | None) -> None:
         self._local.batch = value
 
+    @property
+    def _batch_mutations(self) -> list[Any] | None:
+        return getattr(self._local, "batch_mutations", None)
+
+    @_batch_mutations.setter
+    def _batch_mutations(self, value: list[Any] | None) -> None:
+        self._local.batch_mutations = value
+
     @classmethod
     def for_project(cls, start: Path | str) -> ScopeStore:
         """Build a store on the project's resolved substrate."""
@@ -222,6 +225,11 @@ class ScopeStore:
         as None; everything else it *can* decode goes to
         :func:`normalize_scopes`, which decides.
         """
+        envelope, _ = self._load_with_revision()
+        return envelope
+
+    def _load_with_revision(self) -> tuple[dict[str, Any], Revision | None]:
+        """The current envelope and the revision read with it."""
         try:
             stored = self._substrate.read(self._key)
         except SubstrateUnreadableError as exc:
@@ -229,11 +237,25 @@ class ScopeStore:
                 self._substrate.describe(self._key), expected_version=SCOPES_VERSION
             ) from exc
         if stored is None:
-            return empty_scopes()
-        return normalize_scopes(stored.data, where=self._substrate.describe(self._key))
+            return empty_scopes(), None
+        return (
+            normalize_scopes(stored.data, where=self._substrate.describe(self._key)),
+            stored.revision,
+        )
 
-    def _mutate(self, mutate: Any, *, scope_id: str | None = None) -> None:
+    def _mutate(
+        self,
+        mutate: Callable[[dict[str, Any]], _R],
+        *,
+        scope_id: str | None = None,
+    ) -> _R:
         """Apply ``mutate`` to the envelope, honoring an open batch.
+
+        Generic in the mutation's own result, so ``claim_scope``'s
+        ``-> Lease`` and ``record_step``'s ``-> None`` both keep their type
+        through this seam. It was ``Any`` in, ``Any`` out, which made every one
+        of the eighteen call sites unchecked and reported the two that return a
+        value as returning `Any` from a declared `-> Lease`.
 
         **Where fencing happens** (`durable-run-layer`/T6). Putting the check
         on each of the eleven write methods would fence them all today and miss
@@ -245,9 +267,15 @@ class ScopeStore:
         about to modify, so a claim that landed between the caller's last read
         and this write is seen. Checking beforehand would leave exactly that
         window open.
+
+        Compare-and-swap backs up the advisory lock. One limitation belongs to
+        the substrate port: ``write(..., expect=None)`` is unconditional, so a
+        never-written ``scopes.json`` cannot be compare-and-swapped. The claim
+        path is protected because ``frontier`` calls ``ensure_scope`` before
+        ``claim_scope``, creating the document before a generation is minted.
         """
 
-        def _guarded(envelope: dict[str, Any]) -> None:
+        def _guarded(envelope: dict[str, Any]) -> _R:
             held = self._generations.get(scope_id) if scope_id is not None else None
             if held is not None and scope_id is not None:
                 check_generation(
@@ -255,15 +283,26 @@ class ScopeStore:
                     read_lease(envelope["scopes"].get(scope_id)),
                     held,
                 )
-            mutate(envelope)
+            return mutate(envelope)
 
         if self._batch is not None:
-            _guarded(self._batch)
-            return
-        with self._substrate.lock(self._key):
-            envelope = self._load()
-            _guarded(envelope)
-            self._substrate.write(self._key, stamp_scopes(envelope))
+            result = _guarded(self._batch)
+            mutations = self._batch_mutations
+            assert mutations is not None
+            mutations.append(_guarded)
+            return result
+        for _ in range(_WRITE_ATTEMPTS):
+            with self._substrate.lock(self._key):
+                envelope, revision = self._load_with_revision()
+                result = _guarded(envelope)
+                if self._substrate.write(
+                    self._key, stamp_scopes(envelope), expect=revision
+                ):
+                    return result
+        raise RuntimeError(
+            f"could not write {self._key!r} after {_WRITE_ATTEMPTS} attempts; "
+            f"another writer is winning every round"
+        )
 
     def hold(self, scope_id: str, generation: int | None) -> None:
         """Fence writes **to ``scope_id``** on this store to ``generation``.
@@ -305,12 +344,27 @@ class ScopeStore:
             yield self
             return
         with self._substrate.lock(self._key):
-            self._batch = self._load()
+            self._batch, revision = self._load_with_revision()
+            self._batch_mutations = []
             try:
                 yield self
-                self._substrate.write(self._key, stamp_scopes(self._batch))
+                for _ in range(_WRITE_ATTEMPTS):
+                    if self._substrate.write(
+                        self._key, stamp_scopes(self._batch), expect=revision
+                    ):
+                        break
+                    self._batch, revision = self._load_with_revision()
+                    for mutate in self._batch_mutations:
+                        mutate(self._batch)
+                else:
+                    raise RuntimeError(
+                        f"could not write {self._key!r} after "
+                        f"{_WRITE_ATTEMPTS} attempts; another writer is winning "
+                        "every round"
+                    )
             finally:
                 self._batch = None
+                self._batch_mutations = None
 
     # ------------------------------------------------------------------
     # Scopes: steps, branches, gates, position, epilogue
@@ -513,6 +567,46 @@ class ScopeStore:
             scope_id, ScopeStateStore(self._substrate, scope_id)
         )
 
+    def _fenced_state(self, scope_id: str, *, ensure: bool = True) -> ScopeStateStore:
+        """This scope's state file, refused if this store's hold is stale.
+
+        **The one seam for state writes**, as `_mutate` is the one seam for
+        record writes. The check cannot live in `_mutate`: state is a different
+        document with its own lock and nothing here passes through it. It is not
+        repeated on each write method either — that is the design
+        `_mutate`'s own docstring and `tests/primitives/test_fenced_writes.py`
+        argue against: eleven checks fence eleven methods today and miss the
+        twelfth, written next month by someone who did not know the rule.
+
+        **The generation is read at write time**, never handed to
+        `ScopeStateStore` at construction. That reads simpler and cannot work:
+        the instance is memoized per scope by :meth:`_state_store`, so a
+        :meth:`hold` taken after the first state access would never reach the
+        object doing the writing.
+
+        The lease comes from ``scopes.json`` — a second document read per fenced
+        write, accepted deliberately. A stale runner overwriting the live
+        holder's job state is a silent wrong answer, and one read of a small
+        envelope is what refusing it costs. Unheld scopes pay nothing: the CLI,
+        a purge and a job running outside a walk hold no generation, so they
+        never reach the read.
+
+        Reads are **not** fenced. `get_state` and `state_snapshot` stay on
+        :meth:`_state_store`, exactly as `_mutate` fences writes and leaves
+        `get_scope` alone.
+
+        Raises:
+            StaleGenerationError: this store holds a generation for
+                ``scope_id`` and it is no longer the current one.
+        """
+        held = self._generations.get(scope_id)
+        if held is not None:
+            # `get_lease` honours an open record batch, which is the freshest
+            # view there is: that batch holds the record lock for its whole
+            # block, so no competing claim can land while it is open.
+            check_generation(scope_id, self.get_lease(scope_id), held)
+        return self._state_store(scope_id, ensure=ensure)
+
     def get_state(self, scope_id: str, key: str, default: Any = None) -> Any:
         """A value a job stored in this scope, or ``default``."""
         return self._state_store(scope_id, ensure=False).get(key, default)
@@ -523,12 +617,16 @@ class ScopeStore:
         Re-reads inside the scope's own lock, so two jobs writing different
         keys merge rather than clobber. A job writing many keys should hold
         :meth:`state_batch` — every call here is one lock-read-write cycle.
+
+        Raises:
+            StaleGenerationError: this store's claim on the scope has been
+                superseded — see :meth:`_fenced_state`.
         """
-        self._state_store(scope_id).set(key, value)
+        self._fenced_state(scope_id).set(key, value)
 
     def delete_state(self, scope_id: str, key: str) -> bool:
         """Remove one key. True when it was there."""
-        return self._state_store(scope_id).delete(key)
+        return self._fenced_state(scope_id).delete(key)
 
     def state_snapshot(self, scope_id: str) -> dict[str, Any]:
         """Every key this scope holds, as a plain dict."""
@@ -536,16 +634,35 @@ class ScopeStore:
 
     def clear_state(self, scope_id: str) -> None:
         """Drop every key in this scope, leaving the scope itself."""
-        self._state_store(scope_id).clear()
+        self._fenced_state(scope_id).clear()
 
-    def state_batch(self, scope_id: str) -> Any:
+    @contextmanager
+    def state_batch(self, scope_id: str) -> Iterator[ScopeStateStore]:
         """Hold this scope's state lock across many writes.
 
         Separate from :meth:`batch`, which batches *records*. The two files
         have separate locks now, which is the point — batching one must not
         hold the other.
+
+        **Fenced at both ends, and both matter.** The block's writes land as one
+        write when it exits, so the window in which this runner can be
+        superseded is the whole block rather than its first instant. The entry
+        check refuses a runner that was already stale; the exit check refuses
+        one superseded while the block ran, and because `ScopeStateStore.batch`
+        writes on clean exit only, raising inside the block discards it rather
+        than committing state a later claim has already invalidated.
+
+        Raises:
+            StaleGenerationError: as :meth:`set_state`, on entry or at the exit
+                write.
         """
-        return self._state_store(scope_id).batch()
+        state = self._fenced_state(scope_id)
+        with state.batch() as batch:
+            yield batch
+            # Inside the block deliberately: the single write happens in the
+            # batch's own `__exit__`, so a refusal raised here still discards
+            # it. Checked after the `with`, the write would already have landed.
+            self._fenced_state(scope_id, ensure=False)
 
     def discard_state(self, scope_id: str) -> bool:
         """Delete this scope's state file. True if there was one.
@@ -558,8 +675,10 @@ class ScopeStore:
         # Through the cache, never a fresh object: a second `ScopeStateStore`
         # over one path cannot see an open batch and deadlocks against the
         # first on `flock` (review Q1.1, Q2.2). `ensure=False` so purging a
-        # scope cannot recreate the record purge just deleted.
-        return self._state_store(scope_id, ensure=False).discard()
+        # scope cannot recreate the record purge just deleted. Fenced because
+        # it is destructive: purge holds no generation and is unaffected, a
+        # superseded walk discarding the new holder's state is not.
+        return self._fenced_state(scope_id, ensure=False).discard()
 
     def record_branch(self, scope_id: str, source: str, target: str) -> None:
         """Record a chosen ``ConditionalEdge`` target on first evaluation.
@@ -727,9 +846,8 @@ class ScopeStore:
             LeaseHeldError: Someone else holds it and has not expired.
         """
         when = now or datetime.now(UTC)
-        taken: list[Lease] = []
 
-        def _apply(envelope: dict[str, Any]) -> None:
+        def _apply(envelope: dict[str, Any]) -> Lease:
             scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
             # Re-read *inside* the lock: two runners racing to claim an expired
             # lease must not both see generation 6 and both write 7. Where
@@ -745,10 +863,9 @@ class ScopeStore:
                 force=force,
             )
             write_lease(scope, fresh)
-            taken.append(fresh)
+            return fresh
 
-        self._mutate(_apply)
-        return taken[0]
+        return self._mutate(_apply)
 
     def renew_scope(
         self,
@@ -765,9 +882,8 @@ class ScopeStore:
             StaleGenerationError: Someone claimed the scope after you did.
         """
         when = now or datetime.now(UTC)
-        renewed: list[Lease] = []
 
-        def _apply(envelope: dict[str, Any]) -> None:
+        def _apply(envelope: dict[str, Any]) -> Lease:
             scope = envelope["scopes"].get(scope_id)
             if scope is None:
                 raise StaleGenerationError(
@@ -782,10 +898,9 @@ class ScopeStore:
                 seconds=seconds,
             )
             write_lease(scope, fresh)
-            renewed.append(fresh)
+            return fresh
 
-        self._mutate(_apply)
-        return renewed[0]
+        return self._mutate(_apply)
 
     def release_scope(
         self, scope_id: str, *, generation: int, now: datetime | None = None

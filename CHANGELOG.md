@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a superseded runner could overwrite live job state, and three more persistence defects beside it
+
+**Breaking, pre-release.** Four defects in the document stores, repaired before
+anything migrates them (`FUN-24`). A runner whose claim had been superseded was
+correctly refused on its *record* write and then wrote the job's state anyway;
+two runners claiming the same scope at the same instant could both be told they
+won; a storage plugin that failed to install left the engine running on the
+filesystem the user had explicitly not chosen; and the TUI's `!` history and
+`func builtin history` wrote and read different backends whenever a substrate
+plugin was installed.
+
+- **`rc.state` writes now pass the fence.** Job state moved out of the scope
+  record into `scope-state/<id>` and the fencing generation stayed behind with
+  the record, so the half a job actually writes was unfenced. All five write
+  paths — `set_state`, `delete_state`, `clear_state`, `state_batch` (at entry
+  and before its exit write) and `discard_state` — now check the lease through
+  one private seam, and the generation is read at write time rather than handed
+  to the state store at construction, which a memoized instance would never see
+  again. The two *reads* are deliberately left unfenced, so a CLI, a purge or a
+  job running outside a walk pays nothing. A scope whose state is not held is
+  unfenced exactly as before.
+- **A refused state write raises `StaleGenerationError`.** It is not translated
+  into a state-transition error and not logged and dropped. Inside a workflow
+  walk the pre-existing catch in `WorkflowWalker.run()` stops the walk with
+  `SUPERSEDED` — which is how `cancel` wins a scope a walk is still holding.
+  Everywhere else the exception reaches the caller. A job that used to succeed
+  while stale now stops instead.
+- **A claim is atomic.** `scopes.json` and `scope-state/<id>` are written with
+  `expect=<the revision just read>`, inside a bounded retry loop, so a write by
+  a runner that lost the race is refused rather than applied. The advisory file
+  lock stays as defence in depth: the compare-and-swap is the mechanism, and
+  that is what holds on a network filesystem or a backend whose lock is a no-op.
+  One limit is unchanged and now stated in the code — `write(..., expect=None)`
+  is unconditional, so a document's *first* write cannot be compared and swapped;
+  for `scopes.json` that write is the record `ensure_scope` creates before any
+  claim.
+- **A substrate that fails to install now fails boot.** The SQLite plugin has
+  raised on an install failure since #45, but the `APP_READY` hook loop caught
+  `Exception` one frame up, so the raise never escaped and `func` quietly ran on
+  the filesystem substrate the user had replaced. `SubstrateInstallError` — new,
+  and exported from `functualize.plugin` — is now exempt from that swallow on
+  both boot paths. Every *other* `APP_READY` failure is still logged and
+  swallowed: the hook contract for every other plugin is unchanged.
+- **The TUI and the CLI agree on where shell history lives.** The `!` handoff
+  recorded through `ShellHistoryStore.for_project(...)` while `func builtin
+  history` read through the installed substrate, so a `!` command disappeared
+  from the journal it was written to. The handoff now records through
+  `app.substrate`, which both halves already resolve through.
+- **`Stored.revision` is an opaque token.** It is
+  `Revision = NewType("Revision", str)` rather than `int`, so comparing two
+  revisions is the only thing the type allows: the prose that asked callers not
+  to order it or do arithmetic on it is now enforced by `mypy`. The one
+  surviving arithmetic site is the SQLite substrate's own SQL minter, which is
+  where a revision is minted.
+
+**Deliberately not here:** cross-document atomicity — one commit point across
+`scopes.json` and `scope-state/<id>`, and the fence at a single place rather
+than one per document. That is `FUN-17`'s `RuntimeTransaction`. This change
+makes each document safe on its own and leaves the two-document transaction to
+that wave.
+
 ### Fixed — `plugins_directories` was never read, and now is
 
 **Breaking, pre-release.** `[tool.functualize] plugins_directories` has been

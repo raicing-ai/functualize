@@ -50,6 +50,7 @@ from functualize._discovery.pipeline import ResolutionPipeline
 from functualize._discovery.providers import DirectoryScanProvider, StaticProvider
 from functualize._events import HookEvent
 from functualize._primitives.locator import ResourceLocator
+from functualize._types.errors import SubstrateInstallError
 from functualize._types.from_job import declared_dependency_names
 
 logger = logging.getLogger(__name__)
@@ -468,6 +469,8 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     for hook in app._hook_registry._global_hooks.get(HookEvent.APP_READY, []):
         try:
             hook(app)
+        except SubstrateInstallError:
+            raise
         except Exception as exc:
             hook_name = getattr(hook, "__name__", repr(hook))
             logger.warning(f"APP_READY hook {hook_name!r} raised: {exc}")
@@ -878,6 +881,8 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         perf_timeline.mark(f"{phase_label}.start")
         try:
             hook(app)
+        except SubstrateInstallError:
+            raise
         except Exception as exc:
             logger.warning(f"APP_READY hook {hook_name!r} raised: {exc}")
         perf_timeline.mark(f"{phase_label}.end")

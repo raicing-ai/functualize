@@ -25,6 +25,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from functualize.plugin import SubstrateInstallError
 from functualize_substrate_sqlite.substrate import SQLiteSubstrate
 
 if TYPE_CHECKING:
@@ -83,7 +84,12 @@ class SQLiteSubstratePlugin:
         stream most users never see; the symptom they *did* see was a database
         that stayed empty.
         """
-        self._substrate = SQLiteSubstrate(self._db_path(app))
+        try:
+            self._substrate = SQLiteSubstrate(self._db_path(app))
+        except Exception as exc:
+            raise SubstrateInstallError(
+                f"could not initialize the SQLite substrate: {exc}"
+            ) from exc
         app.install_substrate(self._substrate)
         logger.debug(
             "substrate-sqlite installed a substrate at %s", self._substrate.path

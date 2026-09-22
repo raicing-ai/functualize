@@ -522,6 +522,15 @@ class AgentCapabilityRefusedError(Exception):
         )
 
 
+class SubstrateInstallError(Exception):
+    """A plugin could not install the project's configured substrate.
+
+    Substrate installation is the one ``APP_READY`` failure that aborts boot:
+    continuing would silently fall back to a different backend and split the
+    project's persisted documents across substrates.
+    """
+
+
 class SubstrateUnreadableError(Exception):
     """A stored document exists but its bytes could not be turned into a mapping.
 

@@ -2334,8 +2334,46 @@ Items identified during development that are worth doing but not yet designed:
 
 | Feature | Description |
 |---------|-------------|
+| runtime-persistence-repair | `fix/runtime-persistence-defects`: four defects in the document stores, repaired before anything migrates them. A superseded runner was correctly refused on its *record* write and then overwrote the live holder's job state; two runners claiming one scope at the same instant could both be told they won; a storage plugin that could not open left the engine running on the filesystem substrate the operator had explicitly not chosen; and the TUI's `!` history wrote a backend the CLI never read. Claims are now compare-and-swap on both documents, every `rc.state` write is fenced through one seam, a failed substrate install fails boot, and `Stored.revision` is an opaque token. Cross-document atomicity is deliberately absent — it is FUN-17's `RuntimeTransaction`. Details below. |
 | local-vault-access | `feat/local-vault-access`: the encrypted vault was a cache for values fetched from a remote provider; it is now also somewhere to put one secret you already have. `func builtin vault init / put / inspect / remove`, the same lifecycle as public API in `functualize.app.vault`, and an ordinary `classic()` app reads a vault its project has. Store format gains provenance columns and upgrades in place; `keyring` becomes the `functualize[keychain]` extra. Three behavioural changes, all in [ADR-023](../contributor/adr/023-local-vault-access.md): a stored entry that cannot be opened refuses the run instead of falling through, one vault key per user rather than per project, and nullable provenance fields in `vault list --json`. See `.spec/features/local-vault-access/` on the branch (cleared before merge). |
 | mcp-server-fixes | `fix/mcp-server-fixes`: `func mcp serve` crashed on grouped jobs with parameters — the plugin compiled `async def {dotted_job_name}(...)` via `exec`, a SyntaxError that killed registration (found live by the NOOA integration probe; verified against 0.2.3 and still present on master). Fix: codegen under a sanitized identifier, dotted name restored on the function object; descriptions attach as `__doc__` instead of being interpolated into source (a `'''` in a docstring broke compilation the same way). Server boots no longer run FastMCP's PyPI update check or print its banner unless `FASTMCP_*` env vars opt back in. `fastmcp` dependency bounded to `<5`. Regression net: unit + registration tests, a live subprocess stdio capability test, and a `grouped_tools` example with its own serve harness. Full plugin + examples suites green; ruff clean. See `.spec/features/mcp-server-fixes/` on the branch (cleared before merge). |
+
+### runtime-persistence-repair
+
+`fix/runtime-persistence-defects`: FUN-24's Wave 0 — the four defects above, repaired before
+FUN-17…FUN-23 migrate these documents, because a corrupt source stays corrupt.
+
+**Two decisions worth keeping.** Both were made by the member on 2026-09-22 and lived only in the
+feature's `plan.md`, which the pre-merge cleanup deletes:
+
+- **The failed-install repair is an error exemption, not a new boot step.** The research proposed
+  moving substrate installation into a boot step that may raise; that carries FUN-17's
+  `RuntimeStoreFactory`/`StoreProfile` with it, so it was rejected for this ticket. The branch
+  instead exempts `SubstrateInstallError` from the `APP_READY` swallow in **both** hook loops in
+  `_app/boot.py`, and the SQLite plugin raises it from its own install path. What an `APP_READY`
+  hook means for every other plugin is unchanged — and a test asserts exactly that, because the
+  fix would otherwise have widened the hook contract to buy its own.
+- **The fence is narrow: five write paths, not every method.** `set_state`, `delete_state`,
+  `clear_state`, `state_batch` (entry *and* exit) and `discard_state` route through one
+  `_fenced_state` seam; `get_state` and `state_snapshot` stay unfenced. This reverses a documented
+  property — `_state_store`'s docstring promises "no read of `scopes.json`" — and the reversal is
+  accepted on purpose: a stale runner overwriting live job state is a silent wrong answer, while
+  unheld scopes (the CLI, a purge, a job outside a walk) still pay nothing.
+
+**The design residue.** One seam per document — `_mutate` fences record writes, `_fenced_state`
+fences state writes — because a per-method check fences eleven methods today and misses the
+twelfth added next month. Two limits are stated in the code rather than assumed: `write(...,
+expect=None)` is unconditional, so a never-written `scopes.json` cannot be compare-and-swapped
+(the claim path is protected because `frontier` calls `ensure_scope` before `claim_scope`), and the
+CAS retry bound (`_WRITE_ATTEMPTS = 8`) has only ever been exercised with two processes.
+`WorkflowWalker.run()` catches `StaleGenerationError` around the whole walk, so a refusal inside a
+walk surfaces as `SUPERSEDED` instead of at the `rc.state.set()` line — pre-existing T7 cancel
+semantics, deliberately not translated.
+
+**A standing merge rule, recorded here because it binds every later FUN-\* branch**: nothing under
+`.spec/features/**` or `contributor/architecture/research/**` may reach `master`. The first half is
+enforced by `spec-artifacts-cleared`; the second has no gate at all, and the enforcement gap is
+filed outside this branch as `MCH-38`.
 
 ### plugin-host-protocol
 

@@ -120,6 +120,7 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         # documented way to contribute jobs ran through a private import.
         "StaticProvider",
         "AdapterPlugin",
+        "SubstrateInstallError",
         "PromptCollector",
         "Surface",
         "LiveConstruct",

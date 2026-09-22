@@ -240,7 +240,7 @@ def execute_shell_handoff(app: Any, command: str) -> int:
 
     argv = [*_shell_invocation(_resolved_shell_program()), command]
     code = subprocess.call(argv)  # noqa: S603
-    _record_history_quietly(command, code)
+    _record_history_quietly(app, command, code)
     return code
 
 
@@ -292,7 +292,7 @@ def _terminal_available() -> bool:
         return False
 
 
-def _record_history_quietly(command: str, code: int) -> None:
+def _record_history_quietly(app: Any, command: str, code: int) -> None:
     """Append the run to the kernel state store's history ring.
 
     Best-effort and silent: history is a convenience, and a store that cannot
@@ -309,7 +309,11 @@ def _record_history_quietly(command: str, code: int) -> None:
         # in the freshness ledger with job-run history; that ring is gone because its
         # job half was a poorer copy of the run log, and a typed command is not
         # a run the log could hold.
-        store = ShellHistoryStore.for_project(Path.cwd())
+        store = (
+            ShellHistoryStore(app.substrate)
+            if app is not None
+            else ShellHistoryStore.for_project(Path.cwd())
+        )
         store.append(
             {
                 "namespace": HISTORY_NAMESPACE,
