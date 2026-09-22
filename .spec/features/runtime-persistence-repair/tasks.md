@@ -214,13 +214,26 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       *Blast radius, measured:* no signature changes, so **no caller is edited**.
       `_engine/capabilities/state.py` is the sole production caller of `set_state` (`:123`),
       `get_state` (`:106`), `delete_state` (`:127`), `state_snapshot` (`:130`, `:133`) and
-      `state_batch` (`:147`). `clear_state` has **two**: `state.py:137` and
-      `_cli/tui/panel_host.py:449` — the `_cli` one holds no generation, so no fence fires
-      there, but a reviewer will look for it. The `ast` census is in `plan.md` §4.
+      `state_batch` (`:147`). `clear_state` has **one**, `state.py:137`:
+      `_cli/tui/panel_host.py:449` is `BreadcrumbHeader.clear_state()`, an unrelated TUI widget
+      method, not `ScopeStore`'s — corrected 2026-09-22 by the wave-2 implementer against the code.
+      One duck-typed reader does exist: `app/_workflow_control.py:585` reaches `discard_state` via
+      `getattr(store, "discard_state", None)`, and purge holds no generation, so no fence fires
+      there. The `ast` census is in `plan.md` §4.
       *New behaviour a reviewer must see:* `rc.state.set()` can now raise
       `StaleGenerationError`. Nothing in `_engine/` catches it today. `contracts.md` §3 records
       this as the ticket's largest behavioural break and recommends *refused loudly* for this
       wave.
+      *Found at implementation (2026-09-22, wave-2 implementer).* Three things a reviewer needs.
+      (i) `ensure_scope` is listed in the test's `UNFENCED` map yet passes `scope_id=` to `_mutate`,
+      so a scope's **first** state write is refused through `ensure_scope`'s own fence — defect B1
+      therefore reproduces only from the **second** write onward, and a test exercising the first
+      write proves nothing (one such test was caught by sabotage and rewritten). (ii) `state_batch`
+      became a `@contextmanager` so the exit check can raise *inside* the block, discarding the
+      batch rather than committing state a newer claim already invalidated. (iii) Every line
+      citation in this task is pre-0.3/pre-1.2/pre-2.1: measured drift is `_state_store` `:471`→`:511`,
+      its memo `:512-514`→`:552-554`, the rejected-design prose `:239-244`→`:246-250`, and
+      `scope_store.py` is 1024 LOC after 2.1. Locate anchors by symbol.
       *Gate:* `spec.md` → AC-2 — `defect_b1.py`'s shape prints `state write : REFUSED` and B
       reads back `'written-by-A-while-holder'`. Assert with locking disabled too.
       *Call path:* as 1.3. Break `_fenced_state`'s call to `check_generation` and the AC-2 test
@@ -231,6 +244,35 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       That test lives in `tests/integration/test_workflow_as_job_e2e.py:509`, so it is outside
       the targeted selection — name it in the evidence, and run it as the second pytest
       invocation if the first is green.
+
+- [ ] **2.2** Close the `no-any-return` hole 1.2 opened in `_mutate` — clears mypy red
+      *Files:* `src/functualize/_primitives/scope_store.py`, `tests/primitives/test_fenced_writes.py`
+      *Why this task exists (added 2026-09-22, leader).* `uv run mypy src/` is **red from `208b90e`
+      (task 1.2)**, not from 2.1 — bisected: clean at `cd4653d` and `740780c`, red at `208b90e`.
+      Wave 1's `STATE.md` line "mypy clean on 363 files" was wave 0's checkpoint measurement, not
+      1.2's. A red repository check blocks this ticket's own completion bar (`AGENTS.md:38`:
+      "All checks must pass before any change is complete"), and no existing task's file list can
+      repair it — 3.1's files are `CHANGELOG.md`, `.spec/STATE.md` and this file. Same shape as
+      0.3's contradiction, so it lands as its own task instead of a widening.
+      *Do:* `claim_scope` (`:854`) and `renew_scope` (`:889`) both end `return self._mutate(_apply)`
+      while `_mutate` (`:243`) is typed `-> Any`, so both are reported as returning `Any` from a
+      function declared `-> Lease`. Fix the hole at its source — make `_mutate` and its inner
+      `_guarded` generic over the callable's result, `Callable[[dict[str, Any]], _R] -> _R`.
+      **Not** by assigning to a typed local and returning that, and **not** by `cast` or
+      `# type: ignore`: two silenced call sites leave the other six leaking `Any`, and the two-line
+      silence would pass review while leaving the type hole in place. Callers passing `-> None`
+      callables must keep type-checking unchanged.
+      *Also, the one stale reason this task owns:* `tests/primitives/test_fenced_writes.py`'s
+      `UNFENCED` map still records "state is fenced by its own file, not the scope record" for
+      `set_state`, `delete_state`, `clear_state`, `discard_state` — true until 2.1, stale now, since
+      they route through `_fenced_state`. Correct the recorded reason only; do not touch the
+      assertions and do not move any method between `FENCED` and `UNFENCED`.
+      *Gate:* `uv run mypy src/` → `Success: no issues found in 363 source files`, plus
+      `uv run pytest -q --no-header tests/primitives/test_fenced_writes.py
+      tests/primitives/test_scope_state_store.py` green, and `uv run lint-imports` still 7 kept /
+      0 broken.
+      *Done when:* mypy is green at the tip with no new ignore comments or casts, and the `UNFENCED`
+      reasons match what 2.1 actually does.
 
 ## Wave 3 — verification sweep and the evidence bar
 
@@ -294,7 +336,8 @@ Verified while planning; each belongs to a later wave. Full detail in `spec.md` 
     {
       "id": 2,
       "tasks": [
-        "2.1"
+        "2.1",
+        "2.2"
       ]
     },
     {
