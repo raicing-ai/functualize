@@ -43,7 +43,7 @@ Two rules that govern every task in waves 3–4:
       for 6.1.
       *(Member's order, Jira comment 10013: this is task 1, before the harness.)*
 
-- [ ] **1.2** The credential/reachability gate and the probe's pytest marker — one idiom,
+- [x] **1.2** The credential/reachability gate and the probe's pytest marker — one idiom,
       one place, used by every module after it.
       *Files:* `tests/substrate_probe/conftest.py`, `pyproject.toml`
       *Gate:* `uv run pytest -q tests/substrate_probe/` with **no** credentials in the
