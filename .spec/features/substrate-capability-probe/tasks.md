@@ -338,7 +338,7 @@ cap — **verify it, do not copy it**) and a latency distribution are recorded; 
 `NOT MEASURED (no credentials)` with its reason. With `CLOUDFLARE_*` unset the module
 skips at module level.
 
-### [ ] T9 · 4.2 — AWS DynamoDB (floci first, then real)
+### [x] T9 · 4.2 — AWS DynamoDB (floci first, then real)
 
 **Files:** `tests/substrate_probe/dynamodb.py`
 
@@ -349,9 +349,11 @@ may **never** back a shipped field; the real service is `measured (real service)
 ```bash
 rg -c 'reading\(' tests/substrate_probe/dynamodb.py
 ```
-now: `0` · after: `1`
+now: `0` · after: `2`
 
-*(Predicted. Measure and correct when ticking.)*
+*(Prediction was `1`; measured `2` at the tick and corrected — one `reading()` for the
+measured column and one for the stated-unmeasured column, which is the pair that makes
+"never invent a cell" true for this backend.)*
 
 **Done when:** `TransactWriteItems` behaviour under contention is measured, or recorded
 `NOT MEASURED (no credentials)` with T1's floci verdict beside it.
