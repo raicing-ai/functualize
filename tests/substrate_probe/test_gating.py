@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import socket
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -166,6 +167,37 @@ class TestTheMeasurementModulesAreCollectedAtAll:
     ) -> None:
         """Returning a second Module for it would run every test here twice."""
         assert pytest_collect_file(_HERE / "test_gating.py", parent) is None
+
+    def test_a_module_named_on_the_command_line_is_left_to_the_builtin(self) -> None:
+        """The same rule, for the case the built-in reaches by a different route.
+
+        `_pytest.python.pytest_collect_file` collects an *init path* — anything
+        named on the command line — whatever its name, because its
+        `python_files` check sits behind `if not
+        parent.session.isinitpath(file_path)`. So for an explicitly named
+        measurement module both collectors fire and the module is collected
+        twice; measured before the guard: `uv run pytest
+        tests/substrate_probe/tier_a.py` reported `2 tests collected` and ran
+        the measurement twice, while the directory run reported it once. A gate
+        recorded as `1 passed` then reproduces as `2 passed`.
+
+        Asserted against a stub session rather than by nesting a second pytest
+        run inside this one: the guard returns before it touches `parent`, so
+        the branch is reachable with nothing but an object that answers
+        `isinitpath`, and the assertion stays deterministic regardless of how
+        the outer suite was invoked.
+        """
+
+        class _Session:
+            @staticmethod
+            def isinitpath(path: object, *, with_parents: bool = False) -> bool:
+                return True
+
+        class _NamedOnTheCommandLine:
+            session = _Session()
+
+        parent = cast("pytest.Collector", _NamedOnTheCommandLine())
+        assert pytest_collect_file(_HERE / "tier_a.py", parent) is None
 
     def test_a_non_python_file_is_not_collected(self, parent: pytest.Collector) -> None:
         assert pytest_collect_file(_HERE / "notes.md", parent) is None

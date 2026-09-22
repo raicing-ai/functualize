@@ -62,12 +62,23 @@ def pytest_collect_file(
     run and of CI's `test-fast`/`test-full` jobs; this hook is what makes that
     true rather than vacuous.
 
-    `test_*.py` is left to the built-in collector — returning a second Module
-    for a file pytest already collects would run it twice.
+    Two files are left to the built-in collector, because returning a second
+    Module for something pytest already collects runs it **twice**:
+
+    - `test_*.py`, which matches `python_files`; and
+    - **any file named on the command line.** `_pytest.python.pytest_collect_file`
+      collects an init path whatever its name — the `python_files` check sits
+      behind `if not parent.session.isinitpath(file_path)`. Without the guard
+      below, `uv run pytest tests/substrate_probe/tier_a.py` collected Tier A
+      twice (`2 tests collected`, and the measurement ran twice) while the
+      directory run collected it once, so a recorded gate reproduced as `2
+      passed` against a file that says `1 passed`.
     """
     if file_path.suffix != ".py":
         return None
     if file_path.name in _NOT_A_MODULE or file_path.name.startswith("test_"):
+        return None
+    if parent.session.isinitpath(file_path):
         return None
     return pytest.Module.from_parent(parent, path=file_path)
 
