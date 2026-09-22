@@ -26,7 +26,7 @@ Two rules that govern every task in waves 3–4:
 
 ## Wave 0 — survey and instrument
 
-- [ ] **1.1** Point the probe at floci and find out whether it implements S3 conditional
+- [x] **1.1** Point the probe at floci and find out whether it implements S3 conditional
       writes (`PutObject` with `If-None-Match`/`If-Match`) and DynamoDB
       `TransactWriteItems` **at all**. This decides whether floci can back a
       `measured (emulator)` row for the wire-protocol questions or only for the boring
