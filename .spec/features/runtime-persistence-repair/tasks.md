@@ -325,6 +325,40 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       `WorkflowWalker.run()` catches `StaleGenerationError` around the whole walk, so a refusal
       *inside a walk* stops it as `SUPERSEDED`.
 
+- [ ] **3.2** Close the three findings the review and the verification opened
+      *Files:* one new file under `examples/standalone/`, `tests/primitives/test_scope_state_store.py`,
+      and one of `tests/test_scope_store.py` / `tests/primitives/test_fenced_writes.py` for the new
+      test — plus this file's box when it is green.
+      *Why this exists (added 2026-09-22, leader).* Three findings, none behavioural, all cheap.
+      (i) **Review F1:** `SubstrateInstallError` is in `functualize.plugin.__all__` with **no**
+      `examples/` caller — `contributor/reference/public-api-example-coverage.md` → *The gate for new
+      public API* ("A new public symbol without an example is not finished") plus
+      `adding-public-api.md` step 8 (*Required*, maintainer 2026-09-17).
+      (ii) **Verification V1:** `scope_store.py:353`, `batch`'s exit write, is the one CAS site with
+      **no test behind it** — removing its `expect=revision` leaves the whole suite green (288 passed,
+      3 skipped, identical to the tip, plus 120 more from the other files that call `.batch()`),
+      because the tree's only conflict-injecting substrate, `_OneConflictSubstrate`, lives in
+      `test_scope_state_store.py` and serves the state file.
+      (iii) **Verification V2:** `TestAStaleRunnersStateWriteIsRefused`'s docstring in
+      `tests/primitives/test_scope_state_store.py` cites
+      `contributor/architecture/research/runtime-persistence-engine-owned/03-the-four-defects.md`,
+      and the pre-merge cleanup commit deletes that directory. The citation must survive as
+      provenance without a dead path.
+      *Do:* (i) one example that names and uses `SubstrateInstallError` — the coverage script counts
+      references, so a user-shaped call, not a smoke test. (ii) a conflict-injecting substrate for
+      `ScopeStore` plus a test proving `batch`'s exit write refuses a `scopes.json` that moved under
+      it; **prove it by sabotage** — remove `expect=revision` at `scope_store.py:353` and the new
+      test must fail. (iii) re-word the docstring so the provenance stays and no path into the
+      deleted directory remains.
+      *Optional, same file as (iii):* `no_locking` (`test_scope_state_store.py:501`) patches the file
+      lock with no guard that the patch landed, where `test_lease_fencing.py` has
+      `test_the_no_op_lock_is_really_in_effect`. Add the analogous guard, or say why not.
+      *Gate:* `ruff check`, `ruff format --check`, `uv run mypy src/` and `uv run lint-imports`
+      (7 kept / 0 broken) clean; the two touched test files plus the examples suite
+      (`uv run pytest examples/`) green; and (ii) falsified by its own sabotage.
+      *Done when:* all three findings are closed with evidence, the sabotage proves the new test
+      bites, and nothing in the tree cites a path the cleanup commit deletes.
+
 ## Out of scope on this branch — report, do not build
 
 Verified while planning; each belongs to a later wave. Full detail in `spec.md` → *Out of scope*.
@@ -370,7 +404,8 @@ Verified while planning; each belongs to a later wave. Full detail in `spec.md` 
     {
       "id": 3,
       "tasks": [
-        "3.1"
+        "3.1",
+        "3.2"
       ]
     }
   ]
