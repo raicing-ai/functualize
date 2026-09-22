@@ -64,16 +64,30 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       *Done when:* the surface test passes with the name added, not by removing the assertion.
 
 - [ ] **0.3** Delete the dead `"state": {}` field and its now-wrong docstring
-      *Files:* `src/functualize/_primitives/scope_store.py`
+      *Files:* `src/functualize/_primitives/scope_store.py`, `tests/test_scope_store.py`
+      *Scope amended 2026-09-22 (leader).* The first file list was `scope_store.py` alone, and the
+      task's own gate could not pass with it: `test_blank_scope_has_every_section` (`:74-90`)
+      asserts the created record's key set contains `"state"` — the field this task deletes.
+      That expectation is stale and goes with the field. Dropping it is **not** re-pinning it,
+      and re-pinning it elsewhere is forbidden: the field is the deliverable.
       *Do:* remove `"state": {}` (`:102`) and the ten-line docstring above it (`:92-101`) that
-      describes behaviour `durable-run-layer`/T3 moved to `scope-state/<id>.json`.
+      describes behaviour `durable-run-layer`/T3 moved to `scope-state/<id>.json`; drop the
+      `"state"` entry and its four comment lines from the expected set in
+      `test_blank_scope_has_every_section`.
       *Verified dead before writing this:* `grep -rn 'get("state"' src/functualize plugins`
       returns **one** hit, `scope_state_store.py:125`, which reads a *different document*.
       `normalize_scopes` (`_primitives/scope_format.py:88-122`) passes scope records through
       verbatim and rejects no unknown key, so records already on disk keep an inert extra key.
+      *Re-confirmed 2026-09-22 (leader), when the scope amendment below was made:* two tests
+      state the migration in their own comments — `tests/integration/test_scope_lifecycle.py:328`
+      ("`record["state"]` is no longer where it lives") and
+      `tests/test_state_root_isolation.py:105-107` (it reads `scope-state/*.json`, "not in the
+      record"). No reader of the record's `"state"` key exists anywhere in `src/`, `plugins/` or
+      `tests/`.
       *Gate:* `uv run pytest tests/test_scope_store.py` green;
       `grep -n '"state": {}' src/functualize/_primitives/scope_store.py` empty.
-      *Done when:* no scope record is created with the field and no reader looked for it.
+      *Done when:* no scope record is created with the field, no reader looked for it, and the
+      stale expectation in `tests/test_scope_store.py` is gone.
 
 - [ ] **0.4** Route the TUI's shell-history write through the installed substrate — **AC-6**
       *Files:* `src/functualize/_cli/tui/shell_mode.py`, `tests/_cli/test_shell_mode.py`
