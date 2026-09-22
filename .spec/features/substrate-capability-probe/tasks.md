@@ -53,7 +53,7 @@ Two rules that govern every task in waves 3–4:
       *Done when:* a helper exists that turns "these env vars are absent" into a
       module-level skip with a reason a reader can act on.
 
-- [ ] **1.3** The ten probe questions as one backend-agnostic harness. Plain functions and
+- [x] **1.3** The ten probe questions as one backend-agnostic harness. Plain functions and
       frozen dataclasses — **no ABC, no shared backend base class**
       (`.spec/CONSTITUTION.md` → *Forbidden Patterns*; `plan.md` §4).
       *Files:* `tests/substrate_probe/harness.py`
