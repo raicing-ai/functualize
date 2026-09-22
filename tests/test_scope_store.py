@@ -84,10 +84,6 @@ class TestScopeLifecycle:
             "position",
             "epilogue",
             "tool_calls",
-            # Added by capability-duality/T2: what a job stored through
-            # `rc.state` is a record like the rest of these, and belongs in the
-            # file whose rule is "refuse rather than discard".
-            "state",
             # Added by workflow-graph-semantics/T5: what the walk emitted, for
             # a watcher to follow. On the scope and not in the run log because
             # a scope is advanced by several runs across a resume, and a log

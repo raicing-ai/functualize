@@ -63,7 +63,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       still 7 kept / 0 broken.
       *Done when:* the surface test passes with the name added, not by removing the assertion.
 
-- [ ] **0.3** Delete the dead `"state": {}` field and its now-wrong docstring
+- [x] **0.3** Delete the dead `"state": {}` field and its now-wrong docstring
       *Files:* `src/functualize/_primitives/scope_store.py`, `tests/test_scope_store.py`
       *Scope amended 2026-09-22 (leader).* The first file list was `scope_store.py` alone, and the
       task's own gate could not pass with it: `test_blank_scope_has_every_section` (`:74-90`)

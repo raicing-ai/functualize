@@ -89,17 +89,6 @@ def _blank_scope() -> dict[str, Any]:
         "position": None,
         "epilogue": None,
         "tool_calls": [],
-        #: Keys a *job body* wrote through `rc.state` / `state: State`.
-        #:
-        #: Here rather than in `fresh.json` by that file's own rule: this one
-        #: holds records — not recomputable, refuse rather than discard — and
-        #: what a job stored is a record by that test. `fresh.json` may throw
-        #: its contents away on a bad read, which for job state is the silent
-        #: data loss this section exists to avoid.
-        #:
-        #: Namespaced under the scope, so two runs of one workflow share
-        #: nothing and a resumed run finds what its earlier half wrote.
-        "state": {},
         #: What the walk emitted, in order, for a watcher to follow.
         #:
         #: On the scope rather than in the run log because the two answer
