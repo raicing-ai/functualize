@@ -260,7 +260,7 @@ stamped `measured (fake)` — never `measured (real service)`.
 
 ## Wave 2 — Tier A (no network, no Docker, no credentials)
 
-### [ ] T6 · 3.1 — Tier A backends: JSON filesystem, local SQLite, the three fakes
+### [x] T6 · 3.1 — Tier A backends: JSON filesystem, local SQLite, the three fakes
 
 **Files:** `tests/substrate_probe/tier_a.py`
 
