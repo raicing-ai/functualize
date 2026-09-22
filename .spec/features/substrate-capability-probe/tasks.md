@@ -313,7 +313,7 @@ ordered or arithmetically combined, and the sabotage was observed to turn it red
 
 ## Wave 3 — Tier B (real services; skip, never fail)
 
-### [ ] T8 · 4.1 — Cloudflare D1
+### [x] T8 · 4.1 — Cloudflare D1
 
 **Files:** `tests/substrate_probe/d1.py`
 
@@ -328,9 +328,10 @@ transitively, and stdlib keeps a client library out of a latency measurement.
 ```bash
 rg -c 'urllib' tests/substrate_probe/d1.py
 ```
-now: `0` · after: `1`
+now: `0` · after: `6`
 
-*(Predicted. Measure and correct when ticking.)*
+*(Prediction was `1`; measured `6` at the tick and corrected — `rg -c` counts matching
+**lines**, and the transport needs two imports plus four use sites.)*
 
 **Done when:** `interactive_transaction`, `max_document_bytes` (the documented 2 MB row
 cap — **verify it, do not copy it**) and a latency distribution are recorded; or each is
