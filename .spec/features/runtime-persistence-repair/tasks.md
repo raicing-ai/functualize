@@ -161,7 +161,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       *Done when:* `2 of 2`, and `uv run pytest tests/primitives/test_fenced_writes.py
       tests/primitives/test_lease_fencing.py` is green.
 
-- [ ] **1.3** Compare-and-swap the `scope-state/<id>` writes — **AC-3 (state)**
+- [x] **1.3** Compare-and-swap the `scope-state/<id>` writes — **AC-3 (state)**
       *Files:* `src/functualize/_primitives/scope_state_store.py`,
       `tests/primitives/test_scope_state_store.py`
       *Depends on:* 0.1.

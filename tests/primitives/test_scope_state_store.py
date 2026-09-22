@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -25,6 +26,27 @@ from functualize._primitives.scope_state_store import (
 )
 from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
+
+if TYPE_CHECKING:
+    from functualize._types.protocols import Revision
+
+
+class _OneConflictSubstrate(JsonFileSubstrate):
+    """Inject one interleaved write so the store must retry its CAS."""
+
+    conflict = False
+
+    def write(
+        self,
+        key: str,
+        payload: dict[str, Any],
+        *,
+        expect: Revision | None = None,
+    ) -> bool:
+        if self.conflict and expect is not None:
+            self.conflict = False
+            assert super().write(key, {"state": {"concurrent": True}}, expect=expect)
+        return super().write(key, payload, expect=expect)
 
 
 class TestStateRoundTrips:
@@ -223,6 +245,19 @@ class TestBatching:
             raise RuntimeError("boom")
         assert store.state_snapshot("s1") == {"kept": "yes"}
 
+    def test_a_batch_replays_after_a_compare_and_swap_conflict(
+        self, tmp_path: Path
+    ) -> None:
+        substrate = _OneConflictSubstrate(tmp_path)
+        state = ScopeStateStore(substrate, "s1")
+        state.set("seed", True)
+        substrate.conflict = True
+
+        with state.batch():
+            state.set("mine", True)
+
+        assert state.snapshot() == {"concurrent": True, "mine": True}
+
     def test_an_open_batch_is_invisible_to_another_thread(self, tmp_path: Path) -> None:
         """`_batch` is thread-local, and this is why it has to be.
 
@@ -283,6 +318,20 @@ class TestBatching:
             t.join(timeout=5)
 
         assert store.get_state("b", "k") == "written"
+
+
+class TestCompareAndSwap:
+    def test_a_mutation_retries_against_the_latest_revision(
+        self, tmp_path: Path
+    ) -> None:
+        substrate = _OneConflictSubstrate(tmp_path)
+        state = ScopeStateStore(substrate, "s1")
+        state.set("seed", True)
+        substrate.conflict = True
+
+        state.set("mine", True)
+
+        assert state.snapshot() == {"concurrent": True, "mine": True}
 
 
 class TestACorruptFileRefuses:

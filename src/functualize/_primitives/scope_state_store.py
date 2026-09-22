@@ -38,12 +38,13 @@ from typing import TYPE_CHECKING, Any
 from functualize._types.errors import SubstrateUnreadableError
 
 if TYPE_CHECKING:
-    from functualize._types.protocols import StoreSubstrate
+    from functualize._types.protocols import Revision, StoreSubstrate
 
 __all__ = ["STATE_DIRNAME", "ScopeStateStore", "scope_state_key"]
 
 #: The directory holding per-scope state files, beside `scopes.json`.
 STATE_DIRNAME = "scope-state"
+_WRITE_ATTEMPTS = 8
 
 
 def scope_state_key(scope_id: str) -> str:
@@ -113,18 +114,31 @@ class ScopeStateStore:
     def _batch(self, value: dict[str, Any] | None) -> None:
         self._local.batch = value
 
+    @property
+    def _batch_mutations(self) -> list[Any] | None:
+        return getattr(self._local, "batch_mutations", None)
+
+    @_batch_mutations.setter
+    def _batch_mutations(self, value: list[Any] | None) -> None:
+        self._local.batch_mutations = value
+
     def _load(self) -> dict[str, Any]:
         """This scope's stored state, or `{}` if it has none yet."""
+        state, _ = self._load_with_revision()
+        return state
+
+    def _load_with_revision(self) -> tuple[dict[str, Any], Revision | None]:
+        """This scope's state and the revision read with it."""
         try:
             stored = self._substrate.read(self._key)
         except SubstrateUnreadableError as exc:
             raise ScopeStateUnreadableError(self._key, str(exc)) from exc
         if stored is None:
-            return {}
+            return {}, None
         raw = stored.data
         state = raw.get("state")
         if state is None and "state" not in raw:
-            return {}
+            return {}, stored.revision
         if not isinstance(state, dict):
             # Refuses rather than reading as empty. The next write would
             # otherwise replace the file with `{"state": {k: v}}` and drop
@@ -135,7 +149,7 @@ class ScopeStateStore:
                 self._key,
                 f"'state' is {type(state).__name__}, expected an object",
             )
-        return state
+        return state, stored.revision
 
     def _read(self) -> dict[str, Any]:
         batch = self._batch
@@ -145,11 +159,20 @@ class ScopeStateStore:
         """Apply ``mutate`` to this scope's state, honoring an open batch."""
         if self._batch is not None:
             mutate(self._batch)
+            mutations = self._batch_mutations
+            assert mutations is not None
+            mutations.append(mutate)
             return
-        with self._substrate.lock(self._key):
-            state = self._load()
-            mutate(state)
-            self._substrate.write(self._key, {"state": state})
+        for _ in range(_WRITE_ATTEMPTS):
+            with self._substrate.lock(self._key):
+                state, revision = self._load_with_revision()
+                mutate(state)
+                if self._substrate.write(self._key, {"state": state}, expect=revision):
+                    return
+        raise RuntimeError(
+            f"could not write {self._key!r} after {_WRITE_ATTEMPTS} attempts; "
+            f"another writer is winning every round"
+        )
 
     @contextmanager
     def batch(self) -> Iterator[ScopeStateStore]:
@@ -163,12 +186,27 @@ class ScopeStateStore:
             yield self
             return
         with self._substrate.lock(self._key):
-            self._batch = self._load()
+            self._batch, revision = self._load_with_revision()
+            self._batch_mutations = []
             try:
                 yield self
-                self._substrate.write(self._key, {"state": self._batch})
+                for _ in range(_WRITE_ATTEMPTS):
+                    if self._substrate.write(
+                        self._key, {"state": self._batch}, expect=revision
+                    ):
+                        break
+                    self._batch, revision = self._load_with_revision()
+                    for mutate in self._batch_mutations:
+                        mutate(self._batch)
+                else:
+                    raise RuntimeError(
+                        f"could not write {self._key!r} after "
+                        f"{_WRITE_ATTEMPTS} attempts; another writer is winning "
+                        "every round"
+                    )
             finally:
                 self._batch = None
+                self._batch_mutations = None
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._read().get(key, default)
