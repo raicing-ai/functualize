@@ -492,8 +492,14 @@ class TestItSatisfiesTheProtocol:
         """
 
         class InMemory:
+            #: Revisions are opaque tokens, not numbers — the property
+            #: `test_a_revision_is_an_opaque_token` guards on the shipping
+            #: substrate. A double that stored `int` here would sit two screens
+            #: from that guard contradicting it, and a reader reasonably takes a
+            #: minimal reference implementation as a statement of the contract.
+            #: The counter stays an int; only what leaves it is a `Revision`.
             def __init__(self) -> None:
-                self.docs: dict[str, tuple[dict[str, Any], int]] = {}
+                self.docs: dict[str, tuple[dict[str, Any], Revision]] = {}
                 self.one_lock = threading.RLock()
                 self._next = 0
 
@@ -504,13 +510,20 @@ class TestItSatisfiesTheProtocol:
                 )
 
             def write(
-                self, key: str, payload: dict[str, Any], *, expect: int | None = None
+                self,
+                key: str,
+                payload: dict[str, Any],
+                *,
+                expect: Revision | None = None,
             ) -> bool:
                 found = self.docs.get(key)
                 if expect is not None and (found is None or found[1] != expect):
                     return False
                 self._next += 1
-                self.docs[key] = (json.loads(json.dumps(payload)), self._next)
+                self.docs[key] = (
+                    json.loads(json.dumps(payload)),
+                    Revision(str(self._next)),
+                )
                 return True
 
             @contextmanager

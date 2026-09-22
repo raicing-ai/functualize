@@ -505,6 +505,19 @@ its reason. Four, in the order they were decided.
    made coherent without changing the double's stored revisions from `int` to `Revision`,
    which is a runtime change and outside "annotation-only".
 
+7. **Addendum A1 — `InMemory`'s revisions made opaque.** *Authorized by the leader
+   2026-09-22T23:04Z; supersedes 6(d)'s last sentence, which recorded it as not
+   corrected.* The wave-3 authorization was annotation-only and this fix is not, which is
+   why it waited. The double is local to
+   `tests/primitives/test_substrate.py::test_a_minimal_implementation_also_satisfies_it`
+   and referenced once, at the `isinstance` assertion in the same method — verified by
+   `rg -n "InMemory" tests/ src/ plugins/ examples/`, whose other hits are unrelated
+   names. Only what leaves the counter changed: `Revision(str(...))` instead of an `int`,
+   so a minimal reference implementation of the port stops contradicting the opaque-token
+   property T7's guard was written to protect. No assertion text moved and no observable
+   behaviour changed: `uv run pytest -q tests/primitives/test_substrate.py` → **37
+   passed** before and after.
+
 **Not in any wave — the leader's, after Code Review and QA** (issue → *Execution contract*
 step 5): the `spec-artifacts-cleared` sequence, as a **deletion-only last commit** removing
 `.spec/features/substrate-capability-probe` *and* `contributor/architecture/research/**`,
