@@ -23,6 +23,7 @@ Two things are *new*, and both are load-bearing:
 
 from __future__ import annotations
 
+import ast
 import json
 import threading
 from collections.abc import Iterator
@@ -184,6 +185,89 @@ class TestCompareAndSwap:
         a, b = substrate.read("a"), substrate.read("b")
         assert a is not None and b is not None
         assert a.revision != b.revision
+
+
+def _shipping_modules(root: Path) -> list[Path]:
+    """Modules whose behaviour ships: `src/`, and every plugin's `src/`.
+
+    `tests/` is outside the census below on purpose — a test may spell out the
+    operation that census forbids, and the one below does.
+    """
+    return sorted(
+        [*root.glob("src/functualize/**/*.py"), *root.glob("plugins/*/*/src/**/*.py")]
+    )
+
+
+#: Comparisons that make a token an ordinal, and calls that turn one into a number.
+_ORDERS = (ast.Lt, ast.LtE, ast.Gt, ast.GtE)
+_COERCIONS = frozenset({"int", "float", "sorted", "max", "min"})
+
+
+def _combines_a_revision(tree: ast.AST) -> list[ast.AST]:
+    """Nodes that order a revision, do arithmetic on one, or coerce it.
+
+    Parsed rather than grepped: the tree *does* contain `revision + 1` twice, as
+    the sqlite plugin's own SQL, and an AST sees a string literal for what it is
+    where a regex needs an exclusion list to stay accurate.
+    """
+    offenders: list[ast.AST] = []
+    for node in ast.walk(tree):
+        touches = any(
+            isinstance(child, ast.Attribute) and child.attr == "revision"
+            for child in ast.walk(node)
+        )
+        if not touches:
+            continue
+        ordered = isinstance(node, ast.Compare) and any(
+            map(isinstance, node.ops, _ORDERS)
+        )
+        coerced = getattr(getattr(node, "func", None), "id", "") in _COERCIONS
+        if ordered or coerced or isinstance(node, ast.BinOp):
+            offenders.append(node)
+    return offenders
+
+
+class TestARevisionIsAnOpaqueToken:
+    """Compare it, pass it back — ordering one is a backend-specific assumption.
+
+    `Stored.revision` was an `int` until FUN-24 made it `Revision`, a `str`: a hash
+    here and a version there are both tokens, and code that ordered one would work
+    on the backend whose revision is a counter and quietly stop working on the
+    next. These are that property's two falsifiers.
+    """
+
+    def test_a_revision_is_an_opaque_token(self, substrate: JsonFileSubstrate) -> None:
+        """It round-trips, it follows the content, and it is only ever compared."""
+        assert substrate.write("doc", {"n": 1}) is True
+        first = substrate.read("doc")
+        assert first is not None
+        assert isinstance(first.revision, str)
+
+        substrate.write("doc", {"n": 2})
+        second = substrate.read("doc")
+        assert second is not None
+        assert second.revision != first.revision, "the token did not follow the content"
+
+        assert substrate.write("doc", {"n": 3}, expect=first.revision) is False
+        assert substrate.write("doc", {"n": 3}, expect=second.revision) is True
+
+        with pytest.raises(TypeError):
+            _ = first.revision + 1
+
+    def test_nothing_shipping_orders_or_counts_a_revision(self) -> None:
+        """The half no single call can show, so it is read out of the code.
+
+        `plan.md` §5.1 ran this census by hand to answer the ticket's third open
+        question. Keeping it is what stops the answer un-landing when the first
+        remote substrate arrives with a reason to compare versions.
+        """
+        root = Path(__file__).resolve().parents[2]
+        offenders = [
+            f"{path.relative_to(root)}:{node.lineno}"
+            for path in _shipping_modules(root)
+            for node in _combines_a_revision(ast.parse(path.read_text()))
+        ]
+        assert offenders == []
 
 
 class TestItRefusesRatherThanDeciding:

@@ -286,7 +286,7 @@ zero. This is `contracts.md`'s directory-wide rule written as a count.
 **Done when:** every one of the ten fields has a value for the filesystem and for local
 SQLite, each stamped `measured (real service)`.
 
-### [ ] T7 · 3.2 — Regression guard: a revision is an opaque token
+### [x] T7 · 3.2 — Regression guard: a revision is an opaque token
 
 **Files:** `tests/primitives/test_substrate.py` (494 lines at `69ffee2`; ~+25)
 
