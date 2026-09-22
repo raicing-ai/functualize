@@ -102,18 +102,25 @@ class TestEveryWritePathIsFenced:
     one written by someone who has not read this file.
     """
 
-    #: Writes that must **not** be fenced, each with the reason.
+    #: Writes that must **not** be fenced *by `_mutate`*, each with the reason.
     #:
     #: The lease verbs are how a runner *obtains* a generation, so fencing them
-    #: is circular. `delete_scope` and `clear*` are administrative — purge and
+    #: is circular. `delete_scope` and `clear` are administrative — purge and
     #: `data clear` run without a lease, by design.
+    #:
+    #: The four `*_state` entries are exempt from **this** check, not from
+    #: fencing: they write a different document, so they never reach `_mutate`
+    #: and cannot pass it a `scope_id=`. `runtime-persistence-repair`/2.1 gave
+    #: them their own seam, `ScopeStore._fenced_state`, which reads the lease
+    #: from the record at write time. Their behaviour is asserted in
+    #: `tests/primitives/test_scope_state_store.py`.
     UNFENCED: dict[str, str] = {
         "claim_scope": "claiming is how you get a generation",
         "renew_scope": "carries its generation as an argument and checks it itself",
         "release_scope": "same",
         "delete_scope": "purge runs without a lease",
         "clear": "administrative; moves the whole file aside",
-        "clear_state": "state is fenced by its own file, not the scope record",
+        "clear_state": "fenced by `_fenced_state`, not here — a separate document",
         "set_state": "same",
         "delete_state": "same",
         "discard_state": "same",

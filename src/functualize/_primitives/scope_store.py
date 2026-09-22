@@ -30,7 +30,7 @@ import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from functualize._primitives.lease import (
     DEFAULT_LEASE_SECONDS,
@@ -62,12 +62,15 @@ from functualize._types.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from functualize._types.protocols import Revision, StoreSubstrate
 
 
 _WRITE_ATTEMPTS = 8
+
+#: What one mutation returns, carried through `_mutate` to its caller.
+_R = TypeVar("_R")
 
 
 def _now() -> str:
@@ -240,8 +243,19 @@ class ScopeStore:
             stored.revision,
         )
 
-    def _mutate(self, mutate: Any, *, scope_id: str | None = None) -> Any:
+    def _mutate(
+        self,
+        mutate: Callable[[dict[str, Any]], _R],
+        *,
+        scope_id: str | None = None,
+    ) -> _R:
         """Apply ``mutate`` to the envelope, honoring an open batch.
+
+        Generic in the mutation's own result, so ``claim_scope``'s
+        ``-> Lease`` and ``record_step``'s ``-> None`` both keep their type
+        through this seam. It was ``Any`` in, ``Any`` out, which made every one
+        of the eighteen call sites unchecked and reported the two that return a
+        value as returning `Any` from a declared `-> Lease`.
 
         **Where fencing happens** (`durable-run-layer`/T6). Putting the check
         on each of the eleven write methods would fence them all today and miss
@@ -261,7 +275,7 @@ class ScopeStore:
         ``claim_scope``, creating the document before a generation is minted.
         """
 
-        def _guarded(envelope: dict[str, Any]) -> Any:
+        def _guarded(envelope: dict[str, Any]) -> _R:
             held = self._generations.get(scope_id) if scope_id is not None else None
             if held is not None and scope_id is not None:
                 check_generation(

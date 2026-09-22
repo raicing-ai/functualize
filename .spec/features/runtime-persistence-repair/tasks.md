@@ -245,7 +245,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       the targeted selection — name it in the evidence, and run it as the second pytest
       invocation if the first is green.
 
-- [ ] **2.2** Close the `no-any-return` hole 1.2 opened in `_mutate` — clears mypy red
+- [x] **2.2** Close the `no-any-return` hole 1.2 opened in `_mutate` — clears mypy red
       *Files:* `src/functualize/_primitives/scope_store.py`, `tests/primitives/test_fenced_writes.py`
       *Why this task exists (added 2026-09-22, leader).* `uv run mypy src/` is **red from `208b90e`
       (task 1.2)**, not from 2.1 — bisected: clean at `cd4653d` and `740780c`, red at `208b90e`.
