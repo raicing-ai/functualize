@@ -48,7 +48,7 @@ Tasks inside one wave touch **disjoint files** — that is what makes the wave a
       *Call path:* `ScopeStore._load` → `substrate.read` → `Stored`. Every store read.
       *Done when:* the AC-5 greps return what AC-5 requires and mypy is clean.
 
-- [ ] **0.2** Add `SubstrateInstallError` and export it from `functualize.plugin` — **AC-4 (part 1/2)**
+- [x] **0.2** Add `SubstrateInstallError` and export it from `functualize.plugin` — **AC-4 (part 1/2)**
       *Files:* `src/functualize/_types/errors.py`, `src/functualize/plugin/__init__.py`,
       `tests/test_public_api_surface.py`
       *Do:* new `SubstrateInstallError(Exception)` beside `SubstrateUnreadableError`
