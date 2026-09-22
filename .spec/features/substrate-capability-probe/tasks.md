@@ -358,7 +358,7 @@ measured column and one for the stated-unmeasured column, which is the pair that
 **Done when:** `TransactWriteItems` behaviour under contention is measured, or recorded
 `NOT MEASURED (no credentials)` with T1's floci verdict beside it.
 
-### [ ] T10 · 4.3 — AWS S3 **and Cloudflare R2**
+### [x] T10 · 4.3 — AWS S3 **and Cloudflare R2**
 
 **Files:** `tests/substrate_probe/s3.py`, `.env.example` (add `FUNCTUALIZE_PROBE_R2_*`)
 
@@ -374,7 +374,9 @@ rg -c 'reading\(' tests/substrate_probe/s3.py
 ```
 now: `0` · after: `2`
 
-*(Predicted — one for S3, one for R2. Measure and correct when ticking.)*
+*(Predicted `2`; measured `2` at the tick, though not for the predicted reason — S3 and
+R2 share one `_column()` because they are the same API, so the two calls are the measured
+column and the stated-unmeasured column rather than one per backend.)*
 
 **Done when:** open question 1 is answered with a contention measurement naming the number
 of winning writers, or recorded `NOT MEASURED (no R2 credentials)` — stated, never omitted.
