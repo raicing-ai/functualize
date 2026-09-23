@@ -34,7 +34,7 @@ T15 `20`.
 
 ## Wave 0 — the vocabulary
 
-### [ ] T1 — `StoreProfile`, all ten measured fields
+### [x] T1 — `StoreProfile`, all ten measured fields
 
 *Files:* `src/functualize/_types/persistence.py`
 
@@ -52,7 +52,7 @@ now: `0` · after: `10`
 The pattern anchors on a four-space indent and a type annotation, so a field mentioned in
 the docstring does not count. A `StoreProfile` that ships nine fields fails this.
 
-### [ ] T2 — the eight commands
+### [x] T2 — the eight commands
 
 *Files:* `src/functualize/_types/persistence.py`
 
@@ -65,7 +65,7 @@ rg -c '^class (ClaimWorkflow|CompleteStep|SuspendAtGate|ResumeWorkflow|CancelWor
 ```
 now: `0` · after: `8`
 
-### [ ] T3 — the six outcomes and the six views
+### [x] T3 — the six outcomes and the six views
 
 *Files:* `src/functualize/_types/persistence.py`
 
