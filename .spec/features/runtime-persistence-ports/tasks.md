@@ -152,7 +152,7 @@ now: `0` · after: `2`
 
 ## Wave 3 — the document adapter
 
-### [ ] T7 — `DocumentRuntimeStore` and an honest profile
+### [x] T7 — `DocumentRuntimeStore` and an honest profile
 
 *Files:* `src/functualize/_primitives/document_store.py`
 
