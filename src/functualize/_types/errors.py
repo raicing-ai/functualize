@@ -554,3 +554,30 @@ class SubstrateUnreadableError(Exception):
     def __init__(self, key: str, detail: str) -> None:
         self.key = key
         super().__init__(f"Cannot read {key!r}: {detail}")
+
+
+class CrossAggregateRefusedError(Exception):
+    """A transaction spanned two aggregates on a store that cannot commit two.
+
+    FUN-17/T8, acceptance criterion 2. Raised **on commit**, before anything
+    is applied: a store declaring ``cross_aggregate_atomicity=False`` refuses
+    a spanning unit rather than applying it in parts, because a partial apply
+    is defect B3 under a new name — half a transition that no backend rolled
+    back. Nothing the unit carried reaches a document, so the refusal is a
+    repeatable state a caller can retry against one aggregate at a time.
+
+    Attributes:
+        aggregates: The aggregate ids the refused unit spanned, sorted. Two
+            for the shape the criterion names; more when a unit touched more,
+            and every one is named because "which half survived" is the first
+            question an operator asks — and the answer here is always *none*.
+    """
+
+    def __init__(self, aggregates: Sequence[str]) -> None:
+        self.aggregates = tuple(aggregates)
+        super().__init__(
+            f"This store declares cross_aggregate_atomicity=False, so one "
+            f"unit cannot span {len(self.aggregates)} aggregates "
+            f"({', '.join(self.aggregates)}). Refused on commit with nothing "
+            f"applied; retry as one unit per aggregate."
+        )

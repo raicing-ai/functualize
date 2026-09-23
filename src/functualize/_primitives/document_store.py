@@ -12,8 +12,8 @@ owns lifecycle meaning — the line `plan.md` draws when it rejects Candidate C.
 
 **It is a declared middle man and it is temporary.** The class carries
 `# TRANSITIONAL(FUN-17/T7)`: it forwards to three existing stores and adds no
-behaviour of its own beyond the profile, the buffering transaction and (at T8)
-the cross-aggregate refusal. The standard answer to a middle man — remove it —
+behaviour of its own beyond the profile, the buffering transaction and the
+cross-aggregate refusal (T8). The standard answer to middle man — remove it —
 is what FUN-19's `SqliteRuntimeStore` does, and this file goes with it.
 
 ## The profile is what this store may be selected for
@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any
 from functualize._primitives.lease import LeaseHeldError
 from functualize._primitives.run_store import RunStore
 from functualize._primitives.scope_store import ScopeStore
+from functualize._types.errors import CrossAggregateRefusedError
 from functualize._types.persistence import (
     CancelWorkflow,
     Claimed,
@@ -573,10 +574,9 @@ class _DocumentTransaction:
 
     **One aggregate per unit.** `DOCUMENT_PROFILE.cross_aggregate_atomicity`
     is `False` because two documents have two locks and cannot roll back
-    together. The refusal that enforces it — raised on commit, naming both
-    aggregates, having applied neither — is T8's, and `scopes_touched` is the
-    evidence it reads. Until then a unit that spans two scopes is applied in
-    order, which is the behaviour T8 replaces.
+    together. The refusal that enforces it — raised on commit, naming every
+    aggregate the unit spanned, having applied none — is `_refuse_spanning_units`,
+    and `scopes_touched` is the evidence it reads.
     """
 
     def __init__(self, store: DocumentRuntimeStore) -> None:
@@ -618,6 +618,7 @@ class _DocumentTransaction:
         """
         if not self._commands:
             return
+        self._refuse_spanning_units()
         with ExitStack() as stack:
             opened: dict[str, Any] = {}
 
@@ -633,6 +634,28 @@ class _DocumentTransaction:
 
             for command in self._commands:
                 self._apply_one(command, scopes, runs)
+
+    def _refuse_spanning_units(self) -> None:
+        """Refuse a unit spanning two aggregates before anything is applied.
+
+        Acceptance criterion 2 (T8). `scopes_touched` is the evidence — the
+        same set the event-append cardinality check reads — and the refusal
+        runs here, at commit, rather than in `append`: a check at append time
+        would have to fire after some commands were already buffered, and the
+        criterion exists so that no ordering of a spanning unit can leave one
+        aggregate written and the other not. Applying it in parts is defect
+        B3 with a new name.
+
+        Claims are exempt because they are not part of a batch at all: each
+        commits on the spot as a single-command transaction, which is what
+        lets `claim` answer with a value. A unit whose only writes were
+        claims carries no commands and never reaches this check.
+        """
+        if self._store.profile.cross_aggregate_atomicity:
+            return
+        if len(self.scopes_touched) < 2:
+            return
+        raise CrossAggregateRefusedError(sorted(self.scopes_touched))
 
     def _apply_one(self, command: Any, scopes: Any, runs: Any) -> None:
         if isinstance(command, CompleteStep):
@@ -719,11 +742,12 @@ class _DocumentTransaction:
     def _resume(self, cmd: ResumeWorkflow, scopes: ScopeStore) -> None:
         """Consume the accepted request and reclaim at a **new** generation.
 
-        One unit, which is the point of the command: today the deposit and the
-        claim are two locked writes in different call frames
-        (`06-data-model.md` §4). `claim_scope` still raises here rather than
-        answering — `resume` returns `None` by the port, so there is no value
-        to answer with.
+        One unit, which is the point of the command: today the deposit
+        (`app/_workflow_answer.py`) and the claim (`_engine/frontier.py`)
+        are two locked writes in different call frames (`06-data-model.md`
+        §4). `claim_scope` still raises here rather than answering —
+        `resume` returns `None` by the port, so there is no value to answer
+        with.
         """
         gate = scopes.get_gate(cmd.scope_id, cmd.gate_name)
         if gate is not None:
