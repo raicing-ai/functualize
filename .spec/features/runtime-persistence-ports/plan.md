@@ -121,7 +121,7 @@ arrived at from the diagram rather than argued for.
 ```
   _types/  (stdlib only)                                      LAYER: _types
   ┌──────────────────────────────────────────────────────────────┐
-  │ persistence.py  NEW  ~340 lines, zero logic                  │
+  │ persistence.py  NEW  698 lines at T6, zero logic              │
   │   StoreProfile         10 measured fields + 2 labels         │
   │   8 commands · 6 outcomes · 6 views                          │
   │   10 @runtime_checkable Protocols                            │
@@ -226,12 +226,17 @@ makes them eligible to be accepted rather than blocking.
    is what FUN-19 does. Marked `# TRANSITIONAL(FUN-17/T7)` at the class, per
    *Transitional Changes*. **Does not need maintainer review.**
 
-2. **Large Class (module-scale)** — `_types/persistence.py` at ~340 projected lines
-   carrying 20 dataclasses and 10 protocols. *Accepted:* it is one contract read as a
-   unit, it holds zero logic, and `_types/commands.py` proves the alternative split
-   collides on the word "command" (`contracts.md` §1). The ~500-line threshold in the
-   constitution is about **classes**, and no class here exceeds ~15 lines. Re-examine if
-   the module passes 500. **Does not need maintainer review.**
+2. **Large Class (module-scale)** — `_types/persistence.py`. The plan projected ~340
+   lines for T1–T6; measured `wc -l` read 618 at wave 1 (the trigger below fired a
+   wave early) and **698 at T6**, carrying 21 dataclasses and 10 protocols.
+   *Re-examined at T6 and still accepted:* it is one contract read as a unit, it holds
+   zero logic, and `_types/commands.py` proves the alternative split collides on the
+   word "command" (`contracts.md` §1). The ~500-line threshold in the constitution is
+   about **classes**, and the largest class here is ~25 lines. The projection line in
+   *Files expected to change* is corrected to the measured number. Re-examine again if
+   the module passes ~1000 or any executable logic appears in it — a split, if ever,
+   runs along the vocabulary/ports boundary and is its own decision, not this ticket's.
+   **Does not need maintainer review.**
 
 ### And one that is NOT ours, but must be stated
 
@@ -283,7 +288,7 @@ Sizes measured with `wc -l` on the rebased tree, not copied from the research.
 
 | File | Now | Change | Task |
 |---|---|---|---|
-| `src/functualize/_types/persistence.py` | — (absent) | new, ~340 | T1–T6 |
+| `src/functualize/_types/persistence.py` | — (absent) | new, 698 measured at T6 (projection was ~340; overtaken at wave 1) | T1–T6 |
 | `src/functualize/_types/errors.py` | 556 | +2 error classes | T8, T13 |
 | `src/functualize/_primitives/document_store.py` | — (absent) | new | T7, T8 |
 | `src/functualize/_engine/recording/run_recorder.py` | — (absent) | new | T9 |

@@ -128,7 +128,7 @@ now: `0` · after: `3`
 
 ## Wave 2 — the store and its buffering transaction
 
-### [ ] T6 — `RuntimeStore` and `RuntimeTransaction`
+### [x] T6 — `RuntimeStore` and `RuntimeTransaction`
 
 *Files:* `src/functualize/_types/persistence.py`
 
