@@ -1,20 +1,23 @@
 """The persistence vocabulary — capability, commands, outcomes, views.
 
-FUN-17 (wave 0). One module, read as a unit: ``_types/commands.py`` is already
-taken by the shell's runtime command tree, and putting ``ClaimWorkflow`` beside
-``CommandNode`` would collide two unrelated meanings of "command" in one module
-name, so the whole persistence contract lives here.
+FUN-17 (waves 0–1). One module, read as a unit: ``_types/commands.py`` is
+already taken by the shell's runtime command tree, and putting ``ClaimWorkflow``
+beside ``CommandNode`` would collide two unrelated meanings of "command" in one
+module name, so the whole persistence contract lives here.
 
-Zero logic, values only. Every type in this file is a frozen dataclass of
-plain values — a command is data a recorder hands to a store, not a call, and
-being a value is what lets a transaction accumulate commands in a list and
-apply them as one unit on exit (the shape a backend with no ``BEGIN``, such as
-Cloudflare D1, can implement at all).
+Zero logic, values only. Every dataclass here is frozen and made of plain
+values — a command is data a recorder hands to a store, not a call, and being a
+value is what lets a transaction accumulate commands in a list and apply them as
+one unit on exit (the shape a backend with no ``BEGIN``, such as Cloudflare D1,
+can implement at all). The ``Protocol`` surfaces at the end of the file add
+method signatures and nothing that executes.
 
-The ports that speak these values — ``RuntimeStore``,
-``RuntimeTransaction``, the writers and readers — are specified in
-``.spec/features/runtime-persistence-ports/contracts.md`` §1.5 and land with
-FUN-17 T4–T6; this module currently holds the vocabulary only.
+The ports that speak these values are specified in
+``.spec/features/runtime-persistence-ports/contracts.md`` §1.5. The five writer
+and three reader protocols are here (FUN-17 T4–T5); ``RuntimeStore`` and
+``RuntimeTransaction`` land with T6, which is where the accumulating transaction
+is documented. Nothing calls these ports yet — the production call paths arrive
+with T7–T14, so a port existing is not yet a port being reachable.
 
 This module lives in ``_types`` and therefore imports nothing internal, the
 standard library only (import-linter contract "Types import nothing internal").
@@ -25,7 +28,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 __all__ = [
     "StoreProfile",
@@ -52,6 +55,15 @@ __all__ = [
     "RunTree",
     "RunQuery",
     "WorkflowQuery",
+    # Ports — writers, then readers
+    "RunWriter",
+    "WorkflowWriter",
+    "InputWriter",
+    "EventWriter",
+    "EffectWriter",
+    "RunReader",
+    "WorkflowReader",
+    "InputReader",
 ]
 
 
@@ -113,7 +125,10 @@ class StoreProfile:
 # Every command that mutates a scope already held carries the held
 # ``generation``, so fencing is enforced in the store's predicate rather than
 # remembered by a caller. ``ClaimWorkflow`` and ``ResumeWorkflow`` carry none
-# because they *acquire* the generation — there is nothing to hold yet.
+# because they *acquire* the generation — there is nothing to hold yet — and
+# ``StartAttempt`` / ``FinishAttempt`` carry none because a run is a different
+# aggregate from the scope lease, so there is no scope generation to fence it
+# against.
 # ------------------------------------------------------------------
 
 
@@ -250,7 +265,8 @@ class StartAttempt:
     job body, a run is the logical unit the user asked for, and a retry
     inserts the next attempt rather than overwriting — which is what makes
     "how many times did this fail before it worked" answerable. The store
-    mints the run and attempt identity and returns it as an ``Attempt``.
+    mints the run and attempt identity; this port does not hand it back, since
+    every writer but ``claim`` returns ``None`` (``contracts.md`` §1.3).
     """
 
     job: str
@@ -458,3 +474,145 @@ class WorkflowQuery:
     workflow: str | None = None
     status: str | None = None
     limit: int | None = None
+
+
+# ------------------------------------------------------------------
+# The writer ports — what a transaction hands commands to.
+#
+# A writer takes a command value and returns ``None``: at the moment a
+# buffered writer is called nothing has been written yet, so there is nothing
+# to read back (``contracts.md`` §1.3). ``WorkflowWriter.claim`` is the one
+# exception, specified as a single-command transaction that commits on the
+# spot — losing a claim is an expected outcome of a concurrent system, so it
+# answers with a value instead of raising.
+# ------------------------------------------------------------------
+
+
+@runtime_checkable
+class RunWriter(Protocol):
+    """The runs-and-attempts aggregate, written.
+
+    Two commands, both issued by a recorder (``_engine/recording/``, T9): a run
+    is opened once and attempts are appended to it, never mutated in place.
+    """
+
+    def start_attempt(self, cmd: StartAttempt) -> None: ...
+
+    def finish_attempt(self, cmd: FinishAttempt) -> None: ...
+
+
+@runtime_checkable
+class WorkflowWriter(Protocol):
+    """The workflow scope aggregate, written.
+
+    ``claim`` is the only method in the whole writer contract that answers with
+    something read back; everything else returns ``None``.
+    """
+
+    def claim(self, cmd: ClaimWorkflow) -> Claimed | Conflict: ...
+
+    def complete_step(self, cmd: CompleteStep) -> None: ...
+
+    def suspend(self, cmd: SuspendAtGate) -> None: ...
+
+    def resume(self, cmd: ResumeWorkflow) -> None: ...
+
+    def cancel(self, cmd: CancelWorkflow) -> None: ...
+
+    def write_state(self, cmd: StateBatch) -> None: ...
+
+
+@runtime_checkable
+class InputWriter(Protocol):
+    """The inputs aggregate, appended to.
+
+    Append-only in fact, not only in shape: a second candidate never overwrites
+    the first (``06-data-model.md`` §2.4 — today's overwrite is the defect it
+    names). The request row itself is opened by ``SuspendAtGate``, and
+    accepting a candidate is ``WorkflowWriter.resume``'s job; neither is this
+    port's.
+    """
+
+    def append(self, request_id: str, source: str, payload: Any = None) -> None: ...
+
+
+@runtime_checkable
+class EventWriter(Protocol):
+    """The append-only event streams, appended to.
+
+    Scope events and run events share this shape, which is why ``run_id`` is
+    optional: it names the run whose step produced the event when one did. The
+    store assigns ``seq`` and nothing rewrites a row, which is what makes "what
+    happened after point N" answerable.
+    """
+
+    def append(
+        self, type: str, payload: Any = None, run_id: str | None = None
+    ) -> None: ...
+
+
+@runtime_checkable
+class EffectWriter(Protocol):
+    """The outbox, appended to — an intent to reach the outside world.
+
+    Recording the intent is all that happens inside the transaction: claiming a
+    row, calling the provider and acknowledging the result run outside it
+    (``06-data-model.md`` §4), which is the difference between an outbox and a
+    retry loop. ``idempotency_key`` is optional because the column is unique
+    only *where present*.
+    """
+
+    def append(
+        self,
+        namespace: str,
+        topic: str,
+        payload: Any = None,
+        idempotency_key: str | None = None,
+    ) -> None: ...
+
+
+# ------------------------------------------------------------------
+# The reader ports — questions, never get/list/find.
+#
+# A caller asks a question and a backend answers it however it can: an index, a
+# document read, a network round trip. Naming them for questions is what keeps
+# a caller from discovering *how* it was answered with ``hasattr``, which is how
+# a port degrades back into a capability probe.
+# ------------------------------------------------------------------
+
+
+@runtime_checkable
+class RunReader(Protocol):
+    """Questions about runs and their attempts."""
+
+    def run(self, run_id: str) -> RunView | None: ...
+
+    def recent(self, query: RunQuery) -> Sequence[RunView]: ...
+
+    def tree(self, root_run_id: str) -> RunTree: ...
+
+
+@runtime_checkable
+class WorkflowReader(Protocol):
+    """Questions about scopes: what can I resume, and what happened since."""
+
+    def workflow(self, scope_id: str) -> WorkflowView | None: ...
+
+    def resumable(self, query: WorkflowQuery) -> Sequence[WorkflowView]: ...
+
+    def events_after(self, scope_id: str, seq: int) -> Sequence[EventView]: ...
+
+
+@runtime_checkable
+class InputReader(Protocol):
+    """Questions about gates waiting on an answer.
+
+    ``open_for`` is the blocked walk asking about its own gate; ``awaiting`` is
+    the workspace-wide question a human-facing surface asks ("what is waiting on
+    me"). One OPEN request per scope, gate and generation is the invariant both
+    read against.
+    """
+
+    def open_for(self, scope_id: str) -> InputRequest | None: ...
+
+    def awaiting(self) -> Sequence[InputRequest]: ...

@@ -87,7 +87,7 @@ now: `0` · after: `6`
 
 ## Wave 1 — the writer and reader ports
 
-### [ ] T4 — five writer protocols, and `claim` as an outcome
+### [x] T4 — five writer protocols, and `claim` as an outcome
 
 *Files:* `src/functualize/_types/persistence.py`
 
@@ -110,7 +110,7 @@ now: `0` · after: `1`
 The second gate counts the **annotation**, in signature position. Keep that exact spelling
 out of prose in this file or the count moves.
 
-### [ ] T5 — three reader protocols
+### [x] T5 — three reader protocols
 
 *Files:* `src/functualize/_types/persistence.py`
 
