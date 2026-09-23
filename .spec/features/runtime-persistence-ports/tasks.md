@@ -199,7 +199,7 @@ now: `0` · after: `10`
 
 ## Wave 4 — the refusal
 
-### [ ] T8 — a spanning transaction is refused, never applied in parts
+### [x] T8 — a spanning transaction is refused, never applied in parts
 
 *Files:* `src/functualize/_types/errors.py`, `src/functualize/_primitives/document_store.py`, `tests/primitives/test_document_runtime_store.py`
 
