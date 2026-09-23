@@ -2367,9 +2367,13 @@ obtainable on a host with no cloud account at all.
 **Four evidence levels, and no fifth may be minted.** `measured (real service)` |
 `measured (emulator)` | `measured (fake)` | `NOT MEASURED`. Two consequences worth keeping:
 
-- **An emulator row may never back a shipped field.** Two of the four measured columns (AWS S3,
-  AWS DynamoDB) were produced against a local emulator and are marked so on every cell. They are
-  evidence about the stand-in.
+- **An emulator row may never back a shipped field.** It is evidence about the stand-in. AWS S3
+  and AWS DynamoDB were measured that way first and **re-measured against the real services on
+  2026-09-23** (account `131160053496`, `us-east-1`), so all four measured columns now carry
+  `measured (real service)` and no column carries emulator evidence. The level is kept and kept
+  defined: the emulator path is still reproducible through `AWS_ENDPOINT_URL`, and the next
+  backend measured through one inherits the rule. **R2, D1, Turso and Supabase have no measured
+  rows at all.**
 - **A run that fits no level is refused, not filed under the nearest one.** The case this was
   decided for: an embedded libSQL database file is not Turso — the engine is genuinely libSQL so
   it is no fake, nothing is emulating so it is no emulator, and the service was never reached so
@@ -2387,7 +2391,7 @@ with `NOT MEASURED`, so a blank cell and an unmeasured one cannot look the same.
 
 **What the measurements changed.** The two shipping backends differ on exactly the two rows the
 port exists to distinguish: local SQLite commits a state write and its outbox row as one unit or
-neither, and the JSON filesystem does not. On the emulator, `TransactWriteItems` held under
+neither, and the JSON filesystem does not. Against AWS, `TransactWriteItems` held under
 contention — eight writers racing one conditional key while each carried a sibling write produced
 **one** winner and **no** orphaned sibling — and a conditional `PutObject` serialised eight
 concurrent creators down to one. DynamoDB's item cap was walked rather than quoted: 430 080 bytes
@@ -2405,6 +2409,14 @@ refused, 389 120 accepted immediately before it.
   200-transition workflow that reads and writes in a loop spends over a minute in transport. The
   probe takes 25 timed round trips over stdlib `urllib.request` — deliberately no client library
   inside the measurement. Cost to close: one D1 database, free tier.
+
+**One thing the emulator could not have told anyone.** All twenty AWS values were identical
+between floci 2.1.0 and AWS — a genuine endorsement of the emulator for these ten questions, and
+not knowable in advance. What differed was latency: a round trip took **5 ms** against the
+emulator and **105 ms** against AWS. The `remote` answer was right either way; its consequence —
+what a read-modify-write loop pays per step — was out by twenty-fold, which is the difference
+between one second and twenty-one across a 200-transition workflow. An emulator cannot measure
+latency, and agreement on the other nine rows would never have revealed it.
 
 **Q3 is answered and guarded.** Nothing in Python orders a revision or does arithmetic on one;
 FUN-24 landed `Revision = NewType("Revision", str)` and the only two census hits are SQL text
@@ -2428,7 +2440,9 @@ would have left the initiative's only measured artifact unmergeable. It lands in
 FUN-17…FUN-22 must be able to cite it from `master`.
 
 **Reproducing it.** `uv run pytest -q tests/substrate_probe/` needs nothing — no network, no
-Docker, no credentials — and must stay green. The two emulator columns need an emulator named
+Docker, no credentials — and must stay green. The two AWS columns need credentials; their
+provenance, the least-privilege IAM grant and two things to know before re-running them are in the
+matrix's *Provenance* section. The emulator path still works and needs the endpoint named
 explicitly, because the probe will not adopt whatever happens to hold a local port:
 
 ```bash

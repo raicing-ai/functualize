@@ -253,6 +253,16 @@ for every backend that ships today.** It is unsatisfiable only for backends that
 ship yet — which is the correct state for a spike whose output is advice to FUN-17.
 `spec.md` now says so, so a reviewer does not read a credential gap as a failed criterion.
 
+**Superseded in part, 2026-09-23.** The dated measurement above stays true of 2026-09-22.
+The workspace operator then provisioned least-privilege AWS credentials on this host, and
+T14 re-measured the S3 and DynamoDB columns against the real services — so "this host has
+no cloud credentials" is no longer a present-tense fact, and the heading's "unsatisfiable
+on this host" now reads as a claim about *shipping* backends only, which is what §5.3
+argues. AC3's own position is unchanged: it was satisfiable then and is satisfiable now,
+because shipping still means exactly the two local backends. R2, D1, Turso and Supabase
+remain uncredentialed. Recorded here rather than rewritten, because the measurement was
+correct when it was taken.
+
 ## 6. Files expected to change
 
 Sizes measured on this tree, not carried from the scaffold.

@@ -449,6 +449,48 @@ says the backends were asked rather than read about. Hand-written prose, never g
 deleted before merge and must not take the knowledge with it. Both land in the **same
 push** as T12, before the leader's deletion-only clearing commit.
 
+## Wave 6 — re-stamp from the real services
+
+### [x] T14 · 6.3 — Re-stamp the AWS columns from live-service measurements
+
+**Files:** `contributor/reference/substrate-capability-matrix.md`, `CHANGELOG.md`,
+`.spec/STATUS.md`
+
+T12 published the AWS S3 and AWS DynamoDB columns as `measured (emulator)`, because that
+was the strongest evidence available when it was ticked. The workspace operator then
+provisioned least-privilege AWS credentials (account `131160053496`, `us-east-1`) with a
+runner that unsets `AWS_ENDPOINT_URL`, so the same code path now produces
+`measured (real service)`. **T12's tick stands**: it was green against its own gate, and
+this is a new measurement rather than a correction of that one.
+
+Twenty cells move. Every re-stamped value must come from a run performed at the tip — not
+from the operator's report, and not from the earlier emulator runs — and the mechanical
+transcription check T12 established is re-run against it.
+
+**Gate — no emulator stamp survives in the matrix**
+```bash
+rg -c '· emu' contributor/reference/substrate-capability-matrix.md
+```
+now: `10` · after: `0`
+
+**Gate — the provenance is auditable**
+```bash
+rg -c '131160053496' contributor/reference/substrate-capability-matrix.md
+```
+now: `0` · after: `3`
+
+*(Both predicted `0` and `3`; both measured at the tick and unchanged. The `3` is the
+account id in the provenance table, the credential-file description and the IAM row — if
+a later edit drops the provenance, this gate notices.)*
+
+**Done when:** the twenty AWS cells carry `measured (real service)`; the document records
+the account, region, bucket, table, commit and exact command; the superseded emulator
+evidence is **named rather than erased**, with its recipe still reproducible and AC3's
+rule intact; the AC3 sentence naming which backends hold real-service rows is corrected
+(filesystem, SQLite, S3, DynamoDB — **not** R2); the operator's two findings are recorded
+with their trade-off; and `CHANGELOG.md` / `.spec/STATUS.md` no longer describe the AWS
+rows as emulator evidence.
+
 ---
 
 ## Recorded deviations
@@ -574,6 +616,12 @@ so nobody does it early and deletes the reviewer's own evidence.
       "tasks": [
         "6.1",
         "6.2"
+      ]
+    },
+    {
+      "id": 6,
+      "tasks": [
+        "6.3"
       ]
     }
   ]

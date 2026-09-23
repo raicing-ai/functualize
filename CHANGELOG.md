@@ -18,17 +18,23 @@ one of the latter with its reason.
 The probe that produced it lives in `tests/substrate_probe/` and is part of the
 default test run. It stays green on a machine with no network, no Docker and no
 cloud account: backends whose credentials are absent skip at module level and
-record `NOT MEASURED`, never a failure and never a fallback to a fake. Two
-columns are `measured (emulator)` against a local AWS emulator and are marked
-as such on every cell, because a stand-in's behaviour is evidence about the
-stand-in.
+record `NOT MEASURED`, never a failure and never a fallback to a fake. The four
+measured columns — the JSON filesystem, local SQLite, AWS S3 and AWS DynamoDB —
+all carry `measured (real service)`; the AWS pair was first measured against a
+local emulator and re-measured against AWS on 2026-09-23, because a stand-in's
+behaviour is evidence about the stand-in.
 
 Two findings are worth a reader's time before they pick a backend. DynamoDB's
 `TransactWriteItems` held under contention — eight writers racing one
 conditional key while carrying a sibling write produced exactly one winner and
 no orphaned sibling — and a conditional `PutObject` serialised eight concurrent
-creators down to one. Both were measured against the emulator, so neither yet
-backs a shipping decision.
+creators down to one. Both are measured against the real services.
+
+A third is worth it for anyone tempted to trust an emulator: all twenty AWS
+values were identical between the emulator and AWS, but a round trip took 5 ms
+against the emulator and 105 ms against AWS. The `remote` answer was right
+either way; its consequence, which a read-modify-write loop pays per step, was
+out by twenty-fold. An emulator cannot measure latency.
 
 Also added: `FUNCTUALIZE_PROBE_R2_*` in `.env.example`, for the one question
 the probe could not answer — whether Cloudflare R2's conditional `PutObject` is

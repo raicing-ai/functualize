@@ -2,8 +2,10 @@
 
 What seven storage backends **actually do**, measured by running operations against them
 rather than by reading their documentation. The instrument is `tests/substrate_probe/`;
-every cell below was produced by it on `spike/substrate-capability-probe` at `ecdcffd`,
-2026-09-23 (FUN-25).
+every cell below was produced by it on `spike/substrate-capability-probe` (FUN-25). The
+two local columns were measured 2026-09-23 at `ecdcffd`; the two AWS columns were
+**re-measured against the real service** 2026-09-23 at `4ee9731`, in account
+`131160053496`, `us-east-1` — see *Provenance* below.
 
 This exists because the alternative already failed once. `Stored.revision` was an `int`
 for the whole life of the filesystem substrate — correct for a counter, wrong for
@@ -34,7 +36,15 @@ first row of the table states it in full, and each cell repeats it in short form
 
 **An emulator row may never back a shipped field.** `measured (emulator)` says a
 stand-in behaved a certain way, which is evidence about the stand-in. Before any backend
-here is proposed for shipping, its fields need `measured (real service)` rows.
+here is proposed for shipping, its fields need `measured (real service)` rows. No column
+in the table below currently carries emulator evidence — the AWS columns did until they
+were re-measured against the real service — but the level is kept, and kept defined,
+because the emulator path is still reproducible and the next backend measured through one
+inherits this rule.
+
+**Which backends have real-service rows:** the JSON filesystem, local SQLite, AWS S3 and
+AWS DynamoDB. **Cloudflare R2, Cloudflare D1, Turso/libSQL and Supabase Postgres do
+not** — they have no measured rows at all.
 
 **The three instruments are not columns.** `BatchOnlySqliteDriver`, `FakeObjectStore` and
 `FakeItemStore` (`tests/substrate_probe/fakes.py`) model vendor constraints — a driver
@@ -63,24 +73,26 @@ and did.
 
 | | filesystem | local SQLite | Cloudflare D1 | AWS S3 | Cloudflare R2 | AWS DynamoDB | Turso / libSQL | Supabase Postgres |
 |---|---|---|---|---|---|---|---|---|
-| **evidence level, every cell** | `measured (real service)` | `measured (real service)` | `NOT MEASURED` | `measured (emulator)` | `NOT MEASURED` | `measured (emulator)` | `NOT MEASURED` | `NOT MEASURED` |
-| `cross_aggregate_atomicity` | no · real | **yes** · real | NOT MEASURED | no · emu | NOT MEASURED | **yes** · emu | NOT MEASURED | NOT MEASURED |
-| `fencing` | cross-process · real | cross-process · real | NOT MEASURED | cross-process · emu | NOT MEASURED | cross-process · emu | NOT MEASURED | NOT MEASURED |
-| `multi_process` | yes · real | yes · real | NOT MEASURED | yes · emu | NOT MEASURED | yes · emu | NOT MEASURED | NOT MEASURED |
-| `multi_machine` | no · real | no · real | NOT MEASURED | yes · emu | NOT MEASURED | yes · emu | NOT MEASURED | NOT MEASURED |
-| `durable_outbox` | no · real | **yes** · real | NOT MEASURED | no · emu | NOT MEASURED | **yes** · emu | NOT MEASURED | NOT MEASURED |
-| `versioned_migrations` | no · real | no · real | NOT MEASURED | no · emu | NOT MEASURED | no · emu | NOT MEASURED | NOT MEASURED |
-| `interactive_transaction` | yes · real | yes · real | NOT MEASURED | no · emu | NOT MEASURED | no · emu | NOT MEASURED | NOT MEASURED |
-| `remote` | no · real | no · real | NOT MEASURED | yes · emu | NOT MEASURED | yes · emu | NOT MEASURED | NOT MEASURED |
-| `max_document_bytes` | unbounded¹ · real | unbounded¹ · real | NOT MEASURED | unbounded¹ · emu | NOT MEASURED | **389 120** · emu | NOT MEASURED | NOT MEASURED |
-| `offline_capable` | yes · real | yes · real | NOT MEASURED | no · emu | NOT MEASURED | no · emu | NOT MEASURED | NOT MEASURED |
+| **evidence level, every cell** | `measured (real service)` | `measured (real service)` | `NOT MEASURED` | `measured (real service)` | `NOT MEASURED` | `measured (real service)` | `NOT MEASURED` | `NOT MEASURED` |
+| `cross_aggregate_atomicity` | no · real | **yes** · real | NOT MEASURED | no · real | NOT MEASURED | **yes** · real | NOT MEASURED | NOT MEASURED |
+| `fencing` | cross-process · real | cross-process · real | NOT MEASURED | cross-process · real | NOT MEASURED | cross-process · real | NOT MEASURED | NOT MEASURED |
+| `multi_process` | yes · real | yes · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | NOT MEASURED | NOT MEASURED |
+| `multi_machine` | no · real | no · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | NOT MEASURED | NOT MEASURED |
+| `durable_outbox` | no · real | **yes** · real | NOT MEASURED | no · real | NOT MEASURED | **yes** · real | NOT MEASURED | NOT MEASURED |
+| `versioned_migrations` | no · real | no · real | NOT MEASURED | no · real | NOT MEASURED | no · real | NOT MEASURED | NOT MEASURED |
+| `interactive_transaction` | yes · real | yes · real | NOT MEASURED | no · real | NOT MEASURED | no · real | NOT MEASURED | NOT MEASURED |
+| `remote` | no · real | no · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | NOT MEASURED | NOT MEASURED |
+| `max_document_bytes` | unbounded¹ · real | unbounded¹ · real | NOT MEASURED | unbounded¹ · real | NOT MEASURED | **389 120** · real | NOT MEASURED | NOT MEASURED |
+| `offline_capable` | yes · real | yes · real | NOT MEASURED | no · real | NOT MEASURED | no · real | NOT MEASURED | NOT MEASURED |
 
 ¹ **"unbounded" means "nothing refused what was attempted"**, not "there is no limit". The
 sizes walked were 4 MiB for the two local backends and 8 MiB for S3. S3 documents a 5 GiB
 single-PUT limit; it is not in the cell because it was not measured.
 
-**Count:** 80 cells. **40 measured** — 20 `measured (real service)`, 20
-`measured (emulator)` — and **40 `NOT MEASURED`**, every one of them with a reason below.
+**Count:** 80 cells. **40 measured**, all of them `measured (real service)` — and
+**40 `NOT MEASURED`**, every one of them with a reason below. No cell is
+`measured (emulator)` any more; the twenty AWS cells were until 2026-09-23, and what
+changed is recorded under *Provenance*.
 
 ## Why each unmeasured column is unmeasured
 
@@ -98,9 +110,10 @@ variables exist. D1 has a free tier.
 
 **Cloudflare R2** — `NOT MEASURED (no R2 credentials)`. `FUNCTUALIZE_PROBE_R2_ENDPOINT`,
 `FUNCTUALIZE_PROBE_R2_ACCESS_KEY_ID` and `FUNCTUALIZE_PROBE_R2_SECRET_ACCESS_KEY` are not
-set. R2 has no emulator, and the S3 column beside it is **not** a substitute: floci's
-answer is floci's, and R2 speaks S3's API without thereby making S3's guarantees. This is
-the column that leaves open question 1 open.
+set. R2 has no emulator, and the S3 column beside it is **not** a substitute — neither
+before nor after the re-measurement. The emulator's answer was the emulator's; AWS S3's
+answer is AWS S3's; and R2 speaks S3's API without thereby making S3's guarantees. This
+is the column that leaves open question 1 open.
 
 **Turso / libSQL** — `NOT MEASURED (client absent, no credentials)`. Both causes apply:
 `import libsql_client` fails and no first-party package declares it, so installing it is a
@@ -120,8 +133,8 @@ what the probe recorded; none is a restatement of a docstring.
 
 `JsonFileSubstrate` and the SQLite substrate plugin are measured `real` because for them
 the real service **is** this host — no account, no endpoint, no container. They are the
-only backends in this document whose fields are currently eligible to back a shipping
-decision, and the two rows that separate them are the two the port exists to distinguish:
+only backends in this document that ship today, and the two rows that separate them are
+the two the port exists to distinguish:
 
 - **Can two keys be written so that either both land or neither does?** A state write and
   its outbox row were sent as one unit with the second doomed by a payload JSON cannot
@@ -142,12 +155,12 @@ decision, and the two rows that separate them are the two the port exists to dis
   the answer is a property of the run rather than an inference. That is also why these two
   backends satisfy the no-network, no-Docker, no-credentials requirement by construction.
 
-### AWS DynamoDB, against the floci emulator
+### AWS DynamoDB, against the real service
 
 The reason DynamoDB is in this evaluation is `TransactWriteItems` — the one call among
 these backends that writes two different keys as a unit. Its existence was established
-first (the emulator implements it and cancels atomically); what the matrix rests on is the
-guarantee **under contention**:
+first against an emulator; what the matrix rests on is the guarantee **under contention**,
+measured against AWS itself:
 
 > Eight writers, each with its own client, raced one conditional key while carrying a
 > sibling write in the same `TransactWriteItems`. **1 committed**, the rest were refused
@@ -166,7 +179,7 @@ a page: the client offers `ExecuteTransaction`, `TransactGetItems` and `Transact
 and **no begin/commit pair**, so a transaction is one request carrying every item and
 there is no handle to hold across a Python decision.
 
-### AWS S3, against the floci emulator
+### AWS S3, against the real service
 
 The same race, asked of a conditional `PutObject` — and it is the same question open
 question 1 asks of R2:
@@ -195,11 +208,13 @@ reason: nobody has an R2 bucket. The instrument exists, is proven, and runs agai
 S3-compatible endpoint the moment `FUNCTUALIZE_PROBE_R2_*` is set — the S3 column above
 was produced by the same code path.
 
-It cannot be closed by inference. R2 speaks S3's API; that is a statement about request
-shapes, not about what happens when eight writers arrive at once. The S3 result beside it
-was measured against an emulator, so it is not even S3's own answer. **Anything built on
-R2 that assumes a compare-and-swap is safe is assuming this, and this is not known.**
-Cost to close: one R2 bucket, free tier.
+It cannot be closed by inference, and the S3 column beside it now makes that easier to
+get wrong rather than harder. Since 2026-09-23 that column is a real measurement of AWS
+S3 — but it is a measurement of **S3**. R2 speaks S3's API, and that is a statement about
+request shapes, not about what happens inside a different vendor's storage engine when
+eight writers arrive at once. A borrowed answer here would be the most plausible mistake
+this document could invite. **Anything built on R2 that assumes a compare-and-swap is
+safe is assuming this, and this is not known.** Cost to close: one R2 bucket, free tier.
 
 ### Q2 — What is D1's absolute REST latency from a developer's machine?
 
@@ -242,15 +257,84 @@ uv run pytest -q tests/substrate_probe/
 That must be green on a machine with no network, no Docker and no credentials — a
 contributor with no cloud account sees skips, never failures.
 
-The two `emu` columns need an emulator, and the endpoint must be named explicitly. The
-probe will not go looking for something on a local port: a probe that adopts whatever
-happens to hold a port is how a measurement ends up describing the wrong service.
+The two AWS columns need credentials. They are `measured (real service)` and were
+produced by the runner described under *Provenance* below.
+
+### Provenance of the two AWS columns
+
+Measured **2026-09-23**, against the branch at `4ee9731`, by the operator's runner:
+
+```console
+$ ~/.config/fun25/run-probe.sh
+5 passed, 2 skipped in 14.04s
+```
+
+The runner exports a least-privilege credential set and **unsets `AWS_ENDPOINT_URL`**, so
+the run is stamped `measured (real service)` rather than emulator. The two skips are the
+two by-design expectations: the "no emulator reachable" case and the R2 case.
+
+| | |
+|---|---|
+| Account | `131160053496`, region `us-east-1` |
+| S3 bucket | `fun25-substrate-probe-131160053496` — public access blocked, 7-day object lifecycle |
+| DynamoDB table | `fun25-substrate-probe` — `pk` S HASH, `PAY_PER_REQUEST` |
+| IAM | user `fun25-substrate-probe`, policy `Fun25SubstrateProbeAccess` — that bucket, that table, and `table/fun25-probe-*`; nothing else in the account is reachable |
+| Command | `~/.config/fun25/run-probe.sh` (equivalently: export the credentials, unset `AWS_ENDPOINT_URL`, `uv run pytest -q tests/substrate_probe/s3.py tests/substrate_probe/dynamodb.py`) |
+
+**What the emulator got right, and the one thing it could not tell you.** Before this run
+both AWS columns were `measured (emulator)` against floci 2.1.0, and **all twenty values
+were identical** — the contention results, the `ValidationException` at 430 080 bytes, the
+389 120-byte item accepted below it, every boolean. That is a real endorsement of the
+emulator for these ten questions, and it is worth recording because it was not knowable in
+advance.
+
+What changed is the evidence behind one row. A `HeadBucket` round trip took **5 ms**
+against floci and **105 ms** against S3; `DescribeTable` took **8 ms** and **104 ms**. The
+`remote` cell's answer (`yes`) was right either way, but its consequence — *a
+read-modify-write loop pays this per step* — is a twenty-fold different number, and a
+200-transition workflow is the difference between one second and twenty-one. **An emulator
+cannot measure latency**, and no amount of agreement on the other nine rows would have
+revealed that.
+
+### Two things to know before re-running this
+
+Both were found by the operator during the credential run. Neither is repaired here:
+each is a trade-off with an operator-visible consequence rather than a defect, and
+changing either would alter the code path the measurements above came from.
+
+1. **`FUNCTUALIZE_PROBE_DDB_TABLE` is inert under pytest, and the transient table is a
+   feature as much as an accident.** The root `tests/conftest.py::_isolate_home` fixture
+   strips every `FUNCTUALIZE_*` variable, and `dynamodb.py::_table()` reads the variable
+   at call time rather than at import — so each pytest run creates and deletes its own
+   `fun25-probe-<hex>` table, and the declared `fun25-substrate-probe` table is used only
+   by runs outside pytest. That is why the IAM policy also grants `CreateTable` /
+   `DeleteTable` on `table/fun25-probe-*`. Honouring the declared table would be *safe*
+   — every item is already keyed with a per-run `uuid4` prefix — but it would trade
+   per-run table isolation and automatic cleanup (the module has no item-level cleanup
+   path) for symmetry with S3 and a narrower policy. That is a decision with an IAM
+   consequence, not a bug fix.
+2. **S3 and DynamoDB resolve their target at different times, and the asymmetry is
+   visible.** `s3.py` reads `FUNCTUALIZE_PROBE_S3_BUCKET` at *import*, before the
+   stripping fixture runs, so the declared bucket **is** honoured under pytest.
+   `dynamodb.py` resolves per call, so the fixture wins. If the declared table should be
+   honoured too, the read has to move to import time the same way — that is the shape of
+   the change, and it is out of scope for this document.
+
+The **emulator path is still supported and still reproducible** — it is how the AWS
+columns were first measured, and how anyone without an account can exercise the same code.
+The endpoint must be named explicitly: the probe will not go looking for something on a
+local port, because a probe that adopts whatever happens to hold a port is how a
+measurement ends up describing the wrong service.
 
 ```bash
 docker run -d --name floci -p 4566:4566 floci/floci:latest
 AWS_ENDPOINT_URL=http://localhost:4566 uv run pytest -q tests/substrate_probe/dynamodb.py
 AWS_ENDPOINT_URL=http://localhost:4566 uv run pytest -q tests/substrate_probe/s3.py
 ```
+
+Anything measured that way is `measured (emulator)` and may not back a shipped field. The
+probe stamps the level from the environment, so this is not a matter of remembering to
+write it down.
 
 The unmeasured columns need the variables declared in `.env.example`: `CLOUDFLARE_*` for
 D1, `FUNCTUALIZE_PROBE_R2_*` for R2, `TURSO_*` for Turso and `SUPABASE_DB_URL` for
@@ -260,9 +344,10 @@ declares.
 ## What this does not say
 
 - It does not say any backend is suitable. It says what each one did when asked.
-- It does not upgrade an emulator result. Two of the four measured columns are emulator
-  evidence, and the port decision that follows this needs real-service rows for whatever
-  it proposes to ship.
+- It does not upgrade an emulator result. The AWS columns are real-service rows because
+  the probe was re-run against AWS, not because anyone decided the emulator had been
+  close enough — and it *was* close enough, which is a fact about floci rather than a
+  licence to skip the real run.
 - It does not cover the substrate port itself. The probe measures backends **directly**,
   through each one's own client, because measuring through an adapter would measure the
   adapter. The single exception is the two shipping backends, where the substrate is the
