@@ -403,7 +403,7 @@ credentials absent ⇒ module skip, suite still green.
 
 ## Wave 5 — publish
 
-### [ ] T12 · 6.1 — The results matrix, and the three open questions settled
+### [x] T12 · 6.1 — The results matrix, and the three open questions settled
 
 **Files:** `contributor/reference/substrate-capability-matrix.md`
 
@@ -421,8 +421,10 @@ rg -c 'cross_aggregate_atomicity|fencing|multi_process|multi_machine|durable_out
 ```
 now: `0` · after: `10`
 
-*(Predicted — one matching row per field. Measure and correct when ticking. `remote` is
-anchored to a row start because it is a substring of other words.)*
+*(Predicted `10`; measured `10` at the tick. It holds because the ten field identifiers
+appear **only** on the ten matrix rows — the prose sections key their headings off each
+field's question rather than its name, so the gate still means "one row per field" rather
+than "the names appear somewhere".)*
 
 **Done when:** ten question rows × seven backend columns; **every** cell carries one of
 the four evidence levels or an explicit `NOT MEASURED` with a reason; open questions 1, 2
