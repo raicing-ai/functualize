@@ -35,6 +35,10 @@ Prerequisite: all tasks in `.spec/features/<name>/tasks.md` are [x].
 5. Update `.spec/STATUS.md`: move the feature to Recently Completed
 6. Migrate what survives — the decision to `.spec/STATUS.md` or
    `contributor/adr/`, any working rule to `contributor/guides/`.
-7. `git rm -r .spec/features/<name>` — the required `spec-artifacts-cleared`
-   check blocks the merge until this lands. The full artifacts stay recoverable
+7. `git rm -r .spec/features/<name>` — and `git rm -r
+   contributor/architecture/research/**` if the branch carries it (every FUN-*
+   branch does, inherited from `docs/runtime-persistence-research`). The
+   required `spec-artifacts-cleared` check blocks the merge until the first
+   lands; `research-artifacts-cleared` reports the second. Both deletions may
+   ride the one deletion-only commit. The full artifacts stay recoverable
    from the pull request: `git fetch origin refs/pull/<N>/head`.

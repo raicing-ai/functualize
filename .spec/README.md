@@ -43,7 +43,7 @@ New features follow the spec-driven-development phases described in `.claude/age
 | 4: Execute | Tasks ready | Implementation + `[x]` checkmarks |
 | 5: Verify | All `[x]` | Gate passes, ROADMAP.md updated |
 
-Session-local files (`STATE.md`, `proposals/`, `scrutiny-reports/`) are gitignored. `features/` is tracked on the working branch so its acceptance gates can be reviewed, then cleared in a deletion-only final commit after validation and archive. That final push skips redundant validation only when the previous PR run's validation jobs were green; `spec-artifacts-cleared` still runs. Master keeps only permanent design decisions; shape intents live in Confluence, not on any branch.
+Session-local files (`STATE.md`, `proposals/`, `scrutiny-reports/`) are gitignored. `features/` is tracked on the working branch so its acceptance gates can be reviewed, then cleared in a deletion-only final commit after validation and archive. That final push skips redundant validation only when the previous PR run's validation jobs were green; `spec-artifacts-cleared` still runs, and so does `research-artifacts-cleared`. That second gate is the research half of the 2026-09-22 member rule: `contributor/architecture/research/**` is working material and never reaches `master`, so a durable half migrates to `contributor/reference/` or `contributor/adr/` and the tree is deleted (the same final commit may carry both deletions). Master keeps only permanent design decisions; shape intents live in Confluence, not on any branch.
 
 ## Session documents vs. the committed record
 

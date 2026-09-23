@@ -1,8 +1,9 @@
 """Allow the final spec cleanup only after its parent passed PR validation.
 
-The feature-bearing PR run cannot conclude success: ``spec-artifacts-cleared``
-must fail until the artifacts are deleted. All other CI jobs must be green.
-Missing API data or an incomplete run means the cleanup must run full CI.
+The feature-bearing PR run cannot conclude success: the artifact gates
+(``spec-artifacts-cleared``, ``research-artifacts-cleared``) must fail while
+their trees are still tracked. All other CI jobs must be green. Missing API data
+or an incomplete run means the cleanup must run full CI.
 """
 
 from __future__ import annotations
@@ -12,6 +13,17 @@ import os
 import sys
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+# The gates that refuse a tree which is cleared before merge rather than
+# validated. A feature-bearing run is expected to fail them — that failure is
+# the evidence that the commit carried the artifacts — so neither is required to
+# be green here. At least one must have run and failed.
+ARTIFACT_GATES = frozenset(
+    {
+        "spec-artifacts-cleared",
+        "research-artifacts-cleared",
+    }
+)
 
 VALIDATION_JOBS = frozenset(
     {
@@ -43,7 +55,7 @@ def validation_errors(jobs: list[dict[str, object]]) -> list[str]:
     missing_or_red.extend(
         str(job.get("name"))
         for job in jobs
-        if job.get("name") != "spec-artifacts-cleared"
+        if str(job.get("name")) not in ARTIFACT_GATES
         and job.get("conclusion") != "success"
         and str(job.get("name")) not in missing_or_red
     )
@@ -101,11 +113,13 @@ def main() -> int:
         if jobs_data.get("total_count", len(jobs)) > len(jobs):
             print("The prior CI job list is incomplete; running full CI.")
             return 1
-        artifact_gate = next(
-            (job for job in jobs if job.get("name") == "spec-artifacts-cleared"),
-            None,
+        failing_gates = sorted(
+            str(job.get("name"))
+            for job in jobs
+            if str(job.get("name")) in ARTIFACT_GATES
+            and job.get("conclusion") == "failure"
         )
-        if artifact_gate is None or artifact_gate.get("conclusion") != "failure":
+        if not failing_gates:
             print("The prior feature-bearing run has no failing artifact gate.")
             return 1
         failures = validation_errors(jobs)
@@ -114,7 +128,10 @@ def main() -> int:
                 "The prior CI run has missing or non-green jobs: " + ", ".join(failures)
             )
             return 1
-        print(f"Prior PR validation is green on {parent_sha} (run {run['id']}).")
+        print(
+            f"Prior PR validation is green on {parent_sha} (run {run['id']}; "
+            f"{', '.join(failing_gates)} red as expected)."
+        )
         return 0
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Could not verify prior CI ({type(error).__name__}); running full CI.")
