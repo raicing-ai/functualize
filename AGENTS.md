@@ -56,7 +56,10 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
   3.13), which GitHub reports by leg and not as a bare `test-full`, plus
   `spec-only-change` and `spec-artifacts-cleared`. Admins can bypass it —
   do not, not even for the release commit: the version bump rides the feature PR
-  like any other change.
+  like any other change. The ruleset is not the whole check list:
+  `research-artifacts-cleared` reports the research half of the 2026-09-22
+  member rule on every PR and is **not yet a required context** — see
+  `CONTRIBUTING.md` § *Spec-driven PR validation and cleanup*.
 - Commit subjects are [Conventional Commits](https://www.conventionalcommits.org/):
   `<type>(<scope>)!: <subject>` with types `feat fix docs refactor test perf ci
   build chore revert`. Imperative, lowercase, no trailing period, ≤72 chars.
@@ -278,6 +281,16 @@ Committed reference: `ARCHITECTURE.md`, `CONSTITUTION.md`, `TESTING.md`,
 Committed **on the branch only**, cleared before merge: `features/<name>/` —
 `spec.md`, `contracts.md`, `plan.md`, `schema.md`, `research.md`, `tasks.md`.
 The required `spec-artifacts-cleared` CI check blocks merging while any remain.
+
+Never tracked at all: `contributor/architecture/research/**` — the research and
+handoff half of the 2026-09-22 member rule ("do not include the research and
+handoff documents along the documents to merge with master"), which binds every
+FUN-* branch. `master` tracks no such directory, and the
+`research-artifacts-cleared` CI check fails while that tree carries tracked
+files; a durable half belongs in `contributor/reference/` (a citable reference)
+or `contributor/adr/` (a decision). Because every FUN-* branch is cut from
+`docs/runtime-persistence-research`, the tree arrives on the branch rather than
+in the diff, which is why it needs a gate.
 
 Gitignored: `STATE.md` (per-session; if absent, treat as no work in flight),
 `plans/`, `proposals/`, `scrutiny-reports/`, `archive/`.

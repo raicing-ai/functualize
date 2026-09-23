@@ -62,13 +62,21 @@ Before merge they are cleared: migrate the durable half to `.spec/STATUS.md` or
 `contributor/adr/`, then `git rm -r .spec/features/<name>`. The required
 `spec-artifacts-cleared` check blocks the merge until that lands.
 
+`contributor/architecture/research/**` is the other tree a merge must not carry
+(the 2026-09-22 member rule). It is never cleared-and-kept: `master` tracks none
+of it, and a durable half migrates to `contributor/reference/` or
+`contributor/adr/`. `research-artifacts-cleared` reports it on every PR and fails
+while the tree is tracked; it is not yet a required context, so it is watched
+rather than enforced.
+
 Use two pushes for the pre-merge sequence. Push the feature-bearing branch and
 wait for its validation jobs, including all three full-test matrix jobs, to
-pass. `spec-artifacts-cleared` is expected to fail while the artifacts remain.
+pass. The artifact checks are expected to fail while the artifacts remain.
 Archive the feature files and migrate durable knowledge, then make the **last**
-commit deletion-only under `.spec/features/` and push it. CI checks that this
+commit deletion-only under `.spec/features/`, `contributor/architecture/research/`
+or both, and push it. CI checks that this
 commit's parent passed validation before skipping the redundant jobs; it still
-runs `spec-artifacts-cleared` and reports the required matrix check names. If
+runs the artifact checks and reports the required matrix check names. If
 another source, workflow, or documentation change is needed, make it before
 the final cleanup commit so it receives full validation. A mixed cleanup commit
 or a missing prior green run receives full validation as well.

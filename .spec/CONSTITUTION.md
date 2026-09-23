@@ -103,6 +103,8 @@ Users import from public folders. Contributors work in internal folders. The `_c
 
   The exception buys three things the gitignored arrangement could not: a reviewer can see the wave graph and the acceptance gates the diff claims to satisfy; `agentic-verify` step 2b's walk of `contracts.md` is auditable rather than private; and the artifacts travel across worktrees with the branch. Withdrawing the `VCS.2` check withdraws the exception with it — the two are one decision, not two.
 
+  **Research studies never reach `master` (member rule, 2026-09-22).** Nothing under `contributor/architecture/research/**` is merged — a study is working material, not the record, and it is not a case of the exception above. Its *decision* migrates to `contributor/adr/`, a durable and citable reference to `contributor/reference/`, and the gate that says so is the `research-artifacts-cleared` CI check (`git ls-files contributor/architecture/research/` must be empty), the sibling of the `.spec/features/` gate. This rule exists because the tree rides in with the branch rather than the diff: every FUN-* branch is cut from `docs/runtime-persistence-research`, whose `34455e5` carries the `durability-outsourcing/` and `runtime-persistence-engine-owned/` studies, so 20 files / 5107 lines of research would have merged invisibly.
+
 ## Quality Gates
 - All changes must pass: `uv run ruff check src/ tests/`, `uv run ruff format --check src/ tests/`, `uv run mypy src/`, `uv run pytest`
 - `uv run lint-imports` must pass with zero contract violations (enforces layer dependency rules)

@@ -298,9 +298,12 @@ and the post-merge run on `master` is the one `release.yml`'s `verify-ci` requir
 anyway. The spec-clearing push that precedes the merge is cheap too —
 `.github/workflows/ci.yml`'s `spec-only-change` gate skips the heavy jobs when a push
 touches only `.spec/`, which covers the `.spec/STATUS.md` migration the clearing step
-performs alongside the `git rm`. `spec-artifacts-cleared` still runs on that push and
+performs alongside the `git rm`; the same gate recognizes a deletion-only commit that
+clears `contributor/architecture/research/**`, with or without the `.spec/features/`
+half. `spec-artifacts-cleared` still runs on that push and
 reports on the cleared head — it is a required context, so that green light is what
-actually unlocks the merge.
+actually unlocks the merge — and `research-artifacts-cleared` reports the research
+tree on every push, required or not.
 
 **Gate execution order (fixed — never reorder):**
 

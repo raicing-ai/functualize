@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — a measured capability matrix for seven storage backends
+
+**Contributor-facing; no runtime behaviour changes.** `contributor/reference/substrate-capability-matrix.md`
+records what seven candidate storage backends actually do, asked by running
+operations against them rather than by reading their documentation (FUN-25).
+Ten fields, eight columns, 80 cells — 76 measured and 4 explicitly not, every
+one of the latter with its reason.
+
+The probe that produced it lives in `tests/substrate_probe/` and is part of the
+default test run. It stays green on a machine with no network, no Docker and no
+cloud account: backends whose credentials are absent skip at module level and
+record `NOT MEASURED`, never a failure and never a fallback to a fake. The five
+measured columns — all eight, from the JSON filesystem and local SQLite
+through AWS S3, AWS DynamoDB, Cloudflare R2, Turso/libSQL and Supabase Postgres
+to Cloudflare D1 — carry `measured (real service)` cells; D1's column is the one
+mixed row, six of ten, and the AWS pair was first
+measured against a local emulator and re-measured against AWS on 2026-09-23,
+because a stand-in's behaviour is evidence about the stand-in, and Turso was
+measured the same day once its credentials arrived.
+
+Two findings are worth a reader's time before they pick a backend. DynamoDB's
+`TransactWriteItems` held under contention — eight writers racing one
+conditional key while carrying a sibling write produced exactly one winner and
+no orphaned sibling — and a conditional `PutObject` serialised eight concurrent
+creators down to one. Both are measured against the real services.
+
+A third is worth it for anyone tempted to trust an emulator: all twenty AWS
+values were identical between the emulator and AWS, but a round trip took 5 ms
+against the emulator and 105 ms against AWS. The `remote` answer was right
+either way; its consequence, which a read-modify-write loop pays per step, was
+out by twenty-fold. An emulator cannot measure latency.
+
+Also added: `FUNCTUALIZE_PROBE_R2_*` in `.env.example`, for the question the
+probe could not answer when this entry was written — whether Cloudflare R2's
+conditional `PutObject` is atomic under concurrent writers. **It is, and that
+was measured on 2026-09-23 rather than borrowed from S3**: eight writers raced
+one absent key and exactly one won, the other seven refused. R2 has no emulator,
+which is why S3's answer was never accepted for it.
+
 ### Fixed — a superseded runner could overwrite live job state, and three more persistence defects beside it
 
 **Breaking, pre-release.** Four defects in the document stores, repaired before

@@ -262,6 +262,14 @@ artifacts: before merge, preserve durable decisions in `.spec/STATUS.md` or
 `contributor/`, store the complete feature record in a durable external archive
 site, and delete the tracked `.spec/features/` files.
 
+The research half of the 2026-09-22 member rule is the second tree a merge must
+not carry: `contributor/architecture/research/**` is never tracked on `master`,
+and no FUN-* branch was supposed to have it either. It arrives anyway, because
+every FUN-* branch is cut from `docs/runtime-persistence-research`, so 20 files
+of studies ride a branch that merges code. `research-artifacts-cleared` reports
+that tree; the durable half belongs in `contributor/reference/` (a citable
+reference) or `contributor/adr/` (a decision).
+
 The pre-merge sequence uses two pushes:
 
 ```text
@@ -277,15 +285,17 @@ spec-only-change
               ├─ examples, plugin-mcp, clean-clone-examples
               └─ doc-verify, docs-build
         │
-        └─ spec-artifacts-cleared fails while .spec/features/ remains
+        ├─ spec-artifacts-cleared fails while .spec/features/ remains
+        └─ research-artifacts-cleared fails while
+           contributor/architecture/research/ remains
 ```
 
-That artifact check is expected to fail on the feature-bearing push. The
-validation jobs must pass; the failing artifact check records that cleanup has
+Those artifact checks are expected to fail on the feature-bearing push. The
+validation jobs must pass; the failing artifact checks record that cleanup has
 not happened yet.
 
 After validation, make the final commit deletion-only under
-`.spec/features/`:
+`.spec/features/`, `contributor/architecture/research/`, or both:
 
 ```text
 Deletion-only cleanup push
@@ -294,12 +304,13 @@ Deletion-only cleanup push
 spec-only-change
         │
         ├─ Confirm every changed path is a deletion under .spec/features/
+        │  or contributor/architecture/research/
         ├─ Find the cleanup commit's parent PR run
         ├─ Verify every parent validation job succeeded
         └─ .github/scripts/verify_cleanup_predecessor.py
               │
               ├─ Evidence valid → skip redundant validation
-              │                    └─ spec-artifacts-cleared still runs
+              │                    └─ both artifact gates still run
               │
               └─ Evidence missing, incomplete, or not green
                                    └─ run the full validation jobs
@@ -310,6 +321,8 @@ is empty. A mixed cleanup commit, any source/documentation/workflow change, or
 an unavailable or non-green predecessor run causes full validation instead.
 `spec-only-change` itself remains a required check, and
 `spec-artifacts-cleared` remains required on the cleanup push.
+`research-artifacts-cleared` runs on that push too, but is not yet a required
+context — see below.
 
 ## Branching Strategy
 
@@ -546,6 +559,16 @@ dropped one blocks every merge.
 `spec-only-change` and `spec-artifacts-cleared` were added on 2026-09-09, and
 each closes a hole rather than adding coverage.
 
+`research-artifacts-cleared` was added on 2026-09-23 for the same reason, on the
+other half of the 2026-09-22 member rule. It is the same job shape —
+`git ls-files contributor/architecture/research/`, a message naming the
+migration, then `exit 1` — and it is **reported but not yet required**: nothing
+in the `master` ruleset lists it, so it is visible on every PR and blocks
+nothing. Registering it is a repository-settings change (ruleset `master`,
+context `research-artifacts-cleared`), and until that happens the exclusion is
+watched rather than enforced. `.github/workflows/ci.yml` carries the same note at
+the job.
+
 `spec-artifacts-cleared` is what `.spec/CONSTITUTION.md` grants its
 `.spec/features/` tracking exception *on the condition of* — "it blocks merge
 while `git ls-files .spec/features/` is non-empty, so master still accumulates
@@ -563,14 +586,17 @@ carries no `if:`, so it reports `cancelled` and holds the merge. Do not give
 that job a condition.
 
 Despite its historical name, `spec-only-change` now recognizes only the final
-deletion-only `.spec/features/` commit on a PR. It checks the parent commit's
+deletion-only artifact commit on a PR — one whose every changed path is a
+deletion under `.spec/features/` or `contributor/architecture/research/`, the two
+trees the artifact gates refuse. It checks the parent commit's
 latest completed CI run and requires every validation job to have succeeded;
-the earlier run's overall conclusion is expected to be red solely because
-`spec-artifacts-cleared` refuses the still-present feature files. If the run
+the earlier run's overall conclusion is expected to be red solely because the
+artifact gates refuse the still-present artifacts. If the run
 cannot be found or a validation job is not green, the cleanup commit runs full
 CI. The three required `test-full` matrix contexts still appear on the final
-commit through inexpensive skip steps, while `spec-artifacts-cleared` runs and
-must pass. An empty `.spec/features/` directory by itself is not a skip signal:
+commit through inexpensive skip steps, while both artifact gates run — the spec
+gate must pass, and the research gate reports on the tree this push clears. An
+empty `.spec/features/` directory by itself is not a skip signal:
 later code changes have not been covered by the previous run.
 
 Repository and organization admins can bypass the ruleset. Do not use it:

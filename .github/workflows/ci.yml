@@ -12,14 +12,17 @@ jobs:
   #
   # The spec-driven workflow first commits feature artifacts so they are
   # reviewable, runs the full gate set, and only then pushes one cleanup commit
-  # deleting those artifacts. Only that final deletion-only commit is
-  # redundant. Earlier feature commits, ordinary code commits, and a cleanup
-  # commit mixed with source/doc changes all run normally.
+  # deleting those artifacts. That commit clears the two trees the artifact
+  # gates refuse — `.spec/features/**` and `contributor/architecture/research/**`
+  # — so a deletion-only commit touching either, or both, is the shape
+  # recognized here. Only that final deletion-only commit is redundant. Earlier
+  # feature commits, ordinary code commits, and a cleanup commit mixed with
+  # source/doc changes all run normally.
   #
   # On a PR, inspect the head commit itself; base..head includes the whole PR.
   # The parent must have a completed CI run with every validation job green.
-  # That run's overall conclusion is red by design because
-  # spec-artifacts-cleared must fail while feature artifacts are present.
+  # That run's overall conclusion is red by design because the artifact gates
+  # must fail while their trees are still tracked.
   # Missing API data fails closed into a full run.
   # ---------------------------------------------------------------------------
   spec-only-change:
@@ -35,7 +38,7 @@ jobs:
           # The PR head and its parent must both be available for inspection.
           fetch-depth: 0
 
-      - name: Detect final feature-artifact cleanup commit
+      - name: Detect final artifact cleanup commit
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -55,7 +58,7 @@ jobs:
             deletions="$(printf '%s\n' "$changed" | awk -F '\t' '$1 == "D" {print $2}')"
             if [ -n "$deletions" ] \
               && [ "$(printf '%s\n' "$paths" | wc -l)" -eq "$(printf '%s\n' "$deletions" | wc -l)" ] \
-              && ! printf '%s\n' "$deletions" | grep -qv '^\.spec/features/'; then
+              && ! printf '%s\n' "$deletions" | grep -qvE '^(\.spec/features|contributor/architecture/research)/'; then
               parent_sha="$(git rev-parse "${PR_HEAD}^" 2>/dev/null || true)"
               if [ -n "$parent_sha" ] \
                 && python3 .github/scripts/verify_cleanup_predecessor.py "$parent_sha" "$PR_BRANCH"; then
@@ -65,7 +68,7 @@ jobs:
           fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
           if [ "$skip" = true ]; then
-            echo "Final .spec/features cleanup commit follows green validation; validation jobs will skip."
+            echo "Final artifact cleanup commit (.spec/features/ and/or contributor/architecture/research/) follows green validation; validation jobs will skip."
           else
             echo "Full CI run."
           fi
@@ -492,3 +495,45 @@ jobs:
             exit 1
           fi
           echo "OK: .spec/features/ carries no tracked files."
+
+  # The other half of the same rule, and the half that had no gate at all until
+  # now. The member decision of 2026-09-22 is that research and handoff documents
+  # do not ride a merge: master accumulates neither `.spec/features/**` (the job
+  # above) nor `contributor/architecture/research/**` (this one). The second is
+  # the one that escaped, and structurally: every FUN-* branch is cut from
+  # `docs/runtime-persistence-research`, whose `34455e5` carries the
+  # `durability-outsourcing/` and `runtime-persistence-engine-owned/` studies — so
+  # 20 files / 5107 lines of research ride a branch that merges code, and nothing
+  # in the diff says they are not part of the change. Master tracks no such
+  # directory (`git ls-tree -d origin/master contributor/architecture/` lists
+  # codemaps, diagrams and run-model), which is why this is a gate and not a
+  # review note.
+  #
+  # Same shape, same reasoning as `spec-artifacts-cleared`: ungated by
+  # spec-only-change (the clearing push is the one push whose whole content is
+  # this job's subject), on pull_request AND on push to master, and it prints the
+  # tracked files — with their count and line total — so a reviewer reads the
+  # growth instead of reconstructing the file composition of a long branch.
+  #
+  # TRANSITIONAL(master ruleset): the job reports on every PR but is not yet a
+  # required context, so it is visible without blocking. Registering
+  # `research-artifacts-cleared` in the `master` ruleset is a repository-settings
+  # change and is what turns it into a gate; AGENTS.md and CONTRIBUTING.md
+  # describe it as reported-but-not-required until that lands, and as required
+  # once it has.
+  research-artifacts-cleared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert contributor/architecture/research/ is cleared
+        run: |
+          tracked=$(git ls-files contributor/architecture/research/)
+          if [ -n "$tracked" ]; then
+            files=$(printf '%s\n' "$tracked" | wc -l)
+            lines=$(printf '%s\n' "$tracked" | tr '\n' '\0' | xargs -0 wc -l | tail -1 | awk '{print $1}')
+            echo "::error::contributor/architecture/research/ still has $files tracked file(s), $lines line(s). That tree does not reach master: migrate the durable half to contributor/reference/ (a citable reference) or contributor/adr/ (a decision), then 'git rm -r contributor/architecture/research/<name>' before merging."
+            echo "$tracked"
+            exit 1
+          fi
+          echo "OK: contributor/architecture/research/ carries no tracked files."
