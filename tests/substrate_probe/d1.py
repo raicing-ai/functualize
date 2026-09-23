@@ -531,21 +531,34 @@ def test_an_undelivered_write_is_not_recorded_as_the_row_cap(
 ) -> None:
     """The walk must not read a reset as a cap D1 imposed.
 
-    This is the cell-level half of the same distinction, and it is a correctness
-    guard rather than tidiness: before it, an undelivered write took the
-    `not written.ok` branch and its size was recorded as the byte count D1
-    refused.
+    The **second write in the walk** is the one that never arrives, so this
+    exercises the in-loop branch rather than the setup check that runs before it
+    — a distinction worth stating because the first version of this test tripped
+    the setup check instead, and removing the branch it claimed to guard left it
+    green. Before the guard, that write took the `not written.ok` branch and its
+    size was recorded as the byte count D1 refused: a cap invented by a transport
+    failure.
     """
-    reset = Response(
-        status=None, body={}, seconds=0.0, transport="ConnectionResetError: reset"
-    )
-    monkeypatch.setattr("tests.substrate_probe.d1.query", lambda *a, **k: reset)
+    calls = {"n": 0}
+
+    def half_delivered(sql: str, *args: object, **kwargs: object) -> Response:
+        calls["n"] += 1
+        if calls["n"] <= 2:  # the CREATE, then the smallest size: both delivered
+            return Response(status=200, body={"success": True}, seconds=0.01)
+        return Response(
+            status=None,
+            body={},
+            seconds=0.01,
+            transport="ConnectionResetError: connection reset by peer",
+        )
+
+    monkeypatch.setattr("tests.substrate_probe.d1.query", half_delivered)
 
     answer = _document_size_answer()
 
     assert not answer.is_measured
     assert "NOT MEASURED (transport)" in answer.detail
-    assert answer.value is None
+    assert answer.value is None, "an undelivered write was recorded as the cap"
 
 
 def test_the_distribution_is_reported_as_numbers() -> None:
