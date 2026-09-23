@@ -1,23 +1,29 @@
-"""The persistence vocabulary — capability, commands, outcomes, views.
+"""The persistence vocabulary — capability, commands, outcomes, views, ports.
 
-FUN-17 (waves 0–1). One module, read as a unit: ``_types/commands.py`` is
+FUN-17 (waves 0–2). One module, read as a unit: ``_types/commands.py`` is
 already taken by the shell's runtime command tree, and putting ``ClaimWorkflow``
 beside ``CommandNode`` would collide two unrelated meanings of "command" in one
 module name, so the whole persistence contract lives here.
 
 Zero logic, values only. Every dataclass here is frozen and made of plain
-values — a command is data a recorder hands to a store, not a call, and being a
-value is what lets a transaction accumulate commands in a list and apply them as
-one unit on exit (the shape a backend with no ``BEGIN``, such as Cloudflare D1,
-can implement at all). The ``Protocol`` surfaces at the end of the file add
-method signatures and nothing that executes.
+values — a command is data a recorder hands to a store, not a call. The
+``Protocol`` surfaces add method signatures and nothing that executes.
 
-The ports that speak these values are specified in
-``.spec/features/runtime-persistence-ports/contracts.md`` §1.5. The five writer
-and three reader protocols are here (FUN-17 T4–T5); ``RuntimeStore`` and
-``RuntimeTransaction`` land with T6, which is where the accumulating transaction
-is documented. Nothing calls these ports yet — the production call paths arrive
-with T7–T14, so a port existing is not yet a port being reachable.
+``RuntimeTransaction`` **accumulates**: a writer call appends a command and
+issues nothing, and ``__exit__`` applies the whole batch as one unit on a
+clean exit and discards it otherwise. That is acceptance criterion 1 and a
+requirement, not an implementation choice: Cloudflare D1 has no interactive
+transaction at all — the capability matrix measures the row ``no · real``
+(``contributor/reference/substrate-capability-matrix.md``), no ``BEGIN``/
+``COMMIT``, one ``batch`` request per atomic unit — so a port that streams
+statements inside an open transaction is not implementable on the most
+plausible remote backend. A command being a value is what makes the
+accumulation possible at all.
+
+The full port surface of ``contracts.md`` §1.5 is here: the writers and
+readers at T4–T5, ``RuntimeStore`` and ``RuntimeTransaction`` at T6. Nothing
+calls these ports yet — the production call paths arrive with T7–T14, so a
+port existing is not yet a port being reachable.
 
 This module lives in ``_types`` and therefore imports nothing internal, the
 standard library only (import-linter contract "Types import nothing internal").
@@ -26,6 +32,7 @@ standard library only (import-linter contract "Types import nothing internal").
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -64,6 +71,9 @@ __all__ = [
     "RunReader",
     "WorkflowReader",
     "InputReader",
+    # The store and its transaction
+    "RuntimeStore",
+    "RuntimeTransaction",
 ]
 
 
@@ -248,6 +258,15 @@ class StateBatch:
     than by a caller remembering to check. Arguments are hashes only, never
     values — argument content is a redaction and retention decision that
     belongs to someone else.
+
+    ``upserts`` is shallow-frozen: ``frozen=True`` pins the attribute
+    binding, not the mapping's contents, and from T6 a transaction buffers
+    this command until ``__exit__`` — a caller that mutated the mapping
+    after handing it over would change what commits. The discipline is
+    stated rather than enforced, because a zero-logic vocabulary type cannot
+    deep-freeze a mapping without growing a constructor, and it binds two
+    parties: a recorder hands over a mapping it will not touch again, and a
+    transaction that cannot rely on that copies on append.
     """
 
     scope_id: str
@@ -616,3 +635,64 @@ class InputReader(Protocol):
     def open_for(self, scope_id: str) -> InputRequest | None: ...
 
     def awaiting(self) -> Sequence[InputRequest]: ...
+
+
+# ------------------------------------------------------------------
+# The store and its buffering transaction.
+#
+# One selected store, constructed once by ``_app`` after config resolves
+# (ADR-027). Selection refuses rather than degrades when a required
+# capability is absent — the check reads ``profile`` and raises
+# ``RuntimeStoreCapabilityError`` (T13's error, not yet this module's).
+# ------------------------------------------------------------------
+
+
+@runtime_checkable
+class RuntimeStore(Protocol):
+    """One selected store. Constructed once, by ``_app``, after config resolves.
+
+    Reads are question-shaped and always available; everything written goes
+    through :meth:`transaction`, so a read never needs a unit to be open.
+    ``close()`` is the lifecycle the port never had: ``SQLiteSubstrate``
+    caches one connection per thread in ``threading.local()`` and nothing
+    closes them, which had no answer at all while storage was discovered
+    lazily inside the engine.
+    """
+
+    profile: StoreProfile
+
+    runs: RunReader
+    workflows: WorkflowReader
+    inputs: InputReader
+
+    def transaction(self) -> AbstractContextManager[RuntimeTransaction]: ...
+
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class RuntimeTransaction(Protocol):
+    """Everything written inside one short transition.
+
+    A transaction NEVER wraps a job body, a prompt, an agent call or any
+    network effect — user code may block or run for hours, and holding a
+    unit open across it holds locks and connections for that long. A
+    transaction surrounds a *transition*, and nothing else.
+
+    **Writers accumulate; ``__exit__`` commits once.** Calling a writer
+    appends a command to this transaction and issues no statement; the whole
+    batch is applied as one unit when the block exits cleanly and discarded
+    otherwise. Forced by the backend, not chosen for style: Cloudflare D1
+    has no interactive transaction, so a streaming port is unimplementable
+    there (the module docstring carries the measured citation). Locally the
+    same batch is one ``BEGIN``/``COMMIT``; on D1 it is one ``batch``
+    request; on a store declaring ``cross_aggregate_atomicity=False`` it is
+    a documented refusal raised on commit with nothing applied — applied in
+    parts would be defect B3 under a new name.
+    """
+
+    runs: RunWriter
+    workflows: WorkflowWriter
+    inputs: InputWriter
+    events: EventWriter
+    effects: EffectWriter
