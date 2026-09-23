@@ -246,23 +246,36 @@ twenty more methods on that class. T12's net effect on the file is a **deletion*
 pattern is sitting in the file this wave and the next six all edit, and nobody has
 recorded a decision about it.
 
-## Approvals still open — Execute must not begin until these are answered
+## Approvals — cleared 2026-09-23, Execute is authorized
 
-From `contributor/architecture/research/runtime-persistence-engine-owned/09-decisions.md`:
+The maintainer approved the four decisions **as drawn in this file** on 2026-09-23, and
+the ADRs recording them landed as wave −1. They are decisions of record now; this table
+is the pointer, and `contributor/adr/` is the authority.
 
-| ID | What | Status in the register |
+| ID | What | Recorded in |
 |---|---|---|
-| D-2 | Engine owns transition meaning; stores own durability | **needs an ADR** |
-| D-3 | No new peer layer; ports in `_types`, recorders in `_engine`, wiring in `_app` | **needs the same ADR** |
-| D-4 | Move engine construction after config resolution | **needs an ADR** (boot behaviour) |
-| D-13 | Storage is pluggable; execution is not | **needs the same ADR as D-2** |
-| D-9 | `StoreSubstrate` becomes public | **needs a public-API decision** |
+| D-2 | Engine owns transition meaning; stores own durability | `contributor/adr/025-engine-owns-transition-meaning.md` |
+| D-3 | No new peer layer; ports in `_types`, recorders in `_engine`, wiring in `_app` | `contributor/adr/026-persistence-ports-need-no-new-layer.md` |
+| D-4 | Move engine construction after config resolution | `contributor/adr/027-engine-construction-moves-after-config.md` |
+| D-13 | Storage is pluggable; execution is not | `contributor/adr/028-storage-is-pluggable-execution-is-not.md` |
 
-D-2, D-3, D-4 and D-13 are the architecture this plan draws. D-9 is deliberately **not**
-implemented this wave (`contracts.md` §4) and so does not block Execute — the other four
-do. The register calls for **four ADRs, not one**.
+D-3 got its own ADR rather than sharing D-2's, and D-13 got one at all — the register's
+own §1 gloss had predicted `D-2+D-3`, `D-4`, `D-6`, `D-9`. `09-decisions.md` §1.1 records
+why the written set follows the approval instead.
 
-Plus the smell above: the `JobExecutionEngine` size decision.
+**Nothing blocks Execute.** Wave 0 (T1–T3) is authorized.
+
+### Still open, and not blocking
+
+- **D-6** — `Attempt` as a first-class aggregate. Needs its own ADR because it changes
+  what `func builtin history` shows a user when a run failed twice. Not blocking: this
+  wave defines `Attempt` as vocabulary and nothing renders it.
+- **D-9** — `StoreSubstrate` becomes public. A public-API decision, deliberately not
+  implemented this wave (`contracts.md` §4).
+- **The `JobExecutionEngine` size decision** — the surviving-smell entry above, ~2580
+  lines against a ~500 threshold. Pre-dates this wave and is not worsened by it.
+
+All three remain the maintainer's to answer.
 
 ## Files expected to change
 

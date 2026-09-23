@@ -9,24 +9,61 @@ A reviewer should be able to attack this design from this page alone.
 | ID | Decision | Status | Where argued |
 |---|---|---|---|
 | D-1 | Repair B1–B4 before any migration reads legacy data | **needs maintainer sign-off** | [03](03-the-four-defects.md) |
-| D-2 | The engine keeps ownership of transition meaning; stores own durability | **needs an ADR** | [04](04-three-designs-compared.md) §4, [05](05-the-design.md) §3 |
-| D-3 | No new peer layer; ports in `_types`, recorders in `_engine`, wiring in `_app` | **needs the same ADR** | [05](05-the-design.md) §1 |
-| D-4 | Move engine construction to after config resolution; pass the store as a constructor argument | **needs an ADR** (boot behaviour) | [05](05-the-design.md) §4 |
+| D-2 | The engine keeps ownership of transition meaning; stores own durability | **decided** — [ADR-025](../../../adr/025-engine-owns-transition-meaning.md) | [04](04-three-designs-compared.md) §4, [05](05-the-design.md) §3 |
+| D-3 | No new peer layer; ports in `_types`, recorders in `_engine`, wiring in `_app` | **decided** — [ADR-026](../../../adr/026-persistence-ports-need-no-new-layer.md) | [05](05-the-design.md) §1 |
+| D-4 | Move engine construction to after config resolution; pass the store as a constructor argument | **decided** — [ADR-027](../../../adr/027-engine-construction-moves-after-config.md) | [05](05-the-design.md) §4 |
 | D-5 | Capability is a typed `StoreProfile`, checked at boot; unmet capability refuses | safe to proceed | [05](05-the-design.md) §2.1 |
-| D-6 | `Attempt` is a first-class aggregate, distinct from `Run` | **needs an ADR** (public history shape) | [06](06-data-model.md) §1.1 |
+| D-6 | `Attempt` is a first-class aggregate, distinct from `Run` | **still needs an ADR** — not covered by the 2026-09-23 approval; see §1.1 below | [06](06-data-model.md) §1.1 |
 | D-7 | State machines are specified and enforced before the physical schema | safe to proceed | [06](06-data-model.md) §1 |
 | D-8 | Outbox delivery is at-least-once with consumer dedup. No at-most-once claim | safe to proceed | §3 below |
-| D-9 | `StoreSubstrate` survives for `fresh` and `shell-history`, and becomes public | **needs a public-API decision** | [05](05-the-design.md) §6 |
+| D-9 | `StoreSubstrate` survives for `fresh` and `shell-history`, and becomes public | **still open** — public-API decision, deferred out of FUN-17; see §1.1 below | [05](05-the-design.md) §6 |
 | D-10 | The 500-record cap becomes an explicit retention policy, not a write-time eviction | safe to proceed | [06](06-data-model.md) §6 |
 | D-11 | Offline import last, and it rejects illegal records | safe to proceed | [08](08-delivery-and-tests.md) |
 | D-12 | No network SQL provider until FUN-22 names a database | safe to proceed | §4 below |
-| D-13 | Storage is pluggable; execution is not. No port for a durable-execution provider | **needs the same ADR as D-2** | §3 below, [`../durability-outsourcing/07-the-design.md`](../durability-outsourcing/07-the-design.md) §2 |
+| D-13 | Storage is pluggable; execution is not. No port for a durable-execution provider | **decided** — [ADR-028](../../../adr/028-storage-is-pluggable-execution-is-not.md) | §3 below, [`../durability-outsourcing/07-the-design.md`](../durability-outsourcing/07-the-design.md) §2 |
 | D-14 | `RuntimeTransaction` buffers commands and commits once, rather than streaming statements | safe to proceed | [05](05-the-design.md) §2.2 |
 | D-15 | `Stored.revision` becomes an opaque token, not an `int` | safe to proceed | [02](02-what-exists-today.md) §9 |
 
-**Four ADRs, not one.** D-2 and D-3 belong together (ownership and placement are one
-question). D-4, D-6 and D-9 are separable and each changes something a user or a
-plugin author can observe.
+### 1.1 ADR status — reconciled 2026-09-23
+
+**Four ADRs landed, and they are not the four this section originally predicted.**
+
+The earlier gloss read: *"D-2 and D-3 belong together (ownership and placement are one
+question). D-4, D-6 and D-9 are separable."* That counts `D-2+D-3`, `D-4`, `D-6`, `D-9`.
+The maintainer's approval on 2026-09-23 named **four ADRs as drawn in
+`.spec/features/runtime-persistence-ports/plan.md`**, and that table lists **D-2, D-3,
+D-4 and D-13**. The set actually written follows the approval:
+
+| ADR | Decision | Note |
+|---|---|---|
+| [ADR-025](../../../adr/025-engine-owns-transition-meaning.md) | D-2 | ownership |
+| [ADR-026](../../../adr/026-persistence-ports-need-no-new-layer.md) | D-3 | placement — **split out**, not merged with D-2 |
+| [ADR-027](../../../adr/027-engine-construction-moves-after-config.md) | D-4 | boot behaviour |
+| [ADR-028](../../../adr/028-storage-is-pluggable-execution-is-not.md) | D-13 | **newly ADR'd**; was "the same ADR as D-2" |
+
+D-3 got its own file rather than sharing D-2's: ownership and placement turned out to
+be separable arguments with different reopening conditions, and merging them would have
+produced one ADR that two later proposals would both have to contradict. D-13 likewise
+carries an argument (why no durable-execution port) that stands on its own and is the
+most re-proposable idea in the area.
+
+**Two decisions this approval does NOT cover, recorded here so the register does not
+disagree with the plan:**
+
+- **D-6 — `Attempt` as a first-class aggregate.** Still needs an ADR. It changes what
+  `func builtin history` and the MCP history tools show a user when a run failed twice,
+  so it is a public-output decision and it was not put to the maintainer on 2026-09-23.
+  It does not block FUN-17: the `Attempt` type is defined as vocabulary in this wave and
+  nothing renders it yet.
+- **D-9 — `StoreSubstrate` becomes public.** Still open, and **deliberately not
+  implemented in FUN-17** (`.spec/features/runtime-persistence-ports/contracts.md` §4,
+  cleared on merge). Shipping the export as a side effect of a ports ticket would settle
+  a public-API question by accident. The consequence survives and is known:
+  `docs/guides/workflows.md` still instructs plugin authors to import
+  `functualize._types.protocols.StoreSubstrate`, a private path.
+
+**D-1** (repair B1–B4 first) is unchanged here and was satisfied out of band by the
+repair that landed on master before this branch was rebased onto it.
 
 ---
 
