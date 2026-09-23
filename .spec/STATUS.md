@@ -2372,8 +2372,9 @@ obtainable on a host with no cloud account at all.
   2026-09-23** (account `131160053496`, `us-east-1`), so all four measured columns now carry
   `measured (real service)` and no column carries emulator evidence. The level is kept and kept
   defined: the emulator path is still reproducible through `AWS_ENDPOINT_URL`, and the next
-  backend measured through one inherits the rule. Turso/libSQL joined them on 2026-09-23 (see
-  below), so five columns are measured. **R2, D1 and Supabase have no measured rows at all.**
+  backend measured through one inherits the rule. Turso/libSQL, Cloudflare R2 and Supabase
+  Postgres joined them later on 2026-09-23 (see below), so **seven of the eight columns are
+  measured and only Cloudflare D1 has no measured rows.**
 - **A run that fits no level is refused, not filed under the nearest one.** The case this was
   decided for: an embedded libSQL database file is not Turso — the engine is genuinely libSQL so
   it is no fake, nothing is emulating so it is no emulator, and the service was never reached so
@@ -2397,13 +2398,16 @@ contention — eight writers racing one conditional key while each carried a sib
 concurrent creators down to one. DynamoDB's item cap was walked rather than quoted: 430 080 bytes
 refused, 389 120 accepted immediately before it.
 
-**Two questions remain open, and neither can be closed by inference:**
+**Q1 is answered; Q2 remains open, and it cannot be closed by inference:**
 
-- **Q1 — is Cloudflare R2's conditional `PutObject` atomic under concurrent writers?** The
-  largest unknown the research identified. R2 has no emulator, and the S3 column is not a
-  substitute: R2 speaks S3's API, which is a statement about request shapes rather than about what
-  happens when writers collide. Anything built on R2 that assumes a safe compare-and-swap is
-  assuming this. Cost to close: one R2 bucket, free tier — the instrument is written and proven.
+- **Q1 — is Cloudflare R2's conditional `PutObject` atomic under concurrent writers?**
+  **Answered 2026-09-23: yes, it is atomic.** Eight writers sent `PutObject` with
+  `If-None-Match: *` for one absent key against R2 at once and **exactly one won**, the rest
+  refused with `PreconditionFailed`; the survivor holds the winner's own bytes. The largest
+  unknown the research identified, closed by its own measurement rather than by S3's adjacency —
+  which is the mistake it invited, since R2 speaks S3's API and that says nothing about what
+  collides inside a different vendor's engine. S3's own column was re-measured the same day and
+  produced the same shape; the agreement is a finding about the two services, not the evidence.
 - **Q2 — D1's absolute REST latency from a developer's machine.** The research carried a vendor
   figure of "50–500 ms", a range wide enough to change the design: at the top of it a
   200-transition workflow that reads and writes in a loop spends over a minute in transport. The
@@ -2430,7 +2434,8 @@ stands: a column is unmeasured for two distinct reasons, credentials absent and 
 **undeclared by any first-party package**, and they cost different things to fix. The dependency
 decision was taken on 2026-09-23 and it was *not* to declare either client; both arrive through
 an ephemeral `uv run --with` overlay, so a host can measure without the project depending on
-them. Supabase still waits on its account and is `NOT MEASURED` under both causes on a bare host.
+them. Supabase has since been measured too, on its own credential; on a **bare** host both Tier
+C columns still state both causes, because both still apply there.
 
 **Turso is measured, and the client is the finding worth keeping.** The probe originally drove
 `libsql-client` 0.3.1 (archived upstream). Against Turso Cloud it fails its Hrana WebSocket
@@ -2460,7 +2465,8 @@ would have left the initiative's only measured artifact unmergeable. It lands in
 FUN-17…FUN-22 must be able to cite it from `master`.
 
 **Reproducing it.** `uv run pytest -q tests/substrate_probe/` needs nothing — no network, no
-Docker, no credentials — and must stay green. The two AWS columns need credentials; their
+Docker, no credentials — and must stay green. The five credentialed columns (AWS S3, AWS
+DynamoDB, R2, Turso, Supabase) each need their own credential and command; their
 provenance, the least-privilege IAM grant and two things to know before re-running them are in the
 matrix's *Provenance* section. The emulator path still works and needs the endpoint named
 explicitly, because the probe will not adopt whatever happens to hold a local port:

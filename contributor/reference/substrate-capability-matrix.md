@@ -42,9 +42,10 @@ were re-measured against the real service — but the level is kept, and kept de
 because the emulator path is still reproducible and the next backend measured through one
 inherits this rule.
 
-**Which backends have real-service rows:** the JSON filesystem, local SQLite, AWS S3 and
-AWS DynamoDB and Turso/libSQL. **Cloudflare R2, Cloudflare D1 and Supabase Postgres
-do not** — they have no measured rows at all.
+**Which backends have real-service rows:** seven of the eight — the JSON filesystem, local
+SQLite, AWS S3, Cloudflare R2, AWS DynamoDB, Turso/libSQL and Supabase Postgres.
+**Cloudflare D1 does not**; it is the one column with no measured rows, and its reason is
+stated rather than left blank.
 
 **The three instruments are not columns.** `BatchOnlySqliteDriver`, `FakeObjectStore` and
 `FakeItemStore` (`tests/substrate_probe/fakes.py`) model vendor constraints — a driver
@@ -68,62 +69,54 @@ SQLite column, and it is already measured.
 
 ## The matrix
 
-Seven backends, plus Supabase Postgres as an eighth that was expected to stay unmeasured
-and did.
+Seven backends, plus Supabase Postgres as an eighth that was expected to stay unmeasured —
+**it did not.** All eight columns carry measured cells except Cloudflare D1, which is the
+one column this document still reports as unasked, with its reason.
 
 | | filesystem | local SQLite | Cloudflare D1 | AWS S3 | Cloudflare R2 | AWS DynamoDB | Turso / libSQL | Supabase Postgres |
 |---|---|---|---|---|---|---|---|---|
-| **evidence level, every cell** | `measured (real service)` | `measured (real service)` | `NOT MEASURED` | `measured (real service)` | `NOT MEASURED` | `measured (real service)` | `measured (real service)` | `NOT MEASURED` |
-| `cross_aggregate_atomicity` | no · real | **yes** · real | NOT MEASURED | no · real | NOT MEASURED | **yes** · real | **yes** · real | NOT MEASURED |
-| `fencing` | cross-process · real | cross-process · real | NOT MEASURED | cross-process · real | NOT MEASURED | cross-process · real | cross-process · real | NOT MEASURED |
-| `multi_process` | yes · real | yes · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | yes · real | NOT MEASURED |
-| `multi_machine` | no · real | no · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | yes · real | NOT MEASURED |
-| `durable_outbox` | no · real | **yes** · real | NOT MEASURED | no · real | NOT MEASURED | **yes** · real | **yes** · real | NOT MEASURED |
-| `versioned_migrations` | no · real | no · real | NOT MEASURED | no · real | NOT MEASURED | no · real | no · real | NOT MEASURED |
-| `interactive_transaction` | yes · real | yes · real | NOT MEASURED | no · real | NOT MEASURED | no · real | **yes** · real | NOT MEASURED |
-| `remote` | no · real | no · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | yes · real | NOT MEASURED |
-| `max_document_bytes` | unbounded¹ · real | unbounded¹ · real | NOT MEASURED | unbounded¹ · real | NOT MEASURED | **389 120** · real | unbounded¹ · real | NOT MEASURED |
-| `offline_capable` | yes · real | yes · real | NOT MEASURED | no · real | NOT MEASURED | no · real | no · real | NOT MEASURED |
+| **evidence level, every cell** | `measured (real service)` | `measured (real service)` | `NOT MEASURED` | `measured (real service)` | `measured (real service)` | `measured (real service)` | `measured (real service)` | `measured (real service)` |
+| `cross_aggregate_atomicity` | no · real | **yes** · real | NOT MEASURED | no · real | no · real | **yes** · real | **yes** · real | **yes** · real |
+| `fencing` | cross-process · real | cross-process · real | NOT MEASURED | cross-process · real | cross-process · real | cross-process · real | cross-process · real | cross-process · real |
+| `multi_process` | yes · real | yes · real | NOT MEASURED | yes · real | yes · real | yes · real | yes · real | yes · real |
+| `multi_machine` | no · real | no · real | NOT MEASURED | yes · real | yes · real | yes · real | yes · real | yes · real |
+| `durable_outbox` | no · real | **yes** · real | NOT MEASURED | no · real | no · real | **yes** · real | **yes** · real | **yes** · real |
+| `versioned_migrations` | no · real | no · real | NOT MEASURED | no · real | no · real | no · real | no · real | no · real |
+| `interactive_transaction` | yes · real | yes · real | NOT MEASURED | no · real | no · real | no · real | **yes** · real | **yes** · real |
+| `remote` | no · real | no · real | NOT MEASURED | yes · real | yes · real | yes · real | yes · real | yes · real |
+| `max_document_bytes` | unbounded¹ · real | unbounded¹ · real | NOT MEASURED | unbounded¹ · real | unbounded¹ · real | **389 120** · real | unbounded¹ · real | unbounded¹ · real |
+| `offline_capable` | yes · real | yes · real | NOT MEASURED | no · real | no · real | no · real | no · real | no · real |
 
 ¹ **"unbounded" means "nothing refused what was attempted"**, not "there is no limit". The
-sizes walked were 4 MiB for the two local backends and 8 MiB for S3 and for Turso. S3
-documents a 5 GiB single-PUT limit; it is not in the cell because it was not measured.
+sizes walked were 4 MiB for the two local backends and 8 MiB for S3, R2, Turso and Supabase.
+S3 documents a 5 GiB single-PUT limit; it is not in the cell because it was not measured.
 
-**Count:** 80 cells. **50 measured**, all of them `measured (real service)` — and
-**30 `NOT MEASURED`**, every one of them with a reason below. No cell is
+**Count:** 80 cells. **70 measured**, all of them `measured (real service)` — and
+**10 `NOT MEASURED`**, every one of them with its reason below. No cell is
 `measured (emulator)` any more; the twenty AWS cells were until 2026-09-23, and what
 changed is recorded under *Provenance*.
 
-## Why each unmeasured column is unmeasured
+## Why the unmeasured column is unmeasured
 
-Each reason is the text the probe itself emitted when it declined to run, transcribed
-rather than composed. Two distinct causes appear, and they are kept apart because they
-cost different things to fix: an absent *client* is a dependency decision, an absent
-*account* is a purchase.
+Its reason is the text the probe itself emitted when it declined to run, transcribed
+rather than composed. **One column remains**, and it is the `no credentials` cause rather
+than the `client absent` one — the two are kept apart because they cost different things
+to fix: a dependency decision versus a purchase. R2 and Supabase Postgres left this section
+on 2026-09-23, when their credentials arrived; what each of them answered is under *What
+was measured, and how*.
 
 **Cloudflare D1** — `NOT MEASURED (no credentials)`. `CLOUDFLARE_ACCOUNT_ID`,
 `CLOUDFLARE_D1_DATABASE_ID` and `CLOUDFLARE_API_TOKEN` are not set, so nothing was asked
 of D1. The instrument is written and gated: `tests/substrate_probe/d1.py` reaches the REST
 API over stdlib `urllib.request`, and it will record a latency distribution, walk the
 documented 2 MB row cap and send `BEGIN` rather than cite it, the moment those three
-variables exist. D1 has a free tier.
+variables exist. D1 has a free tier. *(The credentials have since been provisioned and D1
+has been measured by hand; this column is re-stamped by a task of its own because the
+`BEGIN` path needs repair first — see Q2.)*
 
-**Cloudflare R2** — `NOT MEASURED (no R2 credentials)`. `FUNCTUALIZE_PROBE_R2_ENDPOINT`,
-`FUNCTUALIZE_PROBE_R2_ACCESS_KEY_ID` and `FUNCTUALIZE_PROBE_R2_SECRET_ACCESS_KEY` are not
-set. R2 has no emulator, and the S3 column beside it is **not** a substitute — neither
-before nor after the re-measurement. The emulator's answer was the emulator's; AWS S3's
-answer is AWS S3's; and R2 speaks S3's API without thereby making S3's guarantees. This
-is the column that leaves open question 1 open.
-
-**Supabase Postgres** — `NOT MEASURED (no credentials)`. `SUPABASE_DB_URL` is unset, and on
-the host that measured Turso that is the whole of what stands between this column and a
-measurement: `psycopg` arrives through the same ephemeral overlay and is likewise undeclared
-by every first-party manifest, so the only thing left to buy is the database. **On a bare
-host the reason names both causes**, client and credentials, because both apply there — the
-two are kept apart deliberately, since a dependency decision and an account are different
-prices. Nothing about Turso's result is inferred into this column: the credential file that
-measured Turso carries no Supabase database, and `_supabase_answers()` has still never
-executed. This column was expected to stay unmeasured and did.
+**Turso / libSQL** has a cell in this section too, but not because it is unmeasured: its
+**client** is the part a reader cannot recover from the file, so it is recorded here. See
+*The client finding* below.
 
 ## What was measured, and how
 
@@ -265,28 +258,79 @@ per-key results, which is the opposite of all-or-nothing."* The outbox row follo
 that and is recorded as following from it rather than asserted twice — with no two-key
 unit, a state change and the record that it happened cannot commit together.
 
+### Cloudflare R2, against the real service
+
+The same module against a different endpoint, which is how the repo already reached the
+emulator. This is the column that closes open question 1:
+
+> Eight writers sent `PutObject` with `If-None-Match: *` for one absent key against
+> Cloudflare R2. **1 won**, the rest were refused (`PreconditionFailed`), and the surviving
+> object holds `writer-1` — the winner's own bytes.
+
+Everything else follows the S3 column's shape, and was measured rather than borrowed from
+it: the two-key answers are **no** — no operation in this API writes two keys as one unit,
+so a state change and the record that it happened cannot commit together — and nothing can
+be held open across a Python decision, because there is no begin/commit pair to hold. No
+schema is carried either, so no version can be enforced: a JSON document and
+`b'not json at all'` were both stored without complaint. The largest document attempted was
+8 MiB and nothing refused it (unbounded¹); every operation crosses a socket (a `HeadBucket`
+round trip took 197 ms); the store is addressed by an endpoint rather than by a path on this
+disk; and with the network gone there is nothing left to read.
+
+**R2's endpoint host is part of the answer, not a detail.** The one thing this column had
+to prove for itself is that the entity answering is R2 and not something that speaks S3:
+the endpoint is `…r2.cloudflarestorage.com`, the credential is scoped to one bucket, and
+the run is the same code path that measured AWS S3 the same afternoon.
+
+### Supabase Postgres, against the real service
+
+The one path in the probe that had never executed before 2026-09-23 — it ran clean on its
+first credentialed run, and every cell below is `measured (real service)`:
+
+> A transaction was opened, a row inserted, the row read back inside it (visible), a Python
+> decision taken, and the transaction rolled back — afterwards the table held no rows.
+
+That single operation settles three cells at once, which is why it is quoted once and
+referenced twice: yes, a transaction can be held open across a Python decision and the read
+inside it was visible; yes, two keys can be committed as one unit; and yes, a state change
+and the record that it happened go together — the rollback is what makes the atomicity a
+measurement rather than a claim. A stale-revision `UPDATE` affected no rows, and the check
+is the server's, so the fence is cross-process. Every operation crosses a socket — a
+`SELECT 1` round trip took 121 ms on a session pooler — and the DSN is the address, so the
+store is reachable from any process and any machine holding it. With the network gone there
+is nothing to read, the largest document attempted was 8 MiB and nothing refused it
+(unbounded¹), and no version can be enforced: Postgres has a schema, but nothing here
+declares a *version* for it.
+
 ## Open questions
 
 ### Q1 — Is R2's conditional `PutObject` atomic under concurrent writers?
 
-**Unanswered. `NOT MEASURED (no R2 credentials)`.**
+**Answered — yes, it is atomic.**
 
-This is the largest open unknown the research identified, and it is unanswered for one
-reason: nobody has an R2 bucket. The instrument exists, is proven, and runs against R2's
-S3-compatible endpoint the moment `FUNCTUALIZE_PROBE_R2_*` is set — the S3 column above
-was produced by the same code path.
+Measured **2026-09-23** against Cloudflare R2, bucket `fun25-substrate-probe`, endpoint
+`85151233e9d4d06c5d388c37d2211bc2.r2.cloudflarestorage.com`: **eight writers sent
+`PutObject` with `If-None-Match: *` for one absent key at once, and exactly one won.** The
+other seven were refused (`PreconditionFailed`), and the surviving object holds the winner's
+own body — `writer-1` in the run transcribed in *Provenance* below; **which** writer wins
+varies between runs, the count does not. The precondition is evaluated by the service rather
+than by a lock this process holds, so R2's conditional write is a real compare-and-swap: a
+stale writer is refused by the service, not by anything this process holds.
 
-It cannot be closed by inference, and the S3 column beside it now makes that easier to
-get wrong rather than harder. Since 2026-09-23 that column is a real measurement of AWS
-S3 — but it is a measurement of **S3**. R2 speaks S3's API, and that is a statement about
-request shapes, not about what happens inside a different vendor's storage engine when
-eight writers arrive at once. A borrowed answer here would be the most plausible mistake
-this document could invite. **Anything built on R2 that assumes a compare-and-swap is
-safe is assuming this, and this is not known.** Cost to close: one R2 bucket, free tier.
+It was closed by measurement rather than by S3's adjacency, which matters because the two
+are easy to conflate: R2 speaks S3's API, and that is a statement about request shapes, not
+about what a different vendor's engine does when writers collide. The S3 column beside it
+was re-measured the same day and produced the same shape — one winner of eight — and that
+agreement is a *finding about the two services*, not the evidence for either. **Anything
+built on R2 that assumes a safe compare-and-swap is now assuming something measured.**
 
 ### Q2 — What is D1's absolute REST latency from a developer's machine?
 
-**Unanswered. `NOT MEASURED (no credentials)`.**
+**Unanswered, and still `NOT MEASURED` in the table above — but no longer for want of a
+credential.** *(2026-09-23: `CLOUDFLARE_*` is provisioned and D1 has been asked by hand; the
+column stays unasked because the probe's `BEGIN` request needs repair first, and the task
+that repairs it also re-stamps this question. The reason text in the table is the module's
+own and predates the credential.)*
 
 The research recorded a vendor changelog figure of "50–500 ms". That range is wide enough
 to change the design — at the top of it, a 200-transition workflow that reads and writes
@@ -316,7 +360,7 @@ arrives.
 
 ## Reproducing this
 
-The two `real` columns and every `NOT MEASURED` reason need nothing at all:
+The local columns and every `NOT MEASURED` reason need nothing at all:
 
 ```bash
 uv run pytest -q tests/substrate_probe/
@@ -325,8 +369,10 @@ uv run pytest -q tests/substrate_probe/
 That must be green on a machine with no network, no Docker and no credentials — a
 contributor with no cloud account sees skips, never failures.
 
-The two AWS columns need credentials. They are `measured (real service)` and were
-produced by the runner described under *Provenance* below.
+**Five columns need credentials** — AWS S3, AWS DynamoDB, Cloudflare R2, Turso/libSQL and
+Supabase Postgres, all `measured (real service)`. Cloudflare D1 is the one column with no
+measured rows. Their provenance is below, together with the exact command each one was
+produced by.
 
 ### Provenance of the two AWS columns
 
@@ -339,7 +385,8 @@ $ ~/.config/fun25/run-probe.sh
 
 The runner exports a least-privilege credential set and **unsets `AWS_ENDPOINT_URL`**, so
 the run is stamped `measured (real service)` rather than emulator. The two skips are the
-two by-design expectations: the "no emulator reachable" case and the R2 case.
+two by-design expectations: the "no emulator reachable" case and the R2 case — R2 no
+longer skips, it has its own provenance below.
 
 | | |
 |---|---|
@@ -363,6 +410,41 @@ read-modify-write loop pays this per step* — is a twenty-fold different number
 200-transition workflow is the difference between one second and twenty-one. **An emulator
 cannot measure latency**, and no amount of agreement on the other nine rows would have
 revealed that.
+
+### Provenance of the R2 and Supabase columns
+
+Both measured **2026-09-23**, against the branch at `dbaafb1`, in this worktree:
+
+```console
+$ for f in ~/.config/fun25/probe-aws.env ~/.config/fun25/probe-r2.env; do set -a; . "$f"; set +a; done
+$ unset AWS_ENDPOINT_URL
+$ uv run pytest -q tests/substrate_probe/s3.py
+3 passed, 1 skipped in 14.62s
+
+$ for f in ~/.config/fun25/*.env; do set -a; . "$f"; set +a; done
+$ uv run --with libsql --with "psycopg[binary]" pytest -q tests/substrate_probe/tier_c.py
+6 passed in 78.25s
+```
+
+`AWS_ENDPOINT_URL` is unset so the R2 cells are stamped `measured (real service)` rather
+than emulator, and the two Tier C clients arrive through `uv run --with` rather than a
+declaration (see *The client finding*). **Source the env files one file at a time**, as the
+runner does: `set -a; . ~/.config/fun25/*.env; set +a` expands to several filenames and `.`
+takes only the first, so the credentials never arrive and the run passes having measured
+nothing.
+
+| | Cloudflare R2 | Supabase Postgres |
+|---|---|---|
+| Endpoint / address | `85151233e9d4d06c5d388c37d2211bc2.r2.cloudflarestorage.com` (S3-compatible) | session-pooler DSN, project `functualize` |
+| Resource | bucket `fun25-substrate-probe` | dedicated role `fun25_probe`, owning only its own schema — **not** the project's `postgres` role |
+| Credential scope | token scoped to that one bucket, `Workers R2 Storage Bucket Item Write` (object read/write/list; no bucket admin); S3 keys derived as `access_key_id` = token id, secret = SHA-256 of its value | DSN for that role; IPv4 path via the pooler, since the direct host is IPv6-only on the free plan |
+| Client | `boto3` 1.43.29 | `psycopg` 3.3.6 (through the overlay, undeclared by the project) |
+| Command | the two lines above | the two lines above |
+
+R2's ten cells came from the same code path that measured AWS S3, and the survivor in the
+recorded race was `writer-1`. Supabase's path had never executed before this run: the cell
+quoted under *Supabase Postgres, against the real service* is the whole of its atomicity
+evidence, and it is a rollback rather than a claim.
 
 ### Two things to know before re-running this
 
@@ -416,9 +498,10 @@ Use that rather than `PROBE_TIER_C=1 ~/.config/fun25/run-probe.sh`: the runner s
 overlays the archived `libsql-client`, which hangs against Turso Cloud rather than failing.
 A documented command that hangs is a trap, so the working one is written out here.
 
-The still-unmeasured columns need the variables declared in `.env.example`: `CLOUDFLARE_*`
-for D1, `FUNCTUALIZE_PROBE_R2_*` for R2 and `SUPABASE_DB_URL` for Supabase — the last also
-needing `psycopg`, which no first-party package declares either.
+The one still-unmeasured column needs the variables declared in `.env.example`:
+`CLOUDFLARE_*` for D1. R2's `FUNCTUALIZE_PROBE_R2_*`, Turso's `TURSO_*` and Supabase's
+`SUPABASE_DB_URL` are likewise declared there and have since been provisioned; the two
+Tier C clients still come through the overlay rather than a declaration.
 
 ## What this does not say
 

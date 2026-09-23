@@ -608,6 +608,65 @@ why.
 
 ---
 
+## Wave 9 — R2 and Supabase, from the real services
+
+### [x] T17 · 6.6 — Measure R2 and Supabase, and close open question 1
+
+**Files:** `contributor/reference/substrate-capability-matrix.md`, `CHANGELOG.md`,
+`.spec/STATUS.md`
+
+Two columns were `NOT MEASURED` for want of a credential rather than for want of an
+instrument, and both credentials arrived on 2026-09-23 (`probe-r2.env`; `SUPABASE_DB_URL`
+added to `probe-tierc.env`). R2 goes first because it closes **open question 1** — the
+research's largest unknown — and `s3.py` carries both endpoints already, so it is a
+measurement rather than a repair. Supabase second, where the measurement path had never
+executed at all: no run of `_supabase_answers()` had ever happened, so the first credentialed
+run is also its first test.
+
+**Gate — an open question moved to answered**
+```bash
+rg -c '^\*\*Answered' contributor/reference/substrate-capability-matrix.md
+```
+now: `1` · after: `2`
+
+**Gate — no cell or section still calls R2 unmeasured**
+```bash
+rg -c 'NOT MEASURED \(no R2 credentials\)' contributor/reference/substrate-capability-matrix.md
+```
+now: `2` · after: `0`
+
+*(Both measured at the tick and unchanged from the predictions. The first counts the
+`**Answered` verdict headings — Q3 had the only one, Q1 has the second now, so a later edit
+that un-answers Q1 moves it; the second counted the R2 reason in the table's sibling text and
+in Q1's verdict line, both of which the measurement replaces.)*
+
+**Done when:** R2's ten cells are `measured (real service)` from a run at the tip, with the
+contention result — how many writers won — and provenance naming the endpoint host, bucket,
+client and command; Supabase's ten cells likewise, with its never-executed path shown to
+terminate; Q1 has a verdict in its own section, answered rather than inferred from the S3
+column beside it; both runs terminate inside a bound; the counts and the "which backends have
+real-service rows" sentence match the table; and a sentence that now reads false is corrected
+rather than left (the durable half included).
+
+**Verification, recorded at the tick:**
+
+```
+$ for f in ~/.config/fun25/probe-aws.env ~/.config/fun25/probe-r2.env; do set -a; . "$f"; set +a; done
+$ unset AWS_ENDPOINT_URL; uv run pytest -q tests/substrate_probe/s3.py
+3 passed, 1 skipped in 14.62s        # the skip is the "stated unanswered" test, now moot
+
+$ for f in ~/.config/fun25/*.env; do set -a; . "$f"; set +a; done
+$ uv run --with libsql --with "psycopg[binary]" pytest -q tests/substrate_probe/tier_c.py
+6 passed in 78.25s                   # Supabase's first run, plus Turso re-measured as a check
+
+R2 contention: 8 writers, If-None-Match: * on one absent key -> 1 won, 7 refused
+               (PreconditionFailed), survivor holds 'writer-1'
+Cell check:    ten R2 cells and ten Supabase cells compared against the live columns,
+               mechanically, value and evidence level -> 0 mismatches
+```
+
+---
+
 ## Recorded deviations
 
 The issue requires every deviation from the pre-loaded scaffold to be recorded here with
@@ -749,6 +808,12 @@ so nobody does it early and deletes the reviewer's own evidence.
       "id": 8,
       "tasks": [
         "6.5"
+      ]
+    },
+    {
+      "id": 9,
+      "tasks": [
+        "6.6"
       ]
     }
   ]
