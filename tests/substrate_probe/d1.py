@@ -14,12 +14,22 @@ add an undeclared dependency *and* put a client library's connection pooling,
 retries and HTTP/2 negotiation inside a measurement whose whole subject is how
 long one request takes. Removing the library is part of the instrument.
 
-**What this host could measure: nothing.** There are no Cloudflare credentials
-here, so every cell below is `NOT MEASURED (no credentials)` carrying the names
-of the variables that were absent. That is a legitimate outcome of a spike and
-the reason is stated on every cell rather than left to prose — but it does mean
-the measurement paths in this module have never been run against D1. Whoever
-first supplies credentials is running them for the first time.
+**What this host could measure, and what it does now.** When this module was written
+there were no Cloudflare credentials here and every cell was
+`NOT MEASURED (no credentials)` carrying the names of the variables that were
+absent. *(2026-09-23: the credentials arrived, the paths below have run against
+D1, and the column now carries **six measured cells and four stated as
+unmeasured** — the reasons for those four are in `d1_column()`.)* Two things
+about the first real run are worth keeping:
+
+- **A refusal and a reset are different findings.** D1 answered `BEGIN` with
+  `HTTP 400 code 7500` and its own message; an earlier run on the same statement
+  died with a TCP reset. Only the first is an answer about D1, so `query()`
+  returns a transport failure as a `Response` rather than raising, and the cells
+  report it as `NOT MEASURED (transport)` instead of borrowing a refusal the
+  service never gave.
+- **The transport is bounded by statement**, not by a library's default:
+  `query()` passes an explicit `timeout` to `urlopen`.
 
 What *is* exercised without credentials is the instrument itself: the request
 this module builds and the envelope it parses are asserted at the foot of the
@@ -112,25 +122,49 @@ requires_credentials = pytest.mark.skipif(bool(ABSENT), reason=NO_CREDENTIALS)
 class Response:
     """One REST round trip, and how long it took.
 
-    An HTTP error is a `Response`, not an exception: "D1 refused this" is an
-    answer to several of the ten questions, and a probe that raised there would
-    fail where it is supposed to record.
+    A refused request and a request that never arrived are **different
+    findings**, so they are different fields rather than different codes:
+    `status` is the HTTP status when there was one, and `transport` says why the
+    request never got that far — a reset, a timeout, a name that would not
+    resolve. Folding the second into the first is how a probe records a service
+    refusal it never received, and the operator saw both shapes on this API: a
+    TCP reset on `BEGIN` one run, `HTTP 400` with the service's own message the
+    next.
     """
 
-    status: int
+    status: int | None
     body: dict[str, Any]
     seconds: float
+    transport: str = ""
 
     @property
     def ok(self) -> bool:
         return self.status == 200 and bool(self.body.get("success"))
 
     @property
+    def reached(self) -> bool:
+        """Did the request get an HTTP answer at all?"""
+        return not self.transport
+
+    @property
     def error(self) -> str:
+        if self.transport:
+            return f"the request never reached D1: {self.transport}"
         errors = self.body.get("errors") or []
-        return (
-            "; ".join(str(e.get("message", e)) for e in errors) or f"HTTP {self.status}"
-        )
+        return "; ".join(_described(error) for error in errors) or f"HTTP {self.status}"
+
+
+def _described(error: Any) -> str:
+    """One error envelope entry, with its code when it carries one.
+
+    D1 answers `BEGIN` with `code 7500` and a message telling the caller to use
+    the JavaScript transaction API instead. The code is kept because it is the
+    part of that refusal a reader can look up.
+    """
+    if not isinstance(error, dict):
+        return str(error)
+    code, message = error.get("code"), str(error.get("message", error))
+    return f"code {code}: {message}" if code is not None else message
 
 
 def query(
@@ -140,6 +174,11 @@ def query(
 
     The clock covers exactly one request/response, because open question 2 is
     about what a caller waits for, not what a connection pool amortises.
+
+    **A transport failure is a `Response`, not an exception.** A reset means D1
+    was never asked anything, which is a different finding from D1 refusing —
+    and it is the failure the operator observed on this endpoint, so a probe
+    that raised there would lose the run rather than record the distinction.
     """
     account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
     database = os.environ.get("CLOUDFLARE_D1_DATABASE_ID", "")
@@ -159,6 +198,15 @@ def query(
             raw, status = response.read(), response.status
     except urllib.error.HTTPError as refused:
         raw, status = refused.read(), refused.code
+    except OSError as unreached:
+        # `URLError` is an `OSError`, and so is a reset, a timeout and a DNS
+        # failure. None of them is D1 answering.
+        return Response(
+            status=None,
+            body={},
+            seconds=time.perf_counter() - started,
+            transport=f"{type(unreached).__name__}: {unreached}",
+        )
     elapsed = time.perf_counter() - started
     try:
         body = json.loads(raw or b"{}")
@@ -185,8 +233,15 @@ def summarise(samples: Sequence[float]) -> str:
 
 def _latency_answers() -> tuple[Answer, ...]:
     """Round trips, timed. Every one of them crosses a network by construction."""
-    samples = [query("SELECT 1").seconds for _ in range(_SAMPLES)]
-    distribution = summarise(samples)
+    responses = [query("SELECT 1") for _ in range(_SAMPLES)]
+    distribution = summarise([response.seconds for response in responses])
+    unreached = [response for response in responses if not response.reached]
+    if unreached:
+        distribution += (
+            f" — {len(unreached)} of them never reached D1 "
+            f"({unreached[0].transport}), and the timings above include those "
+            f"attempts rather than hiding them"
+        )
     return (
         measured(
             "remote",
@@ -228,8 +283,21 @@ def _interactive_transaction_answer() -> Answer:
     The research says D1 has no `BEGIN`/`COMMIT` and that everything atomic must
     be one batch (`05-cloudflare.md` §A.3). That is a documented claim, so this
     sends the statement and records the refusal rather than citing the page.
+
+    **A request that never arrived is not a refusal.** D1 answered `BEGIN` with
+    `HTTP 400` and the service's own words on the measured run; an earlier run
+    on the same statement died with a TCP reset instead. Only the first is an
+    answer about D1, so the second is recorded as unmeasured for a transport
+    reason rather than folded into the same cell.
     """
     opened = query("BEGIN")
+    if not opened.reached:
+        return not_measured(
+            "interactive_transaction",
+            f"NOT MEASURED (transport) — {opened.error}. A reset is not an answer "
+            f"from the service: D1 was never asked, so this cell stays unmeasured "
+            f"rather than borrowing the refusal a delivered `BEGIN` would produce",
+        )
     return measured(
         "interactive_transaction",
         opened.ok,
@@ -249,14 +317,23 @@ def _document_size_answer() -> Answer:
     `05-cloudflare.md:113` records a 2 MB row cap from the limits page. This
     verifies it: the two sizes straddling 2 MB are in the walk, so the recorded
     answer is the byte count D1 actually refused, not the one it documents.
+
+    **A refused write and an undelivered one are told apart here**, because
+    reading a reset as a refusal would record a cap D1 never imposed.
     """
-    query("CREATE TABLE IF NOT EXISTS probe_sizes (k TEXT PRIMARY KEY, v TEXT)")
+    created = query(
+        "CREATE TABLE IF NOT EXISTS probe_sizes (k TEXT PRIMARY KEY, v TEXT)"
+    )
+    if not created.reached:
+        return _unreached("max_document_bytes", created, "the setup write")
     accepted = 0
     for size in _SIZES:
         written = query(
             "INSERT OR REPLACE INTO probe_sizes (k, v) VALUES (?, ?)",
             ("probe", "x" * size),
         )
+        if not written.reached:
+            return _unreached("max_document_bytes", written, f"the {size} byte write")
         if not written.ok:
             return measured(
                 "max_document_bytes",
@@ -279,6 +356,16 @@ def _document_size_answer() -> Answer:
             "this probe attempted — so no cap was observed in the range walked, "
             "which is not the same as no cap existing"
         ),
+    )
+
+
+def _unreached(field: str, response: Response, what: str) -> Answer:
+    """A cell whose operation never reached D1, said as such."""
+    return not_measured(
+        field,
+        f"NOT MEASURED (transport) — {what} never reached D1 "
+        f"({response.transport}), so the walk stopped before anything was "
+        f"refused: an undelivered request is not a cap D1 imposed",
     )
 
 
@@ -414,6 +501,51 @@ def test_the_instrument_builds_a_d1_request_and_parses_its_envelope(
     assert response.status == 400
     assert response.error == "no such table: nope"
     assert response.seconds > 0
+
+
+def test_a_request_that_never_arrives_is_not_an_exception() -> None:
+    """A reset is a `Response`, not a crash — the failure the operator hit.
+
+    `BEGIN` died with a TCP reset on one run and returned `HTTP 400` on the next.
+    Before this, the reset escaped `query()` as an exception and would have taken
+    the whole run with it; a probe that loses the run cannot record which of the
+    two happened, and they are not the same finding.
+    """
+    import socket
+
+    with socket.socket() as closed:
+        closed.bind(("127.0.0.1", 0))  # bound, never listening: every connect fails
+        port = closed.getsockname()[1]
+
+    response = query("BEGIN", api=f"http://127.0.0.1:{port}/client/v4")
+
+    assert response.reached is False
+    assert response.ok is False
+    assert response.status is None
+    assert response.seconds > 0
+    assert response.error.startswith("the request never reached D1:")
+
+
+def test_an_undelivered_write_is_not_recorded_as_the_row_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The walk must not read a reset as a cap D1 imposed.
+
+    This is the cell-level half of the same distinction, and it is a correctness
+    guard rather than tidiness: before it, an undelivered write took the
+    `not written.ok` branch and its size was recorded as the byte count D1
+    refused.
+    """
+    reset = Response(
+        status=None, body={}, seconds=0.0, transport="ConnectionResetError: reset"
+    )
+    monkeypatch.setattr("tests.substrate_probe.d1.query", lambda *a, **k: reset)
+
+    answer = _document_size_answer()
+
+    assert not answer.is_measured
+    assert "NOT MEASURED (transport)" in answer.detail
+    assert answer.value is None
 
 
 def test_the_distribution_is_reported_as_numbers() -> None:

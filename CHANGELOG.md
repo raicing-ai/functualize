@@ -12,16 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Contributor-facing; no runtime behaviour changes.** `contributor/reference/substrate-capability-matrix.md`
 records what seven candidate storage backends actually do, asked by running
 operations against them rather than by reading their documentation (FUN-25).
-Ten fields, eight columns, 80 cells — 70 measured and 10 explicitly not, every
+Ten fields, eight columns, 80 cells — 76 measured and 4 explicitly not, every
 one of the latter with its reason.
 
 The probe that produced it lives in `tests/substrate_probe/` and is part of the
 default test run. It stays green on a machine with no network, no Docker and no
 cloud account: backends whose credentials are absent skip at module level and
 record `NOT MEASURED`, never a failure and never a fallback to a fake. The five
-measured columns — the JSON filesystem, local SQLite, AWS S3, AWS DynamoDB,
-Cloudflare R2, Turso/libSQL and Supabase Postgres — all carry `measured (real
-service)`; the AWS pair was first
+measured columns — all eight, from the JSON filesystem and local SQLite
+through AWS S3, AWS DynamoDB, Cloudflare R2, Turso/libSQL and Supabase Postgres
+to Cloudflare D1 — carry `measured (real service)` cells; D1's column is the one
+mixed row, six of ten, and the AWS pair was first
 measured against a local emulator and re-measured against AWS on 2026-09-23,
 because a stand-in's behaviour is evidence about the stand-in, and Turso was
 measured the same day once its credentials arrived.

@@ -627,7 +627,11 @@ run is also its first test.
 ```bash
 rg -c '^\*\*Answered' contributor/reference/substrate-capability-matrix.md
 ```
-now: `1` · after: `2`
+now: `1` · after: `3`
+
+*(**Recorded value corrected `2` → `3` by T18, 2026-09-23.** The count is the number of
+verdict headings that read `**Answered`: Q3 had the only one, Q1 took it to two, and T18's Q2
+verdict is the third. A later edit that un-answers one moves it back, which is the point.)*
 
 **Gate — no cell or section still calls R2 unmeasured**
 ```bash
@@ -663,6 +667,70 @@ R2 contention: 8 writers, If-None-Match: * on one absent key -> 1 won, 7 refused
                (PreconditionFailed), survivor holds 'writer-1'
 Cell check:    ten R2 cells and ten Supabase cells compared against the live columns,
                mechanically, value and evidence level -> 0 mismatches
+```
+
+---
+
+## Wave 10 — D1 repaired and re-stamped, the last column
+
+### [x] T18 · 6.7 — Repair D1's transport failure, measure it, close open question 2
+
+**Files:** `tests/substrate_probe/d1.py`,
+`contributor/reference/substrate-capability-matrix.md`, `CHANGELOG.md`, `.spec/STATUS.md`
+
+D1 was the last `NOT MEASURED` column and the operator's credential delivery came with the
+finding this task starts from: `BEGIN` over `/query` returns **HTTP 400, code 7500** with
+Cloudflare's own message — *use `state.storage.transaction()`, not SQL `BEGIN TRANSACTION`* —
+while an earlier run on the same statement died with a **TCP reset**. Those are different
+findings, and the module could only represent the first: `query()` caught `HTTPError` and let
+a reset escape as an exception, which loses the run instead of recording the distinction. The
+same gap was a correctness bug one level up — the size walk read `not written.ok` as "D1
+refused this", so an undelivered write would have been recorded as the row cap D1 imposed.
+
+The repair is bounded: a transport failure becomes a `Response` carrying its reason, three
+cells report `NOT MEASURED (transport)` rather than borrowing an answer, `error` now keeps the
+envelope's `code`, and nothing else changed. Six cells are measured; four stay unmeasured
+because the surfaces this module speaks cannot reach them.
+
+**Gate — the measured row cap is in the document, not just in a run**
+```bash
+rg -c '2 101 248' contributor/reference/substrate-capability-matrix.md
+```
+now: `0` · after: `2`
+
+**Gate — nothing still says D1 was never asked**
+```bash
+rg -c 'NOT MEASURED \(no credentials\)' contributor/reference/substrate-capability-matrix.md
+```
+now: `1` · after: `0`
+
+*(Both predicted and both measured at the tick, unchanged: the byte count appears in the D1
+column's cell and in its section, and the one remaining "no credentials" sentence was the D1
+paragraph this task replaced. The second gate is the honest half of the first — a column can
+carry a number and still claim nobody asked.)*
+
+**Done when:** D1's column carries six `measured (real service)` cells and four `NOT MEASURED`
+with their reasons, and the evidence row states the split rather than stamping the column as
+measured; open question 2 has a verdict in its own section citing the distribution (the p95,
+with the single cold outlier named as such); a reset is recorded as a transport finding rather
+than a refusal, in the code and in the document; the field identifiers stay on the table rows so
+T12's gate does not move; and both the bare-host and the credentialed run terminate inside their
+bounds.
+
+**Verification, recorded at the tick:**
+
+```
+$ for f in ~/.config/fun25/*.env; do set -a; . "$f"; set +a; done
+$ timeout 600 uv run pytest -q tests/substrate_probe/d1.py
+5 passed, 1 skipped in 13.39s        # credentialed: the skip is the "without credentials" test
+5 passed, 1 skipped in 0.15s         # bare host: the skip is the measurement itself
+
+D1 cells:   6 measured (real service), 4 NOT MEASURED
+            BEGIN -> HTTP 400 code 7500; 4 194 304 refused, 2 101 248 accepted
+            latency n=25 min=230ms median=255ms p95=297ms max=326ms
+Sabotage:   reverting `except OSError` in query() turned the reset test red;
+            dropping the `reached` branch in the size walk recorded a bogus cap and
+            turned the second red. Both reverted, tree clean.
 ```
 
 ---
@@ -814,6 +882,12 @@ so nobody does it early and deletes the reviewer's own evidence.
       "id": 9,
       "tasks": [
         "6.6"
+      ]
+    },
+    {
+      "id": 10,
+      "tasks": [
+        "6.7"
       ]
     }
   ]

@@ -2372,9 +2372,10 @@ obtainable on a host with no cloud account at all.
   2026-09-23** (account `131160053496`, `us-east-1`), so all four measured columns now carry
   `measured (real service)` and no column carries emulator evidence. The level is kept and kept
   defined: the emulator path is still reproducible through `AWS_ENDPOINT_URL`, and the next
-  backend measured through one inherits the rule. Turso/libSQL, Cloudflare R2 and Supabase
-  Postgres joined them later on 2026-09-23 (see below), so **seven of the eight columns are
-  measured and only Cloudflare D1 has no measured rows.**
+  backend measured through one inherits the rule. Turso/libSQL, Cloudflare R2, Supabase
+  Postgres and Cloudflare D1 joined them later on 2026-09-23, so **all eight columns carry
+  measured cells** — D1's is the one mixed column, six of ten measured and four stated as
+  unmeasured with their reasons.
 - **A run that fits no level is refused, not filed under the nearest one.** The case this was
   decided for: an embedded libSQL database file is not Turso — the engine is genuinely libSQL so
   it is no fake, nothing is emulating so it is no emulator, and the service was never reached so
@@ -2408,11 +2409,15 @@ refused, 389 120 accepted immediately before it.
   which is the mistake it invited, since R2 speaks S3's API and that says nothing about what
   collides inside a different vendor's engine. S3's own column was re-measured the same day and
   produced the same shape; the agreement is a finding about the two services, not the evidence.
-- **Q2 — D1's absolute REST latency from a developer's machine.** The research carried a vendor
-  figure of "50–500 ms", a range wide enough to change the design: at the top of it a
-  200-transition workflow that reads and writes in a loop spends over a minute in transport. The
-  probe takes 25 timed round trips over stdlib `urllib.request` — deliberately no client library
-  inside the measurement. Cost to close: one D1 database, free tier.
+- **Q2 — D1's absolute REST latency from a developer's machine.** **Answered 2026-09-23**:
+  twenty-five timed `SELECT 1` round trips over stdlib `urllib.request` — deliberately no client
+  library inside the measurement — give `min=230ms median=255ms p95=297ms max=326ms` on the run
+  at the tip, and `p95=516ms` with a single 23 992 ms cold outlier on an earlier run of the same
+  host. **Plan against the larger p95, 516 ms.** The vendor range was "50–500 ms", and at its
+  top a 200-transition workflow that reads and writes per step spends over a minute in
+  transport — the consequence FUN-17 designs around. D1's other measured answers: `BEGIN` was
+  refused with `HTTP 400 code 7500`, so a transaction cannot be held open; and the 2 MB row cap
+  was confirmed by a 4 194 304-byte write refused with 2 101 248 bytes accepted just before it.
 
 **One thing the emulator could not have told anyone.** All twenty AWS values were identical
 between floci 2.1.0 and AWS — a genuine endorsement of the emulator for these ten questions, and
@@ -2465,8 +2470,8 @@ would have left the initiative's only measured artifact unmergeable. It lands in
 FUN-17…FUN-22 must be able to cite it from `master`.
 
 **Reproducing it.** `uv run pytest -q tests/substrate_probe/` needs nothing — no network, no
-Docker, no credentials — and must stay green. The five credentialed columns (AWS S3, AWS
-DynamoDB, R2, Turso, Supabase) each need their own credential and command; their
+Docker, no credentials — and must stay green. The six credentialed columns (AWS S3, AWS
+DynamoDB, R2, Turso, Supabase, D1) each need their own credential and command; their
 provenance, the least-privilege IAM grant and two things to know before re-running them are in the
 matrix's *Provenance* section. The emulator path still works and needs the endpoint named
 explicitly, because the probe will not adopt whatever happens to hold a local port:
@@ -2510,8 +2515,9 @@ semantics, deliberately not translated.
 
 **A standing merge rule, recorded here because it binds every later FUN-\* branch**: nothing under
 `.spec/features/**` or `contributor/architecture/research/**` may reach `master`. The first half is
-enforced by `spec-artifacts-cleared`; the second has no gate at all, and the enforcement gap is
-filed outside this branch as `MCH-38`.
+enforced by `spec-artifacts-cleared`; the second is reported by `research-artifacts-cleared`, added
+on this branch for `MCH-38` — `master` carried no gate for it at all, which is why the tree rode in
+on `34455e5`.
 
 ### plugin-host-protocol
 

@@ -42,10 +42,10 @@ were re-measured against the real service — but the level is kept, and kept de
 because the emulator path is still reproducible and the next backend measured through one
 inherits this rule.
 
-**Which backends have real-service rows:** seven of the eight — the JSON filesystem, local
-SQLite, AWS S3, Cloudflare R2, AWS DynamoDB, Turso/libSQL and Supabase Postgres.
-**Cloudflare D1 does not**; it is the one column with no measured rows, and its reason is
-stated rather than left blank.
+**Which backends have real-service rows:** all eight, and the D1 column is the one that
+carries a mixed row — **six `measured (real service)`, four `NOT MEASURED`**, each of the four
+with its reason in the cell. A column-level `measured` stamp over a partly-measured column is
+exactly the over-claim this document exists to prevent, so the evidence row states the split.
 
 **The three instruments are not columns.** `BatchOnlySqliteDriver`, `FakeObjectStore` and
 `FakeItemStore` (`tests/substrate_probe/fakes.py`) model vendor constraints — a driver
@@ -75,48 +75,47 @@ one column this document still reports as unasked, with its reason.
 
 | | filesystem | local SQLite | Cloudflare D1 | AWS S3 | Cloudflare R2 | AWS DynamoDB | Turso / libSQL | Supabase Postgres |
 |---|---|---|---|---|---|---|---|---|
-| **evidence level, every cell** | `measured (real service)` | `measured (real service)` | `NOT MEASURED` | `measured (real service)` | `measured (real service)` | `measured (real service)` | `measured (real service)` | `measured (real service)` |
-| `cross_aggregate_atomicity` | no · real | **yes** · real | NOT MEASURED | no · real | no · real | **yes** · real | **yes** · real | **yes** · real |
-| `fencing` | cross-process · real | cross-process · real | NOT MEASURED | cross-process · real | cross-process · real | cross-process · real | cross-process · real | cross-process · real |
-| `multi_process` | yes · real | yes · real | NOT MEASURED | yes · real | yes · real | yes · real | yes · real | yes · real |
-| `multi_machine` | no · real | no · real | NOT MEASURED | yes · real | yes · real | yes · real | yes · real | yes · real |
-| `durable_outbox` | no · real | **yes** · real | NOT MEASURED | no · real | no · real | **yes** · real | **yes** · real | **yes** · real |
-| `versioned_migrations` | no · real | no · real | NOT MEASURED | no · real | no · real | no · real | no · real | no · real |
-| `interactive_transaction` | yes · real | yes · real | NOT MEASURED | no · real | no · real | no · real | **yes** · real | **yes** · real |
-| `remote` | no · real | no · real | NOT MEASURED | yes · real | yes · real | yes · real | yes · real | yes · real |
-| `max_document_bytes` | unbounded¹ · real | unbounded¹ · real | NOT MEASURED | unbounded¹ · real | unbounded¹ · real | **389 120** · real | unbounded¹ · real | unbounded¹ · real |
-| `offline_capable` | yes · real | yes · real | NOT MEASURED | no · real | no · real | no · real | no · real | no · real |
+| **evidence level, every cell** | `measured (real service)` | `measured (real service)` | `measured (real service)` ×6 · `NOT MEASURED` ×4 | `measured (real service)` | `measured (real service)` | `measured (real service)` | `measured (real service)` | `measured (real service)` |
+| `cross_aggregate_atomicity` | no · real | **yes** · real | NOT MEASURED — D1's atomic unit is a `batch` request, which the `/query` endpoint the probe speaks does not carry | no · real | no · real | **yes** · real | **yes** · real | **yes** · real |
+| `fencing` | cross-process · real | cross-process · real | NOT MEASURED — no lock primitive was exercised; a compare-and-swap built from `WHERE revision = ?` is FUN-17's design decision | cross-process · real | cross-process · real | cross-process · real | cross-process · real | cross-process · real |
+| `multi_process` | yes · real | yes · real | yes · real | yes · real | yes · real | yes · real | yes · real | yes · real |
+| `multi_machine` | no · real | no · real | yes · real | yes · real | yes · real | yes · real | yes · real | yes · real |
+| `durable_outbox` | no · real | **yes** · real | NOT MEASURED — follows from cross-key atomicity, which this column does not claim | no · real | no · real | **yes** · real | **yes** · real | **yes** · real |
+| `versioned_migrations` | no · real | no · real | NOT MEASURED — D1 has a migrations surface this probe did not exercise | no · real | no · real | no · real | no · real | no · real |
+| `interactive_transaction` | yes · real | yes · real | no · real | no · real | no · real | no · real | **yes** · real | **yes** · real |
+| `remote` | no · real | no · real | yes · real | yes · real | yes · real | yes · real | yes · real | yes · real |
+| `max_document_bytes` | unbounded¹ · real | unbounded¹ · real | **2 101 248** · real | unbounded¹ · real | unbounded¹ · real | **389 120** · real | unbounded¹ · real | unbounded¹ · real |
+| `offline_capable` | yes · real | yes · real | no · real | no · real | no · real | no · real | no · real | no · real |
 
 ¹ **"unbounded" means "nothing refused what was attempted"**, not "there is no limit". The
 sizes walked were 4 MiB for the two local backends and 8 MiB for S3, R2, Turso and Supabase.
 S3 documents a 5 GiB single-PUT limit; it is not in the cell because it was not measured.
 
-**Count:** 80 cells. **70 measured**, all of them `measured (real service)` — and
-**10 `NOT MEASURED`**, every one of them with its reason below. No cell is
+**Count:** 80 cells. **76 measured**, all of them `measured (real service)` — and
+**4 `NOT MEASURED`**, in the D1 column, each with its reason in the cell and again below. No cell is
 `measured (emulator)` any more; the twenty AWS cells were until 2026-09-23, and what
 changed is recorded under *Provenance*.
 
-## Why the unmeasured column is unmeasured
+## Why four cells are unmeasured
 
-Its reason is the text the probe itself emitted when it declined to run, transcribed
-rather than composed. **One column remains**, and it is the `no credentials` cause rather
-than the `client absent` one — the two are kept apart because they cost different things
-to fix: a dependency decision versus a purchase. R2 and Supabase Postgres left this section
-on 2026-09-23, when their credentials arrived; what each of them answered is under *What
-was measured, and how*.
+Every measured cell in this document is an operation performed on a backend. Four cells are
+not measured — **all four in the D1 column** — and each says why in the cell itself rather
+than leaving a blank. In words, and in the reason text the probe emits:
 
-**Cloudflare D1** — `NOT MEASURED (no credentials)`. `CLOUDFLARE_ACCOUNT_ID`,
-`CLOUDFLARE_D1_DATABASE_ID` and `CLOUDFLARE_API_TOKEN` are not set, so nothing was asked
-of D1. The instrument is written and gated: `tests/substrate_probe/d1.py` reaches the REST
-API over stdlib `urllib.request`, and it will record a latency distribution, walk the
-documented 2 MB row cap and send `BEGIN` rather than cite it, the moment those three
-variables exist. D1 has a free tier. *(The credentials have since been provisioned and D1
-has been measured by hand; this column is re-stamped by a task of its own because the
-`BEGIN` path needs repair first — see Q2.)*
+- **Two keys as one unit** would need D1's `/batch` surface, which the `/query` endpoint this
+  module speaks does not carry. Measuring it is a scope decision this ticket did not take, so
+  the cell is unmeasured rather than borrowed from another backend's row.
+- **The fence** was not exercised. D1 offers no lock primitive, and a compare-and-swap built
+  from `WHERE revision = ?` is FUN-17's design decision rather than a property of the service.
+- **The state-and-outbox pair** follows from cross-key atomicity, so this column cannot claim
+  it while that is unmeasured — stated as following rather than asserted twice.
+- **The schema version** has a migrations surface this probe did not exercise.
 
-**Turso / libSQL** has a cell in this section too, but not because it is unmeasured: its
-**client** is the part a reader cannot recover from the file, so it is recorded here. See
-*The client finding* below.
+Nothing else is unmeasured. R2, Turso and Supabase Postgres left this section on 2026-09-23
+when their credentials and clients arrived, and D1's own four dates from the same day.
+
+**Turso / libSQL has a note here too, for a different reason:** its **client** is the part a
+reader cannot recover from the file. See *The client finding* below.
 
 ## What was measured, and how
 
@@ -302,6 +301,34 @@ is nothing to read, the largest document attempted was 8 MiB and nothing refused
 (unbounded¹), and no version can be enforced: Postgres has a schema, but nothing here
 declares a *version* for it.
 
+### Cloudflare D1, against the real service
+
+D1 is reached over its REST API with stdlib `urllib.request` and nothing else, so no client
+library's pooling or retries sit inside the latency number. **Six of its ten cells are
+answers; four are stated as unmeasured**, and the column's evidence row says six and four
+rather than rounding up.
+
+> `BEGIN` sent over `/query` returned **HTTP 400** — *"To execute a transaction, please use
+> the state.storage.transaction() or state.storage.transactionSync() APIs instead of the SQL
+> BEGIN TRANSACTION or SAVEPOINT statements"* (`code 7500`).
+
+That is §A.3 of the research — *no `BEGIN`/`COMMIT`; everything atomic must be one batch* —
+measured rather than cited, with the service's own words beside it: a transaction that cannot
+be opened cannot be held across a Python decision. The row cap is the same kind of answer: a
+**4 194 304**-byte write was refused (`SQLITE_TOOBIG`) and **2 101 248 bytes was accepted
+immediately before it**, so the documented 2 MB limit is confirmed against the service rather
+than copied from the limits page. The remaining three measured cells are the ones the address
+settles — every operation crosses a socket, the store is reached by a URL rather than by a
+path on this disk, and that URL is reachable from any process holding the token.
+
+**A reset is not a refusal, and the two are kept apart in the code that produced this.** D1
+answered `BEGIN` with the refusal above; an earlier run on the same statement died with a TCP
+reset instead. Only the first is an answer about D1, so a request that never arrives is
+recorded as a `Response` carrying the transport failure — and any cell whose operation never
+reached D1 reports `NOT MEASURED (transport)` rather than borrowing an answer. The same
+distinction protects the size walk: without it, an undelivered write would have been recorded
+as the byte count D1 refused.
+
 ## Open questions
 
 ### Q1 — Is R2's conditional `PutObject` atomic under concurrent writers?
@@ -326,19 +353,25 @@ built on R2 that assumes a safe compare-and-swap is now assuming something measu
 
 ### Q2 — What is D1's absolute REST latency from a developer's machine?
 
-**Unanswered, and still `NOT MEASURED` in the table above — but no longer for want of a
-credential.** *(2026-09-23: `CLOUDFLARE_*` is provisioned and D1 has been asked by hand; the
-column stays unasked because the probe's `BEGIN` request needs repair first, and the task
-that repairs it also re-stamps this question. The reason text in the table is the module's
-own and predates the credential.)*
+**Answered — with a distribution rather than a verdict, because a verdict is what the
+research already had.**
 
-The research recorded a vendor changelog figure of "50–500 ms". That range is wide enough
-to change the design — at the top of it, a 200-transition workflow that reads and writes
-in a loop spends over a minute in transport — which is exactly why it needed measuring
-rather than quoting. `tests/substrate_probe/d1.py` takes 25 timed round trips and reports
-`n / min / median / p95 / max`, deliberately over stdlib `urllib.request` so that no client
-library's pooling or retries sit inside the number. Cost to close: one D1 database, free
-tier.
+Twenty-five timed `SELECT 1` round trips, over stdlib `urllib.request` so that no client
+library's pooling or retries sit inside the number:
+
+| run | n | min | median | p95 | max |
+|---|---|---|---|---|---|
+| the run at the tip | 25 | 230 ms | 255 ms | **297 ms** | 326 ms |
+| an earlier run on the same host | 25 | 234 ms | 272 ms | **516 ms** | 23 992 ms |
+
+**Plan against the p95, and against the larger of the two — 516 ms** — because that is the
+worst of what has actually been observed here, and it is what a caller pays on a
+read-modify-write loop that talks to D1 per step. The 23 992 ms maximum is a single cold
+outlier rather than the shape of the service: the run at the tip saw a 326 ms maximum against
+a 297 ms p95, which is why this question is answered with a distribution and not with one
+number. The vendor changelog recorded "50–500 ms"; at the top of that range a 200-transition
+workflow that reads and writes per transition spends **over a minute** in transport, and that
+consequence — not the range — is what FUN-17 has to design around.
 
 ### Q3 — Does anything depend on `Stored.revision` being an `int`?
 
