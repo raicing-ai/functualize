@@ -222,7 +222,7 @@ expects: green, with a case that reads both aggregates back and finds neither wr
 
 ## Wave 5 — the recorders
 
-### [ ] T9 — `run_recorder.py`
+### [x] T9 — `run_recorder.py`
 
 *Files:* `src/functualize/_engine/recording/run_recorder.py`
 
