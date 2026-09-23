@@ -431,7 +431,7 @@ the four evidence levels or an explicit `NOT MEASURED` with a reason; open quest
 and 3 each have a heading and a verdict. Q3's verdict is already written — `spec.md` →
 *Findings* — and is transcribed, not re-derived.
 
-### [ ] T13 · 6.2 — Migrate the durable half and record the change
+### [x] T13 · 6.2 — Migrate the durable half and record the change
 
 **Files:** `CHANGELOG.md`, `.spec/STATUS.md`
 
@@ -441,7 +441,8 @@ rg -c 'substrate capability probe|FUN-25' CHANGELOG.md
 ```
 now: `0` · after: `1`
 
-*(Predicted. `CHANGELOG.md` is hand-written, never generated.)*
+*(Predicted `1`; measured `1` at the tick — the entry names FUN-25 once, on the line that
+says the backends were asked rather than read about. Hand-written prose, never generated.)*
 
 **Done when:** `CHANGELOG.md` carries an `### Added` entry under `[Unreleased]`, and
 `.spec/STATUS.md` carries the probe's durable findings — because `.spec/features/**` is

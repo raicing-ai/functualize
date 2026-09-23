@@ -2334,9 +2334,107 @@ Items identified during development that are worth doing but not yet designed:
 
 | Feature | Description |
 |---------|-------------|
+| substrate-capability-probe | `spike/substrate-capability-probe`: FUN-25's Wave 0 — `StoreProfile` was a set of assertions taken from vendor documentation, and this turned it into measurements before FUN-17 freezes the port. Ten fields across seven backends, published at [`contributor/reference/substrate-capability-matrix.md`](../contributor/reference/substrate-capability-matrix.md): 80 cells, 40 measured and 40 explicitly `NOT MEASURED` with reasons. No `src/` or `plugins/` change at all — the diff to `master` is a probe suite under `tests/substrate_probe/`, one reference document, and `.env.example`. Two open questions survive unanswered and are stated as such rather than inferred from a neighbouring column. Details below. |
 | runtime-persistence-repair | `fix/runtime-persistence-defects`: four defects in the document stores, repaired before anything migrates them. A superseded runner was correctly refused on its *record* write and then overwrote the live holder's job state; two runners claiming one scope at the same instant could both be told they won; a storage plugin that could not open left the engine running on the filesystem substrate the operator had explicitly not chosen; and the TUI's `!` history wrote a backend the CLI never read. Claims are now compare-and-swap on both documents, every `rc.state` write is fenced through one seam, a failed substrate install fails boot, and `Stored.revision` is an opaque token. Cross-document atomicity is deliberately absent — it is FUN-17's `RuntimeTransaction`. Details below. |
 | local-vault-access | `feat/local-vault-access`: the encrypted vault was a cache for values fetched from a remote provider; it is now also somewhere to put one secret you already have. `func builtin vault init / put / inspect / remove`, the same lifecycle as public API in `functualize.app.vault`, and an ordinary `classic()` app reads a vault its project has. Store format gains provenance columns and upgrades in place; `keyring` becomes the `functualize[keychain]` extra. Three behavioural changes, all in [ADR-023](../contributor/adr/023-local-vault-access.md): a stored entry that cannot be opened refuses the run instead of falling through, one vault key per user rather than per project, and nullable provenance fields in `vault list --json`. See `.spec/features/local-vault-access/` on the branch (cleared before merge). |
 | mcp-server-fixes | `fix/mcp-server-fixes`: `func mcp serve` crashed on grouped jobs with parameters — the plugin compiled `async def {dotted_job_name}(...)` via `exec`, a SyntaxError that killed registration (found live by the NOOA integration probe; verified against 0.2.3 and still present on master). Fix: codegen under a sanitized identifier, dotted name restored on the function object; descriptions attach as `__doc__` instead of being interpolated into source (a `'''` in a docstring broke compilation the same way). Server boots no longer run FastMCP's PyPI update check or print its banner unless `FASTMCP_*` env vars opt back in. `fastmcp` dependency bounded to `<5`. Regression net: unit + registration tests, a live subprocess stdio capability test, and a `grouped_tools` example with its own serve harness. Full plugin + examples suites green; ruff clean. See `.spec/features/mcp-server-fixes/` on the branch (cleared before merge). |
+
+### substrate-capability-probe
+
+`spike/substrate-capability-probe`: FUN-25. A spike — the deliverable is measurements, not a
+substrate. Recorded here because `.spec/features/substrate-capability-probe/` is deleted before
+merge and would otherwise take all of this with it.
+
+**The premise, measured rather than assumed: `StoreProfile` does not exist in this codebase.**
+`rg -n "StoreProfile" src/ plugins/ tests/` returned **0** at planning time. It is a proposal in
+`durability-outsourcing/07-the-design.md`, owned by FUN-17. That settles the boundary question the
+whole ticket turns on: there is no remote substrate to measure *through*, so the probe measures
+each backend **directly, through that backend's own client**, and reports what a future
+`StoreProfile` would have to say. A probe routed through our adapter would measure the adapter,
+which is how a spike quietly becomes the implementation of the next ticket.
+
+The rule that keeps it honest is one command — only `tier_a.py` may import from `functualize`:
+
+```bash
+rg -n "^(from|import) functualize" tests/substrate_probe/ | rg -v "^tests/substrate_probe/tier_a.py"
+# must be empty
+```
+
+`tier_a.py` is the deliberate exception: for the JSON filesystem and local SQLite the shipping
+substrate *is* the backend under test, which is what makes a `measured (real service)` row
+obtainable on a host with no cloud account at all.
+
+**Four evidence levels, and no fifth may be minted.** `measured (real service)` |
+`measured (emulator)` | `measured (fake)` | `NOT MEASURED`. Two consequences worth keeping:
+
+- **An emulator row may never back a shipped field.** Two of the four measured columns (AWS S3,
+  AWS DynamoDB) were produced against a local emulator and are marked so on every cell. They are
+  evidence about the stand-in.
+- **A run that fits no level is refused, not filed under the nearest one.** The case this was
+  decided for: an embedded libSQL database file is not Turso — the engine is genuinely libSQL so
+  it is no fake, nothing is emulating so it is no emulator, and the service was never reached so
+  it is emphatically not a real service. `tests/substrate_probe/tier_c.py` refuses to run without
+  both a client and an account, and a test asserts no route through it reaches a measured cell
+  otherwise. Adjudicated by the member's delegate 2026-09-22; a fourth level was proposed and
+  declined.
+
+**Shape: plain functions and frozen dataclasses, no base class.** A `ProbeBackend` ABC was
+considered and rejected as a blocker rather than a preference — a shared base can only promise
+what all eight backends do, which re-creates the intersection contract ADR-022 exists to forbid
+(and `.spec/CONSTITUTION.md` lists ABC-for-ports under *Forbidden Patterns*). A backend is a
+handful of functions returning `Answer`s; `harness.py` fills whatever a backend did not answer
+with `NOT MEASURED`, so a blank cell and an unmeasured one cannot look the same.
+
+**What the measurements changed.** The two shipping backends differ on exactly the two rows the
+port exists to distinguish: local SQLite commits a state write and its outbox row as one unit or
+neither, and the JSON filesystem does not. On the emulator, `TransactWriteItems` held under
+contention — eight writers racing one conditional key while each carried a sibling write produced
+**one** winner and **no** orphaned sibling — and a conditional `PutObject` serialised eight
+concurrent creators down to one. DynamoDB's item cap was walked rather than quoted: 430 080 bytes
+refused, 389 120 accepted immediately before it.
+
+**Two questions remain open, and neither can be closed by inference:**
+
+- **Q1 — is Cloudflare R2's conditional `PutObject` atomic under concurrent writers?** The
+  largest unknown the research identified. R2 has no emulator, and the S3 column is not a
+  substitute: R2 speaks S3's API, which is a statement about request shapes rather than about what
+  happens when writers collide. Anything built on R2 that assumes a safe compare-and-swap is
+  assuming this. Cost to close: one R2 bucket, free tier — the instrument is written and proven.
+- **Q2 — D1's absolute REST latency from a developer's machine.** The research carried a vendor
+  figure of "50–500 ms", a range wide enough to change the design: at the top of it a
+  200-transition workflow that reads and writes in a loop spends over a minute in transport. The
+  probe takes 25 timed round trips over stdlib `urllib.request` — deliberately no client library
+  inside the measurement. Cost to close: one D1 database, free tier.
+
+**Q3 is answered and guarded.** Nothing in Python orders a revision or does arithmetic on one;
+FUN-24 landed `Revision = NewType("Revision", str)` and the only two census hits are SQL text
+against the sqlite plugin's own `revision INTEGER` column, stringified at the Python boundary. The
+probe added a regression guard rather than a measurement
+(`tests/primitives/test_substrate.py::test_a_revision_is_an_opaque_token` plus a census companion),
+so the property cannot silently un-land when the first remote substrate arrives.
+
+**Tier C keeps two causes apart.** Turso/libSQL and Supabase Postgres are unmeasured for *two*
+distinct reasons, and the matrix states both: the client is absent **and** undeclared by any
+first-party package — so installing one is a dependency decision, not a probe run — and the
+credentials are absent. They cost different things to fix and a single "unavailable" would hide
+which.
+
+**Where the matrix lives, and why not where the scaffold said.** The pre-loaded plan named
+`contributor/architecture/research/substrate-capability-matrix.md`. Nothing under
+`contributor/architecture/research/**` may reach `master` under the standing merge rule, and
+unlike `.spec/features/**` that tree has **no** CI gate to catch the mistake — publishing there
+would have left the initiative's only measured artifact unmergeable. It lands in
+`contributor/reference/` instead, which is the convention for a durable, citable reference, and
+FUN-17…FUN-22 must be able to cite it from `master`.
+
+**Reproducing it.** `uv run pytest -q tests/substrate_probe/` needs nothing — no network, no
+Docker, no credentials — and must stay green. The two emulator columns need an emulator named
+explicitly, because the probe will not adopt whatever happens to hold a local port:
+
+```bash
+docker run -d --name floci -p 4566:4566 floci/floci:latest
+AWS_ENDPOINT_URL=http://localhost:4566 uv run pytest -q tests/substrate_probe/dynamodb.py tests/substrate_probe/s3.py
+```
 
 ### runtime-persistence-repair
 

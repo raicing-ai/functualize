@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — a measured capability matrix for seven storage backends
+
+**Contributor-facing; no runtime behaviour changes.** `contributor/reference/substrate-capability-matrix.md`
+records what seven candidate storage backends actually do, asked by running
+operations against them rather than by reading their documentation (FUN-25).
+Ten fields, eight columns, 80 cells — 40 measured and 40 explicitly not, every
+one of the latter with its reason.
+
+The probe that produced it lives in `tests/substrate_probe/` and is part of the
+default test run. It stays green on a machine with no network, no Docker and no
+cloud account: backends whose credentials are absent skip at module level and
+record `NOT MEASURED`, never a failure and never a fallback to a fake. Two
+columns are `measured (emulator)` against a local AWS emulator and are marked
+as such on every cell, because a stand-in's behaviour is evidence about the
+stand-in.
+
+Two findings are worth a reader's time before they pick a backend. DynamoDB's
+`TransactWriteItems` held under contention — eight writers racing one
+conditional key while carrying a sibling write produced exactly one winner and
+no orphaned sibling — and a conditional `PutObject` serialised eight concurrent
+creators down to one. Both were measured against the emulator, so neither yet
+backs a shipping decision.
+
+Also added: `FUNCTUALIZE_PROBE_R2_*` in `.env.example`, for the one question
+the probe could not answer — whether Cloudflare R2's conditional `PutObject` is
+atomic under concurrent writers. R2 has no emulator, and S3's answer is not
+R2's.
+
 ### Fixed — a superseded runner could overwrite live job state, and three more persistence defects beside it
 
 **Breaking, pre-release.** Four defects in the document stores, repaired before
