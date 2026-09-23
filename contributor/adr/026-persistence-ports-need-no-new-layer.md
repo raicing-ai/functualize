@@ -157,3 +157,12 @@ point the two implementations plus their shared machinery may genuinely
 outgrow the current homes, and a peer layer becomes a proposal with evidence
 behind it rather than a reflex. The port definitions would stay in `_types`
 regardless; it is the *implementations* that would be asking for a home.
+
+**Or the vocabulary module outgrowing one file.** `_types/persistence.py` was
+projected at ~340 lines and measured **698** once the whole of the contract had
+landed — 21 dataclasses and 10 protocols, still zero logic, still read as a
+unit. That is accepted above, and the accepting is conditional: re-examine if a
+later feature adds to this module, or if any executable logic appears in it. A
+line count on its own is not the trigger — *growth from a new feature* is, since
+the module is complete for the feature that created it. A split, if it ever
+happens, runs along the vocabulary/ports boundary and is its own decision.

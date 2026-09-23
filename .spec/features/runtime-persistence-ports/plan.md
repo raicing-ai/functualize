@@ -233,10 +233,16 @@ makes them eligible to be accepted rather than blocking.
    zero logic, and `_types/commands.py` proves the alternative split collides on the
    word "command" (`contracts.md` §1). The ~500-line threshold in the constitution is
    about **classes**, and the largest class here is ~25 lines. The projection line in
-   *Files expected to change* is corrected to the measured number. Re-examine again if
-   the module passes ~1000 or any executable logic appears in it — a split, if ever,
-   runs along the vocabulary/ports boundary and is its own decision, not this ticket's.
-   **Does not need maintainer review.**
+   *Files expected to change* is corrected to the measured number.
+   **Complete at T6** — `contracts.md` §1.1–§1.5 have all landed and no later task in
+   this wave names this file (`*Files:*` lines at `:39, :57, :70, :92, :115, :133` are
+   the only ones), so it does not grow again inside FUN-17. A line-count trigger is
+   therefore unreachable here; re-examine if **a later feature adds to this module**, or
+   if any executable logic appears in it — a split, if ever, runs along the
+   vocabulary/ports boundary and is its own decision, not this ticket's. **This file is
+   deleted by the pre-merge cleanup, so that obligation is migrated to
+   `contributor/adr/026-persistence-ports-need-no-new-layer.md` → *What would reopen
+   this*, which ships to master.** **Does not need maintainer review.**
 
 ### And one that is NOT ours, but must be stated
 

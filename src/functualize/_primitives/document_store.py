@@ -77,33 +77,55 @@ __all__ = ["DOCUMENT_PROFILE", "DocumentRuntimeStore"]
 
 #: What the three document stores can actually promise.
 #:
-#: Eight of the ten values are the filesystem column of
-#: `contributor/reference/substrate-capability-matrix.md`, which is the
-#: authority for every capability in this wave. **Two are deliberately
-#: stricter than that row**, because the matrix measures a filesystem, and this
+#: Nine of the ten values are the filesystem column of
+#: `contributor/reference/substrate-capability-matrix.md` (`:79-88`), which is
+#: the authority for every capability in this wave. **One is deliberately
+#: weaker than that row**, because the matrix measures a *substrate* and this
 #: profile describes what `ScopeStore` / `RunStore` / `ScopeStateStore` do on
-#: one:
+#: one — and for one field the weakest of the three decides.
 #:
-#: - `fencing` — the matrix reads `cross-process · real`; this store declares
-#:   `"process-local"`. The fence is a generation compared per scope inside
-#:   `ScopeStore._mutate`, and the hold that supplies it lives on the store
-#:   object (`ScopeStore.hold`, `_generations`). A write arriving from another
-#:   process carries no hold at all, so nothing refuses it; and a scope's
-#:   record and its state are two documents, which cannot be fenced as one.
-#: - `multi_process` — the matrix reads `yes · real`; this store declares
-#:   `False`. `file_lock` is advisory: it proceeds unlocked after a 10-second
-#:   timeout and is a no-op where neither `fcntl` nor `msvcrt` exists
-#:   (`_primitives/lease.py`, "The lock is not the mechanism either"). Two
-#:   processes therefore do not corrupt each other *reliably*, which is not
-#:   the same promise as `yes`.
+#: - `fencing` is `"cross-process"`, matching the matrix (`:80`). An earlier
+#:   draft declared `"process-local"` on the grounds that the hold supplying
+#:   the generation lives on the store object (`ScopeStore.hold`,
+#:   `_generations`), so a writer in another process "carries no hold and
+#:   nothing refuses it". The hold is real, and the conclusion does not follow.
+#:   The generation it is compared *against* is read off disk inside the lock —
+#:   `check_generation(scope_id, read_lease(envelope["scopes"].get(scope_id)),
+#:   held)` (`scope_store.py:278-285`), where `envelope` came from
+#:   `_load_with_revision()`. So a stale lease holder **in any process** is
+#:   refused: its in-memory generation loses to the lease on disk. And the
+#:   write is a compare-and-swap regardless of any hold —
+#:   `write(..., expect=revision)` inside the `_WRITE_ATTEMPTS` loop
+#:   (`scope_store.py:294-305`), which `scope_store.py:271` states outright:
+#:   "Compare-and-swap backs up the advisory lock." A caller with *no* hold is
+#:   not a fencing gap but the documented intent — `ScopeStore.hold` says a
+#:   store not driving a walk "has no lease and must not be refused". The
+#:   two-documents point is true and belongs to `cross_aggregate_atomicity`,
+#:   which is already `False`; spending it twice would state it once as a claim
+#:   about the fence's *reach*, which is what this field measures.
+#: - `multi_process` is `False` while the matrix reads `yes · real` (`:81`),
+#:   and this is the one place the matrix is not the authority. It measured
+#:   `JsonFileSubstrate`, whose CAS is genuinely cross-process. This profile
+#:   covers three stores, and **`RunStore` does not compare-and-swap**:
+#:   `_mutate` is a locked read-modify-write ending in
+#:   `write(self._key, stamp_runs(envelope))` with no `expect=`
+#:   (`run_store.py:189-192`), as is `batch` (`:204-208`). Its only protection
+#:   against a second process is the advisory lock, which proceeds unlocked
+#:   after ten seconds and is a no-op without `fcntl` or `msvcrt`. So two
+#:   processes *can* lose a run record — deliberately, since a run record "is
+#:   history, not an in-flight run: losing it costs a `func builtin history`
+#:   entry, not somebody's approval" (`run_store.py:162-164`). One value covers
+#:   all three stores, so it takes the weakest, and the weakest is `RunStore`.
+#:   `ScopeStore` and `ScopeStateStore` would each support `True` alone.
 #:
-#: Neither is an apology and neither is re-derived from vendor documentation:
-#: both are what the code in this package does today, and `False` here is what
-#: makes T13 refuse a feature that needs more rather than silently degrade.
+#: Neither value is an apology and neither is re-derived from vendor
+#: documentation: both are what the code in this package does today, and
+#: `multi_process=False` is what makes T13 refuse a feature that needs more
+#: rather than silently degrade.
 DOCUMENT_PROFILE = StoreProfile(
     name="documents",
     cross_aggregate_atomicity=False,
-    fencing="process-local",
+    fencing="cross-process",
     multi_process=False,
     multi_machine=False,
     durable_outbox=False,
@@ -113,8 +135,10 @@ DOCUMENT_PROFILE = StoreProfile(
     max_document_bytes=None,
     offline_capable=True,
     description=(
-        "JSON documents under .functualize/. The default when no storage "
-        "plugin is installed, and the only store that works with no network."
+        "JSON documents on the project's StoreSubstrate — the filesystem by "
+        "default, and the only store that works with no network. Values are "
+        "the matrix's filesystem column; a stronger substrate is "
+        "under-declared, never over-declared."
     ),
 )
 

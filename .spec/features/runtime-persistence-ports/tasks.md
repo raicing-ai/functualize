@@ -157,11 +157,33 @@ now: `0` · after: `2`
 *Files:* `src/functualize/_primitives/document_store.py`
 
 Wraps today's `ScopeStore`, `RunStore` and `ScopeStateStore` and declares what they
-actually do — `cross_aggregate_atomicity=False`, `fencing="process-local"`,
+actually do — `cross_aggregate_atomicity=False`, `fencing="cross-process"`,
 `multi_process=False`, `multi_machine=False`, `durable_outbox=False`,
 `versioned_migrations=False`, `interactive_transaction=True`, `remote=False`,
-`max_document_bytes=None`, `offline_capable=True`. Those are the filesystem column of the
-matrix, not an apology.
+`max_document_bytes=None`, `offline_capable=True`.
+
+Nine of those are the filesystem column of
+`contributor/reference/substrate-capability-matrix.md` (`:79-88`), read row by row. **One
+is not, and the divergence is the point of this task**: the matrix measures a *substrate*,
+this profile describes three *stores* on one, and where they disagree the code wins.
+
+- `fencing` is `"cross-process"` (matrix `:80`). Both of this store's refusal grounds are
+  sourced from disk: `check_generation` compares against the lease read out of the loaded
+  envelope (`scope_store.py:278-285`), and the write is
+  `write(..., expect=revision)` regardless of any hold (`:294-305`) — "Compare-and-swap
+  backs up the advisory lock" (`:271`). A stale lease holder in any process is refused.
+- `multi_process` is `False` even though the matrix reads `yes · real` (`:81`). **This is
+  the one field where the matrix is not the authority.** It measured `JsonFileSubstrate`;
+  this profile also covers `RunStore`, which does **not** compare-and-swap — `_mutate`
+  ends in `write(self._key, stamp_runs(envelope))` with no `expect=`
+  (`run_store.py:189-192`, and `batch` at `:204-208`). Its only guard against a second
+  process is the advisory lock, so a run record can be lost — accepted by design, because
+  a run record "is history, not an in-flight run" (`:162-164`). One value covers three
+  stores and takes the weakest.
+
+Not an apology, and not the research's pre-measurement draft: that draft had **both**
+fields weak, on grounds that FUN-24's repair and FUN-25's measurement have since answered.
+Do not "restore" `fencing` to `"process-local"`.
 
 It lives in `_primitives` because that is where the three stores it wraps live; putting it
 in `_engine` would place storage adaptation in the layer that owns lifecycle meaning.
