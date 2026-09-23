@@ -524,14 +524,21 @@ now: `3` · after: `0`
 ```bash
 rg -c 'libsql-client' contributor/reference/substrate-capability-matrix.md
 ```
-now: `0` · after: `2`
+now: `0` · after: `3`
 
-*(Both predicted and both measured at the tick, unchanged: three host assertions became
-none — `gap_for` still calls `importable(backend.client)`, which is a lookup rather than a
-claim about the machine — and the distribution is named twice in the Tier C section, once as
-the client the path drives and once inside the overlay command a reader is told to run. The
-first gate is a count of the defect, so it must read `0`; a later edit that reintroduces a
-host assertion moves it.)*
+*(Both predicted and both measured at T15's tick, unchanged then: three host assertions
+became none — `gap_for` still calls `importable(backend.client)`, which is a lookup rather
+than a claim about the machine — and the distribution was named twice in the Tier C section,
+once as the client the path drives and once inside the overlay command a reader is told to
+run. The first gate is a count of the defect, so it must read `0`; a later edit that
+reintroduces a host assertion moves it.)*
+
+*(**Recorded value corrected `2` → `3` by T16, 2026-09-23.** T15's subject — that the client
+decision is recorded beside the column — still holds and holds more fully: the archived
+client is now named three times, as the client whose surface produced the reversed answer, as
+the finding itself, and in the warning that the operator's runner still overlays it. The
+count moved because a later task extended what the gate measures, not because the property
+lapsed. T15's tick stands.)*
 
 **Done when:** `PROBE_TIER_C=1 run-probe.sh` is green with Tier C credentials still absent
 and both columns still `NOT MEASURED` for the cause that genuinely remains (no account); each
@@ -551,6 +558,53 @@ columns under the overlay, credentials absent:
   Turso / libSQL     10 unmeasured of 10  — NOT MEASURED (no credentials)
   Supabase Postgres  10 unmeasured of 10  — NOT MEASURED (no credentials)
 ```
+
+## Wave 8 — measure Turso through the maintained client
+
+### [x] T16 · 6.5 — Migrate Turso to `libsql`, and measure it for real
+
+**Files:** `tests/substrate_probe/tier_c.py`,
+`contributor/reference/substrate-capability-matrix.md`
+
+T11 chose `libsql-client` because its `create_client_sync` / `execute` / `batch` / `close`
+surface matched the measurement path already written, and the leader set a conditional with
+that choice: *if the archived client cannot hold a session against Turso Cloud, that is a
+client finding — stop and report rather than switch unilaterally.* The operator's credential
+delivery triggered exactly that case. `libsql-client` 0.3.1 fails its Hrana WebSocket
+handshake (`WSServerHandshakeError: 400`) **and retries forever**, so the column hung instead
+of failing and a `timeout` had to kill the run. The same credentials work through `libsql`
+0.1.11, so neither the service nor the token was ever the problem.
+
+**Re-derive, do not port.** `libsql` 0.1.11 is `sqlite3`-shaped with no `batch()`. The old
+module reasoned *the atomic unit is one batched request, therefore a transaction cannot be
+held open* — an inference from a client's surface, not a measurement of the service. Every
+answer built on `batch()` is re-derived from what this client can actually do, and where an
+answer changes meaning that is reported rather than absorbed.
+
+**Gate — the archived client is gone from the measurement path**
+```bash
+rg -c 'libsql_client' tests/substrate_probe/tier_c.py
+```
+now: `6` · after: `0`
+
+**Gate — the client finding is recorded beside the column**
+```bash
+rg -c 'WSServerHandshakeError' contributor/reference/substrate-capability-matrix.md
+```
+now: `0` · after: `1`
+
+*(Both predicted `0` and `1`, both measured at the tick and unchanged. The first is the
+migration itself — the archived client's module name cannot survive anywhere in the
+measurement path; the second pins the finding, so an edit that tidies the client story out of
+the matrix takes the gate with it.)*
+
+**Done when:** the Turso column carries ten `measured (real service)` cells from a run at the
+tip; every remote call is bounded and the run terminates; the client finding is durable
+knowledge beside the column, framed as a *client* finding and never a service one; the working
+command is in both the module docstring and the matrix's recipe, since the operator's runner
+still overlays the archived client; Supabase stays `NOT MEASURED` with its causes unmerged;
+and the bare-host path is unchanged — no client, no credentials, suite green, columns stating
+why.
 
 ---
 
@@ -689,6 +743,12 @@ so nobody does it early and deletes the reviewer's own evidence.
       "id": 7,
       "tasks": [
         "6.4"
+      ]
+    },
+    {
+      "id": 8,
+      "tasks": [
+        "6.5"
       ]
     }
   ]

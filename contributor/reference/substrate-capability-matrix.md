@@ -43,8 +43,8 @@ because the emulator path is still reproducible and the next backend measured th
 inherits this rule.
 
 **Which backends have real-service rows:** the JSON filesystem, local SQLite, AWS S3 and
-AWS DynamoDB. **Cloudflare R2, Cloudflare D1, Turso/libSQL and Supabase Postgres do
-not** — they have no measured rows at all.
+AWS DynamoDB and Turso/libSQL. **Cloudflare R2, Cloudflare D1 and Supabase Postgres
+do not** — they have no measured rows at all.
 
 **The three instruments are not columns.** `BatchOnlySqliteDriver`, `FakeObjectStore` and
 `FakeItemStore` (`tests/substrate_probe/fakes.py`) model vendor constraints — a driver
@@ -73,24 +73,24 @@ and did.
 
 | | filesystem | local SQLite | Cloudflare D1 | AWS S3 | Cloudflare R2 | AWS DynamoDB | Turso / libSQL | Supabase Postgres |
 |---|---|---|---|---|---|---|---|---|
-| **evidence level, every cell** | `measured (real service)` | `measured (real service)` | `NOT MEASURED` | `measured (real service)` | `NOT MEASURED` | `measured (real service)` | `NOT MEASURED` | `NOT MEASURED` |
-| `cross_aggregate_atomicity` | no · real | **yes** · real | NOT MEASURED | no · real | NOT MEASURED | **yes** · real | NOT MEASURED | NOT MEASURED |
-| `fencing` | cross-process · real | cross-process · real | NOT MEASURED | cross-process · real | NOT MEASURED | cross-process · real | NOT MEASURED | NOT MEASURED |
-| `multi_process` | yes · real | yes · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | NOT MEASURED | NOT MEASURED |
-| `multi_machine` | no · real | no · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | NOT MEASURED | NOT MEASURED |
-| `durable_outbox` | no · real | **yes** · real | NOT MEASURED | no · real | NOT MEASURED | **yes** · real | NOT MEASURED | NOT MEASURED |
-| `versioned_migrations` | no · real | no · real | NOT MEASURED | no · real | NOT MEASURED | no · real | NOT MEASURED | NOT MEASURED |
-| `interactive_transaction` | yes · real | yes · real | NOT MEASURED | no · real | NOT MEASURED | no · real | NOT MEASURED | NOT MEASURED |
-| `remote` | no · real | no · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | NOT MEASURED | NOT MEASURED |
-| `max_document_bytes` | unbounded¹ · real | unbounded¹ · real | NOT MEASURED | unbounded¹ · real | NOT MEASURED | **389 120** · real | NOT MEASURED | NOT MEASURED |
-| `offline_capable` | yes · real | yes · real | NOT MEASURED | no · real | NOT MEASURED | no · real | NOT MEASURED | NOT MEASURED |
+| **evidence level, every cell** | `measured (real service)` | `measured (real service)` | `NOT MEASURED` | `measured (real service)` | `NOT MEASURED` | `measured (real service)` | `measured (real service)` | `NOT MEASURED` |
+| `cross_aggregate_atomicity` | no · real | **yes** · real | NOT MEASURED | no · real | NOT MEASURED | **yes** · real | **yes** · real | NOT MEASURED |
+| `fencing` | cross-process · real | cross-process · real | NOT MEASURED | cross-process · real | NOT MEASURED | cross-process · real | cross-process · real | NOT MEASURED |
+| `multi_process` | yes · real | yes · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | yes · real | NOT MEASURED |
+| `multi_machine` | no · real | no · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | yes · real | NOT MEASURED |
+| `durable_outbox` | no · real | **yes** · real | NOT MEASURED | no · real | NOT MEASURED | **yes** · real | **yes** · real | NOT MEASURED |
+| `versioned_migrations` | no · real | no · real | NOT MEASURED | no · real | NOT MEASURED | no · real | no · real | NOT MEASURED |
+| `interactive_transaction` | yes · real | yes · real | NOT MEASURED | no · real | NOT MEASURED | no · real | **yes** · real | NOT MEASURED |
+| `remote` | no · real | no · real | NOT MEASURED | yes · real | NOT MEASURED | yes · real | yes · real | NOT MEASURED |
+| `max_document_bytes` | unbounded¹ · real | unbounded¹ · real | NOT MEASURED | unbounded¹ · real | NOT MEASURED | **389 120** · real | unbounded¹ · real | NOT MEASURED |
+| `offline_capable` | yes · real | yes · real | NOT MEASURED | no · real | NOT MEASURED | no · real | no · real | NOT MEASURED |
 
 ¹ **"unbounded" means "nothing refused what was attempted"**, not "there is no limit". The
-sizes walked were 4 MiB for the two local backends and 8 MiB for S3. S3 documents a 5 GiB
-single-PUT limit; it is not in the cell because it was not measured.
+sizes walked were 4 MiB for the two local backends and 8 MiB for S3 and for Turso. S3
+documents a 5 GiB single-PUT limit; it is not in the cell because it was not measured.
 
-**Count:** 80 cells. **40 measured**, all of them `measured (real service)` — and
-**40 `NOT MEASURED`**, every one of them with a reason below. No cell is
+**Count:** 80 cells. **50 measured**, all of them `measured (real service)` — and
+**30 `NOT MEASURED`**, every one of them with a reason below. No cell is
 `measured (emulator)` any more; the twenty AWS cells were until 2026-09-23, and what
 changed is recorded under *Provenance*.
 
@@ -115,33 +115,15 @@ before nor after the re-measurement. The emulator's answer was the emulator's; A
 answer is AWS S3's; and R2 speaks S3's API without thereby making S3's guarantees. This
 is the column that leaves open question 1 open.
 
-**Turso / libSQL** — `NOT MEASURED (no credentials)`. `TURSO_DATABASE_URL` and
-`TURSO_AUTH_TOKEN` are unset, so nothing was asked of Turso; the reason quoted is what a run
-emits with the client on the path and the account absent, which is the runner's configuration
-(a bare host emits `client absent` beside `no credentials` for the same column). Everything
-about the **client** is a decision rather than a blocker:
-
-| | |
-|---|---|
-| Client the measurement path drives | `libsql-client` **0.3.1** — `create_client_sync` / `execute` / `batch` / `close` |
-| Upstream status | **archived** — last release 0.3.1 (2024-05-03); the repository points at `tursodatabase/libsql-python` |
-| Maintained path instead | `libsql` **0.1.11** — `sqlite3`-style, **no `batch()`**, so adopting it means rewriting `tier_c.py`'s measurement path |
-| Declared by a first-party manifest | **no** — the root `pyproject.toml` and every `plugins/*/*/pyproject.toml` are silent; a test asserts it |
-| How to run it when the account exists | `PROBE_TIER_C=1 ~/.config/fun25/run-probe.sh`, which adds both Tier C clients as an ephemeral `uv run --with libsql-client --with "psycopg[binary]"` overlay |
-
-So the client half of this column's gap is **not** "not installable here"; it is "not declared
-by the project, runnable through the operator's overlay". That is deliberate and was decided on
-2026-09-23: declaring an archived client would commit the repository to it, and switching to the
-maintained one would put an untested measurement path in charge of a measurement. **If the
-archived client cannot hold a session against Turso Cloud, that is a client finding to report
-rather than a reason to switch unilaterally.** What this column is still waiting on is the
-account. See the refusal rule above for why a local libSQL file would not close it either.
-
-**Supabase Postgres** — `NOT MEASURED (no credentials)`, quoted under the same configuration.
-`SUPABASE_DB_URL` is unset, and that is the whole of what stands between this column and a
-measurement: `psycopg` arrives through the same overlay and is likewise undeclared by every
-first-party manifest, so the only thing left to buy is the database. This column was expected
-to stay unmeasured and did.
+**Supabase Postgres** — `NOT MEASURED (no credentials)`. `SUPABASE_DB_URL` is unset, and on
+the host that measured Turso that is the whole of what stands between this column and a
+measurement: `psycopg` arrives through the same ephemeral overlay and is likewise undeclared
+by every first-party manifest, so the only thing left to buy is the database. **On a bare
+host the reason names both causes**, client and credentials, because both apply there — the
+two are kept apart deliberately, since a dependency decision and an account are different
+prices. Nothing about Turso's result is inferred into this column: the credential file that
+measured Turso carries no Supabase database, and `_supabase_answers()` has still never
+executed. This column was expected to stay unmeasured and did.
 
 ## What was measured, and how
 
@@ -197,6 +179,73 @@ Whether a transaction can be held open is read off the service's own API model r
 a page: the client offers `ExecuteTransaction`, `TransactGetItems` and `TransactWriteItems`
 and **no begin/commit pair**, so a transaction is one request carrying every item and
 there is no handle to hold across a Python decision.
+
+### Turso / libSQL, against the real service
+
+Measured **2026-09-23** against a Turso Cloud database — org `viltohmyst`, group `default`,
+region `aws-us-west-2`, database `fun25-substrate-probe` — from contabo (`vmi3464921`), with
+the maintained client **`libsql` 0.1.11** and a database-scoped token:
+
+```bash
+set -a; . ~/.config/fun25/probe-tierc.env; set +a
+uv run --with libsql --with "psycopg[binary]" pytest -q tests/substrate_probe/tier_c.py
+# 5 passed, 1 skipped in 61.84s   (the skip is Supabase)
+```
+
+**One answer reversed, and it reversed because the client changed.** *Can a transaction stay
+open across a Python decision?* now reads **yes** for Turso. The previous path drove
+`libsql-client`,
+which offered a `batch()` call and no transaction handle, so the code reasoned *the atomic
+unit is one batched request, therefore nothing can be held open across a Python decision* —
+the shape D1 genuinely has. That was an inference from a client's surface, not a measurement
+of the service. The maintained client is `sqlite3`-shaped, and the probe now measures the
+thing directly:
+
+> `BEGIN` opened a unit (`in_transaction=True`), a read inside it returned `('0',)`, Python
+> chose `'1'` from what it had read, the write was visible **inside the same unit** as
+> `('1',)`, and a rollback restored `('0',)`.
+
+*Can two keys be written so that either both land or neither does?* — and the outbox row that
+follows from it — were re-derived the same way, from explicit transactions rather than from a
+batch: two keys written in one unit with the second doomed by the primary key, and after the
+rollback **the sibling row is gone (0 rows)**.
+
+**The sharp edge, measured rather than assumed:** a failed statement does *not* roll the unit
+back by itself. Commit anyway after the failure and the sibling survives — measured, 1 row.
+The guarantee is real and it is the caller's to invoke, which is precisely the kind of thing a
+port design has to know before it relies on it.
+
+The lock's reach was measured as a compare-and-swap on a revision column: the stale `UPDATE`
+matched **0** rows, the current one matched **1**. The two-process question used a real second
+OS process, not a thread — it connected to the same URL, wrote through the same conditional,
+and this process then read the value the child had committed. A `SELECT 1` round trip took
+**615 ms** from this host to `aws-us-west-2`, which is the number a read-modify-write loop
+pays per step and is six times S3's 105 ms from the same machine.
+
+### The client finding, which is the durable half of this column
+
+The probe previously imported **`libsql-client` 0.3.1** (last release 2024-05-03, upstream
+archived). Against Turso Cloud it fails its Hrana WebSocket handshake —
+`WSServerHandshakeError: 400, message='Invalid response status'` — **and then retries
+forever**, so the column did not fail, it *hung*, and a `timeout` had to kill the run.
+
+Two things a reader should take from that, both of which outlive the fix:
+
+1. **It was a client finding and never a service finding.** The service answered and the
+   credential authorised; only the abandoned client could not speak to them. Anyone reading
+   that hang as "Turso is unreachable" would have drawn the opposite conclusion from the
+   evidence — and a hang is exactly the failure that invites the wrong conclusion, because it
+   produces no error to read.
+2. **A probe run must terminate.** A measurement that never returns is worse than one that
+   fails, because a failure is a result. Every remote call in `tier_c.py` is bounded and there
+   is no retry loop anywhere in it.
+
+Neither client is declared by any first-party manifest — a test reads the root
+`pyproject.toml` and every `plugins/*/*/pyproject.toml` and asserts it. They arrive through
+an ephemeral `uv run --with …` overlay, so the project does not depend on them. Note that the
+operator's runner still overlays the *archived* client, so `PROBE_TIER_C=1
+~/.config/fun25/run-probe.sh` will hang on this column until that one token is flipped; the
+command above is the one that works today.
 
 ### AWS S3, against the real service
 
@@ -355,10 +404,21 @@ Anything measured that way is `measured (emulator)` and may not back a shipped f
 probe stamps the level from the environment, so this is not a matter of remembering to
 write it down.
 
-The unmeasured columns need the variables declared in `.env.example`: `CLOUDFLARE_*` for
-D1, `FUNCTUALIZE_PROBE_R2_*` for R2, `TURSO_*` for Turso and `SUPABASE_DB_URL` for
-Supabase — the last two also needing a client that no first-party package currently
-declares.
+Turso needs its credentials and the maintained client, neither of which the project
+declares:
+
+```bash
+set -a; . ~/.config/fun25/probe-tierc.env; set +a
+uv run --with libsql --with "psycopg[binary]" pytest -q tests/substrate_probe/tier_c.py
+```
+
+Use that rather than `PROBE_TIER_C=1 ~/.config/fun25/run-probe.sh`: the runner still
+overlays the archived `libsql-client`, which hangs against Turso Cloud rather than failing.
+A documented command that hangs is a trap, so the working one is written out here.
+
+The still-unmeasured columns need the variables declared in `.env.example`: `CLOUDFLARE_*`
+for D1, `FUNCTUALIZE_PROBE_R2_*` for R2 and `SUPABASE_DB_URL` for Supabase — the last also
+needing `psycopg`, which no first-party package declares either.
 
 ## What this does not say
 

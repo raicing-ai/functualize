@@ -1,55 +1,82 @@
-"""Tier C — Turso/libSQL and Supabase Postgres, if cheap (FUN-25 5.1 / T11).
+"""Tier C — Turso/libSQL and Supabase Postgres (FUN-25 5.1 / T11, T15, T16).
 
-"If cheap" is the task's own condition, and on this host neither backend meets
-it. Cheap means free of credentials, free of spend **and free of new
-dependencies**, and both clients fail the third test before the first two are
-even reached:
+**Turso is measured. Supabase is not.** The two columns are in the same module
+because they are the same tier, not because they are in the same state, and the
+difference is the whole point of what follows.
 
-```console
-$ .venv/bin/python -c "import libsql_client"     # ModuleNotFoundError
-$ .venv/bin/python -c "import psycopg"           # ModuleNotFoundError
-$ rg -n 'libsql|psycopg' --glob pyproject.toml .
-# nothing — neither is declared by any first-party package
-```
+## Turso — measured against the real service
 
-`contracts.md` says `libsql-client` *if present* and `psycopg` *if present*.
-Neither is, so both columns are `NOT MEASURED`, and the module's job becomes
-saying **exactly why** — because "client absent" and "credentials absent" are
-different findings with different prices. The first costs a dependency
-decision that is not this ticket's to make; the second costs an account. A
-column that collapsed them into one "unavailable" would hide which.
+Ten cells, `measured (real service)`, against a Turso Cloud database. Every
+answer here came from an operation, and three of them were **re-derived rather
+than ported** when the client changed — see `_turso_transaction_answers`, where
+one answer reverses.
 
-**That dependency decision has since been taken, and it was not to declare
-them.** The runner (`~/.config/fun25/run-probe.sh`) adds both clients as an
-ephemeral `uv run --with libsql-client --with "psycopg[binary]"` overlay, so a
-host can hold them — and measure with them — without the project depending on
-them. The client half of the gap is therefore "not declared by any first-party
-package", which is a fact about this repository, and no longer "not installable
-here", which was a fact about whichever machine happened to run the tests. The
-matrix's Turso note carries the client, its version, its upstream status and
-that command, because the client is the one part of that column a reader cannot
-recover from this file alone.
+Run it with the credentials sourced and the client overlaid::
 
-**Nothing stands in for either service.** Stdlib `sqlite3` is not libSQL — that
-is the local SQLite column, already measured in Tier A — and an embedded libSQL
-file would not be the Turso *service*, so it could never carry a
-`measured (real service)` row. Substituting either would produce a green run
-that measured something nobody asked about, which is the failure
-`plugins/credentials/functualize-aws/tests/test_integration_floci.py:17-19`
-names and this ticket inherited.
+    set -a; . ~/.config/fun25/probe-tierc.env; set +a
+    uv run --with libsql --with "psycopg[binary]" pytest -q \
+        tests/substrate_probe/tier_c.py
 
-**The measurement path below has never run.** It is written from each client's
-documented surface and marked `# TRANSITIONAL(T11)` at the two points where
-that matters: the first run that has both a client and credentials should
-expect to correct the call shapes rather than trust them. Saying so is cheaper
-than a reader discovering it, and a probe whose own untested parts are
-undisclosed is the exact shape of the defect this ticket exists to remove.
+That is the command that works today. The operator's runner
+(`~/.config/fun25/run-probe.sh`) still overlays `libsql-client`, so
+`PROBE_TIER_C=1` through the runner will **hang** on this column until that one
+token is flipped — which is theirs to do, not this file's.
+
+## The client finding, which is durable knowledge and not a footnote
+
+This module used to import **`libsql-client` 0.3.1** (last release 2024-05-03,
+upstream archived). Against Turso Cloud it fails its Hrana WebSocket
+handshake — `WSServerHandshakeError: 400, message='Invalid response status'` —
+**and then retries forever**, so the column did not fail, it *hung*, and a
+`timeout` had to kill the run.
+
+Two things follow, and both matter more than the fix:
+
+1. **That was a client finding, never a service finding.** The service
+   answered and the credential authorised; only the abandoned client could not
+   speak to them. Anyone reading the old hang as "Turso is unreachable" would
+   have drawn the opposite conclusion from the evidence.
+2. **A probe run must terminate.** A measurement that never returns is worse
+   than one that fails, because a failure is a result. Every remote call below
+   is bounded (`_TIMEOUT`, `_CHILD_TIMEOUT`) and there is no retry loop
+   anywhere in this file.
+
+The maintained client is **`libsql` 0.1.11**, and it is `sqlite3`-shaped:
+`connect(database=…, auth_token=…)`, `execute`, `commit`, `rollback`,
+`in_transaction`, `cursor().rowcount`. It has no `batch()`. That is why the
+answers had to be re-derived: the old code reasoned from `batch()`'s existence
+to a conclusion this client's shape does not support.
+
+## Supabase — not measured, and for two separate reasons
+
+Cheap means free of credentials, free of spend **and free of new dependencies**.
+`psycopg` is not declared by any first-party package and `SUPABASE_DB_URL` is
+not set, so the column is `NOT MEASURED` and the module's job is to say
+**exactly which** — a dependency decision and an account are different prices,
+and a column reading "unavailable" would hide which one is owed.
+
+`_supabase_answers()` is still marked `# TRANSITIONAL(T11)` because it has
+still never executed. `_turso_answers()` is **not** marked, because it has.
+That distinction is the only honest way to write this file.
+
+## Nothing stands in for either service
+
+Stdlib `sqlite3` is not libSQL — that is the local SQLite column, already
+measured in Tier A — and an embedded libSQL file is not the Turso *service*, so
+neither could carry a `measured (real service)` row. Substituting either would
+produce a green run that measured something nobody asked about, which is the
+failure `plugins/credentials/functualize-aws/tests/test_integration_floci.py:17-19`
+names and this ticket inherited. A test below asserts there is no route through
+this module that reaches a measured cell without a client and an account.
 """
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import os
+import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -75,15 +102,45 @@ REAL_SERVICE: Final[Evidence] = "measured (real service)"
 #: Sizes walked upward until something refuses one. Never a documented cap.
 _SIZES: Final[tuple[int, ...]] = (64 * 1024, 1024 * 1024, 8 * 1024 * 1024)
 
+#: Every remote call is bounded, and that is a requirement rather than caution.
+#: The client this module used to import retried a failed handshake *forever*,
+#: so the Turso column did not fail — it hung, and a `timeout` had to kill it.
+#: A measurement that never returns is worse than one that fails, because a
+#: failure is a result and a hang is not.
+_TIMEOUT: Final[float] = 15.0
+
+#: The child in the two-process question, bounded the same way.
+_CHILD_TIMEOUT: Final[float] = 90.0
+
+#: The second process. A real OS process rather than a thread, because
+#: "two processes can share this" is the question, and two threads in one
+#: interpreter would answer a different one. It reads what the parent
+#: committed and writes through a compare-and-swap on the same row.
+_CHILD: Final[str] = """
+import os
+import libsql
+
+conn = libsql.connect(
+    database=os.environ["TURSO_DATABASE_URL"],
+    auth_token=os.environ["TURSO_AUTH_TOKEN"],
+    timeout=15.0,
+)
+conn.execute("UPDATE {table} SET v='child' WHERE k='state' AND rev='r0'")
+conn.commit()
+conn.close()
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class Backend:
     """A Tier C column: what it is called, what reaches it, what unlocks it.
 
     `client` is the module name an import reaches for; `distribution` is the
-    name a package manifest would have to declare. They differ for Turso
-    (`libsql_client` / `libsql-client`), and the declaration question is asked
-    of the distribution — see the test that reads the manifests.
+    name a package manifest would have to declare. They coincide for both
+    backends today (`libsql`, `psycopg`), but they are kept apart because they
+    answer different questions — importability is about a host, declaration is
+    about this project — and the earlier client, `libsql-client`, was a case
+    where they differed.
     """
 
     label: str
@@ -94,8 +151,8 @@ class Backend:
 
 TURSO: Final[Backend] = Backend(
     "Turso / libSQL",
-    "libsql_client",
-    "libsql-client",
+    "libsql",
+    "libsql",
     ("TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"),
 )
 SUPABASE: Final[Backend] = Backend(
@@ -198,123 +255,221 @@ def _real(field: str, value: Any, detail: str) -> Answer:
 
 
 def _turso_answers() -> tuple[Answer, ...]:
-    """Turso over libSQL's remote protocol.
+    """Turso Cloud over the maintained libSQL client, measured.
 
-    # TRANSITIONAL(T11): never executed — `libsql_client` is not installed and
-    # is not declared by any first-party package, so these call shapes come
-    # from the client's documented surface rather than from a run. The first
-    # run with a client and credentials should expect to correct them; what is
-    # *not* provisional is the shape of the questions, which is `harness.py`'s.
+    **This has executed.** It was written against `libsql` 0.1.11 and run
+    against the real service, which is why nothing here is marked transitional
+    — unlike `_supabase_answers()` below, which still has not run.
+
+    The answers are re-derived rather than ported. The client this module used
+    to import, `libsql-client`, offered `batch()` and no transaction handle, so
+    the old code reasoned *the atomic unit is one batched request, therefore a
+    transaction cannot be held open*. This client is `sqlite3`-shaped —
+    `BEGIN`, `commit()`, `rollback()`, `in_transaction` — so that inference had
+    to be redone against what the client can actually do, and one answer
+    changed sign because of it.
     """
-    import libsql_client
+    import libsql
 
-    url = os.environ["TURSO_DATABASE_URL"]
-    client = libsql_client.create_client_sync(
-        url=url, auth_token=os.environ["TURSO_AUTH_TOKEN"]
+    conn = libsql.connect(
+        database=os.environ["TURSO_DATABASE_URL"],
+        auth_token=os.environ["TURSO_AUTH_TOKEN"],
+        timeout=_TIMEOUT,
     )
     table = f"fun25_probe_{uuid.uuid4().hex[:8]}"
     try:
-        client.execute(f"CREATE TABLE {table} (k TEXT PRIMARY KEY, v TEXT, rev TEXT)")
-
-        started = time.perf_counter()
-        client.execute("SELECT 1")
-        elapsed = (time.perf_counter() - started) * 1000
-
-        client.batch(
-            [
-                (f"INSERT INTO {table} (k, v, rev) VALUES (?, ?, ?)", ["a", "1", "r1"]),
-                (f"INSERT INTO {table} (k, v, rev) VALUES (?, ?, ?)", ["a", "2", "r2"]),
-            ]
+        conn.execute(f"CREATE TABLE {table} (k TEXT PRIMARY KEY, v TEXT, rev TEXT)")
+        conn.execute(f"INSERT INTO {table} VALUES ('state', '0', 'r0')")
+        conn.commit()
+        return (
+            *_turso_transaction_answers(conn, table),
+            *_turso_reach_answers(conn, table),
+            _turso_fencing_answer(conn, table),
+            _turso_size_answer(conn, table),
+            _turso_schema_answer(conn, table),
         )
-        atomic = False
-    except Exception:  # noqa: BLE001 - the refusal *is* the measurement
-        atomic = True
-    rows = client.execute(f"SELECT count(*) FROM {table}").rows
-    survivors = rows[0][0] if rows else 0
+    finally:
+        with contextlib.suppress(Exception):
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+            conn.commit()
+        with contextlib.suppress(Exception):
+            conn.close()
 
-    stale = client.execute(
-        f"UPDATE {table} SET v = ? WHERE k = ? AND rev = ?", ["3", "a", "wrong"]
+
+def _turso_transaction_answers(conn: Any, table: str) -> tuple[Answer, ...]:
+    """Hold a transaction open across a Python decision, then across a failure.
+
+    Three observations, in one place because they are one mechanism:
+
+    * a transaction is opened, a row is read *inside* it, Python decides what to
+      write from what it read, the write happens in the same unit and is
+      visible there — then a rollback puts the value back;
+    * two different keys are written in one unit with the second doomed, and
+      after the rollback the **sibling is gone too**;
+    * and the sharp edge — a failed statement does **not** roll the unit back
+      by itself. Commit anyway and the sibling survives. The guarantee is real
+      and it is the application's to invoke.
+    """
+    before = conn.execute(f"SELECT v FROM {table} WHERE k='state'").fetchone()
+    conn.execute("BEGIN")
+    held = conn.in_transaction
+    seen = conn.execute(f"SELECT v FROM {table} WHERE k='state'").fetchone()
+    decided = "1" if seen and seen[0] == "0" else "unexpected"
+    conn.execute(f"UPDATE {table} SET v='{decided}' WHERE k='state'")
+    inside = conn.execute(f"SELECT v FROM {table} WHERE k='state'").fetchone()
+    conn.rollback()
+    after = conn.execute(f"SELECT v FROM {table} WHERE k='state'").fetchone()
+    interactive = bool(held) and inside != before and after == before
+
+    conn.execute("BEGIN")
+    conn.execute(f"INSERT INTO {table} VALUES ('outbox', '1', 'r1')")
+    try:
+        conn.execute(f"INSERT INTO {table} VALUES ('state', '9', 'r9')")
+        doomed = "was accepted"
+    except Exception as refused:  # noqa: BLE001 - the refusal is the measurement
+        doomed = f"raised {type(refused).__name__}"
+        conn.rollback()
+    orphans = conn.execute(f"SELECT count(*) FROM {table} WHERE k='outbox'").fetchone()[
+        0
+    ]
+    atomic = orphans == 0
+
+    conn.execute("BEGIN")
+    conn.execute(f"INSERT INTO {table} VALUES ('outbox2', '1', 'r1')")
+    with contextlib.suppress(Exception):
+        conn.execute(f"INSERT INTO {table} VALUES ('state', '9', 'r9')")
+    conn.commit()
+    survives = conn.execute(
+        f"SELECT count(*) FROM {table} WHERE k='outbox2'"
+    ).fetchone()[0]
+
+    unit = (
+        f"two keys written in one transaction with the second doomed by the primary "
+        f"key ({doomed}); after the rollback the sibling row is "
+        f"{'gone' if atomic else 'still there'} ({orphans} row(s))"
     )
-    fenced = getattr(stale, "rows_affected", 0) == 0
-
-    accepted = 0
-    for size in _SIZES:
-        try:
-            client.execute(
-                f"INSERT OR REPLACE INTO {table} (k, v, rev) VALUES (?, ?, ?)",
-                [f"big-{size}", "x" * size, "r"],
-            )
-        except Exception as refused:  # noqa: BLE001 - a refusal is the answer
-            return _turso_column_answers(
-                elapsed, atomic, survivors, fenced, accepted, size, refused
-            )
-        accepted = size
-    client.close()
-    return _turso_column_answers(
-        elapsed, atomic, survivors, fenced, accepted, None, None
-    )
-
-
-def _turso_column_answers(
-    elapsed: float,
-    atomic: bool,
-    survivors: int,
-    fenced: bool,
-    accepted: int,
-    refused_at: int | None,
-    refusal: object,
-) -> tuple[Answer, ...]:
-    """The ten, assembled from what the round trips above actually returned."""
-    batch = (
-        f"a two-statement batch whose second statement violated the primary key "
-        f"{'was rejected as a unit' if atomic else 'partially applied'}; "
-        f"{survivors} row(s) survived it"
-    )
-    size_detail = (
-        f"{refused_at} bytes was refused ({refusal}); {accepted} bytes was accepted "
-        "immediately before it"
-        if refused_at is not None
-        else f"nothing refused a value up to {accepted} bytes, the largest attempted"
+    caveat = (
+        f"the sharp edge, measured rather than assumed: a failed statement does not "
+        f"roll the unit back by itself — committing anyway leaves {survives} sibling "
+        f"row(s) behind. The guarantee is real and it is the caller's to invoke"
     )
     return (
-        _real("cross_aggregate_atomicity", atomic, batch),
-        _real("durable_outbox", atomic, f"follows from the batch above: {batch}"),
+        _real("cross_aggregate_atomicity", atomic, f"{unit}. {caveat}"),
         _real(
-            "fencing",
-            "cross-process" if fenced else "none",
-            "an UPDATE carrying a stale revision in its WHERE clause affected "
-            f"{'no rows' if fenced else 'a row'}; the check is evaluated by the "
-            "service, so it excludes any writer anywhere",
+            "durable_outbox",
+            atomic,
+            f"the sibling above is an outbox row in all but name: {unit}",
         ),
         _real(
             "interactive_transaction",
-            False,
-            "the remote protocol's atomic unit is a batch sent in one request, so "
-            "no transaction is held open across a Python decision — the same shape "
-            "D1 has, measured here rather than assumed from it",
+            interactive,
+            f"BEGIN opened a unit (in_transaction={held}), a read inside it returned "
+            f"{before!r}, Python chose {decided!r} from that, the write was visible "
+            f"inside the same unit as {inside!r}, and a rollback restored {after!r}. "
+            f"**This reverses the answer the archived client's shape implied**: that "
+            f"client had batch() and no transaction handle, so the old reasoning was "
+            f"'the atomic unit is one request, therefore nothing can be held open'. "
+            f"This client holds one open",
         ),
+    )
+
+
+def _turso_reach_answers(conn: Any, table: str) -> tuple[Answer, ...]:
+    """One round trip, and a real second OS process against the same database."""
+    started = time.perf_counter()
+    conn.execute("SELECT 1").fetchall()
+    elapsed = (time.perf_counter() - started) * 1000
+
+    child = subprocess.run(  # noqa: S603 - our own interpreter, our own source
+        [sys.executable, "-c", _CHILD.format(table=table)],
+        capture_output=True,
+        text=True,
+        timeout=_CHILD_TIMEOUT,
+        check=False,
+    )
+    seen = conn.execute(f"SELECT v FROM {table} WHERE k='state'").fetchone()
+    shared = child.returncode == 0 and seen is not None and seen[0] == "child"
+    crossing = (
+        f"a second OS process connected to the same URL, read the row this process "
+        f"had committed, wrote to it, and this process now reads {seen!r} "
+        f"(child exit {child.returncode})"
+    )
+    return (
         _real(
             "remote",
             True,
             f"a SELECT 1 round trip took {elapsed:.0f}ms; every statement crosses a "
-            "socket",
+            f"socket, so a read-modify-write loop pays this per step",
         ),
-        _real("multi_machine", True, "addressed by URL, not by a path on this disk"),
+        _real("multi_machine", True, f"addressed by URL, not by a path: {crossing}"),
+        _real("multi_process", shared, crossing),
         _real(
-            "multi_process",
-            True,
-            "the same URL is reachable from any process holding the auth token",
-        ),
-        _real("offline_capable", False, "that socket is the only way to reach it"),
-        _real(
-            "max_document_bytes", None if refused_at is None else accepted, size_detail
-        ),
-        _real(
-            "versioned_migrations",
+            "offline_capable",
             False,
-            "the table carries whatever columns it was created with and nothing "
-            "declares a version for the service to enforce",
+            "that socket is the only way to reach it; there is no local replica in "
+            "this configuration, so with the network gone there is nothing to read",
         ),
+    )
+
+
+def _turso_fencing_answer(conn: Any, table: str) -> Answer:
+    """A compare-and-swap on a revision column, and its row count."""
+    cur = conn.cursor()
+    cur.execute(f"UPDATE {table} SET v='z' WHERE k='state' AND rev='wrong'")
+    stale = cur.rowcount
+    cur.execute(f"UPDATE {table} SET v='z' WHERE k='state' AND rev='r0'")
+    fresh = cur.rowcount
+    conn.commit()
+    return _real(
+        "fencing",
+        "cross-process" if stale == 0 and fresh == 1 else "none",
+        f"an UPDATE carrying a stale revision matched {stale} row(s) and the same "
+        f"UPDATE carrying the current one matched {fresh}; the comparison is made by "
+        f"the service, so it excludes any writer anywhere rather than any writer in "
+        f"this process",
+    )
+
+
+def _turso_size_answer(conn: Any, table: str) -> Answer:
+    """Write values of increasing size until one is refused."""
+    accepted = 0
+    for size in _SIZES:
+        try:
+            conn.execute(
+                f"INSERT OR REPLACE INTO {table} VALUES (?, ?, ?)",
+                (f"big-{size}", "x" * size, "r"),
+            )
+            conn.commit()
+        except Exception as refused:  # noqa: BLE001 - a refusal is the answer
+            return _real(
+                "max_document_bytes",
+                accepted or None,
+                f"{size} bytes was refused ({type(refused).__name__}); {accepted} "
+                f"bytes was accepted immediately before it",
+            )
+        accepted = size
+    return _real(
+        "max_document_bytes",
+        None,
+        f"nothing refused a value up to {accepted} bytes, the largest this probe "
+        f"attempted — no cap was observed in the range walked, which is not the same "
+        f"as no cap existing",
+    )
+
+
+def _turso_schema_answer(conn: Any, table: str) -> Answer:
+    """Store a payload announcing a version and see whether anything objects."""
+    conn.execute(
+        f"INSERT OR REPLACE INTO {table} VALUES ('v1', '{{\"schema_version\": 1}}', 'r')"
+    )
+    conn.commit()
+    stored = conn.execute(f"SELECT v FROM {table} WHERE k='v1'").fetchone()
+    return _real(
+        "versioned_migrations",
+        False,
+        f"a payload announcing its own schema version was stored and read back "
+        f"unchanged ({stored[0] if stored else None!r}); the table carries the columns "
+        f"it was created with and nothing declares a version for the service to enforce",
     )
 
 

@@ -18,11 +18,12 @@ one of the latter with its reason.
 The probe that produced it lives in `tests/substrate_probe/` and is part of the
 default test run. It stays green on a machine with no network, no Docker and no
 cloud account: backends whose credentials are absent skip at module level and
-record `NOT MEASURED`, never a failure and never a fallback to a fake. The four
-measured columns — the JSON filesystem, local SQLite, AWS S3 and AWS DynamoDB —
-all carry `measured (real service)`; the AWS pair was first measured against a
-local emulator and re-measured against AWS on 2026-09-23, because a stand-in's
-behaviour is evidence about the stand-in.
+record `NOT MEASURED`, never a failure and never a fallback to a fake. The five
+measured columns — the JSON filesystem, local SQLite, AWS S3, AWS DynamoDB and
+Turso/libSQL — all carry `measured (real service)`; the AWS pair was first
+measured against a local emulator and re-measured against AWS on 2026-09-23,
+because a stand-in's behaviour is evidence about the stand-in, and Turso was
+measured the same day once its credentials arrived.
 
 Two findings are worth a reader's time before they pick a backend. DynamoDB's
 `TransactWriteItems` held under contention — eight writers racing one

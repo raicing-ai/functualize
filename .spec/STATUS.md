@@ -2372,8 +2372,8 @@ obtainable on a host with no cloud account at all.
   2026-09-23** (account `131160053496`, `us-east-1`), so all four measured columns now carry
   `measured (real service)` and no column carries emulator evidence. The level is kept and kept
   defined: the emulator path is still reproducible through `AWS_ENDPOINT_URL`, and the next
-  backend measured through one inherits the rule. **R2, D1, Turso and Supabase have no measured
-  rows at all.**
+  backend measured through one inherits the rule. Turso/libSQL joined them on 2026-09-23 (see
+  below), so five columns are measured. **R2, D1 and Supabase have no measured rows at all.**
 - **A run that fits no level is refused, not filed under the nearest one.** The case this was
   decided for: an embedded libSQL database file is not Turso — the engine is genuinely libSQL so
   it is no fake, nothing is emulating so it is no emulator, and the service was never reached so
@@ -2425,16 +2425,31 @@ probe added a regression guard rather than a measurement
 (`tests/primitives/test_substrate.py::test_a_revision_is_an_opaque_token` plus a census companion),
 so the property cannot silently un-land when the first remote substrate arrives.
 
-**Tier C keeps two causes apart, and one of them has been decided.** Turso/libSQL and Supabase
-Postgres are unmeasured for two distinct reasons, and the matrix now states both per column: the
-credentials are absent, and the client is **undeclared by any first-party package** — which is no
-longer the same claim as "not installable here". The dependency decision was taken on 2026-09-23
-and it was *not* to declare either client: the runner adds both as an ephemeral
-`uv run --with` overlay, so `libsql-client` stays undeclared (it is archived upstream, and the
-maintained `libsql` 0.1.11 has different call shapes that would rewrite the measurement path), and
-a host can still measure the moment an account exists. What is left to buy is the account, per
-column and stated there. A single "unavailable" would have hidden which, and "client absent"
-would have hidden that this one was already decided.
+**Tier C keeps two causes apart — and Turso has since been measured (2026-09-23).** The rule
+stands: a column is unmeasured for two distinct reasons, credentials absent and client
+**undeclared by any first-party package**, and they cost different things to fix. The dependency
+decision was taken on 2026-09-23 and it was *not* to declare either client; both arrive through
+an ephemeral `uv run --with` overlay, so a host can measure without the project depending on
+them. Supabase still waits on its account and is `NOT MEASURED` under both causes on a bare host.
+
+**Turso is measured, and the client is the finding worth keeping.** The probe originally drove
+`libsql-client` 0.3.1 (archived upstream). Against Turso Cloud it fails its Hrana WebSocket
+handshake — `WSServerHandshakeError: 400` — **and retries forever**, so the column *hung* rather
+than failing and a `timeout` killed the run. The same credentials worked through the maintained
+`libsql` 0.1.11, which is why this is a **client** finding and never a service one: the service
+answered and the token authorised. Two durable consequences: a hang produces no error to read, so
+it invites precisely the wrong conclusion; and **a probe run must terminate** — every remote call
+in `tier_c.py` is now bounded with no retry loop anywhere in it.
+
+The migration re-derived rather than ported, and **one answer reversed**. `libsql` 0.1.11 is
+`sqlite3`-shaped with no `batch()`, so the old reasoning — *the atomic unit is one batched
+request, therefore a transaction cannot be held open* — was an inference from a client's surface
+rather than a measurement of the service. Measured directly, Turso's `interactive_transaction` is
+**yes**: `BEGIN` opens a unit, a read inside it feeds a Python decision, the write is visible in
+the same unit, and a rollback restores the prior value. Cross-key atomicity holds through explicit
+transactions, with one sharp edge recorded beside it — a failed statement does not roll the unit
+back by itself, so the guarantee is the caller's to invoke. A `SELECT 1` round trip from contabo
+to `aws-us-west-2` took **615 ms**, six times S3's 105 ms from the same host.
 
 **Where the matrix lives, and why not where the scaffold said.** The pre-loaded plan named
 `contributor/architecture/research/substrate-capability-matrix.md`. Nothing under
