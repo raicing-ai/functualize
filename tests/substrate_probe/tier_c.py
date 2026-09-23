@@ -19,6 +19,17 @@ different findings with different prices. The first costs a dependency
 decision that is not this ticket's to make; the second costs an account. A
 column that collapsed them into one "unavailable" would hide which.
 
+**That dependency decision has since been taken, and it was not to declare
+them.** The runner (`~/.config/fun25/run-probe.sh`) adds both clients as an
+ephemeral `uv run --with libsql-client --with "psycopg[binary]"` overlay, so a
+host can hold them — and measure with them — without the project depending on
+them. The client half of the gap is therefore "not declared by any first-party
+package", which is a fact about this repository, and no longer "not installable
+here", which was a fact about whichever machine happened to run the tests. The
+matrix's Turso note carries the client, its version, its upstream status and
+that command, because the client is the one part of that column a reader cannot
+recover from this file alone.
+
 **Nothing stands in for either service.** Stdlib `sqlite3` is not libSQL — that
 is the local SQLite column, already measured in Tier A — and an embedded libSQL
 file would not be the Turso *service*, so it could never carry a
@@ -42,6 +53,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 import pytest
@@ -66,17 +78,29 @@ _SIZES: Final[tuple[int, ...]] = (64 * 1024, 1024 * 1024, 8 * 1024 * 1024)
 
 @dataclass(frozen=True, slots=True)
 class Backend:
-    """A Tier C column: what it is called, what reaches it, what unlocks it."""
+    """A Tier C column: what it is called, what reaches it, what unlocks it.
+
+    `client` is the module name an import reaches for; `distribution` is the
+    name a package manifest would have to declare. They differ for Turso
+    (`libsql_client` / `libsql-client`), and the declaration question is asked
+    of the distribution — see the test that reads the manifests.
+    """
 
     label: str
     client: str
+    distribution: str
     variables: tuple[str, ...]
 
 
 TURSO: Final[Backend] = Backend(
-    "Turso / libSQL", "libsql_client", ("TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN")
+    "Turso / libSQL",
+    "libsql_client",
+    "libsql-client",
+    ("TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"),
 )
-SUPABASE: Final[Backend] = Backend("Supabase Postgres", "psycopg", ("SUPABASE_DB_URL",))
+SUPABASE: Final[Backend] = Backend(
+    "Supabase Postgres", "psycopg", "psycopg", ("SUPABASE_DB_URL",)
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -408,23 +432,78 @@ def tier_c_columns() -> tuple[Reading, Reading]:
     return turso_column(), supabase_column()
 
 
-def test_neither_tier_c_column_is_measured_on_a_bare_host() -> None:
-    """5.1's done-when, on the host the task expects: an explicit reason each.
+def test_no_tier_c_column_is_measured_while_its_credentials_are_absent() -> None:
+    """5.1's done-when: an explicit reason each, decided from this environment.
 
-    Runs everywhere and is the test that matters in CI, because CI *is* the
-    bare host — no clients, no credentials, and the suite must stay green (AC5).
+    The first version of this test asserted the reasons *about the host* — that
+    neither client was importable — which is true in CI and false under the
+    runner's overlay. What the done-when needs is that each column carries its
+    reasons, and which causes those reasons name is read from the environment
+    rather than from what happens to be installed here.
     """
-    turso, supabase = tier_c_columns()
-
-    for column in (turso, supabase):
+    for gap, column in (
+        (TURSO_GAP, turso_column()),
+        (SUPABASE_GAP, supabase_column()),
+    ):
         assert len(column.answers) == 10
+        if not gap.blocked:
+            continue  # a client *and* an account: the skip-gated test measures
         assert len(column.unmeasured) == 10
-        for answer in column.answers:
-            assert answer.detail.startswith("NOT MEASURED (")
-            assert "does not fall back to a fake" in answer.detail
+        assert [answer.detail for answer in column.answers] == [gap.reason] * 10
+        assert gap.reason.startswith("NOT MEASURED (")
+        assert "does not fall back to a fake" in gap.reason
 
-    assert "libsql_client" in turso["remote"].detail
-    assert "psycopg" in supabase["remote"].detail
+
+def test_neither_client_is_declared_by_a_first_party_package() -> None:
+    """The project fact the host check was groping for, said about the project.
+
+    Both clients are reachable on the runner's host through `run-probe.sh`'s
+    ephemeral overlay, so "importable here" would say nothing about what this
+    project depends on — and the overlay is deliberate: declaring an archived
+    client would commit the repository to it. Read from the manifests, this
+    holds in all three environments this file runs in: CI, a bare host, and the
+    runner's host with the overlay on it.
+    """
+    root = Path(__file__).resolve().parents[2]
+    manifests = [
+        root / "pyproject.toml",
+        *sorted(root.glob("plugins/*/*/pyproject.toml")),
+    ]
+    assert len(manifests) > 1, "no first-party manifest was read, so nothing checked"
+
+    for backend in (TURSO, SUPABASE):
+        declaring = [
+            str(path.relative_to(root))
+            for path in manifests
+            if backend.distribution in path.read_text(encoding="utf-8")
+        ]
+        assert declaring == [], (
+            f"{backend.distribution} is declared by {declaring}. The probe reaches "
+            f"it through an ephemeral overlay instead, so that the project does not "
+            f"depend on it — see the matrix's Tier C section."
+        )
+
+
+def test_nothing_local_stands_in_for_either_service() -> None:
+    """Stdlib `sqlite3` is not libSQL, and no file is the Turso service.
+
+    The temptation is real and cheap — this host has a working SQLite — and
+    taking it would produce a green run of the column Tier A already holds.
+
+    Credentials absent is asserted **without consulting the gap**, and that is
+    the point: a substitution that also retired the client check (the natural
+    wiring: "no client, use a local engine, so stop calling it blocked") would
+    take any test that trusted `gap.blocked` down with it. This one asks the
+    environment directly, so no local engine can reach a measured cell here.
+    """
+    for backend, column in (
+        (TURSO, turso_column()),
+        (SUPABASE, supabase_column()),
+    ):
+        if not missing_env(*backend.variables):
+            continue  # a credentialed host measures these; the skips below cover that
+        assert [answer for answer in column.answers if answer.is_measured] == []
+        assert {answer.value for answer in column.answers} == {None}
 
 
 def test_the_two_causes_are_never_collapsed_into_one() -> None:
@@ -453,27 +532,13 @@ def test_the_two_causes_are_never_collapsed_into_one() -> None:
     assert not ready.blocked
 
 
-def test_nothing_local_is_substituted_for_either_service() -> None:
-    """Stdlib `sqlite3` is not libSQL, and no file is the Turso service.
-
-    The temptation is real and cheap — this host has a working SQLite — and
-    taking it would produce a green run that measured the column Tier A already
-    holds. So the blocked path yields cells with no value and no evidence
-    level, and there is no route through this module that reaches `measured (*)`
-    without a client and an account.
-    """
-    for column in tier_c_columns():
-        assert not [answer for answer in column.answers if answer.is_measured]
-        assert {answer.value for answer in column.answers} == {None}
-
-    assert not importable("libsql_client"), "this assertion describes the host"
-    assert not importable("psycopg")
-    assert importable("sqlite3"), "stdlib SQLite is right here, and is not used"
-
-
 @requires_turso
 def test_turso_is_measured_when_client_and_credentials_arrive() -> None:
-    """Skipped until `libsql-client` is a declared dependency and Turso exists."""
+    """Skipped until a libSQL client *and* Turso credentials are both present.
+
+    The client arrives through the runner's ephemeral overlay rather than a
+    declaration; the credentials are the part only an account can supply.
+    """
     column = turso_column()
     assert column.unmeasured == ()
     assert {answer.evidence for answer in column.answers} == {REAL_SERVICE}
@@ -481,7 +546,7 @@ def test_turso_is_measured_when_client_and_credentials_arrive() -> None:
 
 @requires_supabase
 def test_supabase_is_measured_when_client_and_credentials_arrive() -> None:
-    """Skipped until `psycopg` is a declared dependency and a database exists."""
+    """Skipped until a psycopg client *and* `SUPABASE_DB_URL` are both present."""
     column = supabase_column()
     assert column.unmeasured == ()
     assert {answer.evidence for answer in column.answers} == {REAL_SERVICE}

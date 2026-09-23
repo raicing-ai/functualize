@@ -2425,11 +2425,16 @@ probe added a regression guard rather than a measurement
 (`tests/primitives/test_substrate.py::test_a_revision_is_an_opaque_token` plus a census companion),
 so the property cannot silently un-land when the first remote substrate arrives.
 
-**Tier C keeps two causes apart.** Turso/libSQL and Supabase Postgres are unmeasured for *two*
-distinct reasons, and the matrix states both: the client is absent **and** undeclared by any
-first-party package — so installing one is a dependency decision, not a probe run — and the
-credentials are absent. They cost different things to fix and a single "unavailable" would hide
-which.
+**Tier C keeps two causes apart, and one of them has been decided.** Turso/libSQL and Supabase
+Postgres are unmeasured for two distinct reasons, and the matrix now states both per column: the
+credentials are absent, and the client is **undeclared by any first-party package** — which is no
+longer the same claim as "not installable here". The dependency decision was taken on 2026-09-23
+and it was *not* to declare either client: the runner adds both as an ephemeral
+`uv run --with` overlay, so `libsql-client` stays undeclared (it is archived upstream, and the
+maintained `libsql` 0.1.11 has different call shapes that would rewrite the measurement path), and
+a host can still measure the moment an account exists. What is left to buy is the account, per
+column and stated there. A single "unavailable" would have hidden which, and "client absent"
+would have hidden that this one was already decided.
 
 **Where the matrix lives, and why not where the scaffold said.** The pre-loaded plan named
 `contributor/architecture/research/substrate-capability-matrix.md`. Nothing under

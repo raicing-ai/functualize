@@ -493,6 +493,67 @@ rows as emulator evidence.
 
 ---
 
+## Wave 7 — Tier C readiness
+
+### [x] T15 · 6.4 — Make Tier C's assertions describe the project, not the host
+
+**Files:** `tests/substrate_probe/tier_c.py`,
+`contributor/reference/substrate-capability-matrix.md`, `.spec/STATUS.md`
+
+Two of T11's own assertions state a fact about the **host** — `assert not
+importable("libsql_client")` — where they mean two different things about the **project**: no
+first-party package declares either client, and the module never stamps a cell measured
+without both a client and credentials. The operator's runner puts both clients on the path
+as an ephemeral `uv run --with` overlay, so the host half is false there and
+`PROBE_TIER_C=1 run-probe.sh` went red for a reason that has nothing to do with a backend
+(`2 failed, 9 passed, 5 skipped`, reported 2026-09-23T10:24Z).
+
+The rewrite must hold in three environments — CI, a bare host, and a host carrying the
+overlay — and must still fail if the module ever substitutes a local engine (stdlib
+`sqlite3`) for libSQL. The client decision that makes the overlay the run path
+(`libsql-client` stays undeclared, archived upstream; `libsql` 0.1.11 is the maintained path
+with different call shapes) is recorded beside the Turso column, where a reader meets it.
+
+**Gate — no assertion in this module describes the host**
+```bash
+rg -c 'importable\("' tests/substrate_probe/tier_c.py
+```
+now: `3` · after: `0`
+
+**Gate — the client decision is recorded beside the Turso column**
+```bash
+rg -c 'libsql-client' contributor/reference/substrate-capability-matrix.md
+```
+now: `0` · after: `2`
+
+*(Both predicted and both measured at the tick, unchanged: three host assertions became
+none — `gap_for` still calls `importable(backend.client)`, which is a lookup rather than a
+claim about the machine — and the distribution is named twice in the Tier C section, once as
+the client the path drives and once inside the overlay command a reader is told to run. The
+first gate is a count of the defect, so it must read `0`; a later edit that reintroduces a
+host assertion moves it.)*
+
+**Done when:** `PROBE_TIER_C=1 run-probe.sh` is green with Tier C credentials still absent
+and both columns still `NOT MEASURED` for the cause that genuinely remains (no account); each
+rewritten assertion holds with the clients installed and without them; a sabotage — a local
+engine wired in where libSQL belongs — was observed to turn the rewritten assertions red and
+was reverted; and the durable half reads "not declared by the project, runnable through the
+operator's overlay" rather than as a permanent absence.
+
+**Verification, recorded at the tick:**
+
+```
+PROBE_TIER_C=1 ~/.config/fun25/run-probe.sh
+before: 2 failed, 9 passed, 5 skipped      after: 12 passed, 5 skipped
+uv run pytest -q tests/substrate_probe/tier_c.py     # bare host, no clients
+4 passed, 2 skipped
+columns under the overlay, credentials absent:
+  Turso / libSQL     10 unmeasured of 10  — NOT MEASURED (no credentials)
+  Supabase Postgres  10 unmeasured of 10  — NOT MEASURED (no credentials)
+```
+
+---
+
 ## Recorded deviations
 
 The issue requires every deviation from the pre-loaded scaffold to be recorded here with
@@ -622,6 +683,12 @@ so nobody does it early and deletes the reviewer's own evidence.
       "id": 6,
       "tasks": [
         "6.3"
+      ]
+    },
+    {
+      "id": 7,
+      "tasks": [
+        "6.4"
       ]
     }
   ]

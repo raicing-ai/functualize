@@ -115,14 +115,33 @@ before nor after the re-measurement. The emulator's answer was the emulator's; A
 answer is AWS S3's; and R2 speaks S3's API without thereby making S3's guarantees. This
 is the column that leaves open question 1 open.
 
-**Turso / libSQL** — `NOT MEASURED (client absent, no credentials)`. Both causes apply:
-`import libsql_client` fails and no first-party package declares it, so installing it is a
-dependency decision rather than a probe run; and `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`
-are unset. See the refusal rule above for why a local libSQL file would not close this.
+**Turso / libSQL** — `NOT MEASURED (no credentials)`. `TURSO_DATABASE_URL` and
+`TURSO_AUTH_TOKEN` are unset, so nothing was asked of Turso; the reason quoted is what a run
+emits with the client on the path and the account absent, which is the runner's configuration
+(a bare host emits `client absent` beside `no credentials` for the same column). Everything
+about the **client** is a decision rather than a blocker:
 
-**Supabase Postgres** — `NOT MEASURED (client absent, no credentials)`, the same pair:
-`import psycopg` fails and is undeclared, and `SUPABASE_DB_URL` is unset. This column was
-expected to stay unmeasured and did.
+| | |
+|---|---|
+| Client the measurement path drives | `libsql-client` **0.3.1** — `create_client_sync` / `execute` / `batch` / `close` |
+| Upstream status | **archived** — last release 0.3.1 (2024-05-03); the repository points at `tursodatabase/libsql-python` |
+| Maintained path instead | `libsql` **0.1.11** — `sqlite3`-style, **no `batch()`**, so adopting it means rewriting `tier_c.py`'s measurement path |
+| Declared by a first-party manifest | **no** — the root `pyproject.toml` and every `plugins/*/*/pyproject.toml` are silent; a test asserts it |
+| How to run it when the account exists | `PROBE_TIER_C=1 ~/.config/fun25/run-probe.sh`, which adds both Tier C clients as an ephemeral `uv run --with libsql-client --with "psycopg[binary]"` overlay |
+
+So the client half of this column's gap is **not** "not installable here"; it is "not declared
+by the project, runnable through the operator's overlay". That is deliberate and was decided on
+2026-09-23: declaring an archived client would commit the repository to it, and switching to the
+maintained one would put an untested measurement path in charge of a measurement. **If the
+archived client cannot hold a session against Turso Cloud, that is a client finding to report
+rather than a reason to switch unilaterally.** What this column is still waiting on is the
+account. See the refusal rule above for why a local libSQL file would not close it either.
+
+**Supabase Postgres** — `NOT MEASURED (no credentials)`, quoted under the same configuration.
+`SUPABASE_DB_URL` is unset, and that is the whole of what stands between this column and a
+measurement: `psycopg` arrives through the same overlay and is likewise undeclared by every
+first-party manifest, so the only thing left to buy is the database. This column was expected
+to stay unmeasured and did.
 
 ## What was measured, and how
 
