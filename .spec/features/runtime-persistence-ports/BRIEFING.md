@@ -12,7 +12,7 @@ that is expected.** This file gets you to the point where you can start.
 | **Wave** | 1 of 7 |
 | **Blocks** | FUN-18, FUN-19, FUN-20, FUN-21, FUN-22, FUN-23 |
 | **Runs in parallel with** | none — this is the wave everything else builds on |
-| **Base** | `docs/runtime-persistence-research`, itself off `origin/master` @ `8c06198` |
+| **Base** | rebased onto `origin/master` @ `1f3b760` on 2026-09-23 (was `8c06198`) |
 
 ## The one-line goal
 
@@ -21,6 +21,17 @@ Define the persistence ports and move engine construction to after config resolv
 ## Why this ticket exists
 
 The engine does not receive its storage — it goes and finds it, lazily, on first access (executor.py:1509-1527). That temporal coupling is what every defect downstream rests on. Moving construction to _app deletes the argument rather than winning it.
+
+## The specs next to this file are refined, not scaffold
+
+`spec.md`, `contracts.md`, `plan.md` and `tasks.md` were refined on 2026-09-23 against
+`1f3b760`. The architecture gate is satisfied, the BEFORE/AFTER diagrams are drawn, and
+`tasks.md` carries fifteen tasks in eleven waves with **20 counting gates** in the format
+`tests/spec/test_task_gates_still_hold.py` parses. Read them before the research: the
+research is the argument, the specs are the contract.
+
+**Execute is not yet authorized.** Four decisions in the register still need ADRs — see
+`plan.md` → *Approvals still open*.
 
 ## Read these first, in this order
 

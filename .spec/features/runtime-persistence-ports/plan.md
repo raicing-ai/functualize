@@ -1,76 +1,302 @@
 # FUN-17 — Plan
 
-**Status:** pre-loaded scaffold. The architecture gate below is **not yet satisfied** —
-you must complete it before writing code.
+**Status:** architecture gate **satisfied** 2026-09-23 against `1f3b760`. Supersedes the
+scaffold, whose BEFORE/AFTER were `TODO`.
 
-## The architecture gate is NOT done
+## Retrieval pass 3a — what was actually reachable
 
-`.claude/rules/spec-workflow.md` requires, before any file is named for change:
+The gate names three tools. Two of them could not be reached from this runtime, and that
+is recorded rather than glossed, because "a tool you cannot reach is not a tool that is
+absent":
 
-1. Map the region with **all three** retrieval tools — zvec-grep, serena
-   `get_symbols_overview`, graphify `get_neighbors`. Address each by **absolute path**;
-   a bare project name binds to whichever checkout is registered, and a branch then gets
-   told about master.
-2. Read `contributor/architecture/codemaps/`. A diagram contradicting one is a finding,
-   not a drawing error.
-3. Draw **BEFORE and AFTER** ASCII diagrams here, carrying every module by real path,
-   the direction of each dependency, the layer each sits in, and what crosses a boundary.
-4. Iterate against `spec.md`, consulting the design-pattern and refactoring skills, and
-   record which you loaded.
-5. Declare the surviving smells (section below).
+| Tool | Status |
+|---|---|
+| **graphify** | **unavailable** — MCP server failed to start (`EACCES` spawning `/root/.local/bin/graphify-mcp`). Not "unconfigured"; a permission failure on a binary that exists. |
+| **serena** | **unavailable** — MCP connection closed on startup. |
+| **zvec-grep** | reachable |
+| `rg` + the codemaps | reachable, and carried the dependency-direction work the other two would have |
 
-**Do this first.** The diagrams are the cheapest instrument that finds a simplification;
-tracing call sites tells you where a change lands, drawing both shapes tells you whether
-it is the right change.
+The dependency direction this plan asserts therefore comes from
+`contributor/architecture/codemaps/dependencies.md` and from `rg` over real import lines,
+not from a graph query. Every such claim below quotes its command. **A reviewer should
+re-run the graphify/serena passes if either server comes back**, because they answer
+"what references this" better than `rg` does, and this plan's blast radius is the weaker
+for their absence.
+
+## Codemaps read
+
+`overview.md`, `modules.md`, `dependencies.md`, `data-flow.md`, `entry-points.md`.
+
+One finding, and it changes an acceptance criterion rather than a drawing:
+`dependencies.md:37` records that `exclude_type_checking_imports = true` makes
+`lint-imports` blind to a deferred cross-layer import — "a deferred `_types → _app` import
+leaves `lint-imports` reporting '7 kept, 0 broken', measured by adding one." Criterion 5
+as written ("the seven contracts still pass") is therefore satisfiable by an illegal
+design. `spec.md` §5 and T15 now pair it with an import-line test.
+
+## Design skills consulted
+
+- **`python-design-patterns`** (in-repo, `.claude/skills/python-design-patterns`, a symlink
+  to `.agents/skills/python-design-patterns`). Principles: KISS, separation of concerns,
+  single responsibility, God-class decomposition, composition over inheritance.
+- **`design-patterns-refactoring`** (user-level, Refactoring.Guru catalogue + *Dive Into
+  Design Patterns*). This is the skill `.claude/rules/spec-workflow.md` refers to as
+  `coding__design-patterns-refactoring`; **on this machine it is slugged
+  `design-patterns-refactoring`**. Worth correcting in the rule, since the hardcoded slug
+  is exactly what that section warns against.
+
+Confirmed by running the check the rule specifies rather than trusting the listing:
+`rg -ci 'long method|feature envy|shotgun surgery|divergent change|middle man|primitive
+obsession' .claude/skills/python-design-patterns/` returns **0**. The catalogue names below
+all come from the user-level skill.
 
 ## BEFORE
 
 ```
-TODO — draw it. Do not skip this.
+  _types/  (stdlib only)                                      LAYER: _types
+  ┌──────────────────────────────────────────────────────┐
+  │ protocols.py                                         │
+  │   StoreSubstrate     port for JSON documents         │
+  │   Stored / Revision  opaque token  (NEW in FUN-24)   │
+  │   EngineHost.substrate_override :470   ◄─────────────┼──┐ declared, but
+  └──────────────────────────────────────────────────────┘  │ read by getattr
+          ▲                    ▲                            │
+          │ imports            │ imports                    │
+  ┌───────┴──────────┐  ┌──────┴───────────────────────┐    │
+  │ _primitives/     │  │ _engine/                     │    │
+  │  substrate.py    │  │  executor.py  2744 lines     │    │
+  │   substrate_for_ │◄─┼── :1524 LOCAL IMPORT ────────┼────┘
+  │   project()      │  │  JobExecutionEngine :163     │
+  │  scope_store.py  │◄─┼── :1565 ScopeStore(self.sub) │
+  │   claim_scope    │  │  :936 :1059 :1071            │
+  │   → raises       │  │    self._state_store()       │
+  │     LeaseHeldErr │  │      .substrate  ×3          │
+  │  run_store.py    │  │  frontier.py :183 claim_scope│
+  │  scope_state_    │  │    → LeaseHeldError :170     │
+  │   store.py       │  └──────────────────────────────┘
+  └──────────────────┘            ▲
+       LAYER: _primitives         │ build_engine(app)   ← NO storage argument
+                          ┌───────┴──────────────────────┐
+                          │ _app/boot.py  2084 lines     │
+                          │  :220 def build_engine(host) │
+                          │  :403 boot_static   ─┐       │
+                          │  :622 boot_standard ─┴─ BOTH │
+                          │        before config resolves│
+                          └──────────────────────────────┘
+                                   LAYER: _app
+  ┌──────────────────────────────────────────────────────┐
+  │ app/_workflow_control.py :430 claim_scope            │  PUBLIC
+  │   :439 except Exception:  ← swallows the refusal     │
+  └──────────────────────────────────────────────────────┘
+
+  CROSSES A BOUNDARY (all legal today):
+    _engine → _types            protocols
+    _engine → _primitives       ILLEGAL AS A RUNTIME PEER IMPORT? No —
+                                _primitives is above the peer layers, so
+                                _engine → _primitives is downward and legal.
+    _app    → _engine           composition root → peer, legal
+  THE DEFECT IS NOT A CONTRACT VIOLATION. It is a direction the contracts
+  cannot see: the engine pulls its collaborator instead of being handed it.
 ```
+
+### Smells the BEFORE already carries
+
+Catalogue names, each with the symbol it lives on and the count that found it.
+
+| Smell | Where | Evidence |
+|---|---|---|
+| **Message Chains** | `executor.py:936, :1059, :1071` — `self._state_store().substrate` to build a `RunStore` | `rg -c '_state_store\(\)\.substrate' src/functualize/_engine/executor.py` → `3` |
+| **Inappropriate Intimacy** | `executor.py:1526` — `getattr(self.host, "substrate_override", None)` against a slot the repo declares at `_types/protocols.py:470` | `rg -c 'substrate_override' src/functualize/_engine/executor.py` → `2` |
+| **Primitive Obsession** | capability expressed as prose in docstrings; there is no capability type at all | `rg -c 'StoreProfile' -g '*.py' src/ plugins/` → `0` |
+| **Large Class** | `JobExecutionEngine`, `executor.py:163-2744` ≈ **2580 lines** against the constitution's ~500 threshold | `rg -n '^class ' src/functualize/_engine/executor.py` |
+| Exception as expected outcome (→ *Replace Exception with Test*, ch42) | `lease.py:226` raises `LeaseHeldError`; `app/_workflow_control.py:439` catches `Exception` bare | `rg -c 'except Exception:' src/functualize/app/_workflow_control.py` → `1` |
+
+**Naming the first two is what produced the design.** *Message Chains* and *Inappropriate
+Intimacy* both route to the same technique — **Hide Delegate / Move Method**, i.e. hand the
+collaborator in rather than let the object walk to it. That is the construction move,
+arrived at from the diagram rather than argued for.
 
 ## AFTER
 
 ```
-TODO — draw it. Check it for the smells it INTRODUCES, not only those it removes.
+  _types/  (stdlib only)                                      LAYER: _types
+  ┌──────────────────────────────────────────────────────────────┐
+  │ persistence.py  NEW  ~340 lines, zero logic                  │
+  │   StoreProfile         10 measured fields + 2 labels         │
+  │   8 commands · 6 outcomes · 6 views                          │
+  │   10 @runtime_checkable Protocols                            │
+  │     RuntimeStore  RuntimeTransaction                         │
+  │     5 writers  ·  3 readers                                  │
+  │ protocols.py   StoreSubstrate / Stored / Revision  UNCHANGED │
+  │ errors.py      + RuntimeStoreCapabilityError                 │
+  │                + CrossAggregateRefusedError                  │
+  └───────▲──────────────────────▲───────────────────────▲───────┘
+          │ implements           │ speaks ONLY this      │
+  ┌───────┴──────────────┐  ┌────┴─────────────────┐     │
+  │ _primitives/         │  │ _engine/             │     │
+  │  document_store.py   │  │  recording/  NEW     │     │
+  │   DocumentRuntime    │  │   run_recorder.py    │     │
+  │   Store              │  │     started/finished │     │
+  │   DOCUMENT_PROFILE   │  │   workflow_recorder  │     │
+  │    cross_aggregate_  │  │     claimed          │     │
+  │    atomicity=False   │  │     step_completed   │     │
+  │    → REFUSES a       │  │     suspended        │     │
+  │      spanning tx     │  │     resumed          │     │
+  │  scope_store.py etc. │  │  executor.py         │     │
+  │   (wrapped, not      │◄─┼─  NO substrate       │     │
+  │    rewritten)        │  │    property          │     │
+  └──────────────────────┘  │  __init__(*,         │     │
+       LAYER: _primitives   │    runtime_store,    │     │
+                            │    substrate)  ──────┼─────┘
+                            └──────▲───────────────┘
+                                   │ build_engine(app,
+                                   │   runtime_store=store,
+                                   │   substrate=substrate)
+                          ┌────────┴─────────────────────────────┐
+                          │ _app/boot.py       LAYER: _app       │
+                          │  step 4   load plugins               │
+                          │  step 6   resolve config             │
+                          │  step 6.5 select + prepare  NEW      │
+                          │           check_required_capabilities│
+                          │           → RuntimeStoreCapability   │
+                          │             Error (refuse, never     │
+                          │             degrade)                 │
+                          │  step 6.6 build_engine(…)            │
+                          │  step 9   APP_READY                  │
+                          └──────────────────────────────────────┘
+
+  WHAT CROSSES A BOUNDARY, AND WHETHER IT IS LEGAL
+    _engine      → _types/persistence     downward       legal (contract 1)
+    _primitives  → _types/persistence     downward       legal
+    _app         → _types, _engine, _prim composition    legal (contract 5)
+    _types       → anything internal      NEVER          contract "Types
+                                                         import nothing
+                                                         internal" — and
+                                                         invisible to
+                                                         lint-imports if
+                                                         deferred, hence T15
+  NO NEW PEER LAYER. Seven contracts unchanged. Compare Design 1, which adds
+  src/functualize/_persistence/ as a sixth peer and needs an ADR first.
 ```
 
-## Files expected to change
+### What the AFTER removes
 
-From the research's change inventory. **Verify each with `wc -l` before trusting the
-size** — four of these numbers were wrong in an earlier draft and were corrected only
-because someone measured.
+- *Message Chains* — gone. The engine holds `substrate` and `runtime_store`; nothing walks
+  `self._state_store().substrate`.
+- *Inappropriate Intimacy* — gone. The `getattr` host read is deleted; the value arrives as
+  a keyword-only constructor argument.
+- *Primitive Obsession* — gone. `multi_machine` becomes a field with a measured value
+  instead of a sentence in a docstring.
+- Exception-as-outcome — replaced at the port by `Claimed | Conflict`, and **reached** by
+  the two production call sites (T14), not merely declared.
 
-| File | Size | Change |
-|---|---|---|
-| `src/functualize/_types/persistence.py` | new ~340 | StoreProfile, RuntimeStore, RuntimeTransaction, five writers, three readers, commands and views |
-| `src/functualize/_types/protocols.py` | 930 | EngineHost drops substrate discovery |
-| `src/functualize/_engine/recording/` | new ~440 | run_recorder.py, workflow_recorder.py |
-| `src/functualize/_engine/executor.py` | 2743 | accept runtime_store; delete the lazy substrate property at :1509-1527 |
-| `src/functualize/_app/boot.py` | 2016 | construct the store after config resolves, pass it in |
+### Smells each candidate AFTER introduces — the iteration
+
+Three shapes were drawn. Two were rejected on the smells they introduced.
+
+**Candidate A — widen `StoreSubstrate` with query methods.** Rejected. Introduces
+*Divergent Change* on one port (it would change both for a new document format and for a
+new query), and D-2/D-3's rejected-alternatives section already argues it. Not re-argued
+here.
+
+**Candidate B — one `RuntimeStore` protocol with ~25 methods, no writer/reader split.**
+Rejected. Introduces **Large Class** on a Protocol and **Refused Bequest** on every
+partial implementer: a document store that cannot answer `resumable()` would have to
+raise from a method the type says it has. The split into five writers and three readers
+is what keeps the profile the only place a capability is declared.
+
+**Candidate C — `DocumentRuntimeStore` in `_engine` beside the recorders.** Rejected on a
+hard rule, not a preference: it wraps `ScopeStore`, `RunStore` and `ScopeStateStore`, all
+in `_primitives`. Placing it in `_engine` is fine directionally, but it would put storage
+adaptation in the layer that owns lifecycle meaning — the line §3 of the design draws
+("a store implementation must never contain the word *resume* in a conditional"). It lives
+in `_primitives/document_store.py`.
+
+**Candidate D — the shape above.** Accepted, and it introduces two smells, declared below.
 
 ## Surviving smells
 
-**This section is required.** If there are none, say so explicitly and say why you
-believe it — an omitted section is indistinguishable from an unexamined one.
+Both are **absent from `.spec/CONSTITUTION.md` → *Forbidden Patterns***, which is what
+makes them eligible to be accepted rather than blocking.
 
-A pattern named in `.spec/CONSTITUTION.md` → *Forbidden Patterns* is a **blocker, not an
-accepted compromise**: god-object growth past ~500 LOC, peer-layer cross-imports, global
-mutable state, ABC for ports, implicit `Callable` conventions for ports, `_cli/`
-importing internals. If the AFTER carries one, the AFTER is wrong.
+1. **Middle Man** — `DocumentRuntimeStore` (`_primitives/document_store.py`). It forwards
+   to three existing stores and adds no behaviour of its own beyond the honest profile and
+   the cross-aggregate refusal. *Accepted, and temporary:* it exists so this wave can land
+   without FUN-19's `SqliteRuntimeStore`. The standard answer to middle man — remove it —
+   is what FUN-19 does. Marked `# TRANSITIONAL(FUN-17/T7)` at the class, per
+   *Transitional Changes*. **Does not need maintainer review.**
 
-Carried forward from the research as the starting position:
+2. **Large Class (module-scale)** — `_types/persistence.py` at ~340 projected lines
+   carrying 20 dataclasses and 10 protocols. *Accepted:* it is one contract read as a
+   unit, it holds zero logic, and `_types/commands.py` proves the alternative split
+   collides on the word "command" (`contracts.md` §1). The ~500-line threshold in the
+   constitution is about **classes**, and no class here exceeds ~15 lines. Re-examine if
+   the module passes 500. **Does not need maintainer review.**
 
-- **Large class** risk on _types/persistence.py at ~340 lines. Accepted: it is one cohesive port definition and splitting it would scatter a contract that is read as a unit. Re-examine if it passes 500 (CONSTITUTION forbidden-pattern threshold).
-- **Middle man**: DocumentRuntimeStore forwards to three existing stores. Deliberate and temporary — it exists so Wave 1 can land without Wave 3.
+### And one that is NOT ours, but must be stated
 
-**Every entry marked *needs maintainer review* must be put to the maintainer by name and
-with its reason, and answered, before Execute begins.** Report an explicit "none" aloud
-too, so they can tell the question was asked rather than skipped.
+**Large Class on `JobExecutionEngine`** — `executor.py:163-2744`, roughly **2580 lines**
+against a constitution threshold of ~500. This is a standing *Forbidden Patterns*
+condition that **pre-dates FUN-17 and is not created by it**. The relevant constraint on
+this wave is therefore *do not worsen it*: the recorders are separate modules in
+`_engine/recording/` precisely so the lifecycle-to-command translation does not become
+twenty more methods on that class. T12's net effect on the file is a **deletion**.
 
-## Design skills consulted
+**This one needs maintainer review** — not to unblock FUN-17, but because a forbidden
+pattern is sitting in the file this wave and the next six all edit, and nobody has
+recorded a decision about it.
 
-- [ ] `python-design-patterns` (in-repo)
-- [ ] any *design patterns* / *refactoring* / *architecture* skill in this session's
-      listing — these are per-user and per-machine, so check the listing rather than
-      assuming. Record what you actually loaded.
+## Approvals still open — Execute must not begin until these are answered
+
+From `contributor/architecture/research/runtime-persistence-engine-owned/09-decisions.md`:
+
+| ID | What | Status in the register |
+|---|---|---|
+| D-2 | Engine owns transition meaning; stores own durability | **needs an ADR** |
+| D-3 | No new peer layer; ports in `_types`, recorders in `_engine`, wiring in `_app` | **needs the same ADR** |
+| D-4 | Move engine construction after config resolution | **needs an ADR** (boot behaviour) |
+| D-13 | Storage is pluggable; execution is not | **needs the same ADR as D-2** |
+| D-9 | `StoreSubstrate` becomes public | **needs a public-API decision** |
+
+D-2, D-3, D-4 and D-13 are the architecture this plan draws. D-9 is deliberately **not**
+implemented this wave (`contracts.md` §4) and so does not block Execute — the other four
+do. The register calls for **four ADRs, not one**.
+
+Plus the smell above: the `JobExecutionEngine` size decision.
+
+## Files expected to change
+
+Sizes measured with `wc -l` on the rebased tree, not copied from the research.
+
+| File | Now | Change | Task |
+|---|---|---|---|
+| `src/functualize/_types/persistence.py` | — (absent) | new, ~340 | T1–T6 |
+| `src/functualize/_types/errors.py` | 556 | +2 error classes | T8, T13 |
+| `src/functualize/_primitives/document_store.py` | — (absent) | new | T7, T8 |
+| `src/functualize/_engine/recording/run_recorder.py` | — (absent) | new | T9 |
+| `src/functualize/_engine/recording/workflow_recorder.py` | — (absent) | new | T10 |
+| `src/functualize/_app/boot.py` | 2084 | step 6.5 + both `build_engine` call sites | T11, T13 |
+| `src/functualize/_engine/executor.py` | 2744 | accept the two arguments; **delete** :1509-1528 | T11, T12 |
+| `src/functualize/_engine/frontier.py` | 478 | claim through the port | T14 |
+| `src/functualize/app/_workflow_control.py` | 784 | branch on `Conflict`, drop the bare catch | T14 |
+| `src/functualize/app/core.py` | 831 | comment at :286 names the old signature | T11 |
+| `tests/…` | — | tripwire, refusal, import-line test | T12, T8, T15 |
+
+## Risks
+
+1. **The gate suite is red for the whole wave, by construction.**
+   `tests/spec/test_task_gates_still_hold.py` asserts ≥12 gates parse, and only gates
+   belonging to **ticked** tasks parse. `.spec/features/` on this branch holds one feature,
+   so nothing back-stops the count: it reads `0` now and crosses 12 partway through wave 5.
+   This is a disclosed transitional state, not a regression — see `tasks.md` → *Why this
+   suite is red until T15*.
+2. **A gate whose value a later task moves becomes a false failure.** Every gate in
+   `tasks.md` was chosen to be true against the **end state** of the wave, not only at its
+   own task. Any executor who must weaken one says so in writing and marks it
+   `superseded`, per the constitution.
+3. **graphify and serena were unavailable**, so blast radius rests on `rg` and the
+   codemaps. `rg` cannot answer "what references this symbol" as well as a reference query
+   can. Re-run 3b if either server returns.
+4. **`ruff format` wrapping a signature can silently break a single-line gate** — one of the
+   ten defect shapes `test_task_gates_still_hold.py` was written to catch. No gate here
+   matches a full signature; they match class headings, call fragments, and counts.
