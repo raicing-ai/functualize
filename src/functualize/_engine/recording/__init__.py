@@ -7,5 +7,6 @@ module for the mapping and its sources.
 """
 
 from functualize._engine.recording.run_recorder import RunRecorder
+from functualize._engine.recording.workflow_recorder import WorkflowRecorder
 
-__all__ = ["RunRecorder"]
+__all__ = ["RunRecorder", "WorkflowRecorder"]

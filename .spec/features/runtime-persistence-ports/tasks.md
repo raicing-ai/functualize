@@ -235,7 +235,7 @@ rg -c '^    def (started|finished)\(' src/functualize/_engine/recording/run_reco
 ```
 now: `0` · after: `2`
 
-### [ ] T10 — `workflow_recorder.py`
+### [x] T10 — `workflow_recorder.py`
 
 *Files:* `src/functualize/_engine/recording/workflow_recorder.py`
 
