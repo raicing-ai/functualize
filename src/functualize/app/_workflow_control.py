@@ -31,7 +31,6 @@ MCP cannot do.
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -59,9 +58,6 @@ __all__ = [
 
 if TYPE_CHECKING:
     from functualize._types.run_request import RunSurface
-
-
-logger = logging.getLogger(__name__)
 
 
 def _canonical(name: str) -> str:
@@ -424,20 +420,25 @@ def cancel_scope(store: Any, scope_id: str) -> dict[str, Any]:
     # defensive lookup against a type we control hides exactly the breakage it
     # looks like it is protecting against.
     previous = store.generation_for(scope_id)
-    try:
-        from functualize._primitives.run_store import runner_identity
+    # **Uncaught on purpose** (FUN-17/T16, R-14.3). A `force=True` claim cannot
+    # *lose* — `lease.claim` refuses only `if … not force`
+    # (`_primitives/lease.py:222`) — so there is no `Conflict` to branch on
+    # here, and a branch for one would be dead code. What a failed claim means
+    # instead is that the store could not be written at all: an unreadable
+    # substrate, or every CAS round lost to a live writer (`ScopeStore._mutate`
+    # raises `RuntimeError`). A bare catch-all here swallowed exactly that
+    # and carried on to the status write below, which — with no lease taken —
+    # is unfenced, so the running walk's own `COMPLETED` stamp lands on top of
+    # it. The cancel did not win that race; it only looked like it had.
+    from functualize._primitives.run_store import runner_identity
 
-        taken = store.claim_scope(
-            scope_id, owner=f"cancel/{runner_identity()}", force=True
-        )
-        # Hold what was just taken. Without this the cancel fences **itself**
-        # out: claiming moved the generation, and the status write below still
-        # carries whatever this store held before — which is now stale. Found
-        # by the test for AC-10, where the CLI store and the walker's store are
-        # deliberately the same object.
-        store.hold(scope_id, taken.generation)
-    except Exception:  # noqa: BLE001 - a store without leases still cancels
-        logger.debug("could not take the lease before cancelling", exc_info=True)
+    taken = store.claim_scope(scope_id, owner=f"cancel/{runner_identity()}", force=True)
+    # Hold what was just taken. Without this the cancel fences **itself**
+    # out: claiming moved the generation, and the status write below still
+    # carries whatever this store held before — which is now stale. Found
+    # by the test for AC-10, where the CLI store and the walker's store are
+    # deliberately the same object.
+    store.hold(scope_id, taken.generation)
 
     try:
         store.set_scope_status(scope_id, "cancelled")

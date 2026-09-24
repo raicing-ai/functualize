@@ -117,6 +117,47 @@ class TestCancelWins:
         )
 
 
+class TestAFailedClaimRefusesTheCancel:
+    """R-14.3. A cancel that cannot take the lease must not look like it did.
+
+    `force=True` cannot *lose* the race — `lease.claim` refuses only
+    `if … not force` — so no `Conflict` is reachable here. What is reachable is
+    a claim that **fails**: an unreadable substrate, or every CAS round lost to
+    a live writer (`ScopeStore._mutate` gives up with `RuntimeError`).
+    Swallowing that let the cancel write `cancelled` with no lease taken, so
+    the running walk's own `COMPLETED` stamp landed on top of it.
+    """
+
+    def test_a_claim_that_fails_refuses_the_cancel(
+        self, store: ScopeStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The failure is simulated at the one seam with no live producer.
+
+        A healthy `ScopeStore` over a writable substrate does not lose eight
+        CAS rounds on demand, and a genuinely broken one cannot be handed to a
+        test deterministically. So the claim itself is what breaks; everything
+        under it — the record, the status write, the hold — stays real.
+        """
+        before = store.get_scope("wf")
+
+        def every_round_lost(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError(
+                "could not write 'scopes' after 8 attempts; "
+                "another writer is winning every round"
+            )
+
+        monkeypatch.setattr(store, "claim_scope", every_round_lost)
+
+        with pytest.raises(RuntimeError):
+            cancel_scope(store, "wf")
+
+        assert store.get_scope("wf")["status"] != "cancelled"
+        assert store.get_scope("wf") == before, (
+            "the cancel wrote anyway — with no lease taken, that status write "
+            "is unfenced and the running walk's COMPLETED stamp overwrites it"
+        )
+
+
 class TestASecondWalkIsRefused:
     """AC-9 — the limitation 0.3.0 shipped knowingly."""
 
