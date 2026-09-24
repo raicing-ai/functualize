@@ -3,15 +3,26 @@
 FUN-17/T8, acceptance criterion 2. `DOCUMENT_PROFILE` declares
 `cross_aggregate_atomicity=False` because the document stores take one lock
 per document and two cannot roll back together, so a unit spanning two
-workflow scopes must be refused whole — on commit, naming the aggregates,
-having applied neither.
+workflow scopes must be refused whole — naming the aggregates, with the
+second one unwritten.
 
 The expensive mistake this file exists to catch is not "no exception was
 raised" but "one aggregate survived": applying half a transition is defect B3
 under a new name, and a test that only checks the raise cannot tell a refusal
 from a partial apply that happened to fail at the end. Every refusal case
 here therefore reads **both** aggregates back through a freshly constructed
-store — not the refused transaction's own view — and finds neither written.
+store — not the refused transaction's own view — and finds the crossed
+aggregate unwritten.
+
+`claim` is the one write that can be on disk when a crossing is refused, and
+it is why the second half of this file exists. A claim commits on the spot
+(`contracts.md` §1.3), so a unit that claimed one scope and then reached for
+another is already half-applied — and refusing that at commit, as the first
+version of the refusal did, both refused a legitimate same-scope batch and
+reported "nothing applied" while a lease was held. Those cases assert what
+the message now says: the second aggregate untouched, and the scope that did
+reach disk named in `CrossAggregateRefusedError.landed` so the caller releases
+it instead of retrying it.
 """
 
 from __future__ import annotations
@@ -142,6 +153,144 @@ class TestTheSpanningRefusal:
         for scope_id in ("scope-a", "scope-b"):
             view = fresh.workflows.workflow(scope_id)
             assert view is not None and view.generation == 1
+
+    def test_claim_first_then_a_batch_on_the_other_scope_is_refused(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        """A claim under a batch for another scope is refused, and says so.
+
+        `claim` commits on the spot, so a unit that claims `scope-a` and then
+        buffers a command for `scope-b` has *written* `scope-a` by the time the
+        second aggregate is reached. The refusal must therefore admit it: a
+        caller told "nothing applied" would retry `scope-a` and take a second
+        lease, and the lease it already holds is the thing it has to release.
+
+        The batch half is refused with the claim: `scope-a` is claimed and not
+        cancelled, `scope-b` was never touched, and a later ordinary unit for
+        `scope-b` still commits — the refusal is a fact about this
+        transaction, not a poisoned store.
+        """
+        claimed_b = _claim(store, "scope-b")
+
+        with (
+            pytest.raises(CrossAggregateRefusedError) as raised,
+            store.transaction() as tx,
+        ):
+            first = tx.workflows.claim(
+                ClaimWorkflow(
+                    scope_id="scope-a", owner="tester", now=NOW, lease_seconds=300.0
+                )
+            )
+            tx.workflows.cancel(
+                CancelWorkflow(scope_id="scope-a", generation=first.generation, now=NOW)
+            )
+            tx.workflows.cancel(
+                CancelWorkflow(
+                    scope_id="scope-b", generation=claimed_b.generation, now=NOW
+                )
+            )
+
+        assert first.generation == 1
+        assert raised.value.aggregates == ("scope-a", "scope-b")
+        assert raised.value.landed == ("scope-a",)
+        assert "nothing applied" not in str(raised.value)
+
+        fresh = _fresh(tmp_path)
+        claimed = fresh.workflows.workflow("scope-a")
+        assert claimed is not None and claimed.status == "running"
+        assert fresh.workflows.events_after("scope-a", 0) == ()
+        untouched = fresh.workflows.workflow("scope-b")
+        assert untouched is not None and untouched.status == "running"
+
+        with store.transaction() as tx:
+            tx.workflows.cancel(
+                CancelWorkflow(
+                    scope_id="scope-b", generation=claimed_b.generation, now=NOW
+                )
+            )
+
+        assert _fresh(tmp_path).workflows.workflow("scope-b").status == "cancelled"
+
+    def test_a_batch_first_then_a_claim_on_the_other_scope_is_refused(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        """The claim is refused *before* it writes — the partial apply.
+
+        This is the order the old refusal got wrong in the other direction: a
+        buffered batch for `scope-a` and then `claim(scope-b)` used to leave
+        `scope-b` holding a lease, refuse at commit, and report that nothing
+        had been applied. Nothing here can un-write a claim, so the refusal has
+        to land at the claim itself, before `claim_scope`, and the `.landed`
+        it reports is empty because the claim never happened.
+        """
+        claimed_a = _claim(store, "scope-a")
+
+        with (
+            pytest.raises(CrossAggregateRefusedError) as raised,
+            store.transaction() as tx,
+        ):
+            tx.workflows.cancel(
+                CancelWorkflow(
+                    scope_id="scope-a", generation=claimed_a.generation, now=NOW
+                )
+            )
+            # Raised by `claim` itself — the call that would otherwise have
+            # returned `Claimed` — not by the block's exit.
+            tx.workflows.claim(
+                ClaimWorkflow(
+                    scope_id="scope-b", owner="tester", now=NOW, lease_seconds=300.0
+                )
+            )
+
+        assert raised.value.aggregates == ("scope-a", "scope-b")
+        assert raised.value.landed == ()
+
+        fresh = _fresh(tmp_path)
+        assert fresh.workflows.workflow("scope-b") is None
+        untouched = fresh.workflows.workflow("scope-a")
+        assert untouched is not None and untouched.status == "running"
+        assert fresh.workflows.events_after("scope-a", 0) == ()
+
+    def test_a_swallowed_refusal_still_refuses_the_whole_unit(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        """Catching the refusal inside the block must not land the batch.
+
+        `apply` runs on any clean exit, so a caller that catches the crossing
+        where it is raised — and returns normally — would otherwise apply the
+        half that never reached a document: a refused unit applied in part,
+        which is the defect the refusal exists to prevent. The transaction
+        stays refused, and the same error comes out at exit.
+        """
+        claimed_a = _claim(store, "scope-a")
+
+        with (
+            pytest.raises(CrossAggregateRefusedError) as raised,
+            store.transaction() as tx,
+        ):
+            tx.workflows.cancel(
+                CancelWorkflow(
+                    scope_id="scope-a", generation=claimed_a.generation, now=NOW
+                )
+            )
+            with pytest.raises(CrossAggregateRefusedError):
+                tx.workflows.claim(
+                    ClaimWorkflow(
+                        scope_id="scope-b",
+                        owner="tester",
+                        now=NOW,
+                        lease_seconds=300.0,
+                    )
+                )
+
+        assert raised.value.aggregates == ("scope-a", "scope-b")
+        assert raised.value.landed == ()
+
+        fresh = _fresh(tmp_path)
+        untouched = fresh.workflows.workflow("scope-a")
+        assert untouched is not None and untouched.status == "running"
+        assert fresh.workflows.events_after("scope-a", 0) == ()
+        assert fresh.workflows.workflow("scope-b") is None
 
 
 class TestTheEffectRefusal:

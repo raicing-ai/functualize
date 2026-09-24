@@ -482,7 +482,20 @@ class _DocumentWorkflowWriter:
         Losing is a value, never an exception: `ScopeStore.claim_scope` raises
         `LeaseHeldError`, and translating it here is the whole of acceptance
         criterion 6 at this store (the call sites move at T14).
+
+        A claim writes on the spot, so it is the one write that has to be
+        refused *before* it happens (T8's buffered-first order): when the unit
+        has already buffered a batch for a different aggregate, the refusal
+        lands here — before `ensure_scope`, before `claim_scope` — because a
+        claim that has written `scope-b` cannot be taken back, and the batch
+        it crosses is still only pending.
+
+        The scope is recorded in `claims_landed` rather than `scopes_touched`
+        for the same reason: it is written, not buffered. Recording it as
+        pending is what made a claim plus a batch on that *same* scope look
+        like two aggregates.
         """
+        self._txn.refuse_a_claim_over_a_batch(cmd.scope_id)
         scopes = self._txn.scopes
         scopes.ensure_scope(cmd.scope_id)
         try:
@@ -500,7 +513,7 @@ class _DocumentWorkflowWriter:
                 held_by=held.owner,
                 held_generation=current.generation if current else 0,
             )
-        self._txn.touch(cmd.scope_id)
+        self._txn.claims_landed.add(cmd.scope_id)
         return Claimed(
             scope_id=cmd.scope_id,
             generation=lease.generation,
@@ -583,15 +596,27 @@ class _DocumentTransaction:
 
     **One aggregate per unit.** `DOCUMENT_PROFILE.cross_aggregate_atomicity`
     is `False` because two documents have two locks and cannot roll back
-    together. The refusal that enforces it — raised on commit, naming every
-    aggregate the unit spanned, having applied none — is `_refuse_spanning_units`,
-    and `scopes_touched` is the evidence it reads.
+    together. The refusal that enforces it — raised before the unit's second
+    aggregate is written, naming every aggregate it spanned — is
+    `_refuse_spanning_units`, and `scopes_touched` is the evidence it reads for
+    a buffered batch.
+
+    `claims_landed` is the second, separate set (T8). `claim` commits on the
+    spot, so its scope is *written* rather than pending and must not enter the
+    batch evidence: mixing the two is what let a claim plus a batch for that
+    same, single scope look like a two-aggregate unit — refused on commit,
+    with `claim_scope` already on disk. Kept apart, both orders of a real
+    crossing are refused at the crossing call, before the second aggregate is
+    written: `refuse_a_batch_over_a_claim` at `append`, and
+    `refuse_a_claim_over_a_batch` at `claim`.
     """
 
     def __init__(self, store: DocumentRuntimeStore) -> None:
         self._store = store
         self._commands: list[Any] = []
         self.scopes_touched: set[str] = set()
+        self.claims_landed: set[str] = set()
+        self._refused: CrossAggregateRefusedError | None = None
         self.runs: RunWriter = _DocumentRunWriter(self)
         self.workflows: WorkflowWriter = _DocumentWorkflowWriter(self)
         self.inputs: InputWriter = _DocumentInputWriter(self)
@@ -607,13 +632,73 @@ class _DocumentTransaction:
         return self._store.run_store
 
     def append(self, command: Any) -> None:
-        self._commands.append(command)
+        """Buffer `command`, unless it would cross onto a second aggregate.
+
+        The guard reads `claims_landed`, not `scopes_touched`: a claim is
+        already written, so a unit that claimed `scope-a` and then buffers a
+        command for `scope-b` is spanning *now*, not at commit. Refusing here
+        is what keeps `scope-b` unwritten — and `apply` raises the same refusal
+        if the block swallows this one, so the command that was only buffered
+        cannot land on its own either.
+        """
         scope_id = getattr(command, "scope_id", None)
+        if isinstance(scope_id, str):
+            self.refuse_a_batch_over_a_claim(scope_id)
+        self._commands.append(command)
         if isinstance(scope_id, str):
             self.touch(scope_id)
 
     def touch(self, scope_id: str) -> None:
+        """Record a scope whose write is *pending* — the batch evidence.
+
+        `claim` does not call this: what it wrote is not pending, and T8 is
+        the reason the distinction is drawn at all. See `claims_landed`.
+        """
         self.scopes_touched.add(scope_id)
+
+    def refuse_a_batch_over_a_claim(self, scope_id: str) -> None:
+        """Refuse a buffered command on a scope a claim has already crossed.
+
+        T8's claim-first order, called from `append` before the command is
+        buffered. A claim on any *other* aggregate than this command's is the
+        crossing: that scope is on disk and this command would be a second
+        aggregate in the same unit. The same scope is not a crossing — claiming
+        `scope-a` and then batching `scope-a` is one aggregate, which is the
+        ordinary spelling of "take the scope, then transition it".
+        """
+        if self.claims_landed - {scope_id}:
+            self._refuse_a_mixed_unit(
+                self.claims_landed | {scope_id}, landed=self.claims_landed
+            )
+
+    def refuse_a_claim_over_a_batch(self, scope_id: str) -> None:
+        """Refuse a claim on a scope a pending batch has already crossed.
+
+        T8's buffered-first order, called from `claim` **before** `ensure_scope`
+        and `claim_scope`: a claim writes on the spot, so it is the one write
+        that cannot be refused after the fact. A pending batch on any other
+        aggregate is the crossing. This is the stricter of the two orders
+        because the batch never ran — any claim that committed earlier in the
+        unit is named in the refusal's `landed`, and the batch itself never
+        applies.
+        """
+        if self.scopes_touched - {scope_id}:
+            self._refuse_a_mixed_unit(
+                self.scopes_touched | {scope_id}, landed=self.claims_landed
+            )
+
+    def _refuse_a_mixed_unit(self, aggregates: set[str], *, landed: set[str]) -> None:
+        """Refuse, and leave the transaction refused.
+
+        One raiser for both entry points, so the poison and the message cannot
+        drift apart. `apply` re-raises this error: a caller may catch it inside
+        the block, and a refusal that could still be followed by a clean exit
+        would apply the half that was only buffered — the partial apply the
+        criterion exists to prevent.
+        """
+        error = CrossAggregateRefusedError(sorted(aggregates), landed=sorted(landed))
+        self._refused = error
+        raise error
 
     # -- applying ---------------------------------------------------
 
@@ -624,7 +709,14 @@ class _DocumentTransaction:
         runs never takes the scopes lock. Both batches write on their own
         clean exit, so a refusal raised part-way discards everything that
         document had accumulated.
+
+        A refusal already raised inside the block — by `append` or by `claim`,
+        T8's two crossing orders — is re-raised here rather than forgotten: a
+        unit that crossed is refused whole, so the half that never reached a
+        document still does not.
         """
+        if self._refused is not None:
+            raise self._refused
         if not self._commands:
             return
         self._refuse_spanning_units()
@@ -657,8 +749,13 @@ class _DocumentTransaction:
 
         Claims are exempt because they are not part of a batch at all: each
         commits on the spot as a single-command transaction, which is what
-        lets `claim` answer with a value. A unit whose only writes were
-        claims carries no commands and never reaches this check.
+        lets `claim` answer with a value. Their scopes live in
+        `claims_landed`, so a batch may be one aggregate even when a claim is
+        the same one — and the two orders that *do* mix a claim with another
+        aggregate's batch are refused earlier still, at the second of the two
+        calls, by `refuse_a_batch_over_a_claim` and
+        `refuse_a_claim_over_a_batch`. Nothing this check refuses has landed,
+        which is why its refusal carries no `landed` aggregates.
         """
         if self._store.profile.cross_aggregate_atomicity:
             return
@@ -910,22 +1007,26 @@ class _DocumentTransaction:
         share one shape. Which log an event without a run belongs to is
         therefore decided by what this unit is about — and a unit is about one
         scope, which is what `cross_aggregate_atomicity=False` already says.
+        What the unit is about includes a scope it *claimed*: a claim writes
+        to that scope's log before the batch exists, so the claim's scopes are
+        read here alongside the buffered ones.
 
         Raises:
-            ValueError: no run named and no scope touched, so there is no log
-                this event belongs to.
+            ValueError: no run named and the unit did not write exactly one
+                scope, so there is no single log this event belongs to.
         """
         entry = {"type": cmd.type, "payload": cmd.payload, "at": _iso(_utcnow())}
         if cmd.run_id is not None:
             runs().append_event(cmd.run_id, entry)
             return
-        if len(self.scopes_touched) != 1:
+        written = self.scopes_touched | self.claims_landed
+        if len(written) != 1:
             raise ValueError(
-                f"event {cmd.type!r} names no run and this transaction touched "
-                f"{sorted(self.scopes_touched)} — there is no single log it "
+                f"event {cmd.type!r} names no run and this transaction wrote "
+                f"{sorted(written)} — there is no single log it "
                 f"belongs to."
             )
-        (scope_id,) = self.scopes_touched
+        (scope_id,) = written
         scopes().append_event(scope_id, {**entry, "run_id": cmd.run_id})
 
 

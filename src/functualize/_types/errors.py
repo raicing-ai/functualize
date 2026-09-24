@@ -559,25 +559,55 @@ class SubstrateUnreadableError(Exception):
 class CrossAggregateRefusedError(Exception):
     """A transaction spanned two aggregates on a store that cannot commit two.
 
-    FUN-17/T8, acceptance criterion 2. Raised **on commit**, before anything
-    is applied: a store declaring ``cross_aggregate_atomicity=False`` refuses
-    a spanning unit rather than applying it in parts, because a partial apply
-    is defect B3 under a new name — half a transition that no backend rolled
-    back. Nothing the unit carried reaches a document, so the refusal is a
-    repeatable state a caller can retry against one aggregate at a time.
+    FUN-17/T8, acceptance criterion 2. Raised **before the unit's second
+    aggregate is written**: a store declaring
+    ``cross_aggregate_atomicity=False`` refuses a spanning unit rather than
+    applying it in parts, because a partial apply is defect B3 under a new
+    name — half a transition that no backend rolled back. For a buffered batch
+    that is on commit, and nothing the unit carried reaches a document, so the
+    refusal is a repeatable state a caller can retry one aggregate at a time.
+
+    A claim is the exception, and it is why ``landed`` exists. ``claim``
+    commits on the spot (``contracts.md`` §1.3) — that is what lets it answer
+    with a value — so a unit that claimed ``scope-a`` and then reached for
+    ``scope-b`` has already *written* ``scope-a`` when the refusal is raised at
+    the crossing call. That write cannot be rolled back here, and the message
+    says so rather than promising nothing landed: a caller retrying blindly
+    would take a second lease it did not need, and the scope it holds is the
+    one it has to release first.
 
     Attributes:
         aggregates: The aggregate ids the refused unit spanned, sorted. Two
             for the shape the criterion names; more when a unit touched more,
             and every one is named because "which half survived" is the first
-            question an operator asks — and the answer here is always *none*.
+            question an operator asks.
+        landed: The aggregates whose writes were already on disk when the
+            refusal was raised, sorted. Empty for a buffered batch — the shape
+            the criterion names, where the answer really is that nothing
+            applied — and non-empty only for a claim that committed first,
+            which must be released rather than retried.
     """
 
-    def __init__(self, aggregates: Sequence[str]) -> None:
+    def __init__(
+        self, aggregates: Sequence[str], *, landed: Sequence[str] = ()
+    ) -> None:
         self.aggregates = tuple(aggregates)
+        self.landed = tuple(landed)
+        if self.landed:
+            outcome = (
+                f"Refused before the rest was written, but "
+                f"{', '.join(self.landed)} had already committed — a claim "
+                f"writes on the spot, so that scope holds a lease and cannot "
+                f"be rolled back here: release it rather than retrying it, and "
+                f"retry the remainder as one unit per aggregate."
+            )
+        else:
+            outcome = (
+                "Refused on commit with nothing applied; retry as one unit "
+                "per aggregate."
+            )
         super().__init__(
             f"This store declares cross_aggregate_atomicity=False, so one "
             f"unit cannot span {len(self.aggregates)} aggregates "
-            f"({', '.join(self.aggregates)}). Refused on commit with nothing "
-            f"applied; retry as one unit per aggregate."
+            f"({', '.join(self.aggregates)}). {outcome}"
         )
