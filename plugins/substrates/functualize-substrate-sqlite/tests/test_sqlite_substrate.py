@@ -355,7 +355,7 @@ class TestItNeedsNoSharedDisk:
         assert seen == [], f"a store asked the substrate for {seen}"
 
 
-class TestThePluginRegistersThroughTheHooksFacade:
+class TestThePluginOffersItsSubstrate:
     """`SQLiteSubstratePlugin` had **zero test references anywhere** — T6.
 
     `rg -l SQLiteSubstratePlugin` over the whole tree returned its own package, its
@@ -366,41 +366,36 @@ class TestThePluginRegistersThroughTheHooksFacade:
     suite stay green.
 
     Two claims, and the second is the one the substrate tests cannot make: a
-    backend is chosen at `APP_READY` and **not** during registration, because
-    the engine resolves its substrate on first store access and a late install
-    is refused rather than half-applied (ADR-022).
+    backend is *offered* at registration and built only when boot asks, at step
+    6.5 — after configuration resolves, so `db_path` is read, and before the
+    store is selected (FUN-17/T12). Installing from `APP_READY` is after the
+    choice and is refused.
     """
 
-    def test_it_asks_for_on_ready_and_hands_over_its_handler(self) -> None:
+    def test_it_offers_and_hands_over_its_chooser(self) -> None:
         from functualize_substrate_sqlite import SQLiteSubstratePlugin
 
-        handed: list[object] = []
-
-        class _Hooks:
-            def on_ready(self, handler: object) -> object:
-                handed.append(handler)
-                return handler
+        offered: list[object] = []
 
         class _App:
-            hooks = _Hooks()
+            def offer_substrate(self, offer: object) -> None:
+                offered.append(offer)
 
         plugin = SQLiteSubstratePlugin()
         plugin(_App())
 
-        assert handed == [plugin._on_app_ready]
+        assert offered == [plugin._choose_substrate]
 
-    def test_registering_installs_nothing_yet(self) -> None:
-        """Installing during `__call__` would be too early, and is refused."""
+    def test_registering_builds_nothing_yet(self) -> None:
+        """Building during `__call__` would be before config resolves."""
         from functualize_substrate_sqlite import SQLiteSubstratePlugin
 
         class _App:
-            class hooks:  # noqa: N801
-                @staticmethod
-                def on_ready(handler: object) -> object:
-                    return handler
+            def offer_substrate(self, offer: object) -> None:
+                return None
 
             def install_substrate(self, substrate: object) -> None:
-                raise AssertionError("installing before APP_READY is too early")
+                raise AssertionError("installing at registration reads no config")
 
         plugin = SQLiteSubstratePlugin()
         plugin(_App())

@@ -286,7 +286,7 @@ now: `0` · after: `2`
 
 ## Wave 7 — delete the discovery
 
-### [ ] T12 — delete the discovery path, and prove it is gone
+### [x] T12 — delete the discovery path, and prove it is gone
 
 *Files:* `src/functualize/_engine/executor.py`, `tests/engine/test_engine_receives_its_store.py`;
 widened by the install-moment decision (TD-1) to `src/functualize/_types/host.py`,
@@ -295,7 +295,11 @@ widened by the install-moment decision (TD-1) to `src/functualize/_types/host.py
 `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_plugin.py`,
 `tests/conftest.py`, the four re-pointed tests (`tests/types/test_plugin_host_port.py`,
 `tests/primitives/test_one_substrate_choice.py`,
-`tests/plugins/test_substrate_choice_is_not_hook_order.py` ×2) and the new
+`tests/plugins/test_substrate_choice_is_not_hook_order.py` ×2), a fifth re-point the
+leader authorised on 2026-09-24 as D5's mechanical consequence
+(`plugins/substrates/functualize-substrate-sqlite/tests/test_sqlite_substrate.py`: its two
+registration tests asserted the `on_ready` handler D5 deletes, and now assert the offer —
+same claims, no assertion weakened), and the new
 `tests/plugins/test_substrate_offer.py` and `tests/primitives/test_substrate_root_is_lazy.py`.
 The plugin's window is T12's because T12 is what closed the old one: deleting the engine's
 lazy resolution moved the choice to step 6.5, which put `APP_READY` after it and left a
