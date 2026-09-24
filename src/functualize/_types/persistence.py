@@ -546,7 +546,8 @@ class InputWriter(Protocol):
     """The inputs aggregate, appended to.
 
     Append-only in fact, not only in shape: a second candidate never overwrites
-    the first (``06-data-model.md`` §2.4 — today's overwrite is the defect it
+    the first (``contributor/reference/runtime-persistence-data-model.md`` §2.4
+    — today's overwrite is the defect it
     names). The request row itself is opened by ``SuspendAtGate``, and
     accepting a candidate is ``WorkflowWriter.resume``'s job; neither is this
     port's.
@@ -576,7 +577,8 @@ class EffectWriter(Protocol):
 
     Recording the intent is all that happens inside the transaction: claiming a
     row, calling the provider and acknowledging the result run outside it
-    (``06-data-model.md`` §4), which is the difference between an outbox and a
+    (``contributor/reference/runtime-persistence-data-model.md`` §4), which is
+    the difference between an outbox and a
     retry loop. ``idempotency_key`` is optional because the column is unique
     only *where present*.
     """

@@ -249,7 +249,7 @@ And there are four parallel vocabularies: the raw string above, `StepStatus`
 `stalled` / `waiting` / `ready` / `abandoned` that are computed for rendering and
 never stored (`app/_workflow_view.py:217-242`).
 
-## 7. Durability is best-effort in thirteen places
+## 7. Durability is best-effort in twelve places
 
 The codebase is honest about this — every site carries a comment explaining itself —
 but the sum is that **the run log is an observation, not a record**.
@@ -262,12 +262,22 @@ but the sum is that **the run log is an observation, not a record**.
 | `frontier.py:285`, `:298` | lease renew and release |
 | `run_log.py:174`, `:194` | per-event buffering, **and the entire batched flush** |
 | `walk_log.py:108` | every durable walk event |
-| `app/_workflow_control.py:439` | `a store without leases still cancels` — the cancel then proceeds **unclaimed** |
 | `notify.py:169` | delivery, *after* the branch was already recorded as `sent` |
 | `workflow_validation.py:234` | the graph digest |
 
 Plus `_events/bus.py:404-409`, which catches every subscriber exception — this is what
 makes a fenced walk-log refusal invisible to the walk that caused it.
+
+**One site has already left this list.** At research time `app/_workflow_control.py:439`
+carried `a store without leases still cancels`, and the cancel then proceeded
+**unclaimed** — its status write unfenced, so a running walk's own `COMPLETED` stamp
+could land on top of it and the cancel only looked like it had won. That bare catch is
+gone (`rg -c 'except Exception:' src/functualize/app/_workflow_control.py` reads `0`): the
+forced claim is deliberately uncaught (`:421-437`, *Uncaught on purpose*, FUN-17/T16,
+R-14.3), because a `force=True` claim cannot *lose* — `lease.claim` refuses only
+`if … not force` (`_primitives/lease.py:222`) — so a claim that fails means the store
+could not be written at all. The cancel now **refuses** rather than proceeding unclaimed,
+which is why this site is no longer one of the twelve.
 
 ## 8. The SQLite backend
 

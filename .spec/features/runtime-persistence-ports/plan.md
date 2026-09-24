@@ -216,9 +216,10 @@ in `_primitives/document_store.py`.
 
 ## Surviving smells
 
-All five are **absent from `.spec/CONSTITUTION.md` → *Forbidden Patterns***, which is
+All six are **absent from `.spec/CONSTITUTION.md` → *Forbidden Patterns***, which is
 what makes them eligible to be accepted rather than blocking. 3–5 were added by T12's
-install-moment decision (TD-1), recorded there and carried here.
+install-moment decision (TD-1), recorded there and carried here; 6 was added by T14's
+ruling R-14.2, recorded below.
 
 1. **Middle Man** — `DocumentRuntimeStore` (`_primitives/document_store.py`). It forwards
    to three existing stores and adds no behaviour of its own beyond the honest profile and
@@ -271,6 +272,22 @@ install-moment decision (TD-1), recorded there and carried here.
    cleared in a `finally`. It exists only so a two-claimant refusal names plugins rather
    than a lambda's qualname. *Accepted:* scoped to one call, never read outside
    `_app/impl._claimant`, and not declared on the facade (whose line budget is 305).
+   **Does not need maintainer review.**
+
+6. **Refusal narrower than the message it replaced (no catalogue name fits exactly)** —
+   `WalkOutcome.HELD` (`_engine/workflow_walker.py:144`). R-14.2 replaced the
+   `SUPERSEDED` candidate with `HELD` deliberately, and the report's `error` carries the
+   holder and the held generation (`:352-359`) — but the `Conflict` it is built from
+   (`_types/persistence.py:337-346`) has **no expiry**, while both the `LeaseHeldError`
+   it replaced (`_primitives/lease.py`: *"names the holder and when the claim becomes
+   available"*) and the `Claimed` value beside it carry `expires_at`. A walk refused at
+   the door therefore says *who* and *how stale*, never *until when*. *Accepted, and
+   deliberately quiet:* the refusal is right, the deadline question is answered by
+   `func builtin workflow reclaim` (`app/_workflow_control.py:485-490`, "held by … until
+   …") and liveness by `func builtin workflow show`, and
+   `contributor/reference/workflow-walker.md` §10 records both the reading and the verbs.
+   **Closing it is a port change** — give `Conflict` an expiry, or have the walk read the
+   lease before refusing — which is its own decision and not this ticket's.
    **Does not need maintainer review.**
 
 ### And one that is NOT ours, but must be stated

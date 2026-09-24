@@ -316,7 +316,8 @@ def _workflow_view(scope_id: str, record: dict[str, Any]) -> WorkflowView:
 
     `created_at`, `updated_at` and `terminal_at` read as `None` unless the
     record carries them: the document schema has no such fields, and the
-    columns arrive with FUN-19's tables (`06-data-model.md` §2). Inventing
+    columns arrive with FUN-19's tables
+    (`contributor/reference/runtime-persistence-data-model.md` §2). Inventing
     them from file mtimes would be a reader reconstructing what nothing
     recorded.
     """
@@ -561,7 +562,8 @@ class _DocumentEffectWriter:
 
     There is no outbox document in this backend, which is what
     `durable_outbox=False` declares and what keeps this store from being
-    selected by a feature that needs one at all (`05-the-design.md` §5: "a
+    selected by a feature that needs one at all
+    (`contributor/reference/state-store.md` §9: "a
     store that declares `durable_outbox=False` does not run the outbox suite
     and does not get to be selected by a feature that needs one"). Reaching
     this writer therefore means the capability check at boot (T13) did not
@@ -850,8 +852,9 @@ class _DocumentTransaction:
 
         One unit, which is the point of the command: today the deposit
         (`app/_workflow_answer.py`) and the claim (`_engine/frontier.py`)
-        are two locked writes in different call frames (`06-data-model.md`
-        §4). `claim_scope` still raises here rather than answering —
+        are two locked writes in different call frames
+        (`contributor/reference/runtime-persistence-data-model.md` §4).
+        `claim_scope` still raises here rather than answering —
         `resume` returns `None` by the port, so there is no value to answer
         with.
         """

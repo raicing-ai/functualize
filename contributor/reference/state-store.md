@@ -213,3 +213,82 @@ build
   version. On an unreadable scope store it prints every other statistic, renders the scope
   line as the fault, and exits 2 — it is the command people run to find out what is
   wrong, so it diagnoses rather than stonewalls
+
+## 9. The document store, honestly described
+
+`DocumentRuntimeStore` (`_primitives/document_store.py`) is what the engine's `RuntimeStore`
+resolves to when no storage plugin offers anything better: the documents this page describes,
+wrapped in the persistence ports. It declares what it can actually promise, as data, in
+`DOCUMENT_PROFILE` (`_primitives/document_store.py:135-153`; the comment above it, `:88-133`, is
+the field-by-field authority):
+
+```python
+DOCUMENT_PROFILE = StoreProfile(
+    name="documents",
+    cross_aggregate_atomicity=False,
+    fencing="cross-process",
+    multi_process=False,
+    multi_machine=False,
+    durable_outbox=False,
+    versioned_migrations=False,
+    interactive_transaction=True,
+    remote=False,
+    max_document_bytes=None,
+    offline_capable=True,
+    description=(
+        "JSON documents on the project's StoreSubstrate — the filesystem by "
+        "default, and the only store that works with no network. Values are "
+        "the matrix's filesystem column; a stronger substrate is "
+        "under-declared, never over-declared."
+    ),
+)
+```
+
+Nothing probes this at runtime. Boot reads it and refuses rather than degrades when a feature
+needs a capability the selected store does not have (`RuntimeStoreCapabilityError`), which is the
+difference between a documented limit and a surprise at hour three.
+
+**Nine of the ten measured values are the *filesystem* column of
+[`substrate-capability-matrix.md`](substrate-capability-matrix.md) (`:79-88`), read row by row.**
+One is deliberately weaker than that row, and it is the field worth knowing about:
+
+- **`multi_process` is `False` while the matrix reads `yes · real`.** The matrix measured
+  `JsonFileSubstrate`, whose compare-and-swap really is cross-process. This profile also covers
+  `RunStore`, which does **not** compare-and-swap: its `_mutate` is a locked read-modify-write
+  ending in `write(self._key, stamp_runs(envelope))` with no `expect=`
+  (`_primitives/run_store.py:189-192`, and `batch` at `:204-208`). Its only protection against a
+  second process is the advisory lock, which gives up after ten seconds and is a no-op without
+  `fcntl`/`msvcrt`. So a run record *can* be lost — deliberately, because a run record is history
+  rather than an in-flight run. One value covers three stores and takes the weakest, and
+  `ScopeStore` and `ScopeStateStore` would each support `True` on their own.
+- **`fencing` is `"cross-process"`** (matrix `:80`), because both of this store's refusal grounds
+  are read off disk rather than held in memory: the generation is checked against the lease in the
+  loaded envelope, and every write is `write(..., expect=revision)` regardless of any local hold.
+  A stale lease holder **in any process** is refused; a caller with no hold at all is the
+  documented intent, not a gap.
+- **`durable_outbox=False`** means there is no outbox document here, so an effect writer that is
+  reached anyway refuses with `NotImplementedError` (`_primitives/document_store.py:786`) instead
+  of dropping the intent. The writer is not supposed to be reachable: a store that declares no
+  durable outbox does not run the outbox suite, and does not get selected by a feature that needs
+  one.
+- **`cross_aggregate_atomicity=False`** means two documents have two locks and cannot roll back
+  together, so a unit that spans two aggregates is **refused on commit** with
+  `CrossAggregateRefusedError` (`_types/errors.py`), naming both, having written neither. Applying
+  it in parts would be the same defect under a new name.
+- **`interactive_transaction=True`** is a local lock, not a protocol promise, and
+  **`versioned_migrations=False`** is because this backend has no schema version at all: the
+  tables and their runner arrive with FUN-19. **`offline_capable=True`** is the reason it is the
+  default store — the only one that works with no network.
+
+The port carries the fence as **values**, not exceptions: losing a claim is a `Conflict` the caller
+branches on. `ScopeStore.claim_scope` raises `LeaseHeldError`, and
+`_DocumentWorkflowWriter.claim` (`_primitives/document_store.py:509-515`) translates it, re-reading
+the lease to fill `held_by` and `held_generation`. The translation **drops the expiry the exception
+carries** — the produced `Conflict` has no `held_until`, so a refused caller learns who holds the
+scope and at which generation, not until when. [`workflow-walker.md`](workflow-walker.md) §10 covers
+what that means for someone reading a refused walk, and what they can do instead.
+
+This backend is `# TRANSITIONAL(FUN-17/T7)` and says so at its class: a declared middle man over
+these three stores, existing so the ports could land before FUN-19's `SqliteRuntimeStore`. It adds
+nothing of its own beyond the profile, the buffering transaction and the refusal at the crossing.
+FUN-19 removes it, and then §8 of this page goes back to describing the only state store there is.
