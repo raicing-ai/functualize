@@ -19,3 +19,15 @@ Produced (this repo):
 - Origin resolution order: `--origin` > `FUNC_VAULT_ORIGIN` >
   config layer (`vault.remote_origin`) > default
   `https://funccloud-vault.raicing-ai.workers.dev`.
+
+
+## Revision 2026-10-31 (contracts)
+- `share`: `--group G [--job J] --field F [--env E]` (repeatable) selects local entries; `--set N=V` unchanged.
+- Item wire name for vault entries: JSON `{"g":..,"j":..,"f":..,"e":..}` (see spec R1). The wire
+  contract only sees an opaque string.
+- `redeem <link> [-y|--yes] [--only SEL]... [--replace] [--print-only] [--dotenv PATH]`.
+  Replaces `--into-vault SCOPE`: vault import is the default, `--scope` is removed.
+- Exit codes: no TTY without `-y`/`--only`/`--print-only` -> usage error, before any network call.
+- Seam: `plan_import(bundle, app) -> ImportPlan(rows)`, `apply_import(plan, selected, replace)
+  -> ImportReport`; rows carry identity, environment, status (`storable|exists|no_match|no_address`)
+  and a reason. No row carries a value in its repr.

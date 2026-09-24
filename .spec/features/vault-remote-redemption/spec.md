@@ -94,3 +94,61 @@ all later chain items in the funccloud roadmap.
 Durable half to `STATUS.md` per house workflow; the funccloud-side journey
 closes on their eval harness (chain item 3), which pins this submodule
 pointer — the cross-repo witness lives there, not here.
+
+
+## Revision 2026-10-31 — rebased onto scoped vault v3/v4 and keyring unlock
+
+Source: Confluence SD/12779576 (scoped secrets v3 approved 2026-10-09; v4 composed
+`--group`/`--job` shipped in master), SD/12222468 (lazy silent key read, `vault unlock`),
+SD/9273345 D3 (redeem saves to the vault by default). The wire and crypto contracts are
+unchanged and still frozen in funccloud. Everything below is local materialisation.
+
+### R1 — a shared item carries a vault identity, not a flat name
+- An item's wire `name` is a **structured JSON string** (opaque to the wire, so the frozen
+  contract is untouched): `{"g": "<group>", "j": "<job>", "f": "<field>", "e": "<env|base>"}`,
+  with `g`/`j` optional exactly as `--group`/`--job` (at least one). Never a dotted path.
+- `vault share` selects local entries by the same flags as `put/inspect`
+  (`--group/--job/--field`), in the active environment with the shared fallback, and records
+  the *resolved* identity including its environment.
+- Plain `--set NAME=VALUE` pairs have no name JSON. They are valid items.
+
+### R2 — redeem stores real identities, after a confirmation
+- Redeem decodes each item and, per item, shows one row:
+  `prod: --group deploy.infra --job app --field api_token`.
+- Each row is validated against the *receiver's* project with the same checks as
+  `vault put` (`resolve_vault_identity`): group exists, job exists in exactly that group,
+  field is secret-marked.
+  - No match: row is shown **unselectable** with the reason ("no job 'app' in group
+    'deploy.infra' here"); nothing unvalidated reaches the vault.
+  - Plain `--set` item: shown as "no vault address", unselectable for storing; it can only
+    be printed (export line) or written with `--dotenv`.
+  - Entry already exists: row starts **unticked**, marked "exists - would replace";
+    ticking it opts in to the replace. Accept-all never replaces.
+- The environment is **the sender's** (`prod` stays `prod`; `base` is a shared entry). It
+  is never rewritten to the receiver's active environment.
+- Confirmation is a multi-select; the default is every storable row ticked (accept all).
+
+### R3 — non-interactive behaviour (decided with the maintainer, 2026-10-31)
+Redeeming consumes a redemption, and the items are only readable after it. Therefore the
+confirmation mode is decided **before the origin is contacted**:
+- TTY: interactive multi-select as in R2.
+- No TTY and neither `-y/--yes` nor `--print-only`: **refuse at once** (usage error,
+  nothing sent, link not burned) naming `-y`, `--only` and `--print-only`.
+- `-y/--yes`: accept every storable, non-colliding row without prompting.
+  Colliding rows are skipped and reported unless `--replace` is also given.
+- `--only <selector>` (repeatable; same `--group/--job/--field` spelling, optional env):
+  non-interactive subset. Implies no prompt.
+- `--print-only` persists nothing, so it needs no confirmation in any mode.
+- If the user selects nothing, or aborts the prompt after the redeem, the decrypted bundle is
+  not stored; the command says so and that the link is already spent. (`vault show` is the
+  only no-burn preview, and it shows labels/expiry, not item names.)
+
+### R4 — key handling follows the keyring-unlock decision
+Local entry reads/writes go through `resolve_vault_key` -> `KeyLookup`
+(FOUND / LOCKED / NO_KEYRING / NOT_STORED / UNVERIFIED) and `describe_key_failure`.
+A pure `--set` share needs no key at all. `key_unavailable` is replaced by the lookup's
+own reasons; no run requests an unlock (only `vault unlock` does).
+
+### R5 — surface
+`func vault` remains the one deliberate top-level alias (A8) of `func builtin vault`; the
+help-surface pin lists it. Share/redeem/show are additive to the ten existing subcommands.

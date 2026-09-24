@@ -1,8 +1,11 @@
 # Vault Remote Redemption — tasks
 
-Wave A (T1–T5) is done and green. Gates below are measured, single-line
-counting commands per house format (`tests/spec/test_task_gates_still_hold.py`);
-the recorded `after:` is the value the finished work produced.
+All waves done and green. Gates are measured, single-line counting commands
+per house format (`tests/spec/test_task_gates_still_hold.py`); each
+recorded `after:` is the value the finished work produced. The live-tier
+run (T12) was executed once, manually, against the public vault on
+2026-09-24 (`FUNC_VAULT_LIVE=1 … test_live.py` — 1 passed in 3.05s:
+share → preview → redeem → spent-gone).
 
 ### [x] T1 (A1) port crypto core (envelope + canonical) → app/vault_remote.py
 
@@ -103,29 +106,128 @@ rg -c 'mock_origin' tests/vault_remote/conftest.py
 ```
 after: `1`
 
-### [ ] T6 (B1) app seam: share()/redeem()/import_to_vault(); extend the
-          no-value-leaves reflection test to the new report types
+### [x] T6 (B1) app seam: share()/redeem()/import_to_vault() + reflection
 
 The CLI mounts stay off `_config` — the seam module is the only place the
-store is reached, which this pre-records for B1 as its layering gate:
+store is reached:
 
 ```bash
 rg -c 'from functualize\._config|from functualize\._engine' src/functualize/_cli/vault_cmd.py
 ```
 after: `0`
 
-### [ ] T7 (B2) `func vault share` (explicit --set + local-vault items)
+The new report types joined the no-value-leaves reflection test
+(`RedeemedBundle` is deliberately absent — it is the material, not a
+report):
 
-### [ ] T8 (B3) `func vault redeem` (+ --into-vault, --dotenv 0600, export lines)
+```bash
+rg -c 'ShareReport' tests/app/test_vault_paths.py
+```
+after: `3`
 
-### [ ] T9 (B4) optional `func vault show <link>` (meta-only, never burns)
+### [x] T7 (B2) `func vault share` (explicit --set + local-vault items)
 
-### [ ] T10 (B5) top-level `func vault` alias mount; `func builtin vault` intact
+Origin chain lives in the seam — `--origin` beats the environment beats
+the public vault:
 
-### [ ] T11 (B6) spent/expired/tampered CLI failure tests; hygiene grep (A9)
+```bash
+rg -c 'FUNC_VAULT_ORIGIN' src/functualize/app/vault_remote.py
+```
+after: `2`
 
-### [ ] T12 (C1) live tier behind FUNC_VAULT_LIVE; one manual live run recorded
+### [x] T8 (B3) `func vault redeem` (+ --into-vault, --dotenv 0600, export lines)
 
-### [ ] T13 (C2) docs: vault_cmd docstrings + docs/ page stub; STATUS entry
+### [x] T9 (B4) `func vault show <link>` (meta-only, never burns)
 
-Merge blocker: T2 vectors PASS. Cross-repo witness: funccloud eval.
+### [x] T10 (B5) top-level `func vault` alias mount; `func builtin vault` intact
+
+The alias is mounted by the builtin registrar itself, so every group any
+caller builds — CLI, TUI, embedding apps — answers the same at top level,
+and `BUILTIN_NAMES` stays exactly "what sits at top level after
+registration". The alias is the same group object as the builtin mount, so
+the two spellings cannot drift:
+
+```bash
+rg -c 'add_command\(vault_app, name="vault"\)' src/functualize/_cli/builtins.py
+```
+after: `1`
+
+### [x] T11 (B6) spent/expired/tampered CLI failure tests; hygiene grep
+
+21 CLI test functions through a real click group against the mock origin —
+journeys, failures, materializations, alias, and the fragment-hygiene
+assertion over output and captured log records:
+
+```bash
+rg -c 'def test_' tests/vault_remote/test_cli.py
+```
+after: `21`
+
+```bash
+rg -c 'k1\.' tests/vault_remote/test_cli.py
+```
+after: `3`
+
+### [x] T12 (C1) live tier behind FUNC_VAULT_LIVE; one manual live run recorded
+
+```bash
+rg -c 'FUNC_VAULT_LIVE' tests/vault_remote/test_live.py
+```
+after: `3`
+
+### [x] T13 (C2) docs: vault_cmd docstrings + docs page; STATUS entry
+
+```bash
+rg -c 'vault share' docs/cli/vault-share.md
+```
+after: `3`
+
+Merge blocker: T2 vectors PASS (held — the suite runs in CI).
+Cross-repo witness: funccloud eval (chain item 3, pins this submodule).
+
+### [ ] T14 (D1) identity-bearing items: share selects entries by group/job/field/env; wire name JSON
+
+```bash
+rg -c 'resolve_vault_identity' src/functualize/app/vault_remote.py
+```
+after: `1`
+
+### [ ] T15 (D2) import plan: validate rows against the receiver project; statuses storable/exists/no_match/no_address
+
+```bash
+rg -c 'def plan_import' src/functualize/app/vault_remote.py
+```
+after: `1`
+
+### [ ] T16 (D3) key handling via KeyLookup + describe_key_failure; drop key_unavailable
+
+```bash
+rg -c 'resolve_vault_key\(_project_id' src/functualize/app/vault_remote.py
+```
+after: `0`
+
+### [ ] T17 (D4) redeem confirmation: multi-select (TTY), -y, --only, --replace, no-TTY refusal before any network call
+
+```bash
+rg -c 'no_tty_confirmation' src/functualize/_cli/vault_cmd.py
+```
+after: `1`
+
+### [ ] T18 (D5) tests (mock origin): collision unticked, no_match skipped, sender env preserved, no-TTY burns nothing; docs + spec STATUS
+
+```bash
+rg -c 'def test_' tests/vault_remote/test_import_plan.py
+```
+after: `8`
+
+## Task Dependency Graph
+
+```json
+{"waves": [
+  {"id": 0, "tasks": ["T1", "T2", "T3", "T4", "T5"]},
+  {"id": 1, "tasks": ["T6", "T7", "T8", "T9", "T10", "T11"]},
+  {"id": 2, "tasks": ["T12", "T13"]},
+  {"id": 3, "tasks": ["T14", "T15", "T16"]},
+  {"id": 4, "tasks": ["T17", "T18"]}
+]}
+```

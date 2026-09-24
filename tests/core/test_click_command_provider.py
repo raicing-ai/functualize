@@ -31,8 +31,10 @@ def _child(node: CommandNode, name: str) -> CommandNode:
 
 def _root(app: FunctualizeApp) -> CommandNode:
     nodes = ClickCommandProvider(app).nodes()
-    assert len(nodes) == 1
-    return nodes[0]
+    # Two top-level nodes since the `vault` alias joined the reserved
+    # surface (vault-remote-redemption A8); these tests drill the `builtin`
+    # subtree, so pick it by name rather than by position.
+    return next(n for n in nodes if n.name == "builtin")
 
 
 class TestProtocolConformance:

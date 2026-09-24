@@ -242,7 +242,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     ),
     BuiltinCommand(
         "vault",
-        "Store, inspect and sync this project's encrypted secrets",
+        "Store, inspect, sync — and share through the FuncCloud Vault",
         (
             ("init", "Ensure this machine has a vault key — never prints it"),
             ("put", "Store one secret at a canonical path"),
@@ -253,7 +253,10 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             ("status", "Show the key provider in use, the age, and the count"),
             ("unlock", "Unlock the OS keyring for the vault key — never prints it"),
             ("clear", "Delete this project's vault"),
-            ("keygen", "Print a fresh vault key"),
+            ("keygen", "Print a fresh key"),
+            ("share", "Seal secrets into one redeemable link"),
+            ("redeem", "Redeem a share link — consume one redemption"),
+            ("show", "Preview a share — never redeems"),
         ),
         requires_subcommand=True,
         # `put` prompts when it has a TTY and no explicit input option, but it
@@ -318,16 +321,29 @@ DIAGNOSTIC_BUILTINS: frozenset[str] = frozenset({"cache", "info", "self", "why"}
 
 
 # Derived lookups — import these instead of re-listing builtin names.
-BUILTIN_NAMES: frozenset[str] = frozenset({BUILTIN_ROOT})
+#: `vault` is the one deliberate exception to "nothing first-party at the
+#: top level" (vault-remote-redemption A8): the journey's success
+#: transcript is `func vault share` / `func vault redeem`, and those two
+#: commands are reached for from whatever directory a receiver happens to
+#: be in. It is the same group object mounted by `_mount_top_level_vault_
+#: alias` in `main.py` — this set is what makes the dispatcher route the
+#: top-level spelling rather than answer "unknown command".
+BUILTIN_NAMES: frozenset[str] = frozenset({BUILTIN_ROOT, "vault"})
 
 
 def builtin_descriptions() -> dict[str, str]:
-    """Return ``{name: description}`` for what a builtin occupies at top level.
+    """Return ``{name: description}`` for what is first-party at top level.
 
-    That is now the single ``builtin`` group. Callers use this to answer "which
-    names are first-party here?" — and the answer is deliberately one name.
+    ``builtin`` is the reserved subtree; ``vault`` is its one top-level
+    alias (A8). Callers use this to answer "which names are first-party
+    here?" — and the answer is deliberately these two.
     """
-    return {BUILTIN_ROOT: BUILTIN_ROOT_COMMAND.description}
+    from functualize._cli.vault_cmd import vault_app
+
+    return {
+        BUILTIN_ROOT: BUILTIN_ROOT_COMMAND.description,
+        "vault": vault_app.help or "vault",
+    }
 
 
 def builtin_child_descriptions() -> dict[str, str]:
@@ -405,6 +421,17 @@ def register_builtin_commands(cli_group: Any) -> None:
     register_suffix(builtin_app)
     register_info(builtin_app)
     _mount(cli_group, builtin_app, "builtin")
+
+    # `func vault …` is the one top-level alias (vault-remote-redemption
+    # A8 — see BUILTIN_NAMES for why). Mounting it here rather than in the
+    # entry point means every group a caller builds with this registrar —
+    # CLI, TUI, embedding apps — answers the same at top level, and
+    # `BUILTIN_NAMES` stays exactly "what sits at top level after
+    # registration". Same group object as the `builtin` mount, so the two
+    # spellings cannot drift.
+    from functualize._cli.vault_cmd import vault_app
+
+    cli_group.add_command(vault_app, name="vault")
 
 
 __all__ = [

@@ -37,7 +37,7 @@ _identifier_rest_chars = st.sampled_from("abcdefghijklmnopqrstuvwxyz0123456789_"
 
 # Builtins to avoid (would route to BUILTIN, not JOB)
 _BUILTIN_NAMES = frozenset(
-    {"cache", "config", "domains", "scaffold", "version", "show-info", "tui"}
+    {"cache", "config", "domains", "scaffold", "version", "show-info", "tui", "vault"}
 )
 
 # Valid log levels that won't cause SystemExit

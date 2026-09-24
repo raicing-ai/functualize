@@ -306,11 +306,12 @@ class TestTheFamilyIsRegistered:
         assert declared.terminal_subcommands == ()
 
     def test_the_documented_names(self) -> None:
-        """Ten, and the five that were here before are all still among them.
+        """Thirteen, and the five that were here before are all still among them.
 
         Written as two assertions rather than one set so the compatibility
         claim is legible: this feature is additive, and no existing subcommand
-        was renamed or dropped (spec §14.5).
+        was renamed or dropped (spec §14.5). The three `vault-remote-
+        redemption` verbs (share/redeem/show) extend the same group.
         """
         declared = next(c for c in BUILTIN_COMMANDS if c.name == "vault")
         names = set(declared.subcommand_map)
@@ -327,6 +328,9 @@ class TestTheFamilyIsRegistered:
             "clear",
             "keygen",
             "unlock",
+            "share",
+            "redeem",
+            "show",
         }
 
 
@@ -1841,6 +1845,14 @@ class TestTheDeclaredReasonCodesAreReachable:
             "confirmation_required",
             "key_mismatch",
             "vault_format_unsupported",
+            # The three literal `_fail` codes the remote-sharing verbs add
+            # (vault-remote-redemption). The remote layer's own reason codes
+            # (`gone`, `not_found`, `open_failed`, …) arrive through
+            # `_remote_fail`'s dynamic reason and belong to the frozen
+            # funccloud contracts, not this table.
+            "bad_item",
+            "conflicting_output",
+            "dotenv_unwritable",
         }
 
         assert emitted <= declared, f"emitted but undeclared: {emitted - declared}"

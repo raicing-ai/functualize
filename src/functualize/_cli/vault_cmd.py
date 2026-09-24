@@ -34,7 +34,7 @@ __all__ = ["vault_app"]
 # ask "what is in my vault?" is when the app will not boot.
 vault_app = click.Group(
     name="vault",
-    help="Sync and inspect this project's encrypted secrets vault.",
+    help="Sync and inspect this project's vault; share and redeem through the FuncCloud Vault.",
 )
 
 
@@ -1069,3 +1069,363 @@ def vault_remove_command(
     click.echo(f"Removed {_describe(report.identity)} ({report.origin}).")
     if report.warning:
         click.echo(f"Warning: {report.warning}", err=True)
+
+
+# --- Remote sharing: `func vault share` / `redeem` / `show` ---------------
+#
+# These reach `functualize.app.vault_remote`, never `_config` and never a
+# crypto opinion of their own. They need no app object: the moment you most
+# want to redeem an environment is not a moment you should first have to
+# boot this project.
+#
+# Values appear on the receiver's own terminal in `redeem`'s export lines —
+# that is the point of the command — and nowhere else: not in `--json`, not
+# in `share`'s output, not in any error message.
+
+
+def _remote_fail(
+    exc: Exception, json_out: bool, *, usage: bool = False
+) -> None:
+    """One failure shape for every remote-vault refusal.
+
+    Reuses the local vault's `_fail` envelope, so `--json` callers see the
+    same {ok, reason, message} contract on both halves of the group.
+    """
+    reason = getattr(exc, "reason", "vault_error")
+    _fail(
+        reason,
+        str(exc),
+        json_out=json_out,
+        code=ExitCode.USAGE if usage else ExitCode.REFUSED,
+    )
+
+
+def _maybe_warn_origin(origin: str) -> None:
+    """Threat T5.1: a link to a different origin than the configured one.
+
+    Warns, never blocks — the fragment is what protects the values, and the
+    receiver may be intentionally redeeming from a self-hosted vault. The
+    share id does travel to the link's origin either way; the warning says
+    so.
+    """
+    from functualize.app.vault_remote import resolve_origin
+
+    configured = resolve_origin()
+    if origin != configured:
+        click.echo(
+            f"Note: this link points at {origin}, not the configured "
+            f"{configured}. Only the share id is sent there; the values "
+            f"decrypt locally.",
+            err=True,
+        )
+
+
+@vault_app.command("share")
+@click.option(
+    "--set",
+    "set_pairs",
+    multiple=True,
+    metavar="NAME=VALUE",
+    help="An explicit item to share. Repeatable.",
+)
+@click.option(
+    "--from-vault",
+    "vault_keys",
+    multiple=True,
+    metavar="KEY",
+    help="A local vault key to include (decrypted at seal time). Repeatable.",
+)
+@click.option("--labels", default=None, help="Comma-separated labels, ≤8 × 64 chars.")
+@click.option(
+    "--expires",
+    default="24h",
+    help="Validity window, e.g. '1h', '90m', '2d' (1..168 whole hours).",
+)
+@click.option(
+    "--redemptions",
+    type=int,
+    default=1,
+    help="How many times the link may be redeemed (1..10).",
+)
+@click.option("--origin", default=None, help="Vault origin; default $FUNC_VAULT_ORIGIN.")
+@click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
+def vault_share_command(
+    set_pairs: tuple[str, ...],
+    vault_keys: tuple[str, ...],
+    labels: str | None,
+    expires: str,
+    redemptions: int,
+    origin: str | None,
+    json_out: bool,
+) -> None:
+    """Seal secrets into one redeemable link (no account needed to redeem).
+
+    Values are encrypted locally under a fresh key; only the sealed
+    envelope is uploaded. The printed link carries the key in its fragment
+    — anyone holding the complete link can redeem.
+    """
+    from functualize.app.vault_remote import (
+        VaultRedeemError,
+        load_vault_items,
+        parse_expiry,
+        share,
+    )
+
+    items: list[dict[str, str]] = []
+    for pair in set_pairs:
+        name, sep, value = pair.partition("=")
+        if not sep or not name or not value:
+            _fail(
+                "bad_item",
+                f"--set expects NAME=VALUE; {pair!r} is not one.",
+                json_out=json_out,
+                code=ExitCode.USAGE,
+            )
+            return
+        items.append({"name": name, "kind": "secret", "value": value})
+
+    label_list = [x.strip() for x in (labels or "").split(",") if x.strip()]
+
+    try:
+        items += load_vault_items(list(vault_keys))
+        hours = parse_expiry(expires)
+        report = share(
+            items,
+            labels=label_list,
+            redemptions=redemptions,
+            expires_in_hours=hours,
+            origin=origin,
+        )
+    except VaultRedeemError as exc:
+        _remote_fail(exc, json_out)
+        return
+
+    if json_out:
+        _vault_json(
+            {
+                "ok": True,
+                "link": report.link,
+                "share_id": report.share_id,
+                "origin": report.origin,
+                "labels": report.labels,
+                "redemptions_allowed": report.redemptions_allowed,
+                "expires_at": report.expires_at,
+            }
+        )
+        return
+
+    click.echo(report.link)
+    click.echo(
+        f"Labels: {', '.join(report.labels) or '(none)'} · "
+        f"redemptions: {report.redemptions_allowed} · "
+        f"expires: {report.expires_at}",
+        err=True,
+    )
+    click.echo(
+        "Anyone with this complete link can redeem it. Send it over a "
+        "channel you trust as much as the values inside.",
+        err=True,
+    )
+
+
+@vault_app.command("redeem")
+@click.argument("link")
+@click.option(
+    "--export-lines",
+    is_flag=True,
+    default=False,
+    help="Print `export NAME=VALUE` lines (this is also the default).",
+)
+@click.option(
+    "--into-vault",
+    "into_vault",
+    is_flag=True,
+    default=False,
+    help="Store the bundle in the local vault instead of printing values.",
+)
+@click.option(
+    "--scope",
+    "scope",
+    default=None,
+    metavar="SCOPE",
+    help="Namespace for --into-vault (names land as SCOPE.NAME).",
+)
+@click.option(
+    "--dotenv",
+    "dotenv_path",
+    default=None,
+    metavar="PATH",
+    help="Write a 0600 env file instead of printing values.",
+)
+@click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
+def vault_redeem_command(
+    link: str,
+    export_lines: bool,
+    into_vault: bool,
+    scope: str | None,
+    dotenv_path: str | None,
+    json_out: bool,
+) -> None:
+    """Redeem a share link: consume one redemption, decrypt locally.
+
+    The default materialization is export lines on this terminal — nothing
+    is persisted anywhere unless an option says so.
+    """
+    import os
+
+    from functualize.app.vault_remote import (
+        VaultRedeemError,
+        fetch_share_meta,
+        import_to_vault,
+        parse_link,
+        redeem_link,
+    )
+
+    if (into_vault and dotenv_path) or (
+        export_lines and (into_vault or dotenv_path)
+    ):
+        _fail(
+            "conflicting_output",
+            "--export-lines, --into-vault and --dotenv are mutually "
+            "exclusive materializations.",
+            json_out=json_out,
+            code=ExitCode.USAGE,
+        )
+        return
+
+    try:
+        origin, share_id, _ = parse_link(link)
+        # The origin note is prose for a human terminal; in --json the
+        # origin travels as a field instead, so stdout stays parsable.
+        if not json_out:
+            _maybe_warn_origin(origin)
+        # Meta first: the preview that never burns is what makes the
+        # summary below truthful, including redemptions left after this one.
+        meta = fetch_share_meta(origin, share_id)
+        bundle = redeem_link(link)
+    except VaultRedeemError as exc:
+        _remote_fail(exc, json_out)
+        return
+
+    names = [item["name"] for item in bundle.items]
+    materialized = "export-lines"
+    import_report = None
+
+    if into_vault:
+        materialized = "vault"
+        try:
+            import_report = import_to_vault(bundle, scope=scope)
+        except VaultRedeemError as exc:
+            _remote_fail(exc, json_out)
+            return
+    elif dotenv_path:
+        materialized = "dotenv"
+        lines = "\n".join(
+            f"{item['name']}={item['value']}" for item in bundle.items
+        )
+        try:
+            fd = os.open(dotenv_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(lines + "\n")
+            os.chmod(dotenv_path, 0o600)
+        except OSError as exc:
+            _fail(
+                "dotenv_unwritable",
+                f"Could not write {dotenv_path}: {exc.strerror}.",
+                json_out=json_out,
+                code=ExitCode.REFUSED,
+            )
+            return
+
+    if json_out:
+        payload: dict[str, Any] = {
+            "ok": True,
+            "share_id": bundle.share_id,
+            "origin": origin,
+            "labels": bundle.labels,
+            "expires_at": bundle.expires_at,
+            "redemptions_left_after": meta.redemptions_left - 1,
+            "names": names,
+            "materialized": materialized,
+        }
+        if import_report is not None:
+            payload["imported"] = import_report.imported
+            payload["scope"] = import_report.scope
+        if dotenv_path:
+            payload["dotenv"] = dotenv_path
+        _vault_json(payload)
+        return
+
+    used = meta.redemptions_total - meta.redemptions_left + 1
+    click.echo(
+        f"Redeemed {len(names)} item(s)"
+        f" ({', '.join(bundle.labels) or 'no labels'}) · "
+        f"redemption {used} of {meta.redemptions_total} · "
+        f"expires {bundle.expires_at}",
+        err=True,
+    )
+    if import_report is not None:
+        for key in import_report.imported:
+            click.echo(f"  stored   {key}")
+        click.echo(f"→ {import_report.path}", err=True)
+    elif dotenv_path:
+        click.echo(f"Wrote {dotenv_path} (0600).", err=True)
+    else:
+        for item in bundle.items:
+            click.echo(f"export {item['name']}={item['value']}")
+
+
+@vault_app.command("show")
+@click.argument("link")
+@click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
+def vault_show_command(link: str, json_out: bool) -> None:
+    """Preview a share — labels, redemptions, expiry. Never redeems.
+
+    Reads the meta endpoint only: the same thing a link-unfurler would
+    hit, and guaranteed by the contract to spend nothing.
+    """
+    from functualize.app.vault_remote import (
+        VaultRedeemError,
+        fetch_share_meta,
+        parse_link,
+    )
+
+    try:
+        origin, share_id, _ = parse_link(link)
+        if not json_out:
+            _maybe_warn_origin(origin)
+        meta = fetch_share_meta(origin, share_id)
+    except VaultRedeemError as exc:
+        _remote_fail(exc, json_out)
+        return
+
+    if json_out:
+        _vault_json(
+            {
+                "ok": True,
+                "labels": meta.labels,
+                "redemptions_left": meta.redemptions_left,
+                "redemptions_total": meta.redemptions_total,
+                "expires_at": meta.expires_at,
+                "created_at": meta.created_at,
+            }
+        )
+        return
+
+    def _when(raw: str) -> str:
+        # The wire's meta timestamps are epoch seconds; a human reading
+        # "Expires" should not have to do that arithmetic.
+        from datetime import UTC, datetime
+
+        try:
+            return (
+                datetime.fromtimestamp(int(raw), tz=UTC)
+                .strftime("%Y-%m-%d %H:%M UTC")
+            )
+        except ValueError:
+            return raw
+
+    click.echo(f"Labels:      {', '.join(meta.labels) or '(none)'}")
+    click.echo(f"Redemptions: {meta.redemptions_left} of {meta.redemptions_total} left")
+    click.echo(f"Expires:     {_when(meta.expires_at)}")
+    click.echo(f"Created:     {_when(meta.created_at)}")

@@ -41,18 +41,23 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 __all__ = [
     "AuthenticationFailed",
     "DEFAULT_ORIGIN",
+    "ImportReport",
     "RedeemedBundle",
     "ShareMeta",
+    "ShareReport",
     "VaultRedeemError",
     "canonical",
     "create_share",
@@ -63,11 +68,16 @@ __all__ = [
     "encode_fragment_key",
     "encode_master_key",
     "fetch_share_meta",
+    "import_to_vault",
+    "load_vault_items",
     "new_key",
     "open_envelope",
+    "parse_expiry",
     "parse_link",
     "redeem_link",
+    "resolve_origin",
     "seal_envelope",
+    "share",
     "unwrap_cek",
     "wrap_cek_for",
 ]
@@ -614,4 +624,204 @@ def redeem_link(link: str, *, timeout: float = 30.0) -> RedeemedBundle:
         labels=list(metadata.get("labels", [])),
         expires_at=str(metadata.get("expires_at", "")),
         share_id=share_id,
+    )
+
+
+# ── the verb seam: share / redeem / import_to_vault ───────────────────────
+#
+# Everything above is the wire client; everything below is the surface
+# `func vault share|redeem|show` and any embedding application call. The
+# difference is origin resolution, reports that carry metadata only (the
+# reflection test in tests/app extends to them), and the local-store bridge
+# — the only place this module touches ``_config``, reached lazily exactly
+# the way ``app/vault.py`` reaches it.
+
+
+def resolve_origin(explicit: str | None = None) -> str:
+    """``--origin`` > ``$FUNC_VAULT_ORIGIN`` > the public FuncCloud vault.
+
+    A config-file link (``vault.remote_origin``) belongs in this chain once
+    the config surface grows a non-job section to put it in; inventing a
+    key nothing reads would be structure, not configuration.
+    """
+    if explicit:
+        return _validate_origin(explicit)
+    from_env = os.environ.get("FUNC_VAULT_ORIGIN")
+    if from_env:
+        return _validate_origin(from_env)
+    return DEFAULT_ORIGIN
+
+
+_EXPIRY_RE = re.compile(r"^\s*(\d+)\s*([smhd]?)\s*$", re.IGNORECASE)
+_UNIT_SECONDS = {"": 3600, "h": 3600, "m": 60, "s": 1, "d": 86400}
+
+
+def parse_expiry(text: str) -> int:
+    """``1h`` / ``90m`` / ``2d`` → whole hours within the frozen 1..168 cap.
+
+    Sub-hour windows round *down* to zero and are refused — a share that
+    expires before its link can be delivered is a footgun, not a feature.
+    """
+    match = _EXPIRY_RE.match(text)
+    if not match:
+        raise VaultRedeemError(
+            "bad_expiry",
+            f"{text!r} is not an expiry. Expected e.g. '1h', '90m', '2d'.",
+        )
+    amount, unit = match.groups()
+    hours = int(amount) * _UNIT_SECONDS[unit.lower()] // 3600
+    if not 1 <= hours <= _MAX_EXPIRY_HOURS:
+        raise VaultRedeemError(
+            "bad_expiry",
+            f"{text!r} is outside the 1..{_MAX_EXPIRY_HOURS} hour window.",
+        )
+    return hours
+
+
+@dataclass(frozen=True)
+class ShareReport:
+    """What ``share`` produced. Metadata only — the link is the deliverable,
+    and it is the *only* place the fragment ever exists outside memory."""
+
+    link: str
+    share_id: str
+    origin: str
+    labels: list[str]
+    redemptions_allowed: int
+    expires_at: str
+
+
+def share(
+    items: list[dict[str, str]],
+    *,
+    labels: list[str] | None = None,
+    redemptions: int = 1,
+    expires_in_hours: int = 24,
+    origin: str | None = None,
+    timeout: float = 30.0,
+) -> ShareReport:
+    """Seal, upload, and report — the sender's whole half of the journey."""
+    resolved = resolve_origin(origin)
+    link = create_share(
+        resolved,
+        items,
+        labels=labels,
+        redemptions_allowed=redemptions,
+        expires_in_hours=expires_in_hours,
+        timeout=timeout,
+    )
+    _, share_id, _ = parse_link(link)
+    return ShareReport(
+        link=link,
+        share_id=share_id,
+        origin=resolved,
+        labels=list(labels or []),
+        redemptions_allowed=redemptions,
+        expires_at=_iso_now(expires_in_hours),
+    )
+
+
+def load_vault_items(
+    keys: list[str], *, cwd: str | Path | None = None
+) -> list[dict[str, str]]:
+    """Read selected local-vault entries out as share items.
+
+    The decrypt happens here so the value crosses no other boundary: it
+    goes from the store straight into the envelope seal. A key that is not
+    stored is refused by name — silently skipping it would share a bundle
+    that quietly lacks a secret someone will then trust.
+    """
+    from functualize._config.vault import SecretsVault
+    from functualize._config.vault_keys import resolve_vault_key
+    from functualize._config.vault_paths import vault_path_for_project
+    from functualize.app.vault import _project_id
+
+    if not keys:
+        # No keys, no store access: a pure `--set` share must work on a
+        # machine with no vault key at all — the sender's machine is not
+        # required to be the receiver's.
+        return []
+    resolution = resolve_vault_key(_project_id(cwd))
+    if resolution is None:
+        raise VaultRedeemError(
+            "key_unavailable",
+            "No vault key is available, so local entries cannot be read "
+            "for sharing. `func builtin vault init` names the routes.",
+        )
+    store = SecretsVault(vault_path_for_project(cwd))
+    items = []
+    for key in keys:
+        value = store.get(key, encryption_key=resolution.key)
+        if value is None:
+            raise VaultRedeemError(
+                "not_stored",
+                f"{key!r} is not in this project's vault, so it cannot be "
+                f"shared. `func builtin vault list` shows what is.",
+            )
+        items.append({"name": key, "kind": "secret", "value": value})
+    return items
+
+
+@dataclass(frozen=True)
+class ImportReport:
+    """What ``import_to_vault`` stored. Names only — never values."""
+
+    scope: str | None
+    imported: list[str]
+    path: str
+
+
+def import_to_vault(
+    bundle: RedeemedBundle,
+    *,
+    scope: str | None = None,
+    replace: bool = False,
+    cwd: str | Path | None = None,
+) -> ImportReport:
+    """Write a redeemed bundle into the local secrets vault.
+
+    Names are the sender's; ``scope`` namespaces them (``demo`` +
+    ``deploy.api_token`` → ``demo.deploy.api_token``) so a foreign bundle
+    can never shadow a local entry by accident. Writing goes through the
+    store directly with ``DIRECT`` origin, like ``vault put`` — schema
+    eligibility is a *local* ``job.field`` concept, and redeemed names are
+    chosen by whoever shared the environment.
+
+    Refusals surface as :class:`VaultRedeemError` like every other failure
+    on this seam, with the store's own reason codes (``key_unavailable``,
+    ``entry_exists``) so one ``except`` at the surface is enough.
+    """
+    from functualize._config.vault import (
+        SecretsVault,
+        VaultEntryExistsError,
+        VaultOrigin,
+    )
+    from functualize._config.vault_keys import resolve_vault_key
+    from functualize._config.vault_paths import vault_path_for_project
+    from functualize.app.vault import _project_id
+
+    resolution = resolve_vault_key(_project_id(cwd))
+    if resolution is None:
+        raise VaultRedeemError(
+            "key_unavailable",
+            "No vault key is available to store the bundle under. "
+            "`func builtin vault init` names the routes.",
+        )
+    store = SecretsVault(vault_path_for_project(cwd))
+    imported = []
+    try:
+        for item in bundle.items:
+            key = f"{scope}.{item['name']}" if scope else item["name"]
+            store.put(
+                key,
+                item["value"],
+                encryption_key=resolution.key,
+                origin=VaultOrigin.DIRECT,
+                replace=replace,
+            )
+            imported.append(key)
+    except VaultEntryExistsError as exc:
+        raise VaultRedeemError("entry_exists", str(exc)) from exc
+    return ImportReport(
+        scope=scope, imported=imported, path=str(vault_path_for_project(cwd))
     )
