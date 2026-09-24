@@ -61,6 +61,7 @@ if TYPE_CHECKING:
         JobDescriptor,
         RegisteredJob,
     )
+    from functualize._types.host import SubstrateOffer
     from functualize._types.protocols import StoreSubstrate
     from functualize.job._workflow_scope import WorkflowScope
 
@@ -196,6 +197,9 @@ class FunctualizeApp:
         #: Installed by a plugin at boot; None means the filesystem
         #: default. See the :attr:`substrate` property.
         self._substrate: StoreSubstrate | None = None
+        #: Every storage claim registration made — installs and offers alike —
+        #: for boot step 6.5 to settle. More than one is a refusal.
+        self._substrate_claims: list[tuple[str, SubstrateOffer | None]] = []
         #: Set by boot_standard once `general.max_invoke_depth` resolves.
         self._resolved_max_invoke_depth: int | None = None
 
@@ -366,6 +370,19 @@ class FunctualizeApp:
         from functualize._app.impl import install_substrate
 
         install_substrate(self, substrate)
+
+    def offer_substrate(self, offer: SubstrateOffer) -> None:
+        """Offer a backend boot asks for at step 6.5, once config has resolved.
+
+        The door for a storage plugin whose choice reads its own configuration
+        (FUN-17/T12): registration on the standard path runs before config
+        resolves, so :meth:`install_substrate` there reads nothing. Recorded
+        here, invoked by ``_app/boot._select_runtime_store``, refused once that
+        step has run — the same window and the same guard as an install.
+        """
+        from functualize._app.impl import offer_substrate
+
+        offer_substrate(self, offer)
 
     @property
     def fresh_root(self) -> Path:

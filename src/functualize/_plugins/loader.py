@@ -26,6 +26,7 @@ from functualize._plugins.metadata import (
 )
 from functualize._primitives.entry_point_groups import PLUGINS
 from functualize._primitives.entry_points import entry_points
+from functualize._types.errors import SubstrateInstallError
 
 if TYPE_CHECKING:
     from functualize._events import EventBus
@@ -502,9 +503,15 @@ class PluginLoader:
                 perf_timeline.mark(f"boot.plugins.register.{plugin_name}.start")
             registration_start = time.perf_counter()
 
-            # Invoke the registration callable
+            # Invoke the registration callable. Named while it registers, so
+            # a storage claim it makes is refused under the plugin's name.
+            app._registering_plugin = plugin_name
             try:
                 plugin(app)
+            except SubstrateInstallError:
+                # Storage has no safe default: a claim that fails here must
+                # abort boot, not leave it running on the filesystem.
+                raise
             except Exception as e:
                 registration_duration_ms = (
                     time.perf_counter() - registration_start
@@ -524,6 +531,8 @@ class PluginLoader:
                     f"raised an error during registration: {e}"
                 )
                 continue
+            finally:
+                app._registering_plugin = None
 
             registration_duration_ms = (time.perf_counter() - registration_start) * 1000
             if perf_timeline:

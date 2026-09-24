@@ -31,15 +31,12 @@ Two changes remove it, and this file asserts both:
 2. The sqlite plugin no longer swallows a failed install, so if a future caller
    reintroduces an early read the result is an error rather than silence.
 
-FUN-17/T12 moved the window, and the shipped plugin installs on the wrong side
-of it: `SQLiteSubstratePlugin` still calls `install_substrate` from its
-`APP_READY` hook, so its install is refused and the project keeps the store boot
-selected. That is a plugin-contract question — where a config-driven substrate
-plugin installs, and whether a registration-time failure stays loud — reported
-to the plugin's owner rather than re-pointed away here. What this file asserts is
-about **order**, so the deciding plugin is put in the honoured window by
-`_InstallsAtRegistration` below, and the shipped behaviour is pinned as it is by
-`test_the_shipped_plugins_own_hook_is_too_late_to_be_honoured`.
+FUN-17/T12 moved the window, and the shipped plugin moved with it: it *offers*
+its substrate from `__call__` (`app.offer_substrate`) and boot asks for it inside
+step 6.5, after configuration and before selection. So the shipped plugin stands
+for itself here; the stand-in that used to install on its behalf one window
+earlier is gone. `test_the_shipped_plugin_is_honoured_in_its_own_window` pins
+the window from the plugin's side.
 
 These use ``explicit_plugins`` rather than entry-point discovery: the subject is
 the *order* the loader puts hooks in, and handing the plugins over directly is
@@ -55,11 +52,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 from functualize.app import FunctualizeApp, JobSources, PluginSources
+from functualize.plugin import SubstrateInstallError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from functualize.plugin import PluginHost
 
 sqlite_module = pytest.importorskip(
     "functualize_substrate_sqlite",
@@ -91,32 +88,6 @@ def _boot(*plugins: object) -> FunctualizeApp:
     )
 
 
-class _InstallsAtRegistration:
-    """The shipped plugin's install, moved into the window boot honours.
-
-    `SQLiteSubstratePlugin` installs from its `APP_READY` hook, which step 6.5
-    now precedes, so the install is refused there and the plugin's own
-    `substrate` stays `None`. Until the plugin's owner moves that install, this
-    stands in for it: a plugin registered under its name that installs the same
-    substrate, from the plugin's `_db_path` decision, one window earlier.
-
-    Deliberately not a re-point to the fallback. The subject here is *order*, and
-    storage decided by the window is a different claim from storage decided by a
-    hook's position in a topological sort — which is what these tests exist to
-    forbid.
-    """
-
-    name: str = "substrate-sqlite"
-    version: str = "0.2.0"
-    description: str = "Keeps this project's documents in SQLite"
-
-    def __init__(self) -> None:
-        self._plugin = SQLiteSubstratePlugin()
-
-    def __call__(self, app: PluginHost) -> None:
-        app.install_substrate(SQLiteSubstrate(self._plugin._db_path(app)))  # noqa: SLF001
-
-
 @pytest.mark.parametrize(
     "tasks_plugin_name",
     ["tasks-local", "a-tasks-local"],
@@ -133,7 +104,7 @@ def test_the_substrate_wins_whichever_hook_runs_first(
     tasks = LocalTasksPlugin()
     tasks.name = tasks_plugin_name
 
-    app = _boot(_InstallsAtRegistration(), tasks)
+    app = _boot(SQLiteSubstratePlugin(), tasks)
 
     assert isinstance(app.substrate, SQLiteSubstrate), (
         f"with the tasks plugin named {tasks_plugin_name!r} the project fell "
@@ -147,7 +118,7 @@ def test_the_order_the_plugins_are_handed_over_does_not_matter_either(
     """Belt and braces: the loader re-sorts, so the constructor's order is not
     the same lever as the name — and neither should matter."""
     tasks = LocalTasksPlugin()
-    app = _boot(tasks, _InstallsAtRegistration())
+    app = _boot(tasks, SQLiteSubstratePlugin())
 
     assert isinstance(app.substrate, SQLiteSubstrate)
 
@@ -162,32 +133,30 @@ def test_nothing_resolved_the_substrate_during_boot(project: Path) -> None:
     slot being *present and still honoured* is what says the decision moved and
     the read did not.
     """
-    app = _boot(_InstallsAtRegistration(), LocalTasksPlugin())
+    app = _boot(SQLiteSubstratePlugin(), LocalTasksPlugin())
 
     assert app.substrate_override is not None
     assert app.substrate is app.substrate_override
 
 
-def test_the_shipped_plugins_own_hook_is_too_late_to_be_honoured(
+def test_the_shipped_plugin_is_honoured_in_its_own_window(
     project: Path,
 ) -> None:
-    """The window from the other side, on the plugin exactly as it ships.
+    """The window from the plugin's side, on the plugin exactly as it ships.
 
-    `SQLiteSubstratePlugin` registers `_on_app_ready`, and `APP_READY` is after
-    step 6.5 — so the install is refused and the project keeps the store boot
-    selected. Refused, not swallowed: the refusal is what
-    `test_a_late_install_is_refused_loudly_rather_than_swallowed` below covers,
-    and it is why the lost plugin is visible instead of silent.
-
-    Red the day the plugin moves its install into `__call__`. Update it then —
-    to the honoured-window assertion — and do not delete it: without this, a
-    plugin quietly installing after the decision is how the AC-3 fallback comes
+    `SQLiteSubstratePlugin` offers from `__call__` and boot asks for the offer
+    inside step 6.5, so the substrate the plugin built is the one the engine
+    holds. This used to pin the opposite — the plugin installed from its
+    `APP_READY` hook, after step 6.5, and was refused — and its docstring said
+    to update it, not delete it, the day the plugin moved: without it, a plugin
+    quietly claiming storage after the decision is how the AC-3 fallback comes
     back.
     """
-    app = _boot(SQLiteSubstratePlugin())
+    plugin = SQLiteSubstratePlugin()
+    app = _boot(plugin)
 
-    assert app.substrate_override is None
-    assert not isinstance(app.substrate, SQLiteSubstrate)
+    assert isinstance(app.substrate_override, SQLiteSubstrate)
+    assert app.substrate is plugin.substrate
 
 
 def test_a_late_install_is_refused_loudly_rather_than_swallowed(
@@ -202,5 +171,5 @@ def test_a_late_install_is_refused_loudly_rather_than_swallowed(
     app = _boot()
     _ = app.substrate  # resolve it, the way a run would
 
-    with pytest.raises(RuntimeError, match="already in use"):
+    with pytest.raises(SubstrateInstallError, match="already in use"):
         app.install_substrate(SQLiteSubstrate(project / "late.db"))

@@ -1,6 +1,6 @@
 """The engine receives its storage; it never goes looking for one (FUN-17 · T12).
 
-Three claims, each with the edit that would falsify it:
+Four claims, each with the edit that would falsify it:
 
 - **Construction without storage is impossible** (spec AC-4). `runtime_store`
   and `substrate` are required keyword-only arguments, so the failure is a
@@ -12,6 +12,9 @@ Three claims, each with the edit that would falsify it:
   the substrate the engine was handed were built over the same decision, on
   both boot paths, and a plugin that installs before step 6.5 reaches the
   engine through that one decision.
+- **An install at `APP_READY` is after the engine, and aborts boot.** The
+  behaviour change `contracts.md` §5 names. The edit that falsifies it is the
+  refusal going back to a bare `RuntimeError`, which the hook loop swallows.
 - **The module has no discovery left.** An AST scan of `_engine/executor.py`
   for the call and the attribute that used to resolve storage lazily, rather
   than a grep for the names — four docstrings in this repository discuss these
@@ -34,6 +37,7 @@ from functualize import FunctualizeApp
 from functualize._config.chain import ResolutionChain
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app.config import ConfigSources, JobSources, PluginSources
+from functualize.plugin import SubstrateInstallError
 
 if TYPE_CHECKING:
     from functualize._types.protocols import StoreSubstrate
@@ -216,6 +220,49 @@ class TestBootHandsOverItsOneSelection:
         assert app.substrate_override is installed, "the install was dropped"
         assert app.execution_engine.substrate is installed
         assert app.substrate is installed
+
+
+class _InstallsAtAppReady:
+    """A plugin that installs from ``APP_READY`` — after the engine is wired."""
+
+    name = "probe-installs-at-app-ready"
+    version = "0.0.0"
+    description = "installs one window too late"
+
+    def __init__(self, substrate: StoreSubstrate) -> None:
+        self._substrate = substrate
+
+    def __call__(self, app: Any) -> None:
+        app.hooks.on_ready(self._on_ready)
+
+    def _on_ready(self, app: Any) -> None:
+        app.install_substrate(self._substrate)
+
+
+class TestAnInstallAtAppReadyIsAfterTheEngine:
+    """`contracts.md` §5's behaviour change, pinned on both boot paths.
+
+    ``APP_READY`` fires after step 6.5 has built the engine with its storage, so
+    an install from there is refused. Refused *loudly*: the refusal is a
+    ``SubstrateInstallError``, which both ``APP_READY`` loops re-raise by name.
+    It used to be a bare ``RuntimeError`` the hook loop caught and logged — boot
+    carried on over the filesystem with one warning line, the silent fallback
+    AC-3 exists to catch.
+    """
+
+    @pytest.mark.parametrize("path", ["static", "standard"])
+    def test_boot_refuses_rather_than_logging(self, tmp_path: Path, path: str) -> None:
+        late = _InstallsAtAppReady(JsonFileSubstrate(tmp_path / "late"))
+
+        with pytest.raises(SubstrateInstallError, match="already in use"):
+            if path == "static":
+                _static_app(late)
+            else:
+                FunctualizeApp(
+                    "receives-late",
+                    job_sources=JobSources(directories=[]),
+                    plugin_sources=PluginSources(explicit_plugins=[late]),
+                )
 
 
 class TestNoDiscoveryIsLeftInTheEngine:

@@ -237,7 +237,10 @@ def _select_runtime_store(app: Any) -> tuple[RuntimeStore, StoreSubstrate]:
     receives what this returns and has no resolution of its own, so a plugin
     that installs a substrate after this point is refused rather than half
     applied (``_app/impl.install_substrate``), and one that installs before it
-    — at plugin registration — is honoured on both paths.
+    — at plugin registration — is honoured on both paths. A plugin whose
+    choice reads its own config *offers* instead, and is asked here, first
+    thing (:func:`_resolve_substrate_claim`): configuration has resolved by
+    now on both paths, and the store has not been chosen.
 
     The substrate is selected in the same step and returned beside the
     store: the engine's freshness ledger and scope records still speak
@@ -249,8 +252,47 @@ def _select_runtime_store(app: Any) -> tuple[RuntimeStore, StoreSubstrate]:
     from functualize._primitives.document_store import DocumentRuntimeStore
     from functualize._primitives.substrate import substrate_for_project
 
+    _resolve_substrate_claim(app)
     substrate = app.substrate_override or substrate_for_project(app.fresh_root)
     return DocumentRuntimeStore(substrate), substrate
+
+
+def _resolve_substrate_claim(app: Any) -> None:
+    """Settle who supplies this app's storage: one claimant, or none.
+
+    FUN-17/T12, decided in TD-1. Every install and every offer made during
+    plugin registration is a claim (``_app/impl.py``); this is the one site
+    that sees all of them, so it is where "two claimants" is caught — an eager
+    install plus an offer by the same rule as two offers.
+
+    **Two claims refuse; neither wins.** "First wins" would be plugin load
+    order deciding storage under another name, which is the accident
+    ``tests/plugins/test_substrate_choice_is_not_hook_order.py`` exists to
+    forbid. The refusal names every claimant so the operator knows what to
+    disable.
+
+    One offer is invoked here and its answer becomes the override that
+    :func:`_select_runtime_store` reads on the next line. **Uncaught**, like
+    the selection it belongs to: an offer that cannot build its substrate
+    aborts boot rather than degrading to the filesystem. That is why the call
+    lives here and not behind a config event — ``invoke_config_event`` logs a
+    failing hook and carries on, which is right for every config hook and
+    wrong for storage.
+    """
+    claims = getattr(app, "_substrate_claims", ())
+    if not claims:
+        return
+    if len(claims) > 1:
+        names = ", ".join(sorted(name for name, _ in claims))
+        raise SubstrateInstallError(
+            f"{len(claims)} plugins claim this project's storage ({names}). "
+            f"A project has one backend, and choosing between them here would "
+            f"make storage depend on plugin load order. Disable all but one "
+            f"(plugins.disabled in config, or uninstall the others)."
+        )
+    _name, offer = claims[0]
+    if offer is not None:
+        app._substrate = offer(app)
 
 
 def build_engine(
@@ -482,14 +524,23 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
         plugin_name = getattr(plugin, "name", None)
         if plugin_name and plugin_name in disabled:
             continue
+        # Named while it registers, so a storage claim it makes is refused
+        # under the plugin's name rather than its callable's qualname.
+        app._registering_plugin = plugin_name or repr(plugin)
         try:
             plugin(app)
+        except SubstrateInstallError:
+            # A storage claim that fails has no safe default: logging and
+            # continuing would boot on the filesystem in silence.
+            raise
         except Exception as exc:
             plugin_name = plugin_name or repr(plugin)
             logger.warning(
                 f"Explicit plugin '{plugin_name}' raised during registration: {exc}"
             )
             continue
+        finally:
+            app._registering_plugin = None
         if plugin_name:
             app._plugin_name_index[plugin_name] = plugin
             app.plugin_loader._loaded_instances.append(plugin)

@@ -46,6 +46,37 @@ was measured on 2026-09-23 rather than borrowed from S3**: eight writers raced
 one absent key and exactly one won, the other seven refused. R2 has no emulator,
 which is why S3's answer was never accepted for it.
 
+### Changed — a storage plugin offers its backend, and boot asks for it
+
+The engine is now built **with** its storage, at one point in boot, after
+configuration has resolved (FUN-17). That settled which backend a project uses
+once rather than on first use — and it left a storage plugin that reads its own
+configuration nowhere to stand: registration runs before configuration resolves,
+and `APP_READY` runs after the choice has been made.
+
+`functualize-substrate-sqlite` was the plugin that fell through. With
+`[plugin.substrate-sqlite] db_path = …` set, the database went to the default
+location or the install was refused outright, and in both cases the project ran
+on whatever boot had picked. It now honours `db_path` again.
+
+- **New: `app.offer_substrate(offer)`.** A plugin calls it from its
+  registration call; boot calls `offer(app)` once, while it selects the store —
+  after configuration, before the engine exists — and uses what it returns.
+  `app.install_substrate(substrate)` stays for a plugin whose choice needs no
+  configuration.
+- **Breaking for plugin authors: installing from `APP_READY` now stops boot.**
+  It was refused before as well, but the refusal was logged and boot carried on
+  over the filesystem, which is the silent fallback a storage plugin must never
+  have. It is now a `SubstrateInstallError` that leaves `FunctualizeApp(...)`.
+  Move the install into `__call__`, or offer instead.
+- **Two storage plugins refuse to boot, naming both.** Before, the one whose
+  install happened to land first won, which made storage depend on plugin load
+  order. Disable all but one.
+- **A storage plugin that fails while registering stops boot** instead of being
+  logged and skipped, on both boot paths.
+- **Fully static wiring does no filesystem IO again.** The project's
+  filesystem substrate finds its directory on first use rather than at boot.
+
 ### Fixed — a superseded runner could overwrite live job state, and three more persistence defects beside it
 
 **Breaking, pre-release.** Four defects in the document stores, repaired before

@@ -71,14 +71,23 @@ def _revision_of(raw: bytes) -> Revision:
 class JsonFileSubstrate:
     """One JSON file per key, under a directory. Today's behaviour, exactly."""
 
-    __slots__ = ("_root",)
+    __slots__ = ("_root", "_start")
 
     def __init__(self, root: Path | str) -> None:
-        self._root = Path(root)
+        self._root: Path | None = Path(root)
+        #: Where the directory is resolved from when ``_root`` is unset — only
+        #: :meth:`for_project` leaves it unset. For an explicit root, the root.
+        self._start: Path = Path(root)
 
     @property
     def root(self) -> Path:
-        """The directory documents live under."""
+        """The directory documents live under.
+
+        Resolved on first access for a :meth:`for_project` substrate, then
+        cached on the instance; given outright otherwise.
+        """
+        if self._root is None:
+            self._root = resolve_fresh_location(self._start)[0].parent
         return self._root
 
     @classmethod
@@ -95,8 +104,24 @@ class JsonFileSubstrate:
         Project mode puts them in the `.functualize/` directory found walking
         upward; standalone mode puts them in the XDG cache keyed by project id.
         `resolve_fresh_location` still owns that decision.
+
+        **The walk is deferred to the first document access** (FUN-17/T12,
+        decided in TD-1). Boot step 6.5 builds this substrate on both boot
+        paths, and ``boot_static`` promises no filesystem IO at all — the walk
+        is irreducible (the mode *is* whether ``.functualize/`` exists above
+        ``start``), so the only way to keep that promise is to answer later.
+        This is not restored discovery: the backend was chosen at step 6.5;
+        only this one filesystem substrate's own directory resolves late, which
+        is the narrow form of "split selection from construction" ADR-027
+        sanctions. Nothing between boot and the first write creates
+        ``.functualize/``, so the late answer is the one boot would have got.
         """
-        return cls(resolve_fresh_location(Path(start))[0].parent)
+        # Anchored now, resolved later: a relative start must mean the cwd at
+        # construction, not whatever it is by the first write. `absolute()`
+        # touches no file, so the no-IO promise holds.
+        substrate = cls(Path(start).absolute())
+        substrate._root = None
+        return substrate
 
     def path_for(self, key: str) -> Path:
         """The file a key maps to.
@@ -110,7 +135,7 @@ class JsonFileSubstrate:
                 f"substrate key {key!r} must be a relative document name with "
                 f"no '..' segments"
             )
-        return self._root / f"{key}.json"
+        return self.root / f"{key}.json"
 
     def _load(self, key: str) -> Stored | None:
         path = self.path_for(key)

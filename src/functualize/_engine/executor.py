@@ -262,11 +262,18 @@ class JobExecutionEngine:
         #: knows about where documents live. Nothing reads it yet — `T13` and
         #: `T14` move the recorders onto the port — so it is held, not used.
         self._runtime_store = runtime_store
-        #: The substrate that store was selected over, handed in beside it.
+        #: The substrate that store was selected over, handed in beside it —
+        #: where this project's documents live, **the one this engine got**.
         #: The freshness ledger and the scope records still speak
         #: ``StoreSubstrate`` (D-9) and read this, rather than walking back
-        #: through a store to ask where it came from.
-        self._substrate: StoreSubstrate = substrate
+        #: through a store to ask where it came from; ``app.substrate`` reads
+        #: it too. A plain field: FUN-17/T12 deleted the property that used to
+        #: resolve it lazily (installed override, else an upward walk, cached on
+        #: first read — so a *read* picked the answer and hook order decided
+        #: storage). Whether a storage plugin was honoured is decided at boot
+        #: step 6.5, before this object exists; the engine is not a second
+        #: decider and has no path to a store it was not given.
+        self.substrate: StoreSubstrate = substrate
         #: Scopes this process has already built, by id, so two runs
         #: naming one scope share it rather than racing on the file.
         self._scopes: dict[str, Any] = {}
@@ -960,7 +967,7 @@ class JobExecutionEngine:
             from functualize._primitives.fingerprint import compute_args_hash
             from functualize._primitives.run_store import RunStore, runner_identity
 
-            store = RunStore(self._substrate)
+            store = RunStore(self.substrate)
             return store.open_run(
                 {
                     "job": request.job_name,
@@ -1083,7 +1090,7 @@ class JobExecutionEngine:
         try:
             from functualize._primitives.run_store import RunStore
 
-            store = RunStore(self._substrate)
+            store = RunStore(self.substrate)
             store.close_run(run_id, "failure")
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close a run record", exc_info=True)
@@ -1095,7 +1102,7 @@ class JobExecutionEngine:
         try:
             from functualize._primitives.run_store import RunStore
 
-            store = RunStore(self._substrate)
+            store = RunStore(self.substrate)
             store.close_run(run_id, result.status.value.lower())
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close run record %s", run_id, exc_info=True)
@@ -1533,27 +1540,6 @@ class JobExecutionEngine:
 
         return result
 
-    @property
-    def substrate(self) -> StoreSubstrate:
-        """Where this project's documents live — **the one this engine got**.
-
-        Handed in at construction by ``_app.boot.build_engine``, which passes
-        the selection boot step 6.5 made. Whether a storage plugin's install
-        was honoured is decided *there*, before this object exists; the engine
-        is not a second decider and has no path to a store it was not given.
-
-        A field read, not an answer. This used to resolve lazily: whatever a
-        plugin had installed on the host, otherwise an upward walk for
-        ``.functualize/``, cached on first read (FUN-17/T11 deleted the cache,
-        T12 the resolution and the ``Optional``), so this property is now the
-        substrate that arrived as an argument and nothing else. Two things were
-        wrong with resolving here: a *read* picked the first answer, so which
-        plugin won depended on hook order rather than on configuration; and the
-        walk ran whenever anything asked — including boot paths that promised
-        no filesystem I/O. One answered question, asked once, at boot.
-        """
-        return self._substrate
-
     def _state_store(self) -> Any:
         """The **freshness ledger**, resolved the way `func builtin data` does.
 
@@ -1570,7 +1556,7 @@ class JobExecutionEngine:
         if self._workflow_state_store is None:
             from functualize._primitives.fresh_store import FreshStore
 
-            self._workflow_state_store = FreshStore(self._substrate)
+            self._workflow_state_store = FreshStore(self.substrate)
         return self._workflow_state_store
 
     def _scope_store(self) -> Any:
@@ -1591,7 +1577,7 @@ class JobExecutionEngine:
         """
         from functualize._primitives.scope_store import ScopeStore
 
-        return ScopeStore(self._substrate)
+        return ScopeStore(self.substrate)
 
     def _failure_before_execution(
         self,

@@ -81,8 +81,9 @@ Two public names:
   outcome, not an error: somebody wrote between your read and your write, so read
   again and retry.
 
-- **`SQLiteSubstratePlugin`** — the plugin object. It installs a
-  `SQLiteSubstrate` during `APP_READY` and does nothing else.
+- **`SQLiteSubstratePlugin`** — the plugin object. It offers a
+  `SQLiteSubstrate` at registration, which boot opens while selecting the store
+  (after `plugin.substrate-sqlite.db_path` has resolved), and does nothing else.
 
 See [`examples/persistent_counter/`](examples/persistent_counter/) for the
 read-modify-write loop in full.

@@ -32,6 +32,7 @@ from functualize._primitives.substrate import (
     JsonFileSubstrate,
     substrate_for_project,
 )
+from functualize._types.errors import SubstrateInstallError
 
 if TYPE_CHECKING:
     from functualize._types.protocols import StoreSubstrate
@@ -249,7 +250,7 @@ class TestTheInstallReachesTheEngine:
         app = FunctualizeApp("probe")
         resolved = app.substrate
 
-        with pytest.raises(RuntimeError, match="one backend"):
+        with pytest.raises(SubstrateInstallError, match="one backend"):
             app.install_substrate(JsonFileSubstrate(tmp_path / "too-late"))
 
         assert app.substrate is resolved, "and the first one still stands"
