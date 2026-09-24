@@ -1220,7 +1220,7 @@ wheels = [
 
 [[package]]
 name = "functualize"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -1336,7 +1336,7 @@ docs = [
 
 [[package]]
 name = "functualize-ai"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/domains/functualize-ai" }
 dependencies = [
     { name = "pydantic" },
@@ -1358,7 +1358,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-ai-pydantic"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/domains/functualize-ai-pydantic" }
 dependencies = [
     { name = "functualize-ai" },
@@ -1384,7 +1384,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-aws"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/credentials/functualize-aws" }
 dependencies = [
     { name = "boto3" },
@@ -1408,7 +1408,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-bitwarden"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/credentials/functualize-bitwarden" }
 dependencies = [
     { name = "bitwarden-sdk" },
@@ -1432,7 +1432,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-flow-viz"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/adapters/functualize-flow-viz" }
 dependencies = [
     { name = "functualize" },
@@ -1456,7 +1456,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-http"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/adapters/functualize-http" }
 dependencies = [
     { name = "functualize" },
@@ -1478,7 +1478,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-inline"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/adapters/functualize-inline" }
 dependencies = [
     { name = "functualize" },
@@ -1502,7 +1502,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-lambda"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/adapters/functualize-lambda" }
 dependencies = [
     { name = "functualize" },
@@ -1524,7 +1524,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-mcp"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/adapters/functualize-mcp" }
 dependencies = [
     { name = "fastmcp" },
@@ -1550,7 +1550,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-substrate-sqlite"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/substrates/functualize-substrate-sqlite" }
 dependencies = [
     { name = "functualize" },
@@ -1574,7 +1574,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-tasks"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/domains/functualize-tasks" }
 dependencies = [
     { name = "pydantic" },
@@ -1596,7 +1596,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "functualize-tasks-local"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "plugins/domains/functualize-tasks-local" }
 dependencies = [
     { name = "functualize-tasks" },

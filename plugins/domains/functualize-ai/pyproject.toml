@@ -1,6 +1,6 @@
 [project]
 name = "functualize-ai"
-version = "0.3.0"
+version = "0.4.0"
 description = "AI Domain SDK for functualize — LLM interaction capabilities"
 readme = "README.md"
 license = "Apache-2.0"
