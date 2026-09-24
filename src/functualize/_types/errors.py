@@ -611,3 +611,53 @@ class CrossAggregateRefusedError(Exception):
             f"unit cannot span {len(self.aggregates)} aggregates "
             f"({', '.join(self.aggregates)}). {outcome}"
         )
+
+
+class RuntimeStoreCapabilityError(Exception):
+    """A required capability is absent from the selected store's profile.
+
+    FUN-17/T13, acceptance criterion 3. Raised at selection time, in boot
+    step 6.5, before the engine is built: boot refuses rather than degrading
+    to a weaker store, because a silent downgrade is the failure mode
+    :class:`~functualize._types.persistence.StoreProfile` exists to make
+    impossible.
+
+    The message names the **store**, the **field** and the **config key**,
+    because the reader's question on hitting this refusal is always "which
+    setting do I change" — an error that cannot answer it sends the reader
+    grepping for who declared the requirement.
+
+    Attributes:
+        store: The profile name of the store that was selected.
+        field: The ``StoreProfile`` field the requirement reads.
+        config_key: The configuration key that declared the requirement —
+            the setting to change, or the store to reselect.
+        needed: The value the requirement needs.
+        actual: The value the selected store declares.
+        because: Why the requirement exists, in the declarer's words.
+    """
+
+    def __init__(
+        self,
+        *,
+        store: str,
+        field: str,
+        config_key: str,
+        needed: bool | str | int | None,
+        actual: bool | str | int | None,
+        because: str = "",
+    ) -> None:
+        self.store = store
+        self.field = field
+        self.config_key = config_key
+        self.needed = needed
+        self.actual = actual
+        self.because = because
+        reason = f" ({because})" if because else ""
+        super().__init__(
+            f"Store {store!r} cannot serve this configuration: {config_key} "
+            f"requires {field}={needed!r}{reason}, and the store declares "
+            f"{field}={actual!r}. Change {config_key} or select a store "
+            f"that has the capability — boot refuses rather than degrading "
+            f"to a weaker store."
+        )

@@ -28,14 +28,15 @@ import re
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterator
+    from collections.abc import Collection, Iterator, Mapping
 
     from functualize._engine.executor import JobExecutionEngine
-    from functualize._types.persistence import RuntimeStore
+    from functualize._types.persistence import RuntimeStore, StoreProfile
     from functualize._types.protocols import EngineHost, StoreSubstrate
 
 from functualize._app.environment import detect_environment
@@ -51,7 +52,10 @@ from functualize._discovery.pipeline import ResolutionPipeline
 from functualize._discovery.providers import DirectoryScanProvider, StaticProvider
 from functualize._events import HookEvent
 from functualize._primitives.locator import ResourceLocator
-from functualize._types.errors import SubstrateInstallError
+from functualize._types.errors import (
+    RuntimeStoreCapabilityError,
+    SubstrateInstallError,
+)
 from functualize._types.from_job import declared_dependency_names
 
 logger = logging.getLogger(__name__)
@@ -254,7 +258,11 @@ def _select_runtime_store(app: Any) -> tuple[RuntimeStore, StoreSubstrate]:
 
     _resolve_substrate_claim(app)
     substrate = app.substrate_override or substrate_for_project(app.fresh_root)
-    return DocumentRuntimeStore(substrate), substrate
+    store = DocumentRuntimeStore(substrate)
+    # T13: the store's profile against what this configuration requires.
+    # Same refusal discipline as everything above — uncaught, no fallback.
+    check_required_capabilities(store.profile, _required_capabilities(app))
+    return store, substrate
 
 
 def _resolve_substrate_claim(app: Any) -> None:
@@ -293,6 +301,65 @@ def _resolve_substrate_claim(app: Any) -> None:
     _name, offer = claims[0]
     if offer is not None:
         app._substrate = offer(app)
+
+
+@dataclass(frozen=True)
+class RequiredCapability:
+    """One capability this boot's configuration requires of its store.
+
+    FUN-17/T13. ``field`` is a ``StoreProfile`` attribute name, ``value`` is
+    what it must read, and ``config_key`` names the setting that declared the
+    requirement — carried beside the check because the refusal's reader asks
+    *"which setting do I change"*, and the store cannot answer that from its
+    own side.
+    """
+
+    field: str
+    value: bool | str | int | None
+    config_key: str
+    because: str = ""
+
+
+def check_required_capabilities(
+    profile: StoreProfile,
+    required: Mapping[str, RequiredCapability],
+) -> None:
+    """Raise for the first capability this configuration needs and lacks.
+
+    FUN-17/T13, acceptance criterion 3's second half. Runs inside boot step
+    6.5, against the selected store's own profile, and a refusal aborts
+    boot: there is no weaker store to fall back to, and falling back
+    silently is the failure mode ``StoreProfile`` exists to make impossible.
+    Fields are visited in sorted order, so which requirement refuses is a
+    property of the configuration rather than of the mapping's order.
+    """
+
+    for _field, requirement in sorted(required.items()):
+        actual = getattr(profile, requirement.field)
+        if actual != requirement.value:
+            raise RuntimeStoreCapabilityError(
+                store=profile.name,
+                field=requirement.field,
+                config_key=requirement.config_key,
+                needed=requirement.value,
+                actual=actual,
+                because=requirement.because,
+            )
+
+
+def _required_capabilities(app: Any) -> Mapping[str, RequiredCapability]:
+    """The capabilities this boot's configuration requires of its store.
+
+    Empty today, deliberately. No shipped configuration key implies a
+    capability the document store lacks, and inventing one to exercise the
+    check would add a config surface nobody asked for. The features that
+    declare requirements land their key here — resume across runners
+    (``multi_machine``), a durable-outbox consumer (``durable_outbox``), a
+    second process on the store (``multi_process``, FUN-19's SQLite) — and
+    the refusal fires the moment one of them is switched on against a store
+    that cannot serve it.
+    """
+    return {}
 
 
 def build_engine(
