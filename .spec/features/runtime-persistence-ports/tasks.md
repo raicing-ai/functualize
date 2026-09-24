@@ -474,7 +474,7 @@ now: `1` · after: `0`
 
 ## Wave 10 — close the wave
 
-### [ ] T15 — the layer proof, and the gate count
+### [x] T15 — the layer proof, and the gate count
 
 *Files:* `tests/types/test_persistence_port_imports.py`, `.spec/features/runtime-persistence-ports/tasks.md`
 
