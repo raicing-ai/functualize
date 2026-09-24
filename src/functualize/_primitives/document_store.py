@@ -53,19 +53,28 @@ from functualize._types.persistence import (
     ClaimWorkflow,
     CompleteStep,
     Conflict,
+    EffectWriter,
     EventView,
+    EventWriter,
     FinishAttempt,
+    InputReader,
     InputRequest,
+    InputWriter,
     ResumeWorkflow,
     RunQuery,
+    RunReader,
+    RuntimeTransaction,
     RunTree,
     RunView,
+    RunWriter,
     StartAttempt,
     StateBatch,
     StoreProfile,
     SuspendAtGate,
     WorkflowQuery,
+    WorkflowReader,
     WorkflowView,
+    WorkflowWriter,
 )
 
 if TYPE_CHECKING:
@@ -583,11 +592,11 @@ class _DocumentTransaction:
         self._store = store
         self._commands: list[Any] = []
         self.scopes_touched: set[str] = set()
-        self.runs = _DocumentRunWriter(self)
-        self.workflows = _DocumentWorkflowWriter(self)
-        self.inputs = _DocumentInputWriter(self)
-        self.events = _DocumentEventWriter(self)
-        self.effects = _DocumentEffectWriter(self)
+        self.runs: RunWriter = _DocumentRunWriter(self)
+        self.workflows: WorkflowWriter = _DocumentWorkflowWriter(self)
+        self.inputs: InputWriter = _DocumentInputWriter(self)
+        self.events: EventWriter = _DocumentEventWriter(self)
+        self.effects: EffectWriter = _DocumentEffectWriter(self)
 
     @property
     def scopes(self) -> ScopeStore:
@@ -951,12 +960,12 @@ class DocumentRuntimeStore:
     def __init__(self, substrate: StoreSubstrate) -> None:
         self.scope_store = ScopeStore(substrate)
         self.run_store = RunStore(substrate)
-        self.runs = _DocumentRunReader(self.run_store)
-        self.workflows = _DocumentWorkflowReader(self.scope_store)
-        self.inputs = _DocumentInputReader(self.scope_store)
+        self.runs: RunReader = _DocumentRunReader(self.run_store)
+        self.workflows: WorkflowReader = _DocumentWorkflowReader(self.scope_store)
+        self.inputs: InputReader = _DocumentInputReader(self.scope_store)
 
     @contextmanager
-    def transaction(self) -> Iterator[_DocumentTransaction]:
+    def transaction(self) -> Iterator[RuntimeTransaction]:
         """One short transition, applied once on a clean exit.
 
         NEVER wrap a job body, a prompt or a network effect in this: user code

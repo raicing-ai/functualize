@@ -40,9 +40,9 @@ def _spy_on_the_builder(monkeypatch: Any) -> list[Any]:
     hosts: list[Any] = []
     real = boot.build_engine
 
-    def spy(host: Any) -> Any:
+    def spy(host: Any, **storage: Any) -> Any:
         hosts.append(host)
-        return real(host)
+        return real(host, **storage)
 
     monkeypatch.setattr(boot, "build_engine", spy)
     return hosts

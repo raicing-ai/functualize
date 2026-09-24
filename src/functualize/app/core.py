@@ -283,9 +283,11 @@ class FunctualizeApp:
     # rebuilt config chain, a re-resolved invoke depth — is simply seen.
     #
     # They are declared for the port, not as a facade: delivery code should
-    # reach the job facade above. `_app/boot.build_engine` is the caller of
-    # record; `tests/engine/test_engine_is_sealed.py` is what holds the two
-    # ends together.
+    # reach the job facade above. `_app/boot.build_engine(host, *,
+    # runtime_store, substrate)` is the caller of record — it passes the
+    # store and the substrate boot step 6.5 selected (FUN-17/T11) — and
+    # `tests/engine/test_engine_is_sealed.py` is what holds the two ends
+    # together.
 
     def get_descriptor(self, name: str) -> JobDescriptor | None:
         """The descriptor for ``name``, or None when nothing is registered."""

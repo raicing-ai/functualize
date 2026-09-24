@@ -253,7 +253,7 @@ now: `0` · after: `4`
 
 ### [ ] T11 — construct in `_app` after config resolves
 
-*Files:* `src/functualize/_app/boot.py`, `src/functualize/_engine/executor.py`, `src/functualize/app/core.py`
+*Files:* `src/functualize/_app/boot.py`, `src/functualize/_engine/executor.py`, `src/functualize/app/core.py`, `src/functualize/_primitives/document_store.py`, `tests/types/fixtures/runtime_store_conformance.py`, `tests/types/test_runtime_store_port.py`
 
 Step 6.5: select and prepare one `RuntimeStore`, then build the engine with it. Both boot
 paths move — `boot_static` at `:403` and `boot_standard` at `:622`. `prepare()` is allowed
@@ -265,6 +265,13 @@ second is not redundant: deleting the lazy property (T12) removes the engine's o
 for the `StoreSubstrate` that `FreshStore` (`executor.py:1544`) and `ScopeStore`
 (`executor.py:1565`) still need, and D-9 keeps `StoreSubstrate` alive for exactly those.
 Update the comment at `app/core.py:286`, which names the old signature.
+
+The annotation half of those files is T11's because it is the same statement in the other
+direction: T11 makes `boot.py:248` return a `DocumentRuntimeStore` where `RuntimeStore` is
+declared, so the store has to *be* one — annotated against the port rather than the port
+bent to it (`_types/persistence.py` is settled). `tests/types/test_runtime_store_port.py`
+pins that in the shape of `tests/types/test_plugin_host_port.py`: runtime presence, mypy
+signatures, and the port's members.
 
 ```bash
 rg -c 'build_engine\(app\)$' src/functualize/_app/boot.py

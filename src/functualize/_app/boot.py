@@ -35,7 +35,8 @@ if TYPE_CHECKING:
     from collections.abc import Collection, Iterator
 
     from functualize._engine.executor import JobExecutionEngine
-    from functualize._types.protocols import EngineHost
+    from functualize._types.persistence import RuntimeStore
+    from functualize._types.protocols import EngineHost, StoreSubstrate
 
 from functualize._app.environment import detect_environment
 from functualize._app.impl import build_resource_locator
@@ -217,7 +218,42 @@ def wire_entry_point_jobs(app: Any) -> None:
     app._resolution_pipeline.add_provider(EntryPointProvider())
 
 
-def build_engine(host: EngineHost) -> JobExecutionEngine:
+def _select_runtime_store(app: Any) -> tuple[RuntimeStore, StoreSubstrate]:
+    """Boot step 6.5 — select and prepare the one runtime store, uncaught.
+
+    FUN-17/T11. Today's selection is the only store that ships:
+    ``DocumentRuntimeStore`` over the project's substrate, resolved the way
+    the engine's lazy property used to resolve it — the host's installed
+    override when there is one, otherwise ``substrate_for_project``. A
+    factory registry and ``prepare()`` proper (migrations, a health check)
+    arrive with the backend plugins (FUN-19/FUN-22); what cannot wait for
+    them is the shape: the store exists **before** the engine is built, and
+    a failure here **aborts boot** — nothing catches it, which is the whole
+    of the B2 fix. Wrapping this step in a log-and-continue would reintroduce
+    the silent degradation it exists to remove, and must not change what an
+    ``APP_READY`` hook means: a failing *hook* is still caught by its own
+    loop, only selection is not catchable.
+
+    The substrate is selected in the same step and returned beside the
+    store: the engine's freshness ledger and scope records still speak
+    ``StoreSubstrate`` (D-9), and one selection serving both is what keeps
+    them on one backend — folding the two into one argument would merge
+    derived-fingerprint storage with runtime truth, the drift this
+    initiative exists to prevent.
+    """
+    from functualize._primitives.document_store import DocumentRuntimeStore
+    from functualize._primitives.substrate import substrate_for_project
+
+    substrate = app.substrate_override or substrate_for_project(app.fresh_root)
+    return DocumentRuntimeStore(substrate), substrate
+
+
+def build_engine(
+    host: EngineHost,
+    *,
+    runtime_store: RuntimeStore,
+    substrate: StoreSubstrate,
+) -> JobExecutionEngine:
     """Construct the engine, complete, for the host that owns it.
 
     The **one** construction site. ``boot_static`` and ``boot_standard`` each
@@ -228,8 +264,17 @@ def build_engine(host: EngineHost) -> JobExecutionEngine:
     may read the app's own fields; the engine only ever receives the
     :class:`~functualize._types.protocols.EngineHost` port of them.
 
+    The engine **receives** its storage here rather than discovering it
+    (FUN-17/T11): ``runtime_store`` is the store step 6.5 selected, and
+    ``substrate`` is the same step's substrate — still needed separately
+    because the freshness ledger and scope records speak it (D-9), and
+    because T12's deletion of the engine's lazy property is only a deletion
+    if the value it would have discovered is already in hand.
+
     Args:
         host: The app the engine belongs to, as the engine's port.
+        runtime_store: The selected and prepared runtime store.
+        substrate: The substrate the store was selected over.
 
     Returns:
         The engine, ready to execute.
@@ -265,6 +310,8 @@ def build_engine(host: EngineHost) -> JobExecutionEngine:
         notifier_registry=app._notifier_registry,
         config_view_factory=_config_view_factory,
         config_resolver=resolve_job_config,
+        runtime_store=runtime_store,
+        substrate=substrate,
     )
     return engine
 
@@ -399,9 +446,6 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     # Initialize observability early so EventBus is available for the engine
     init_observability(app)
 
-    # Execution engine — one construction site, shared with boot_standard
-    app._execution_engine = build_engine(app)
-
     # Resolution pipeline with StaticProvider (zero I/O)
     app._resolution_pipeline = ResolutionPipeline()
     app._jobs_memo = None
@@ -450,6 +494,19 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     from functualize._plugins.domain_registry import DomainRegistry
 
     app._domain_registry = DomainRegistry()
+
+    # Step 6.5 — select and prepare the runtime store. Uncaught on purpose:
+    # a store that cannot be prepared aborts boot (the B2 fix), and this
+    # must not change what an APP_READY hook means — hooks further down are
+    # still caught by their own loop. Sits after config resolution and the
+    # explicit plugins, before job registration, so an override installed at
+    # registration time is seen and one installed at APP_READY is not (that
+    # ordering change is T12's to pin).
+    store, substrate = _select_runtime_store(app)
+
+    # Step 6.6 — build the engine WITH its storage: it receives the store
+    # and the substrate rather than discovering them.
+    app._execution_engine = build_engine(app, runtime_store=store, substrate=substrate)
 
     # Register jobs from static provider
     all_descriptors = app._resolution_pipeline.resolve_all()
@@ -617,9 +674,6 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     # Initialize observability early so EventBus is available for the engine
     init_observability(app)
     app.event_bus.subscribe("interactivity.job.submit", app._on_job_submit_event)
-
-    # Execution engine — one construction site, shared with boot_static
-    app._execution_engine = build_engine(app)
 
     # Resolution pipeline for Provider/Transform architecture
     app._resolution_pipeline = ResolutionPipeline()
@@ -844,6 +898,18 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     perf_timeline.mark("boot.children.start")
     wire_children_to_pipeline(app)
     perf_timeline.mark("boot.children.end")
+
+    # Step 6.5 — select and prepare the runtime store. Uncaught on purpose:
+    # a store that cannot be prepared aborts boot (the B2 fix), and this
+    # must not change what an APP_READY hook means — hooks further down are
+    # still caught by their own loop. The window is ADR-027's: after config
+    # resolves (and after the plugins that may install a substrate at
+    # registration time), before job registration — the first engine read.
+    store, substrate = _select_runtime_store(app)
+
+    # Step 6.6 — build the engine WITH its storage: it receives the store
+    # and the substrate rather than discovering them.
+    app._execution_engine = build_engine(app, runtime_store=store, substrate=substrate)
 
     # 8. Discover and register jobs via resolution pipeline
     perf_timeline.mark("boot.job_registration.start")

@@ -51,6 +51,7 @@ NoneType = type(None)
 if TYPE_CHECKING:
     from functualize._engine.middleware import ExecutionMiddlewareChain
     from functualize._engine.result import RegisteredJob
+    from functualize._types.persistence import RuntimeStore
     from functualize._types.protocols import EngineHost, StoreSubstrate
     from functualize._types.run_request import RunRequest
 
@@ -191,6 +192,12 @@ class JobExecutionEngine:
             built with *no* host. Ignored when a host is given: the host
             answers that question, and a second answer is how the kernel came
             to ask the operating system three different ways.
+        runtime_store: The runtime store ``_app`` selected at boot step 6.5
+            (FUN-17/T11) — the engine receives its storage, it does not
+            discover it. Keyword-only, so a positional call cannot bind it.
+        substrate: The substrate the store was selected over. The freshness
+            ledger and the scope records still speak ``StoreSubstrate``
+            (D-9), so it arrives beside the store rather than inside it.
     """
 
     def __init__(
@@ -208,6 +215,9 @@ class JobExecutionEngine:
         notifier_registry: Any = None,
         config_view_factory: Callable[..., Any] | None = None,
         config_resolver: Callable[..., Any] | None = None,
+        *,
+        runtime_store: RuntimeStore | None = None,
+        substrate: StoreSubstrate | None = None,
     ) -> None:
         self._di_registry = di_registry
         self._hook_registry = hook_registry
@@ -238,8 +248,15 @@ class JobExecutionEngine:
         # Dependency scheduling, the sibling subject (T7).
         self._dependency_runner = DependencyRunner(self)
         self._workflow_state_store: Any = None
-        #: Resolved on first use, then held. See :attr:`substrate`.
-        self._substrate: StoreSubstrate | None = None
+        # TRANSITIONAL(FUN-17/T12): both storage arguments are optional here
+        # only so direct constructions (embedding, unit tests) keep working
+        # while the wave barrier holds. Every boot path passes both; T12
+        # deletes the lazy discovery path on :attr:`substrate` and makes both
+        # required.
+        self._runtime_store = runtime_store
+        #: Resolved at construction when `_app` passes one (T11); otherwise
+        #: on first use, then held. See :attr:`substrate`.
+        self._substrate: StoreSubstrate | None = substrate
         #: Scopes this process has already built, by id, so two runs
         #: naming one scope share it rather than racing on the file.
         self._scopes: dict[str, Any] = {}
