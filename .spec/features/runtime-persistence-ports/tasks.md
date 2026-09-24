@@ -362,7 +362,7 @@ now: `1` · after: `0`
 
 ## Wave 8 — refuse, never degrade
 
-### [ ] T13 — the capability check at selection time
+### [x] T13 — the capability check at selection time
 
 *Files:* `src/functualize/_types/errors.py`, `src/functualize/_app/boot.py`, `tests/core/test_store_capability_refusal.py`
 
