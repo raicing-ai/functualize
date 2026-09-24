@@ -440,7 +440,7 @@ rg -c 'runtime_store=self\._engine\._runtime_store' src/functualize/_engine/work
 ```
 now: `0` · after: `1`
 
-### [ ] T16 — the cancel stops proceeding unclaimed
+### [x] T16 — the cancel stops proceeding unclaimed
 
 *Files:* `src/functualize/app/_workflow_control.py`, `tests/workflow/test_cancel_wins_the_race.py`
 
