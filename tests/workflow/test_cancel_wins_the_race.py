@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests._support.engine_storage import port_for
 
 from functualize._engine.frontier import FrontierWalk
 from functualize._engine.workflow_walker import WalkOutcome
@@ -184,7 +185,7 @@ class TestTheWalkReleasesWhatItTook:
         Otherwise one traceback costs everyone else a five-minute wait, and the
         scope looks held by a process that is gone.
         """
-        walk = FrontierWalk(_graph_stub(), store, "wf")
+        walk = FrontierWalk(_graph_stub(), store, "wf", runtime_store=port_for(store))
         walk.claim()
 
         try:
@@ -200,14 +201,16 @@ class TestTheWalkReleasesWhatItTook:
 
     def test_releasing_twice_is_harmless(self, store: ScopeStore) -> None:
         """`run` releases in a `finally`; a caller may also release explicitly."""
-        walk = FrontierWalk(_graph_stub(), store, "wf")
+        walk = FrontierWalk(_graph_stub(), store, "wf", runtime_store=port_for(store))
         walk.claim()
         walk.release()
         walk.release()  # must not raise
 
     def test_releasing_without_claiming_is_harmless(self, store: ScopeStore) -> None:
         """A walk that failed to claim still runs its `finally`."""
-        FrontierWalk(_graph_stub(), store, "wf").release()
+        FrontierWalk(
+            _graph_stub(), store, "wf", runtime_store=port_for(store)
+        ).release()
 
 
 class TestSupersededIsNotFailed:

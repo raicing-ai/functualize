@@ -259,8 +259,10 @@ class JobExecutionEngine:
         #: The store boot step 6.5 selected and prepared. Received, never
         #: discovered: FUN-17/T12 removed the engine's last path to storage
         #: nobody handed it, and this attribute is the whole of what the engine
-        #: knows about where documents live. Nothing reads it yet — `T13` and
-        #: `T14` move the recorders onto the port — so it is held, not used.
+        #: knows about where documents live. The walk's claim reads it since
+        #: FUN-17/T14 (R-14.1, via the orchestrator); the remaining recorder
+        #: moments — `step_completed`, `suspended`, `resumed` — still have no
+        #: caller, which is FUN-20's recorded gap, not this ticket's.
         self._runtime_store = runtime_store
         #: The substrate that store was selected over, handed in beside it —
         #: where this project's documents live, **the one this engine got**.

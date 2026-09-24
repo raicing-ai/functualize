@@ -13,8 +13,9 @@ unplanned call is undefined. The directory is created per engine and never
 cleaned up — it is empty, and a test that leaves something in it has said
 something about a call it did not mean to make.
 
-FUN-17/T13 and T14 move the recorders onto the :class:`RuntimeStore` port;
-when they do, this helper is the one place a test-side store gets swapped.
+:func:`port_for` is the other half (FUN-17/T14): a walk claims through the
+:class:`RuntimeStore` port but writes through its own ``ScopeStore``, so a
+walker test's port has to sit on that store's substrate.
 """
 
 from __future__ import annotations
@@ -22,11 +23,15 @@ from __future__ import annotations
 import itertools
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 
-__all__ = ["engine_storage"]
+if TYPE_CHECKING:
+    from functualize._primitives.scope_store import ScopeStore
+
+__all__ = ["engine_storage", "port_for"]
 
 _MADE = itertools.count()
 
@@ -43,3 +48,15 @@ def engine_storage() -> dict[str, object]:
     root = Path(tempfile.mkdtemp(prefix=f"fun17-engine-storage-{next(_MADE)}-"))
     substrate = JsonFileSubstrate(root)
     return {"runtime_store": DocumentRuntimeStore(substrate), "substrate": substrate}
+
+
+def port_for(store: ScopeStore) -> DocumentRuntimeStore:
+    """The port over the same substrate as a test's ``ScopeStore``.
+
+    FUN-17/T14, R-14.1: a walk claims through the port but writes through its
+    own ``ScopeStore``, so a test's port must sit on the **same substrate**
+    or the lease the port writes is not the lease the walk reads. This is the
+    one shared helper every walker test builds its port through, so that
+    pairing is made once rather than per file.
+    """
+    return DocumentRuntimeStore(store.substrate)

@@ -25,11 +25,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from tests._support.engine_storage import port_for
 
 from functualize._engine.frontier import FrontierWalk, GraphModel
 from functualize._primitives.lease import DEFAULT_LEASE_SECONDS, is_expired
 from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._types.persistence import Claimed
 from functualize.app._workflow_control import reclaim_scope
 from functualize.app._workflow_view import derived_state
 
@@ -43,7 +45,9 @@ def store(tmp_path: Path) -> ScopeStore:
 
 
 def _walk(store: ScopeStore) -> FrontierWalk:
-    return FrontierWalk(GraphModel(entry="n1"), store, "wf")
+    return FrontierWalk(
+        GraphModel(entry="n1"), store, "wf", runtime_store=port_for(store)
+    )
 
 
 def _age_the_lease(store: ScopeStore, seconds: float) -> None:
@@ -86,9 +90,10 @@ class TestSilenceIsWhatExpires:
     def test_renewal_does_not_move_the_generation(self, store: ScopeStore) -> None:
         """Or every heartbeat would fence the work it exists to protect."""
         walk = _walk(store)
-        generation = walk.claim()
+        claimed = walk.claim()
+        assert isinstance(claimed, Claimed)
         walk.renew()
-        assert store.get_lease("wf").generation == generation
+        assert store.get_lease("wf").generation == claimed.generation
 
     def test_renewing_after_being_superseded_does_not_raise(
         self, store: ScopeStore
@@ -139,7 +144,11 @@ class TestTheWalkActuallyRenews:
             edges=(Edge(source="a", target="b"), Edge(source="b", target=END)),
         )
         walker = WorkflowWalker(
-            declaration, store, "renewed", run_step=lambda name: name
+            declaration,
+            store,
+            "renewed",
+            run_step=lambda name: name,
+            runtime_store=port_for(store),
         )
 
         renewals: list[str] = []
@@ -175,7 +184,13 @@ class TestTheWalkActuallyRenews:
         declaration = WorkflowDeclaration(
             nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
         )
-        WorkflowWalker(declaration, store, "done", run_step=lambda name: name).run()
+        WorkflowWalker(
+            declaration,
+            store,
+            "done",
+            run_step=lambda name: name,
+            runtime_store=port_for(store),
+        ).run()
 
         lease = store.get_lease("done")
         assert lease is not None, "the walk deleted its lease instead of expiring it"

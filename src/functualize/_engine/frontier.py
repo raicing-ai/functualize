@@ -28,10 +28,15 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+# At runtime, not under TYPE_CHECKING: `claim` branches on it with
+# `isinstance`, so a type-only import would be a NameError on every claim.
+from functualize._types.persistence import Conflict
+
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from functualize._primitives.scope_store import ScopeStore
+    from functualize._types.persistence import Claimed, RuntimeStore
 
 __all__ = [
     "END",
@@ -143,12 +148,24 @@ class FrontierWalk:
         graph: The graph to walk.
         store: State store for §D.7c/§D.7d persistence.
         scope_id: The scope these records belong to.
+        runtime_store: The port this walk claims through (FUN-17/T14,
+            R-14.1). Required and keyword-only, like every storage argument
+            since T12's tripwire: a walk that could be built without one
+            would be a walk that claims nowhere.
     """
 
-    def __init__(self, graph: GraphModel, store: ScopeStore, scope_id: str) -> None:
+    def __init__(
+        self,
+        graph: GraphModel,
+        store: ScopeStore,
+        scope_id: str,
+        *,
+        runtime_store: RuntimeStore,
+    ) -> None:
         self._graph = graph
         self._store = store
         self._scope_id = scope_id
+        self._runtime_store = runtime_store
         #: The lease generation this walk holds, or None if it never claimed.
         #: Set by `claim`; every scope write it makes carries it (T6).
         self._generation: int | None = None
@@ -157,40 +174,51 @@ class FrontierWalk:
     # The lease (`durable-run-layer`/T5, T6)
     # ------------------------------------------------------------------
 
-    def claim(self, *, owner: str | None = None, force: bool = False) -> int:
-        """Take the scope, and fence every write this walk makes.
+    def claim(
+        self, *, owner: str | None = None, force: bool = False
+    ) -> Claimed | Conflict:
+        """Take the scope through the port, fencing every write this walk makes.
 
-        Returns the generation claimed. After this, a write from *any* other
-        holder of this scope is refused — which is what closes the
-        concurrent-`resume` limitation: the second walk's writes stop, rather
-        than interleaving with the first's into a record neither would
-        recognise.
+        Returns the outcome (FUN-17/T14): ``Claimed`` — this walk holds the
+        generation, and a write from any other holder of the scope is refused,
+        which is what closes the concurrent-`resume` limitation — or
+        ``Conflict``, someone else's name for the same moment. Losing a claim
+        is an outcome the caller branches on, never an exception.
 
-        Raises:
-            LeaseHeldError: Another runner holds it and has not expired. Pass
-                ``force`` only for an explicit reclaim, where a human has
-                decided the holder is gone.
+        On ``Claimed`` the walk installs the hold **on its own store**: the
+        port claims through the ``ScopeStore`` inside its own
+        ``DocumentRuntimeStore`` and a hold fences only the object it is set
+        on, so the generation is carried across by hand. Skip that line and
+        the walk writes with ``held is None`` — the generation fence silently
+        off, and the interleaving the lease exists to prevent back.
         """
+        from datetime import UTC, datetime
+
+        from functualize._engine.recording import WorkflowRecorder
         from functualize._primitives.lease import DEFAULT_LEASE_SECONDS
         from functualize._primitives.run_store import runner_identity
 
-        self._store.ensure_scope(self._scope_id)
         # Read before claiming, write after. The question is about the state
         # the *previous* holder left, and claiming overwrites the lease that
         # answers it; the write waits until this walk holds the generation
         # that fences it.
         silent = self._step_that_went_silent()
-        lease = self._store.claim_scope(
-            self._scope_id,
+        command = WorkflowRecorder().claimed(
+            scope_id=self._scope_id,
             owner=owner or runner_identity(),
-            seconds=DEFAULT_LEASE_SECONDS,
+            now=datetime.now(UTC),
+            lease_seconds=DEFAULT_LEASE_SECONDS,
             force=force,
         )
-        self._generation = int(lease.generation)
-        self._store.hold(self._scope_id, lease.generation)
+        with self._runtime_store.transaction() as tx:
+            outcome = tx.workflows.claim(command)
+        if isinstance(outcome, Conflict):
+            return outcome
+        self._generation = outcome.generation
+        self._store.hold(self._scope_id, outcome.generation)
         if silent is not None:
             self._record_timed_out(silent)
-        return int(lease.generation)
+        return outcome
 
     def _step_that_went_silent(self) -> str | None:
         """The node this scope was on when its holder stopped reporting.

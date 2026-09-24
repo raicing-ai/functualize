@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests._support.engine_storage import port_for
 
 from functualize._engine.workflow_walker import WorkflowWalker
 from functualize._events.bus import EventBus
@@ -93,6 +94,7 @@ def _walk(
         scope_id,
         run_step=runner or _Runner(),
         emit=bus.emit if bus is not None else None,
+        runtime_store=port_for(store),
     ).run()
 
 

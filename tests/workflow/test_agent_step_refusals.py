@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from pydantic import BaseModel
+from tests._support.engine_storage import port_for
 
 
 class Approval(BaseModel):
@@ -248,6 +249,7 @@ class TestAnExecutorThatCannotHonourTheStepIsRefused:
             store,
             run_step=recorder,
             agent_step_registry=_registry(executor),
+            runtime_store=port_for(store),
         )
         with pytest.raises(AgentCapabilityRefusedError) as caught:
             runner.prelude("release", declaration)
@@ -269,6 +271,7 @@ class TestAnExecutorThatCannotHonourTheStepIsRefused:
             store,
             run_step=_Recorder(),
             agent_step_registry=_registry(executor),
+            runtime_store=port_for(store),
         )
 
         with pytest.raises(AgentCapabilityRefusedError) as caught:
@@ -318,6 +321,7 @@ class TestAStepWithNoExecutorIsRefused:
             store,
             run_step=_Recorder(),
             agent_step_registry=_registry(_Executor("cli-prompt")),
+            runtime_store=port_for(store),
         )
         with pytest.raises(AgentExecutorUnavailableError) as caught:
             runner.prelude(
@@ -345,6 +349,7 @@ class TestAStepWithNoExecutorIsRefused:
             store,
             run_step=_Recorder(),
             agent_step_registry=_registry(cli_prompt),
+            runtime_store=port_for(store),
         )
 
         with pytest.raises(AgentExecutorUnavailableError):
@@ -359,7 +364,10 @@ class TestAStepWithNoExecutorIsRefused:
 
     def test_no_executor_registered_at_all_refuses(self, store: ScopeStore) -> None:
         runner = WorkflowRunner(
-            store, run_step=_Recorder(), agent_step_registry=_registry()
+            store,
+            run_step=_Recorder(),
+            agent_step_registry=_registry(),
+            runtime_store=port_for(store),
         )
         with pytest.raises(AgentExecutorUnavailableError) as caught:
             runner.prelude(
@@ -382,6 +390,7 @@ class TestAStepWithNoExecutorIsRefused:
             store,
             run_step=_Recorder(),
             agent_step_registry=_registry(_Executor("cli-prompt"), _Executor("ai")),
+            runtime_store=port_for(store),
         )
         with pytest.raises(AgentExecutorUnavailableError) as caught:
             runner.prelude(
@@ -489,6 +498,7 @@ class TestAPreviouslyAnsweredCheckpoint:
             scope_id="parity-4",
             agent_step_registry=_registry(executor),
             request=self._request(),
+            runtime_store=port_for(store),
         ).prelude("release", self._declaration())
 
         assert report.blocked_on == "approve"
@@ -520,6 +530,7 @@ class TestAPreviouslyAnsweredCheckpoint:
             scope_id="parity-4",
             agent_step_registry=_registry(weaker),
             request=self._request(),
+            runtime_store=port_for(store),
         )
 
         with pytest.raises(AgentCapabilityRefusedError) as caught:
@@ -552,6 +563,7 @@ class TestAPreviouslyAnsweredCheckpoint:
             scope_id="parity-4",
             agent_step_registry=_registry(capable),
             request=self._request(),
+            runtime_store=port_for(store),
         ).prelude("release", self._declaration())
 
         assert report.outcome is WalkOutcome.COMPLETED

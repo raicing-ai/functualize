@@ -31,6 +31,7 @@ from typing import Any
 
 import pytest
 from pydantic import BaseModel
+from tests._support.engine_storage import port_for
 
 from functualize._engine.notify import LogNotifier, NotifierRegistry
 from functualize._engine.notify_providers import (
@@ -126,6 +127,7 @@ def _walk(
         scope_id,
         run_step=run_step,
         notifiers=registry,
+        runtime_store=port_for(store),
     ).run()
 
 
@@ -382,6 +384,7 @@ class TestTheRunnerRefusesBeforeTheWalk:
             run_step=lambda name: name,
             scope_id="s1",
             notifiers=NotifierRegistry(),
+            runtime_store=port_for(store),
         )
         with pytest.raises(NotifierUnavailableError):
             runner.prelude("flow", _graph(Notify(on="failed", to="ops")))
@@ -396,6 +399,7 @@ class TestTheRunnerRefusesBeforeTheWalk:
             run_step=lambda name: name,
             scope_id="s1",
             notifiers=_registry(_Recorder()),
+            runtime_store=port_for(store),
         )
         assert runner.prelude("flow", _graph(Notify(on="failed", to="ops"))) is not None
 
@@ -431,6 +435,7 @@ class TestTheStatusComesFromTheScope:
             "s1",
             run_step=run_step,
             notifiers=registry,
+            runtime_store=port_for(store),
         ).run()
 
     def test_a_cancelled_walk_notifies_on_cancelled(self, store: ScopeStore) -> None:

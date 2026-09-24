@@ -50,6 +50,7 @@ from pydantic import BaseModel
 
 from functualize._engine.notify import NotifierRegistry
 from functualize._engine.workflow_walker import WorkflowWalker
+from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.scope_store import ScopeStore
 from functualize._types.workflow import (
     END, Edge, Gate, Notify, Step, WorkflowDeclaration,
@@ -90,6 +91,7 @@ registry.register(FileNotifier())
 store = ScopeStore.for_project(Path.cwd())
 WorkflowWalker(
     declaration, store, "notify-scope", run_step=lambda name: name,
+    runtime_store=DocumentRuntimeStore(store.substrate),
     workflow_name="flow", notifiers=registry,
 ).run()
 """

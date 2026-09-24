@@ -43,6 +43,7 @@ from functualize import FunctualizeApp, RunContext
 from functualize._types.run_request import RunRequest
 from functualize._types.workflow import Edge, Step, WorkflowDeclaration, END
 from functualize._engine.workflow_walker import WorkflowWalker
+from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.scope_store import ScopeStore
 
 MARKER = Path(sys.argv[1])
@@ -70,7 +71,10 @@ declaration = WorkflowDeclaration(
 )
 
 store = ScopeStore.for_project(Path.cwd())
+# The port over the same substrate as the walk's store, as `port_for` builds
+# it in-process (FUN-17/T14): the lease the port writes is the one the walk reads.
 walk = WorkflowWalker(declaration, store, "crash-scope", run_step=_run_step,
+                    runtime_store=DocumentRuntimeStore(store.substrate),
                     workflow_name="flow")
 walk.run()
 """
