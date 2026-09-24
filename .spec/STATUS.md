@@ -2347,9 +2347,9 @@ substrate. Recorded here because `.spec/features/substrate-capability-probe/` is
 merge and would otherwise take all of this with it.
 
 **The premise, measured rather than assumed: `StoreProfile` does not exist in this codebase.**
-`rg -n "StoreProfile" src/ plugins/ tests/` returned **0** at planning time. It is a proposal in
-`durability-outsourcing/07-the-design.md`, owned by FUN-17. That settles the boundary question the
-whole ticket turns on: there is no remote substrate to measure *through*, so the probe measures
+`rg -n "StoreProfile" src/ plugins/ tests/` returned **0** at planning time. FUN-17 has since frozen
+it as `StoreProfile` in `src/functualize/_types/persistence.py` (ADR-028). That settles the boundary
+question the whole ticket turns on: there is no remote substrate to measure *through*, so the probe measures
 each backend **directly, through that backend's own client**, and reports what a future
 `StoreProfile` would have to say. A probe routed through our adapter would measure the adapter,
 which is how a spike quietly becomes the implementation of the next ticket.

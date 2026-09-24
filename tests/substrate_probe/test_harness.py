@@ -30,7 +30,9 @@ from tests.substrate_probe.harness import (
 
 class TestTheTenQuestions:
     def test_the_ten_storeprofile_fields_are_enumerated_here(self) -> None:
-        """Transcribed from 07-the-design.md:60-104 — twelve attributes, two labels."""
+        """Transcribed from the design's twelve attributes, two labels — shipped as
+        `StoreProfile` in `src/functualize/_types/persistence.py` (ADR-028).
+        """
         assert FIELDS == (
             "cross_aggregate_atomicity",
             "fencing",
