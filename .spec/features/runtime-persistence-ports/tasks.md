@@ -251,7 +251,7 @@ now: `0` · after: `4`
 
 ## Wave 6 — the construction move
 
-### [x] T11 — construct in `_app` after config resolves
+### [ ] T11 — construct in `_app` after config resolves
 
 *Files:* `src/functualize/_app/boot.py`, `src/functualize/_engine/executor.py`, `src/functualize/app/core.py`, `src/functualize/_primitives/document_store.py`, `tests/types/fixtures/runtime_store_conformance.py`, `tests/types/test_runtime_store_port.py`
 
