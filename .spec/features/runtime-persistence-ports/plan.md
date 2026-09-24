@@ -317,6 +317,29 @@ why the written set follows the approval instead.
 
 All three remain the maintainer's to answer.
 
+## T14 rulings — 2026-09-24
+
+T14 returned `WORKFLOW_AMBIGUOUS` at `45eca37`: its two-file list could not reach the
+walk. The escape was correct. The gap is in this plan's decomposition, not in the
+implementer: three artifacts each assumed a later step wired the walk to the port —
+`workflow_recorder.py` said T11, `executor.py:258-264` said T13/T14, and the research's
+change inventory listed `workflow_walker.py` — and `tasks.md` assigned it to nobody.
+These four rulings close it. Recorded here rather than in an ADR: each applies ADR-025
+and ADR-027 and none sets new direction.
+
+| ID | Question | Ruling | Why |
+|---|---|---|---|
+| **R-14.1** | How does the walk reach the port? | `FrontierWalk`, `WorkflowWalker`, `WorkflowRunner` each take a **required keyword-only** `runtime_store: RuntimeStore`; the orchestrator passes `self._engine._runtime_store`. `FrontierWalk.claim()` issues `WorkflowRecorder().claimed(...)` as a single-command `transaction()` and, on `Claimed`, calls `self._store.hold(scope_id, generation)` itself. T14 stays **one** task with the corrected file list. | Not a `WorkflowWriter` parameter: writers live on a transaction, and `claim` is specified as its own committing transaction (`contracts.md` §1.3), so the unit handed down is the store. Not a bound recorder: the recorder is pure command construction (`workflow_recorder.py:54-75`) and holds no store. Required, not defaulted: ADR-027 and T12's tripwire both refuse a defaulted storage argument. The explicit `hold` is the load-bearing line — the port claims through its **own** `ScopeStore` (`document_store.py:1062`), holds are per object (`scope_store.py:307-324`), and without it the walk writes with `held is None` and the generation fence silently skips. Kept as one task because a required argument split from its test updates is a red suite at tick. |
+| **R-14.2** | What does `run()` do on `Conflict`? | **Replace** the `SUPERSEDED` candidate with a new `WalkOutcome.HELD`, returned **before** the `try`, carrying the holder and held generation in `error`; no `release()`. `workflow_walker.py` is owned by T14. | `SUPERSEDED` is documented as *"taken from this walk while it was running"* (`workflow_walker.py:130-134`); a walk refused at the door was never running and never held, so the name would misreport it and its handler's `finally: release()` would be a fenced write by a non-holder. `HELD` flows through the generic non-`COMPLETED` path at `workflow_runner.py:207` and its `error` reaches the caller there — so the holder-and-expiry message `LeaseHeldError` carries today survives, as a value. Only `BLOCKED` is special-cased downstream (`workflow_orchestrator.py:227`), so no other consumer changes. |
+| **R-14.3** | The cancel site: explicit `Conflict` branch, or stop proceeding unclaimed? | **The research wins: refuse.** Delete the bare `except Exception:`; the forced claim's failure propagates. No `Conflict` branch, and the cancel does **not** route through the port. Split into **T16**. Nobody wraps the CLI's store. | A `force=True` claim cannot lose (`lease.py:222`), so `Conflict` is unreachable there and a branch for it would be dead code; `tasks.md`'s old wording was mine and wrong on this. What the catch swallows is a claim that *failed*, after which the status write is unfenced and the walk's `COMPLETED` overwrites it — the cancel does not win, it only looks like it did. No wrapping is needed: `_workflow_store(ctx)` is a `ScopeStore` on the app's own substrate (`_cli/builtins.py:1127-1135`), so its lease lands on the disk the app's `RuntimeStore` reads. Unifying the CLI's store with the app's `RuntimeStore` is a public-store question and waits with D-9. |
+| **R-14.4** | Does the artifact gate still hold? | T16 sits in **wave 9 beside T14** (disjoint files); T15 stays alone in wave 10 and last. T15's tick gate moves `after: 15 → 16`. Gates total **26**: T14 carries three, T16 one. | The barrier is unchanged — wave 10 cannot open until both wave-9 tasks tick — and T15's count still equals the number of `### [x] T` headings when it is the last to tick. |
+
+**Consequence for criterion 6.** It is now carried by T14 (the walk, through the port)
+and T16 (the cancel, which cannot lose and therefore needs no outcome). `executor.py`'s
+comment that T13/T14 move *the recorders* onto the port overstates this ticket: only the
+**claim** moves. `step_completed` / `suspended` / `resumed` still have no caller, which is
+recorded as a surviving gap for FUN-20, not absorbed here.
+
 ## Files expected to change
 
 Sizes measured with `wc -l` on the rebased tree, not copied from the research.

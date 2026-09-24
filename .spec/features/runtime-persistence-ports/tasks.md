@@ -1,6 +1,6 @@
 # FUN-17 — Tasks
 
-Refined 2026-09-23 against `1f3b760`. Fifteen tasks, eleven waves, **24 counting gates**
+Refined 2026-09-23 against `1f3b760`. Sixteen tasks, eleven waves, **26 counting gates** (T16 and two T14 gates added 2026-09-24)
 (20 as refined; T12 gained four with the install-moment decision, TD-1, 2026-09-24).
 
 Each task is 1–3 files and completable in one context window. Wave ordering is binding:
@@ -28,8 +28,8 @@ the count. It therefore reads `0` today, reaches 12 when T10 is ticked, and fini
 do not "fix" it by loosening the assertion.
 
 Running count as tasks are ticked: T1 `1` · T2 `2` · T3 `4` · T4 `6` · T5 `7` · T6 `8` ·
-T7 `9` · T8 `10` · T9 `11` · T10 `12` · T11 `14` · T12 `20` · T13 `21` · T14 `23` ·
-T15 `24`.
+T7 `9` · T8 `10` · T9 `11` · T10 `12` · T11 `14` · T12 `20` · T13 `21` · T14 `24` ·
+T16 `25` · T15 `26`.
 
 ---
 
@@ -380,29 +380,90 @@ now: `0` · after: `1`
 
 ## Wave 9 — losing a claim becomes a value
 
-### [ ] T14 — the outcome reaches production code
+### [ ] T14 — the walk claims through the port
 
-*Files:* `src/functualize/_engine/frontier.py`, `src/functualize/app/_workflow_control.py`
+*Files:* `src/functualize/_engine/frontier.py`, `src/functualize/_engine/workflow_walker.py`, `src/functualize/_engine/workflow_runner.py`, `src/functualize/_engine/workflow_orchestrator.py`, `tests/engine/test_walk_claims_through_the_port.py`, and every test that constructs `FrontierWalk(`, `WorkflowWalker(` or `WorkflowRunner(` — the hit set of `rg -l 'FrontierWalk\(|WorkflowWalker\(|WorkflowRunner\(' tests/ plugins/` (16 files at `45eca37`; 22 / 89 / 26 call sites)
 
-Acceptance criterion 6, completed. T4 declared `Claimed | Conflict`; a declared port that
-nothing calls is a built-but-unwired capability, which the constitution's reachability rule
-exists to catch. Both call sites route through `WorkflowWriter.claim` and branch on the
-result:
+**Re-scoped 2026-09-24** (design ruling R-14.1, `plan.md` → *T14 rulings*). The first
+version listed two files and was unexecutable: the port's only holder is
+`executor.py:264`, and the walk is built four frames down from a bare `ScopeStore`
+(`workflow_orchestrator.py:186` → `workflow_runner.py:196` → `workflow_walker.py:301`),
+none of which were in scope. Acceptance criterion 6, walk half.
 
-- `frontier.py:183` — `claim()` stops documenting `LeaseHeldError` and stops propagating
-  it; it returns the outcome.
-- `app/_workflow_control.py:430-439` — the bare `except Exception:` around the cancel's
-  borrowed claim is replaced by an explicit `Conflict` branch. That catch is a recorded
-  hazard in this very file (`:420-424` explains a defensive lookup that hid a real break);
-  do not leave a second one behind.
+- **Route.** `FrontierWalk`, `WorkflowWalker` and `WorkflowRunner` each gain a
+  **required keyword-only** `runtime_store: RuntimeStore`. No default: a defaulted
+  storage argument is exactly what T12's tripwire exists to refuse. The orchestrator
+  passes `runtime_store=self._engine._runtime_store`; each layer hands it down unchanged.
+  The walk keeps its `ScopeStore` for every other write — only the claim moves.
+- **`FrontierWalk.claim()`** builds its command with `WorkflowRecorder().claimed(...)`
+  and issues it as a single-command transaction —
+  `with runtime_store.transaction() as tx: outcome = tx.workflows.claim(cmd)` — and
+  returns `Claimed | Conflict`. On `Claimed` it **must** call
+  `self._store.hold(scope_id, outcome.generation)` and set `self._generation` before
+  returning: the hold is per `ScopeStore` object (`scope_store.py:307-324`), the port
+  claims through its own object, and a walk that skipped this would write with
+  `held is None` — the generation fence silently off.
+- **`WorkflowWalker.run()`** branches on the result **before** its `try`: on `Conflict`
+  it returns `WalkReport(WalkOutcome.HELD, scope_id, error=…)` naming the holder and the
+  held generation, and does **not** call `release()` — it never held the scope. `HELD` is
+  a new `WalkOutcome` member (R-14.2), not `SUPERSEDED`.
+- Test churn is mechanical and belongs here, not in a later task: a required argument
+  that is not threaded through the tests is a red suite at tick. Build each test's port
+  as `DocumentRuntimeStore(substrate)` over the **same substrate** as its `ScopeStore`,
+  via one shared helper, so the lease the port writes is the lease the walk reads.
 
-Name the production call path for each, and verify by breaking the call and watching a test
-fail. "A test calls it" is not a call path.
+**The test that proves the fence survives the new arrival** —
+`tests/engine/test_walk_claims_through_the_port.py`:
+
+1. *Claimed keeps the fence on.* Walk claims through the port; a second runner
+   force-reclaims on disk; the walk's next write raises `StaleGenerationError` and
+   `run()` returns `SUPERSEDED`. **Sabotage:** delete the `hold(...)` call — the write
+   must then land and this case must go red. That is the `self._generation is None`
+   hazard at `workflow_walker.py:329`, made to fail loudly.
+2. *Conflict never starts.* A live holder exists; `run()` returns `HELD` with the
+   holder's name in `error`, executes no node, and leaves the holder's lease untouched.
+3. *Reachability.* Break `runtime_store=` at `workflow_orchestrator.py` and an
+   end-to-end workflow test goes red — the production call path, not "a test calls it".
 
 ```bash
 rg -c 'LeaseHeldError' src/functualize/_engine/frontier.py
 ```
 now: `1` · after: `0`
+
+```bash
+rg -c 'claim_scope\(' src/functualize/_engine/frontier.py
+```
+now: `1` · after: `0`
+
+```bash
+rg -c 'runtime_store=self\._engine\._runtime_store' src/functualize/_engine/workflow_orchestrator.py
+```
+now: `0` · after: `1`
+
+### [ ] T16 — the cancel stops proceeding unclaimed
+
+*Files:* `src/functualize/app/_workflow_control.py`, `tests/workflow/test_cancel_wins_the_race.py`
+
+**Split out of T14 2026-09-24** (design ruling R-14.3). Acceptance criterion 6, cancel
+half — and it does **not** route through the port.
+
+The cancel's claim is `force=True` (`_workflow_control.py:430-432`, and `reclaim_scope` at `:504`), and a forced claim
+**cannot lose**: `lease.claim` refuses only `if … not force` (`lease.py:222-226`). So
+no `Conflict` is reachable here, and an explicit `Conflict` branch would be dead code.
+What the bare `except Exception:` actually swallows is a claim that *failed* — an
+unreadable store, or eight CAS rounds lost to a live writer — after which the cancel
+writes its status **unfenced**, and the running walk's `COMPLETED` stamp overwrites it.
+That is the proceed-unclaimed behaviour the research names; it loses.
+
+Delete the `try`/`except` so a failed forced claim propagates and the cancel is refused
+loudly. Keep `store.claim_scope(..., force=True)` and the `hold`/restore dance as they
+are. Its comment's "a store without leases still cancels" has no production subject:
+the only caller is `_cli/builtins.py:1774`, whose `_workflow_store(ctx)` is a
+`ScopeStore` on the app's own substrate — so the lease it takes is on the same disk the
+app's `RuntimeStore` reads, and **no wrapping is needed for correctness**. Before
+ticking, run `rg -n 'cancel_scope\(' tests/` (10 sites) and confirm none passes a
+lease-less fake store expecting the old silence; add a case where the forced claim
+raises and assert the scope's status is **not** `cancelled`.
 
 ```bash
 rg -c 'except Exception:' src/functualize/app/_workflow_control.py
@@ -429,12 +490,12 @@ Then tick this task and confirm the gate suite has crossed its threshold.
 ```bash
 rg -c '^### \[x\] T' .spec/features/runtime-persistence-ports/tasks.md
 ```
-now: `0` · after: `15`
+now: `13` · after: `16`
 
 ```bash
 uv run pytest tests/spec/test_task_gates_still_hold.py -q --no-header
 ```
-expects: green, with 24 gates parsed — comfortably past the suite's threshold of 12.
+expects: green, with 26 gates parsed — comfortably past the suite's threshold of 12.
 
 ---
 
@@ -452,7 +513,7 @@ expects: green, with 24 gates parsed — comfortably past the suite's threshold 
     { "id": 6,  "tasks": ["T11"] },
     { "id": 7,  "tasks": ["T12"] },
     { "id": 8,  "tasks": ["T13"] },
-    { "id": 9,  "tasks": ["T14"] },
+    { "id": 9,  "tasks": ["T14", "T16"] },
     { "id": 10, "tasks": ["T15"] }
   ]
 }
