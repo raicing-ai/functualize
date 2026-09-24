@@ -67,7 +67,15 @@ class TestTopLevelHelpIsTheCommandInventory:
         result = cli_run(["--help"], cwd=project_tree(jobs=JOBS))
 
         assert result.exit_code == 0, result.stderr
-        assert _names(result.stdout) == ["builtin", "deploy", "infra", "suite"]
+        # `vault` is the one deliberate top-level alias (vault-remote-redemption
+        # A8); a further first-party row here should be a reviewed event.
+        assert _names(result.stdout) == [
+            "builtin",
+            "deploy",
+            "infra",
+            "suite",
+            "vault",
+        ]
         rows = dict(row.split(None, 1) for row in _commands_block(result.stdout))
         assert rows["deploy"] == "Deploy the thing."
         assert "--log-level" in result.stdout, "global options must stay"
@@ -88,7 +96,7 @@ class TestTopLevelHelpIsTheCommandInventory:
             for line in listed.stdout.splitlines()
             if "(run 'func " not in line
         }
-        assert set(_names(helped.stdout)) == first_words | {"builtin"}
+        assert set(_names(helped.stdout)) == first_words | {"builtin", "vault"}
 
     def test_help_is_stable_across_two_invocations(self, cli_run, project_tree) -> None:
         """Cold and warm render identically.

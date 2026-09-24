@@ -401,14 +401,26 @@ class ClickCommandProvider:
         self._app = app
 
     def nodes(self) -> list[CommandNode]:
+        nodes: list[CommandNode] = []
         group = self._app.cli_command.commands.get(BUILTIN_SEGMENT)
-        if group is None:  # pragma: no cover - B2b mounts it unconditionally
-            return []
-        return [
-            ClickCommandNode(
-                group, path=(BUILTIN_SEGMENT,), needs_terminal=False, app=self._app
+        if group is not None:
+            nodes.append(
+                ClickCommandNode(
+                    group, path=(BUILTIN_SEGMENT,), needs_terminal=False, app=self._app
+                )
             )
-        ]
+        # The one top-level alias (vault-remote-redemption A8): the same
+        # registrar that mounts the builtin subtree mounts `vault` beside
+        # it, so every inventory built from this tree — schema, completion,
+        # the TUI browser — sees both spellings and they cannot drift.
+        alias = self._app.cli_command.commands.get("vault")
+        if alias is not None and alias is not group:
+            nodes.append(
+                ClickCommandNode(
+                    alias, path=("vault",), needs_terminal=False, app=self._app
+                )
+            )
+        return nodes
 
 
 def job_trie_path(job: Any) -> str:

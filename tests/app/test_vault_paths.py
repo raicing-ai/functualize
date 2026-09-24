@@ -22,6 +22,7 @@ from functualize.app.vault import (
 )
 from functualize.job import GroupOptions
 from functualize.types import Secret  # noqa: TC001 - pydantic resolves it at run time
+from functualize.app.vault_remote import ImportReport, ShareReport
 
 _JOB_SOURCE = """
 from pydantic import BaseModel, Field
@@ -218,7 +219,17 @@ def test_dynamic_group_declaration_is_visible() -> None:
 
 
 @pytest.mark.parametrize(
-    "report", [VaultInitReport, VaultMutationReport, VaultInspectionReport]
+    "report",
+    [
+        VaultInitReport,
+        VaultMutationReport,
+        VaultInspectionReport,
+        # The remote-sharing seam's reports join the reflection: ShareReport
+        # carries the link (the deliverable) and ImportReport names only.
+        # RedeemedBundle is deliberately absent: it is the material.
+        ShareReport,
+        ImportReport,
+    ],
 )
 def test_reports_have_no_plaintext_field(report: type) -> None:
     forbidden = {"value", "secret", "plaintext", "ciphertext", "nonce", "key"}

@@ -28,7 +28,7 @@ _safe_chars = st.sampled_from(
 
 # A valid positional argument that is NOT a .py file, NOT a builtin, and NOT a flag
 _BUILTIN_NAMES = frozenset(
-    {"cache", "config", "domains", "scaffold", "version", "show-info", "tui"}
+    {"cache", "config", "domains", "scaffold", "version", "show-info", "tui", "vault"}
 )
 
 _identifier_first_char = st.sampled_from("abcdefghijklmnopqrstuvwxyz")

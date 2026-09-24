@@ -132,8 +132,13 @@ class TestTopLevelInventoryAgrees:
     def test_the_three_kinds_are_the_same_three_everywhere(
         self, app: FunctualizeApp
     ) -> None:
-        """Set equality on the declared inventory, so an *extra* row fails too."""
-        expected = {"alpha", NAMESPACE, "builtin"}
+        """Set equality on the declared inventory, so an *extra* row fails too.
+
+        `vault` is the one top-level alias of the reserved subtree
+        (vault-remote-redemption A8); it belongs in every inventory or the
+        surfaces disagree about what exists.
+        """
+        expected = {"alpha", NAMESPACE, "builtin", "vault"}
         assert _tree_top_level(app) == expected
         assert _schema_top_level(app) == expected
         assert _click_top_level(app) == expected
