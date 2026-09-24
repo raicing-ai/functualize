@@ -116,6 +116,28 @@ initiative exists to prevent. Two arguments, two lifetimes, both injected.
 `build_engine` is keyword-only for both, so a positional call cannot silently bind the
 wrong one.
 
+### 2.1 New port member — `_types/host.py`
+
+`PluginHost` gains a **twelfth** member, `offer_substrate(offer: SubstrateOffer) -> None`,
+and the module gains `SubstrateOffer: TypeAlias = Callable[[PluginHost], StoreSubstrate]`.
+
+It sits in the **storage** section beside `install_substrate`, not in `HooksView`, and the
+placement carries the argument. A plugin registers a question boot will ask; it does not
+register a callback fired at a lifecycle point, and nothing but `_select_runtime_store`
+ever invokes it. `HooksView` therefore stays one member and the census sentence —
+*"`on_ready` is the only lifecycle hook a plugin registers"* — stays true rather than being
+reworded to survive.
+
+`install_substrate` keeps its place for a plugin whose choice needs no configuration. Both
+doors append to one claim list, and §5 states what happens when two plugins use them.
+
+Nothing is added to `functualize.plugin.__all__`; §4 is unchanged.
+
+The engine's `substrate` is now a plain attribute, not a property (T12's last letter): the
+property had become a field read with a long docstring, and deleting it outright would
+have broken `app.substrate` (`app/core.py`) and three suites that read
+`engine.substrate`. The engine's readers and the app's facade read the one field.
+
 ## 3. New errors — `src/functualize/_types/errors.py`
 
 Two, appended to the existing eighteen:
@@ -174,20 +196,33 @@ pinned it:**
   store. Boot reads the slot once, and `install_substrate` refuses anything later loudly.
   Nothing is half-applied, and a dropped install cannot degrade silently into the
   filesystem.
-- **Unsettled, and measured rather than assumed:** the shipped
-  `functualize-substrate-sqlite` installs at `APP_READY` — *after* step 6.5 — so its
-  install is now refused (and logged by the `APP_READY` hook loop, which continues). The
-  tests that boot it and assert the old behaviour are red for exactly that reason:
-  `tests/spec/test_a_substrate_plugin_loads_through_its_entry_point.py`,
-  `tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py`,
-  `tests/plugins/test_substrate_choice_is_not_hook_order.py`,
-  `tests/_cli/test_shell_mode.py`. Migrating the install into the plugin's registration
-  call fixes them, and that migration is **not** purely mechanical: on `boot_standard`,
-  registration runs before configuration resolves, so the plugin's
-  `plugin.substrate-sqlite.db_path` read finds nothing there and the database lands in the
-  default location. Where a config-driven substrate plugin may both read its config and
-  install in time is a plugin-contract question; it is reported (FUN-17/T12) and left open
-  rather than settled sideways in this feature's contract.
+- **Settled (FUN-17/T12, decided in TD-1).** A config-driven substrate plugin has a moment
+  that is both post-config and pre-selection, and it is **step 6.5 itself**: the plugin
+  calls `app.offer_substrate(...)` from its registration call, and `_select_runtime_store`
+  invokes the offer after `boot.py`'s resolution chain exists and before it selects. The
+  plugin never names a boot step; boot asks it. This is ADR-027's *"split selection from
+  construction"*, applied to the case that reopened the question, and it is why
+  `AFTER_CONFIG_INIT` was **not** used: `invoke_config_event` logs a failing hook at
+  WARNING and continues, and storage has no safe default — ADR-027 already rejected
+  re-raising out of a general extension point as the wrong lever.
+- **One choice, and two claimants is a refusal.** `install_substrate` and
+  `offer_substrate` both record a claim. `_select_runtime_store` refuses with
+  `SubstrateInstallError` when more than one plugin claims storage, naming all of them —
+  "first wins" would be plugin load order deciding storage, which is the accident
+  `tests/plugins/test_substrate_choice_is_not_hook_order.py` exists to forbid.
+- **Loud at every door.** `install_substrate`'s post-selection refusal now raises
+  `SubstrateInstallError` rather than `RuntimeError`, so the `APP_READY` loops' existing
+  `except SubstrateInstallError: raise` stops swallowing it; both plugin-registration
+  loops (`_plugins/loader.py`, `boot_static`'s explicit loop) re-raise it by name instead
+  of logging and continuing; and the offer is invoked inside the deliberately uncaught
+  step 6.5. A dropped install can no longer degrade into the filesystem in silence — the
+  failure AC-3's detector exists to catch.
+- **The static path keeps its zero-filesystem-IO boot.** `JsonFileSubstrate.for_project`
+  resolves its directory on first document access rather than at construction, so
+  `_select_runtime_store` neither walks nor creates on either path. The backend is still
+  chosen at step 6.5; only one substrate's own root is late, which is the narrow form of
+  the split ADR-027 sanctions. `boot_standard` still answers the location question once,
+  at step 0.5, read-only.
 
 ## 6. Verification
 

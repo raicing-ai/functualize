@@ -1,6 +1,7 @@
 # FUN-17 — Tasks
 
-Refined 2026-09-23 against `1f3b760`. Fifteen tasks, eleven waves, **20 counting gates**.
+Refined 2026-09-23 against `1f3b760`. Fifteen tasks, eleven waves, **24 counting gates**
+(20 as refined; T12 gained four with the install-moment decision, TD-1, 2026-09-24).
 
 Each task is 1–3 files and completable in one context window. Wave ordering is binding:
 never start a task in wave N+1 while wave N has unchecked tasks.
@@ -23,12 +24,12 @@ one, say so in writing and mark it, per `.spec/CONSTITUTION.md` → *Transitiona
 that **at least 12** gates parse, and only gates belonging to `[x]` tasks parse at all.
 `.spec/features/` on this branch holds one feature, so no other feature's gates back-stop
 the count. It therefore reads `0` today, reaches 12 when T10 is ticked, and finishes at
-**20**. That is a disclosed transitional state for the life of the wave, not a regression —
+**24**. That is a disclosed transitional state for the life of the wave, not a regression —
 do not "fix" it by loosening the assertion.
 
 Running count as tasks are ticked: T1 `1` · T2 `2` · T3 `4` · T4 `6` · T5 `7` · T6 `8` ·
-T7 `9` · T8 `10` · T9 `11` · T10 `12` · T11 `14` · T12 `16` · T13 `17` · T14 `19` ·
-T15 `20`.
+T7 `9` · T8 `10` · T9 `11` · T10 `12` · T11 `14` · T12 `20` · T13 `21` · T14 `23` ·
+T15 `24`.
 
 ---
 
@@ -287,11 +288,29 @@ now: `0` · after: `2`
 
 ### [ ] T12 — delete the discovery path, and prove it is gone
 
-*Files:* `src/functualize/_engine/executor.py`, `tests/engine/test_engine_receives_its_store.py`
+*Files:* `src/functualize/_engine/executor.py`, `tests/engine/test_engine_receives_its_store.py`;
+widened by the install-moment decision (TD-1) to `src/functualize/_types/host.py`,
+`src/functualize/app/core.py`, `src/functualize/_app/impl.py`, `src/functualize/_app/boot.py`,
+`src/functualize/_plugins/loader.py`, `src/functualize/_primitives/substrate.py`,
+`plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_plugin.py`,
+`tests/conftest.py`, the four re-pointed tests (`tests/types/test_plugin_host_port.py`,
+`tests/primitives/test_one_substrate_choice.py`,
+`tests/plugins/test_substrate_choice_is_not_hook_order.py` ×2) and the new
+`tests/plugins/test_substrate_offer.py` and `tests/primitives/test_substrate_root_is_lazy.py`.
+The plugin's window is T12's because T12 is what closed the old one: deleting the engine's
+lazy resolution moved the choice to step 6.5, which put `APP_READY` after it and left a
+config-driven substrate plugin no moment that is both post-config and pre-selection.
+`offer_substrate` is that moment (`contracts.md` §2.1, §5).
 
 Acceptance criterion 4. Delete the `substrate` property at `executor.py:1509-1528`, the
 `self._substrate` slot at `:242`, and the local `substrate_for_project` import. The engine
 must have no path to a store it was not given.
+
+*As landed (2026-09-24):* the property is deleted; the `_substrate` slot T11 re-purposed to
+hold the *handed-in* substrate is not deleted but renamed to the plain attribute
+`substrate`, because `app.substrate` (`app/core.py`) and three test files read
+`engine.substrate` — one of them an AC-3 regression test that must stay unedited. The
+import went with T11.
 
 **Reachability precedes `[x]`**, and for a deletion the proof runs the other way: the
 tripwire test must fail if construction without a store becomes possible again. Commit
@@ -310,6 +329,30 @@ now: `3` · after: `0`
 rg -c 'substrate_override' src/functualize/_engine/executor.py
 ```
 now: `2` · after: `0`
+
+The install moment (TD-1). The port gains the offer door; the entry-point loader re-raises a
+storage refusal by name; the shipped plugin stops installing from `APP_READY`; and the test
+fixture that turned a location *query* into a `mkdir` stops doing so.
+
+```bash
+rg -c 'def offer_substrate' src/functualize/_types/host.py
+```
+now: `0` · after: `1`
+
+```bash
+rg -c 'except SubstrateInstallError' src/functualize/_plugins/loader.py
+```
+now: `0` · after: `1`
+
+```bash
+rg -c 'on_ready' plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_plugin.py
+```
+now: `1` · after: `0`
+
+```bash
+rg -c 'sandbox.mkdir' tests/conftest.py
+```
+now: `1` · after: `0`
 
 ---
 
@@ -387,7 +430,7 @@ now: `0` · after: `15`
 ```bash
 uv run pytest tests/spec/test_task_gates_still_hold.py -q --no-header
 ```
-expects: green, with 20 gates parsed — comfortably past the suite's threshold of 12.
+expects: green, with 24 gates parsed — comfortably past the suite's threshold of 12.
 
 ---
 

@@ -216,8 +216,9 @@ in `_primitives/document_store.py`.
 
 ## Surviving smells
 
-Both are **absent from `.spec/CONSTITUTION.md` → *Forbidden Patterns***, which is what
-makes them eligible to be accepted rather than blocking.
+All five are **absent from `.spec/CONSTITUTION.md` → *Forbidden Patterns***, which is
+what makes them eligible to be accepted rather than blocking. 3–5 were added by T12's
+install-moment decision (TD-1), recorded there and carried here.
 
 1. **Middle Man** — `DocumentRuntimeStore` (`_primitives/document_store.py`). It forwards
    to three existing stores and adds no behaviour of its own beyond the honest profile and
@@ -243,6 +244,34 @@ makes them eligible to be accepted rather than blocking.
    deleted by the pre-merge cleanup, so that obligation is migrated to
    `contributor/adr/026-persistence-ports-need-no-new-layer.md` → *What would reopen
    this*, which ships to master.** **Does not need maintainer review.**
+
+3. **Speculative member (port sized past measured use)** — `PluginHost.install_substrate`
+   (`_types/host.py`). After T12 moved `functualize-substrate-sqlite` to
+   `offer_substrate`, no shipped plugin calls it, against the port's own rule that
+   members are sized to measured use. *Accepted:* it is the door for a plugin whose
+   choice needs no configuration, the app's own door (`app/core.py`), and what the
+   tests' installing probes use; removing it would make the config-free case wait for a
+   config read it does not need. Recorded in its docstring. **Does not need maintainer
+   review.**
+
+4. **Duplicated query (two upward walks on the standard path)** — `boot_standard` step
+   0.5 (`_app/boot.py`, `resolve_fresh_location`) and the project substrate's first
+   document access (`_primitives/substrate.py`, `JsonFileSubstrate.root`). No catalogue
+   name fits exactly; it is one question asked twice. *Accepted:* they agree because
+   nothing between them creates `.functualize/` — the sqlite plugin's `_db_path` is
+   read-only and `JsonFileSubstrate.write` creates the directory only after its root is
+   resolved — and `tests/primitives/test_substrate_root_is_lazy.py` pins that the late
+   answer is the eager one. The alternative, threading step 0.5's answer into step 6.5,
+   adds a second `JsonFileSubstrate` construction site against
+   `test_exactly_one_place_names_the_filesystem_substrate`. **Does not need maintainer
+   review.**
+
+5. **Temporary Field** — `app._registering_plugin`, set by both registration loops
+   (`_plugins/loader.py`, `boot_static` in `_app/boot.py`) around `plugin(app)` and
+   cleared in a `finally`. It exists only so a two-claimant refusal names plugins rather
+   than a lambda's qualname. *Accepted:* scoped to one call, never read outside
+   `_app/impl._claimant`, and not declared on the facade (whose line budget is 305).
+   **Does not need maintainer review.**
 
 ### And one that is NOT ours, but must be stated
 
