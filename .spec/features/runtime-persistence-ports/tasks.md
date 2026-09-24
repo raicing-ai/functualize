@@ -380,7 +380,7 @@ now: `0` · after: `1`
 
 ## Wave 9 — losing a claim becomes a value
 
-### [ ] T14 — the walk claims through the port
+### [x] T14 — the walk claims through the port
 
 *Files:* `src/functualize/_engine/frontier.py`, `src/functualize/_engine/workflow_walker.py`, `src/functualize/_engine/workflow_runner.py`, `src/functualize/_engine/workflow_orchestrator.py`, `tests/engine/test_walk_claims_through_the_port.py`, and every test that constructs `FrontierWalk(`, `WorkflowWalker(` or `WorkflowRunner(` — the hit set of `rg -l 'FrontierWalk\(|WorkflowWalker\(|WorkflowRunner\(' tests/ plugins/` (16 files at `45eca37`; 22 / 89 / 26 call sites)
 
