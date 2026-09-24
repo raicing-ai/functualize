@@ -572,6 +572,36 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     from functualize._plugins.loader import PluginLoader
     from functualize._primitives.di import DIRegistry
 
+    # 0.5 Settle where this project keeps its runtime state, once, before
+    #     anything keys on the answer.
+    #
+    #     `resolve_fresh_location` reads the mode off the filesystem — a
+    #     `.functualize/` found walking upward means a declared project, its
+    #     absence means standalone — and creating that directory is what
+    #     switches between the two. Step 6.5 asks the same question through the
+    #     store's substrate, so a state directory that appears *mid-boot* moves
+    #     the answer under every asker that already asked: the discovery cache
+    #     is then written where the first answer said and looked for on the next
+    #     boot where the second one says. Measured on
+    #     `tests/integration/test_lazy_true_engine_materialization.py`: the
+    #     first boot wrote the cache to the platform cache, the second looked
+    #     under `.functualize/`, found nothing, and re-imported every job module
+    #     — a "warm" boot that materialized the whole registry, which is the
+    #     property those tests exist to defend.
+    #
+    #     Settling it here and deriving the cache's project root from it (see
+    #     the cached-provider wiring below) makes boot answer the question once.
+    #     Only this path needs it: `boot_static` wires no directory discovery,
+    #     so it has no cache location to key on the answer.
+    from functualize._primitives.fresh_format import resolve_fresh_location
+
+    _fresh_path, _fresh_mode, project_state_dir = resolve_fresh_location(app.fresh_root)
+    cache_project_root = (
+        project_state_dir.parent
+        if project_state_dir is not None
+        else Path.cwd().resolve()
+    )
+
     # Wire ResourceLocator based on mode detection (standalone vs declared)
     app._resource_locator = build_resource_locator()
 
@@ -730,6 +760,11 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         if app._lazy_boot:
             app._cached_provider = _build_cached_provider(
                 app._jobs_directories,
+                # Settled in step 0.5, not re-derived here: the mode this reads
+                # is the one the boot started in, and step 6.5's resolution must
+                # not be able to move it between the write below and the read on
+                # the next boot.
+                project_root=cache_project_root,
                 pre_filter=pre_filter,
                 job_filter=job_filter,
                 discovery_hash=discovery_hash,
