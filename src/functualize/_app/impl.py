@@ -1582,16 +1582,30 @@ def get_job(app: Any, name: str) -> JobDescriptor | None:
 
 
 def install_substrate(app: Any, substrate: Any) -> None:
-    """Set the app's substrate, refusing once the engine has resolved one.
+    """Set the app's substrate, refusing once the engine already has one.
 
-    `store-substrate`/T5. A plugin installs a database at `APP_READY`, which is
-    before the engine touches a store — the engine resolves lazily, on the first
-    store access, which happens during a run.
+    `store-substrate`/T5, re-aimed by FUN-17/T12. The window is **before boot
+    step 6.5 selects a store**: that step reads this slot once and the engine
+    is built with what it read, so a plugin whose install lands earlier is
+    honoured and one that lands later is refused. This docstring used to say
+    `APP_READY` was the right moment — true while the engine resolved its
+    storage lazily on first use, which is exactly what step 6.5 replaced.
 
     Installing later is **refused** rather than allowed to half-apply. The
-    engine holds what it resolved, so a late install would leave some of a run's
-    documents in one backend and some in the other: exactly the split brain
-    spec AC-4 says must be unreachable, arriving through a different door.
+    engine holds the store and the substrate it was given, so a late install
+    would leave some of a run's documents in one backend and some in the other:
+    exactly the split brain spec AC-4 says must be unreachable, arriving
+    through a different door. Loudly, because there is no honest silent
+    alternative — the engine cannot be re-pointed, and a dropped install would
+    look like it worked.
+
+    On both boot paths plugin registration runs before step 6.5, so `__call__`
+    is early enough. On the *standard* path it is also before configuration is
+    resolved, so a plugin that reads its own config there reads nothing
+    (measured, FUN-17/T12): whether a config-driven substrate plugin has a
+    moment that is both post-config and pre-selection is an open question for
+    the owner of the plugin contract, and it is reported rather than settled
+    here.
 
     Lives here rather than on the facade because the refusal is real logic and
     `FunctualizeApp` has an executable-line budget that `test_facade_loc_limits`
@@ -1603,7 +1617,8 @@ def install_substrate(app: Any, substrate: Any) -> None:
         raise RuntimeError(
             "the substrate is already in use by this app's engine; installing "
             "another now would leave some of a run's documents in one backend "
-            "and some in the other. Set it during boot — a plugin's APP_READY "
-            "hook is the intended place."
+            "and some in the other. It has to be installed before boot selects "
+            "a store — an install during a run is always too late, and is "
+            "refused rather than ignored."
         )
     app._substrate = substrate

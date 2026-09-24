@@ -19,6 +19,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import BaseModel
 from tests._support.engine_run import register
+from tests._support.engine_storage import engine_storage
 
 from functualize._engine.executor import JobExecutionEngine
 from functualize._engine.middleware import ExecutionMiddlewareChain
@@ -42,6 +43,7 @@ def engine() -> JobExecutionEngine:
         event_bus=EventBus(),
         hook_registry=HookRegistry(),
         middleware_chain=ExecutionMiddlewareChain(),
+        **engine_storage(),
     )
 
 

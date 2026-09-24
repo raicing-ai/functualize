@@ -26,6 +26,7 @@ from functualize._engine.resolution import (
 from functualize._primitives.di import DIRegistry, MissingProviderError, Provide
 from functualize.job.capabilities import Invoke, JobContext, Log, Perf, Prompt, State
 from functualize.job.context import RunContext
+from tests._support.engine_storage import engine_storage
 
 # =============================================================================
 # Strategies
@@ -554,6 +555,7 @@ def _isolation_engine():
         event_bus=MagicMock(),
         hook_registry=MagicMock(),
         middleware_chain=MagicMock(),
+        **engine_storage(),
     )
 
 

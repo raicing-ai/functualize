@@ -13,6 +13,7 @@ from functualize._engine.executor import JobExecutionEngine
 from functualize._events.bus import EventBus
 from functualize._events.hooks import HookRegistry
 from tests._support.engine_run import run_job
+from tests._support.engine_storage import engine_storage
 
 
 class _EventRecorder:
@@ -44,6 +45,7 @@ def _make_engine() -> tuple[JobExecutionEngine, EventBus, _EventRecorder]:
         hook_registry=hook_registry,
         middleware_chain=middleware_chain,
         event_bus=event_bus,
+        **engine_storage(),
     )
     return engine, event_bus, recorder
 

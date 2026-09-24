@@ -22,6 +22,7 @@ from functualize._events.hooks import HookRegistry
 from functualize._events.middleware_stack import MiddlewareStack
 from functualize.job._middleware import MiddlewareRegistry
 from tests._support.engine_run import register
+from tests._support.engine_storage import engine_storage
 
 
 def _build_cli(app_mock, registry: JobRegistry) -> click.Group:
@@ -81,6 +82,7 @@ class TestJobExecuteInstrumentation:
             event_bus=app_mock.event_bus,
             hook_registry=HookRegistry(),
             middleware_chain=MiddlewareRegistry(),
+            **engine_storage(),
         )
         app_mock._execution_engine = engine
         app_mock.execution_engine = engine
@@ -206,6 +208,7 @@ class TestJobTeardownInstrumentation:
             event_bus=app_mock.event_bus,
             hook_registry=HookRegistry(),
             middleware_chain=MiddlewareRegistry(),
+            **engine_storage(),
         )
         app_mock._execution_engine = engine
         app_mock.execution_engine = engine

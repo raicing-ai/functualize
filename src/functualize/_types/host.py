@@ -300,16 +300,17 @@ class PluginHost(Protocol):
 
     @property
     def substrate(self) -> StoreSubstrate:
-        """The storage **in effect** — never ``None``, resolved on first ask.
+        """The storage **in effect** — never ``None``, boot's one selection.
 
         Renamed from the install slot by T3, which is what lets this member be
-        declared without ``| None``. The slot is ``substrate_override`` and is
-        the *engine's* business, so it is absent here.
+        declared without ``| None``. The slot is ``substrate_override`` and
+        FUN-17/T12 settled who reads it: **boot**, at step 6.5, which hands the
+        answer to the engine — so the slot is absent here.
         """
         ...
 
     def install_substrate(self, substrate: StoreSubstrate) -> None:
-        """Install a backend. Boot only — refused once the engine resolved one.
+        """Install a backend. Before boot selects a store — refused after.
 
         One client, ``functualize-substrate-sqlite``, which is below the two-client
         threshold the other members meet. Included anyway: without it that

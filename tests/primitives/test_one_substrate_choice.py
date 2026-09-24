@@ -45,7 +45,28 @@ SRC = Path(__file__).resolve().parents[2] / "src" / "functualize"
 
 
 @pytest.fixture
-def engine(tmp_path: Path) -> Any:
+def given(tmp_path: Path) -> JsonFileSubstrate:
+    """The substrate these tests hand the engine, as boot hands one over."""
+    return JsonFileSubstrate(tmp_path / "state")
+
+
+@pytest.fixture
+def runtime_store(given: JsonFileSubstrate) -> Any:
+    """The store boot step 6.5 selects, over the substrate this test hands over."""
+    from functualize._primitives.document_store import DocumentRuntimeStore
+
+    return DocumentRuntimeStore(given)
+
+
+@pytest.fixture
+def engine(tmp_path: Path, given: JsonFileSubstrate, runtime_store: Any) -> Any:
+    """An engine holding storage it was *given*, which is the only way now.
+
+    `substrate=` and `runtime_store=` because FUN-17/T12 deleted the property
+    that used to resolve one, made both arguments required, and left
+    `fresh_root` with nothing to answer — see
+    `tests/engine/test_engine_receives_its_store.py`.
+    """
     from functualize._engine.executor import JobExecutionEngine
     from functualize._engine.middleware import ExecutionMiddlewareChain
     from functualize._events.bus import EventBus
@@ -58,6 +79,8 @@ def engine(tmp_path: Path) -> Any:
         hook_registry=HookRegistry(),
         middleware_chain=ExecutionMiddlewareChain(),
         fresh_root=tmp_path,
+        runtime_store=runtime_store,
+        substrate=given,
     )
 
 
@@ -176,69 +199,47 @@ class TestTheChoiceIsNotCached:
         assert first.path_for("fresh") != second.path_for("fresh")
 
 
-class TestTheEngineResolvesOnce:
-    def test_the_engine_holds_one_substrate(self, engine: Any) -> None:
-        """Not cached globally — cached on the object with a run's lifetime.
+class TestTheEngineHoldsTheOneItWasGiven:
+    """Identity, not equality — and not a lookup per store.
 
-        A run touches the ledger, the records, the state inside them and the run
-        log. Resolving per store means four upward walks for one run, and once a
-        substrate is configurable it also means four chances to be told a
-        different answer halfway through.
-        """
-        assert engine.substrate is engine.substrate
-
-    def test_the_stores_it_builds_share_it(self, engine: Any) -> None:
-        substrate: Any = engine.substrate
-
-        assert engine._state_store().substrate is substrate  # noqa: SLF001
-        assert engine._scope_store().substrate is substrate  # noqa: SLF001
-
-
-class TestTheEngineHonoursAnInstalledOverride:
-    """The half of the seam that had no fast test.
-
-    `plugin-host-protocol`/T3 named `EngineHost.substrate_override` — and
-    making the engine ignore it entirely (`chosen = None`) left every test in
-    this file green. The only thing that noticed was
-    `tests/integration/test_substrate_durability.py`, which needs
-    `--run-slow`, spawns two worker processes and takes 14 s. A plugin's whole
-    reason for existing should not be covered only there.
+    A run touches the ledger, the records, the state inside them and the run
+    log. Resolving per store meant four chances to be told a different answer
+    halfway through; resolving *at all*, on first read, meant whichever asker
+    arrived first picked the answer (FUN-17/T11). The engine is handed its
+    substrate at construction, so the claim is now the stronger one: the object
+    it answers with is the object it was given. `substrate_for_project` builds
+    a fresh object per call, so a restored resolution returns storage that looks
+    right and is not this one — the split brain, one store at a time.
     """
 
-    def test_the_engine_uses_what_the_host_installed(self, tmp_path: Path) -> None:
-        from functualize._engine.executor import JobExecutionEngine
-        from functualize._engine.middleware import ExecutionMiddlewareChain
-        from functualize._events.bus import EventBus
-        from functualize._events.hooks import HookRegistry
-        from functualize._primitives.di import DIRegistry
+    def test_the_engine_answers_with_what_it_was_given(
+        self, engine: Any, given: JsonFileSubstrate
+    ) -> None:
+        assert engine.substrate is given
 
-        installed = JsonFileSubstrate(tmp_path / "installed")
+    def test_the_stores_it_builds_share_it(
+        self, engine: Any, given: JsonFileSubstrate
+    ) -> None:
+        assert engine._state_store().substrate is given  # noqa: SLF001
+        assert engine._scope_store().substrate is given  # noqa: SLF001
 
-        class _Host:
-            substrate_override = installed
-            fresh_root = tmp_path
 
-        engine = JobExecutionEngine(
-            di_registry=DIRegistry(),
-            event_bus=EventBus(),
-            hook_registry=HookRegistry(),
-            middleware_chain=ExecutionMiddlewareChain(),
-            fresh_root=tmp_path,
-            host=_Host(),  # type: ignore[arg-type]
-        )
+class TestTheInstallReachesTheEngine:
+    """The half of the seam that had no fast test.
 
-        assert engine.substrate is installed
+    `plugin-host-protocol`/T3 named the install slot, and making the engine
+    ignore it entirely (`chosen = None`) left every test in this file green. The
+    only thing that noticed was `tests/integration/test_substrate_durability.py`,
+    which needs `--run-slow`, spawns two worker processes and takes 14 s. A
+    plugin's whole reason for existing should not be covered only there.
 
-    def test_the_app_reports_what_a_plugin_installed(self, tmp_path: Path) -> None:
-        """Through the public door, which is what a plugin actually calls."""
-        from functualize.app import FunctualizeApp
-
-        installed = JsonFileSubstrate(tmp_path / "via-app")
-        app = FunctualizeApp("probe")
-        app.install_substrate(installed)
-
-        assert app.substrate_override is installed, "the slot holds it"
-        assert app.substrate is installed, "and it is the storage in effect"
+    T12 changed *who reads the slot*. The engine used to read it off its host on
+    first use, so a plugin's install took effect only if nothing had asked for
+    storage earlier — which is the hook-order dependence T11 measured. Boot
+    reads it once, at step 6.5, and hands the answer over: the fast version of
+    that claim is in `tests/engine/test_engine_receives_its_store.py`, and what
+    is left at this level is the app's own door.
+    """
 
     def test_a_late_install_is_refused_rather_than_half_applied(
         self, tmp_path: Path

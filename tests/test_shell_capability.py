@@ -16,6 +16,7 @@ from functualize._events.hooks import HookRegistry
 from functualize.job import Shell, ShellError, ShellResult
 from functualize.testing import FakeShell
 from tests._support.engine_run import run_job
+from tests._support.engine_storage import engine_storage
 
 
 @pytest.fixture
@@ -149,6 +150,7 @@ class TestShellProgram:
             middleware_chain=MagicMock(has_middleware=False),
             event_bus=EventBus(),
             host=_Host(),
+            **engine_storage(),
         )
         assert engine._resolve_shell_program() == "/bin/bash"
 
@@ -160,6 +162,7 @@ class TestShellProgram:
             hook_registry=HookRegistry(),
             middleware_chain=MagicMock(has_middleware=False),
             event_bus=EventBus(),
+            **engine_storage(),
         )
         assert engine._resolve_shell_program() is None
 
@@ -312,6 +315,7 @@ class TestDIInjection:
             hook_registry=HookRegistry(),
             middleware_chain=middleware_chain,
             event_bus=EventBus(),
+            **engine_storage(),
         )
 
     def test_shell_is_injected_and_runs(self) -> None:

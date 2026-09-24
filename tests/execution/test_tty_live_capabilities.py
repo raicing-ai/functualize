@@ -19,6 +19,7 @@ from functualize._engine.executor import JobExecutionEngine
 from functualize._engine.result import RegisteredJob
 from functualize._primitives.di import DIRegistry
 from functualize._types.errors import TerminalUnavailable
+from tests._support.engine_storage import engine_storage
 
 # --- TTY behavior -----------------------------------------------------------
 
@@ -121,6 +122,7 @@ def _make_engine() -> JobExecutionEngine:
         hook_registry=MagicMock(),
         middleware_chain=mw,
         event_bus=MagicMock(),
+        **engine_storage(),
     )
 
 

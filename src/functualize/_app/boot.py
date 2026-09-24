@@ -222,17 +222,22 @@ def _select_runtime_store(app: Any) -> tuple[RuntimeStore, StoreSubstrate]:
     """Boot step 6.5 — select and prepare the one runtime store, uncaught.
 
     FUN-17/T11. Today's selection is the only store that ships:
-    ``DocumentRuntimeStore`` over the project's substrate, resolved the way
-    the engine's lazy property used to resolve it — the host's installed
-    override when there is one, otherwise ``substrate_for_project``. A
-    factory registry and ``prepare()`` proper (migrations, a health check)
-    arrive with the backend plugins (FUN-19/FUN-22); what cannot wait for
-    them is the shape: the store exists **before** the engine is built, and
-    a failure here **aborts boot** — nothing catches it, which is the whole
-    of the B2 fix. Wrapping this step in a log-and-continue would reintroduce
-    the silent degradation it exists to remove, and must not change what an
-    ``APP_READY`` hook means: a failing *hook* is still caught by its own
-    loop, only selection is not catchable.
+    ``DocumentRuntimeStore`` over the project's substrate — the host's
+    installed override when a plugin left one, otherwise
+    ``substrate_for_project``. A factory registry and ``prepare()`` proper
+    (migrations, a health check) arrive with the backend plugins
+    (FUN-19/FUN-22); what cannot wait for them is the shape: the store exists
+    **before** the engine is built, and a failure here **aborts boot** —
+    nothing catches it, which is the whole of the B2 fix. Wrapping this step
+    in a log-and-continue would reintroduce the silent degradation it exists
+    to remove, and must not change what an ``APP_READY`` hook means: a failing
+    *hook* is still caught by its own loop, only selection is not catchable.
+
+    Since T12 this is the **only** place either answer is read. The engine
+    receives what this returns and has no resolution of its own, so a plugin
+    that installs a substrate after this point is refused rather than half
+    applied (``_app/impl.install_substrate``), and one that installs before it
+    — at plugin registration — is honoured on both paths.
 
     The substrate is selected in the same step and returned beside the
     store: the engine's freshness ledger and scope records still speak
@@ -265,11 +270,14 @@ def build_engine(
     :class:`~functualize._types.protocols.EngineHost` port of them.
 
     The engine **receives** its storage here rather than discovering it
-    (FUN-17/T11): ``runtime_store`` is the store step 6.5 selected, and
+    (FUN-17/T11 made that the shape; T12 deleted the resolution it used to
+    keep as a fallback): ``runtime_store`` is the store step 6.5 selected, and
     ``substrate`` is the same step's substrate — still needed separately
-    because the freshness ledger and scope records speak it (D-9), and
-    because T12's deletion of the engine's lazy property is only a deletion
-    if the value it would have discovered is already in hand.
+    because the freshness ledger and scope records speak it (D-9). Both are
+    keyword-only and required, so an engine cannot be built here without a
+    storage decision — nor anywhere else: `tests/engine/test_engine_receives_its_store.py`
+    holds the other half, that an engine built *elsewhere* without one is a
+    `TypeError` at the call rather than a resolution.
 
     Args:
         host: The app the engine belongs to, as the engine's port.
@@ -499,9 +507,11 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     # a store that cannot be prepared aborts boot (the B2 fix), and this
     # must not change what an APP_READY hook means — hooks further down are
     # still caught by their own loop. Sits after config resolution and the
-    # explicit plugins, before job registration, so an override installed at
-    # registration time is seen and one installed at APP_READY is not (that
-    # ordering change is T12's to pin).
+    # explicit plugins, before job registration, which is what decides a
+    # storage plugin here: an override installed at registration time is seen,
+    # and one installed at APP_READY is not — it arrives after the engine
+    # exists and is refused loudly (FUN-17/T12, pinned in
+    # tests/engine/test_engine_receives_its_store.py).
     store, substrate = _select_runtime_store(app)
 
     # Step 6.6 — build the engine WITH its storage: it receives the store
@@ -939,7 +949,10 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     # must not change what an APP_READY hook means — hooks further down are
     # still caught by their own loop. The window is ADR-027's: after config
     # resolves (and after the plugins that may install a substrate at
-    # registration time), before job registration — the first engine read.
+    # registration time), before job registration — the store exists before
+    # the engine, which is the last moment a storage plugin can be honoured.
+    # An install after this point is refused rather than half applied
+    # (FUN-17/T12).
     store, substrate = _select_runtime_store(app)
 
     # Step 6.6 — build the engine WITH its storage: it receives the store

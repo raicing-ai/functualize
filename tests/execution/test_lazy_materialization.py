@@ -32,6 +32,7 @@ from functualize._primitives import DIRegistry
 from functualize._types.descriptors import JobDescriptor, RegisteredJob
 from functualize._types.errors import JobMaterializationError
 from tests._support.engine_run import run_job
+from tests._support.engine_storage import engine_storage
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -62,6 +63,7 @@ def _make_engine(host: object | None = None) -> JobExecutionEngine:
         hook_registry=HookRegistry(),
         middleware_chain=ExecutionMiddlewareChain(),
         host=host,
+        **engine_storage(),
     )
 
 

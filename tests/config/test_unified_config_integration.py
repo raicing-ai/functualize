@@ -20,6 +20,7 @@ from functualize._engine.executor import JobExecutionEngine
 from functualize._engine.middleware import ExecutionMiddlewareChain
 from functualize._events.hooks import HookRegistry
 from tests._support.engine_run import register
+from tests._support.engine_storage import engine_storage
 
 if TYPE_CHECKING:
     import pytest
@@ -101,6 +102,7 @@ class TestCreateJobCommandConstructsJobConfigView:
             middleware_chain=ExecutionMiddlewareChain(),
             host=mock_app,
             config_view_factory=_config_view_factory,
+            **engine_storage(),
         )
         mock_app._execution_engine = engine
         mock_app.execution_engine = engine
@@ -235,6 +237,7 @@ class TestResolutionChainSharedInstance:
             middleware_chain=ExecutionMiddlewareChain(),
             host=mock_app,
             config_view_factory=_config_view_factory,
+            **engine_storage(),
         )
         mock_app._execution_engine = engine
         mock_app.execution_engine = engine
@@ -324,6 +327,7 @@ class TestEndToEndJobExecution:
             middleware_chain=ExecutionMiddlewareChain(),
             host=mock_app,
             config_view_factory=_config_view_factory,
+            **engine_storage(),
         )
         mock_app._execution_engine = engine
         mock_app.execution_engine = engine

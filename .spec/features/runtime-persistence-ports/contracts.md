@@ -107,8 +107,9 @@ today and must return `0`.
 
 **`substrate` is a second, separate argument and that is deliberate.** Deleting the lazy
 property removes the engine's only source for `StoreSubstrate`, which it still needs for
-two things that are not runtime truth: `FreshStore` (`executor.py:1544`) and `ScopeStore`
-(`executor.py:1565`). D-9 keeps `StoreSubstrate` alive for exactly those. Folding it into
+two things that are not runtime truth: `FreshStore`
+(`_primitives/fresh_store.py:68`) and `ScopeStore` (`_primitives/scope_store.py:109`).
+D-9 keeps `StoreSubstrate` alive for exactly those. Folding it into
 `RuntimeStore` would merge derived-fingerprint storage with runtime truth — the drift this
 initiative exists to prevent. Two arguments, two lifetimes, both injected.
 
@@ -157,9 +158,36 @@ with the signature. Pre-release stance applies regardless
 
 `app.install_substrate()` and the `substrate_override` slot keep working for the
 `FreshStore`/`ScopeStore` path. What changes is that the engine no longer *reads* them —
-`_app` does, at step 6.5, and passes the result in. A plugin that installs a substrate at
-`APP_READY` is now installing it **after** the engine was wired, which is a behaviour
-change a test must pin rather than a doc must mention. T12 owns it.
+`_app` does, at step 6.5, and passes the result in. **T12 completed that change and
+pinned it:**
+
+- The engine resolves nothing, and it cannot be *constructed* without storage: `runtime_store`
+  and `substrate` are required keyword-only arguments, so building one outside a boot without
+  naming them is a `TypeError` at that call — not a `None` discovered on the first write of a
+  run, and not a fallback to `substrate_for_project(self.fresh_root)` or the host's install
+  slot. That is spec AC-4's "impossible rather than merely unused", and it is what
+  `tests/engine/test_engine_receives_its_store.py` holds: the probes are built on an engine that
+  *has* a `fresh_root` and a host that *has* a `substrate_override`, so neither resolution can
+  come back unnoticed, plus an AST walk of `_engine/executor.py` for the two names — a restored
+  resolution is red, not merely unwritten.
+- **The window is a rule now:** a substrate must be installed before step 6.5 selects the
+  store. Boot reads the slot once, and `install_substrate` refuses anything later loudly.
+  Nothing is half-applied, and a dropped install cannot degrade silently into the
+  filesystem.
+- **Unsettled, and measured rather than assumed:** the shipped
+  `functualize-substrate-sqlite` installs at `APP_READY` — *after* step 6.5 — so its
+  install is now refused (and logged by the `APP_READY` hook loop, which continues). The
+  tests that boot it and assert the old behaviour are red for exactly that reason:
+  `tests/spec/test_a_substrate_plugin_loads_through_its_entry_point.py`,
+  `tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py`,
+  `tests/plugins/test_substrate_choice_is_not_hook_order.py`,
+  `tests/_cli/test_shell_mode.py`. Migrating the install into the plugin's registration
+  call fixes them, and that migration is **not** purely mechanical: on `boot_standard`,
+  registration runs before configuration resolves, so the plugin's
+  `plugin.substrate-sqlite.db_path` read finds nothing there and the database lands in the
+  default location. Where a config-driven substrate plugin may both read its config and
+  install in time is a plugin-contract question; it is reported (FUN-17/T12) and left open
+  rather than settled sideways in this feature's contract.
 
 ## 6. Verification
 
