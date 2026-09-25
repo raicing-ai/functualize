@@ -10,7 +10,7 @@ description: >
   real work, or when asked how to share or publish a skill.
 license: Apache-2.0
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
   project: functualize
 ---
 

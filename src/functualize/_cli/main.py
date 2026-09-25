@@ -2260,9 +2260,9 @@ def _run_cli() -> None:
     # mode takes the ones that configure *discovery and the process* and
     # rejects the three that configure *a run*:
     #
-    #     func --log-level ERROR      builtin version  -> functualize 0.3.0
-    #     func --config-directory /tmp builtin version -> functualize 0.3.0
-    #     func --exclude nothing.py   builtin version  -> functualize 0.3.0
+    #     func --log-level ERROR      builtin version  -> functualize 0.4.0
+    #     func --config-directory /tmp builtin version -> functualize 0.4.0
+    #     func --exclude nothing.py   builtin version  -> functualize 0.4.0
     #     func --emit-format json          builtin version  -> No such option
     #     func --force                builtin version  -> No such option
     #     func --prompt-gates         builtin version  -> No such option
