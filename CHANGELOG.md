@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `func builtin why` no longer exits 2 on a healthy job
+
+Found by a first-user rehearsal against the published 0.4.0 artifact. Asking
+`func builtin why <job>` about a job with no `@job` declaration printed the
+right verdict — `WOULD RUN` — and exited **2**, the code the documented
+exit-code table assigns to a usage or config error. The verdict was being
+returned through the explain pipeline's *error* channel, so the `--json`
+payload claimed `state: "unknown"` while simultaneously claiming
+`will_run: true`. `why` is the command the docs and the shipped skill point at
+when a job does not appear to run, so a scripted `func builtin why <job> && …`
+health check stopped its chain on a perfectly healthy job.
+
+The exit code now answers *"was the question answered about a runnable job?"*
+rather than *"is the job up to date?"*. Every answered verdict — would run,
+and every skip — exits 0; non-zero is reserved for what the table already
+means: 3 for a refusal or failed precondition, 5 for a job blocked at a gate,
+2 for a job that cannot be resolved. A declared-but-stale job had exited 4,
+appropriating `ExitCode.STALE`, which the table reserves for a `--check`
+stale-check failure and which the shipped skill's exit-code table says no
+current command produces; that claim is true again. The run/not-run
+distinction a script needs was always data — `will_run` and `state` in the
+`--json` payload, the headline in the prose — and still is. The composition
+guide, its doc-verify scenario, and the two example labs now teach that
+branch instead of the retired exit-4.
 ### Fixed — `func --help` offers the emit surface, and a bad `--emit-format` value says so
 
 A first-time author could not find out, from the keyboard, how a job's output

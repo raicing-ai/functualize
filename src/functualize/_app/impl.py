@@ -1005,9 +1005,11 @@ def explain_verdicts(app: Any, job_name: str) -> tuple[Any, list[Any], str, str 
     """The raw material behind `func builtin why`.
 
     Returns ``(target_verdict, [(dep_name, dep_verdict), …], note, error)``.
-    ``error`` is a rendered string for the two cases that have no verdict at
-    all — an unresolvable job, and one with no `@job` declaration — and is
-    None otherwise.
+    ``error`` is a rendered string for the one case that has no verdict at
+    all — an unresolvable job — and is None otherwise. A job without a
+    `@job` declaration is *not* that case: it gets a real ``RUN`` verdict,
+    because the question was answered and the answer is "would run, nothing
+    guards or caches it".
 
     Evaluates the same pre-flight pipeline the executor consults, so this
     can never describe a decision the run would not make. Evaluated fresh
@@ -1046,12 +1048,19 @@ def explain_verdicts(app: Any, job_name: str) -> tuple[Any, list[Any], str, str 
 
     declaration = getattr(entry.function, "__functualize_job__", None)
     if declaration is None:
+        # This is the healthy default, not an error: the job resolved, and
+        # the answer to "would it run?" is yes. Funneling it through the
+        # `error` return stamped the payload `state: "unknown"` and the
+        # process exit 2 — the usage-error code — so a scripted
+        # `func builtin why <job> && …` read a healthy job as a failure.
         return (
-            None,
+            GuardVerdict(
+                GuardState.RUN,
+                "no @job declaration — nothing guards or caches this job",
+            ),
             [],
             "",
-            f"{job_name} → WOULD RUN\n"
-            "  no @job declaration — nothing guards or caches this job",
+            None,
         )
 
     store = FreshStore(app.substrate)
@@ -1116,15 +1125,11 @@ def explain_verdicts(app: Any, job_name: str) -> tuple[Any, list[Any], str, str 
 def explain_data(app: Any, job_name: str) -> dict[str, Any]:
     """`func builtin why --json` — the same verdicts, as data.
 
-    `ExitCode.STALE` (4) has been pinned in `_types/exit_codes.py` since the
-    table was written, documented as "stale-check failure", and produced
-    **nowhere**: an inert surface of the same class as the `@job(matrix=…)`
-    kwarg this branch removed. `why` answers exactly the question that
-    number was reserved for, and answered it in prose with exit 0, so no
-    script could act on it. This gives the code its first producer.
-
     `exit_code` is in the payload as well as being the process's exit code,
     so a caller that captured stdout does not also have to capture ``$?``.
+    A script that needs the run/not-run distinction reads `will_run` or
+    `state` here rather than branching on the exit code, which stays 0 for
+    every answered verdict about a runnable job.
     """
     from functualize._engine.explain import explain_exit_code, model_name
     from functualize._types.exit_codes import ExitCode

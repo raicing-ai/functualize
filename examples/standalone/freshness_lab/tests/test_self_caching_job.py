@@ -175,7 +175,9 @@ class TestTheVerdictAndWhyAgree:
         # follows reads exactly that off its own verdict.
         stale = lab.run("builtin", "why", "lab.report")
         assert "WOULD RUN" in stale.stdout
-        assert stale.returncode == 4  # ExitCode.STALE — `why` exits on its verdict
+        # An answered verdict is a success, would-run included: the headline
+        # carries the run/not-run fact, not the exit code.
+        assert stale.returncode == 0
         cold = lab.ok("lab", "report")
         assert "state=run" in cold.stdout
 

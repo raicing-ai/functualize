@@ -105,27 +105,30 @@ def _name_of(model: object) -> str:
 def explain_exit_code(verdict: GuardVerdict) -> int:
     """The process exit code `func builtin why` should terminate with.
 
-    `ExitCode.STALE` (4) is pinned in `_types/exit_codes.py`, documented there
-    as "stale-check failure", and had **no producer anywhere in the codebase** —
-    an inert surface of the same class as the `@job(matrix=…)` kwarg this branch
-    removed. Taskfile's `task --status` is the feature that number was reserved
-    for; `why` was 90% of it and answered exit 0 for every outcome, so no script
-    could branch on it.
+    The exit code answers *"was the question answered about a runnable job?"*,
+    not *"is the job up to date?"*: a job that WOULD RUN is the healthy case,
+    and `why` is the command the docs point at when a job seems missing — a
+    scripted `func builtin why <job> && …` health check must not read it as a
+    failure. Whether the job would run or not is data, and it is in the
+    payload (`will_run`, `state`), not the exit code.
 
-    Deliberately reuses the *run* table's numbers for the outcomes it shares
-    with a run: a refusal is 3 whether you ask about it or trigger it, and a
-    blocked gate is 5. Inventing a second vocabulary for "what would happen"
-    versus "what happened" is how two tables drift.
+    Reuses the *run* table's numbers for the outcomes it shares with a run: a
+    refusal is 3 whether you ask about it or trigger it, and a blocked gate is
+    5. Inventing a second vocabulary for "what would happen" versus "what
+    happened" is how two tables drift.
+
+    `ExitCode.STALE` (4) is documented as the stale-check failure of `--check`
+    and, per the shipped skill's exit-code table, produced by no current
+    command; a diagnostic answering successfully is not that failure, so this
+    function does not produce it either.
     """
     from functualize._types.exit_codes import ExitCode
 
-    if verdict.state.is_skip:
-        return int(ExitCode.OK)
     if verdict.state in (GuardState.ERROR, GuardState.REFUSED):
         return int(ExitCode.REFUSED)
     if verdict.state is GuardState.BLOCKED:
         return int(ExitCode.BLOCKED)
-    return int(ExitCode.STALE)
+    return int(ExitCode.OK)
 
 
 def model_name(model: object) -> str | None:

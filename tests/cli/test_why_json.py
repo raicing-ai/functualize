@@ -1,15 +1,22 @@
-"""`func builtin why --json`, and the first producer of `ExitCode.STALE` (D-5).
+"""`func builtin why --json` exit codes: answered, not up to date.
 
-`ExitCode.STALE = 4` is pinned in `_types/exit_codes.py`, documented there as
-*"stale-check failure"*, in a module whose docstring calls the table *"a
-contract with scripts and agents"* — and it was **produced nowhere in the
-codebase**. An inert surface of exactly the class this branch removed
-`@job(matrix=...)` for.
+The exit code answers *"was the question answered about a runnable job?"*,
+not *"is the job up to date?"*. `why` is the command the shipped docs and
+skill point at when a job does not appear to run, and the skill's §5 has an
+agent invoke it verbatim — so `func builtin why <job> && …` in CI or a health
+check must read a healthy job as success. The run/not-run distinction is in
+the payload (`will_run`, `state`) and the prose headline, never the exit code.
 
-Taskfile's `task --status` is the feature that number was reserved for: ask
-whether a task is up to date, get a non-zero exit if it is not. `func builtin
-why` was 90% of it and answered prose with exit 0 for every outcome, so nothing
-could act on it without parsing English.
+The regression this file guards against had two halves, both found by the
+Discovery QA rehearsal on the published 0.4.0 artifact:
+
+- a job with no `@job` declaration — the healthy default — was routed
+  through `explain_verdicts`' *error* return, so the payload said
+  `state: "unknown"` and the process exited 2, the usage-error code, while
+  the prose said WOULD RUN;
+- a declared stale job exited 4 (`ExitCode.STALE`), a number the documented
+  table reserves for a `--check` stale-check *failure* and that the shipped
+  skill's exit-code table says no current command produces.
 
 The last test is the one that matters most. `why` exists to answer the same
 question the run answers, and the previous cycle's worst defect was `why`
@@ -60,6 +67,10 @@ def cached() -> None:
 )
 def gated() -> None:
     print("RAN gated")
+
+
+def plain() -> None:
+    print("RAN plain")
 """
 
 
@@ -95,18 +106,44 @@ def _why(project: Path, job: str) -> tuple[dict, int]:
     return json.loads(result.stdout), result.returncode
 
 
-def test_a_stale_job_exits_four(project: Path) -> None:
-    """`ExitCode.STALE`'s first producer, in the whole codebase."""
-    from functualize._types.exit_codes import ExitCode
+def test_a_stale_job_exits_zero(project: Path) -> None:
+    """A job that WOULD RUN is the healthy case, not a stale-check failure.
 
+    `ExitCode.STALE` (4) is documented as the `--check` stale-check failure and
+    the shipped skill's table says no command produces it; a diagnostic that
+    answered the question successfully must not borrow it. The stale/fresh
+    distinction a script needs is `will_run` in this payload.
+    """
     payload, code = _why(project, "y.cached")
 
     assert payload["will_run"] is True
-    assert code == 4
-    assert code == int(ExitCode.STALE)
+    assert payload["state"] == "run"
+    assert code == 0
+
+
+def test_a_job_with_no_declaration_exits_zero(project: Path) -> None:
+    """The rehearsal defect: `why` on a plain, healthy job exited 2.
+
+    A function with no `@job` declaration is the default kind of job, and the
+    answer to "would it run?" is yes — but it was returned through
+    `explain_verdicts`' *error* channel, so the payload claimed
+    `state: "unknown"` while saying `will_run: true`, and the process exited
+    with the usage-error code. `func builtin why <job> && …` in a health check
+    stopped the chain on a healthy job.
+    """
+    payload, code = _why(project, "y.plain")
+
+    assert payload["state"] == "run"
+    assert payload["will_run"] is True
+    assert "no @job declaration" in payload["reason"]
+    assert code == 0
+
+    prose = _run(project, "builtin", "why", "y.plain").stdout
+    assert "WOULD RUN" in prose, prose
 
 
 def test_a_fresh_job_exits_zero(project: Path) -> None:
+    """The would-not-run half of the contract, measured rather than implied."""
     assert "RAN cached" in _run(project, "y", "cached").stdout
 
     payload, code = _why(project, "y.cached")
