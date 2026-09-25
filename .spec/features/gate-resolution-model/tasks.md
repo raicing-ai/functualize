@@ -54,7 +54,13 @@ empties `.spec/features/`, so the test then skips.
 
 ## Wave 0 — vocabulary
 
-### [ ] T1 — resolution values
+### [x] T1 — resolution values
+
+**Completion note (T1).** Both gates measured `5`. Ruff's enforced TC001
+moves the `InputRequest` import under `TYPE_CHECKING` (annotation-only, repo
+convention), so the AST direction test asserts the load-bearing half —
+`persistence` names `gate_resolution` only deferred — and the one-way
+runtime-cycle question stays answered.
 
 *Files:* `src/functualize/_types/gate_resolution.py` (new), `tests/types/test_gate_resolution_values.py` (new)
 
@@ -82,7 +88,16 @@ rg -c '^    (ACCEPTED|INVALID|FAILED|UNAVAILABLE|NOT_REACHED) = ' src/functualiz
 ```
 now: `0` · after: `5`
 
-### [ ] T2 — the port amendment
+### [x] T2 — the port amendment
+
+**Completion note (T2).** Gates measured `3` / `2` / `3`. `mypy src/` is red
+in exactly two files, both protocol fallout this wave owns by design:
+`document_store.py` (3 errors — the backend catches up at T5) and
+`recording/workflow_recorder.py` (1 error — `SuspendAtGate.request_id` is
+supplied at T6). Neither was edited here. The `evaluations` keyword is typed
+`tuple[CandidateEvaluation, ...]` (strict mypy refuses a bare `tuple`); the
+message is unchanged. `tests/spec` tripwire reads 2 gates (< 12) — the
+disclosed red-until-T6 state.
 
 *Files:* `src/functualize/_types/persistence.py`, `src/functualize/_types/errors.py`, `tests/types/test_runtime_store_port.py`
 

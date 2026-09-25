@@ -35,7 +35,10 @@ from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from functualize._types.gate_resolution import GateCandidate
 
 __all__ = [
     "StoreProfile",
@@ -44,6 +47,7 @@ __all__ = [
     "CompleteStep",
     "SuspendAtGate",
     "ResumeWorkflow",
+    "ConsumeInput",
     "CancelWorkflow",
     "StateBatch",
     "StartAttempt",
@@ -199,11 +203,18 @@ class SuspendAtGate:
 
     Applying this moves the scope to ``blocked``; collecting the human or
     agent input happens outside any transaction.
+
+    ``request_id`` is the request's own identity, minted by the recorder
+    before this command is buffered — see :class:`InputWriter` for why the id
+    is the caller's and never the store's. ``model`` and ``tools`` are what an
+    answering agent needs to learn the question without importing the
+    declaring module: the model's class name and the gate's bound tool specs.
     """
 
     scope_id: str
     generation: int
     gate_name: str
+    request_id: str
     #: The node the scope stopped at.
     position: str
     now: datetime
@@ -211,6 +222,30 @@ class SuspendAtGate:
     schema: Any = None
     #: The prompt presented to whoever answers, opaque to the store.
     prompt: Any = None
+    #: The gate model's class name, for surfaces that answer without the module.
+    model: str = ""
+    #: The gate's bound tool specs — names, never values.
+    tools: tuple[Mapping[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class ConsumeInput:
+    """Mark a request's accepted answer as used by the walk.
+
+    Consumption has **one writer**: the walk that feeds the payload to the
+    gate's consumer. A deposit records that an answer exists; this command
+    records that the workflow moved on it — two different facts, which is why
+    accepting a candidate does not consume it and why a surface answering a
+    gate never issues this.
+
+    Idempotent by rule: consuming a request that is already consumed is a
+    no-op, so a replayed resume cannot fail for having done its work twice.
+    """
+
+    scope_id: str
+    generation: int
+    request_id: str
+    now: datetime
 
 
 @dataclass(frozen=True)
@@ -391,8 +426,14 @@ class InputRequest:
     (``consumed``, not a silent read): a replayed read is idempotent, but the
     moment an agent rather than a human can deposit a second candidate, "was
     this answer used?" stops being benign to leave unrecorded.
+
+    ``request_id`` is the request's identity, stable across resumes and
+    carries-able by a notification that points at it. A scope-and-gate pair
+    that is reopened does **not** reuse the id: the superseded request keeps
+    its own, and the new request mints a new one.
     """
 
+    request_id: str
     scope_id: str
     gate_name: str
     generation: int
@@ -548,12 +589,33 @@ class InputWriter(Protocol):
     Append-only in fact, not only in shape: a second candidate never overwrites
     the first (``contributor/reference/runtime-persistence-data-model.md`` §2.4
     — today's overwrite is the defect it
-    names). The request row itself is opened by ``SuspendAtGate``, and
-    accepting a candidate is ``WorkflowWriter.resume``'s job; neither is this
-    port's.
+    names). The request row itself is opened by ``SuspendAtGate``; accepting a
+    candidate is this port's job and consuming it is :meth:`consume`'s.
+
+    **Store rules, which every backend binds:**
+
+    - Appending to a request that is not ``open`` raises
+      ``InputRequestNotOpenError`` and applies **nothing** from the unit — an
+      answered or consumed request is never rewritten, and a refusal that
+      half-applied would be.
+    - An ``accepted`` candidate moves the request to ``accepted``. Consuming
+      it is a separate, later write.
+    - Consuming a request that is already ``consumed`` is a no-op, so a
+      replayed resume is idempotent.
+
+    **The ids are minted by the recorder, not the store.** This port
+    accumulates: a writer call buffers a command and issues nothing until the
+    unit commits, so a store-minted id could not be referenced by a later
+    command in the same batch — nothing has been written yet to mint it in.
+    The recorder mints both the request id (when the gate opens) and the
+    candidate id (at submission) before anything is buffered, which is what
+    lets one unit open a request, record its candidates and consume the
+    accepted one by name.
     """
 
-    def append(self, request_id: str, source: str, payload: Any = None) -> None: ...
+    def append(self, candidate: GateCandidate) -> None: ...
+
+    def consume(self, cmd: ConsumeInput) -> None: ...
 
 
 @runtime_checkable
@@ -632,11 +694,23 @@ class InputReader(Protocol):
     the workspace-wide question a human-facing surface asks ("what is waiting on
     me"). One OPEN request per scope, gate and generation is the invariant both
     read against.
+
+    :meth:`request` and :meth:`candidates_for` are the resolution read: a
+    notification or surface that holds a request id — which is the point of
+    the id — asks for the request and its candidates without knowing the
+    scope and gate it was opened for. The candidates come back with their
+    recorded evaluations and are **never re-validated**: the outcome is a
+    fact about submission time, and re-evaluating on read would make the
+    record drift with the model classes instead of preserving what happened.
     """
 
     def open_for(self, scope_id: str) -> InputRequest | None: ...
 
     def awaiting(self) -> Sequence[InputRequest]: ...
+
+    def request(self, request_id: str) -> InputRequest | None: ...
+
+    def candidates_for(self, request_id: str) -> Sequence[GateCandidate]: ...
 
 
 # ------------------------------------------------------------------

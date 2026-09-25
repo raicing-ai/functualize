@@ -10,6 +10,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from functualize._types.gate_resolution import CandidateEvaluation
     from functualize._types.protocols import AgentCapability
 
 
@@ -141,17 +142,53 @@ class GateResolutionError(Exception):
         gate_name: The name of the gate that failed resolution.
         strategies_attempted: The number of strategies that were tried.
         last_error: Description of the last error encountered.
+        evaluations: One :class:`CandidateEvaluation
+            <functualize._types.gate_resolution.CandidateEvaluation>` per rung
+            the ladder ran, in ladder order — the structured form of
+            ``last_error``, carried so the walk can record every rung's
+            outcome as candidates rather than only the folded text.
     """
 
     def __init__(
-        self, gate_name: str, strategies_attempted: int, last_error: str
+        self,
+        gate_name: str,
+        strategies_attempted: int,
+        last_error: str,
+        *,
+        evaluations: tuple[CandidateEvaluation, ...] = (),
     ) -> None:
         self.gate_name = gate_name
         self.strategies_attempted = strategies_attempted
         self.last_error = last_error
+        self.evaluations = evaluations
         super().__init__(
             f"Gate '{gate_name}': all {strategies_attempted} strategies failed. "
             f"Last error: {last_error}"
+        )
+
+
+class InputRequestNotOpenError(Exception):
+    """Raised when a candidate is appended to a request that is not open.
+
+    The refusal is what makes a recorded answer final: appending to an
+    ``accepted`` or ``consumed`` request would overwrite the answer the walk
+    already acted on, which is exactly the silent replacement the candidate
+    model exists to prevent. Nothing from the refused unit is applied, so the
+    refusal is a repeatable state a caller can report and a human can act on.
+
+    Attributes:
+        request_id: The request that was not open.
+        status: The status it was in instead — ``accepted``, ``consumed`` or
+            another terminal spelling, so the caller can name which answer
+            would have been replaced.
+    """
+
+    def __init__(self, request_id: str, status: str) -> None:
+        self.request_id = request_id
+        self.status = status
+        super().__init__(
+            f"Input request {request_id!r} is {status!r}, not open — a recorded "
+            "answer is never overwritten."
         )
 
 
