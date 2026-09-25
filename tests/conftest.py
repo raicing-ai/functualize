@@ -279,10 +279,15 @@ def _isolate_state_root(
     sandbox = sandbox_root / ".functualize"
 
     def _scoped(start: Path) -> Path | None:
+        # A query, and it must stay one: this used to `mkdir` the sandbox as a
+        # side effect of being asked, which turned every boot that merely
+        # *asked* where state lives (boot_standard's step 0.5) into one that
+        # created `.functualize/` — and a real walk elsewhere then saw project
+        # mode where the test built a standalone one (FUN-17/T12, TD-1 D4).
+        # Every writer creates its own parents, so nothing needs it made here.
         found = real_find(start)
         if found is not None and found.resolve().is_relative_to(sandbox_root):
             return found
-        sandbox.mkdir(parents=True, exist_ok=True)
         return sandbox
 
     monkeypatch.setattr(fresh_format, "find_functualize_dir", _scoped)

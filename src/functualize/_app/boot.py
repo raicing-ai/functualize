@@ -28,14 +28,16 @@ import re
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterator
+    from collections.abc import Collection, Iterator, Mapping
 
     from functualize._engine.executor import JobExecutionEngine
-    from functualize._types.protocols import EngineHost
+    from functualize._types.persistence import RuntimeStore, StoreProfile
+    from functualize._types.protocols import EngineHost, StoreSubstrate
 
 from functualize._app.environment import detect_environment
 from functualize._app.impl import build_resource_locator
@@ -50,7 +52,10 @@ from functualize._discovery.pipeline import ResolutionPipeline
 from functualize._discovery.providers import DirectoryScanProvider, StaticProvider
 from functualize._events import HookEvent
 from functualize._primitives.locator import ResourceLocator
-from functualize._types.errors import SubstrateInstallError
+from functualize._types.errors import (
+    RuntimeStoreCapabilityError,
+    SubstrateInstallError,
+)
 from functualize._types.from_job import declared_dependency_names
 
 logger = logging.getLogger(__name__)
@@ -217,7 +222,152 @@ def wire_entry_point_jobs(app: Any) -> None:
     app._resolution_pipeline.add_provider(EntryPointProvider())
 
 
-def build_engine(host: EngineHost) -> JobExecutionEngine:
+def _select_runtime_store(app: Any) -> tuple[RuntimeStore, StoreSubstrate]:
+    """Boot step 6.5 — select and prepare the one runtime store, uncaught.
+
+    FUN-17/T11. Today's selection is the only store that ships:
+    ``DocumentRuntimeStore`` over the project's substrate — the host's
+    installed override when a plugin left one, otherwise
+    ``substrate_for_project``. A factory registry and ``prepare()`` proper
+    (migrations, a health check) arrive with the backend plugins
+    (FUN-19/FUN-22); what cannot wait for them is the shape: the store exists
+    **before** the engine is built, and a failure here **aborts boot** —
+    nothing catches it, which is the whole of the B2 fix. Wrapping this step
+    in a log-and-continue would reintroduce the silent degradation it exists
+    to remove, and must not change what an ``APP_READY`` hook means: a failing
+    *hook* is still caught by its own loop, only selection is not catchable.
+
+    Since T12 this is the **only** place either answer is read. The engine
+    receives what this returns and has no resolution of its own, so a plugin
+    that installs a substrate after this point is refused rather than half
+    applied (``_app/impl.install_substrate``), and one that installs before it
+    — at plugin registration — is honoured on both paths. A plugin whose
+    choice reads its own config *offers* instead, and is asked here, first
+    thing (:func:`_resolve_substrate_claim`): configuration has resolved by
+    now on both paths, and the store has not been chosen.
+
+    The substrate is selected in the same step and returned beside the
+    store: the engine's freshness ledger and scope records still speak
+    ``StoreSubstrate`` (D-9), and one selection serving both is what keeps
+    them on one backend — folding the two into one argument would merge
+    derived-fingerprint storage with runtime truth, the drift this
+    initiative exists to prevent.
+    """
+    from functualize._primitives.document_store import DocumentRuntimeStore
+    from functualize._primitives.substrate import substrate_for_project
+
+    _resolve_substrate_claim(app)
+    substrate = app.substrate_override or substrate_for_project(app.fresh_root)
+    store = DocumentRuntimeStore(substrate)
+    # T13: the store's profile against what this configuration requires.
+    # Same refusal discipline as everything above — uncaught, no fallback.
+    check_required_capabilities(store.profile, _required_capabilities(app))
+    return store, substrate
+
+
+def _resolve_substrate_claim(app: Any) -> None:
+    """Settle who supplies this app's storage: one claimant, or none.
+
+    FUN-17/T12, decided in TD-1. Every install and every offer made during
+    plugin registration is a claim (``_app/impl.py``); this is the one site
+    that sees all of them, so it is where "two claimants" is caught — an eager
+    install plus an offer by the same rule as two offers.
+
+    **Two claims refuse; neither wins.** "First wins" would be plugin load
+    order deciding storage under another name, which is the accident
+    ``tests/plugins/test_substrate_choice_is_not_hook_order.py`` exists to
+    forbid. The refusal names every claimant so the operator knows what to
+    disable.
+
+    One offer is invoked here and its answer becomes the override that
+    :func:`_select_runtime_store` reads on the next line. **Uncaught**, like
+    the selection it belongs to: an offer that cannot build its substrate
+    aborts boot rather than degrading to the filesystem. That is why the call
+    lives here and not behind a config event — ``invoke_config_event`` logs a
+    failing hook and carries on, which is right for every config hook and
+    wrong for storage.
+    """
+    claims = getattr(app, "_substrate_claims", ())
+    if not claims:
+        return
+    if len(claims) > 1:
+        names = ", ".join(sorted(name for name, _ in claims))
+        raise SubstrateInstallError(
+            f"{len(claims)} plugins claim this project's storage ({names}). "
+            f"A project has one backend, and choosing between them here would "
+            f"make storage depend on plugin load order. Disable all but one "
+            f"(plugins.disabled in config, or uninstall the others)."
+        )
+    _name, offer = claims[0]
+    if offer is not None:
+        app._substrate = offer(app)
+
+
+@dataclass(frozen=True)
+class RequiredCapability:
+    """One capability this boot's configuration requires of its store.
+
+    FUN-17/T13. ``field`` is a ``StoreProfile`` attribute name, ``value`` is
+    what it must read, and ``config_key`` names the setting that declared the
+    requirement — carried beside the check because the refusal's reader asks
+    *"which setting do I change"*, and the store cannot answer that from its
+    own side.
+    """
+
+    field: str
+    value: bool | str | int | None
+    config_key: str
+    because: str = ""
+
+
+def check_required_capabilities(
+    profile: StoreProfile,
+    required: Mapping[str, RequiredCapability],
+) -> None:
+    """Raise for the first capability this configuration needs and lacks.
+
+    FUN-17/T13, acceptance criterion 3's second half. Runs inside boot step
+    6.5, against the selected store's own profile, and a refusal aborts
+    boot: there is no weaker store to fall back to, and falling back
+    silently is the failure mode ``StoreProfile`` exists to make impossible.
+    Fields are visited in sorted order, so which requirement refuses is a
+    property of the configuration rather than of the mapping's order.
+    """
+
+    for _field, requirement in sorted(required.items()):
+        actual = getattr(profile, requirement.field)
+        if actual != requirement.value:
+            raise RuntimeStoreCapabilityError(
+                store=profile.name,
+                field=requirement.field,
+                config_key=requirement.config_key,
+                needed=requirement.value,
+                actual=actual,
+                because=requirement.because,
+            )
+
+
+def _required_capabilities(app: Any) -> Mapping[str, RequiredCapability]:
+    """The capabilities this boot's configuration requires of its store.
+
+    Empty today, deliberately. No shipped configuration key implies a
+    capability the document store lacks, and inventing one to exercise the
+    check would add a config surface nobody asked for. The features that
+    declare requirements land their key here — resume across runners
+    (``multi_machine``), a durable-outbox consumer (``durable_outbox``), a
+    second process on the store (``multi_process``, FUN-19's SQLite) — and
+    the refusal fires the moment one of them is switched on against a store
+    that cannot serve it.
+    """
+    return {}
+
+
+def build_engine(
+    host: EngineHost,
+    *,
+    runtime_store: RuntimeStore,
+    substrate: StoreSubstrate,
+) -> JobExecutionEngine:
     """Construct the engine, complete, for the host that owns it.
 
     The **one** construction site. ``boot_static`` and ``boot_standard`` each
@@ -228,8 +378,20 @@ def build_engine(host: EngineHost) -> JobExecutionEngine:
     may read the app's own fields; the engine only ever receives the
     :class:`~functualize._types.protocols.EngineHost` port of them.
 
+    The engine **receives** its storage here rather than discovering it
+    (FUN-17/T11 made that the shape; T12 deleted the resolution it used to
+    keep as a fallback): ``runtime_store`` is the store step 6.5 selected, and
+    ``substrate`` is the same step's substrate — still needed separately
+    because the freshness ledger and scope records speak it (D-9). Both are
+    keyword-only and required, so an engine cannot be built here without a
+    storage decision — nor anywhere else: `tests/engine/test_engine_receives_its_store.py`
+    holds the other half, that an engine built *elsewhere* without one is a
+    `TypeError` at the call rather than a resolution.
+
     Args:
         host: The app the engine belongs to, as the engine's port.
+        runtime_store: The selected and prepared runtime store.
+        substrate: The substrate the store was selected over.
 
     Returns:
         The engine, ready to execute.
@@ -265,6 +427,8 @@ def build_engine(host: EngineHost) -> JobExecutionEngine:
         notifier_registry=app._notifier_registry,
         config_view_factory=_config_view_factory,
         config_resolver=resolve_job_config,
+        runtime_store=runtime_store,
+        substrate=substrate,
     )
     return engine
 
@@ -399,9 +563,6 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     # Initialize observability early so EventBus is available for the engine
     init_observability(app)
 
-    # Execution engine — one construction site, shared with boot_standard
-    app._execution_engine = build_engine(app)
-
     # Resolution pipeline with StaticProvider (zero I/O)
     app._resolution_pipeline = ResolutionPipeline()
     app._jobs_memo = None
@@ -430,14 +591,23 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
         plugin_name = getattr(plugin, "name", None)
         if plugin_name and plugin_name in disabled:
             continue
+        # Named while it registers, so a storage claim it makes is refused
+        # under the plugin's name rather than its callable's qualname.
+        app._registering_plugin = plugin_name or repr(plugin)
         try:
             plugin(app)
+        except SubstrateInstallError:
+            # A storage claim that fails has no safe default: logging and
+            # continuing would boot on the filesystem in silence.
+            raise
         except Exception as exc:
             plugin_name = plugin_name or repr(plugin)
             logger.warning(
                 f"Explicit plugin '{plugin_name}' raised during registration: {exc}"
             )
             continue
+        finally:
+            app._registering_plugin = None
         if plugin_name:
             app._plugin_name_index[plugin_name] = plugin
             app.plugin_loader._loaded_instances.append(plugin)
@@ -450,6 +620,21 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     from functualize._plugins.domain_registry import DomainRegistry
 
     app._domain_registry = DomainRegistry()
+
+    # Step 6.5 — select and prepare the runtime store. Uncaught on purpose:
+    # a store that cannot be prepared aborts boot (the B2 fix), and this
+    # must not change what an APP_READY hook means — hooks further down are
+    # still caught by their own loop. Sits after config resolution and the
+    # explicit plugins, before job registration, which is what decides a
+    # storage plugin here: an override installed at registration time is seen,
+    # and one installed at APP_READY is not — it arrives after the engine
+    # exists and is refused loudly (FUN-17/T12, pinned in
+    # tests/engine/test_engine_receives_its_store.py).
+    store, substrate = _select_runtime_store(app)
+
+    # Step 6.6 — build the engine WITH its storage: it receives the store
+    # and the substrate rather than discovering them.
+    app._execution_engine = build_engine(app, runtime_store=store, substrate=substrate)
 
     # Register jobs from static provider
     all_descriptors = app._resolution_pipeline.resolve_all()
@@ -514,6 +699,36 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     from functualize._plugins.config import PluginConfigRegistry
     from functualize._plugins.loader import PluginLoader
     from functualize._primitives.di import DIRegistry
+
+    # 0.5 Settle where this project keeps its runtime state, once, before
+    #     anything keys on the answer.
+    #
+    #     `resolve_fresh_location` reads the mode off the filesystem — a
+    #     `.functualize/` found walking upward means a declared project, its
+    #     absence means standalone — and creating that directory is what
+    #     switches between the two. Step 6.5 asks the same question through the
+    #     store's substrate, so a state directory that appears *mid-boot* moves
+    #     the answer under every asker that already asked: the discovery cache
+    #     is then written where the first answer said and looked for on the next
+    #     boot where the second one says. Measured on
+    #     `tests/integration/test_lazy_true_engine_materialization.py`: the
+    #     first boot wrote the cache to the platform cache, the second looked
+    #     under `.functualize/`, found nothing, and re-imported every job module
+    #     — a "warm" boot that materialized the whole registry, which is the
+    #     property those tests exist to defend.
+    #
+    #     Settling it here and deriving the cache's project root from it (see
+    #     the cached-provider wiring below) makes boot answer the question once.
+    #     Only this path needs it: `boot_static` wires no directory discovery,
+    #     so it has no cache location to key on the answer.
+    from functualize._primitives.fresh_format import resolve_fresh_location
+
+    _fresh_path, _fresh_mode, project_state_dir = resolve_fresh_location(app.fresh_root)
+    cache_project_root = (
+        project_state_dir.parent
+        if project_state_dir is not None
+        else Path.cwd().resolve()
+    )
 
     # Wire ResourceLocator based on mode detection (standalone vs declared)
     app._resource_locator = build_resource_locator()
@@ -618,9 +833,6 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     init_observability(app)
     app.event_bus.subscribe("interactivity.job.submit", app._on_job_submit_event)
 
-    # Execution engine — one construction site, shared with boot_static
-    app._execution_engine = build_engine(app)
-
     # Resolution pipeline for Provider/Transform architecture
     app._resolution_pipeline = ResolutionPipeline()
     app._jobs_memo = None
@@ -676,6 +888,11 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
         if app._lazy_boot:
             app._cached_provider = _build_cached_provider(
                 app._jobs_directories,
+                # Settled in step 0.5, not re-derived here: the mode this reads
+                # is the one the boot started in, and step 6.5's resolution must
+                # not be able to move it between the write below and the read on
+                # the next boot.
+                project_root=cache_project_root,
                 pre_filter=pre_filter,
                 job_filter=job_filter,
                 discovery_hash=discovery_hash,
@@ -844,6 +1061,21 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     perf_timeline.mark("boot.children.start")
     wire_children_to_pipeline(app)
     perf_timeline.mark("boot.children.end")
+
+    # Step 6.5 — select and prepare the runtime store. Uncaught on purpose:
+    # a store that cannot be prepared aborts boot (the B2 fix), and this
+    # must not change what an APP_READY hook means — hooks further down are
+    # still caught by their own loop. The window is ADR-027's: after config
+    # resolves (and after the plugins that may install a substrate at
+    # registration time), before job registration — the store exists before
+    # the engine, which is the last moment a storage plugin can be honoured.
+    # An install after this point is refused rather than half applied
+    # (FUN-17/T12).
+    store, substrate = _select_runtime_store(app)
+
+    # Step 6.6 — build the engine WITH its storage: it receives the store
+    # and the substrate rather than discovering them.
+    app._execution_engine = build_engine(app, runtime_store=store, substrate=substrate)
 
     # 8. Discover and register jobs via resolution pipeline
     perf_timeline.mark("boot.job_registration.start")

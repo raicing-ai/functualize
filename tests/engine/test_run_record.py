@@ -53,19 +53,46 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def engine(_project: Path) -> JobExecutionEngine:
+def substrate(_project: Path) -> Any:
+    """This project's substrate, as boot would hand one over.
+
+    T12 deleted the engine's own resolution, so an engine built here has to be
+    given the answer `substrate_for_project` would have produced for
+    `fresh_root` — which is what `ScopeStore.for_project` asks for, and what
+    the stores below then share.
+    """
+    return ScopeStore.for_project(_project).substrate
+
+
+@pytest.fixture
+def runtime_store(substrate: Any) -> Any:
+    """The store boot step 6.5 selects, built over the substrate above.
+
+    Both arguments are required (spec AC-4): an engine that named only one of
+    them would not be constructible, and this file's subject — that a run
+    leaves a record — needs the store written through anyway.
+    """
+    from functualize._primitives.document_store import DocumentRuntimeStore
+
+    return DocumentRuntimeStore(substrate)
+
+
+@pytest.fixture
+def engine(_project: Path, substrate: Any, runtime_store: Any) -> JobExecutionEngine:
     return JobExecutionEngine(
         di_registry=DIRegistry(),
         event_bus=EventBus(),
         hook_registry=HookRegistry(),
         middleware_chain=ExecutionMiddlewareChain(),
         fresh_root=_project,
+        runtime_store=runtime_store,
+        substrate=substrate,
     )
 
 
 @pytest.fixture
-def runs(engine: JobExecutionEngine) -> RunStore:
-    return RunStore(ScopeStore.for_project(engine.fresh_root).substrate)
+def runs(substrate: Any) -> RunStore:
+    return RunStore(substrate)
 
 
 class TestTheRecordOpensAndCloses:

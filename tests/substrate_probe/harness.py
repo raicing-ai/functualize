@@ -1,12 +1,10 @@
 """The ten probe questions, in one place (FUN-25 task 1.3).
 
-`StoreProfile` does not exist in this codebase — `rg -n "StoreProfile" src/
-plugins/ tests/ | wc -l` returns 0. It is a proposal owned by FUN-17
-(`contributor/architecture/research/durability-outsourcing/07-the-design.md:60-104`),
-and this ticket's job is to find out what real backends would make its fields
-say. So the questions below are transcribed from that proposal's twelve
-attributes minus its two labels (`name`, `description`), in its own order; the
-answers are measured here.
+`StoreProfile` was a FUN-17 proposal when this probe was written; FUN-17 has since
+frozen it in `src/functualize/_types/persistence.py` (`StoreProfile`, ADR-028). This
+ticket's job is to find out what real backends would make its fields say, so the
+questions below are transcribed from that proposal's twelve attributes minus its two
+labels (`name`, `description`), in its own order; the answers are measured here.
 
 **Shape, and why it is this shape.** Plain functions and frozen dataclasses.
 No ABC, no `ProbeBackend` base class, nothing for a backend to inherit — a

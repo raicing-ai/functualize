@@ -18,6 +18,7 @@ from functualize._events.hooks import HookRegistry
 # Keep at runtime: the DI engine resolves this annotation via get_type_hints.
 from functualize.job import Shell  # noqa: TC001
 from tests._support.engine_run import run_job
+from tests._support.engine_storage import engine_storage
 
 
 @pytest.fixture
@@ -103,6 +104,7 @@ class TestEngineOwnedUnwind:
             hook_registry=HookRegistry(),
             middleware_chain=middleware_chain,
             event_bus=EventBus(),
+            **engine_storage(),
         )
 
     def test_defers_run_on_success(self, tmp_path) -> None:

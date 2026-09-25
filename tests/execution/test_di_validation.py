@@ -27,6 +27,7 @@ from functualize._primitives.di import (
     Provide,
     ResolutionError,
 )
+from tests._support.engine_storage import engine_storage
 
 if TYPE_CHECKING:
     from functualize.job.capabilities import Log
@@ -73,6 +74,7 @@ def _make_engine(di_registry: DIRegistry | None = None) -> JobExecutionEngine:
         hook_registry=hook_registry,
         middleware_chain=middleware_chain,
         event_bus=event_bus,
+        **engine_storage(),
     )
     return engine
 

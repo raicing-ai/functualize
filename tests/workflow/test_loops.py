@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import BaseModel
+from tests._support.engine_storage import port_for
 
 from functualize._engine.frontier import step_key
 from functualize._engine.loop_state import iteration_step_key
@@ -400,7 +401,9 @@ class TestTheIterationKeyingIsRightBothWays:
     ) -> None:
         runner = _Recorder()
 
-        report = WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED, report
         assert runner.count("join") == 3, (
@@ -434,7 +437,13 @@ class TestTheBound:
     ) -> None:
         """`max_iterations` counts the first pass, and means *at most*."""
         runner = _Recorder()
-        WorkflowWalker(self._counting(bound), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._counting(bound),
+            store,
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
+        ).run()
         assert runner.count("work") == bound
 
     def test_a_bound_of_one_is_a_body_that_does_not_repeat(
@@ -442,7 +451,13 @@ class TestTheBound:
     ) -> None:
         """Legal, and occasionally what someone wants while switching it off."""
         runner = _Recorder()
-        WorkflowWalker(self._counting(1), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._counting(1),
+            store,
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
+        ).run()
         assert runner.count("work") == 1
 
     def test_there_is_no_default(self) -> None:
@@ -476,7 +491,9 @@ class TestTheBound:
                 Edge(source="work", target=END),
             ),
         )
-        WorkflowWalker(graph, store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            graph, store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
         assert runner.count("work") == 4
 
 
@@ -495,7 +512,9 @@ class TestTheCondition:
                 Edge(source="work", target=END),
             ),
         )
-        WorkflowWalker(graph, store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            graph, store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
         assert runner.count("work") == 2
 
     def test_it_is_given_the_sources_return_value(self, store: ScopeStore) -> None:
@@ -513,7 +532,13 @@ class TestTheCondition:
                 Edge(source="work", target=END),
             ),
         )
-        WorkflowWalker(graph, store, "s1", run_step=lambda n: f"{n}-value").run()
+        WorkflowWalker(
+            graph,
+            store,
+            "s1",
+            run_step=lambda n: f"{n}-value",
+            runtime_store=port_for(store),
+        ).run()
         assert seen == ["work-value"]
 
 
@@ -549,12 +574,22 @@ class TestResumeContinuesTheIteration:
         900 iterations' records on every resume.
         """
         runner = _Recorder()
-        first = WorkflowWalker(self._gated_loop(), store, "s1", run_step=runner).run()
+        first = WorkflowWalker(
+            self._gated_loop(),
+            store,
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
+        ).run()
         assert first.outcome is WalkOutcome.BLOCKED, first
 
         store.deposit_gate_payload("s1", "approve", {"text": "go"})
         resumed = WorkflowWalker(
-            self._gated_loop(), ScopeStore(store.substrate), "s1", run_step=runner
+            self._gated_loop(),
+            ScopeStore(store.substrate),
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
         ).run()
 
         assert "work" not in resumed.replayed, (
@@ -570,10 +605,20 @@ class TestResumeContinuesTheIteration:
         derivation was untested.
         """
         runner = _Recorder()
-        WorkflowWalker(self._gated_loop(), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._gated_loop(),
+            store,
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
+        ).run()
         store.deposit_gate_payload("s1", "approve", {"text": "go"})
         resumed = WorkflowWalker(
-            self._gated_loop(), ScopeStore(store.substrate), "s1", run_step=runner
+            self._gated_loop(),
+            ScopeStore(store.substrate),
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
         ).run()
 
         assert resumed.outcome is WalkOutcome.COMPLETED, resumed
@@ -596,11 +641,21 @@ class TestResumeContinuesTheIteration:
         deleted.
         """
         runner = _Recorder()
-        WorkflowWalker(self._gated_loop(), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._gated_loop(),
+            store,
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
+        ).run()
         store.deposit_gate_payload("s1", "approve", {"text": "go"})
 
         resumed = WorkflowWalker(
-            self._gated_loop(), ScopeStore(store.substrate), "s1", run_step=runner
+            self._gated_loop(),
+            ScopeStore(store.substrate),
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
         ).run()
 
         assert resumed.outcome is WalkOutcome.COMPLETED, (
@@ -616,7 +671,11 @@ class TestResumeContinuesTheIteration:
         of.
         """
         WorkflowWalker(
-            TestTheBound._counting(3), store, "s1", run_step=lambda n: n
+            TestTheBound._counting(3),
+            store,
+            "s1",
+            run_step=lambda n: n,
+            runtime_store=port_for(store),
         ).run()
 
         assert store.get_step("s1", iteration_step_key("work", 0)) is not None
@@ -638,7 +697,9 @@ class TestAGraphWithNoLoopIsUntouched:
             nodes=(Step("a"), Step("b")),
             edges=(Edge(source="a", target="b"), Edge(source="b", target=END)),
         )
-        WorkflowWalker(graph, store, "s1", run_step=lambda n: n).run()
+        WorkflowWalker(
+            graph, store, "s1", run_step=lambda n: n, runtime_store=port_for(store)
+        ).run()
 
         for name in ("a", "b"):
             assert store.get_step("s1", step_key(name, "")) is not None
@@ -656,5 +717,7 @@ class TestAGraphWithNoLoopIsUntouched:
                 Edge(source="join", target=END),
             ),
         )
-        WorkflowWalker(graph, store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            graph, store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
         assert runner.count("join") == 1

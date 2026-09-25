@@ -9,7 +9,8 @@ The honest version of this test is two machines and a network database, which a
 unit suite cannot run. So the property is reproduced the strongest way one
 machine allows: **the two processes have different working directories and
 different `.functualize/` directories**, and the only thing joining them is the
-substrate a plugin installed.
+substrate this project's config picks — `plugin.substrate-sqlite.db_path`,
+resolved by the shipped plugin's chooser when boot asks it.
 
 That is the real claim. The framework's own file layout — one upward walk to a
 `.functualize/`, `scopes.json` and `scope-state/` beside each other — is what a
@@ -85,21 +86,16 @@ def walk(log: Log) -> str:
 '''
 
 _MAIN = """
-import sys
-from pathlib import Path
-
 from functualize.app import FunctualizeApp, JobSources
 from functualize.app.adapters import CliAdapter
 
+# No substrate is installed here, and none can be: `FunctualizeApp.__init__`
+# boots, and boot step 6.5 builds the engine *with* the store it selects — so
+# an `install_substrate` after construction is refused by design. Storage is
+# chosen the way a user chooses it: `config.base.toml` names the plugin's
+# `db_path`, the shipped `substrate-sqlite` plugin offers its chooser at
+# registration, and boot asks it at 6.5.
 app = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
-
-# The substrate a plugin would install, installed here directly so the test
-# does not also depend on entry-point discovery. `install_substrate` is the
-# door; `APP_READY` is when a real plugin knocks on it.
-sys.path.insert(0, {plugin_src!r})
-from functualize_substrate_sqlite.substrate import SQLiteSubstrate
-
-app.install_substrate(SQLiteSubstrate({db!r}))
 
 adapter = CliAdapter()
 
@@ -109,15 +105,25 @@ if __name__ == "__main__":
 """
 
 
-def _worker(root: Path, db: Path, plugin_src: Path) -> Path:
+def _worker(root: Path, db: Path) -> Path:
     """A complete project, with its own `.functualize/` nobody else can see."""
     root.mkdir(parents=True)
     (root / ".functualize.toml").write_text(
         'jobs_directories = ["jobs"]\nroot = true\n'
     )
-    (root / "config.base.toml").write_text('[general]\napp_name = "w"\n')
+    # The only thing naming the substrate: the plugin's own config section,
+    # read by its chooser at step 6.5. The plugin is installed in this
+    # workspace's venv, so entry-point discovery loads it with nothing else
+    # to declare.
+    (root / "config.base.toml").write_text(
+        "[general]\n"
+        'app_name = "w"\n'
+        "\n"
+        "[plugin.substrate-sqlite]\n"
+        f"db_path = {json.dumps(str(db))}\n"
+    )
     (root / ".functualize").mkdir()
-    (root / "main.py").write_text(_MAIN.format(db=str(db), plugin_src=str(plugin_src)))
+    (root / "main.py").write_text(_MAIN)
     jobs = root / "jobs"
     jobs.mkdir()
     (jobs / "w.py").write_text(_JOBS)
@@ -146,11 +152,8 @@ def _run(project: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def two_workers(tmp_path: Path) -> tuple[Path, Path, Path]:
     db = tmp_path / "shared" / "state.db"
     db.parent.mkdir()
-    plugin_src = (
-        PROJECT_ROOT / "plugins" / "substrates" / "functualize-substrate-sqlite" / "src"
-    )
-    first = _worker(tmp_path / "worker-a", db, plugin_src)
-    second = _worker(tmp_path / "worker-b", db, plugin_src)
+    first = _worker(tmp_path / "worker-a", db)
+    second = _worker(tmp_path / "worker-b", db)
     return first, second, db
 
 

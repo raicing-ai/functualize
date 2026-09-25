@@ -21,6 +21,7 @@ from functualize._engine.resolution import (
 from functualize._primitives.di import DIRegistry, MissingProviderError, Provide
 from functualize.job.capabilities import Log, State
 from functualize.job.context import RunContext
+from tests._support.engine_storage import engine_storage
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
@@ -288,6 +289,7 @@ class TestEngineDIResolution:
             event_bus=MagicMock(),
             hook_registry=MagicMock(),
             middleware_chain=MagicMock(),
+            **engine_storage(),
         )
 
         def my_job(log: Log):
@@ -313,6 +315,7 @@ class TestEngineDIResolution:
             event_bus=MagicMock(),
             hook_registry=MagicMock(),
             middleware_chain=MagicMock(),
+            **engine_storage(),
         )
 
         def job(service: CustomService):
@@ -335,6 +338,7 @@ class TestEngineDIResolution:
             event_bus=MagicMock(),
             hook_registry=MagicMock(),
             middleware_chain=MagicMock(),
+            **engine_storage(),
         )
 
         def job(log: Log, state: State):
@@ -364,6 +368,7 @@ class TestEngineDIResolution:
             event_bus=MagicMock(),
             hook_registry=MagicMock(),
             middleware_chain=MagicMock(),
+            **engine_storage(),
         )
 
         def job(x, y: int, log: Log):
@@ -391,6 +396,7 @@ class TestEngineDIResolution:
             event_bus=MagicMock(),
             hook_registry=MagicMock(),
             middleware_chain=MagicMock(),
+            **engine_storage(),
         )
 
         def job(service: CustomService = None):  # type: ignore[assignment]
@@ -413,6 +419,7 @@ class TestEngineDIResolution:
             event_bus=MagicMock(),
             hook_registry=MagicMock(),
             middleware_chain=MagicMock(),
+            **engine_storage(),
         )
 
         def job(svc: CustomService | None):
@@ -434,6 +441,7 @@ class TestEngineDIResolution:
             event_bus=MagicMock(),
             hook_registry=MagicMock(),
             middleware_chain=MagicMock(),
+            **engine_storage(),
         )
 
         # Force the plan to think CustomService is registered (to get source="di")
@@ -457,6 +465,7 @@ class TestEngineDIResolution:
             event_bus=MagicMock(),
             hook_registry=MagicMock(),
             middleware_chain=MagicMock(),
+            **engine_storage(),
         )
 
         def job(rc: RunContext):
@@ -483,6 +492,7 @@ class TestEngineDIResolution:
             event_bus=MagicMock(),
             hook_registry=MagicMock(),
             middleware_chain=MagicMock(),
+            **engine_storage(),
         )
 
         def job(svc: Annotated[CustomService, Provide("secondary")]):
@@ -508,6 +518,7 @@ class TestEngineDIResolution:
             event_bus=MagicMock(),
             hook_registry=MagicMock(),
             middleware_chain=MagicMock(),
+            **engine_storage(),
         )
 
         def job(log: Log):

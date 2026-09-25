@@ -475,6 +475,11 @@ class EngineHost(Protocol):
         boot and every store the engine builds follows, so scope records and
         the job state inside them cannot end up in different backends.
 
+        Read by **boot** since FUN-17/T12 — step 6.5 takes this or the default
+        below and hands the result to the engine, which has no resolution of
+        its own. Until then the *engine* read it, lazily on first use, so an
+        install only took effect if nothing had asked for storage earlier.
+
         None means "resolve the filesystem default from :attr:`fresh_root`",
         which is what an app with no such plugin does. It is not an error and
         not a missing feature — it is the ordinary case.

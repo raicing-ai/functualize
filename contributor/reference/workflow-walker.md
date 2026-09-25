@@ -175,3 +175,52 @@ during Phase 3 implementation):
    positions so the walk survives observation and resumption.
 4. **(d) Per-scope step-result records** — one record type for replay-skip,
    branch-choice recording, persistent dedupe, and epilogue injection.
+
+## 10. A walk refused at the door: `HELD`
+
+A scope is claimed for the duration of a walk (`durable-run-layer`/T7), so a second walk on the
+same scope is refused before it starts. Since FUN-17/T14 that refusal is a **value the caller
+branches on**, not an exception, and it has its own outcome (`R-14.2`):
+
+- **`WalkOutcome.HELD`** (`_engine/workflow_walker.py:144`, documented at `:138-143`) means
+  *another runner held the scope before this walk started*. It is deliberately distinct from
+  `SUPERSEDED`, which is documented as *taken while running*: a `HELD` walk never ran and never
+  held the scope, so there is nothing to release and no `walk.end` event to suppress.
+- **Where it is produced.** `Walker.run` claims through the port (`workflow_walker.py:346`) and
+  branches on `Conflict` **before** its `try` (`:347`), returning
+  `WalkReport(HELD, scope_id, error="scope held by <owner> at generation <n>")` (`:352-359`). The
+  holder's name and the held generation ride the report's `error`, which is what `LeaseHeldError`
+  used to carry — now as data.
+- **How it reaches you.** `WorkflowRunner.prelude` sends every non-`COMPLETED` outcome down the
+  generic path (`workflow_runner.py:217-223`), and the orchestrator stamps
+  `metadata["workflow_status"] = run.outcome.value` (`workflow_orchestrator.py:219`). `BLOCKED`
+  becomes `RunStatus.BLOCKED` (`:239`); `HELD` falls through to `RunStatus.FAILURE` (`:246`). So a
+  resume of a held scope answers `"status": "failure"` (`app/_workflow_control.py:375-381`) with
+  `metadata["workflow_status"] == "held"` and the holder named in the raised error.
+
+**What a `HELD` refusal names, and what it does not.** `Conflict`
+(`_types/persistence.py:337-346`) carries `scope_id`, `held_by` and `held_generation` — and
+**no expiry**, although `Claimed` carries `expires_at` and the `LeaseHeldError` it replaced carried
+`expires_at` as well. The document backend's translation reads `held.owner` and re-reads the lease
+only for its generation (`_primitives/document_store.py:509-515`), so the expiry is dropped on the
+way through. A reader is told *who* holds the scope and *how stale they are*, never *until when*.
+
+That is not a reason to avoid resuming: it is why the verbs below exist.
+
+| The question | Where it is answered |
+|---|---|
+| Until when is it held? | `func builtin workflow reclaim <id>` — refuses a **live** lease with `"Workflow '<id>' is held by <owner> until <expires_at>. Cancel it if the holder should stop."` (`app/_workflow_control.py:485-490`; CLI at `_cli/builtins.py:1815`). This is the one surface that still answers the expiry question |
+| Is the holder even alive? | `func builtin workflow show <id>` — `state` is derived from the lease clock (`app/_workflow_view.py:196`, helpers at `:80` and `:105`): `running` versus `stalled`/`abandoned`. It reports liveness, **not** the holder — `_describe` (`:335-380`) projects no lease field, so the owner and expiry appear only in the raw scope document `store.get_scope()` returns |
+| It should stop now | `func builtin workflow cancel <id>` — takes the scope from a live holder with `force=True` (`app/_workflow_control.py:396-450`) |
+| It is gone, I want it | `func builtin workflow reclaim <id>` — takes the scope and immediately releases it, and says plainly that the previous runner was **not** stopped (`app/_workflow_control.py:492-530`) |
+
+Reading the lease directly is also available to callers: `read_lease` / `is_expired`
+(`_primitives/lease.py`), or `_lease_has_lapsed` and `walk_is_live`
+(`app/_workflow_view.py:80`, `:105`) — the latter stricter, because an **absent** lease is not an
+abandoned one.
+
+**Not fixed here.** Giving `Conflict` an expiry, or having the walk read the lease before refusing,
+is a change to the persistence port rather than to the walker, and it is recorded as an accepted
+surviving smell in `.spec/features/runtime-persistence-ports/plan.md` → *Surviving smells*. Until
+that decision is taken, the refusal stays as it is: a refusal that names the holder and defers the
+clock to the verbs that own it.

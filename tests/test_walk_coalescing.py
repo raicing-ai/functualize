@@ -16,6 +16,7 @@ import pytest
 from functualize._engine.frontier import END, FrontierWalk, GraphModel
 from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
+from tests._support.engine_storage import port_for
 
 # approve ──→ END
 LINEAR_GRAPH = GraphModel(entry="approve", edges={"approve": [END]})
@@ -45,7 +46,12 @@ def counting_saves(monkeypatch):
 
 class TestFrontierWritesOncePerCall:
     def test_block_writes_once_not_three_times(self, tmp_path, counting_saves):
-        walk = FrontierWalk(LINEAR_GRAPH, ScopeStore(JsonFileSubstrate(tmp_path)), "s1")
+        walk = FrontierWalk(
+            LINEAR_GRAPH,
+            ScopeStore(JsonFileSubstrate(tmp_path)),
+            "s1",
+            runtime_store=port_for(ScopeStore(JsonFileSubstrate(tmp_path))),
+        )
         counting_saves.clear()
 
         walk.block("approve", "approve_gate", model="", input_schema={})
@@ -56,7 +62,12 @@ class TestFrontierWritesOncePerCall:
         )
 
     def test_start_writes_once(self, tmp_path, counting_saves):
-        walk = FrontierWalk(LINEAR_GRAPH, ScopeStore(JsonFileSubstrate(tmp_path)), "s1")
+        walk = FrontierWalk(
+            LINEAR_GRAPH,
+            ScopeStore(JsonFileSubstrate(tmp_path)),
+            "s1",
+            runtime_store=port_for(ScopeStore(JsonFileSubstrate(tmp_path))),
+        )
         counting_saves.clear()
 
         walk.start("release")
@@ -70,7 +81,7 @@ class TestOutcomeIsUnchanged:
 
     def test_block_records_the_same_thing_it_always_did(self, tmp_path):
         store = ScopeStore(JsonFileSubstrate(tmp_path))
-        walk = FrontierWalk(LINEAR_GRAPH, store, "s1")
+        walk = FrontierWalk(LINEAR_GRAPH, store, "s1", runtime_store=port_for(store))
 
         walk.start("release")
         walk.block("approve", "approve_gate", model="gpt", input_schema={"a": 1})

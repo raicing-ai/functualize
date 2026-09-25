@@ -12,6 +12,7 @@ import pytest
 from functualize._engine.capabilities.shell import WiredShell
 from functualize.job import FailingResponder, Responder, ShellError
 from functualize.testing import FakeShell
+from tests._support.engine_storage import engine_storage
 
 
 @pytest.fixture
@@ -242,6 +243,7 @@ class TestSudo:
             middleware_chain=MagicMock(has_middleware=False),
             event_bus=EventBus(),
             host=_Host(),
+            **engine_storage(),
         )
         pw = engine._resolve_sudo_password()
         assert isinstance(pw, Secret)

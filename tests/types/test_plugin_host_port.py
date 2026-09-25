@@ -43,7 +43,8 @@ if TYPE_CHECKING:
 
 FIXTURE = Path(__file__).parent / "fixtures" / "plugin_host_conformance.py"
 
-#: The eleven members of `contracts.md` §1, in that document's order.
+#: The twelve members: `contracts.md` §1's eleven, in that document's order,
+#: then §2.1's `offer_substrate` (FUN-17/T12).
 PORT_MEMBERS = {
     "di",
     "extensions",
@@ -55,6 +56,7 @@ PORT_MEMBERS = {
     "execute",
     "substrate",
     "install_substrate",
+    "offer_substrate",
     "fresh_root",
 }
 
@@ -120,7 +122,7 @@ class TestTheShippedAppSatisfiesThePort:
 
 
 class TestThePortsShapeIsPinned:
-    def test_the_port_has_exactly_its_eleven_members(self) -> None:
+    def test_the_port_has_exactly_its_twelve_members(self) -> None:
         assert _members(PluginHost) == PORT_MEMBERS
 
     def test_the_excluded_members_stay_excluded(self) -> None:

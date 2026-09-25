@@ -73,6 +73,7 @@ __all__ = [
     "HooksView",
     "OnReadyHandler",
     "PluginHost",
+    "SubstrateOffer",
 ]
 
 
@@ -86,6 +87,16 @@ handlers that ship return None.
 
 A forward reference because :class:`PluginHost` is declared at the bottom of
 this module, after the views it names.
+"""
+
+
+SubstrateOffer: TypeAlias = Callable[["PluginHost"], "StoreSubstrate"]
+"""The shape of a deferred storage choice: takes the host, returns the substrate.
+
+Boot calls it once, at step 6.5, after configuration has resolved and before
+the store is selected — so the offer can read its own config and still decide
+storage. Its return value *is* the answer, which is why this is not
+:data:`OnReadyHandler`: a handler's result is discarded, an offer's is used.
 """
 
 
@@ -230,7 +241,7 @@ class PluginHost(Protocol):
     lifecycle events at the rest of the app, is not a narrowing of
     ``app: Any``; it is the same reach with a type on it.
 
-    Eleven members. What is *absent* is as deliberate as what is present:
+    Twelve members. What is *absent* is as deliberate as what is present:
 
     ``hook_registry``
         Four plugin clients, and refused. Seven public methods, of which four
@@ -300,21 +311,45 @@ class PluginHost(Protocol):
 
     @property
     def substrate(self) -> StoreSubstrate:
-        """The storage **in effect** — never ``None``, resolved on first ask.
+        """The storage **in effect** — never ``None``, boot's one selection.
 
         Renamed from the install slot by T3, which is what lets this member be
-        declared without ``| None``. The slot is ``substrate_override`` and is
-        the *engine's* business, so it is absent here.
+        declared without ``| None``. The slot is ``substrate_override`` and
+        FUN-17/T12 settled who reads it: **boot**, at step 6.5, which hands the
+        answer to the engine — so the slot is absent here.
         """
         ...
 
     def install_substrate(self, substrate: StoreSubstrate) -> None:
-        """Install a backend. Boot only — refused once the engine resolved one.
+        """Install a backend. Before boot selects a store — refused after.
 
-        One client, ``functualize-substrate-sqlite``, which is below the two-client
-        threshold the other members meet. Included anyway: without it that
-        plugin cannot adopt this port at all, and a port a shipped plugin
-        cannot adopt is not a port.
+        For a plugin whose choice needs **no configuration**: it can build its
+        substrate at registration and hand it over there. No shipped plugin is
+        such a plugin since FUN-17/T12 moved ``functualize-substrate-sqlite`` to
+        :meth:`offer_substrate`, so this member has no plugin client — kept for
+        the config-free case and because the app's own door is this one, and
+        recorded as a deviation from "sized to measured use" in ``plan.md`` →
+        *Surviving smells*. An install and an offer are both storage *claims*;
+        two claims refuse at selection rather than one winning.
+        """
+        ...
+
+    def offer_substrate(self, offer: SubstrateOffer) -> None:
+        """Offer a backend that boot asks for once configuration has resolved.
+
+        Called from a plugin's registration call. Boot invokes ``offer`` inside
+        step 6.5 — after the configuration chain exists, before the store is
+        selected — and uses what it returns; the plugin never names a boot
+        step. That is the window a *config-driven* substrate plugin needs and
+        :meth:`install_substrate` cannot give it, since on the standard path
+        registration runs before configuration resolves.
+
+        A storage member, not a lifecycle hook, and so not on
+        :class:`HooksView`: it registers a question boot will ask, and nothing
+        but that one selection site ever invokes it. A failure inside ``offer``
+        aborts boot — step 6.5 is deliberately uncaught — and more than one
+        claim (offers and installs alike) is refused with
+        ``SubstrateInstallError`` naming every claimant.
         """
         ...
 

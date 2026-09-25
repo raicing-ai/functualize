@@ -1,4 +1,4 @@
-"""The plugin: install a SQLite substrate, and nothing else.
+"""The plugin: offer a SQLite substrate, and nothing else.
 
 `store-substrate`/T5, T6.
 
@@ -42,7 +42,7 @@ DEFAULT_DB_NAME = "state.db"
 
 
 class SQLiteSubstratePlugin:
-    """Installs a :class:`SQLiteSubstrate` as the app's substrate at boot."""
+    """Offers a :class:`SQLiteSubstrate` as the app's substrate at boot."""
 
     name: str = "substrate-sqlite"
     version: str = "0.2.0"
@@ -53,31 +53,35 @@ class SQLiteSubstratePlugin:
 
     @property
     def substrate(self) -> SQLiteSubstrate | None:
-        """The substrate this plugin installed, or None before APP_READY."""
+        """The substrate this plugin chose, or None before boot asks for it."""
         return self._substrate
 
     def __call__(self, app: PluginHost) -> None:
-        app.hooks.on_ready(self._on_app_ready)
+        app.offer_substrate(self._choose_substrate)
 
-    def _on_app_ready(self, app: PluginHost) -> None:
-        """Choose the substrate, once, before anything has resolved one.
+    def _choose_substrate(self, app: PluginHost) -> SQLiteSubstrate:
+        """Build the substrate when boot asks — after config, before selection.
 
-        `APP_READY` is the right moment and not an arbitrary one: the engine
-        resolves its substrate lazily, on the first store access, which happens
-        during a run. Installing later is **refused** by the app rather than
-        allowed to half-apply — some of a run's documents in one backend and
-        some in the other is exactly the state this feature exists to make
-        unreachable.
+        **Offered at registration, built at step 6.5** (FUN-17/T12, decided in
+        TD-1). The one input this plugin has, ``plugin.substrate-sqlite.db_path``,
+        is configuration, and on the standard boot path registration runs
+        before configuration resolves; installing from ``__call__`` would read
+        nothing. ``APP_READY`` used to be the moment, while the engine resolved
+        its storage lazily on first use — since boot step 6.5 builds the engine
+        with its store, an ``APP_READY`` install is after the choice and is
+        refused. So the plugin *offers* and boot *asks*: the offer runs inside
+        the store selection, with the configuration chain already built, and
+        what it returns is the storage. The plugin never names a boot step.
 
-        **A failure to install is raised, not logged** (`plugin-taxonomy`/T7,
+        **A failure to build is raised, not logged** (`plugin-taxonomy`/T7,
         AC-4). This reverses an earlier decision, and the reversal is the point:
         the swallow read as "a working program with a note in the log rather
         than a boot that dies over a storage preference", which is only true if
         the fallback is harmless. It is not. A user who installed a storage
         plugin and silently got the filesystem has their project's data in a
-        place they did not choose and were not told about — and
-        `install_substrate`'s own refusal message says why that matters: some of
-        a run's documents in one backend and some in the other.
+        place they did not choose and were not told about — some of a run's
+        documents in one backend and some in the other. Step 6.5 does not catch
+        it, so it aborts boot.
 
         The log line was also unreachable as a diagnostic. The failure it hid
         was the ordering bug T7 fixes, and `logger.exception` at boot goes to a
@@ -90,10 +94,8 @@ class SQLiteSubstratePlugin:
             raise SubstrateInstallError(
                 f"could not initialize the SQLite substrate: {exc}"
             ) from exc
-        app.install_substrate(self._substrate)
-        logger.debug(
-            "substrate-sqlite installed a substrate at %s", self._substrate.path
-        )
+        logger.debug("substrate-sqlite chose a substrate at %s", self._substrate.path)
+        return self._substrate
 
     def _db_path(self, app: PluginHost) -> Path:
         """``plugin.substrate-sqlite.db_path``, or wherever this project's state goes.

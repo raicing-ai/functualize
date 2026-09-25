@@ -27,6 +27,7 @@ from functualize._events.hooks import HookEvent, HookRegistry
 from functualize._primitives import DIRegistry
 from functualize._types.enums import RunStatus
 from tests._support.engine_run import run_job
+from tests._support.engine_storage import engine_storage
 
 # Import the constrained function from a module WITHOUT `from __future__ import
 # annotations` so that _build_validation_model can inspect the Annotated metadata.
@@ -121,6 +122,7 @@ def _build_engine() -> tuple[JobExecutionEngine, HookRegistry]:
         event_bus=MagicMock(),
         hook_registry=hook_registry,
         middleware_chain=ExecutionMiddlewareChain(),
+        **engine_storage(),
     )
     return engine, hook_registry
 

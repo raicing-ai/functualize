@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from tests._support.engine_storage import engine_storage, port_for
 
 from functualize._engine.workflow_validation import (
     DEFAULT_MAX_WORKFLOW_DEPTH,
@@ -111,6 +112,7 @@ class TestTheWalkRefusesBeforeItWrites:
             "a::b::c::d",
             run_step=lambda name: name,
             max_workflow_depth=2,
+            runtime_store=port_for(store),
         )
         with pytest.raises(WorkflowDepthExceededError):
             walker.run()
@@ -128,6 +130,7 @@ class TestTheWalkRefusesBeforeItWrites:
             "a::b::c::d",
             run_step=lambda name: executed.append(name) or name,
             max_workflow_depth=2,
+            runtime_store=port_for(store),
         )
         with pytest.raises(WorkflowDepthExceededError):
             walker.run()
@@ -138,14 +141,24 @@ class TestTheWalkRefusesBeforeItWrites:
 
     def test_a_walk_within_the_limit_runs(self, store: ScopeStore) -> None:
         walker = WorkflowWalker(
-            _graph(), store, "a::b", run_step=lambda name: name, max_workflow_depth=2
+            _graph(),
+            store,
+            "a::b",
+            run_step=lambda name: name,
+            max_workflow_depth=2,
+            runtime_store=port_for(store),
         )
         assert walker.run().outcome.value == "completed"
 
     def test_a_top_level_walk_is_unaffected(self, store: ScopeStore) -> None:
         """The overwhelmingly common case must not pay for the guard."""
         walker = WorkflowWalker(
-            _graph(), store, "plain", run_step=lambda name: name, max_workflow_depth=0
+            _graph(),
+            store,
+            "plain",
+            run_step=lambda name: name,
+            max_workflow_depth=0,
+            runtime_store=port_for(store),
         )
         assert walker.run().outcome.value == "completed"
 
@@ -179,5 +192,11 @@ class TestNoSecondVocabulary:
         The walker stores `None` rather than substituting the default itself,
         so the number is not written twice and cannot drift.
         """
-        walker = WorkflowWalker(_graph(), None, "x", run_step=lambda n: n)
+        walker = WorkflowWalker(
+            _graph(),
+            None,
+            "x",
+            run_step=lambda n: n,
+            runtime_store=engine_storage()["runtime_store"],
+        )
         assert walker._max_workflow_depth is None

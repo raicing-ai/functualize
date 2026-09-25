@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import BaseModel
+from tests._support.engine_storage import port_for
 
 from functualize._engine.workflow_walker import (
     WalkOutcome,
@@ -94,14 +95,18 @@ class TestAnUndeclaredFailureIsUnchanged:
     def test_a_raising_step_stops_the_walk(self, store: ScopeStore) -> None:
         runner = _Runner("boom")
 
-        report = WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.FAILED, report
         assert report.failed_node == "boom"
 
     def test_nothing_downstream_runs(self, store: ScopeStore) -> None:
         runner = _Runner("boom")
-        WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
         assert runner.count("after") == 0, (
             f"the walk continued past a failure it was never told how to "
             f"route: {runner.calls}"
@@ -109,7 +114,9 @@ class TestAnUndeclaredFailureIsUnchanged:
 
     def test_the_scope_is_marked_failed(self, store: ScopeStore) -> None:
         runner = _Runner("boom")
-        WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         record = store.get_scope("s1")
         assert record is not None
@@ -118,19 +125,25 @@ class TestAnUndeclaredFailureIsUnchanged:
     def test_the_failing_step_is_recorded_as_failed(self, store: ScopeStore) -> None:
         """So a resume replays what succeeded and stops at the same place."""
         runner = _Runner("boom")
-        WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert store.get_step("s1", _key("boom"))["status"] == "failed"
         assert store.get_step("s1", _key("first"))["status"] == "success"
 
     def test_the_error_reaches_the_report(self, store: ScopeStore) -> None:
         runner = _Runner("boom")
-        report = WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
         assert "blew up" in (report.error or "")
 
     def test_the_position_is_the_failing_node(self, store: ScopeStore) -> None:
         runner = _Runner("boom")
-        WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         record = store.get_scope("s1")
         assert record is not None
@@ -155,7 +168,9 @@ class TestADeclaredFailureIsRouted:
     def test_the_route_is_taken(self, store: ScopeStore) -> None:
         runner = _Runner("boom")
 
-        report = WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED, report
         assert runner.count("cleanup") == 1
@@ -167,7 +182,9 @@ class TestADeclaredFailureIsRouted:
         recovery *and* the happy path, which is the worst of both.
         """
         runner = _Runner("boom")
-        WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
         assert runner.count("after") == 0, runner.calls
 
     def test_the_scope_is_not_marked_failed(self, store: ScopeStore) -> None:
@@ -191,7 +208,9 @@ class TestADeclaredFailureIsRouted:
             ),
         )
 
-        report = WorkflowWalker(graph, store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            graph, store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.BLOCKED, report
         record = store.get_scope("s1")
@@ -227,7 +246,9 @@ class TestADeclaredFailureIsRouted:
             seen.append((record or {}).get("status", "<none>"))
             return name
 
-        WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert seen and "failed" not in seen, (
             f"the scope read {seen} while the declared recovery was running — "
@@ -237,7 +258,9 @@ class TestADeclaredFailureIsRouted:
     def test_the_step_is_still_recorded_as_failed(self, store: ScopeStore) -> None:
         """It is what happened, and a resume replays to exactly this node."""
         runner = _Runner("boom")
-        WorkflowWalker(self._graph(), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert store.get_step("s1", _key("boom"))["status"] == "failed"
 
@@ -250,7 +273,9 @@ class TestADeclaredFailureIsRouted:
                 OnFailure(source="boom", target=END),
             ),
         )
-        report = WorkflowWalker(graph, store, "s1", run_step=_Runner("boom")).run()
+        report = WorkflowWalker(
+            graph, store, "s1", run_step=_Runner("boom"), runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED, report
 
@@ -261,7 +286,9 @@ class TestADeclaredFailureIsRouted:
         runner = _Runner("boom")
         graph = self._graph(when=lambda exc: isinstance(exc, KeyError))
 
-        report = WorkflowWalker(graph, store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            graph, store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.FAILED, report
         assert runner.count("cleanup") == 0
@@ -270,7 +297,9 @@ class TestADeclaredFailureIsRouted:
         runner = _Runner("boom")
         graph = self._graph(when=lambda exc: isinstance(exc, RuntimeError))
 
-        report = WorkflowWalker(graph, store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            graph, store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED, report
         assert runner.count("cleanup") == 1
@@ -279,7 +308,9 @@ class TestADeclaredFailureIsRouted:
         seen: list[BaseException] = []
         graph = self._graph(when=lambda exc: seen.append(exc) or True)
 
-        WorkflowWalker(graph, store, "s1", run_step=_Runner("boom")).run()
+        WorkflowWalker(
+            graph, store, "s1", run_step=_Runner("boom"), runtime_store=port_for(store)
+        ).run()
 
         assert len(seen) == 1
         assert "boom blew up" in str(seen[0])
@@ -315,13 +346,23 @@ class TestTheRouteIsRecordedNotReEvaluated:
         asked: list[str] = []
         runner = _Runner("boom")
 
-        first = WorkflowWalker(self._graph(asked), store, "s1", run_step=runner).run()
+        first = WorkflowWalker(
+            self._graph(asked),
+            store,
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
+        ).run()
         assert first.outcome is WalkOutcome.BLOCKED, first
         assert asked == ["asked"], asked
 
         store.deposit_gate_payload("s1", "hold", {"text": "go"})
         WorkflowWalker(
-            self._graph(asked), ScopeStore(store.substrate), "s1", run_step=runner
+            self._graph(asked),
+            ScopeStore(store.substrate),
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
         ).run()
 
         assert asked == ["asked"], (
@@ -333,11 +374,21 @@ class TestTheRouteIsRecordedNotReEvaluated:
         """Read, not merely skipped: the walk still goes where it decided."""
         asked: list[str] = []
         runner = _Runner("boom")
-        WorkflowWalker(self._graph(asked), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._graph(asked),
+            store,
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
+        ).run()
         store.deposit_gate_payload("s1", "hold", {"text": "go"})
 
         second = WorkflowWalker(
-            self._graph(asked), ScopeStore(store.substrate), "s1", run_step=runner
+            self._graph(asked),
+            ScopeStore(store.substrate),
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
         ).run()
 
         assert second.outcome is WalkOutcome.COMPLETED, second
@@ -362,9 +413,15 @@ class TestTheRouteIsRecordedNotReEvaluated:
                 ),
             ),
         )
-        WorkflowWalker(graph, store, "s1", run_step=_Runner("boom")).run()
         WorkflowWalker(
-            graph, ScopeStore(store.substrate), "s1", run_step=_Runner("boom")
+            graph, store, "s1", run_step=_Runner("boom"), runtime_store=port_for(store)
+        ).run()
+        WorkflowWalker(
+            graph,
+            ScopeStore(store.substrate),
+            "s1",
+            run_step=_Runner("boom"),
+            runtime_store=port_for(store),
         ).run()
 
         assert asked == ["asked"], asked
@@ -378,7 +435,9 @@ class TestTheRouteIsRecordedNotReEvaluated:
         graph = WorkflowDeclaration(
             nodes=(Step("boom"),), edges=(Edge(source="boom", target=END),)
         )
-        WorkflowWalker(graph, store, "s1", run_step=_Runner("boom")).run()
+        WorkflowWalker(
+            graph, store, "s1", run_step=_Runner("boom"), runtime_store=port_for(store)
+        ).run()
 
         record = store.get_scope("s1")
         assert record is not None

@@ -27,6 +27,7 @@ from functualize._types.workflow import (
     Step,
     WorkflowDeclaration,
 )
+from tests._support.engine_storage import port_for
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -114,7 +115,9 @@ class TestGraphCompilation:
 class TestLinearWalk:
     def test_runs_every_step_in_order(self, store: ScopeStore) -> None:
         runner = Recorder()
-        report = WorkflowWalker(_linear(), store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            _linear(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED
         assert report.ok
@@ -124,7 +127,9 @@ class TestLinearWalk:
 
     def test_completion_is_persisted(self, store: ScopeStore) -> None:
         """A finished walk leaves no position and a completed status."""
-        WorkflowWalker(_linear(), store, "s1", run_step=Recorder()).run()
+        WorkflowWalker(
+            _linear(), store, "s1", run_step=Recorder(), runtime_store=port_for(store)
+        ).run()
 
         scope = store.get_scope("s1")
         assert scope is not None
@@ -134,7 +139,12 @@ class TestLinearWalk:
     def test_workflow_name_is_recorded_for_observers(self, store: ScopeStore) -> None:
         """MCP lists scopes by the workflow they belong to."""
         WorkflowWalker(
-            _linear(), store, "s1", run_step=Recorder(), workflow_name="trip_planner"
+            _linear(),
+            store,
+            "s1",
+            run_step=Recorder(),
+            workflow_name="trip_planner",
+            runtime_store=port_for(store),
         ).run()
         scope = store.get_scope("s1")
         assert scope is not None
@@ -145,7 +155,11 @@ class TestLinearWalk:
     ) -> None:
         runner = Recorder()
         report = WorkflowWalker(
-            WorkflowDeclaration(), store, "s1", run_step=runner
+            WorkflowDeclaration(),
+            store,
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
         ).run()
         assert report.outcome is WalkOutcome.COMPLETED
         assert runner.calls == []
@@ -154,7 +168,9 @@ class TestLinearWalk:
 class TestGateBlocking:
     def test_walk_blocks_at_a_gate_with_no_input(self, store: ScopeStore) -> None:
         runner = Recorder()
-        report = WorkflowWalker(_gated(), store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            _gated(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.BLOCKED
         assert report.blocked_on == "preferences"
@@ -164,7 +180,9 @@ class TestGateBlocking:
 
     def test_block_persists_position_status_and_schema(self, store: ScopeStore) -> None:
         """Everything a different process needs to observe and resume the walk."""
-        WorkflowWalker(_gated(), store, "s1", run_step=Recorder()).run()
+        WorkflowWalker(
+            _gated(), store, "s1", run_step=Recorder(), runtime_store=port_for(store)
+        ).run()
 
         scope = store.get_scope("s1")
         assert scope is not None
@@ -184,13 +202,17 @@ class TestResume:
 
     def test_full_block_resume_complete_cycle(self, store: ScopeStore) -> None:
         first = Recorder()
-        blocked = WorkflowWalker(_gated(), store, "s1", run_step=first).run()
+        blocked = WorkflowWalker(
+            _gated(), store, "s1", run_step=first, runtime_store=port_for(store)
+        ).run()
         assert blocked.outcome is WalkOutcome.BLOCKED
 
         store.deposit_gate_payload("s1", "preferences", {"budget": "high"})
 
         second = Recorder()
-        resumed = WorkflowWalker(_gated(), store, "s1", run_step=second).run()
+        resumed = WorkflowWalker(
+            _gated(), store, "s1", run_step=second, runtime_store=port_for(store)
+        ).run()
 
         assert resumed.outcome is WalkOutcome.COMPLETED
         # The pre-gate step is memoized; only the post-gate step actually runs.
@@ -205,20 +227,30 @@ class TestResume:
         skipped, but everything reading its result sees None.
         """
         WorkflowWalker(
-            _gated(), store, "s1", run_step=Recorder({"forecast": "sunny"})
+            _gated(),
+            store,
+            "s1",
+            run_step=Recorder({"forecast": "sunny"}),
+            runtime_store=port_for(store),
         ).run()
         store.deposit_gate_payload("s1", "preferences", {"budget": "high"})
 
-        resumed = WorkflowWalker(_gated(), store, "s1", run_step=Recorder()).run()
+        resumed = WorkflowWalker(
+            _gated(), store, "s1", run_step=Recorder(), runtime_store=port_for(store)
+        ).run()
         assert resumed.results["forecast"] == "sunny"
         assert resumed.results["preferences"] == {"budget": "high"}
 
     def test_resuming_a_completed_scope_is_a_no_op(self, store: ScopeStore) -> None:
         """Body-once-per-scope depends on this (§A.7)."""
-        WorkflowWalker(_linear(), store, "s1", run_step=Recorder()).run()
+        WorkflowWalker(
+            _linear(), store, "s1", run_step=Recorder(), runtime_store=port_for(store)
+        ).run()
 
         again = Recorder()
-        report = WorkflowWalker(_linear(), store, "s1", run_step=again).run()
+        report = WorkflowWalker(
+            _linear(), store, "s1", run_step=again, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED
         assert again.calls == []
@@ -226,20 +258,28 @@ class TestResume:
 
     def test_a_still_blocked_gate_blocks_again(self, store: ScopeStore) -> None:
         """Re-invoking without depositing input must not slip past the gate."""
-        WorkflowWalker(_gated(), store, "s1", run_step=Recorder()).run()
+        WorkflowWalker(
+            _gated(), store, "s1", run_step=Recorder(), runtime_store=port_for(store)
+        ).run()
 
         second = Recorder()
-        report = WorkflowWalker(_gated(), store, "s1", run_step=second).run()
+        report = WorkflowWalker(
+            _gated(), store, "s1", run_step=second, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.BLOCKED
         assert second.calls == []
 
     def test_scopes_are_independent(self, store: ScopeStore) -> None:
         """A fresh invocation gets a fresh scope and re-runs everything."""
-        WorkflowWalker(_linear(), store, "s1", run_step=Recorder()).run()
+        WorkflowWalker(
+            _linear(), store, "s1", run_step=Recorder(), runtime_store=port_for(store)
+        ).run()
 
         other = Recorder()
-        WorkflowWalker(_linear(), store, "s2", run_step=other).run()
+        WorkflowWalker(
+            _linear(), store, "s2", run_step=other, runtime_store=port_for(store)
+        ).run()
         assert other.calls == ["forecast", "travel-plan"]
 
 
@@ -270,7 +310,11 @@ class TestBranchStability:
         self, store: ScopeStore
     ) -> None:
         WorkflowWalker(
-            self._branching(lambda _: "go"), store, "s1", run_step=Recorder()
+            self._branching(lambda _: "go"),
+            store,
+            "s1",
+            run_step=Recorder(),
+            runtime_store=port_for(store),
         ).run()
         assert store.get_branch("s1", "check") == "go"
 
@@ -282,13 +326,17 @@ class TestBranchStability:
         answers = iter(["stop", "go", "go", "go"])
         declaration = self._branching(lambda _: next(answers))
 
-        blocked = WorkflowWalker(declaration, store, "s1", run_step=Recorder()).run()
+        blocked = WorkflowWalker(
+            declaration, store, "s1", run_step=Recorder(), runtime_store=port_for(store)
+        ).run()
         assert blocked.blocked_on == "approval"
 
         store.deposit_gate_payload("s1", "approval", {"budget": "low"})
 
         runner = Recorder()
-        resumed = WorkflowWalker(declaration, store, "s1", run_step=runner).run()
+        resumed = WorkflowWalker(
+            declaration, store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert resumed.outcome is WalkOutcome.COMPLETED
         # Followed "stop" again, despite the condition now saying "go".
@@ -310,11 +358,15 @@ class TestBranchStability:
             return "stop"
 
         declaration = self._branching(condition)
-        WorkflowWalker(declaration, store, "s1", run_step=Recorder()).run()
+        WorkflowWalker(
+            declaration, store, "s1", run_step=Recorder(), runtime_store=port_for(store)
+        ).run()
         assert len(calls) == 1
 
         store.deposit_gate_payload("s1", "approval", {"budget": "low"})
-        WorkflowWalker(declaration, store, "s1", run_step=Recorder()).run()
+        WorkflowWalker(
+            declaration, store, "s1", run_step=Recorder(), runtime_store=port_for(store)
+        ).run()
         assert len(calls) == 1
 
     def test_the_condition_receives_the_source_return_value(
@@ -331,6 +383,7 @@ class TestBranchStability:
             store,
             "s1",
             run_step=Recorder({"check": {"status": "green"}}),
+            runtime_store=port_for(store),
         ).run()
         assert seen == [{"status": "green"}]
 
@@ -338,7 +391,11 @@ class TestBranchStability:
         """A condition returning a key with no target has nowhere to go."""
         runner = Recorder()
         report = WorkflowWalker(
-            self._branching(lambda _: "nonsense"), store, "s1", run_step=runner
+            self._branching(lambda _: "nonsense"),
+            store,
+            "s1",
+            run_step=runner,
+            runtime_store=port_for(store),
         ).run()
         assert report.outcome is WalkOutcome.COMPLETED
         assert runner.calls == ["check"]
@@ -349,7 +406,9 @@ class TestFailure:
         def boom(name: str) -> Any:
             raise RuntimeError("no network")
 
-        report = WorkflowWalker(_linear(), store, "s1", run_step=boom).run()
+        report = WorkflowWalker(
+            _linear(), store, "s1", run_step=boom, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.FAILED
         assert report.failed_node == "forecast"
@@ -366,7 +425,9 @@ class TestFailure:
                 raise RuntimeError("boom")
             return None
 
-        WorkflowWalker(_gated(), store, "s1", run_step=flaky).run()
+        WorkflowWalker(
+            _gated(), store, "s1", run_step=flaky, runtime_store=port_for(store)
+        ).run()
 
         assert calls == ["forecast"]
         scope = store.get_scope("s1")
@@ -386,10 +447,16 @@ class TestFailure:
             return None
 
         assert (
-            WorkflowWalker(_linear(), store, "s1", run_step=once).run().outcome
+            WorkflowWalker(
+                _linear(), store, "s1", run_step=once, runtime_store=port_for(store)
+            )
+            .run()
+            .outcome
             is WalkOutcome.FAILED
         )
-        report = WorkflowWalker(_linear(), store, "s1", run_step=once).run()
+        report = WorkflowWalker(
+            _linear(), store, "s1", run_step=once, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED
         assert attempts == ["forecast", "forecast", "travel-plan"]
@@ -412,7 +479,9 @@ class TestFanOut:
 
     def test_both_branches_run(self, store: ScopeStore) -> None:
         runner = Recorder()
-        report = WorkflowWalker(self._diamond(), store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            self._diamond(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED
         assert set(runner.calls) == {"start", "left", "right", "join"}
@@ -452,7 +521,9 @@ class TestFanOut:
             ),
         )
         runner = Recorder({"pick": "left"})
-        report = WorkflowWalker(declaration, store, "s-cond", run_step=runner).run()
+        report = WorkflowWalker(
+            declaration, store, "s-cond", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED
         assert "join" in runner.calls, "the join must not deadlock"
@@ -461,7 +532,9 @@ class TestFanOut:
     def test_a_join_runs_once(self, store: ScopeStore) -> None:
         """Reached from both branches, but it is one node."""
         runner = Recorder()
-        WorkflowWalker(self._diamond(), store, "s1", run_step=runner).run()
+        WorkflowWalker(
+            self._diamond(), store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
         assert runner.calls.count("join") == 1
 
     def test_a_join_waits_for_the_longer_branch(self, store: ScopeStore) -> None:
@@ -490,7 +563,9 @@ class TestFanOut:
             ),
         )
         runner = Recorder()
-        report = WorkflowWalker(declaration, store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            declaration, store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED
         assert runner.calls.index("join") > runner.calls.index("a3")
@@ -510,7 +585,9 @@ class TestFanOut:
             ),
         )
         runner = Recorder()
-        report = WorkflowWalker(declaration, store, "s1", run_step=runner).run()
+        report = WorkflowWalker(
+            declaration, store, "s1", run_step=runner, runtime_store=port_for(store)
+        ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED
         assert set(runner.calls) == {"a", "b"}

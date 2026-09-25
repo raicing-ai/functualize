@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
+from tests._support.engine_storage import port_for
 
 from functualize._engine.workflow_validation import (
     WorkflowGraphChangedError,
@@ -73,7 +74,13 @@ def store(tmp_path: Path) -> ScopeStore:
 
 
 def _walk(declaration: WorkflowDeclaration, store: ScopeStore) -> WorkflowWalker:
-    return WorkflowWalker(declaration, store, "wf", run_step=lambda name: name)
+    return WorkflowWalker(
+        declaration,
+        store,
+        "wf",
+        run_step=lambda name: name,
+        runtime_store=port_for(store),
+    )
 
 
 class TestTheDigestIsOverTheGraph:
@@ -177,6 +184,7 @@ class TestAnUnrelatedChangeInTheSameFileIsFine:
             store,
             "wf",
             run_step=lambda name: f"{name}-rewritten-implementation",
+            runtime_store=port_for(store),
         )
         rebuilt.run()  # must not raise
 

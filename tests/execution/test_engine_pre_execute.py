@@ -15,6 +15,7 @@ from functualize._events.hooks import HookDecision, HookEvent, HookRegistry
 from functualize._events.middleware_stack import MiddlewareStack
 from functualize._types.enums import RunStatus
 from tests._support.engine_run import run_job
+from tests._support.engine_storage import engine_storage
 
 
 def _make_app() -> MagicMock:
@@ -46,6 +47,7 @@ class TestEnginePreExecuteBlock:
             event_bus=MagicMock(),
             hook_registry=hook_registry,
             middleware_chain=ExecutionMiddlewareChain(),
+            **engine_storage(),
         )
 
         hook_registry.register_global(
@@ -71,6 +73,7 @@ class TestEnginePreExecuteBlock:
             event_bus=MagicMock(),
             hook_registry=hook_registry,
             middleware_chain=ExecutionMiddlewareChain(),
+            **engine_storage(),
         )
 
         teardown_called = []
@@ -97,6 +100,7 @@ class TestEnginePreExecuteBlock:
             event_bus=MagicMock(),
             hook_registry=hook_registry,
             middleware_chain=ExecutionMiddlewareChain(),
+            **engine_storage(),
         )
 
         before_job_called = []
@@ -126,6 +130,7 @@ class TestEnginePreExecuteModify:
             event_bus=MagicMock(),
             hook_registry=hook_registry,
             middleware_chain=ExecutionMiddlewareChain(),
+            **engine_storage(),
         )
 
         hook_registry.register_global(
@@ -150,6 +155,7 @@ class TestEnginePreExecuteModify:
             event_bus=MagicMock(),
             hook_registry=hook_registry,
             middleware_chain=ExecutionMiddlewareChain(),
+            **engine_storage(),
         )
 
         def add_ten(rc, kwargs):
@@ -182,6 +188,7 @@ class TestEnginePreExecuteProceed:
             event_bus=MagicMock(),
             hook_registry=hook_registry,
             middleware_chain=ExecutionMiddlewareChain(),
+            **engine_storage(),
         )
 
         hook_registry.register_global(
@@ -206,6 +213,7 @@ class TestEnginePreExecuteProceed:
             event_bus=MagicMock(),
             hook_registry=hook_registry,
             middleware_chain=ExecutionMiddlewareChain(),
+            **engine_storage(),
         )
 
         executed = []
@@ -230,6 +238,7 @@ class TestEnginePreExecuteExceptionHandling:
             event_bus=MagicMock(),
             hook_registry=hook_registry,
             middleware_chain=ExecutionMiddlewareChain(),
+            **engine_storage(),
         )
 
         def bad_hook(rc, kwargs):

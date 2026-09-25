@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from functualize._primitives import compute_project_id
 from functualize._primitives.locator import ResourceLocator, find_functualize_dir
+from functualize._types.errors import SubstrateInstallError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -1582,28 +1583,94 @@ def get_job(app: Any, name: str) -> JobDescriptor | None:
 
 
 def install_substrate(app: Any, substrate: Any) -> None:
-    """Set the app's substrate, refusing once the engine has resolved one.
+    """Set the app's substrate, refusing once the engine already has one.
 
-    `store-substrate`/T5. A plugin installs a database at `APP_READY`, which is
-    before the engine touches a store — the engine resolves lazily, on the first
-    store access, which happens during a run.
+    `store-substrate`/T5, re-aimed by FUN-17/T12. The window is **before boot
+    step 6.5 selects a store**: that step reads this slot once and the engine
+    is built with what it read, so a plugin whose install lands earlier is
+    honoured and one that lands later is refused. This docstring used to say
+    `APP_READY` was the right moment — true while the engine resolved its
+    storage lazily on first use, which is exactly what step 6.5 replaced.
 
     Installing later is **refused** rather than allowed to half-apply. The
-    engine holds what it resolved, so a late install would leave some of a run's
-    documents in one backend and some in the other: exactly the split brain
-    spec AC-4 says must be unreachable, arriving through a different door.
+    engine holds the store and the substrate it was given, so a late install
+    would leave some of a run's documents in one backend and some in the other:
+    exactly the split brain spec AC-4 says must be unreachable, arriving
+    through a different door. Loudly, because there is no honest silent
+    alternative — the engine cannot be re-pointed, and a dropped install would
+    look like it worked.
+
+    On both boot paths plugin registration runs before step 6.5, so `__call__`
+    is early enough. On the *standard* path it is also before configuration is
+    resolved, so a plugin that reads its own config there reads nothing — such
+    a plugin uses :func:`offer_substrate` instead, which boot invokes inside
+    step 6.5 (FUN-17/T12, decided in TD-1). An install is recorded as a storage
+    *claim* beside the offers, so step 6.5 sees both kinds together and refuses
+    more than one.
+
+    The refusal is a :class:`SubstrateInstallError`, not a bare
+    ``RuntimeError``. That is what makes it loud: both ``APP_READY`` loops
+    already re-raise that type by name, so a late install from a hook stops
+    being swallowed into a WARNING while boot carries on over the filesystem —
+    the silent fallback AC-3 exists to catch — without either hook loop
+    changing what an ``APP_READY`` hook means.
 
     Lives here rather than on the facade because the refusal is real logic and
     `FunctualizeApp` has an executable-line budget that `test_facade_loc_limits`
     enforces — which is how this landed here: the guard pushed the facade nine
     lines over and the tripwire said so.
     """
-    engine = getattr(app, "_execution_engine", None)
-    if engine is not None and getattr(engine, "_substrate", None) is not None:
-        raise RuntimeError(
+    if _store_is_selected(app):
+        raise SubstrateInstallError(
             "the substrate is already in use by this app's engine; installing "
             "another now would leave some of a run's documents in one backend "
-            "and some in the other. Set it during boot — a plugin's APP_READY "
-            "hook is the intended place."
+            "and some in the other. It has to be installed before boot selects "
+            "a store — an install during a run is always too late, and is "
+            "refused rather than ignored."
         )
+    app._substrate_claims.append((_claimant(app, substrate), None))
     app._substrate = substrate
+
+
+def offer_substrate(app: Any, offer: Any) -> None:
+    """Record a deferred storage choice for boot step 6.5 to ask for.
+
+    FUN-17/T12. The offer is not called here: ``_app/boot._select_runtime_store``
+    calls it, after configuration has resolved and before the store is chosen,
+    and uses what it returns. Only the recording lives here, with the same
+    window as :func:`install_substrate` and for the same reason — once the
+    engine holds its substrate, a second answer can only split a run across
+    two backends.
+    """
+    if _store_is_selected(app):
+        raise SubstrateInstallError(
+            "boot already selected this app's store; an offer made now would "
+            "leave some of a run's documents in one backend and some in the "
+            "other. Offer it from the plugin's registration call, which runs "
+            "before boot asks."
+        )
+    app._substrate_claims.append((_claimant(app, offer), offer))
+
+
+def _store_is_selected(app: Any) -> bool:
+    """True once boot step 6.5 has built the engine with its substrate."""
+    engine = getattr(app, "_execution_engine", None)
+    return engine is not None and getattr(engine, "substrate", None) is not None
+
+
+def _claimant(app: Any, claim: Any) -> str:
+    """Who made a storage claim, in words the operator can act on.
+
+    The plugin being registered when the claim arrived, when a registration
+    loop says so (``app._registering_plugin``); otherwise the owner's ``name``,
+    then the callable's qualname. The first matters: an offer is often a lambda
+    or a bound method, and a refusal naming ``P.__call__.<locals>.<lambda>`` is
+    no use to the person who has to disable one of the plugins.
+    """
+    registering = getattr(app, "_registering_plugin", None)
+    if isinstance(registering, str):
+        return registering
+    name = getattr(getattr(claim, "__self__", None), "name", None)
+    if isinstance(name, str):
+        return name
+    return getattr(claim, "__qualname__", None) or type(claim).__name__

@@ -7,10 +7,11 @@ end-to-end test for that API, entered through the user's own door. This is that
 door for `SubstrateInstallError`.
 
 The shape is one a storage-plugin author writes and an operator reads. A plugin
-registers in `__call__` and installs in `on_ready` — installing later is refused
-by the app rather than half-applied, so the install belongs at `APP_READY`
-(`docs/examples/plugins/custom-state-backend.md`). When the backend cannot be
-opened, the plugin raises `SubstrateInstallError` instead of the app continuing
+*offers* its backend from `__call__` (`app.offer_substrate`) and boot asks for
+it while selecting the store — after configuration has resolved, before the
+engine is built. Installing from `APP_READY` is too late: the engine already
+holds its storage, and the install is refused rather than half-applied
+(FUN-17/T12). When the backend cannot be opened, the plugin raises `SubstrateInstallError` instead of the app continuing
 on the filesystem substrate nobody asked for; boot then refuses, and the
 caller's `except` below is where a diagnostic comes from.
 
@@ -47,30 +48,29 @@ class SharedStorePlugin:
 
     name = "example-shared-store"
     version = "1.0.0"
-    description = "Installs a SQLite substrate at an operator-supplied path."
+    description = "Offers a SQLite substrate at an operator-supplied path."
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
 
     def __call__(self, app: PluginHost) -> None:
-        """Registration only. Nothing is read from the project here."""
-        app.hooks.on_ready(self._install)
+        """Registration only: offer the backend; boot asks for it later."""
+        app.offer_substrate(self._open)
 
-    def _install(self, app: PluginHost) -> None:
+    def _open(self, app: PluginHost) -> SQLiteSubstrate:
         """Open the backend and hand it over — or refuse the boot.
 
-        The same three lines the shipped SQLite plugin runs in its own install
-        hook: construction failure becomes `SubstrateInstallError`, and the
-        `from exc` keeps the driver's own message, which is the part an
+        The same three lines the shipped SQLite plugin runs when boot asks for
+        its offer: construction failure becomes `SubstrateInstallError`, and
+        the `from exc` keeps the driver's own message, which is the part an
         operator needs to fix the path.
         """
         try:
-            substrate = SQLiteSubstrate(self._db_path)
+            return SQLiteSubstrate(self._db_path)
         except Exception as exc:
             raise SubstrateInstallError(
                 f"could not open the store at {self._db_path}: {exc}"
             ) from exc
-        app.install_substrate(substrate)
 
 
 def boot(root: Path, db_path: Path) -> str:

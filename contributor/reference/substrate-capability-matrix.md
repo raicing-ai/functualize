@@ -20,9 +20,9 @@ document exactly the thing it replaces.
 
 ## How to read a cell
 
-Ten rows are the fields of the `StoreProfile` a future substrate port would have to
-publish (`contributor/architecture/research/durability-outsourcing/07-the-design.md`
-§3 — twelve attributes, minus the two that are labels). Each column is one backend.
+Ten rows are the fields of `StoreProfile` — the ten capability fields the port
+publishes (`src/functualize/_types/persistence.py`; ADR-028), which are the twelve
+attributes the design named minus the two that are labels. Each column is one backend.
 
 Every cell carries an evidence level, and the level is uniform down each column — the
 first row of the table states it in full, and each cell repeats it in short form:

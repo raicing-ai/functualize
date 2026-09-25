@@ -33,6 +33,7 @@ from functualize._types.errors import ScopeCancelledError
 if TYPE_CHECKING:
     from functualize._engine.agent_step import AgentStepRegistry
     from functualize._primitives.scope_store import ScopeStore
+    from functualize._types.persistence import RuntimeStore
     from functualize._types.protocols import AgentStepResult
     from functualize._types.run_request import RunRequest
     from functualize._types.workflow import AgentStep, WorkflowDeclaration
@@ -105,6 +106,9 @@ class WorkflowRunner:
             executor as provenance. None is legal for a graph with no agent
             steps; a graph with one refuses at its first agent step rather than
             fabricating a request.
+        runtime_store: The port the walk's claim goes through
+            (FUN-17/T14, R-14.1), handed down unchanged. Required and
+            keyword-only, like every storage argument since T12's tripwire.
     """
 
     def __init__(
@@ -112,6 +116,7 @@ class WorkflowRunner:
         store: ScopeStore,
         *,
         run_step: Any,
+        runtime_store: RuntimeStore,
         scope_id: str | None = None,
         gate_registry: Any = None,
         prompt_gates: bool = False,
@@ -122,6 +127,10 @@ class WorkflowRunner:
     ) -> None:
         self._store = store
         self._run_step = run_step
+        #: The port the walk claims through, handed down unchanged (T14,
+        #: R-14.1). The runner decides nothing about storage; it is the layer
+        #: that carries the orchestrator's store to the walker.
+        self._runtime_store = runtime_store
         #: The event bus's `emit`, handed to the walker. Passed through rather
         #: than reached for: the runner is constructed by the orchestrator,
         #: which has the engine; the walker has neither and must not acquire
@@ -196,6 +205,7 @@ class WorkflowRunner:
             self._store,
             self._scope_id,
             run_step=self._run_step,
+            runtime_store=self._runtime_store,
             run_agent_step=self._run_agent_step,
             workflow_name=job_name,
             gate_registry=self._gate_registry,

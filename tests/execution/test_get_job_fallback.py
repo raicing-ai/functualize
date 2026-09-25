@@ -26,6 +26,7 @@ from functualize._events.hooks import HookRegistry
 from functualize._primitives import DIRegistry
 from functualize._types.descriptors import RegisteredJob
 from functualize._types.errors import AmbiguousJobError, JobNotFoundError
+from tests._support.engine_storage import engine_storage
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -39,6 +40,7 @@ def _make_engine() -> JobExecutionEngine:
         event_bus=EventBus(),
         hook_registry=HookRegistry(),
         middleware_chain=ExecutionMiddlewareChain(),
+        **engine_storage(),
     )
 
 

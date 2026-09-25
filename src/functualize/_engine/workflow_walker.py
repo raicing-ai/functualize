@@ -47,6 +47,7 @@ from functualize._engine.frontier import (
 from functualize._engine.loop_state import current_iteration, iteration_step_key
 from functualize._primitives.graph import descendants
 from functualize._types.errors import ScopeCancelledError
+from functualize._types.persistence import Conflict
 from functualize._types.workflow import (
     END,
     AgentStep,
@@ -62,6 +63,7 @@ from functualize._types.workflow import (
 
 if TYPE_CHECKING:
     from functualize._primitives.scope_store import ScopeStore
+    from functualize._types.persistence import RuntimeStore
     from functualize._types.protocols import AgentStepResult
     from functualize._types.workflow import WorkflowDeclaration
 
@@ -133,6 +135,13 @@ class WalkOutcome(Enum):
     #: longer owns the scope, and reporting it as a failure would send someone
     #: looking for a bug in their job.
     SUPERSEDED = "superseded"
+    #: Another runner held the scope before this walk started, so the claim
+    #: was refused at the door (FUN-17/T14, R-14.2). Distinct from SUPERSEDED,
+    #: which is documented as *taken while running*: this walk never ran and
+    #: never held the scope — nothing to release, no `walk.end` to suppress.
+    #: The holder's name and generation ride the report's ``error``, carrying
+    #: what `LeaseHeldError` used to, as a value.
+    HELD = "held"
 
 
 @dataclass(frozen=True)
@@ -273,6 +282,10 @@ class WorkflowWalker:
             a walker built in a test, and the bus itself returns before
             building an event when nothing is subscribed — so a walk nobody is
             watching costs one attribute check per node.
+        runtime_store: The port this walk's claim goes through
+            (FUN-17/T14, R-14.1), handed down unchanged from the orchestrator.
+            Required and keyword-only, like every storage argument since
+            T12's tripwire.
     """
 
     def __init__(
@@ -282,6 +295,7 @@ class WorkflowWalker:
         scope_id: str,
         *,
         run_step: Callable[[str], Any],
+        runtime_store: RuntimeStore,
         run_agent_step: Callable[[AgentStep], AgentStepResult] | None = None,
         workflow_name: str | None = None,
         gate_registry: Any = None,
@@ -298,7 +312,9 @@ class WorkflowWalker:
         self._workflow_name = workflow_name
         self._graph = graph_model_of(declaration)
         self._predecessors = self._build_predecessors(declaration)
-        self._walk = FrontierWalk(self._graph, store, scope_id)
+        self._walk = FrontierWalk(
+            self._graph, store, scope_id, runtime_store=runtime_store
+        )
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
         self._emit = emit
@@ -315,7 +331,8 @@ class WorkflowWalker:
 
         **Holds a lease for the duration** (`durable-run-layer`/T7). Claiming is
         what closes the concurrent-`resume` limitation 0.3.0 shipped knowingly:
-        a second walk on the same scope is refused here rather than advancing it
+        a second walk on the same scope is refused here — `HELD`, a value the
+        caller branches on since FUN-17/T14 — rather than advancing it
         in parallel, and even if it somehow got past this, every write it made
         would be fenced by its stale generation (T6).
 
@@ -326,7 +343,20 @@ class WorkflowWalker:
         """
         from functualize._primitives.lease import StaleGenerationError
 
-        self._walk.claim()
+        claimed = self._walk.claim()
+        if isinstance(claimed, Conflict):
+            # Refused at the door (FUN-17/T14, R-14.2): this walk never ran
+            # and never held the scope, so there is nothing to release and no
+            # `walk.end` to suppress — appending to the scope's log would be a
+            # write from a holder that was fenced out before it started.
+            return WalkReport(
+                WalkOutcome.HELD,
+                self._scope_id,
+                error=(
+                    f"scope held by {claimed.held_by} at generation "
+                    f"{claimed.held_generation}"
+                ),
+            )
         try:
             self._check_the_nesting_is_bounded()
             self._check_the_graph_has_not_changed()

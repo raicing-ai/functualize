@@ -2335,6 +2335,7 @@ Items identified during development that are worth doing but not yet designed:
 | Feature | Description |
 |---------|-------------|
 | substrate-capability-probe | `spike/substrate-capability-probe`: FUN-25's Wave 0 — `StoreProfile` was a set of assertions taken from vendor documentation, and this turned it into measurements before FUN-17 freezes the port. Ten fields across **eight columns** — the seven candidate backends plus Supabase Postgres — published at [`contributor/reference/substrate-capability-matrix.md`](../contributor/reference/substrate-capability-matrix.md): 80 cells, **76 measured** and **4 explicitly `NOT MEASURED` with their reasons**, all four in D1's column, whose evidence row states the split rather than stamping the column as measured. No `src/` or `plugins/` change at all — the diff to `master` is a probe suite under `tests/substrate_probe/`, one reference document, the durable-half rows it migrated (`CHANGELOG.md` and this file), and `.env.example`. The branch also carries one separately authored commit that is **not** this spike's work: `8300682`, the member's `ci:` governance change adding the `research-artifacts-cleared` gate, riding here with its landing decision still open. **All three open questions are answered**, each in its own section rather than inferred from a neighbouring column: Q1 — R2's conditional `PutObject` is atomic (one of eight writers won); Q2 — D1's REST latency is a measured distribution (plan against the p95, 516 ms); Q3 — retired at planning time, with a regression guard for the property. *(Corrected 2026-09-23 after the credentialed waves: this row previously said seven backends, 40 measured of 80, and two questions unanswered — the detail section below had already outgrown all three.)* Details below. |
+| runtime-persistence-ports | `feat/runtime-persistence-ports`: FUN-17 — the engine is constructed *with* a `RuntimeStore` and has no path to storage it was not given. Sixteen tasks over eleven waves: the port vocabulary as values (`_types/persistence.py` — `StoreProfile`, 8 commands, 6 outcomes, 6 views, 10 protocols), the document backend that declares its real capability and refuses cross-aggregate atomicity, engine construction moved after configuration resolution, the walk claiming through the port with a lost claim as a *value* (`WalkOutcome.HELD`), and a cancel that now refuses rather than proceeding unclaimed. Four ADRs (025–028); the public API is unchanged. Merge gate at `93ecd18`: **11 103 passed / 1 601 skipped / 0 failed**. TD-1 and the durable reading are recorded below. |
 | runtime-persistence-repair | `fix/runtime-persistence-defects`: four defects in the document stores, repaired before anything migrates them. A superseded runner was correctly refused on its *record* write and then overwrote the live holder's job state; two runners claiming one scope at the same instant could both be told they won; a storage plugin that could not open left the engine running on the filesystem substrate the operator had explicitly not chosen; and the TUI's `!` history wrote a backend the CLI never read. Claims are now compare-and-swap on both documents, every `rc.state` write is fenced through one seam, a failed substrate install fails boot, and `Stored.revision` is an opaque token. Cross-document atomicity is deliberately absent — it is FUN-17's `RuntimeTransaction`. Details below. |
 | local-vault-access | `feat/local-vault-access`: the encrypted vault was a cache for values fetched from a remote provider; it is now also somewhere to put one secret you already have. `func builtin vault init / put / inspect / remove`, the same lifecycle as public API in `functualize.app.vault`, and an ordinary `classic()` app reads a vault its project has. Store format gains provenance columns and upgrades in place; `keyring` becomes the `functualize[keychain]` extra. Three behavioural changes, all in [ADR-023](../contributor/adr/023-local-vault-access.md): a stored entry that cannot be opened refuses the run instead of falling through, one vault key per user rather than per project, and nullable provenance fields in `vault list --json`. See `.spec/features/local-vault-access/` on the branch (cleared before merge). |
 | mcp-server-fixes | `fix/mcp-server-fixes`: `func mcp serve` crashed on grouped jobs with parameters — the plugin compiled `async def {dotted_job_name}(...)` via `exec`, a SyntaxError that killed registration (found live by the NOOA integration probe; verified against 0.2.3 and still present on master). Fix: codegen under a sanitized identifier, dotted name restored on the function object; descriptions attach as `__doc__` instead of being interpolated into source (a `'''` in a docstring broke compilation the same way). Server boots no longer run FastMCP's PyPI update check or print its banner unless `FASTMCP_*` env vars opt back in. `fastmcp` dependency bounded to `<5`. Regression net: unit + registration tests, a live subprocess stdio capability test, and a `grouped_tools` example with its own serve harness. Full plugin + examples suites green; ruff clean. See `.spec/features/mcp-server-fixes/` on the branch (cleared before merge). |
@@ -2346,9 +2347,9 @@ substrate. Recorded here because `.spec/features/substrate-capability-probe/` is
 merge and would otherwise take all of this with it.
 
 **The premise, measured rather than assumed: `StoreProfile` does not exist in this codebase.**
-`rg -n "StoreProfile" src/ plugins/ tests/` returned **0** at planning time. It is a proposal in
-`durability-outsourcing/07-the-design.md`, owned by FUN-17. That settles the boundary question the
-whole ticket turns on: there is no remote substrate to measure *through*, so the probe measures
+`rg -n "StoreProfile" src/ plugins/ tests/` returned **0** at planning time. FUN-17 has since frozen
+it as `StoreProfile` in `src/functualize/_types/persistence.py` (ADR-028). That settles the boundary
+question the whole ticket turns on: there is no remote substrate to measure *through*, so the probe measures
 each backend **directly, through that backend's own client**, and reports what a future
 `StoreProfile` would have to say. A probe routed through our adapter would measure the adapter,
 which is how a spike quietly becomes the implementation of the next ticket.
@@ -2480,6 +2481,92 @@ explicitly, because the probe will not adopt whatever happens to hold a local po
 docker run -d --name floci -p 4566:4566 floci/floci:latest
 AWS_ENDPOINT_URL=http://localhost:4566 uv run pytest -q tests/substrate_probe/dynamodb.py tests/substrate_probe/s3.py
 ```
+
+### runtime-persistence-ports
+
+`feat/runtime-persistence-ports`: FUN-17. Recorded here because `.spec/features/runtime-persistence-ports/`
+is deleted before merge and would otherwise take the port vocabulary, TD-1 and this wave's own
+reasoning with it — the ADRs keep the decisions, not the record of what was measured.
+
+**What landed.** The engine is constructed *with* a store and has no path to storage it was not
+given. `_types/persistence.py` is the whole contract as values — `StoreProfile`, **8** commands,
+**6** outcomes, **6** views, **10** `@runtime_checkable` protocols, zero logic. `StoreProfile`'s
+twelve members are two labels and ten *measured* capabilities, declared rather than probed, and
+boot **refuses rather than degrades** when a feature needs what the selected store cannot promise
+(`RuntimeStoreCapabilityError`). `DocumentRuntimeStore` (`_primitives/document_store.py`) wraps the
+three document stores this page describes, states their real capability — `multi_process=False`,
+`durable_outbox=False`, `cross_aggregate_atomicity=False` — and **refuses** a cross-aggregate
+transaction (`CrossAggregateRefusedError`) rather than pretending to roll one back. Engine
+construction moved after configuration resolution: boot step 6.5 selects and prepares a store, then
+builds the engine with `build_engine(host, *, runtime_store, substrate)` (ADR-027). The walk claims
+through the port (`_engine/frontier.py:206` → `_engine/workflow_walker.py:346`), and a claim it
+loses is a **value**, not an exception: `WalkOutcome.HELD` carries the holder and the held
+generation in `error`, and the cancel refuses rather than proceeding unclaimed. **The public API is
+unchanged** — and `docs/guides/workflows.md:386` still names the private
+`functualize._types.protocols.StoreSubstrate`, a surviving defect this wave did not fix.
+
+**TD-1 — the install moment (decided 2026-09-24, durable past the branch; its only written home was
+this feature's `plan.md`).** A storage plugin *offers* its backend from its registration call
+(`PluginHost.offer_substrate`, the port's twelfth member) and `_select_runtime_store` *asks* for it
+after configuration resolves and before selection — ADR-027's "split selection from construction",
+not a config event, because `invoke_config_event` swallows and storage has no safe default.
+`install_substrate` and `offer_substrate` are both claims; two claims refuse with
+`SubstrateInstallError` naming every claimant, never "first wins". Every storage door is loud: the
+post-selection install refusal is a `SubstrateInstallError` (so `APP_READY` loops stop swallowing
+it) and both registration loops re-raise it. `JsonFileSubstrate.for_project` resolves its directory
+on first document access, which keeps `boot_static` at zero filesystem IO.
+
+**Where the durable reading lives**, now that the feature tree goes away:
+
+- [`contributor/reference/runtime-persistence-data-model.md`](../contributor/reference/runtime-persistence-data-model.md)
+  — the data model: the command vocabulary, the per-scope documents, gates and resume, the
+  conflict/claim/lease distinction, the limits, and BLOB adjacency. It carries the research study's
+  content forward without linking into `contributor/architecture/research/**`, which never merges.
+- [`contributor/reference/state-store.md`](../contributor/reference/state-store.md) §9 — the
+  document store's profile field by field, including why `multi_process` is `False` when the
+  capability matrix's filesystem column reads `yes · real`.
+- [`contributor/reference/workflow-walker.md`](../contributor/reference/workflow-walker.md) §10 —
+  what a `HELD` refusal is, what it deliberately does *not* say, and which verbs answer the question
+  it leaves open.
+- [`contributor/adr/026-persistence-ports-need-no-new-layer.md`](../contributor/adr/026-persistence-ports-need-no-new-layer.md)
+  → *What would reopen this* — the home of the `_types/persistence.py` size trigger, since the plan
+  document that held it is deleted.
+- The four ADRs of the wave:
+  [025 engine owns transition meaning](../contributor/adr/025-engine-owns-transition-meaning.md),
+  [026 no new peer layer](../contributor/adr/026-persistence-ports-need-no-new-layer.md),
+  [027 engine construction moves after config](../contributor/adr/027-engine-construction-moves-after-config.md),
+  [028 storage is pluggable, execution is not](../contributor/adr/028-storage-is-pluggable-execution-is-not.md).
+
+**Which of this is actually wired.** The recorders in `_engine/recording/` build commands and hold
+no store: `run_recorder.py` (`started`/`finished`) and `workflow_recorder.py` (`claimed`,
+`step_completed`, `suspended`, `resumed`). Only `claimed` has a production caller
+(`_engine/frontier.py:206`); nothing in `src/` constructs `RunRecorder` yet, because the executor
+still writes its own run records. The remaining callers arrive with the outbox work (FUN-20), which
+is why `durable_outbox=False` is declared rather than apologised for.
+
+**Six surviving smells, all accepted.** Each is argued in
+`.spec/features/runtime-persistence-ports/plan.md` → *Surviving smells* (deleted with the branch),
+each is absent from the constitution's *Forbidden Patterns*, and all but the last need no
+maintainer review: **Middle Man** (`DocumentRuntimeStore` — closed by FUN-19's
+`SqliteRuntimeStore`); **Large Class, module-scale** (`_types/persistence.py` — the trigger migrated
+to ADR-026); **Speculative member** (`PluginHost.install_substrate`, recorded in its docstring);
+**Duplicated query** (two upward walks for the project directory, pinned by
+`tests/primitives/test_substrate_root_is_lazy.py`); **Temporary Field**
+(`app._registering_plugin`); and **a refusal narrower than the message it replaced** — a `HELD`
+report names the holder and the held generation but not the expiry, because `Conflict` carries no
+expiry field while both the `LeaseHeldError` it replaced and the `Claimed` value beside it do.
+Closing that one is a port change, not this ticket's.
+
+**Still open, none blocking.** **D-6** (`Attempt` as a first-class aggregate needs its own ADR
+before anything renders it) and **D-9** (`StoreSubstrate` becoming public) remain the maintainer's.
+Two smaller notes are recorded here because no artifact owned them: the **`EffectWriter.append`
+rename** — three writer protocols name their single method `append` with three signatures
+(`_types/persistence.py:556`, `:569`, `:586`), and the document backend's implementation of the
+third raises `NotImplementedError` (`_primitives/document_store.py:786`) until an outbox exists,
+which is honest but reads badly; and **`RuntimeStore.profile` is a mutable Protocol attribute**
+(`_types/persistence.py:664`), which is invariant under structural typing — an implementer
+annotates `StoreProfile` exactly, as `_primitives/document_store.py:1062` does — worth knowing
+before a second implementer arrives.
 
 ### runtime-persistence-repair
 

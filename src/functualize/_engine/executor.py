@@ -51,6 +51,7 @@ NoneType = type(None)
 if TYPE_CHECKING:
     from functualize._engine.middleware import ExecutionMiddlewareChain
     from functualize._engine.result import RegisteredJob
+    from functualize._types.persistence import RuntimeStore
     from functualize._types.protocols import EngineHost, StoreSubstrate
     from functualize._types.run_request import RunRequest
 
@@ -191,6 +192,20 @@ class JobExecutionEngine:
             built with *no* host. Ignored when a host is given: the host
             answers that question, and a second answer is how the kernel came
             to ask the operating system three different ways.
+        runtime_store: The runtime store ``_app`` selected at boot step 6.5
+            (FUN-17/T11) — the engine receives its storage, it does not
+            discover it.
+        substrate: The substrate that store was selected over. The freshness
+            ledger and the scope records still speak ``StoreSubstrate``
+            (D-9), so it arrives beside the store rather than inside it.
+
+        ``runtime_store`` and ``substrate`` are keyword-only and neither has a
+        default: construction without storage is not merely unused, it is
+        impossible (FUN-17 spec AC-4). An engine built outside a boot — an
+        embedding, a unit test — names the two objects it wants, and there is
+        no third answer for it to fall back on. Before T12 this class resolved
+        a missing substrate itself, lazily, out of the host it was given and an
+        upward walk for ``.functualize/``; that discovery is deleted.
     """
 
     def __init__(
@@ -208,6 +223,9 @@ class JobExecutionEngine:
         notifier_registry: Any = None,
         config_view_factory: Callable[..., Any] | None = None,
         config_resolver: Callable[..., Any] | None = None,
+        *,
+        runtime_store: RuntimeStore,
+        substrate: StoreSubstrate,
     ) -> None:
         self._di_registry = di_registry
         self._hook_registry = hook_registry
@@ -238,8 +256,26 @@ class JobExecutionEngine:
         # Dependency scheduling, the sibling subject (T7).
         self._dependency_runner = DependencyRunner(self)
         self._workflow_state_store: Any = None
-        #: Resolved on first use, then held. See :attr:`substrate`.
-        self._substrate: StoreSubstrate | None = None
+        #: The store boot step 6.5 selected and prepared. Received, never
+        #: discovered: FUN-17/T12 removed the engine's last path to storage
+        #: nobody handed it, and this attribute is the whole of what the engine
+        #: knows about where documents live. The walk's claim reads it since
+        #: FUN-17/T14 (R-14.1, via the orchestrator); the remaining recorder
+        #: moments — `step_completed`, `suspended`, `resumed` — still have no
+        #: caller, which is FUN-20's recorded gap, not this ticket's.
+        self._runtime_store = runtime_store
+        #: The substrate that store was selected over, handed in beside it —
+        #: where this project's documents live, **the one this engine got**.
+        #: The freshness ledger and the scope records still speak
+        #: ``StoreSubstrate`` (D-9) and read this, rather than walking back
+        #: through a store to ask where it came from; ``app.substrate`` reads
+        #: it too. A plain field: FUN-17/T12 deleted the property that used to
+        #: resolve it lazily (installed override, else an upward walk, cached on
+        #: first read — so a *read* picked the answer and hook order decided
+        #: storage). Whether a storage plugin was honoured is decided at boot
+        #: step 6.5, before this object exists; the engine is not a second
+        #: decider and has no path to a store it was not given.
+        self.substrate: StoreSubstrate = substrate
         #: Scopes this process has already built, by id, so two runs
         #: naming one scope share it rather than racing on the file.
         self._scopes: dict[str, Any] = {}
@@ -933,7 +969,7 @@ class JobExecutionEngine:
             from functualize._primitives.fingerprint import compute_args_hash
             from functualize._primitives.run_store import RunStore, runner_identity
 
-            store = RunStore(self._state_store().substrate)
+            store = RunStore(self.substrate)
             return store.open_run(
                 {
                     "job": request.job_name,
@@ -1056,7 +1092,7 @@ class JobExecutionEngine:
         try:
             from functualize._primitives.run_store import RunStore
 
-            store = RunStore(self._state_store().substrate)
+            store = RunStore(self.substrate)
             store.close_run(run_id, "failure")
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close a run record", exc_info=True)
@@ -1068,7 +1104,7 @@ class JobExecutionEngine:
         try:
             from functualize._primitives.run_store import RunStore
 
-            store = RunStore(self._state_store().substrate)
+            store = RunStore(self.substrate)
             store.close_run(run_id, result.status.value.lower())
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close run record %s", run_id, exc_info=True)
@@ -1506,32 +1542,13 @@ class JobExecutionEngine:
 
         return result
 
-    @property
-    def substrate(self) -> StoreSubstrate:
-        """Where this project's documents live. **Resolved once per engine.**
-
-        The host's, when it has one — that is where a plugin installs a
-        database (`EngineHost.substrate_override`). Otherwise the one
-        decision, `substrate_for_project`, resolved from :attr:`fresh_root`.
-
-        Either way it is resolved **once and held**, so a run that touches the
-        freshness ledger, the scope records, the state inside them and the run
-        log walks the filesystem upward for `.functualize/` one time instead of
-        five — and cannot be told a different answer halfway through.
-        """
-        if self._substrate is not None:
-            return self._substrate
-        from functualize._primitives.substrate import substrate_for_project
-
-        chosen: StoreSubstrate | None = getattr(self.host, "substrate_override", None)
-        self._substrate = chosen or substrate_for_project(self.fresh_root)
-        return self._substrate
-
     def _state_store(self) -> Any:
         """The **freshness ledger**, resolved the way `func builtin data` does.
 
-        Built lazily and cached: most jobs never touch it, and resolving the
-        substrate walks the filesystem upward looking for `.functualize/`.
+        Built lazily and cached: most jobs never touch it. What is deferred is
+        the store object, not the answer inside it — the substrate was decided
+        at boot and handed in at construction (FUN-17/T12), so nothing here
+        walks the filesystem.
 
         Fingerprints and the session precondition cache only. Scope records are
         :meth:`_scope_store` — since `store-substrate`/T3 this object no longer
@@ -1548,9 +1565,9 @@ class JobExecutionEngine:
         """The **scope records**, on the same substrate as the ledger.
 
         A method rather than a second cached attribute, for the ordinary
-        reason: `ScopeStore` is cheap to build, the expensive part is resolving
-        the substrate and that is already cached, and one fewer piece of engine
-        state is one fewer thing with a lifetime.
+        reason: `ScopeStore` is cheap to build, the substrate it needs arrived
+        at construction rather than being resolved here, and one fewer piece of
+        engine state is one fewer thing with a lifetime.
 
         **Not for correctness.** The first version of this said sharing one
         instance would make a parent's fence apply to a child's scope. That was

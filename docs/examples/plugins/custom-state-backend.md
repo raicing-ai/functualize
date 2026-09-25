@@ -55,16 +55,24 @@ class MyPlugin:
     name = "state-my-substrate"
 
     def __call__(self, app: PluginHost) -> None:
-        app.hooks.on_ready(self._on_app_ready)
+        app.offer_substrate(self._choose)
 
-    def _on_app_ready(self, app):
-        app.install_substrate(MySubstrate())
+    def _choose(self, app: PluginHost) -> MySubstrate:
+        return MySubstrate()
 ```
 
-`APP_READY` and not later: the engine resolves its substrate lazily, on the
-first store access, and installing after that is **refused** rather than
-half-applied. Some of a run's documents in one backend and some in another is
-the state this seam exists to make unreachable.
+**Offer at registration; boot asks.** Boot calls the offer once, while it
+selects the store — after configuration has resolved, so `_choose` can read the
+plugin's own settings through `app.configuration`, and before the engine is
+built, so what it returns is the storage every store uses. A plugin whose choice
+needs no configuration may call `app.install_substrate(MySubstrate())` from
+`__call__` instead.
+
+`APP_READY` is too late: the engine already holds its storage by then, and an
+install from there is **refused** — boot stops with `SubstrateInstallError`
+rather than half-applying it. Some of a run's documents in one backend and some
+in another is the state this seam exists to make unreachable. So is choosing
+between two storage plugins: if two claim storage, boot refuses and names both.
 
 ## Why this is not a `StateBackend`
 

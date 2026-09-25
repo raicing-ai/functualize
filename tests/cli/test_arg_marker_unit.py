@@ -20,6 +20,7 @@ from functualize.app.adapters.click_params import (
     build_click_params,
     create_job_click_command,
 )
+from tests._support.engine_storage import engine_storage
 from tests.cli._arg_marker_subjects import (
     mixed_positional_and_options,
     multi_positional,
@@ -71,6 +72,7 @@ def _make_app_mock():
         event_bus=app_mock.event_bus,
         hook_registry=HookRegistry(),
         middleware_chain=ExecutionMiddlewareChain(),
+        **engine_storage(),
     )
     app_mock._execution_engine = engine
     app_mock.execution_engine = engine

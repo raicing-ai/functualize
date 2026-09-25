@@ -26,6 +26,7 @@ from functualize._engine.guards import GuardState, GuardVerdict
 from functualize._engine.scheduler import DepScheduler
 from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
+from tests._support.engine_storage import port_for
 
 # check ─┬─(ok)──→ deploy ──→ END
 #        └─(fail)→ rollback ─→ END
@@ -42,7 +43,7 @@ def store(tmp_path) -> ScopeStore:
 
 
 def _walk(store: ScopeStore, scope: str = "s1") -> FrontierWalk:
-    return FrontierWalk(CONDITIONAL_GRAPH, store, scope)
+    return FrontierWalk(CONDITIONAL_GRAPH, store, scope, runtime_store=port_for(store))
 
 
 class TestD7aFrontierExpansion:
@@ -142,7 +143,12 @@ class TestD7cBlockedPersistence:
         # An MCP agent (another process) deposits the input.
         ScopeStore(store.substrate).deposit_gate_payload("s1", "approve", {"ok": True})
 
-        resumed = FrontierWalk(CONDITIONAL_GRAPH, ScopeStore(store.substrate), "s1")
+        resumed = FrontierWalk(
+            CONDITIONAL_GRAPH,
+            ScopeStore(store.substrate),
+            "s1",
+            runtime_store=port_for(store),
+        )
         assert resumed.gate_payload("approve") == {"ok": True}
 
     def test_resume_continues_at_the_blocked_position(self, store) -> None:
@@ -151,7 +157,12 @@ class TestD7cBlockedPersistence:
         walk.complete("check", choice="ok")
         walk.block("deploy", "approve")
 
-        resumed = FrontierWalk(CONDITIONAL_GRAPH, ScopeStore(store.substrate), "s1")
+        resumed = FrontierWalk(
+            CONDITIONAL_GRAPH,
+            ScopeStore(store.substrate),
+            "s1",
+            runtime_store=port_for(store),
+        )
         assert resumed.start() == ["deploy"]  # not back at the entry
 
 
@@ -167,15 +178,24 @@ class TestD7dPerScopeRecords:
         assert record["return_value"] == {"n": 1}
 
     def test_records_are_scoped(self, store) -> None:
-        FrontierWalk(CONDITIONAL_GRAPH, store, "s1").complete("check", choice="ok")
-        other = FrontierWalk(CONDITIONAL_GRAPH, store, "s2")
+        FrontierWalk(
+            CONDITIONAL_GRAPH, store, "s1", runtime_store=port_for(store)
+        ).complete("check", choice="ok")
+        other = FrontierWalk(
+            CONDITIONAL_GRAPH, store, "s2", runtime_store=port_for(store)
+        )
         assert not other.should_replay_skip("check")
 
     def test_replay_skips_a_completed_step(self, store) -> None:
         walk = _walk(store)
         walk.start()
         walk.complete("check", choice="ok", args_hash="h1")
-        resumed = FrontierWalk(CONDITIONAL_GRAPH, ScopeStore(store.substrate), "s1")
+        resumed = FrontierWalk(
+            CONDITIONAL_GRAPH,
+            ScopeStore(store.substrate),
+            "s1",
+            runtime_store=port_for(store),
+        )
         assert resumed.should_replay_skip("check", "h1")
 
     def test_replay_does_not_skip_a_different_args_hash(self, store) -> None:
@@ -205,7 +225,12 @@ class TestD7dPerScopeRecords:
 
         # Replay: the condition now evaluates the OTHER way (clock, random,
         # changed file). The walk must still follow the branch it took.
-        resumed = FrontierWalk(CONDITIONAL_GRAPH, ScopeStore(store.substrate), "s1")
+        resumed = FrontierWalk(
+            CONDITIONAL_GRAPH,
+            ScopeStore(store.substrate),
+            "s1",
+            runtime_store=port_for(store),
+        )
         assert resumed.complete("check", choice="fail") == ["deploy"]
 
     def test_epilogue_record_is_once_per_scope(self, store) -> None:

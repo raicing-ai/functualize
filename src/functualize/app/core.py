@@ -61,6 +61,7 @@ if TYPE_CHECKING:
         JobDescriptor,
         RegisteredJob,
     )
+    from functualize._types.host import SubstrateOffer
     from functualize._types.protocols import StoreSubstrate
     from functualize.job._workflow_scope import WorkflowScope
 
@@ -196,6 +197,9 @@ class FunctualizeApp:
         #: Installed by a plugin at boot; None means the filesystem
         #: default. See the :attr:`substrate` property.
         self._substrate: StoreSubstrate | None = None
+        #: Every storage claim registration made — installs and offers alike —
+        #: for boot step 6.5 to settle. More than one is a refusal.
+        self._substrate_claims: list[tuple[str, SubstrateOffer | None]] = []
         #: Set by boot_standard once `general.max_invoke_depth` resolves.
         self._resolved_max_invoke_depth: int | None = None
 
@@ -283,9 +287,11 @@ class FunctualizeApp:
     # rebuilt config chain, a re-resolved invoke depth — is simply seen.
     #
     # They are declared for the port, not as a facade: delivery code should
-    # reach the job facade above. `_app/boot.build_engine` is the caller of
-    # record; `tests/engine/test_engine_is_sealed.py` is what holds the two
-    # ends together.
+    # reach the job facade above. `_app/boot.build_engine(host, *,
+    # runtime_store, substrate)` is the caller of record — it passes the
+    # store and the substrate boot step 6.5 selected (FUN-17/T11) — and
+    # `tests/engine/test_engine_is_sealed.py` is what holds the two ends
+    # together.
 
     def get_descriptor(self, name: str) -> JobDescriptor | None:
         """The descriptor for ``name``, or None when nothing is registered."""
@@ -319,15 +325,16 @@ class FunctualizeApp:
 
     @property
     def substrate(self) -> StoreSubstrate:
-        """The storage in effect for this app. Resolved once, then held.
+        """The storage in effect for this app — boot's one selection.
 
-        Never ``None``: the engine resolves the filesystem default when no
-        plugin installed anything, so there is always an answer. That is the
-        whole reason this name moved — it used to mean the *install slot*,
-        which is ``None`` in the ordinary case, and ten call sites wanting the
-        storage in effect had to say ``app.execution_engine.substrate`` to get
-        it. Two meanings under one name, and the two objects were verifiably
-        not the same one.
+        Never ``None`` on a booted app: boot step 6.5 resolved the answer (the
+        override a plugin installed, otherwise the filesystem default) and built
+        the engine with it, so there is exactly one decision and this reads it
+        (FUN-17/T11, T12). That is the whole reason this name moved — it used to
+        mean the *install slot*, which is ``None`` in the ordinary case, and ten
+        call sites wanting the storage in effect had to say
+        ``app.execution_engine.substrate`` to get it. Two meanings under one
+        name, and the two objects were verifiably not the same one.
 
         The install slot is now :attr:`substrate_override`; the write door is
         :meth:`install_substrate`.
@@ -336,32 +343,46 @@ class FunctualizeApp:
 
     @property
     def substrate_override(self) -> StoreSubstrate | None:
-        """The override a plugin installed, or None for "resolve the default".
+        """The override a plugin installed, or None when nothing did.
 
-        The :class:`~functualize._types.protocols.EngineHost` member the engine
-        reads (`store-substrate`/T5, renamed by `plugin-host-protocol`/T3). It
-        exists so the engine asks a *port* rather than reaching
-        ``app._substrate``, which is the reach `EngineHost` was introduced to
-        prevent.
+        The :class:`~functualize._types.protocols.EngineHost` member **boot**
+        reads (`store-substrate`/T5, renamed by `plugin-host-protocol`/T3): step
+        6.5 takes this or the filesystem default and hands the result to the
+        engine. Until FUN-17/T12 the *engine* read it, lazily on first use,
+        which made an ordinary read of :attr:`substrate` decide where documents
+        live and made the winner depend on hook order.
 
         ``None`` is not an error and not a missing feature — it is what an app
-        with no storage plugin has, and it means "resolve the filesystem
-        default from :attr:`fresh_root`".
+        with no storage plugin has.
         """
         return self._substrate
 
     def install_substrate(self, substrate: StoreSubstrate) -> None:
-        """Install a backend. **Boot only** — refused once the engine resolved one.
+        """Install a backend. **Before boot selects a store** — refused after.
 
         A method rather than a setter because installing is an *event* with an
-        ordering rule, not an assignment: after the engine has resolved a
-        substrate, a second one would leave some of a run's documents in one
-        backend and some in the other. The guard that refuses it lives in
-        ``_app/impl.py`` — real logic, and this class has a line budget.
+        ordering rule, not an assignment: once step 6.5 has selected the store
+        the engine was built with (FUN-17/T12), a second substrate would leave
+        some of a run's documents in one backend and some in the other. The
+        guard that refuses it lives in ``_app/impl.py`` — real logic, and this
+        class has a line budget.
         """
         from functualize._app.impl import install_substrate
 
         install_substrate(self, substrate)
+
+    def offer_substrate(self, offer: SubstrateOffer) -> None:
+        """Offer a backend boot asks for at step 6.5, once config has resolved.
+
+        The door for a storage plugin whose choice reads its own configuration
+        (FUN-17/T12): registration on the standard path runs before config
+        resolves, so :meth:`install_substrate` there reads nothing. Recorded
+        here, invoked by ``_app/boot._select_runtime_store``, refused once that
+        step has run — the same window and the same guard as an install.
+        """
+        from functualize._app.impl import offer_substrate
+
+        offer_substrate(self, offer)
 
     @property
     def fresh_root(self) -> Path:
