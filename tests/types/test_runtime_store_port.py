@@ -35,7 +35,16 @@ import pytest
 
 from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.substrate import JsonFileSubstrate
-from functualize._types.persistence import RuntimeStore, RuntimeTransaction
+from functualize._types.errors import (
+    GateResolutionError,
+    InputRequestNotOpenError,
+)
+from functualize._types.persistence import (
+    InputReader,
+    InputWriter,
+    RuntimeStore,
+    RuntimeTransaction,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "runtime_store_conformance.py"
 
@@ -44,6 +53,14 @@ PORT_MEMBERS = {"profile", "runs", "workflows", "inputs", "transaction", "close"
 
 #: The transaction's five, from the same row: what `transaction()` yields.
 TRANSACTION_MEMBERS = {"runs", "workflows", "inputs", "events", "effects"}
+
+#: The inputs aggregate's two writers: a candidate arrives evaluated, and
+#: consumption is a separate command rather than an argument of a deposit.
+INPUT_WRITER_MEMBERS = {"append", "consume"}
+
+#: The inputs reader's four questions. `request` and `candidates_for` are the
+#: resolution read — asking by request id, which is the whole point of the id.
+INPUT_READER_MEMBERS = {"open_for", "awaiting", "request", "candidates_for"}
 
 
 def _members(protocol: type[Any]) -> set[str]:
@@ -98,3 +115,36 @@ class TestThePortsShapeIsPinned:
 
     def test_the_transaction_has_exactly_its_five_writers(self) -> None:
         assert _members(RuntimeTransaction) == TRANSACTION_MEMBERS
+
+    def test_the_input_writer_appends_candidates_and_consumes(self) -> None:
+        assert _members(InputWriter) == INPUT_WRITER_MEMBERS
+
+    def test_the_input_reader_answers_by_request_id(self) -> None:
+        assert _members(InputReader) == INPUT_READER_MEMBERS
+
+
+class TestTheRefusalCarriesItsFacts:
+    """The two error amendments: a refusal that names its state, and a
+    resolution failure that carries its evaluations without changing a word
+    of the message operators already diagnose gates by."""
+
+    def test_a_closed_request_names_itself_and_its_status(self) -> None:
+        error = InputRequestNotOpenError("req_1", "accepted")
+        assert error.request_id == "req_1"
+        assert error.status == "accepted"
+        assert "not open" in str(error)
+
+    def test_evaluations_ride_along_without_touching_the_message(self) -> None:
+        from functualize._types.gate_resolution import (
+            CandidateEvaluation,
+            EvaluationOutcome,
+        )
+
+        evaluation = CandidateEvaluation(EvaluationOutcome.FAILED, detail="no tty")
+        baseline = GateResolutionError("approve", 3, "no strategies attempted")
+        carrying = GateResolutionError(
+            "approve", 3, "no strategies attempted", evaluations=(evaluation,)
+        )
+        assert str(carrying) == str(baseline)
+        assert carrying.evaluations == (evaluation,)
+        assert baseline.evaluations == ()
