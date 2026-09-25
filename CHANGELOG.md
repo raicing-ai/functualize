@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `func --help` offers the emit surface, and a bad `--emit-format` value says so
+
+A first-time author could not find out, from the keyboard, how a job's output
+reaches stdout. `func --help` listed fourteen globals and not `--emit-format`,
+`--force` or `--prompt-gates`: those three configure a run, are parsed before
+boot, and are deliberately not declared on the group that also serves
+`func builtin`. A job that returns a value prints nothing — by design — and
+nothing in help said so, so the silent version was the one people wrote.
+
+`func --help` now has a **Run options (before the job name)** section listing
+the three, with `--emit-format`'s valid set read from the flag grammar, and a
+sentence saying a return value is never printed and stdout is written with
+`out.emit()` or `print()`. An app's own `--help` carries the same sentence on
+its `--emit-format` row. `func builtin` still rejects all three.
+
+`func --emit-format bogus greet` answered `Error: Unknown command 'bogus'.`
+The flag takes an optional value, so the lookahead leaves a token outside the
+valid set to be read as the command — which is what keeps
+`func --emit-format greet` working. Once boot confirms that token names no job,
+group or plugin command, `func` now reports it as a bad value, in the sentence
+and exit code (1) that `--emit-format=bogus` already got. `--perf-report` gets
+the same treatment.
+
+Not changed: `func greet --emit-format json` is still `No such option` — globals
+precede the job name, and help now says so.
+
 ## [0.4.0] - 2026-09-24
 
 ### Added — a measured capability matrix for seven storage backends

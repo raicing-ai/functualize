@@ -542,27 +542,73 @@ def _assign_option(
             state.exclude = []
         state.exclude.append(value)
     elif flag == "--perf-report":
-        valid_values = OPTIONAL_VALUE_VALID_SET["--perf-report"][0]
-        if value not in valid_values:
-            print(
-                f"Error: --perf-report must be one of "
-                f"{{{', '.join(sorted(valid_values))}}}, got '{value}'.",
-                file=sys.stderr,
-            )
+        if value not in OPTIONAL_VALUE_VALID_SET["--perf-report"][0]:
+            print(invalid_value_message(flag, value), file=sys.stderr)
             raise SystemExit(1)
         state.perf_report = value
     elif flag == "--perf-filter":
         state.perf_filter = value
     elif flag == "--emit-format":
-        valid_values = OPTIONAL_VALUE_VALID_SET["--emit-format"][0]
-        if value not in valid_values:
-            print(
-                f"Error: --emit-format must be one of "
-                f"{{{', '.join(sorted(valid_values))}}}, got '{value}'.",
-                file=sys.stderr,
-            )
+        if value not in OPTIONAL_VALUE_VALID_SET["--emit-format"][0]:
+            print(invalid_value_message(flag, value), file=sys.stderr)
             raise SystemExit(1)
         state.output = value
+
+
+def invalid_value_message(flag: str, value: str) -> str:
+    """The one sentence for a value an optional-value global does not accept.
+
+    Shared by the ``--flag=value`` spelling (``_assign_option``) and the
+    ``--flag value`` spelling (``refused_optional_value``, reported post-boot),
+    so the two ways of typing the same mistake get the same answer.
+    """
+    valid_values = OPTIONAL_VALUE_VALID_SET[flag][0]
+    return (
+        f"Error: {flag} must be one of "
+        f"{{{', '.join(sorted(valid_values))}}}, got '{value}'."
+    )
+
+
+def refused_optional_value(argv_tail: Sequence[str]) -> tuple[str, str] | None:
+    """The ``(flag, token)`` pair when an optional-value global refused the command.
+
+    ``--emit-format`` and ``--perf-report`` take an *optional* value: the
+    lookahead in ``detect_mode`` consumes the next token only when it is in the
+    flag's valid set, so ``func --emit-format greet`` means "default format, run
+    greet". The cost is that ``func --emit-format bogus greet`` leaves ``bogus``
+    as the first positional, and it used to be reported as
+    ``Unknown command 'bogus'`` — an invalid *value* read as a missing
+    *command*, with the valid set never shown.
+
+    This walks the same global prefix ``detect_mode`` does and returns the pair
+    only when the first positional is the token such a flag refused. It says
+    nothing about whether that token names something: a function-level job, a
+    group or a plugin command is only visible post-boot, so the caller asks
+    after everything else has missed.
+    """
+    i = 0
+    while i < len(argv_tail):
+        arg = argv_tail[i]
+        if arg in GLOBAL_OPTIONS_ALWAYS_VALUE:
+            i += 2
+            continue
+        if arg in GLOBAL_OPTIONS_OPTIONAL_VALUE:
+            valid_set, _default = OPTIONAL_VALUE_VALID_SET[arg]
+            if i + 1 >= len(argv_tail):
+                return None
+            nxt = argv_tail[i + 1]
+            if nxt in valid_set:
+                i += 2
+                continue
+            if nxt.startswith("-"):
+                i += 1
+                continue
+            return (arg, nxt)
+        if arg.startswith("-"):
+            i += 1
+            continue
+        return None
+    return None
 
 
 def scan_early_setting_flags(argv: list[str]) -> int:
