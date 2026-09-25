@@ -11,7 +11,7 @@ description: >
   ready" or well tested, or when packaging a functualize CLI for distribution.
 license: Apache-2.0
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
   project: functualize
 ---
 
