@@ -252,6 +252,7 @@ uv run pre-commit run --all-files
 | Security | Push to `master`, PRs, weekly cron | Gitleaks secret scan |
 | Release | Tag push `v*` | Build → publish to PyPI → create GitHub Release |
 | PR Title | PRs (opened, edited) | Lint the PR title as a conventional commit |
+| Message Hygiene | PRs (opened, edited, reopened, synchronize) | Refuse tracker keys and URLs, internal identifiers and machine identities in the PR title, the PR body and every commit message in the range |
 | Docs | Push to `master` | Build docs (strict) → deploy to GitHub Pages |
 
 ### Spec-driven PR validation and cleanup
@@ -338,8 +339,10 @@ Trunk-based development with release tags:
 - No `develop` or `release/*` branches
 
 The slug describes the change, not the ticket — `fix/warm-cache-display-discovery`
-tells you what broke, `fix/issue-42` makes you go look it up. Reference the issue
-in the commit footer instead.
+tells you what broke, `fix/issue-42` makes you go look it up. Reference the
+GitHub issue in the commit footer instead (`Refs #123`). A branch name carries no
+ticket reference, so nothing outside this repository links the PR back to the
+work item that asked for it; make that link by hand in the tracker.
 
 ## Making Changes
 
@@ -525,12 +528,54 @@ Rules:
 
 There is no `release:` type. A version bump is `chore(release): v0.2.0`.
 
+### What a message must not carry
+
+A squash merge publishes the PR title as the commit subject and the PR body as
+the commit body, so all three — title, body, and every commit message on the
+branch — are permanent and public the moment the PR merges. Three things belong
+in none of them:
+
+- **A tracker key or tracker URL.** Work is dispatched from a tracker, and its
+  keys and board URLs (`AB-123`, `https://….invalid/browse/AB-123`) resolve
+  nowhere outside it, so they say nothing a reader of the change needs. Say what
+  the change does in the project's own terms. A GitHub issue reference is *not*
+  this class: it is public, and `Fixes #123` in the body is how this repository
+  links issues.
+- **An internal identifier** — a task, run or workspace id. It is opaque here,
+  and it expires with the platform that minted it.
+- **A machine identity** — an agent, model, harness or automation account named
+  as an author. Attribution records who is accountable for a change; a tool is
+  not. The shape it arrives in is a `Co-authored-by:` trailer, and once
+  squash-merged it is permanent.
+
+The check reads text and only text: how a contributor arrives at a commit is
+their business, and what the record says afterwards is this repository's. The
+tracking context and the tooling that produced a change live in the tracker and
+the PR conversation, never in the commit.
+
+The strings themselves stay out of the repository. Attribution trailers are
+validated against an allow-list of maintainer addresses
+(`MESSAGE_HYGIENE_REVIEWER_ALLOWLIST`), so a trailer naming anything else fails —
+and because it fails *closed*, an unset allow-list fails every attributed trailer
+rather than accepting all of them. Agent, model and harness names are refused by
+a deny-list held in the repository variable `MESSAGE_HYGIENE_IDENTITY_DENYLIST`:
+a name that must never be committed cannot be committed to configure the check
+that refuses it. Keys work the same way — the permitted `PREFIX-N` tokens are
+listed in `.github/scripts/verify_message_hygiene.py`, and a token whose prefix
+is not listed fails, so no tracker is named here and swapping trackers needs no
+edit. Adding a benign prefix to that list is a one-line PR.
+
+One half is not machine-checked. A model or harness named as free prose — "run by
+X" in a body — has no structural signature. Putting that name on the deny-list is
+how it becomes enforced; until then a reviewer is what catches it.
+
 ### How this is enforced
 
 | Gate | Checks | Where |
 |------|--------|-------|
 | `conventional-pre-commit` | Commit subject type and shape, at commit time | `.pre-commit-config.yaml` (needs `pre-commit install --hook-type commit-msg`) |
 | PR Title workflow | PR title type, single-token scope, lowercase subject, no trailing period | `.github/workflows/pr-title.yml` |
+| Message Hygiene workflow | Tracker keys and URLs, internal identifiers and machine identities in the PR title, the PR body and every commit message in the range | `.github/workflows/message-hygiene.yml` |
 | `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `test-full` (3.11, 3.12, 3.13), `gitleaks`, `lint-title`, `spec-only-change` and `spec-artifacts-cleared` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
 | `release tags` ruleset | A `v*` tag cannot be deleted or moved once pushed | GitHub repository ruleset named `release tags` |
 
@@ -568,6 +613,20 @@ nothing. Registering it is a repository-settings change (ruleset `master`,
 context `research-artifacts-cleared`), and until that happens the exclusion is
 watched rather than enforced. `.github/workflows/ci.yml` carries the same note at
 the job.
+
+`message-hygiene` was added on 2026-09-25 for the same class of hole: § *What a
+message must not carry* already bound new messages in review, and nothing
+automated applied it. It reads the PR title, the PR body and every commit message
+in the range, and it is **reported but not yet required** — nothing in the
+`master` ruleset lists it, so it is visible on every PR and blocks nothing.
+Registering it is a repository-settings change (ruleset `master`, context
+`message-hygiene`), and two repository variables must be set first:
+`MESSAGE_HYGIENE_IDENTITY_DENYLIST`, the agent, model and harness names that must
+never be committed, and `MESSAGE_HYGIENE_REVIEWER_ALLOWLIST`, the maintainer
+addresses a `Co-authored-by:` trailer may name — until that one is set, every
+attributed trailer fails, because refusing an unvalidated trailer is the only
+direction that does not silently accept a machine.
+`.github/workflows/message-hygiene.yml` carries the same note at the job.
 
 `spec-artifacts-cleared` is what `.spec/CONSTITUTION.md` grants its
 `.spec/features/` tracking exception *on the condition of* — "it blocks merge
@@ -623,6 +682,9 @@ becomes the commit body.
 - Update documentation if behavior changes
 - Ensure CI passes before requesting review
 - Reference issues in the body (`Fixes #123`), not in the title
+- Keep tracker keys and URLs, internal identifiers and machine identities out of
+  the title and the body: the squash publishes both, permanently. See
+  § *What a message must not carry*
 
 Merge policy — squash only. Merge commits and rebase merges are disabled, and
 branches are deleted on merge. One PR becomes exactly one commit on `master`,

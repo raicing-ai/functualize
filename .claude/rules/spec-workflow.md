@@ -69,6 +69,15 @@ of it, and a durable half migrates to `contributor/reference/` or
 while the tree is tracked; it is not yet a required context, so it is watched
 rather than enforced.
 
+The third thing a merge publishes is what the commit *says*. A squash merge takes
+the PR title as the subject and the PR body as the body, so the title, the body
+and every commit message on the branch become the permanent, public record. Keep
+the tracker key, the tracker URL, the internal task/run id and the tooling that
+produced the change out of all three, and let a `Co-authored-by:` trailer name a
+person whose address is on the maintainer allow-list — an agent, model or harness
+is never an author of a change. `message-hygiene` reports this on every PR and is
+not yet a required context.
+
 Use two pushes for the pre-merge sequence. Push the feature-bearing branch and
 wait for its validation jobs, including all three full-test matrix jobs, to
 pass. The artifact checks are expected to fail while the artifacts remain.
