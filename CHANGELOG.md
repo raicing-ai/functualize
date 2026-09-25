@@ -32,6 +32,31 @@ the same treatment.
 
 Not changed: `func greet --emit-format json` is still `No such option` — globals
 precede the job name, and help now says so.
+### Added — a message-hygiene check, and the rule it reports
+
+**Contributor-facing; no runtime behaviour changes.** A PR title, a PR body and
+every commit message in the PR's range are published permanently by the squash
+merge, and all three may carry what belongs to the tracker rather than to the
+record: a tracker key or board URL, an internal task/run identifier, or a
+machine identity — an agent, model, harness or automation account named as an
+author, which arrives as a `Co-authored-by:` trailer. `message-hygiene` refuses
+all three, reads text only, and reports on every PR.
+
+The check names none of the strings it refuses. Attribution trailers are
+validated against a maintainer address allow-list
+(`MESSAGE_HYGIENE_REVIEWER_ALLOWLIST`) and fail closed, so an unset list refuses
+every attributed trailer rather than accepting all of them; agent and model names
+come from the repository variable `MESSAGE_HYGIENE_IDENTITY_DENYLIST`, which is a
+setting rather than a file, so a name that must never be committed never is; and
+the permitted `PREFIX-N` tokens are listed in the script, so an unlisted prefix
+fails without any tracker being named. It is **reported but not yet required** —
+registering it in the `master` ruleset is a repository-settings change, and both
+variables must be set first.
+
+Deliberate behaviour change: a branch name carries no ticket reference, so
+nothing outside this repository links a PR back to the work item that asked for
+it — make that link by hand in the tracker. This is the same convention the
+branching rule already asked for, now enforced rather than requested.
 
 ## [0.4.0] - 2026-09-24
 
