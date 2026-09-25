@@ -93,6 +93,13 @@ export PYAPP_SKIP_INSTALL=1
 export PYAPP_UV_ENABLED=1
 export PYAPP_SELF_COMMAND=pyapp
 export PYAPP_FULL_ISOLATION=1
+# Makes PyApp set `PYAPP` to the running executable's absolute path rather than
+# the literal "1". That path *is* the installation's identity: it is what `self
+# update` replaces and what the registry records. Without it the only handle on
+# the binary is `argv[0]`, which PyApp's exec spec makes the literal `-c` -- so
+# the binary cannot name itself and every mutating `self`/`plugin` command
+# refuses. Mirrors the same variable in release.yml's build step.
+export PYAPP_PASS_LOCATION=1
 export PYAPP_PYTHON_VERSION=3.12
 # **Both mandatory for a custom embedded distribution.** PyApp panics at build
 # time without the python path, and silently guesses the site-packages one from
