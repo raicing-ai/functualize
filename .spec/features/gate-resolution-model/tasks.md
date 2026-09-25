@@ -148,7 +148,13 @@ now: `0` · after: `3`
 
 ## Wave 1 — pure logic (T3 ∥ T4, disjoint files)
 
-### [ ] T3 — the document representation and its guard
+### [x] T3 — the document representation and its guard
+
+**Completion note (T3).** Gates measured `6` and `1`. The two-writer test
+passes over the public surface — `ScopeStore.batch()` holds the substrate
+lock across the re-read-and-append, so a second store instance on the same
+substrate sees the landed `accepted` status and refuses with nothing
+written. No `ScopeStore` method was added.
 
 *Files:* `src/functualize/_primitives/gate_requests.py` (new), `tests/primitives/test_gate_requests.py` (new)
 
@@ -201,7 +207,16 @@ rg -c 'TRANSITIONAL\(FUN-21\)' src/functualize/_primitives/gate_requests.py
 ```
 now: `0` · after: `1`
 
-### [ ] T4 — the enumerating ladder
+### [x] T4 — the enumerating ladder
+
+**Completion note (T4).** Gates measured `1` and `2`. R8 byte-identity
+holds: every `TestLastErrorNamesTheStrategies` assertion now runs
+parametrised over both `resolve_gate`'s raised `last_error` and
+`evaluate(...).blocked_reason`, with no expected string edited. One
+deviation of phrasing, not of text: the `evaluations` keyword is typed
+`tuple[CandidateEvaluation, ...]` (strict mypy refuses a bare `tuple`).
+`resolve_gate` narrows the outcome's `Any`-typed model with `cast`, since
+`BaseModel` stays under `TYPE_CHECKING` per ruff TC004.
 
 *Files:* `src/functualize/_gate/_registry.py`, `src/functualize/_gate/_evaluation.py` (new), `tests/gate/test_registry.py`
 

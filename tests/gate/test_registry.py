@@ -19,15 +19,17 @@ Two cases keep raising, deliberately:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from pydantic import BaseModel
 
+from functualize._gate._evaluation import evaluate_submission
 from functualize._gate._registry import GateRegistry
 from functualize._gate._resolver import ResolveResolver
 from functualize._gate._strategy import GateStrategy
 from functualize._types.errors import GateResolutionError
+from functualize._types.gate_resolution import EvaluationOutcome
 
 if TYPE_CHECKING:
     from functualize._gate._context import GateContext
@@ -50,6 +52,21 @@ def _registry(*, with_resolve: bool = True) -> GateRegistry:
     if with_resolve:
         registry.register_strategy(GateStrategy.RESOLVE.value, ResolveResolver())
     return registry
+
+
+def _last_error(registry: GateRegistry, path: str, **kwargs: Any) -> str:
+    """The blocked text, read through either door.
+
+    `resolve_gate` folds the ladder into a `GateResolutionError`;
+    `evaluate` hands the same text back on the outcome. Both doors must
+    produce the identical string, because a character moving in one and not
+    the other splits the message operators diagnose gates by into two.
+    """
+    if path == "resolve_gate":
+        with pytest.raises(GateResolutionError) as excinfo:
+            registry.resolve_gate(Answer, **kwargs)
+        return str(excinfo.value.last_error)
+    return str(registry.evaluate(Answer, **kwargs).blocked_reason)
 
 
 class TestTheLadderBehavesLikeALadder:
@@ -215,45 +232,144 @@ class TestTheShippedAiPresetNeedsBothPlugins:
 
 class TestLastErrorNamesTheStrategies:
     """`last_error` is what fills the walk's `blocked_reason`, so it is the
-    string an operator actually reads."""
+    string an operator actually reads.
 
-    def test_it_names_the_unregistered_strategy_and_its_package(self) -> None:
+    Every assertion runs through **both** doors — the raise and the outcome —
+    because the two are the same text by contract, and a change that moves
+    one and not the other is a behaviour change hiding as a refactor.
+    """
+
+    @pytest.mark.parametrize("path", ["resolve_gate", "evaluate"])
+    def test_it_names_the_unregistered_strategy_and_its_package(
+        self, path: str
+    ) -> None:
         registry = _registry(with_resolve=False)
-        with pytest.raises(GateResolutionError) as excinfo:
-            registry.resolve_gate(
-                Answer, gate_strategy=["ai_inbound", "resolve"], gate_name="triage"
-            )
-        assert "ai_inbound" in excinfo.value.last_error
-        assert "functualize-ai" in excinfo.value.last_error
+        text = _last_error(
+            registry, path, gate_strategy=["ai_inbound", "resolve"], gate_name="triage"
+        )
+        assert "ai_inbound" in text
+        assert "functualize-ai" in text
 
-    def test_it_names_several(self) -> None:
+    @pytest.mark.parametrize("path", ["resolve_gate", "evaluate"])
+    def test_it_names_several(self, path: str) -> None:
         registry = _registry(with_resolve=False)
-        with pytest.raises(GateResolutionError) as excinfo:
-            registry.resolve_gate(
-                Answer,
-                gate_strategy=["ai_inbound", "ai_outbound", "resolve"],
-                gate_name="triage",
-            )
-        assert "ai_inbound" in excinfo.value.last_error
-        assert "functualize-mcp" in excinfo.value.last_error
+        text = _last_error(
+            registry,
+            path,
+            gate_strategy=["ai_inbound", "ai_outbound", "resolve"],
+            gate_name="triage",
+        )
+        assert "ai_inbound" in text
+        assert "functualize-mcp" in text
 
+    @pytest.mark.parametrize("path", ["resolve_gate", "evaluate"])
     def test_a_resolver_error_and_an_unregistered_name_are_both_reported(
-        self,
+        self, path: str
     ) -> None:
         """Losing either half would leave the operator with only a symptom or
         only a cause."""
+        registry = _registry(with_resolve=False)
+        registry.register_strategy("boom", _Boom())
+        text = _last_error(
+            registry, path, gate_strategy=["ai_inbound", "boom"], gate_name="triage"
+        )
+        assert "functualize-ai" in text
+        assert "resolver exploded" in text
+
+    @pytest.mark.parametrize("path", ["resolve_gate", "evaluate"])
+    def test_no_strategies_attempted_is_still_reachable(self, path: str) -> None:
+        """An empty ladder. Kept honest so the new branches cannot claim it."""
+        registry = _registry()
+        text = _last_error(registry, path, gate_strategy=[], gate_name="triage")
+        assert text == "no strategies attempted"
+
+
+class TestTheLadderEnumeratesItself:
+    """`evaluate` leaves one rung per expanded entry, in ladder order."""
+
+    def test_the_real_ladder_records_every_rung(self) -> None:
+        """`ai_inbound` unregistered, `prompt` registered and broken, and
+        `resolve` answering: unavailable, failed, accepted — and anything
+        behind the success is `not_reached`."""
+        registry = _registry()
+        registry.register_strategy("prompt", _Boom())
+        registry.register_strategy("resolve2", _Boom())
+        outcome = registry.evaluate(
+            Answer,
+            gate_strategy=["ai_inbound", "prompt", "resolve", "resolve2"],
+            resolved_fields={"approved": True},
+            force_gate=True,
+            gate_name="triage",
+        )
+        assert [name for name, _, _ in outcome.rungs] == [
+            "ai_inbound",
+            "prompt",
+            "resolve",
+            "resolve2",
+        ]
+        assert [evaluation.outcome for _, evaluation, _ in outcome.rungs] == [
+            EvaluationOutcome.UNAVAILABLE,
+            EvaluationOutcome.FAILED,
+            EvaluationOutcome.ACCEPTED,
+            EvaluationOutcome.NOT_REACHED,
+        ]
+        assert outcome.rungs[0][1].detail == "install functualize-ai to register it"
+        assert outcome.rungs[1][1].detail == "resolver exploded"
+        assert outcome.rungs[2][2] == {"approved": True}
+        assert outcome.rungs[3][2] is None
+        assert outcome.model is not None and outcome.model.approved is True
+        assert outcome.blocked_reason == ""
+
+    def test_the_short_circuit_is_one_accepted_rung(self) -> None:
+        """Fully resolved and not forced: the config chain answered, and the
+        rung says so rather than pretending a strategy ran."""
+        outcome = _registry().evaluate(
+            Answer, resolved_fields={"approved": True}, gate_name="triage"
+        )
+        assert len(outcome.rungs) == 1
+        name, evaluation, payload = outcome.rungs[0]
+        assert name == "resolve"
+        assert evaluation.outcome is EvaluationOutcome.ACCEPTED
+        assert payload == {"approved": True}
+        assert outcome.model is not None
+
+    def test_a_blocked_ladder_carries_the_text_and_the_evaluations(self) -> None:
         registry = _registry(with_resolve=False)
         registry.register_strategy("boom", _Boom())
         with pytest.raises(GateResolutionError) as excinfo:
             registry.resolve_gate(
                 Answer, gate_strategy=["ai_inbound", "boom"], gate_name="triage"
             )
-        assert "functualize-ai" in excinfo.value.last_error
-        assert "resolver exploded" in excinfo.value.last_error
+        assert excinfo.value.strategies_attempted == 2
+        assert [evaluation.outcome for evaluation in excinfo.value.evaluations] == [
+            EvaluationOutcome.UNAVAILABLE,
+            EvaluationOutcome.FAILED,
+        ]
 
-    def test_no_strategies_attempted_is_still_reachable(self) -> None:
-        """An empty ladder. Kept honest so the new branches cannot claim it."""
-        registry = _registry()
-        with pytest.raises(GateResolutionError) as excinfo:
-            registry.resolve_gate(Answer, gate_strategy=[], gate_name="triage")
-        assert excinfo.value.last_error == "no strategies attempted"
+
+class TestEvaluateSubmission:
+    """One validation, one recorded verdict."""
+
+    def test_a_valid_payload_is_accepted_with_its_dump(self) -> None:
+        evaluation, payload = evaluate_submission(Answer, {"approved": True})
+        assert evaluation.outcome is EvaluationOutcome.ACCEPTED
+        assert payload == {"approved": True}
+
+    def test_an_invalid_payload_is_recorded_field_by_field(self) -> None:
+        evaluation, payload = evaluate_submission(Answer, {"approved": "maybe"})
+        assert evaluation.outcome is EvaluationOutcome.INVALID
+        assert payload is None
+        assert evaluation.errors
+        field, message = evaluation.errors[0]
+        assert field == "approved"
+        assert "valid boolean" in message
+
+    def test_a_missing_payload_is_invalid_not_a_crash(self) -> None:
+        """Not a valid instance is a validation failure like any other — the
+        verdict says `invalid` and names the whole payload as the field."""
+        evaluation, payload = evaluate_submission(Answer, None)
+        assert evaluation.outcome is EvaluationOutcome.INVALID
+        assert payload is None
+        assert ("", "Input should be a valid dictionary or instance of Answer") in (
+            evaluation.errors
+        )

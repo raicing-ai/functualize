@@ -7,33 +7,22 @@ Intended to be composed into FunctualizeApp.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from functualize._gate._context import GateContext
+from functualize._gate._evaluation import blocked_reason_from
 from functualize._gate._strategy import GateStrategy, missing_strategy_hint
 from functualize._types.errors import GateResolutionError
+from functualize._types.gate_resolution import (
+    CandidateEvaluation,
+    EvaluationOutcome,
+    LadderOutcome,
+)
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from functualize._gate._resolver import GateResolver
-
-
-def _unregistered_message(names: list[str]) -> str:
-    """Name the unregistered strategies, and the package each one needs.
-
-    This is the string that reaches ``GateResolutionError.last_error``, and
-    from there the walk's ``blocked_reason`` -- so it is what an operator
-    actually reads when a gate blocks for this cause. The bare name alone
-    ("unregistered gate strategy 'ai_inbound'") is not enough to act on;
-    which package registers it is the missing half.
-    """
-    described = []
-    for name in names:
-        hint = missing_strategy_hint(name)
-        described.append(f"'{name}' ({hint})" if hint else f"'{name}'")
-    plural = "strategies" if len(described) > 1 else "strategy"
-    return f"unregistered gate {plural} {', '.join(described)}"
 
 
 class GateRegistry:
@@ -94,42 +83,50 @@ class GateRegistry:
         """
         return self._presets.get(name)
 
-    def resolve_gate(
+    def evaluate(
         self,
         model_class: type[BaseModel],
         *,
-        force_gate: bool = False,
         gate_strategy: GateStrategy | str | list[GateStrategy | str] | None = None,
+        gate_name: str = "unnamed",
         resolved_fields: dict[str, Any] | None = None,
         workflow_context: dict[str, Any] | None = None,
-        gate_name: str = "unnamed",
-    ) -> BaseModel:
-        """Resolve a gate by applying the resolution algorithm.
+        force_gate: bool = False,
+    ) -> LadderOutcome:
+        """Run the resolution ladder, recording one rung per strategy.
 
-        Steps:
-            1. Determine resolved/unresolved fields from the provided
-               resolved_fields or by inspecting model defaults.
-            2. Short-circuit if fully resolved and force_gate=False.
-            3. Build GateContext and dispatch to strategies in order.
-            4. Return model from first successful strategy.
-            5. Raise GateResolutionError if all strategies fail.
+        Pure: no store, no clock, no ids — the caller records the rungs as
+        candidates, which is what makes the evaluation a fact about this run
+        rather than something recomputed on read. The algorithm is the one
+        ``resolve_gate`` has always run (field classification, the
+        short-circuit when fully resolved and not forced, strategy-list
+        expansion); what changes is that every expanded entry leaves a rung
+        behind:
+
+        - ``failed`` — the resolver raised; the detail is ``str(exc)``;
+        - ``unavailable`` — the strategy is unregistered; the detail is the
+          install hint;
+        - ``accepted`` — the first success; the rung carries the model's dump;
+        - ``not_reached`` — every rung after the accepted one, recorded
+          rather than omitted so a ladder that stopped early reads as one.
+
+        The two loud ``ValueError`` paths raise from here exactly as they
+        always have — an unregistered strategy inside a preset, and a single
+        explicitly-named unregistered strategy — with nothing returned.
 
         Args:
             model_class: The Pydantic BaseModel subclass to resolve.
-            force_gate: If True, dispatch to strategy even when fully resolved.
             gate_strategy: Override strategy — a single strategy name/enum,
                 or list of strategies, or a preset name.
+            gate_name: Identifier for the gate (used in error messages).
             resolved_fields: Dict of field names to already-resolved values
                 from the config chain. If None, resolution uses model defaults.
             workflow_context: Arbitrary context from the current workflow state.
-            gate_name: Identifier for the gate (used in error messages).
+            force_gate: If True, dispatch to strategy even when fully resolved.
 
         Returns:
-            A fully populated BaseModel instance.
-
-        Raises:
-            GateResolutionError: If all strategies fail to resolve.
-            ValueError: If a preset references an unregistered strategy.
+            The ladder's outcome: rungs in order, the accepted model when a
+            rung succeeded, and the blocked text when none did.
         """
         if resolved_fields is None:
             resolved_fields = {}
@@ -156,9 +153,20 @@ class GateRegistry:
                 else:
                     unresolved_fields.append(field_name)
 
-        # Step 2: Short-circuit if fully resolved and not forced
+        # Step 2: Short-circuit if fully resolved and not forced. One rung,
+        # credited to `resolve`, because the config chain is what answered.
         if not unresolved_fields and not force_gate:
-            return model_class(**actual_resolved)
+            model = model_class(**actual_resolved)
+            return LadderOutcome(
+                rungs=(
+                    (
+                        "resolve",
+                        CandidateEvaluation(EvaluationOutcome.ACCEPTED),
+                        model.model_dump(),
+                    ),
+                ),
+                model=model,
+            )
 
         # Step 3: Build GateContext
         ctx = GateContext(
@@ -173,10 +181,25 @@ class GateRegistry:
         # Step 4: Determine strategy list
         strategy_entries = self._resolve_strategy_list(gate_strategy)
 
-        # Step 5: Try each strategy in order
-        failures: list[str] = []
-        unregistered: list[str] = []
+        # Step 5: One rung per expanded entry, in ladder order. A rung after
+        # the accepted one is `not_reached` rather than absent, and every
+        # failure keeps its own label — the ladder used to fold all of them
+        # into one string, which is how a broken *earlier* strategy stayed
+        # invisible while the operator was shown the *next* one's complaint
+        # (a `prompt` resolver raising `TypeError` reported a config-chain
+        # error, and the config chain was fine).
+        rungs: list[tuple[str, CandidateEvaluation, Any]] = []
+        accepted: BaseModel | None = None
         for strategy_name, preset_source in strategy_entries:
+            if accepted is not None:
+                rungs.append(
+                    (
+                        strategy_name,
+                        CandidateEvaluation(EvaluationOutcome.NOT_REACHED),
+                        None,
+                    )
+                )
+                continue
             resolver = self._strategies.get(strategy_name)
             if resolver is None:
                 if preset_source is not None:
@@ -205,37 +228,81 @@ class GateRegistry:
                 # walk ended BLOCKED and resumable; an unregistered name raised
                 # a bare ValueError out of `resolve_gate`, past the walker's
                 # `except GateResolutionError`, and out of `app.execute()`.
-                unregistered.append(strategy_name)
+                rungs.append(
+                    (
+                        strategy_name,
+                        CandidateEvaluation(
+                            EvaluationOutcome.UNAVAILABLE,
+                            detail=missing_strategy_hint(strategy_name),
+                        ),
+                        None,
+                    )
+                )
                 continue
             try:
-                return resolver.resolve(ctx)
+                model = resolver.resolve(ctx)
             except Exception as exc:
-                # **Every** rung's failure, each labelled with the rung it came
-                # from — not just the last one. The ladder used to keep only
-                # the most recent exception, so a broken *earlier* strategy was
-                # invisible and the operator was shown the *next* strategy's
-                # complaint instead: a `prompt` resolver raising `TypeError`
-                # reported "Cannot resolve model Prefs from config chain",
-                # which points at the config chain, which was fine.
-                #
-                # Found while writing AC-10's test, by being the broken
-                # resolver.
-                failures.append(f"{strategy_name}: {exc}")
+                # **Every** rung's failure, each labelled with the rung it
+                # came from — not just the last one.
+                rungs.append(
+                    (
+                        strategy_name,
+                        CandidateEvaluation(EvaluationOutcome.FAILED, detail=str(exc)),
+                        None,
+                    )
+                )
                 continue
+            rungs.append(
+                (
+                    strategy_name,
+                    CandidateEvaluation(EvaluationOutcome.ACCEPTED),
+                    model.model_dump(),
+                )
+            )
+            accepted = model
 
-        # All strategies failed. Both causes are reported, and the
-        # unregistered ones go first: "install functualize-ai" is actionable,
-        # whereas the resolver error is usually a downstream symptom of having
-        # fallen this far in the first place.
-        parts = []
-        if unregistered:
-            parts.append(_unregistered_message(unregistered))
-        parts.extend(failures)
-        last_error_msg = "; ".join(parts) if parts else "no strategies attempted"
+        return LadderOutcome(
+            rungs=tuple(rungs),
+            model=accepted,
+            blocked_reason="" if accepted is not None else blocked_reason_from(rungs),
+        )
+
+    def resolve_gate(
+        self,
+        model_class: type[BaseModel],
+        *,
+        force_gate: bool = False,
+        gate_strategy: GateStrategy | str | list[GateStrategy | str] | None = None,
+        resolved_fields: dict[str, Any] | None = None,
+        workflow_context: dict[str, Any] | None = None,
+        gate_name: str = "unnamed",
+    ) -> BaseModel:
+        """Resolve a gate: :meth:`evaluate`, plus the raise when nothing did.
+
+        The model when a rung was accepted, otherwise the
+        :class:`GateResolutionError` the walker catches — same type, same
+        message, same ``strategies_attempted`` count as before the ladder
+        learned to enumerate itself. What is new is ``evaluations``: one per
+        rung, so a caller that wants the recorded ladder does not have to
+        re-derive it from the text.
+        """
+        outcome = self.evaluate(
+            model_class,
+            gate_strategy=gate_strategy,
+            gate_name=gate_name,
+            resolved_fields=resolved_fields,
+            workflow_context=workflow_context,
+            force_gate=force_gate,
+        )
+        if outcome.model is not None:
+            # The value is the accepted rung's model instance; `LadderOutcome`
+            # types it `Any` because a payload and a model share one field.
+            return cast("BaseModel", outcome.model)
         raise GateResolutionError(
             gate_name=gate_name,
-            strategies_attempted=len(strategy_entries),
-            last_error=last_error_msg,
+            strategies_attempted=len(outcome.rungs),
+            last_error=outcome.blocked_reason,
+            evaluations=tuple(evaluation for _, evaluation, _ in outcome.rungs),
         )
 
     def _resolve_strategy_list(
