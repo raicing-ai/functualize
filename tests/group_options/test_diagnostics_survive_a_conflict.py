@@ -169,11 +169,9 @@ class TestTheExemptSetIsReal:
 def test_a_healthy_project_is_unaffected(project_tree, tmp_path: Path) -> None:
     """The diagnostics are not a second code path — they run the same boot.
 
-    Asserted on the answer rather than the exit code: `func builtin why` exits
-    with the *verdict's* code, and a job with no `@job` declaration is `unknown`
-    → 2 whether or not anything is wrong with the project. Using that number
-    here would pin a fact about `why`'s own vocabulary in a file about group
-    conflicts.
+    Asserted on the answer rather than the exit code: pinning `why`'s exit
+    code here would couple a file about group conflicts to `why`'s own
+    exit-code vocabulary, which lives in `tests/cli/test_why_json.py`.
     """
     root = project_tree(jobs={"hello.py": _HEALTHY})
 

@@ -2220,11 +2220,13 @@ def register_builtin_commands(cli_group: Any) -> None:
     def why_command(ctx: click.Context, job_name: str, as_json: bool) -> None:
         """Explain whether a job would run, and why.
 
-        Exits non-zero when the job is not up to date, so a script can branch on
-        the answer: 0 fresh, 4 stale, 3 refused, 5 blocked at a gate, 2 for a
-        job that cannot be resolved. `ExitCode.STALE` had no producer at all
-        before this — a pinned number in a table described as "a contract with
-        scripts and agents".
+        Exits 0 whenever the question is answered about a runnable job — would
+        run or would not — so a scripted `func builtin why <job> && …` cannot
+        read a healthy job as a failure. The run/not-run distinction is data,
+        in the prose headline or the JSON payload's `will_run` and `state`,
+        not the exit code. Non-zero is reserved for what the documented
+        exit-code table already means: 3 refused or failed precondition, 5
+        blocked at a gate, 2 a job that cannot be resolved.
         """
         import json as _json
 
