@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""Map a change set to the pytest paths worth running.
+
+Usage:
+    tests-for-diff [--base <ref>] [--files <path> ...]
+
+Prints pytest paths, one per line, deduplicated, sorted, and existing on
+disk — directly usable as:
+
+    uv run pytest -n auto -q --no-header $(tests-for-diff)
+
+The default input is the committed diff against the merge base with
+origin/master plus the uncommitted changes (staged, unstaged, untracked).
+--files bypasses git entirely and needs no repository.
+
+Selection rules, first match per changed path:
+
+    M1  tests/**/test_*.py             the file itself
+    M2  src/functualize/<pkg>/<mod>.py every test file importing the module
+    M3  M2 found nothing               every test file importing the package
+    M4  shared infrastructure          nothing on stdout; exit 3
+    M5  plugins/<group>/<name>/**      plugins/<group>/<name>/tests if present
+    M6  anything else                  nothing
+
+Shared infrastructure (M4): tests/conftest.py, tests/_support/**,
+pyproject.toml, uv.lock. Selection is not sound there — run the tip tier.
+
+Exit codes: 0 selection printed (possibly empty), 3 shared infrastructure
+changed, 2 usage or git error.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+DEFAULT_BASE = "origin/master"
+EXIT_ERROR = 2
+EXIT_SHARED = 3
+SHARED_INFRA_MESSAGE = "shared infrastructure changed: run the tip tier"
+
+
+class MapperError(RuntimeError):
+    """Unrecoverable input problem; the message goes to stderr with exit 2."""
+
+
+def is_shared_infra(path: str) -> bool:
+    return (
+        path == "tests/conftest.py"
+        or path == "tests/_support"
+        or path.startswith("tests/_support/")
+        or path in {"pyproject.toml", "uv.lock"}
+    )
+
+
+def _git(*args: str, root: Path) -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise MapperError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
+    return proc.stdout
+
+
+def repo_root() -> Path:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise MapperError("not inside a git repository and no --files given")
+    return Path(proc.stdout.strip())
+
+
+def normalize_input_path(raw: str, root: Path) -> str:
+    path = raw.strip()
+    if path.startswith("./"):
+        path = path[2:]
+    if Path(path).is_absolute():
+        with contextlib.suppress(ValueError):
+            path = Path(path).resolve().relative_to(root.resolve()).as_posix()
+    return path
+
+
+def changed_paths(base: str) -> list[str]:
+    """Committed diff against the merge base, plus uncommitted changes."""
+    root = repo_root()
+    merge_base = _git("merge-base", base, "HEAD", root=root).strip()
+    if not merge_base:
+        raise MapperError(f"no merge base found between {base} and HEAD")
+    committed = _git("diff", "--name-only", merge_base, root=root).splitlines()
+    uncommitted = _git("diff", "--name-only", "HEAD", root=root).splitlines()
+    untracked = _git(
+        "ls-files", "--others", "--exclude-standard", "--full-name", root=root
+    ).splitlines()
+    return sorted(
+        {
+            normalize_input_path(p, root)
+            for p in committed + uncommitted + untracked
+            if p.strip()
+        }
+    )
+
+
+def load_test_sources(root: Path) -> list[tuple[str, str]]:
+    """Every tests/**/test_*.py with its source text, repo-relative, sorted."""
+    tests_dir = root / "tests"
+    if not tests_dir.is_dir():
+        return []
+    sources: list[tuple[str, str]] = []
+    for path in sorted(tests_dir.rglob("test_*.py")):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        sources.append((path.relative_to(root).as_posix(), text))
+    return sources
+
+
+def select_src_tests(
+    changed: str, sources: list[tuple[str, str]]
+) -> tuple[list[str], str | None]:
+    """M2 direct importers for a src/functualize module, else the M3 fallback."""
+    parts = changed[len("src/functualize/") :][: -len(".py")].split("/")
+    pkg = parts[0] if len(parts) > 1 else None
+    dotted = "functualize." + ".".join(parts)
+    parent = "functualize." + ".".join(parts[:-1])
+    leaf = parts[-1]
+
+    direct_re = re.compile(rf"{re.escape(dotted)}\b")
+    from_import_re = re.compile(
+        rf"from {re.escape(parent)} import [^\n]*\b{re.escape(leaf)}\b"
+    )
+    direct = [
+        rel
+        for rel, text in sources
+        if direct_re.search(text) or from_import_re.search(text)
+    ]
+    if direct:
+        return direct, None
+
+    # M3: nothing imports the module directly (measured case:
+    # _engine/job_middleware.py). Broaden to the package and say so.
+    scope = f"functualize.{pkg}" if pkg else "functualize"
+    fallback_re = re.compile(rf"{re.escape(scope)}\b")
+    hits = [rel for rel, text in sources if fallback_re.search(text)]
+    note = (
+        f"tests-for-diff: no test imports {dotted} directly; "
+        f"selected {len(hits)} test files referencing {scope} instead\n"
+    )
+    return hits, note
+
+
+def select_plugins_tests(changed: str, root: Path) -> str | None:
+    """M5: a plugin change maps to that plugin's own tests directory."""
+    parts = changed.split("/")
+    if len(parts) < 3:
+        return None
+    candidate = f"plugins/{parts[1]}/{parts[2]}/tests"
+    return candidate if (root / candidate).is_dir() else None
+
+
+def build_selection(changed: list[str], root: Path) -> set[str]:
+    """Run M1–M6 over the change set; returns the selected paths."""
+    sources: list[tuple[str, str]] | None = None
+
+    def cached_sources() -> list[tuple[str, str]]:
+        nonlocal sources
+        if sources is None:
+            sources = load_test_sources(root)
+        return sources
+
+    selected: set[str] = set()
+    for path in changed:
+        name = path.rsplit("/", 1)[-1]
+        if (
+            path.startswith("tests/")
+            and name.startswith("test_")
+            and name.endswith(".py")
+        ):
+            selected.add(path)  # M1
+        elif path.startswith("src/functualize/") and path.endswith(".py"):
+            hits, note = select_src_tests(path, cached_sources())  # M2/M3
+            if note:
+                sys.stderr.write(note)
+            selected.update(hits)
+        elif path.startswith("plugins/"):
+            plugin_tests = select_plugins_tests(path, root)  # M5
+            if plugin_tests:
+                selected.add(plugin_tests)
+        # M6: everything else selects nothing.
+    return selected
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="tests-for-diff",
+        description="Print the pytest paths worth running for a change set.",
+    )
+    parser.add_argument(
+        "--base",
+        default=DEFAULT_BASE,
+        metavar="REF",
+        help=f"base ref for the diff (default: {DEFAULT_BASE})",
+    )
+    parser.add_argument(
+        "--files",
+        nargs="+",
+        metavar="PATH",
+        help="explicit change set; bypasses git entirely",
+    )
+    args = parser.parse_args(argv)
+
+    root = Path.cwd()
+    try:
+        if args.files:
+            changed = sorted({normalize_input_path(p, root) for p in args.files})
+        else:
+            root = repo_root()
+            changed = changed_paths(args.base)
+    except MapperError as exc:
+        sys.stderr.write(f"tests-for-diff: {exc}\n")
+        return EXIT_ERROR
+
+    for path in changed:
+        if is_shared_infra(path):  # M4 outranks every selection rule
+            sys.stderr.write(f"tests-for-diff: {path}: {SHARED_INFRA_MESSAGE}\n")
+            return EXIT_SHARED
+
+    selected = build_selection(changed, root)
+    for rel in sorted(p for p in selected if (root / p).exists()):
+        print(rel)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
