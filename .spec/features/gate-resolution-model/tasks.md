@@ -269,7 +269,18 @@ now: `0` · after: `2`
 
 ## Wave 2 — backend and recorder (T5 ∥ T6, disjoint files)
 
-### [ ] T5 — the document backend implements the amended port
+### [x] T5 — the document backend implements the amended port
+
+**Completion note (T5).** Gates measured `0` / `0`. `_DocumentTransaction`
+is **474 lines** by AST walk (class header through its last method) —
+≤ 500. `mypy src/` is green on this file; the only remaining red in the
+tree is `workflow_recorder.py`'s `SuspendAtGate` call, which T6 lands in
+this same wave. **Reachability: the production path is still none at this
+wave's end — the walker wiring is T7's, and reachability is proved there,
+not here.** One structural note: a buffered `GateCandidate` carries a
+request id, not a scope id, so the one-aggregate guard cannot see it at
+buffer time; `ConsumeInput` is scope-bearing and guards as specified. A
+candidate-only unit is single-aggregate by nature.
 
 *Files:* `src/functualize/_primitives/document_store.py`, `tests/primitives/test_document_runtime_store.py`
 
@@ -303,7 +314,14 @@ rg -c '"consumed_at": _iso\(cmd\.now\)' src/functualize/_primitives/document_sto
 ```
 now: `1` · after: `0`
 
-### [ ] T6 — the input recorder
+### [x] T6 — the input recorder
+
+**Completion note (T6).** Gates measured `4` and `2`. The single-builder
+choice: `InputRecorder.opened` is the one constructor of `SuspendAtGate`;
+`WorkflowRecorder.suspended` delegates to it and gains the
+`request_id`/`model`/`tools` pass-through parameters, so `frontier.py`'s
+existing `WorkflowRecorder` callers keep their surface. With this task
+ticked the spec tripwire reads 13 gates ≥ 12 and `tests/spec` goes green.
 
 *Files:* `src/functualize/_engine/recording/input_recorder.py` (new), `src/functualize/_engine/recording/__init__.py`, `src/functualize/_engine/recording/workflow_recorder.py`
 
