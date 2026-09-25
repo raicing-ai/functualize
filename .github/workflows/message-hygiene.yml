@@ -1,0 +1,86 @@
+name: Message Hygiene
+
+# A squash merge publishes the PR title as the commit subject and the PR body as
+# the commit body, so the title, the body and every commit message in the PR's
+# range become a permanent, public record of this repository. This job refuses
+# three classes of string in all three: a tracker key or tracker URL, an internal
+# task/run identifier, and a machine identity — an agent, model, harness or
+# automation account named as an author, which arrives as a `Co-authored-by:`
+# trailer. Rules, rationale and the growth path: CONTRIBUTING.md § Commit Message
+# Convention.
+#
+# It lints *text*, not tooling. How a contributor arrives at a commit is their
+# business; what the record says afterwards is this repository's.
+#
+# Deliberately `pull_request`, not `pull_request_target`: this only reads text,
+# and pull_request_target would run with a write-scoped token in the context of
+# the base repo for fork PRs. A failing job is enough signal.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  # TRANSITIONAL(master ruleset): the job reports on every PR but is not yet a
+  # required context, so it is visible without blocking. Registering
+  # `message-hygiene` in the `master` ruleset is a repository-settings change and
+  # is what turns it into a gate; AGENTS.md and CONTRIBUTING.md describe it as
+  # reported-but-not-required until that lands, and as required once it has.
+  message-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Every commit in the PR is walked, not only the head.
+          fetch-depth: 0
+
+      - name: Collect the PR's commit messages
+        env:
+          # The base branch tip and the PR head. `base..head` is exactly the
+          # PR's own commits: master's newer commits are reachable from the base
+          # and so excluded, and the branch's are not reachable from it.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          messages="$RUNNER_TEMP/messages.txt"
+          git log --format='%B%n' "$BASE_SHA..$HEAD_SHA" > "$messages" 2>/dev/null || true
+          if [ ! -s "$messages" ]; then
+            # A fork PR's head commit is not a branch in this repo; it lives in
+            # `refs/pull/<N>/head`, which fetch-depth does not reach.
+            git fetch --no-tags origin \
+              "+refs/pull/$PR_NUMBER/head:refs/remotes/pr/$PR_NUMBER" >/dev/null 2>&1 || true
+            git log --format='%B%n' "$BASE_SHA..refs/remotes/pr/$PR_NUMBER" \
+              > "$messages" 2>/dev/null || true
+          fi
+          if [ ! -s "$messages" ]; then
+            echo "::error::could not collect the PR's commit messages, so nothing was checked. Refusing this PR rather than passing it: collect the range BASE_SHA..HEAD_SHA by hand and re-run."
+            exit 1
+          fi
+          echo "collected $(git rev-list --count "$BASE_SHA..$HEAD_SHA" 2>/dev/null || echo '?') commit message(s) from $BASE_SHA..$HEAD_SHA"
+
+      - name: Note the enforcement state
+        env:
+          DENYLIST: ${{ vars.MESSAGE_HYGIENE_IDENTITY_DENYLIST }}
+          ALLOWLIST: ${{ vars.MESSAGE_HYGIENE_REVIEWER_ALLOWLIST }}
+        run: |
+          if [ -z "$DENYLIST" ]; then
+            echo "::notice::MESSAGE_HYGIENE_IDENTITY_DENYLIST is unset: the explicit identity deny-list is not applied. The trailer allow-list is, and it fails closed, so an agent or model named as a co-author is still refused."
+          fi
+          if [ -z "$ALLOWLIST" ]; then
+            echo "::notice::MESSAGE_HYGIENE_REVIEWER_ALLOWLIST is unset: no attributed trailer can be validated, so every Co-authored-by or Signed-off-by trailer fails until the list of permitted humans is set."
+          fi
+
+      - name: Refuse internal bookkeeping and machine identities
+        # The event payload goes through `env:` and never into the script text:
+        # a PR title or body interpolated into a `run:` block is executed.
+        env:
+          MESSAGE_HYGIENE_TITLE: ${{ github.event.pull_request.title }}
+          MESSAGE_HYGIENE_BODY: ${{ github.event.pull_request.body }}
+          MESSAGE_HYGIENE_LOG: ${{ runner.temp }}/messages.txt
+          MESSAGE_HYGIENE_IDENTITY_DENYLIST: ${{ vars.MESSAGE_HYGIENE_IDENTITY_DENYLIST }}
+          MESSAGE_HYGIENE_REVIEWER_ALLOWLIST: ${{ vars.MESSAGE_HYGIENE_REVIEWER_ALLOWLIST }}
+        run: python3 .github/scripts/verify_message_hygiene.py

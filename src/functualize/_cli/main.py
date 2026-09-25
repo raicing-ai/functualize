@@ -61,6 +61,47 @@ class _LeftMarginEpilogGroup(click.Group):
     warm boot must not pay for help text nobody asked to render.
     """
 
+    def format_options(self, ctx: click.Context, formatter: Any) -> None:
+        """Options, then the run-scoped globals this group does not declare.
+
+        `--emit-format`, `--force` and `--prompt-gates` configure *a run*, so
+        they are parsed pre-boot and never reach this group — which also serves
+        `func builtin …`, where they are rejected on purpose (ADR-020). Declaring
+        them here would change what `builtin` accepts; leaving them out of help
+        left the one flag that decides what reaches stdout invisible at the
+        keyboard. So they are rendered, not declared.
+        """
+        # `click.Group.format_options` is `Command.format_options` followed by
+        # `format_commands`; split it so the section sits beside the options it
+        # belongs with rather than under `Commands:`.
+        click.Command.format_options(self, ctx, formatter)
+
+        from functualize.app.utils import OPTIONAL_VALUE_VALID_SET
+
+        values, default = OPTIONAL_VALUE_VALID_SET["--emit-format"]
+        rows = [
+            (
+                f"--emit-format [{'|'.join(sorted(values))}]",
+                f"Serialization for out.emit() (default {default}). A job's "
+                "return value is never printed: write stdout with out.emit() "
+                "(the Stdout capability) or print().",
+            ),
+            (
+                "--force",
+                "Run even when up to date. Does not override a failed "
+                "precondition or a gate.",
+            ),
+            (
+                "--prompt-gates",
+                "Prompt for a gate's fields during a workflow walk instead of "
+                "blocking on it.",
+            ),
+        ]
+        with formatter.section("Run options (before the job name)"):
+            formatter.write_dl(rows)
+
+        self.format_commands(ctx, formatter)
+
     def format_epilog(self, ctx: click.Context, formatter: Any) -> None:
         from functualize.app.utils import write_agent_epilog
 
@@ -1435,6 +1476,20 @@ def _handle_job(
                 output_format,
                 help_text=ungrouped_cmd.help_text,
             )
+
+        # `func --emit-format bogus greet`: the lookahead refused `bogus` as a
+        # value, so it arrived here as the command. Now that boot has shown it
+        # names nothing, it was a bad value — say so, with the valid set, in
+        # the words `--emit-format=bogus` already gets.
+        from functualize._cli.dispatch import (
+            invalid_value_message,
+            refused_optional_value,
+        )
+
+        refused = refused_optional_value(sys.argv[1:])
+        if refused is not None and refused[1] == raw_name:
+            print(invalid_value_message(*refused), file=sys.stderr)
+            return 1
 
         if raw_name in aliases:
             # Alias target not found
