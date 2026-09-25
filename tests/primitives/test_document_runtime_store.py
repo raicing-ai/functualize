@@ -34,11 +34,22 @@ import pytest
 
 from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.substrate import JsonFileSubstrate
-from functualize._types.errors import CrossAggregateRefusedError
+from functualize._types.errors import (
+    CrossAggregateRefusedError,
+    InputRequestNotOpenError,
+)
+from functualize._types.gate_resolution import (
+    CandidateEvaluation,
+    EvaluationOutcome,
+    GateCandidate,
+)
 from functualize._types.persistence import (
     CancelWorkflow,
     Claimed,
     ClaimWorkflow,
+    ConsumeInput,
+    ResumeWorkflow,
+    SuspendAtGate,
 )
 
 #: One fixed clock for every command, so a failure cannot depend on when the
@@ -311,3 +322,136 @@ class TestTheEffectRefusal:
             tx.effects.append(
                 "functualize", "build.completed", {"v": 1}, idempotency_key="k-1"
             )
+
+
+class TestTheInputsAggregate:
+    """The document backend speaking the amended input port.
+
+    A suspend opens the request with its own id, a candidate append answers
+    it, and the walk's consume retires it — each through `transaction()`,
+    each refused or applied as one unit. The resume reclaiming the scope no
+    longer stamps `consumed_at`: consumption has one writer, and it is the
+    `ConsumeInput` command the walk issues when it feeds the answer forward.
+    """
+
+    REQUEST_ID = "req_3f9c"
+
+    def _suspend(self, store: DocumentRuntimeStore, generation: int = 1) -> None:
+        store.scope_store.ensure_scope("wf-1")
+        store.scope_store.claim_scope("wf-1", owner="w1", now=NOW)
+        with store.transaction() as tx:
+            tx.workflows.suspend(
+                SuspendAtGate(
+                    scope_id="wf-1",
+                    generation=generation,
+                    gate_name="approve",
+                    request_id=self.REQUEST_ID,
+                    position="approve",
+                    now=NOW,
+                    schema={"type": "object"},
+                    prompt="Approve?",
+                    model="Approval",
+                    tools=({"tool": "check_stock", "bound": ["sku"]},),
+                )
+            )
+
+    def _accepted(self, ordinal: int = 0) -> GateCandidate:
+        return GateCandidate(
+            candidate_id=f"cand_{ordinal}",
+            request_id=self.REQUEST_ID,
+            ordinal=ordinal,
+            source="api",
+            submitted_at=NOW,
+            evaluation=CandidateEvaluation(EvaluationOutcome.ACCEPTED),
+            payload={"approved": True},
+        )
+
+    def test_suspend_opens_a_request_the_reader_finds_by_id(
+        self, store: DocumentRuntimeStore
+    ) -> None:
+        self._suspend(store)
+        request = store.inputs.request(self.REQUEST_ID)
+        assert request is not None
+        assert request.status == "open"
+        assert request.gate_name == "approve"
+        assert store.inputs.candidates_for(self.REQUEST_ID) == ()
+        record = store.scope_store.get_gate("wf-1", "approve") or {}
+        assert record["model"] == "Approval"
+        assert record["tools"] == [{"tool": "check_stock", "bound": ["sku"]}]
+
+    def test_a_candidate_answers_and_the_second_is_refused_whole(
+        self, store: DocumentRuntimeStore
+    ) -> None:
+        self._suspend(store)
+        with store.transaction() as tx:
+            tx.inputs.append(self._accepted())
+        assert store.inputs.request(self.REQUEST_ID) is not None
+        assert store.inputs.request(self.REQUEST_ID).status == "accepted"  # type: ignore[union-attr]
+        recorded = store.inputs.candidates_for(self.REQUEST_ID)
+        assert [c.candidate_id for c in recorded] == ["cand_0"]
+        with pytest.raises(InputRequestNotOpenError), store.transaction() as tx:
+            tx.inputs.append(self._accepted(ordinal=1))
+
+    def test_consume_retires_once_and_the_resume_does_not(
+        self, store: DocumentRuntimeStore
+    ) -> None:
+        self._suspend(store)
+        with store.transaction() as tx:
+            tx.inputs.append(self._accepted())
+        with store.transaction() as tx:
+            tx.workflows.resume(
+                ResumeWorkflow(
+                    scope_id="wf-1",
+                    owner="w2",
+                    gate_name="approve",
+                    now=NOW,
+                    lease_seconds=300,
+                    force=True,  # the suspending walk never released in-test
+                )
+            )
+        # The reclaim alone: consumption is the walk's single write.
+        record = store.scope_store.get_gate("wf-1", "approve") or {}
+        assert record.get("consumed_at") is None
+        assert record["status"] == "accepted"
+        with store.transaction() as tx:
+            tx.inputs.consume(
+                ConsumeInput(
+                    scope_id="wf-1",
+                    generation=store.scope_store.generation_for("wf-1") or 2,
+                    request_id=self.REQUEST_ID,
+                    now=NOW,
+                )
+            )
+        retired = store.scope_store.get_gate("wf-1", "approve") or {}
+        assert retired["status"] == "consumed"
+        assert retired["consumed_at"] == NOW.isoformat()
+        with store.transaction() as tx:  # a replayed resume is a no-op
+            tx.inputs.consume(
+                ConsumeInput(
+                    scope_id="wf-1",
+                    generation=store.scope_store.generation_for("wf-1") or 2,
+                    request_id=self.REQUEST_ID,
+                    now=NOW,
+                )
+            )
+        assert store.scope_store.get_gate("wf-1", "approve") == retired
+
+    def test_a_legacy_record_projects_through_the_port(
+        self, store: DocumentRuntimeStore
+    ) -> None:
+        store.scope_store.ensure_scope("wf-1")
+        store.scope_store.put_gate(
+            "wf-1",
+            "approve",
+            {
+                "model": "Approval",
+                "input_schema": {"type": "object"},
+                "payload": {"approved": True},
+                "blocked_at": NOW.isoformat(),
+            },
+        )
+        request = store.inputs.request("wf-1::approve")
+        assert request is not None
+        assert request.status == "accepted"
+        assert store.inputs.candidates_for("wf-1::approve") == ()
+        assert store.inputs.open_for("wf-1") is not None
