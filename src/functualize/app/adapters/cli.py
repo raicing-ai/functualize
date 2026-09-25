@@ -1117,10 +1117,15 @@ class CliAdapter:
                 is_flag=False,
                 flag_value=_OUTPUT_DEFAULT,
                 default=None,
+                # The second sentence is `func`'s too (`_cli/main.py`, the
+                # run-options section): a first-time author returns a value,
+                # sees nothing, and cannot tell success from a no-op.
                 help=(
                     "Serialization for out.emit(): "
                     f"{', '.join(sorted(_OUTPUT_VALUES))} "
-                    f"(default {_OUTPUT_DEFAULT})."
+                    f"(default {_OUTPUT_DEFAULT}). A job's return value is "
+                    "never printed: write stdout with out.emit() (the Stdout "
+                    "capability) or print()."
                 ),
             ),
             *_generated_setting_options(),
