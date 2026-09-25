@@ -1,80 +1,73 @@
-# START HERE — FUN-18: State machines, relational schema, and the migration contract
+# START HERE — runtime schema: state machines, relational schema, migration contract
 
-You are picking up one ticket of a nine-ticket initiative. **You have no prior context and
-that is expected.** This file gets you to the point where you can start.
+You are picking up one wave of the runtime-persistence initiative. **You have no prior context
+and that is expected.** This file gets you to the point where you can start.
 
 ## What this branch is
 
 | | |
 |---|---|
-| **Jira** | FUN-18 — https://raicing-ai.atlassian.net/browse/FUN-18 |
 | **Branch** | `feat/runtime-schema-migrations` |
 | **Wave** | 2 of 7 |
-| **Blocks** | FUN-19 |
+| **Blocks** | `sqlite-runtime-provider`, and through it the atomic-workflow, gate-outbox, network-provider and workspace-split waves |
 | **Runs in parallel with** | none |
-| **Base** | `docs/runtime-persistence-research`, itself off `origin/master` @ `8c06198` |
+| **Base** | `origin/master` @ `03fbb64` (`feat(persistence): runtime persistence ports (#49)`); rebased 2026-09-25 from the research branch's `8c06198` |
+
+The tracker key and link live on the tracking issue, never in this repository's text: the
+`message-hygiene` check refuses them in PR titles, bodies and commit messages.
 
 ## The one-line goal
 
-Specify the legal state transitions, then the tables that hold them.
-
-## Why this ticket exists
-
-02-what-exists-today.md §6 found twelve status writers and no transition table. Specifying the machine before the schema is what stops the schema encoding an accident. Most of this data model is adopted from the archived Design 1, with credit.
+Make the four state machines executable — an illegal move raises `IllegalTransition` where it
+would be written — and specify the tables and the forward-only migration contract.
 
 ## Read these first, in this order
 
-The research is **already on this branch** at
-`contributor/architecture/research/`. It was written for someone who has never seen this
-codebase. Budget an hour.
+1. `spec.md` → *Re-based premises* and *Open decisions*. Ten premises of the original scaffold
+   were re-measured at `03fbb64`; five changed the plan.
+2. `contributor/reference/runtime-persistence-data-model.md` (on master) — §1 state machines,
+   §2 schema, §6 retention, §7 migration discipline. `schema.md` here is that, corrected (**Δ**).
+3. `contributor/adr/025-engine-owns-transition-meaning.md` and
+   `026-persistence-ports-need-no-new-layer.md` → *What would reopen this* — why nothing is added
+   to `_types/persistence.py`.
+4. `plan.md` — BEFORE/AFTER and the surviving smells.
 
-1. 06-data-model.md — state machines first, then schema, then the transaction catalogue
-2. the archived Design 1 page 12 (Relational Data Model) — the most-adopted document from that package
-3. ../durability-outsourcing/05-cloudflare.md §A.5 — the 2 MB row cap that makes one-row-per-step load-bearing
-
-If you have never seen this repository at all, start with
-`contributor/architecture/research/runtime-persistence-engine-owned/01-orientation.md` —
-it assumes nothing.
+The research studies under `contributor/architecture/research/` are still on this branch as
+background; they never reach master and are deleted by task 7.1.
 
 ## Then read the repository's own rules
 
 - `AGENTS.md` — commands, architecture, constraints
-- `.claude/rules/spec-workflow.md` — the phase contract. **Writes to `src/functualize/**`
-  are blocked by a `PreToolUse` hook unless `.spec/features/*/tasks.md` carries a
-  parseable `## Task Dependency Graph`. This branch already has one** (see `tasks.md`
-  next to this file), so you are unblocked — but if you restructure the tasks, keep the
-  graph valid or you will lock yourself out.
+- `.claude/rules/spec-workflow.md` — the phase contract. Writes to `src/functualize/**` are
+  gated on `.spec/features/*/tasks.md` carrying a parseable `## Task Dependency Graph`. This
+  branch has one; a Multica run does not load the hook, so obey it by hand.
 - `.spec/CONSTITUTION.md` — the non-negotiables, including the forbidden patterns
 
 ## How to start
 
 ```bash
 cd /home/ubuntu/orca/workspaces/functualize/rp-18-schema
-uv sync
-uv run pytest -q                   # confirm green before you change anything
+uv sync --frozen --all-extras --all-packages
+uv run lint-imports                  # 7 kept, 0 broken at 03fbb64
 cat .spec/features/runtime-schema-migrations/tasks.md
 ```
 
-Work the waves in order. Wave N+1 does not start while wave N has unchecked tasks.
+Work the waves in order. Wave N+1 does not start while wave N has unchecked tasks. A task
+marked **held** waits for its decision in `spec.md`.
 
 ## Three things that will bite you
 
-1. **Reachability precedes `[x]`.** Name the production call path and verify it by
-   breaking the call and watching a test fail. "A test calls it" is not a call path.
-2. **Commit before sabotaging.** `git checkout -- <file>` reverts everything uncommitted
-   in that file.
+1. **Reachability precedes `[x]`.** Name the production call path and verify it by breaking the
+   call and watching a test fail. "A test calls it" is not a call path.
+2. **Commit before sabotaging.** `git checkout -- <file>` reverts everything uncommitted in that
+   file.
 3. **Disclose transitional states, never disguise them.** Mark the site
    `# TRANSITIONAL(<step>): …` and describe it as current-behaviour-plus-planned-end-state.
 
-## What "done" looks like
-
-See `spec.md` next to this file for the acceptance criteria. They are gates, not
-aspirations — run them at authoring time.
-
 ## Before you open a PR
 
-`.spec/features/` is tracked on this branch and **absent from master**. The
-`spec-artifacts-cleared` check blocks the merge until you migrate the durable half to
-`.spec/STATUS.md` or `contributor/adr/` and `git rm -r .spec/features/runtime-schema-migrations`.
-Make that the **last** commit and make it deletion-only. The sequence is in
-`.claude/rules/spec-workflow.md` → *Version control lifecycle*.
+- `.spec/features/` and `contributor/architecture/research/` are tracked on this branch and
+  **absent from master**. Migrate the durable half (task 6.1), push and wait for validation, then
+  make the deletion-only clearing commit (task 7.1) the **last** commit.
+- Read back `git log --format='%B' origin/master..HEAD`, the PR title and the PR body for tracker
+  keys, internal ids and agent trailers before every push.
