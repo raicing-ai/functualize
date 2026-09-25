@@ -80,6 +80,17 @@ own rules about meaning.
   effect**, `EngineHost.substrate_override` is the slot the engine reads, and
   installing is a **call** whose guard can refuse a late one instead of
   half-applying it.)*
+  *(Superseded in part by **ADR-027** and `runtime-persistence-ports`/T12:
+  neither the moment nor the verb survives. Boot now constructs the engine
+  **with** its store at step 6.5 — after configuration resolves, before the
+  engine exists — so `APP_READY` is already *after* the choice, and an
+  `install_substrate()` there raises `SubstrateInstallError` out of
+  `FunctualizeApp(...)` instead of being logged and carried on. A plugin that
+  has configuration to read **offers** instead: `app.offer_substrate(chooser)`
+  from its registration call, and boot asks the chooser once inside 6.5. The
+  choice still moves every store or none — what changed is that the plugin no
+  longer names the moment. What a substrate plugin may own is unchanged and
+  narrow: storage, not execution (**ADR-028**).)*
 
 ### Why this is not the same idea renamed
 
