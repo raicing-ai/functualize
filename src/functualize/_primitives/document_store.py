@@ -43,16 +43,22 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from functualize._primitives import gate_requests
 from functualize._primitives.lease import LeaseHeldError
 from functualize._primitives.run_store import RunStore
 from functualize._primitives.scope_store import ScopeStore
-from functualize._types.errors import CrossAggregateRefusedError
+from functualize._types.errors import (
+    CrossAggregateRefusedError,
+    InputRequestNotOpenError,
+)
+from functualize._types.gate_resolution import GateCandidate
 from functualize._types.persistence import (
     CancelWorkflow,
     Claimed,
     ClaimWorkflow,
     CompleteStep,
     Conflict,
+    ConsumeInput,
     EffectWriter,
     EventView,
     EventWriter,
@@ -339,10 +345,11 @@ def _workflow_view(scope_id: str, record: dict[str, Any]) -> WorkflowView:
 class _DocumentInputReader:
     """`InputReader` over the gate records inside each scope.
 
-    A gate record is this backend's input request: `SuspendAtGate` writes it
-    and `ResumeWorkflow` consumes it. There is no `input_candidates` document,
-    so a second deposit still overwrites the first here — defect B-2.4, which
-    FUN-19's append-only table is what actually fixes.
+    A gate record is this backend's input request: `SuspendAtGate` opens it,
+    a candidate append answers it, and the walk's consume retires it. The
+    request and its candidates live in the record itself —
+    `gate_requests` owns that shape, including the projection of records
+    written before requests existed.
     """
 
     def __init__(self, scopes: ScopeStore) -> None:
@@ -376,6 +383,28 @@ class _DocumentInputReader:
             if request.status == "open"
         )
 
+    def request(self, request_id: str) -> InputRequest | None:
+        """The request an id names, wherever the document keeps it.
+
+        Found by scanning rather than parsing: a request id is opaque to this
+        backend, and a legacy record's derived `<scope>::<gate>` id is only
+        known by projecting the record — the same way `request_for` builds
+        it — and comparing.
+        """
+        located = _locate_request(self._scopes, request_id)
+        if located is None:
+            return None
+        scope_id, gate_name, gate = located
+        generation = _generation_of(self._scopes.get_scope(scope_id))
+        return gate_requests.request_for(scope_id, gate_name, gate, generation)
+
+    def candidates_for(self, request_id: str) -> Sequence[GateCandidate]:
+        """The request's candidates as recorded, never re-validated."""
+        located = _locate_request(self._scopes, request_id)
+        if located is None:
+            return ()
+        return gate_requests.candidates_for(located[2])
+
     def _requests(self, scope_id: str) -> Sequence[InputRequest]:
         record = self._scopes.get_scope(scope_id)
         if record is None:
@@ -383,54 +412,53 @@ class _DocumentInputReader:
         gates = record.get("gates")
         if not isinstance(gates, dict):
             return ()
-        generation = int(_lease_record(record).get("generation", 0) or 0)
+        generation = _generation_of(record)
         return tuple(
-            _input_request(scope_id, name, gate, generation)
+            gate_requests.request_for(scope_id, name, gate, generation)
             for name, gate in sorted(gates.items())
             if isinstance(gate, dict)
         )
 
 
-def _input_request(
-    scope_id: str, gate_name: str, gate: dict[str, Any], generation: int
-) -> InputRequest:
-    """One gate record as an `InputRequest`.
+def _generation_of(record: dict[str, Any] | None) -> int:
+    """The scope record's lease generation, zero when never claimed."""
+    if record is None:
+        return 0
+    return int(_lease_record(record).get("generation", 0) or 0)
 
-    Three of the five statuses are reachable here. `consumed` is written by
-    `ResumeWorkflow`; `accepted` is a payload deposited and not yet walked
-    past; everything else is `open`. `cancelled` and `expired` have no
-    document shape and arrive with the request table.
+
+def _locate_request(
+    scopes: ScopeStore, request_id: str
+) -> tuple[str, str, dict[str, Any]] | None:
+    """Where a request id lives: ``(scope_id, gate_name, gate record)``.
+
+    A request id does not encode its address, so the document is scanned for
+    the gate record that owns it — by its stored ``request_id`` when the
+    request was opened through the port, or by the id a legacy record
+    projects to. First match wins; ids are unique per request by contract,
+    and the superseded history under a gate's ``superseded`` list is never
+    consulted because those requests are finished.
     """
-    if gate.get("consumed_at"):
-        status = "consumed"
-    elif gate.get("payload") is not None:
-        status = "accepted"
-    else:
-        status = "open"
-    return InputRequest(
-        scope_id=scope_id,
-        gate_name=gate_name,
-        generation=generation,
-        status=status,
-        created_at=_at(gate.get("blocked_at")),
-        schema=gate.get("input_schema"),
-        prompt=gate.get("prompt"),
-        resolved_at=_parse(gate.get("consumed_at")),
-    )
+    for scope_id in scopes.scope_ids():
+        record = scopes.get_scope(scope_id)
+        gates = record.get("gates") if record is not None else None
+        if not isinstance(gates, dict):
+            continue
+        for gate_name, gate in sorted(gates.items()):
+            if not isinstance(gate, dict):
+                continue
+            stored = gate.get("request_id")
+            owner = stored if isinstance(stored, str) and stored else None
+            if owner is None:
+                owner = f"{scope_id}::{gate_name}"
+            if owner == request_id:
+                return scope_id, gate_name, gate
+    return None
 
 
 # ------------------------------------------------------------------
 # The write side. Every writer appends a value; nothing issues.
 # ------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class _AppendInput:
-    """`InputWriter.append`, as a value — the port's one non-dataclass write."""
-
-    request_id: str
-    source: str
-    payload: Any = None
 
 
 @dataclass(frozen=True)
@@ -538,13 +566,23 @@ class _DocumentWorkflowWriter:
 
 
 class _DocumentInputWriter:
-    """`InputWriter` — appends, never issues."""
+    """`InputWriter` — appends, never issues.
+
+    A candidate is already a frozen value, so it buffers itself; `consume`
+    buffers the command. The candidate carries a request id rather than a
+    scope, so the one-aggregate guard cannot see it at buffer time — the
+    apply locates the request on the document it is about to write, inside
+    the batch, and a candidate-only unit is single-aggregate by nature.
+    """
 
     def __init__(self, txn: _DocumentTransaction) -> None:
         self._txn = txn
 
-    def append(self, request_id: str, source: str, payload: Any = None) -> None:
-        self._txn.append(_AppendInput(request_id, source, payload))
+    def append(self, candidate: GateCandidate) -> None:
+        self._txn.append(candidate)
+
+    def consume(self, cmd: ConsumeInput) -> None:
+        self._txn.append(cmd)
 
 
 class _DocumentEventWriter:
@@ -780,8 +818,10 @@ class _DocumentTransaction:
             self._start_attempt(command, runs())
         elif isinstance(command, FinishAttempt):
             self._finish_attempt(command, runs())
-        elif isinstance(command, _AppendInput):
-            self._append_input(command, scopes())
+        elif isinstance(command, GateCandidate):
+            self._append_candidate(command, scopes())
+        elif isinstance(command, ConsumeInput):
+            self._consume_input(command, scopes())
         elif isinstance(command, _AppendEvent):
             self._append_event(command, scopes, runs)
         elif isinstance(command, _AppendEffect):
@@ -833,38 +873,43 @@ class _DocumentTransaction:
             scopes.set_scope_status(cmd.scope_id, cmd.scope_status)
 
     def _suspend(self, cmd: SuspendAtGate, scopes: ScopeStore) -> None:
+        """Open the gate's request, then block the scope at the node.
+
+        `open_request` owns the record shape and the one-live-request rule:
+        a request already open, accepted or consumed for this gate is reused
+        as-is, so a re-entering walk keeps the id it blocked with. `model`
+        and `tools` ride on the command so a surface that answers over MCP
+        can learn the question without the declaring module.
+        """
         with self._held(scopes, cmd.scope_id, cmd.generation):
-            scopes.put_gate(
+            gate_requests.open_request(
+                scopes,
                 cmd.scope_id,
                 cmd.gate_name,
-                {
-                    "input_schema": cmd.schema,
-                    "prompt": cmd.prompt,
-                    "payload": None,
-                    "blocked_at": _iso(cmd.now),
-                },
+                request_id=cmd.request_id,
+                schema=cmd.schema,
+                prompt=cmd.prompt,
+                model=cmd.model,
+                tools=cmd.tools,
+                now=cmd.now,
             )
             scopes.set_position(cmd.scope_id, cmd.position)
             scopes.set_scope_status(cmd.scope_id, "blocked")
 
     def _resume(self, cmd: ResumeWorkflow, scopes: ScopeStore) -> None:
-        """Consume the accepted request and reclaim at a **new** generation.
+        """Reclaim the scope at a **new** generation.
 
-        One unit, which is the point of the command: today the deposit
-        (`app/_workflow_answer.py`) and the claim (`_engine/frontier.py`)
-        are two locked writes in different call frames
+        Consumption is deliberately absent: `ConsumeInput` is the one writer
+        of `consumed`, issued by the walk that feeds the payload forward —
+        a resume that also stamped it would make every answer's retirement
+        a two-writer fact. One unit still holds the reclaim, which is the
+        point of the command: today the deposit and the claim are two
+        locked writes in different call frames
         (`contributor/reference/runtime-persistence-data-model.md` §4).
         `claim_scope` still raises here rather than answering —
         `resume` returns `None` by the port, so there is no value to answer
         with.
         """
-        gate = scopes.get_gate(cmd.scope_id, cmd.gate_name)
-        if gate is not None:
-            scopes.put_gate(
-                cmd.scope_id,
-                cmd.gate_name,
-                {**gate, "consumed_at": _iso(cmd.now)},
-            )
         scopes.claim_scope(
             cmd.scope_id,
             owner=cmd.owner,
@@ -873,6 +918,31 @@ class _DocumentTransaction:
             now=cmd.now,
         )
         scopes.set_scope_status(cmd.scope_id, "running")
+
+    def _append_candidate(self, candidate: GateCandidate, scopes: ScopeStore) -> None:
+        """Apply one buffered candidate to the request it names.
+
+        The request is located on the document inside the batch — the fresh
+        view, so a candidate for a request another command in this unit
+        opened still finds it. `gate_requests.append_candidate` re-reads the
+        status and refuses anything but an open request with nothing
+        written, which is the append-only rule this backend inherits
+        rather than reimplements.
+        """
+        located = _locate_request(scopes, candidate.request_id)
+        if located is None:
+            raise InputRequestNotOpenError(candidate.request_id, "missing")
+        gate_requests.append_candidate(scopes, located[0], located[1], candidate)
+
+    def _consume_input(self, cmd: ConsumeInput, scopes: ScopeStore) -> None:
+        """Retire the request the walk is moving past, under the fence."""
+        with self._held(scopes, cmd.scope_id, cmd.generation):
+            located = _locate_request(scopes, cmd.request_id)
+            if located is None:
+                raise ValueError(f"no gate record holds request {cmd.request_id!r}")
+            gate_requests.consume_request(
+                scopes, located[0], located[1], cmd.request_id, cmd.now
+            )
 
     def _cancel(self, cmd: CancelWorkflow, scopes: ScopeStore) -> None:
         """Move a non-terminal scope to `cancelled`.
@@ -983,24 +1053,6 @@ class _DocumentTransaction:
             ended_at=_iso(cmd.now),
             attempts=attempts,
             failure_code=cmd.failure_code,
-        )
-
-    def _append_input(self, cmd: _AppendInput, scopes: ScopeStore) -> None:
-        """Deposit a candidate against an open gate.
-
-        `request_id` is `<scope_id>::<gate_name>` here, because the document
-        backend has no request table to mint an id in — the gate record *is*
-        the request. `source` is recorded beside the payload rather than
-        dropped: who answered is the question an audit asks first.
-        """
-        scope_id, _, gate_name = cmd.request_id.partition("::")
-        gate = scopes.get_gate(scope_id, gate_name)
-        if gate is None:
-            raise KeyError(cmd.request_id)
-        scopes.put_gate(
-            scope_id,
-            gate_name,
-            {**gate, "payload": cmd.payload, "source": cmd.source},
         )
 
     def _append_event(self, cmd: _AppendEvent, scopes: Any, runs: Any) -> None:
