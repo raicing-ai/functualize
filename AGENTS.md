@@ -59,7 +59,11 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
   like any other change. The ruleset is not the whole check list:
   `research-artifacts-cleared` reports the research half of the 2026-09-22
   member rule on every PR and is **not yet a required context** — see
-  `CONTRIBUTING.md` § *Spec-driven PR validation and cleanup*.
+  `CONTRIBUTING.md` § *Spec-driven PR validation and cleanup*. The same is true
+  of `message-hygiene`: it reports tracker keys and URLs, internal identifiers
+  and machine identities in the PR title, the PR body and every commit message in
+  the range on every PR, and it is **not yet a required context** — see
+  `CONTRIBUTING.md` § *Commit Message Convention*.
 - Commit subjects are [Conventional Commits](https://www.conventionalcommits.org/):
   `<type>(<scope>)!: <subject>` with types `feat fix docs refactor test perf ci
   build chore revert`. Imperative, lowercase, no trailing period, ≤72 chars.
@@ -69,6 +73,14 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
 - PRs are squash-merged and the squash subject is taken verbatim from the **PR
   title**, so a PR title must itself be a valid conventional commit. Issue
   references go in the body (`Fixes #123`), never the title.
+- **The title, the body and every commit message are permanent and public**, and
+  a squash merge publishes the first two. Keep the tracker key, the tracker URL,
+  the internal task/run id and the tooling that produced the change out of all
+  three — the tracking context belongs in the tracker conversation, not in the
+  record. A `Co-authored-by:` trailer must name a person whose address is on the
+  maintainer allow-list; an agent, model or harness is never an author of a
+  change. `message-hygiene` reports on every PR and is not yet a required
+  context.
 - `CHANGELOG.md` is **hand-written prose, never generated** from commit
   messages. Do not add a changelog generator without an ADR.
 
