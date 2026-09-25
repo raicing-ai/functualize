@@ -177,8 +177,10 @@ lab.publish → SKIP (already done)
 
 `func builtin why <job>` is the tool for every "why did/didn't this run"
 question, and it reports the verdict the executor would actually reach. It
-exits with that verdict too — `0` for a skip, `4` (`ExitCode.STALE`) for a job
-that would run — so a script can branch on it without parsing the text.
+exits `0` for every answered verdict — a job that would run and one that would
+not alike — so a scripted `func builtin why <job> && …` never reads a healthy
+job as a failure. The distinction a script branches on is data, not an exit
+code: the headline text here, or `will_run` and `state` from `why --json`.
 
 ### 4.1 The release half: a glob, a group flag, a second group, and a gate
 

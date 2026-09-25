@@ -118,9 +118,9 @@ timeout = 60
 
 [[steps]]
 engine = "shell"
-description = "R10a: a satisfied status guard must NOT mask changed sources (guide §2 rule 2). `why` exits 4 (ExitCode.STALE) for a job that would run — it reports a verdict, so its exit code is that verdict"
+description = "R10a: a satisfied status guard must NOT mask changed sources (guide §2 rule 2). `why` exits 0 for a job that would run — an answered verdict is a success; the verdict itself is the text"
 command = "cd examples/standalone/composition_lab && echo '# touched' >> build/report.md && func builtin why lab.publish"
-expected = { exit_code = 4, stdout_contains = "status satisfied, but sources changed" }
+expected = { exit_code = 0, stdout_contains = "status satisfied, but sources changed" }
 timeout = 60
 
 [[steps]]

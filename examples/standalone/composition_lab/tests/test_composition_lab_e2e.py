@@ -243,9 +243,10 @@ class TestTheStatusGuardAndsWithStaleness:
 
         why = lab.run("builtin", "why", "lab.publish")
         assert "status satisfied, but sources changed" in lab.both(why)
-        assert why.returncode == 4, (
-            "`why` reports a stale job with ExitCode.STALE, so a script can "
-            "branch on it"
+        assert why.returncode == 0, (
+            "`why` answered the question about a runnable job, so it exits 0; "
+            "the would-run fact a script branches on is the headline text, or "
+            "`will_run` from `why --json`"
         )
         assert "PUBLISHED" in lab.both(lab.ok("lab", "publish"))
 

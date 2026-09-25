@@ -28,7 +28,9 @@ appropriating `ExitCode.STALE`, which the table reserves for a `--check`
 stale-check failure and which the shipped skill's exit-code table says no
 current command produces; that claim is true again. The run/not-run
 distinction a script needs was always data — `will_run` and `state` in the
-`--json` payload, the headline in the prose — and still is.
+`--json` payload, the headline in the prose — and still is. The composition
+guide, its doc-verify scenario, and the two example labs now teach that
+branch instead of the retired exit-4.
 
 ## [0.4.0] - 2026-09-24
 
