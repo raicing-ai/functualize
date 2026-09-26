@@ -26,8 +26,11 @@ holds the scope, run, attempt and input-request machines — a closed state set,
 refuses a pair no table carries, raising `IllegalTransition` and naming the machine, the current state
 and the target. `ScopeStore.set_scope_status` and `RunStore.close_run` each read the current value
 inside the batch they are already writing, so the check audits the write rather than a stale
-pre-read. Four pairs the table briefly needed are gone with the resumed-walk defect; a status the
-machine calls absorbing (`cancelled`) can no longer be moved anywhere; and the two retry edges a
+pre-read; `RunStore.open_run` is the third call site, on the creation edge, where an absent status
+still stores `running` and any other supplied value — `success` included, because opening a run is
+not closing one — is refused before the file is touched. Four pairs the table briefly needed are gone
+with the resumed-walk defect; a status the machine calls absorbing (`cancelled`) can no longer be
+moved anywhere; and the two retry edges a
 `resume` really takes (`failed → running`, `completed → running`) stay legal, marked transitional
 until the workflow-persistence work decides whether a retry mints a fresh attempt instead.
 

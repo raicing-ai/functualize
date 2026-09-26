@@ -9,10 +9,12 @@ logic (ADR-026, `_types/__init__.py`: "no logic"). A `Machine` that could answer
 that it is spelled once, so the check lives in `_primitives`, where a refusal is
 allowed to exist.
 
-**Two writers call it.** `ScopeStore.set_scope_status` for the scope machine and
-`RunStore.close_run` for the run machine; each reads the current value inside the
-batch it is already writing, so the check audits the write rather than a stale
-pre-read, and each lets the refusal propagate unchanged — the message a caller
+**Two stores call it, at three call sites.** `ScopeStore.set_scope_status` for the
+scope machine and `RunStore.close_run` for the run machine; each reads the current
+value inside the batch it is already writing, so the check audits the write rather
+than a stale pre-read. `RunStore.open_run` is the third, for the run's creation
+edge: it checks the pair against `None` *before* the write, so a refused open
+touches nothing. Each lets the refusal propagate unchanged — the message a caller
 sees is the one composed here:
 
     scope: 'cancelled' -> 'running' is not a legal transition

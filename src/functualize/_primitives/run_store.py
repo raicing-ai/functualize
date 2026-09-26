@@ -220,7 +220,10 @@ class RunStore:
 
         ``record`` is the shape in `schema.md` §2 minus the fields this method
         fills: ``run_id``, ``started_at`` and ``status``. An explicit ``run_id``
-        is honoured so a caller that already told someone the id can use it.
+        is honoured so a caller that already told someone the id can use it, and
+        an explicit ``status`` must be the ``running`` creation edge — anything
+        else is refused before the file is touched, because opening a run is not
+        closing one.
 
         **No argument values, ever** — only ``args_hash``, the same rule the
         history ring follows. A run log is read by more people than a job's
@@ -228,7 +231,10 @@ class RunStore:
         """
         run_id = str(record.get("run_id") or new_run_id())
         entry = {k: v for k, v in record.items() if k != "run_id"}
-        entry.setdefault("status", "running")
+        # Creation is the table's `(None, "running")` edge and nothing else, and
+        # the check runs before `_mutate`: a refused open writes nothing, so the
+        # envelope is left exactly as it was.
+        entry["status"] = require_transition(RUN, None, entry.get("status", "running"))
         entry.setdefault("started_at", _now())
         entry.setdefault("ended_at", None)
         entry.pop("kwargs", None)  # belt and braces: never store argument values

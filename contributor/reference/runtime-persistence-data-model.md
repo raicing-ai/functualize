@@ -11,11 +11,12 @@ Migrated from the data-model chapter of the `runtime-persistence-engine-owned` r
 
 **How to read the tenses.** §1's machines are **landed**: the four tables with their absorbing and
 evictable sets are data (`_types/lifecycle.py`, no logic), `_primitives/transitions.py` refuses a
-pair no table carries, and both stored writers call it — `ScopeStore.set_scope_status` (`SCOPE`) and
-`RunStore.close_run` (`RUN`). §2's tables and the SQL in §5 are the target: the names a normalized
-schema will use, the DDL contract, and the retention statement's semantics. What FUN-17 landed is the
-vocabulary and the ports that carry them (`_types/persistence.py`), the honest `StoreProfile` of
-today's document backend (`_primitives/document_store.py`), and the first transition that goes
+pair no table carries, and every stored writer calls it — `ScopeStore.set_scope_status` (`SCOPE`),
+`RunStore.open_run` for the run's creation edge, and `RunStore.close_run` (`RUN`) for its moves. §2's
+tables and the SQL in §5 are the target: the names a normalized schema will use, the DDL contract,
+and the retention statement's semantics. What FUN-17 landed is the vocabulary and the ports that
+carry them (`_types/persistence.py`), the honest `StoreProfile` of today's document backend
+(`_primitives/document_store.py`), and the first transition that goes
 through the port — the walk's claim. FUN-18 landed the machines, the check and the retention policy;
 FUN-19 owns the tables, the migration runner and the relational retention statement. Anything below
 that reads as present tense has been re-read against the tree at `1a0a679`; a still-forward-looking
@@ -32,8 +33,9 @@ in **five** vocabularies (`WalkState`, `TERMINAL_SCOPE_STATUSES`, `LIVE_STATUSES
 top of that would have encoded the confusion in DDL.
 
 It is answered now, and answered once. The four machines below are data in `_types/lifecycle.py`;
-`_primitives/transitions.py` holds the refusal that reads them; the two writers that store a scope
-status and a run status call it, and the SQL in §5 restates the tables rather than deciding them.
+`_primitives/transitions.py` holds the refusal that reads them; the writers that store a scope status
+and a run status call it — the run's creation edge included — and the SQL in §5 restates the tables
+rather than deciding them.
 `tests/types/test_lifecycle_tables.py` keeps a table from naming a state its own vocabulary does not
 have, and `tests/primitives/test_transitions.py` sweeps the whole product ``(states ∪ {None}) ×
 states`` per machine rather than a hand-written list of moves.
@@ -67,7 +69,11 @@ what a twice-failed-then-succeeded run shows a user is D-6, which needs its own 
 **Δ from this chapter's own tables: the `attempt` machine has no stored writer.** `Attempt` is a
 port value and `FinishAttempt` a command, but the document backend's `finish_attempt`
 (`_primitives/document_store.py:464-465`) appends the command and writes no attempt row, and no run
-record carries one. `ATTEMPT` is therefore enforced where the relational writer lands, and until then
+record carries an independent one. The nested `attempts[].status` such a run log does hold
+(`_primitives/document_store.py:932`, `:959-970`) is not that row: `FinishAttempt.status` speaks the
+run-outcome vocabulary (`running`, `success`) while `ATTEMPT` is `succeeded`, so the nested value
+records what the run ended as, and `_finish_attempt` never transitions the attempt machine.
+`ATTEMPT` is therefore enforced where the relational writer lands, and until then
 it is exercised directly by `tests/primitives/test_transitions.py`.
 
 ### 1.2 Run
@@ -82,7 +88,7 @@ writes.
 
 | From | To | Trigger |
 |---|---|---|
-| absent | `running` | start run |
+| absent | `running` | start run — `RunStore.open_run` |
 | `running`, `blocked`, `skipped`, `unknown` | any state | whatever ends the run — `RunStore.close_run` |
 | terminal — `success`, `failure`, `cancelled`, `timeout`, `refused` | — | refused: `IllegalTransition` |
 
@@ -93,12 +99,22 @@ the absorbing set — one definition, because two copies of that set had already
 The run's status is derived from its last attempt plus its cancellation flag. It is stored anyway,
 because deriving it on every history query means joining every attempt.
 
-**Landed.** The machine's one call site is `RunStore.close_run` (`_primitives/run_store.py:259`),
-which reads the current value inside the batch it is already writing — so the check audits the write
-rather than a stale pre-read. Production writers are `_engine/executor.py`'s finished and failed
-paths and `_primitives/document_store.py`'s close. A run the store never opened is ignored rather
-than refused (the log is an observation, and a writer that crashed between opening and closing has
-already said so), which is why the absent-record edge is not what saves that path.
+**Landed.** The machine has two call sites. Creation is `RunStore.open_run`
+(`_primitives/run_store.py:237`), which accepts an absent status or an explicit `running` and refuses
+every other value — `success` included, because opening a run is not closing one — before it writes,
+so a run cannot be stored in a state the table never named and a refused open leaves the file as it
+was. The producers that reach creation are the two opens — `_engine/executor.py:973` and
+`_primitives/document_store.py:923` — and neither passes a run-level status, so creation takes the
+table's default `running` edge.
+
+The closes are the other half of the census: `RunStore.close_run` (`_primitives/run_store.py:265`)
+reads the current value inside the batch it is already writing — so the check audits the write rather
+than a stale pre-read — and the three producers that close a run — `_engine/executor.py`'s failed path
+(`:1096`), its finished path (`:1108`) and `_primitives/document_store.py`'s close (`:980-982`) — each
+supply the status they are moving to, which is why none of them takes the creation edge. A run the
+store never opened is ignored rather than refused (the log is an observation, and a writer that
+crashed between opening and closing has already said so), which is why the absent-record edge is not
+what saves that path.
 
 ### 1.3 Workflow scope
 
