@@ -33,7 +33,7 @@ restore). Wave ordering is binding.
 
 ## Wave 0 — vocabulary and the walk's entry stamp
 
-### [ ] T1 — the four machines as data
+### [x] T1 — the four machines as data
 
 *Depends on:* none. *Files:* `src/functualize/_types/lifecycle.py` (new),
 `tests/types/test_lifecycle_tables.py` (new).
