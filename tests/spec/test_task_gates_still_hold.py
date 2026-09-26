@@ -24,55 +24,41 @@ have been found so far, each broken a different way:
 A gate whose `now:` already equals its `after:` proves nothing by passing, and is
 reported here rather than quietly counted as green.
 
-**This test must not become the eleventh.** It reports how many gates it could
-parse and asserts that number is substantial, so a parser that silently matches
-nothing fails instead of passing.
+**This test must not become the eleventh.** It compares every `tasks.md` against
+*itself*: each counting gate the file records — ticked or not — must be one the
+parser reads. A parser that has gone blind to the file's fences therefore fails
+instead of passing. The comparison used to be an absolute floor
+(`len(_ALL) >= 12`), which made the verdict a function of the branch's **tick
+state** rather than of its format — see `test_the_parser_actually_found_gates`.
 """
 
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from tests.spec._gate_parser import (
+    AFTER_INT,
+    EXEMPT,
+    FENCE,
+    PARSER_LANGUAGE,
+    TASK,
+    Gate,
+    joined,
+    parse_gates,
+    tripwire_shortfalls,
+)
+
 _ROOT = Path(__file__).resolve().parents[2]
 _FEATURES = _ROOT / ".spec" / "features"
 
-#: One fenced ``bash`` block. **Fence-aware on purpose**: the command may not
-#: contain a fence.
-#:
-#: The first version was ``r"```bash\n(?P<cmd>.+?)\n```\s*\n(?P<values>[^\n]*?after:[^\n]*)"``
-#: with ``re.S``, which requires the recorded values to sit on *one* line
-#: directly after the closing fence. `run-request-entry/T11` writes them on two:
-#:
-#:     now at wave 4 entry: `3` *(…)* ·
-#:     after: `0`
-#:
-#: so the non-greedy ``cmd`` kept expanding past its own closing fence until it
-#: found a later one whose next line held ``after:`` — **swallowing the gate in
-#: between**. The bridge gate was not merely skipped, it was consumed, and the
-#: parser then ran one gate's command against another gate's recorded value.
-#:
-#: Found while correcting an unrelated comment that pushed that very gate from
-#: 0 to 2 with this file green (rre F11 fallout).
-_FENCE = re.compile(r"```bash\n(?P<cmd>(?:(?!```)[\s\S])*?)\n```[ \t]*\n", re.M)
-_AFTER_INT = re.compile(r"after:\s*`?(\d+)`?")
-_NOW_INT = re.compile(r"now(?: at [^:]*)?:\s*`?(\d+)`?")
-#: Two exemptions, both **explicit and greppable**, because nothing else can
-#: distinguish them from a broken gate:
-#:
-#: - `invariant` — the gate asserts a count must *not* change ("core still
-#:   imports no plugin"). `now == after` is the point, not a defect.
-#: - `superseded` — a later task legitimately invalidated the record. The gate
-#:   was true for the wave that wrote it and is false against HEAD, and a reader
-#:   has to be able to tell that from a regression.
-#:
-#: Requiring the word means the author *states* which one it is. Inferring it
-#: from phrasing was tried and guessed wrong about seven gates.
-_EXEMPT = re.compile(r"\binvariant\b|\bsuperseded\b", re.I)
+# The fence/task/value patterns and the parser itself now live in
+# `tests/spec/_gate_parser.py` — this module skips at import when
+# `.spec/features/` is empty, and a parser that can only be imported through a
+# module which skips itself is a parser no other test can exercise.
 
 
 def _task_files() -> list[Path]:
@@ -83,79 +69,6 @@ def _task_files() -> list[Path]:
             allow_module_level=True,
         )
     return files
-
-
-_TASK = re.compile(r"^### \[(?P<done>[ x])\] (?P<name>T\d+)", re.M)
-
-
-def _gates(path: Path) -> list[tuple[str, str, int, int | None]]:
-    """Gates belonging to **finished** tasks only.
-
-    A gate for an unstarted task records the value its work will produce, and
-    asserting it now would fail for the one honest reason there is: the work has
-    not been done. Only a `[x]` task claims its gate holds.
-    """
-    text = path.read_text()
-    tasks = [
-        (m.start(), m.group("done") == "x", m.group("name"))
-        for m in _TASK.finditer(text)
-    ]
-
-    def owner(pos: int) -> tuple[bool, str]:
-        done, name = False, "?"
-        for start, is_done, task_name in tasks:
-            if start < pos:
-                done, name = is_done, task_name
-            else:
-                break
-        return done, name
-
-    out: list[tuple[str, str, int, int | None]] = []
-    for match in _FENCE.finditer(text):
-        # The recorded values are whatever follows the fence up to the first
-        # blank line — one line or several, since a long `now:` legitimately
-        # wraps. Bounded so a fence with no record cannot reach forward into
-        # the next gate's, which is exactly how the old pattern lost one.
-        tail = text[match.end() :]
-        values = tail.split("\n\n", 1)[0]
-        after = _AFTER_INT.search(values)
-        if after is None:
-            continue
-        cmd = match.group("cmd").strip()
-        # A gate wrapped with a trailing `\` is **one** command that happens to
-        # be typed on two lines. Joining them first was missing here, and
-        # `"\n" in cmd` therefore skipped every wrapped gate **silently** —
-        # including `run-request-entry/T11`'s, which is the one that guards the
-        # transitional bridges. A comment added while fixing an unrelated
-        # finding pushed that gate from 0 to 2 and this file stayed green.
-        #
-        # That is the branch's signature defect appearing in the test written
-        # to catch the branch's signature defect: a check that cannot fail
-        # because it never ran. `test_the_parser_actually_found_gates` counts
-        # gates and so could not see a *category* going missing;
-        # `test_no_wrapped_gate_is_skipped` below is the guard for that.
-        cmd = re.sub(r"\\\n\s*", " ", cmd)
-        if cmd.startswith("uv run") or "&&" in cmd or "\n" in cmd:
-            continue
-        # **Counting gates only.** `rg -c` and `| wc -l` return a number, and
-        # comparing that to the recorded `after:` is meaningful. A bare `rg -n`
-        # returns *matching lines*, and its recorded values are line numbers —
-        # `job-owned-freshness` T3 reads `now: 1026 · after: 1026`, which is one
-        # line, not one thousand and twenty-six of anything. Treating those as
-        # counts made this test report a defect that was its own misreading.
-        if "-c " not in cmd and "wc -l" not in cmd:
-            continue
-        done, task_name = owner(match.start())
-        if not done:
-            continue
-        if _EXEMPT.search(values):
-            _EXEMPTED.append(f"{path.parent.name} {task_name}")
-            continue
-        now = _NOW_INT.search(values)
-        out.append(
-            (task_name, cmd, int(after.group(1)), int(now.group(1)) if now else None)
-        )
-    return out
 
 
 def _run(cmd: str) -> int:
@@ -182,28 +95,53 @@ def _run(cmd: str) -> int:
     return total
 
 
-_EXEMPTED: list[str] = []
-_ALL = [(p, g) for p in _task_files() for g in _gates(p)]
+_FILES = _task_files()
+#: Parsed **once**, ticked gates only, and never re-parsed: `test_the_exemption_is_not_a_way_out`
+#: compares exemption count against gate count, so a second parse would count the
+#: same gate twice. (It did once: the count read 108.)
+_PARSED = [(path, parse_gates(path)) for path in _FILES]
+_EXEMPTED: list[str] = [
+    f"{path.parent.name} {gate.task}"
+    for path, parsed in _PARSED
+    for gate in parsed.exempt
+]
+_ALL = [(path, gate) for path, parsed in _PARSED for gate in parsed.gates]
 
 
 @pytest.mark.skipif(shutil.which("rg") is None, reason="gates are written in ripgrep")
 class TestEveryRecordedGateStillHolds:
     def test_the_parser_actually_found_gates(self) -> None:
-        """The tripwire against this test becoming the eleventh unfalsifiable one."""
-        assert len(_ALL) >= 12, (
-            f"only {len(_ALL)} gates parsed from {len(_task_files())} task files — "
-            "the format probably changed and this test now checks nothing"
+        """The tripwire against this test becoming the eleventh unfalsifiable one.
+
+        Every counting gate a `tasks.md` records — **ticked or not** — must be
+        one the parser reads, so the verdict is a fact about the file's format
+        and never about the branch's tick state.
+
+        The predecessor was `len(_ALL) >= 12`: an absolute floor. `_ALL` holds
+        ticked gates only, so that assertion was red for the whole of a feature
+        branch whose first six tasks had not been done yet, and green again once
+        they were — the same file, the same format, a different verdict, and no
+        diff to explain it. It was wrong in both directions too: a four-gate
+        feature could never satisfy it however well-formed the file, and a
+        thirty-gate one satisfied it while the parser quietly read half.
+        """
+        shortfalls = tripwire_shortfalls(_FILES)
+        assert not shortfalls, (
+            "these task files record counting gates the parser does not read — "
+            "the format probably changed and this test now checks less than it "
+            "claims:\n  " + "\n  ".join(shortfalls)
         )
 
     def test_every_fenced_gate_is_accounted_for(self) -> None:
         """A *category* of gate must not go missing silently.
 
-        `test_the_parser_actually_found_gates` counts, and a count cannot see a
-        kind disappearing: for a long time this file skipped every gate whose
-        command was wrapped with a trailing backslash, and — worse — one gate
-        whose `now:`/`after:` sat on two lines caused the non-greedy `cmd`
-        pattern to run past its own closing fence and **swallow the next gate
-        whole**. The number stayed comfortably above 12 throughout. Both were
+        `test_the_parser_actually_found_gates` compares counts, and a count can
+        say that *one* gate went missing but not which kind stopped being read:
+        for a long time this file skipped every gate whose command was wrapped
+        with a trailing backslash, and — worse — one gate whose `now:`/`after:`
+        sat on two lines caused the non-greedy `cmd` pattern to run past its own
+        closing fence and **swallow the next gate whole**. The old absolute floor
+        stayed comfortably above 12 throughout, so it saw neither. Both were
         found only when an unrelated comment pushed a swallowed gate from 0 to
         2 and this file stayed green.
 
@@ -213,9 +151,9 @@ class TestEveryRecordedGateStillHolds:
         rather than a hope.
         """
         unclassified: list[str] = []
-        for path in _task_files():
+        for path in _FILES:
             text = path.read_text()
-            tasks = [(m.start(), m.group("done") == "x") for m in _TASK.finditer(text)]
+            tasks = [(m.start(), m.group("done") == "x") for m in TASK.finditer(text)]
 
             def _task_is_done(pos: int, tasks: list[tuple[int, bool]] = tasks) -> bool:
                 done = False
@@ -226,19 +164,21 @@ class TestEveryRecordedGateStillHolds:
                         break
                 return done
 
-            for match in _FENCE.finditer(text):
-                cmd = re.sub(r"\\\n\s*", " ", match.group("cmd").strip())
+            for match in FENCE.finditer(text):
+                if match.group("lang") != PARSER_LANGUAGE:
+                    continue
+                cmd = joined(match.group("cmd"))
                 tail = text[match.end() :]
                 values = tail.split("\n\n", 1)[0]
                 reasons = [
-                    (not _AFTER_INT.search(values), "no recorded `after:`"),
+                    (not AFTER_INT.search(values), "no recorded `after:`"),
                     (cmd.startswith("uv run"), "runs a test suite, not a count"),
                     ("&&" in cmd or "\n" in cmd, "several commands, not one"),
                     (
                         "-c " not in cmd and "wc -l" not in cmd,
                         "not a counting command",
                     ),
-                    (bool(_EXEMPT.search(values)), "explicitly exempt"),
+                    (bool(EXEMPT.search(values)), "explicitly exempt"),
                     (
                         not _task_is_done(match.start()),
                         "the task has not run yet, so its gate records what its "
@@ -247,12 +187,10 @@ class TestEveryRecordedGateStillHolds:
                 ]
                 if any(hit for hit, _ in reasons):
                     continue
-                # Compared against the **precomputed** `_ALL`. Re-calling
-                # `_gates` here appends to the module-level `_EXEMPTED` list
-                # every time, which inflated the exemption count to 108 and
-                # broke `test_the_exemption_is_not_a_way_out` — a test reaching
-                # into another test's bookkeeping by way of a parser with a
-                # side effect.
+                # Compared against the **precomputed** `_ALL`. Re-parsing here
+                # returns the same gates but makes this test re-derive the very
+                # list it is auditing, so a parse that stops matching a file
+                # would keep agreeing with itself.
                 if not any(
                     cmd == parsed_cmd and parsed_path == path
                     for parsed_path, (_, parsed_cmd, _, _) in _ALL
@@ -282,9 +220,7 @@ class TestEveryRecordedGateStillHolds:
         _ALL,
         ids=[f"{p.parent.name}-{g[0]}" for p, g in _ALL],
     )
-    def test_the_after_value_is_still_true(
-        self, path: Path, gate: tuple[str, str, int, int | None]
-    ) -> None:
+    def test_the_after_value_is_still_true(self, path: Path, gate: Gate) -> None:
         task, cmd, expected, _ = gate
 
         assert _run(cmd) == expected, (
