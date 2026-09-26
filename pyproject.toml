@@ -192,6 +192,7 @@ markers = [
     "installed_plugins: opts in to real entry-point plugin discovery, so a test can assert that an installed plugin takes effect; the root suite otherwise hides distributions that would change core's defaults (see tests/conftest.py::_hide_default_changing_plugins)",
     "json_substrate: the subject is JsonFileSubstrate itself — a path, a file size, or a hand-written JSON fixture — so it is skipped when FUNCTUALIZE_TEST_SUBSTRATE names another backend (see tests/conftest.py::_alternate_substrate)",
     "substrate_probe: a FUN-25 substrate capability probe — it measures a backend directly through that backend's own client, never through functualize, and gates on credentials at module level so a contributor with no cloud account sees a skip rather than a failure (see tests/substrate_probe/conftest.py)",
+    "jev_probe: a decision-provider (Jev / System One) capability probe — it measures the provider's HTTP contract directly and never through functualize, because no adapter exists yet to measure through; it gates on its credential at module level, so a contributor with no key sees a skip rather than a failure (see tests/jev_probe/conftest.py)",
 ]
 
 [tool.ruff]
