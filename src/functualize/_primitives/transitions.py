@@ -9,13 +9,19 @@ logic (ADR-026, `_types/__init__.py`: "no logic"). A `Machine` that could answer
 that it is spelled once, so the check lives in `_primitives`, where a refusal is
 allowed to exist.
 
-**Nothing calls it yet.** T6 puts it at `ScopeStore.set_scope_status` and T7 at
-`RunStore.close_run`; until then the tests below drive it directly against the
-four tables, and this module is the one place the pair rule is written down
-outside them. The error it raises propagates unchanged from those writers, so
-the message a caller sees is the one composed here:
+**Two writers call it.** `ScopeStore.set_scope_status` for the scope machine and
+`RunStore.close_run` for the run machine; each reads the current value inside the
+batch it is already writing, so the check audits the write rather than a stale
+pre-read, and each lets the refusal propagate unchanged — the message a caller
+sees is the one composed here:
 
     scope: 'cancelled' -> 'running' is not a legal transition
+
+The other two machines have no stored writer yet: an attempt row is port
+vocabulary the document backend never writes, and it derives an input request's
+status rather than storing one, so `ATTEMPT` and `INPUT_REQUEST` are driven by the
+tests below until the relational writer lands. This module stays the one place the
+pair rule is written down outside the tables.
 """
 
 from __future__ import annotations

@@ -6,8 +6,8 @@ supposed to work, because the two defects are opposite and only one of them is
 visible in a hand-written list:
 
 - a pair in the table that the check refuses — the check and the data have
-  drifted, and the writer that will be guarded by it (T6) refuses a move the
-  engine really makes;
+  drifted, and the writer guarded by it (`ScopeStore.set_scope_status`) refuses a
+  move the engine really makes;
 - a pair the check accepts that is *not* in the table — the same drift from the
   other side, and the one that would let an illegal write through while every
   consumer of the table says it cannot happen.
@@ -15,9 +15,12 @@ visible in a hand-written list:
 The tables themselves, their absorbing/evictable sets and the Rows they come
 from are `tests/types/test_lifecycle_tables.py`; this file is about the refusal.
 
-Nothing calls `require_transition` in production yet (T6 and T7 do), so there is
-no call path to break here — the function is the unit under test, and the four
-machines it is driven with are the ones the package ships.
+`require_transition` has two production callers — the scope machine's writer and
+the run machine's — and those call paths are held by their own suites
+(`tests/primitives/test_scope_transitions.py`,
+`tests/primitives/test_run_transitions.py`). What this file establishes is
+the function itself, driven directly against the four tables: the sweep below is
+about the refusal's verdict, not about who calls it.
 """
 
 from __future__ import annotations
