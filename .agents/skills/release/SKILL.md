@@ -97,13 +97,13 @@ Run all verification commands to confirm the codebase is in a healthy state.
 | 3 | `uv run mypy src/` | Type check |
 | 4 | `uv run lint-imports` | Architecture enforcement |
 | 5 | `uv run pytest -x -q --no-header` | Fast tests |
-| 6 | `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` | Full tests — the **tip tier**: ~21 min, so it is dispatched or chunked, never one call (rules below; measurements in `.agents/skills/test-tiers/SKILL.md`) |
+| 6 | `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` | Full tests — the **tip tier**: dispatched or chunked, never one call (rules below; measured cost in `.agents/skills/test-tiers/SKILL.md`) |
 
 **Rules:**
 
 - Timeout: 300 seconds per command, **except command 6**. No single tool call may be
   *expected* to exceed the 600 s tool-call cap (`.agents/skills/test-tiers/SKILL.md`), and
-  command 6 measures ~21 min — far past it — so its 1800-second figure is the budget for the
+  command 6 runs far past it, so its 1800-second figure is the budget for the
   *step as a whole*, not for one call. Run it in one of two shapes, never as a single
   1800-second call:
   - **dispatched** — `gh workflow run CI --ref <branch>` on the pushed branch: that is CI's
@@ -124,12 +124,11 @@ Run all verification commands to confirm the codebase is in a healthy state.
   tier without it verifies a *different, weaker* gate than the one that will run on the
   tag — it has already produced a green local run followed by a red CI run.
 - `-n auto` and a budget go together, but a *per-call* budget cannot be the answer: the tip
-  tier takes ~21 min, not the ~10 min this file used to claim, so no call cap can hold it.
-  Under the blanket 300 s timeout the command could never pass, so it reported BLOCKING on
-  every release and was waived by habit — which is how the tier stayed red through 0.1.0.
-  The remedy is the shape above (dispatch, or chunk per directory), not a larger call
-  budget. The tier's measured cost on both hosts, and the 600 s cap that shapes it, live in
-  `.agents/skills/test-tiers/SKILL.md`.
+  tier runs far past the cap, and the figure this file used to claim was wrong — the measured
+  cost, at the load it was taken at, is in `.agents/skills/test-tiers/SKILL.md`. Under the
+  blanket 300 s timeout the command could never pass, so it reported BLOCKING on every
+  release and was waived by habit — which is how the tier stayed red through 0.1.0. The
+  remedy is the shape above (dispatch, or chunk per directory), not a larger call budget.
 - No `-x`. On a tier this size, stopping at the first failure costs another full run per
   failure. Collect the whole list.
 
@@ -473,7 +472,7 @@ Upon confirmation, execute in order:
   3. `uv run mypy src/`
   4. `uv run lint-imports`
   5. `uv run pytest -x -q --no-header`
-  6. `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` (the `ci` profile is what CI runs — not optional; the tip tier is ~21 min, so it is dispatched or chunked per the Phase 4 rule, never one tool call; tiers and measured costs: `.agents/skills/test-tiers/SKILL.md`)
+  6. `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` (the `ci` profile is what CI runs — not optional; the tip tier runs far past one tool call, so it is dispatched or chunked per the Phase 4 rule; tiers and measured costs: `.agents/skills/test-tiers/SKILL.md`)
 - **Plugin workspace**: enumerate all directories under `plugins/` containing a `pyproject.toml`; each plugin is an independent package with its own version and metadata
 - **Version source of truth**: static `version` field in root `pyproject.toml`
 - **Release trigger**: `git tag vX.Y.Z` → `.github/workflows/release.yml` (GitHub Actions Trusted Publishing to PyPI)

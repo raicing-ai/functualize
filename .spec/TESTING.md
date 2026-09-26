@@ -7,9 +7,9 @@ This project uses a multi-tier test strategy. Follow these rules when running te
 - **Lint & format (always run first):**
   1. `uv run ruff check --fix src/ tests/ plugins/`
   2. `uv run ruff format src/ tests/ plugins/`
-- **Step tier (run this after every change):** `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)` — the test files that import what you touched, 4-15 s when the mapper prints paths. Run the mapper on its own first: with an empty selection (every docs-only or `.spec/`-only change) the command above falls through to the whole fast tier, so there is nothing to run and the right move is to stop.
+- **Step tier (run this after every change):** `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)` — the test files that import what you touched, and nothing else; its measured cost is in `.agents/skills/test-tiers/SKILL.md`. Run the mapper on its own first: with an empty selection (every docs-only or `.spec/`-only change) the command above falls through to the whole fast tier, so there is nothing to run and the right move is to stop.
 - **Fast tests (unit only):** `uv run pytest -x -q --no-header`
-- **Full tests (including property-based):** `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` — the `ci` profile (200 examples) is what CI runs; without it you are verifying a weaker gate. It measures ~21 min, longer than the 600 s tool-call cap, so it is never a single tool call: see `## Suite tiers` for the shapes to run it in and `.agents/skills/test-tiers/SKILL.md` for the cost and its load.
+- **Full tests (including property-based):** `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` — the `ci` profile (200 examples) is what CI runs; without it you are verifying a weaker gate. It runs far past the 600 s tool-call cap, so it is never a single tool call: see `## Suite tiers` for the shapes to run it in and `.agents/skills/test-tiers/SKILL.md` for its measured cost and the load it was taken at.
 - **Example projects:** `uv run pytest examples/ -v` — `testpaths = ["tests"]`, so the
   root invocation does **not** collect these. Requires `uv sync --all-packages` (the AI
   and plugin examples import workspace packages). CI runs it in the `examples` job.
@@ -32,23 +32,23 @@ This project uses a multi-tier test strategy. Follow these rules when running te
 ## When to run tests
 
 - **Before running any tests:** Always run ruff check and ruff format first to catch lint/format issues early. Fix any remaining errors that `--fix` cannot auto-resolve.
-- **After implementing code changes:** Run the **step tier** — `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)`. It answers "did I break my callers" in 4-15 s when the mapper prints paths. Its exit code decides the next move: `0` printed a selection (an empty one means nothing to run), `3` means shared infrastructure changed and only the tip tier can answer, `2` is a usage or git error.
-- **After completing a spec task (final checkpoint):** Run the **wave tier** — the test directories the task touched, named explicitly, at `-n auto` (60-100 s for four directories). Run the **tip tier** when shared infrastructure changed (`tests/conftest.py`, `tests/_support/**`, `pyproject.toml`, `uv.lock`) or the question is release-grade.
+- **After implementing code changes:** Run the **step tier** — `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)`. It answers "did I break my callers" for the files the mapper selects, and nothing else. Its exit code decides the next move: `0` printed a selection (an empty one means nothing to run), `3` means shared infrastructure changed and only the tip tier can answer, `2` is a usage or git error.
+- **After completing a spec task (final checkpoint):** Run the **wave tier** — the test directories the task touched, named explicitly, at `-n auto`. Run the **tip tier** when shared infrastructure changed (`tests/conftest.py`, `tests/_support/**`, `pyproject.toml`, `uv.lock`) or the question is release-grade.
 - **Do NOT run full (slow) tests on intermediate steps** — only at the end of each task.
-- **Never issue a pytest command whose expected runtime exceeds the 600 s tool-call cap, and never background or poll one.** The tip tier is ~21 min: dispatch it (`gh workflow run CI --ref <branch>`) and read the verdict later, or chunk it into one foreground call per test directory, each bounded with `timeout 570`.
+- **Never issue a pytest command whose expected runtime exceeds the 600 s tool-call cap, and never background or poll one.** The tip tier runs far past that: dispatch it (`gh workflow run CI --ref <branch>`) and read the verdict later, or chunk it into one foreground call per test directory, each bounded with `timeout 570`.
 
 ## Suite tiers
 
-How much of the suite to run. The figures below are rounded; the measurements behind them,
-the load they were taken at, the full selection rules and the 600 s cap live in
-[`.agents/skills/test-tiers/SKILL.md`](../.agents/skills/test-tiers/SKILL.md) — this table is a
-pointer, not a second copy.
+How much of the suite to run. This table *selects*, it does not price: every cost figure, the
+load it was taken at and the 600 s cap that shapes the tip tier live in
+[`.agents/skills/test-tiers/SKILL.md`](../.agents/skills/test-tiers/SKILL.md) — held once, so
+they cannot drift from this file.
 
-| Tier | What runs | Measured cost | How to select it |
-|------|-----------|---------------|------------------|
-| **Step** | only the test files that import what you changed | 4-15 s | `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)` |
-| **Wave** | the test directories this task touches | 60-100 s for four directories | name the directories, `-n auto` |
-| **Tip** | everything, including property tests | ~21 min — over the 600 s cap | `gh workflow run CI --ref <branch>`, or the open PR's CI; locally only as foreground chunks |
+| Tier | What runs | How to select it |
+|------|-----------|------------------|
+| **Step** | only the test files that import what you changed | `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)` |
+| **Wave** | the test directories this task touches | name the directories, `-n auto` |
+| **Tip** | everything, including property tests | `gh workflow run CI --ref <branch>`, or the open PR's CI; locally only as foreground chunks, since it runs far past the 600 s cap |
 
 `tests-for-diff` is deterministic and needs no index: it reads the diff against
 `$(git merge-base origin/master HEAD)` plus uncommitted changes and prints deduplicated
