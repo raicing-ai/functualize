@@ -19,6 +19,7 @@ carry `probabilities`; a `noul` answer carries none (row A).
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from functools import cache
 from typing import Any, Final
 
@@ -42,14 +43,74 @@ require_env(
 )
 require_endpoint("Jev / System One", ENDPOINT)
 
-#: How many identical requests each identity is measured over. Twenty-four is
-#: past the twenty the matrix asks for and costs ~18 s; the whole probe is
-#: budgeted under three minutes.
+#: How many identical requests each identity is measured over: twelve per identity, and
+#: twenty-four pooled across the two types B2 reads. It costs ~18 s of the probe's
+#: three-minute budget.
 SAMPLES: Final[int] = 12
 
-#: `score` is reported to two decimals, so a residual smaller than half a cent
-#: is rounding rather than a broken identity.
-RESIDUAL_TOLERANCE: Final[float] = 0.005
+#: The places the provider's numbers carry. `score` and every probability arrive with two
+#: decimals and the printer strips a trailing zero, so `2` is a `2.00` and is read at two
+#: places rather than at none. It is a floor and not a fixed budget: `_half_place` reads a
+#: value at the places it was actually reported to when that is more, so a run against a
+#: wire that reports a third decimal is measured against the tighter precision it saw
+#: instead of failing on a constant that outlived the wire it described.
+REPORTED_PLACE: Final[int] = 2
+
+
+def _place(value: float) -> int:
+    """The decimal place `value` was reported to, never below the provider's own two."""
+    text = f"{value:.12f}".rstrip("0")
+    return max(REPORTED_PLACE, len(text.partition(".")[2]))
+
+
+def _half_place(value: float) -> float:
+    """Half of the last reported place of `value` — the most that report can be off by."""
+    return 0.5 * 10 ** -_place(value)
+
+
+def residual_budget(sample: Mapping[str, Any]) -> float:
+    """The most rounding one answer's identity can carry, from its own reported numbers.
+
+    The identity is `score − Σ index × probability`, so it has one rounding term per value
+    it sums: half of `score`'s last place, plus half of each probability's last place
+    weighted by that probability's legend index. For the probe's three-point legend that is
+    `0.005 + 0.005 × (0 + 1 + 2) = 0.02`.
+    """
+    return _half_place(sample["score"]) + sum(
+        abs(int(index)) * _half_place(value)
+        for index, value in sample["probabilities"].items()
+    )
+
+
+def residual(sample: Mapping[str, Any]) -> float:
+    """`score` minus Σ index × probability, unrounded.
+
+    The budget this is measured against comes from the precision the wire reported, so
+    the subtraction keeps every digit it has. Rounding here would present a residual one
+    place above its budget as `0.0` and pass an answer whose identity is off by more than
+    the wire can account for; `residual_budget` carries no such rounding either.
+    """
+    return sample["score"] - sum(
+        int(index) * value for index, value in sample["probabilities"].items()
+    )
+
+
+def out_of_budget(
+    samples: Iterable[Mapping[str, Any]],
+) -> list[tuple[int, float, float]]:
+    """Every answer whose residual is larger than that answer's own rounding budget.
+
+    The comparison is on the unrounded residual, and the tuple reports that value rather
+    than a rounded reading of it, so an answer that fails by one place of its own budget
+    is visible as the failure it is.
+    """
+    over: list[tuple[int, float, float]] = []
+    for index, sample in enumerate(samples):
+        value = residual(sample)
+        budget = residual_budget(sample)
+        if abs(value) > budget:
+            over.append((index, value, budget))
+    return over
 
 
 @cache
@@ -71,33 +132,39 @@ def choice_answers() -> tuple[dict[str, Any], ...]:
 
 
 def test_b1_score_is_the_expected_value_over_the_legend_index() -> None:
-    """B1: Σ index × probability, and what is left over."""
+    """B1: Σ index × probability, and whether what is left over is only rounding."""
     answers = score_answers()
-    residuals = [
-        round(
-            sample["score"]
-            - sum(
-                int(index) * value for index, value in sample["probabilities"].items()
-            ),
-            6,
-        )
+    unrounded = [residual(sample) for sample in answers]
+    residuals = [round(value, 6) for value in unrounded]
+    budgets = [residual_budget(sample) for sample in answers]
+    places = {
+        _place(value)
         for sample in answers
-    ]
-    worst = max(abs(residual) for residual in residuals)
+        for value in (sample["score"], *sample["probabilities"].values())
+    }
+    worst = max(abs(value) for value in unrounded)
     measured(
         "B",
         "B1",
         "`score` − Σ index × probability",
-        f"max |residual| {worst:.6g} over {len(answers)} answers",
+        f"max |residual| {worst:.6g} over {len(answers)} answers, against a "
+        f"{max(budgets):.6g} rounding budget",
         detail=(
-            f"residuals {residuals} · legend "
-            f"{answers[0]['legend']} · probabilities are reported to two decimals "
-            f"and indices are integers, so the sum is exact to two decimals: a "
-            f"residual above {RESIDUAL_TOLERANCE} would mean `score` is not that "
-            "expected value, and the adapter would need a rule the wire does not have"
+            f"residuals {residuals} · legend {answers[0]['legend']} · reported to "
+            f"{'/'.join(str(place) for place in sorted(places))} decimals, so the identity "
+            f"carries one rounding term per value it sums: half a unit of `score`'s last "
+            f"place, plus half a unit of each probability's last place weighted by that "
+            f"probability's index — {max(budgets):.6g} for this legend, "
+            f"{min(budgets):.6g} – {max(budgets):.6g} over the answers · the residuals "
+            "shown are rounded to six places for reading and the comparison against each "
+            "budget is on the unrounded value, so a residual one place above its budget "
+            "cannot present as zero · a residual above its own answer's budget is more "
+            "than the wire's precision can account for, and would mean `score` is not "
+            "that expected value, so the adapter would need a rule the wire does not have"
         ),
     )
-    assert worst <= RESIDUAL_TOLERANCE
+    over = out_of_budget(answers)
+    assert not over, f"residuals leave their rounding budget: {over}"
 
 
 def test_b2_confidence_is_not_the_largest_probability() -> None:

@@ -65,7 +65,7 @@ note rather than quietly corrected in the table.
 | A4 | `choice` answer | `{"choice", "confidence", "probabilities", "type"}` — no `deterministic` field | measured (real service) |
 | A5 | `score` answer | `{"confidence", "legend", "probabilities", "score", "type"}` | measured (real service) |
 | A6 | the three answer types | share exactly one field, `type`; the union is 7 fields | measured (real service) |
-| B1 | `score` vs Σ index × probability | max absolute residual **0** over 12 answers | measured (real service) |
+| B1 | `score` vs Σ index × probability | max absolute residual **0.01** over 72 answers, inside the **0.02** the wire's reported precision allows | measured (real service) |
 | B2 | `confidence` vs `max(probabilities)` | 0.01 – 0.26 apart; they coincide in 5/24 answers, only where one option is unanimous | measured (real service) |
 | B3 | `probabilities` key order | 6 distinct orders over 12 answers; the request's order appeared once | measured (real service) |
 | C1 | stable decision, 20 identical requests | argmax flips **0/20**; per-option range 0.04 – 0.66 | measured (real service) |
@@ -76,7 +76,7 @@ note rather than quietly corrected in the table.
 | D3 | a longer state | 288 more characters → +52 input tokens, output unchanged | measured (real service) |
 | D4 | three more `choice` criteria | +44 input, +21 output | measured (real service) |
 | D5 | cost by question type | `noul` 283/20 · `score` 307/17 · `choice` 332/38 | measured (real service) |
-| E | 16 request cases around a valid control | 15 refusals, five status layers, three JSON envelopes, one plain-text gate | measured (real service) |
+| E | 16 request cases around a valid control | 14 refusals, five status layers, three JSON envelopes, one plain-text gate | measured (real service) |
 | F1 | catalog `GET /zen/v1/models` | HTTP 200, 81 models, `0.35 – 0.48 s` | measured (real service) |
 | F2 | the model is listed | both `jev-1.13-free` and the paid `jev-1.13` are listed | measured (real service) |
 | F3 | decision endpoint reachability | HTTP 200, `0.995 s`, without a retry | measured (real service) |
@@ -113,7 +113,7 @@ request** — not per question (D1). The three answer types share exactly one fi
 |---|---|---|
 | `noul` | `type`, `noul` | a single probability |
 | `choice` | `type`, `choice`, `confidence`, `probabilities` | the winning option, keyed by the request's options |
-| `score` | `type`, `score`, `confidence`, `legend`, `probabilities` | an integer index into `legend` |
+| `score` | `type`, `score`, `confidence`, `legend`, `probabilities` | the expected value over the `legend` indices, not the winning index itself |
 
 A single response model requiring any field from another type cannot deserialize every
 answer (A6). In TypeScript terms this is a discriminated union, not a struct with optional
@@ -125,9 +125,21 @@ Three measurements that together say *trust the service's own numbers, do not re
 them*:
 
 - **B1 — `score` is the expected value of `probabilities` over `legend` indices.** Max
-  absolute residual **0** across 12 answers. With two-decimal probabilities and integer
-  indices the sum is exact; the adapter should read `score` rather than accumulate a float
-  and invent a rounding rule the wire does not have.
+  absolute residual **0.01** over 72 answers, against the **0.02** the wire's own precision
+  allows. Both sides are reported to two decimals, so the identity carries one rounding term
+  per value it sums: half of `score`'s last reported place, plus half of each probability's
+  last reported place weighted by that probability's index — `0.005 + 0.005 × (0 + 1 + 2) =
+  0.02` for a three-point legend, the same sum the committed row prints beside its residual.
+  The comparison is on the **unrounded** residual and the rounding is presentation only:
+  rounding before comparing would read an answer one place outside its budget as `0.00`, and
+  a budget that follows the reported precision is worth nothing if the thing it measures has
+  been flattened first.
+  The one non-zero residual measured was `score` **1.99** against printed probabilities
+  `{"0": 0, "1": 0, "2": 1}`, whose indices sum to `2.00` — a whole unit of the wire's last
+  place, and twice the flat half-place tolerance this row used to assert. The adapter should
+  read `score` rather than accumulate a float: a break in the identity itself, such as
+  ranking the legend instead of averaging it, moves the sum by a whole index unit, an order
+  of magnitude above the budget.
 - **B2 — `confidence` is not `max(probabilities)`.** The gaps run 0.01 – 0.26, they coincide
   only when an option is unanimous (5/24), and `confidence` never once exceeded
   `max(probabilities)`. It is a provider-supplied scalar. An adapter that treats it as the
@@ -135,6 +147,26 @@ them*:
 - **B3 — `probabilities` is not in request order.** Six distinct key orders in 12 answers;
   the request's order appeared once. Positional reading of `probabilities` reads an order
   the service never promised.
+
+`B1`'s cell previously read **max absolute residual 0 across 12 answers**, with the sentence
+*"with two-decimal probabilities and integer indices the sum is exact"* beside it, and the
+committed row allowed a flat `0.005`. The measurement above is what did not hold: the sum
+lands exactly on most answers and a whole unit of the last place out on others, because two
+rounded quantities are compared and only the indices are integers. One answer of the 72
+measured for the cell went out by `0.01` — twice the old tolerance — while the row's own
+twelve-answer run went out by none, which is how a tolerance no wire promised survives a
+run. The row now derives its tolerance from the precision the wire reports, and this note
+records the earlier reading rather than leaving it silently replaced.
+
+The first version of that derived bound **rounded each residual to six places before
+comparing it**, which hid exactly the case the bound exists for: `score` `1.0000003` against
+probabilities `0.3333333` at each legend index `0`, `1`, `2` leaves `4.0000000001150227e-7`
+— two places outside the `2e-7` its own values allow — and rounds to `0.0`, so the row
+passed. The comparison now runs on the unrounded residual and only the printed one is
+rounded, so a budget derived from the reported precision is not defeated by a rounding step
+downstream of it. The case above is the offline witness, not a wire measurement: no wire
+observed here reports past two decimals, which is why the rounding had to be tested at the
+arithmetic rather than waited for.
 
 ### Row C — how much a decision is worth
 
@@ -178,9 +210,10 @@ marginal question.
 
 ### Row E — the refusal taxonomy, and the five layers that produce it
 
-Sixteen request cases, each one change away from a valid control so a status is attributable
-to that change, plus two facts derived from them (E16, E17). The control (E0) is a 200; every
-other request case refused.
+Sixteen request cases — the control, plus fifteen each one change away from it, so a status is
+attributable to that change — plus two facts derived from them (E16, E17). Two of the sixteen
+answer `200`: the control (E0) and the empty-`User-Agent` case (E14). The other fourteen
+refused, which is the count E17 and the summary row carry.
 
 | case | status | layer | body |
 |---|---|---|---|
@@ -215,6 +248,11 @@ misreads at least half of them** (E16).
 `by 4 layers` because that text was a hard-coded set rather than a count of what the run met;
 the committed instrument derives it from the observed statuses, and the discrepancy is
 recorded here rather than corrected in place.
+
+The summary row above and the sentence introducing the case table both once read **fifteen
+refusals**, where the table computes fourteen: the control `E0` and the empty-`User-Agent`
+case `E14` both answer `200`, and the other fourteen cases refuse. A hand-written count beside
+a derived one is what produced it, and both now read what the table says.
 
 `E10` is the reason the paid model is unusable as a probe target: `402 Insufficient account
 funds` is a refusal for *funds*, not for permission, so a probe pointed at it would spend
@@ -381,6 +419,53 @@ E8's body is quoted **raw**, from a single request made while that window was cl
 the run of record's printer collapsed the doubled space in `"Model  is not supported"` into
 one. The measure was a real 401 from the real service; the whitespace is the one thing in
 the tables above that the run of record did not itself render.
+
+**B1 was re-measured on 2026-09-26**, because the row as first committed asserted an exact
+sum the wire does not hold: both its cell and the row allowed `0.005` of rounding, and one of
+the 72 answers measured for the cell came back with `score` **1.99** against printed
+probabilities `{"0": 0, "1": 0, "2": 1}` — a whole unit of its last reported place, and twice
+that tolerance. The committed instrument now derives the tolerance from the precision the wire
+reports: half of the last reported place of `score`, plus half of each probability's last
+reported place weighted by that probability's index, compared against the **unrounded**
+residual so the rounding the budget accounts for is not applied twice. It was measured on
+branch `fix/jev-probe-b1-identity`, cut from `8036cfc3f80d5e88c8f0212db921b39760f2bb0a`:
+
+```
+$ uv run pytest -q -m jev_probe -p no:randomly        # OPENCODE_API_KEY exported
+36 facts recorded.
+31 passed, 8 skipped, 12775 deselected in 72.28s (0:01:12)
+```
+
+That run measured rows A, B1, D, E, F and G. Row C's three tests and rows B2 and B3 skipped,
+the run meeting the free tier's `429` before them (Q2), so row C and B2/B3 still stand on the
+`a5b2d10` run above. Its B1 cell printed `max |residual| 0 over 12 answers, against a 0.02
+rounding budget`. Six further twelve-sample sets of the same request were measured in the
+same window — 72 answers in all — and one residual was non-zero: `score` 1.99 against
+`{"0": 0, "1": 0, "2": 1}`, `-0.01`, inside the `0.02` budget and twice the `0.005` the row
+allowed before. That six-set measurement is the one B1's cell above carries.
+
+The comparison that reads that budget was corrected after the run above, from a version of
+the bound that rounded each residual to six places before comparing it: the budget is now
+compared against the unrounded residual and only the printed one is rounded. No wire run
+reached row B1 afterwards — the later run of the same day met the closed window and recorded
+row F alone, `3 facts recorded`, `25 passed, 14 skipped, 12775 deselected in 51.65s` — so
+that correction is evidenced at the arithmetic, on the `1.0000003` case recorded under
+*Row B* above, and not by a measurement. The identity and the budget arithmetic are the ones
+this run measured.
+
+A run of the same probe with no credential exported is green, every measurement row skipping
+by name — five module-level `NOT MEASURED (no credentials)` skips plus the `.spec` and floci
+gates that are no part of this probe:
+
+```
+$ env -u OPENCODE_API_KEY uv run pytest -q -m jev_probe -p no:randomly
+24 passed, 7 skipped, 12775 deselected in 21.69s
+```
+
+The counts are what that run is evidence of; the wall time is machine-local and moves
+between hosts and loads — the same green keyless run has been observed at `14.61 s` and at
+`21.69 s` on this one — which is why the line above is quoted with the command that produced
+it rather than as a bare figure.
 
 ### Two things to know before re-running this
 
