@@ -744,7 +744,13 @@ class WorkflowWalker:
                         gate_name=node.name,
                     )
                     payload = model.model_dump()
-                    self._walk.block(
+                    # Not `block`: this walk is not stopping. The gate ladder
+                    # resolved the payload in this same call and the walk
+                    # carries on, so parking the scope here would leave a
+                    # `blocked → completed` move in the durable record for a
+                    # walk that never stopped. `record_gate` writes the slot
+                    # the deposit below needs and leaves the status `running`.
+                    self._walk.record_gate(
                         node.name,
                         node.name,
                         model=getattr(node.awaits, "__name__", ""),

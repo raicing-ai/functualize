@@ -431,6 +431,56 @@ class FrontierWalk:
             self._store.set_position(self._scope_id, runnable[0] if runnable else None)
         return runnable
 
+    def record_gate(
+        self,
+        node: str,
+        gate_name: str,
+        *,
+        model: str = "",
+        input_schema: Mapping[str, Any] | None = None,
+        tools: Sequence[Mapping[str, Any]] = (),
+        blocked_at: str = "",
+    ) -> None:
+        """Persist a gate's payload slot and the position, status untouched.
+
+        **The write-ahead without the parking.** The slot has to exist before
+        `ScopeStore.deposit_gate_payload` can fill it, and two callers need it:
+        `block` for a walk that really stops, and `_service_gate`'s inline arm
+        for a gate the ladder resolved in this same call. The second
+        one carries on through `_advance` to `complete` with no
+        `FrontierWalk.start` in between, so stamping `blocked` for it put a
+        `blocked → completed` move in the durable record — the move D2 makes
+        impossible — for a walk that never stopped. The walk is live the whole
+        time, so `running` is the true stored state, and a reader can no longer
+        observe a parked scope mid-resolution.
+
+        Two methods rather than a ``park=`` flag: each caller names what it
+        means.
+
+        ``tools`` is persisted alongside the schema so an agent that finds this
+        gate over MCP learns what it may use to answer it without importing the
+        declaring module — the same reason the schema itself is persisted.
+        Each entry is ``{"tool": name, "bound": [param names]}``: the *names*
+        of pinned parameters, never their values. Names are all a reader needs
+        to strip them from the schema it publishes, and they are always
+        JSON-safe, whereas a bound value is arbitrary. The values are read from
+        the declaration at call time, which has to import it anyway to run the
+        job.
+        """
+        with self._store.batch():
+            self._store.set_position(self._scope_id, node)
+            self._store.put_gate(
+                self._scope_id,
+                gate_name,
+                {
+                    "model": model,
+                    "input_schema": dict(input_schema or {}),
+                    "tools": [dict(entry) for entry in tools],
+                    "payload": None,
+                    "blocked_at": blocked_at,
+                },
+            )
+
     def block(
         self,
         node: str,
@@ -446,30 +496,20 @@ class FrontierWalk:
         The walk stops here until input is deposited; because position and gate
         both persist, a different process can observe and resume it.
 
-        ``tools`` is persisted alongside the schema so an agent that finds this
-        gate over MCP learns what it may use to answer it without importing the
-        declaring module — the same reason the schema itself is persisted.
-        Each entry is ``{"tool": name, "bound": [param names]}``: the *names*
-        of pinned parameters, never their values. Names are all a reader needs
-        to strip them from the schema it publishes, and they are always
-        JSON-safe, whereas a bound value is arbitrary. The values are read from
-        the declaration at call time, which has to import it anyway to run the
-        job.
+        The position and the slot are `record_gate`'s; the status stamp is what
+        makes this the suspension, and it goes in the same batch so the record
+        never shows a parked scope without its slot.
         """
         with self._store.batch():
-            self._store.set_position(self._scope_id, node)
-            self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
-            self._store.put_gate(
-                self._scope_id,
+            self.record_gate(
+                node,
                 gate_name,
-                {
-                    "model": model,
-                    "input_schema": dict(input_schema or {}),
-                    "tools": [dict(entry) for entry in tools],
-                    "payload": None,
-                    "blocked_at": blocked_at,
-                },
+                model=model,
+                input_schema=input_schema,
+                tools=tools,
+                blocked_at=blocked_at,
             )
+            self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
 
     def gate_payload(self, gate_name: str) -> Any:
         """Deposited input for a gate, or None while still blocked."""

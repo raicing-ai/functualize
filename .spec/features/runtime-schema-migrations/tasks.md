@@ -142,7 +142,7 @@ leave", which D1 made false: `completed → running` is reachable by a plain `re
 
 ## Wave 2 — the inline gate stops parking the scope
 
-### [ ] T10 — an inline-resolved gate records its slot without the `blocked` status
+### [x] T10 — an inline-resolved gate records its slot without the `blocked` status
 
 *Depends on:* T3. *Files:* `src/functualize/_engine/frontier.py` (`FrontierWalk.block`, `:434`),
 `src/functualize/_engine/workflow_walker.py` (`_service_gate`'s inline arm, `:747-758`),
