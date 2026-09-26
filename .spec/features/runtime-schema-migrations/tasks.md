@@ -243,7 +243,7 @@ rg -c '' src/functualize/_types/persistence.py
 now: `700` · after: `700` — invariant: ADR-026 stays closed; nothing in this wave adds to the port
 module.
 
-### [ ] T7 — run enforcement at `close_run`
+### [x] T7 — run enforcement at `close_run`
 
 *Depends on:* T4. *Files:* `src/functualize/_primitives/run_store.py`,
 `tests/primitives/test_run_transitions.py` (new).

@@ -43,7 +43,9 @@ from functualize._primitives.run_format import (
     stamp_runs,
 )
 from functualize._primitives.substrate import substrate_for_project
+from functualize._primitives.transitions import require_transition
 from functualize._types.errors import SubstrateUnreadableError
+from functualize._types.lifecycle import RUN
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -254,7 +256,7 @@ class RunStore:
             entry = runs.get(run_id)
             if not isinstance(entry, dict):
                 return
-            entry["status"] = status
+            entry["status"] = require_transition(RUN, entry.get("status"), status)
             entry["ended_at"] = _now()
             entry.update(extra)
 
