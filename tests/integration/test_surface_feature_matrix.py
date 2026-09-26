@@ -509,14 +509,49 @@ class TestPromptGates:
     on the `app` surface until `run-request-entry`/T13 (audit D-1).
     """
 
-    def test_the_flag_is_accepted_on_both_doors(self, cli_run, project_tree) -> None:
+    def test_the_flag_is_accepted_on_both_doors(
+        self, cli_run, project_tree, monkeypatch
+    ) -> None:
         root = _tree(project_tree, **TestWorkflowAndGate._JOBS)
+
+        # T10: this gate resolves in the ladder's inline arm, so the walk never
+        # stops and must never be parked. `cli_run` runs in-process
+        # (`tests/conftest.py`), so a spy on the store's own status writer sees
+        # the writes the walk really makes — not a mock's echo.
+        from functualize._primitives.scope_store import ScopeStore
+
+        written: list[tuple[str, str]] = []
+        real = ScopeStore.set_scope_status
+
+        def spy(store, seen_scope: str, status: str) -> None:
+            written.append((seen_scope, status))
+            real(store, seen_scope, status)
+
+        monkeypatch.setattr(ScopeStore, "set_scope_status", spy)
 
         result = cli_run(["--prompt-gates", "release"], cwd=root)
 
         combined = result.stdout + result.stderr
         assert "No such option" not in combined, combined
         assert "PREPARED" in result.stdout, result.stdout
+        assert "RELEASED" in result.stdout, result.stdout
+        assert result.exit_code == _OK, (result.exit_code, combined)
+
+        # Read after the run: the scope is created by the walk. Exactly one
+        # scope here, so the filter below is the whole set, narrowed on purpose.
+        scope_id = _scope_id_of(root)
+        statuses = [status for seen, status in written if seen == scope_id]
+        # Non-vacuous: the spy saw this scope's real writes, so "no blocked" is
+        # evidence rather than an empty set. The walk entered `running`, left
+        # `completed`, and never parked — on a gate it resolved itself.
+        # (`completed` twice is pre-existing: the walk's own completion and the
+        # runner's finishing stamp.)
+        assert statuses, "no status write reached the store for this scope"
+        assert statuses[0] == "running", statuses
+        assert statuses[-1] == "completed", statuses
+        assert "blocked" not in statuses, statuses
+        stored = ScopeStore.for_project(root / ".functualize").get_scope(scope_id)
+        assert stored is not None and stored["status"] == "completed", stored
 
 
 class TestAliases:
