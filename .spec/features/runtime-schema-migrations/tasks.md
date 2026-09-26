@@ -76,8 +76,12 @@ branch `:341-349`), `src/functualize/app/_workflow_view.py` (docstrings `:109`, 
 
 Tests: (a) a walk resumed from `blocked` reads `running` from the store while a step runs,
 `list_scopes` reports it `running` (not `waiting`/`ready`), and `advanceable_scopes` lists it;
-(b) the same for a walk resumed from `failed` and for `--retry-epilogue` on a `completed` scope,
-each ending `completed`; (c) the silent-step detector (`frontier.py:245`, requires
+(b) the same for a walk resumed from `failed`; a `completed` scope re-entered by a resume is
+stamped on `FrontierWalk.start`'s **first-entry** branch, because completion cleared the position —
+replay then skips every recorded step, so no step callback can witness the stamp and it is read at
+the seam, through the call `WorkflowWalker._run_walk` makes (`--retry-epilogue` drives this entry;
+the epilogue *body* re-running is `TestRetryEpilogue`'s, not this file's); (c) the silent-step
+detector (`frontier.py:245`, requires
 `status == RUNNING`) diagnoses a silent step inside a **resumed** walk — at `03fbb64` it returns
 `None` there; (d) `tests/workflow/test_cancel_is_terminal.py` passes unchanged
 (`WorkflowRunner.prelude` refuses a cancelled scope before `start`, so the stamp never overwrites
@@ -97,7 +101,7 @@ now: `3` · after: `0` — the three files that say a resumed walk reports `bloc
 
 ## Wave 1 — the check, and one retention policy
 
-### [ ] T4 — `require_transition`
+### [x] T4 — `require_transition`
 
 *Depends on:* T1, T2. *Files:* `src/functualize/_primitives/transitions.py` (new),
 `tests/primitives/test_transitions.py` (new).
@@ -197,7 +201,13 @@ one `_primitives`), `.spec/STATUS.md`, `CHANGELOG.md`.
 
 Check: every **Δ** and every D-row consequence in `schema.md`/`spec.md` appears in the reference
 document; `tasks.md` boxes match the commits; the message-hygiene key pattern
-`\b[A-Z]{2,10}-[0-9]{1,6}\b` over the changed prose finds permitted prefixes only.
+`\b[A-Z]{2,10}-[0-9]{1,6}\b` over the changed prose finds permitted prefixes only; and the two
+revision-pinned pages under `contributor/architecture/run-model/` —
+`10-graph-semantics.md:97` and `evidence/verified.md:101` — keep the retired sentence
+("a resumed walk reports `blocked` for its whole duration") **deliberately**: both are snapshots of
+what was true at `e57f0c9` and say so in their headers (`# Verified — fact index at e57f0c9`), so
+the quote stays as it was read rather than being rewritten to today. `contributor/reference/
+workflow-walker.md` is the live page, and it is the one that changes.
 
 ## Wave 4 — clearing (second push, deletion-only, last)
 
