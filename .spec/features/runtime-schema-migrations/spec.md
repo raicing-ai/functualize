@@ -89,6 +89,11 @@ Smell dispositions are recorded in `plan.md` → *Surviving smells*.
 - Typing the port's `status: str` fields with the lifecycle types (its own ticket, parked until
   this wave's vocabulary lands).
 - `input_candidates` append-only writes and the outbox (`gate-interactions-outbox`).
+- Collapsing `frontier.py`'s two entry stamps into one. The resumed branch that returns a position
+  (`frontier.py:362`) and the first-entry branch (`frontier.py:364`) are two sites on purpose — one
+  is an entry a `run_step` can witness and the other is not — and T3's gate
+  (`rg -c 'set_scope_status\(self\._scope_id, WalkState\.RUNNING\)' src/functualize/_engine/frontier.py`
+  reads `2`) is what a shared helper would break, by making a real entry invisible.
 - Any change to a public `__all__`.
 
 Needing one of these is a finding to raise, not work to absorb.
