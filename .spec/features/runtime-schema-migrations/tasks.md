@@ -260,7 +260,7 @@ now: `0` · after: `1`
 
 ## Wave 4 — the durable half
 
-### [ ] T8 — durable half
+### [x] T8 — durable half
 
 *Depends on:* T3, T5, T6, T7, T10. *Files:* `contributor/reference/runtime-persistence-data-model.md`
 (§1 rows per D1/D2 and the absorbing/evictable split, §6, §7 pointing at

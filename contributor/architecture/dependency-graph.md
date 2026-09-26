@@ -43,6 +43,34 @@ passes `lint-imports` **with "7 kept, 0 broken"** — measured, by adding one.
 `tests/types/test_plugin_host_port.py` reads the module's import lines to hold
 the line where `lint-imports` cannot.
 
+## The Lifecycle Vocabulary in `_types/`, and Its One Check
+
+Three modules arrived with the runtime schema work, and they follow the same rule
+as the ports above: `_types/` holds the words, one layer down holds the one thing
+that can refuse.
+
+| Module | Layer | What it holds |
+|---|---|---|
+| `_types/lifecycle.py` | `_types/` (stdlib only, no logic) | the four runtime machines as data — `SCOPE`, `RUN`, `ATTEMPT`, `INPUT_REQUEST`, each a frozen `Machine` carrying a closed state set, its legal `(current, target)` pairs, and its `absorbing` / `evictable` sets. The run machine adopts `RunStatus` from `_types/enums.py` rather than redefining it; the scope, attempt and input vocabularies are `StrEnum`s whose member *is* the text stored on disk |
+| `_types/retention.py` | `_types/` (stdlib only, no logic) | `RetentionPolicy` — `max_records`, `evictable_only`, `max_age` — and `DEFAULT_RETENTION`. The three `500` caps that used to be spelled in `_primitives/scope_format.py` and `_primitives/run_format.py` read it |
+| `_primitives/transitions.py` | `_primitives/` | `require_transition(machine, current, target)` — one membership test, no state of its own. It reads a `Machine` and raises `IllegalTransition` (`_types/errors.py`) |
+
+**Why the check is not in `_types/`.** ADR-026 and `_types/__init__.py` say the
+vocabulary layer holds no logic, and a `Machine` that could answer "is this
+legal?" would be a second place to change a rule whose whole point is that it is
+spelled once. A refusal is allowed to exist in `_primitives/`, so it lives there —
+and the *meaning* stays in the tables, which the store reads without ever learning
+why a move is legal (ADR-025).
+
+Nothing above adds a layer, a peer edge, or a row to the matrix below: `_types/`
+still imports stdlib only, `_primitives/` still imports `_types/` and stdlib, and
+the two writers that call the check — `ScopeStore.set_scope_status`,
+`RunStore.close_run` — are in `_primitives/`, where the tables were already being
+written. `tests/types/test_lifecycle_tables.py` and
+`tests/primitives/test_transitions.py` hold the two lines `lint-imports` cannot: a
+table naming a state its vocabulary does not have, and a check whose verdict
+differs from the table it reads.
+
 ## Allowed Imports Matrix
 
 | Layer | May Import From | Must NOT Import From |
