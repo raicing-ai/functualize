@@ -105,9 +105,11 @@ def _lease_has_lapsed(scope: dict[str, Any]) -> bool:
 def walk_is_live(scope: dict[str, Any] | None) -> bool:
     """Is a runner holding this scope **right now**?
 
-    The live-versus-parked fact `derived_state`'s own docstring says it cannot
-    supply: *"a resumed walk reports `blocked` for its whole duration…
-    live-versus-parked needs a lease."* Spec AC-12 is that sentence answered.
+    The live-versus-parked fact `derived_state` cannot supply, and the reason is
+    sharper than it was. `FrontierWalk.start` stamps `running` on every entry
+    (D2 = 1), so a walk in flight and a walk whose process died both read
+    `running`: the record says what a walk *did*, never whether anyone is still
+    doing it. Spec AC-12 is answered by the lease for exactly that reason.
 
     Stricter than `not _lease_has_lapsed`, and the difference is the point. That
     helper treats an **absent** lease as "not abandoned", which is right for it:
@@ -209,10 +211,12 @@ def derived_state(scope: dict[str, Any]) -> str:
     ``stalled`` before the plain ``completed`` branch, or the sticky-body case
     is invisible on every surface.
 
-    Not derived here: whether a *resumed* walk is running right now.
-    ``FrontierWalk.start`` sets ``RUNNING`` only on first entry, so a resumed
-    walk reports ``blocked`` for its whole duration. This function reports what
-    the store knows rather than guessing; live-versus-parked needs a lease.
+    Not derived here: whether a walk is running right now. ``FrontierWalk.start``
+    stamps ``RUNNING`` on every entry (D2 = 1), so ``running`` says a walk owns
+    the scope *on paper* — a walk whose process died reads the same until its
+    lease lapses, and this function does not read leases. It reports what the
+    store knows rather than guessing; live-versus-parked needs a lease
+    (``walk_is_live``).
     """
     status = scope.get("status")
     if status == "cancelled":

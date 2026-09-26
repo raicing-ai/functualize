@@ -66,7 +66,7 @@ rg -c '^class IllegalTransition\(Exception\)' src/functualize/_types/errors.py
 ```
 now: `0` · after: `1`
 
-### [ ] T3 — every entry into a walk stamps `running` (D2 = 1)
+### [x] T3 — every entry into a walk stamps `running` (D2 = 1)
 
 *Depends on:* none. *Files:* `src/functualize/_engine/frontier.py` (`FrontierWalk.start`, resumed
 branch `:341-349`), `src/functualize/app/_workflow_view.py` (docstrings `:109`, `:212-215`),
