@@ -64,9 +64,9 @@ why a move is legal (ADR-025).
 
 Nothing above adds a layer, a peer edge, or a row to the matrix below: `_types/`
 still imports stdlib only, `_primitives/` still imports `_types/` and stdlib, and
-the two writers that call the check — `ScopeStore.set_scope_status`,
-`RunStore.close_run` — are in `_primitives/`, where the tables were already being
-written. `tests/types/test_lifecycle_tables.py` and
+the writers that call the check — `ScopeStore.set_scope_status`,
+`RunStore.open_run`, `RunStore.close_run` — are in `_primitives/`, where the tables
+were already being written. `tests/types/test_lifecycle_tables.py` and
 `tests/primitives/test_transitions.py` hold the two lines `lint-imports` cannot: a
 table naming a state its vocabulary does not have, and a check whose verdict
 differs from the table it reads.

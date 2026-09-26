@@ -256,7 +256,9 @@ sabotage. AC2.
 ```bash
 rg -c 'require_transition\(RUN' src/functualize/_primitives/run_store.py
 ```
-now: `0` · after: `1`
+now: `0` · after: `2` — the count stands for the guard on every status write in this file; the
+second call site is the creation edge, `RunStore.open_run`, added after the closing guard T7
+recorded, so the number moved while the rule did not.
 
 ## Wave 4 — the durable half
 
