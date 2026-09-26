@@ -5,6 +5,9 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  # Any branch, on demand: `gh workflow run CI --ref <branch>`. Gives an agent's
+  # tip-tier verdict a home that outlives its turn without opening a PR.
+  workflow_dispatch:
 
 jobs:
   # ---------------------------------------------------------------------------
