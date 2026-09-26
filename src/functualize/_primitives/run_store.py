@@ -43,7 +43,9 @@ from functualize._primitives.run_format import (
     stamp_runs,
 )
 from functualize._primitives.substrate import substrate_for_project
+from functualize._primitives.transitions import require_transition
 from functualize._types.errors import SubstrateUnreadableError
+from functualize._types.lifecycle import RUN
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -218,7 +220,10 @@ class RunStore:
 
         ``record`` is the shape in `schema.md` §2 minus the fields this method
         fills: ``run_id``, ``started_at`` and ``status``. An explicit ``run_id``
-        is honoured so a caller that already told someone the id can use it.
+        is honoured so a caller that already told someone the id can use it, and
+        an explicit ``status`` must be the ``running`` creation edge — anything
+        else is refused before the file is touched, because opening a run is not
+        closing one.
 
         **No argument values, ever** — only ``args_hash``, the same rule the
         history ring follows. A run log is read by more people than a job's
@@ -226,7 +231,10 @@ class RunStore:
         """
         run_id = str(record.get("run_id") or new_run_id())
         entry = {k: v for k, v in record.items() if k != "run_id"}
-        entry.setdefault("status", "running")
+        # Creation is the table's `(None, "running")` edge and nothing else, and
+        # the check runs before `_mutate`: a refused open writes nothing, so the
+        # envelope is left exactly as it was.
+        entry["status"] = require_transition(RUN, None, entry.get("status", "running"))
         entry.setdefault("started_at", _now())
         entry.setdefault("ended_at", None)
         entry.pop("kwargs", None)  # belt and braces: never store argument values
@@ -254,7 +262,7 @@ class RunStore:
             entry = runs.get(run_id)
             if not isinstance(entry, dict):
                 return
-            entry["status"] = status
+            entry["status"] = require_transition(RUN, entry.get("status"), status)
             entry["ended_at"] = _now()
             entry.update(extra)
 

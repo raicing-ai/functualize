@@ -2334,11 +2334,82 @@ Items identified during development that are worth doing but not yet designed:
 
 | Feature | Description |
 |---------|-------------|
+| runtime-schema-migrations | `feat/runtime-schema-migrations`: FUN-18 — the four runtime state machines as data. Scope status was assigned at **thirteen production call sites across five modules** and validated in none; `_types/lifecycle.py` now holds `SCOPE`/`RUN`/`ATTEMPT`/`INPUT_REQUEST` (closed state sets, legal pairs, absorbing/evictable sets) as data with no logic, `_primitives/transitions.py` is the one refusal (`IllegalTransition`), and every stored writer calls it — `ScopeStore.set_scope_status` and `RunStore.close_run`, each reading the current value inside the batch it is already writing, plus `RunStore.open_run` on the creation edge, which checks the pair before it writes and so refuses without touching the file. Four transition pairs the table briefly needed are gone with the defect that produced them: a resumed walk left its parked status in place, so a walk that resumed and then finished wrote `COMPLETED` over a record that said `blocked`; every entry now stamps `running` (D2 = 1) and a gate resolved inline no longer parks a live walk. `_types/retention.py`'s `RetentionPolicy` replaces the three separate `500` caps. One behaviour loss is recorded rather than hidden: `completed` is evictable and `resume` accepts it, so an evicted scope's retry answers `workflow_not_found`. No public API change; the durable half landed in `contributor/reference/` because this tree is deleted at clearing. Details below. |
 | substrate-capability-probe | `spike/substrate-capability-probe`: FUN-25's Wave 0 — `StoreProfile` was a set of assertions taken from vendor documentation, and this turned it into measurements before FUN-17 freezes the port. Ten fields across **eight columns** — the seven candidate backends plus Supabase Postgres — published at [`contributor/reference/substrate-capability-matrix.md`](../contributor/reference/substrate-capability-matrix.md): 80 cells, **76 measured** and **4 explicitly `NOT MEASURED` with their reasons**, all four in D1's column, whose evidence row states the split rather than stamping the column as measured. No `src/` or `plugins/` change at all — the diff to `master` is a probe suite under `tests/substrate_probe/`, one reference document, the durable-half rows it migrated (`CHANGELOG.md` and this file), and `.env.example`. The branch also carries one separately authored commit that is **not** this spike's work: `8300682`, the member's `ci:` governance change adding the `research-artifacts-cleared` gate, riding here with its landing decision still open. **All three open questions are answered**, each in its own section rather than inferred from a neighbouring column: Q1 — R2's conditional `PutObject` is atomic (one of eight writers won); Q2 — D1's REST latency is a measured distribution (plan against the p95, 516 ms); Q3 — retired at planning time, with a regression guard for the property. *(Corrected 2026-09-23 after the credentialed waves: this row previously said seven backends, 40 measured of 80, and two questions unanswered — the detail section below had already outgrown all three.)* Details below. |
 | runtime-persistence-ports | `feat/runtime-persistence-ports`: FUN-17 — the engine is constructed *with* a `RuntimeStore` and has no path to storage it was not given. Sixteen tasks over eleven waves: the port vocabulary as values (`_types/persistence.py` — `StoreProfile`, 8 commands, 6 outcomes, 6 views, 10 protocols), the document backend that declares its real capability and refuses cross-aggregate atomicity, engine construction moved after configuration resolution, the walk claiming through the port with a lost claim as a *value* (`WalkOutcome.HELD`), and a cancel that now refuses rather than proceeding unclaimed. Four ADRs (025–028); the public API is unchanged. Merge gate at `93ecd18`: **11 103 passed / 1 601 skipped / 0 failed**. TD-1 and the durable reading are recorded below. |
 | runtime-persistence-repair | `fix/runtime-persistence-defects`: four defects in the document stores, repaired before anything migrates them. A superseded runner was correctly refused on its *record* write and then overwrote the live holder's job state; two runners claiming one scope at the same instant could both be told they won; a storage plugin that could not open left the engine running on the filesystem substrate the operator had explicitly not chosen; and the TUI's `!` history wrote a backend the CLI never read. Claims are now compare-and-swap on both documents, every `rc.state` write is fenced through one seam, a failed substrate install fails boot, and `Stored.revision` is an opaque token. Cross-document atomicity is deliberately absent — it is FUN-17's `RuntimeTransaction`. Details below. |
 | local-vault-access | `feat/local-vault-access`: the encrypted vault was a cache for values fetched from a remote provider; it is now also somewhere to put one secret you already have. `func builtin vault init / put / inspect / remove`, the same lifecycle as public API in `functualize.app.vault`, and an ordinary `classic()` app reads a vault its project has. Store format gains provenance columns and upgrades in place; `keyring` becomes the `functualize[keychain]` extra. Three behavioural changes, all in [ADR-023](../contributor/adr/023-local-vault-access.md): a stored entry that cannot be opened refuses the run instead of falling through, one vault key per user rather than per project, and nullable provenance fields in `vault list --json`. See `.spec/features/local-vault-access/` on the branch (cleared before merge). |
 | mcp-server-fixes | `fix/mcp-server-fixes`: `func mcp serve` crashed on grouped jobs with parameters — the plugin compiled `async def {dotted_job_name}(...)` via `exec`, a SyntaxError that killed registration (found live by the NOOA integration probe; verified against 0.2.3 and still present on master). Fix: codegen under a sanitized identifier, dotted name restored on the function object; descriptions attach as `__doc__` instead of being interpolated into source (a `'''` in a docstring broke compilation the same way). Server boots no longer run FastMCP's PyPI update check or print its banner unless `FASTMCP_*` env vars opt back in. `fastmcp` dependency bounded to `<5`. Regression net: unit + registration tests, a live subprocess stdio capability test, and a `grouped_tools` example with its own serve harness. Full plugin + examples suites green; ruff clean. See `.spec/features/mcp-server-fixes/` on the branch (cleared before merge). |
+
+### runtime-schema-migrations
+
+`feat/runtime-schema-migrations`: FUN-18. Recorded here for the same reason as the ports entry below —
+`.spec/features/runtime-schema-migrations/` is deleted at this package's clearing step, and the
+feature trees of the packages this one adopted its tables from are already gone.
+
+**What landed.** Scope status was assigned at **thirteen production call sites across five modules**
+(four through `DocumentRuntimeStore`, nine direct) in **five vocabularies**, and validated at none of
+them. That measurement is the package. `_types/lifecycle.py` holds the four machines as data — a
+closed state set, the legal `(current, target)` pairs, and per-machine `absorbing`/`evictable` sets —
+with no logic, so the run machine *adopts* `RunStatus` from `_types/enums.py` rather than redefining
+it, and the three stored vocabularies are `StrEnum`s whose member **is** the text on disk.
+`_primitives/transitions.py` is the one refusal — `require_transition` raising `IllegalTransition` —
+and it is called at every writer that stores a status: `ScopeStore.set_scope_status` (`SCOPE`) and
+`RunStore.close_run` (`RUN`), each reading the current value inside the batch it is already writing,
+and `RunStore.open_run` for the run's creation edge, which checks the pair against `None` before it
+writes. Each store has exactly one call except the run store's two, and `_types/persistence.py` is
+unchanged at 700 lines.
+`_types/retention.py`'s `RetentionPolicy(max_records=500, evictable_only=True, max_age=None)`
+replaces the three `500` constants the scope ring, the per-scope event ring and the run log each
+spelled for themselves; `EVENTS_PER_RUN_LIMIT` stays a constant `200`, because it is a depth rather
+than a record count, so `max_records` reaches it only through the per-scope ring.
+
+**Two behaviour changes, and the defect behind the first.** *Every entry into a walk stamps
+`running`* (D2 = 1): the resumed branch of `FrontierWalk.start` used to leave the parked status in
+place, so a walk that resumed and then finished wrote `COMPLETED` over a record that still said
+`blocked`. Four transition pairs existed only as traces of that (`blocked → completed/failed`,
+`failed → completed/blocked`) and are gone. *A gate the walk resolves inline no longer stamps
+`BLOCKED`*: its slot goes through `record_gate`, so a live walk stops parking its own scope on its way
+past — the second producer of `blocked → completed`, found by record-mode probing rather than by
+reading. D1 = A is kept: a finished scope can be re-run, so `failed → running` and
+`completed → running` stay legal, marked `# TRANSITIONAL(workflow-persistence-atomic)`; "terminal" is
+split for scopes into **absorbing** = `{cancelled}` and **evictable** = `{completed, failed,
+cancelled}`, and never used as a scope's word.
+
+**D3 = B, and what stayed.** The relational tables, the migration runner (revision `0001`) and the
+relational retention statement are `sqlite-runtime-provider`'s; this package kept the DDL and
+migration *contract* — now §2 and §7 of the reference document — and the machines the DDL has to
+match. One consequence is recorded rather than hidden: `completed` is evictable and `resume` accepts
+a completed scope, so a project that evicts one loses the retry with it — `workflow_not_found`, the
+same answer a scope that never existed gets.
+
+**Where the durable reading lives:**
+
+- [`contributor/reference/runtime-persistence-data-model.md`](../contributor/reference/runtime-persistence-data-model.md)
+  — §1's four machines as the rule rather than the target (exhaustive pair tables, the four removed
+  edges and their producers, the absorbing/evictable split, the derived statuses), §2's DDL contract,
+  §6's retention policy and §7's migration discipline. It names the research study it was migrated
+  from in words; that tree is deleted with the feature trees.
+- [`contributor/reference/workflow-walker.md`](../contributor/reference/workflow-walker.md) §4 — a
+  resumed walk says `running`, and what `list_scopes` / `advanceable_scopes` show because of it.
+- [`contributor/architecture/dependency-graph.md`](../contributor/architecture/dependency-graph.md) —
+  the lifecycle vocabulary's three modules, and why the refusal lives in `_primitives/` rather than
+  `_types/` (ADR-026).
+
+**Verification at this wave.** `tests/spec` **161 passed** (unchanged by this wave's tick — T8 has no
+counted gate), and **172 passed** for `tests/spec` + `tests/test_contributor_docs.py` re-run after the
+last edit to this file; the full suite, on the source and document edits, **11 301 passed / 1 621
+skipped / 0 failed**; `ruff check` and `ruff format --check` clean, `mypy src/` clean,
+`lint-imports` **7 kept, 0 broken**.
+
+**Still open, none blocking.** The lease predicate that makes the generation arm structural is the
+relational tables' (FUN-19). Collapsing `frontier.py`'s two entry stamps into one is refused on
+purpose — one is an entry a `run_step` can witness and the other is not. Typing the port's
+`status: str` fields with the lifecycle types is its own parked ticket. The document backend still
+derives an input request's status instead of storing one, so `INPUT_REQUEST` is enforced where the
+relational writer lands. And the port's own scope-status writers in `_primitives/document_store.py`
+still have no production caller — the walk writes through `ScopeStore` — so the four status writers
+there are vocabulary ahead of their caller.
 
 ### substrate-capability-probe
 

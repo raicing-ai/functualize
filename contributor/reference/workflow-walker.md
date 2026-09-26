@@ -87,6 +87,29 @@ from deposited input this time.
 | Deposited gate inputs | **Stable** — read from state store |
 | `Deps` edges | **Stale deps re-run** (correctness for builds) |
 | `FromJob` / `FromStep` injection | **Fresh** — always implies a dependency edge; inject cached value if fingerprint-fresh, otherwise run upstream |
+| Scope status while the resume walks | **`running` from entry** — never the `blocked`, `failed` or `completed` it resumed from |
+
+**A resumed walk is live, and says so.** Every entry into a walk stamps the scope `running` — first
+entry and resume alike — so a scope resumed from `blocked`, `failed` or `completed` reads `running`
+from the moment the walk starts. This was a defect before it was a convention: the resumed branch of
+`FrontierWalk.start` left the old status in place, so a walk that finished after resuming wrote
+`COMPLETED` over a record that still said `blocked`, and the scope's transition table had to carry
+four pairs (`blocked → completed`, `blocked → failed`, `failed → completed`, `failed → blocked`) that
+existed only as traces of it. Those four pairs are gone, and the scope machine refuses them.
+
+Two consequences an operator sees:
+
+- `list_scopes` reports a resumed walk as **`running`** — or `abandoned`, once its claim's lease
+  lapses — instead of `waiting` / `ready`, so "parked at a gate" and "walking right now" stop looking
+  alike.
+- `advanceable_scopes` now lists a scope resumed from `failed` or `completed` while it walks, because
+  it reads `running`, which the live set holds. A scope resumed from `blocked` was listed before and
+  still is.
+
+`blocked` therefore means exactly one thing: the walk stopped at a gate it could not resolve. A gate
+the walk resolves inline — the gate service arm in `_engine/workflow_walker.py` — records its slot
+through `record_gate` and keeps the status it had, instead of stamping `BLOCKED` on its way through
+and leaving a live scope looking parked.
 
 ## 5. Epilogue Body
 

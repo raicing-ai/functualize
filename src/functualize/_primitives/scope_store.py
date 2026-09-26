@@ -56,10 +56,12 @@ from functualize._primitives.scope_state_store import (
     ScopeStateStore,
 )
 from functualize._primitives.substrate import substrate_for_project
+from functualize._primitives.transitions import require_transition
 from functualize._types.errors import (
     ScopeStoreUnreadableError,
     SubstrateUnreadableError,
 )
+from functualize._types.lifecycle import SCOPE
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -127,8 +129,7 @@ class ScopeStore:
         #: and shared one `_batch` — and `_mutate` folds *any* write on the
         #: instance into whatever batch happens to be open. A sibling thread's
         #: `set_state` therefore joined another thread's transaction, returned
-        #: successfully, and vanished if that transaction raised. Reproduced by
-        #: an external review before this was fixed:
+        #: successfully, and vanished if that transaction raised:
         #:
         #:     clean batch exit : {"main": 1, "sibling": 2}
         #:     batch raises     : {}
@@ -416,7 +417,8 @@ class ScopeStore:
         """Set a scope's status (running/blocked/completed/failed/cancelled)."""
 
         def _apply(envelope: dict[str, Any]) -> None:
-            envelope["scopes"].setdefault(scope_id, _blank_scope())["status"] = status
+            scope = envelope["scopes"].setdefault(scope_id, _blank_scope())
+            scope["status"] = require_transition(SCOPE, scope["status"], status)
 
         self._mutate(_apply, scope_id=scope_id)
 

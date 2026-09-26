@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — a scope status outside its state machine is refused, and a walk in flight says `running`
+
+Two behaviour changes an operator can see, and one rule behind them.
+
+**A walk in flight says `running`.** Every entry into a walk stamps its scope — first entry and
+resume alike — so a scope resumed from `blocked`, `failed` or `completed` reads `running` for as long
+as it walks, instead of carrying the parked status for the walk's whole duration. `list_scopes`
+therefore reports a resumed walk as `running` (or `abandoned`, once its claim's lease lapses) rather
+than `waiting` / `ready`, and `advanceable_scopes` lists a scope resumed from `failed` or `completed`
+while it walks. `blocked` now means exactly one thing: the walk stopped at a gate it could not
+resolve. A gate the walk resolves inline no longer stamps `BLOCKED` on its way through, which fixes
+the case where a live walk parked its own scope and then walked on.
+
+**The four runtime state machines are data, and both writers enforce them.** `_types/lifecycle.py`
+holds the scope, run, attempt and input-request machines — a closed state set, the legal
+`(current, target)` pairs, and the absorbing/evictable subsets — and `_primitives/transitions.py`
+refuses a pair no table carries, raising `IllegalTransition` and naming the machine, the current state
+and the target. `ScopeStore.set_scope_status` and `RunStore.close_run` each read the current value
+inside the batch they are already writing, so the check audits the write rather than a stale
+pre-read; `RunStore.open_run` is the third call site, on the creation edge, where an absent status
+still stores `running` and any other supplied value — `success` included, because opening a run is
+not closing one — is refused before the file is touched. Four pairs the table briefly needed are gone
+with the resumed-walk defect; a status the machine calls absorbing (`cancelled`) can no longer be
+moved anywhere; and the two retry edges a
+`resume` really takes (`failed → running`, `completed → running`) stay legal, marked transitional
+until the workflow-persistence work decides whether a retry mints a fresh attempt instead.
+
+`_types/retention.py`'s `RetentionPolicy` replaces the three separate `500` constants the scope record
+ring, the per-scope event ring and the run log each spelled for themselves. One consequence is worth
+stating because it is a loss rather than a gain: a `completed` scope is evictable and `resume` accepts
+a completed scope, so a project that evicts one loses the retry with it — `resume` answers
+`workflow_not_found`, the same answer a scope that never existed gets.
+
+No public API changes. The durable reading is
+`contributor/reference/runtime-persistence-data-model.md` and
+`contributor/architecture/dependency-graph.md`.
+
 ### Fixed — `func builtin why` no longer exits 2 on a healthy job
 
 Found by a first-user rehearsal against the published 0.4.0 artifact. Asking
