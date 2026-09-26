@@ -54,7 +54,7 @@ rg -c 'TRANSITIONAL\(workflow-persistence-atomic\)' src/functualize/_types/lifec
 ```
 now: `0` · after: `2` — the two D1 retry edges, `failed → running` and `completed → running`.
 
-### [ ] T2 — `IllegalTransition`
+### [x] T2 — `IllegalTransition`
 
 *Depends on:* none. *Files:* `src/functualize/_types/errors.py`,
 `tests/types/test_illegal_transition.py` (new).

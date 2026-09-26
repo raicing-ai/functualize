@@ -661,3 +661,42 @@ class RuntimeStoreCapabilityError(Exception):
             f"that has the capability — boot refuses rather than degrading "
             f"to a weaker store."
         )
+
+
+class IllegalTransition(Exception):  # noqa: N818 — names a refused move, not an error
+    """A state change the machine's transition table does not name.
+
+    `runtime-schema-migrations`/T2, from `schema.md` §1. The tables are data and
+    the refusal belongs where a write was about to happen, so the caller that
+    raises this is the transition check at `_primitives/transitions.py` (T4,
+    wave 1) and the two store writers behind it (T6). Nothing raises it in this
+    wave: the error type is what has to exist before they can.
+
+    The message carries all three facts — machine, current, target — because the
+    reader's question is always *which pair*, and a refusal that cannot answer it
+    sends the reader back to the table by hand.
+
+    Attributes:
+        machine: The machine whose table refused the move (`"scope"`, `"run"`,
+            `"attempt"`, `"input_request"`).
+        current: The state the record is in, or ``None`` when it does not exist
+            yet — the absent record an insert would create.
+        target: The state the caller asked for.
+    """
+
+    def __init__(self, machine: str, current: str | None, target: str) -> None:
+        self.machine = machine
+        self.current = current
+        self.target = target
+        where = "an absent record" if current is None else repr(current)
+        super().__init__(f"{machine}: {where} -> {target!r} is not a legal transition")
+
+    def __reduce__(self) -> tuple[type[IllegalTransition], tuple[str, str | None, str]]:
+        """Rebuild from the three facts, not from the rendered message.
+
+        `BaseException.__reduce__` reconstructs by calling the class with
+        ``self.args`` — which here is the one rendered message — and this
+        constructor takes three facts, so the default would raise `TypeError` on
+        a round trip. Naming the constructor's arguments is the whole fix.
+        """
+        return (type(self), (self.machine, self.current, self.target))
