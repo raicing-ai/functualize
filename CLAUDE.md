@@ -10,6 +10,8 @@ For any work in `src/functualize/_cli/tui/`, additionally read `contributor/guid
 
 To *see* what the live TUI/CLI renders while debugging or verifying a change (e.g. trying the examples one by one), use the `observe-tui` skill (`.agents/skills/observe-tui/SKILL.md`). It is for manual/agent verification only — never use it in automated tests.
 
+To choose *which* tests to run for a change, use the `test-tiers` skill (`.agents/skills/test-tiers/SKILL.md`): the Step/Wave/Tip tiers and their measured costs, the `tests-for-diff` mapper and its exit codes, and the rule that no pytest command may be expected to outrun the 600 s tool-call cap or be backgrounded.
+
 ## Spec-driven workflow
 
 The contract lives in one place: [`.claude/rules/spec-workflow.md`](.claude/rules/spec-workflow.md),

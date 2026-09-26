@@ -9,12 +9,25 @@
 
 Property-based test files are detected by naming convention: `*_properties.py`, `*_props.py`, `*_property.py`.
 
+Those two tiers decide *which* tests exist — `--run-slow` turns the property-based half on.
+How much of them to run for a given change is a separate axis: **Step** (the test files that
+import what you changed, selected by `tests-for-diff`, 4-15 s when it prints paths),
+**Wave** (the test directories the change touches), **Tip** (everything, ~21 min — far past
+the 600 s tool-call cap, so it is dispatched or chunked, never one local call). The tiers,
+their measured costs and the load they were taken at, the mapper's exit codes and the cap
+that shapes them live in `.agents/skills/test-tiers/SKILL.md`.
+
 ## Commands
 
 ```bash
 # Always run lint first
 uv run ruff check --fix src/ tests/ plugins/
 uv run ruff format src/ tests/ plugins/
+
+# Step tier — only the test files that import what you changed (4-15 s). Run the mapper
+# alone first: when it prints nothing (a docs-only change) there is nothing to run, and
+# this command would fall through to the whole fast tier.
+uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)
 
 # Fast tests only (default)
 uv run pytest
@@ -143,6 +156,13 @@ Run them directly with `pytest plugins/<name>/tests/`; they are not collected by
 | Import rules | `lint-imports` | Any layer contract violation |
 | Fast tests | `pytest` (unit only) | Any test failure |
 | Full tests | `HYPOTHESIS_PROFILE=ci pytest --run-slow --cov -n auto` | Any failure, across Python 3.11/3.12/3.13 |
+
+The *Full tests* row is the **tip tier**: ~21 min on the 4-core runner, which no single tool
+call can hold. On a branch it is dispatched rather than waited on —
+`gh workflow run CI --ref <branch>` (`workflow_dispatch` on the workflow whose `name:` is
+`CI`) — and the verdict is read in a later turn; locally it is chunked into foreground calls
+of at most 570 s each. Which tier to pick for a change, and the 600 s cap that forces this,
+is in `.agents/skills/test-tiers/SKILL.md`.
 
 ## Writing New Tests
 

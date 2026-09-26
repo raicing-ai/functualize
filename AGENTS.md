@@ -18,10 +18,14 @@ uv run mypy src/
 # Architecture enforcement
 uv run lint-imports
 
+# Step tier — only the test files that import what you changed (4-15 s)
+uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)
+
 # Fast tests (unit only)
 uv run pytest -x -q --no-header
 
-# Full tests (including property-based / hypothesis) — ~10 min, `ci` profile is what CI runs
+# Full tests (including property-based / hypothesis) — `ci` profile is what CI runs.
+# ~21 min, so no single tool call holds it: dispatch or chunk it, see Command discipline
 HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header
 
 # Run a single test file
@@ -40,7 +44,11 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
 ### Command discipline
 
 - Commands already run from the project root — never prefix with `cd <project-root> &&`. Only `cd` into subdirectories when needed (e.g. `cd plugins/adapters/functualize-inline && uv sync`).
-- After a change, run the **smallest relevant test scope** (specific file > `-k` keyword > directory > full suite). Run the full suite only when shared infrastructure changed.
+- After a change, run the **smallest relevant test scope**. The suite tiers are **Step**, **Wave** and **Tip**; `.agents/skills/test-tiers/SKILL.md` holds each one's measured cost and the rules below are the short form:
+  - **Step** — the test files that import what you changed: `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)`, 4-15 s **when it selects something**. The mapper exits `0` with a (possibly empty) selection, `3` when shared infrastructure changed — `tests/conftest.py`, `tests/_support/**`, `pyproject.toml`, `uv.lock` — which prints nothing and means *run the tip tier*, and `2` on a usage or git error. The step tier is sound only on exit `0`; an empty selection means the bare command falls through to the whole fast tier, so run the mapper first and stop when it prints no paths.
+  - **Wave** — the test directories this task touches, named explicitly, at `-n auto`: 60-100 s for four directories.
+  - **Tip** — everything, including property tests. Dispatch it (`gh workflow run CI --ref <branch>`, or the open PR's CI) and read the verdict in a later turn — never wait on it. Locally, reach for it only when shared infrastructure changed.
+- **Never issue a pytest command whose expected runtime exceeds the 600 s tool-call cap, and never background or poll one.** The tip tier is ~21 min — the skill named above holds the measurement and the load it was taken at — so a local full run is chunked: one foreground call per test directory, each bounded with `timeout 570`. Backgrounding does not make a suite shorter — it makes its failure invisible.
 - Maximum 2 pytest invocations per verification: run targeted tests; if a failure appears, fix and re-run only the failing test. If still failing, stop and explain rather than cycling flag variations.
 - **Always redirect command output to a temp file** when the output may be long (pytest, linters, type checkers). Never pipe through `tail`/`head`/`sed` — truncation forces a re-run to see the full output. Use `/tmp/functualize-<command>.log` and read from it. Example: `uv run pytest tests/engine/ > /tmp/functualize-test.log 2>&1`.
 
@@ -101,6 +109,7 @@ Message Convention, Pull Request Guidelines.
 | Verifying a change by breaking it on purpose (sabotage) | `contributor/guides/wiring-discipline.md` §3 — **commit first**, then sabotage, then `git checkout --`. That restore reverts everything uncommitted in the file, and has silently discarded finished work. Sabotage also catches vacuous *tests*, which running them cannot |
 | Adding a CLI flag, a dispatch behaviour, or anything a job author declares — or wondering whether it must work on **both** `func` and a `FunctualizeApp` | `contributor/architecture/surface-boundary.md` — there are two entry points and `func` has a pre-boot layer the other does not. The rule is one question: is the feature about *the program* (must align) or about *how you reach the program* (may be `func`-only). A `@workflow` `Gate` was unresumable on an app for exactly this reason — the resume flag was `func`-only |
 | Asking whether X happens before Y in a job run — or adding a step to `_execute_lifecycle` | `contributor/reference/execution-lifecycle.md` — the twenty steps and the constraint that fixes each one's position. Ordering constraints used to live only as comments inside a 323-line method; four of them are load-bearing, and `tests/engine/test_lifecycle_order.py` fails if the sequence moves |
+| Choosing which tests to run for a change | `.agents/skills/test-tiers/SKILL.md` — the Step/Wave/Tip tiers with their measured costs, the `tests-for-diff` mapper and its exit codes, and the one hard rule: no pytest command may be expected to outrun the 600 s tool-call cap, and none may be backgrounded |
 | Writing tests | `contributor/reference/testing-strategy.md` (domain-mirrored dirs + `tests/_support/` fixtures; no `tests/unit/` or `tests/properties/` dirs). **A test that spawns a `func` subprocess must set `HOME` and all three `XDG_*` roots** — the autouse fake home is a *fixed* path shared by every checkout, and `func` writes an append-only install registry into it that nothing prunes |
 | Adding a symbol to a public package's `__all__`, or a public member to a public class | `contributor/guides/adding-public-api.md` step 8 + `contributor/reference/public-api-example-coverage.md` — every public API must have a caller in `examples/`. Examples are pytest-collected, so the example *is* the end-to-end test; and it is what makes a later "zero references" finding mean *dead* rather than *unknown* for public surface. Measured backlog: 108 of 161 public symbols have none |
 | Proposing a new layer, public API surface, or dependency-rule change | ADR is mandatory: record the decision in `contributor/adr/` (template: `contributor/adr/000-template.md`) |
