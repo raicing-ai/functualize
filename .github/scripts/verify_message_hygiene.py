@@ -104,8 +104,13 @@ _URL_SEGMENT = re.compile(r"/([A-Z]{2,10})(?=[/?#]|$)")
 # A git ref in a URL path is not a tracker key (`/blob/HEAD/...`).
 PERMITTED_URL_SEGMENTS = PERMITTED_PREFIXES | {"HEAD"}
 # A truncated run id (`deadbeef-0bad`) and the full UUID form are one shape.
+# `IGNORECASE` is on this arm alone: the platforms that mint these ids hand the
+# same string out in either case and nothing on the copy path normalises it, so
+# an uppercase copy is the same identifier. A tracker key is not like that — the
+# case is part of the key — which is why `_KEY` keeps its own sensitivity.
 _RUN_ID = re.compile(
-    r"\b[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-f]{4}){0,2}(?:-[0-9a-f]{12})?\b"
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-f]{4}){0,2}(?:-[0-9a-f]{12})?\b",
+    re.IGNORECASE,
 )
 _TRAILER = re.compile(r"^([A-Za-z][A-Za-z0-9-]*):[ \t]*(\S.*)$")
 _ADDRESS = re.compile(r"<([^<>\s]+@[^<>\s]+)>|([^\s<>,]+@[^\s<>,]+\.[A-Za-z]{2,})")

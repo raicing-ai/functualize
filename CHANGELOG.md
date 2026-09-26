@@ -73,7 +73,10 @@ every attributed trailer rather than accepting all of them; agent and model name
 come from the repository variable `MESSAGE_HYGIENE_IDENTITY_DENYLIST`, which is a
 setting rather than a file, so a name that must never be committed never is; and
 the permitted `PREFIX-N` tokens are listed in the script, so an unlisted prefix
-fails without any tracker being named. It is **reported but not yet required** —
+fails without any tracker being named. The identifier arm matches hex
+case-insensitively — an uppercase run id is the same identifier, and nothing on
+the copy path normalises it — while a tracker key stays case-sensitive, because a
+key's case is part of the key. It is **reported but not yet required** —
 registering it in the `master` ruleset is a repository-settings change, and both
 variables must be set first.
 

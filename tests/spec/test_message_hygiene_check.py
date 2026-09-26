@@ -138,13 +138,32 @@ class TestRefused:
         body = "See https://github.com/raicing-ai/functualize/blob/HEAD/CHANGELOG.md"
         assert _refused(check, body=body) == []
 
-    @pytest.mark.parametrize("internal_id", [FAKE_RUN_ID, FAKE_FULL_ID])
+    @pytest.mark.parametrize(
+        "internal_id",
+        [FAKE_RUN_ID, FAKE_FULL_ID, FAKE_RUN_ID.upper(), FAKE_FULL_ID.upper()],
+    )
     def test_an_internal_identifier_is_refused(
         self, check: Any, internal_id: str
     ) -> None:
-        """A truncated run id and a full UUID are one shape, so one arm."""
+        """A truncated run id and a full UUID are one shape, so one arm.
+
+        Case is not part of that shape. The platforms that mint these ids hand
+        the same string out in either case and nothing on the copy path
+        normalises it, so the uppercase form is the same identifier and the
+        copy that reaches the record is the one that has to be refused.
+        """
         reported = _refused(check, body=f"Run {internal_id} did it.")
         assert any(internal_id in violation for violation in reported), reported
+
+    def test_a_lowercase_key_prefix_is_not_a_tracker_key(self, check: Any) -> None:
+        """The case-insensitive flag belongs to the identifier arm alone.
+
+        A key's case is part of the key: keys are minted uppercase, so a
+        lowercase `prefix-number` token is ordinary prose, not a tracker key.
+        This is the boundary a module-wide `IGNORECASE` would erase.
+        """
+        assert FAKE_KEY.isupper()
+        assert _refused(check, body=f"See {FAKE_KEY.lower()} for that.") == []
 
     def test_a_content_digest_is_not_an_identifier(self, check: Any) -> None:
         """32 hex characters and no hyphen: a digest, never a run id."""
