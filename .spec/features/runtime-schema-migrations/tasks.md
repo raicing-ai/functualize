@@ -29,7 +29,8 @@ restore). Wave ordering is binding.
 | T2 | 1.2 | | T7 | 3.2 |
 | T3 | — (new, D2) | | T8 | 6.1 |
 | T4 | 2.1 | | T9 | 7.1 |
-| T5 | 4.1 | | — | 5.1, 5.2 → `sqlite-runtime-provider` 0.1, 0.2 (D3) |
+| T5 | 4.1 | | T10 | — (new 2026-09-26, the inline-gate write-ahead found by T6's probe) |
+| | | | — | 5.1, 5.2 → `sqlite-runtime-provider` 0.1, 0.2 (D3) |
 
 ## Wave 0 — vocabulary and the walk's entry stamp
 
@@ -139,28 +140,96 @@ rg -c 'can never leave' src/functualize/_primitives/scope_format.py
 now: `1` · after: `0` — `scope_format.py:125` calls the evictable set "values a scope can never
 leave", which D1 made false: `completed → running` is reachable by a plain `resume <id>`.
 
-## Wave 2 — enforcement at the two writers
+## Wave 2 — the inline gate stops parking the scope
+
+### [ ] T10 — an inline-resolved gate records its slot without the `blocked` status
+
+*Depends on:* T3. *Files:* `src/functualize/_engine/frontier.py` (`FrontierWalk.block`, `:434`),
+`src/functualize/_engine/workflow_walker.py` (`_service_gate`'s inline arm, `:747-758`),
+`tests/integration/test_surface_feature_matrix.py`
+(`TestPromptGates::test_the_flag_is_accepted_on_both_doors`, `:512`).
+
+Why (the wave-2 stop at `29ae049`): `FrontierWalk.block` is one batch —
+`set_position(node)`, `set_scope_status(BLOCKED)`, `put_gate(payload: None)` — with two callers.
+`_block` (`workflow_walker.py:929`, reached from `_service_gate`'s `payload is None` arm) is a real
+suspension and ends in `WalkReport(BLOCKED)`. The inline arm (`:747`) is not: the gate ladder has
+already resolved the payload, `deposit_gate_payload` (`:758`) needs the gate slot to exist first,
+and the same call carries on through `_advance` (`:898`) to `FrontierWalk.complete`
+(`frontier.py:368`), which writes `completed` with no `FrontierWalk.start` in between. The
+`blocked` stamp there is a side effect of the write-ahead, and it leaves `blocked → completed` in
+the durable record — the move D2 was chosen to make impossible. The maintainer's ruling
+(2026-09-26): the table stands; the write-ahead stops parking the scope.
+
+Shape (*Replace Parameter with Explicit Methods*, not a boolean flag): a new
+`FrontierWalk.record_gate(node, gate_name, *, model, input_schema, tools, blocked_at)` persists
+the position and the gate slot in one batch and leaves the status alone; `block(...)` keeps its
+signature and becomes `record_gate(...)` plus `set_scope_status(BLOCKED)` in the same batch. The
+inline arm calls `record_gate`; `_block` keeps calling `block`. The walk is live throughout, so
+`running` is the true stored state and no reader ever sees a parked scope mid-resolution. No new
+`RUNNING` call site: T3's gate stays at `2`. The rejected alternative — re-stamp `RUNNING` after
+the deposit — would leave a false `blocked` in the durable sequence and add a third `RUNNING`
+site; it is only the fallback if the write-ahead turns out to need the parked state, and then this
+task stops and reports rather than choosing it.
+
+Tests: (a) **regression witness on both doors** — `test_the_flag_is_accepted_on_both_doors`
+(`cli_run` is in-process, `tests/conftest.py:705`, so a `monkeypatch` spy on
+`ScopeStore.set_scope_status` sees the real writes) additionally asserts exit code 0, that no
+`blocked` status is written during the run, and that the scope ends `completed`, on `[func]` and
+`[app]`; (b) the real suspension is unchanged: a gate with no payload and no resolving strategy
+still stores `blocked` and returns `WalkOutcome.BLOCKED` (`tests/engine/test_workflow_gates.py`,
+`tests/workflow` pass unchanged); (c) sabotage: point the inline arm back at `block` → (a) fails on
+both doors. *Call path:* `WorkflowWalker._service_gate` (`workflow_walker.py:726`), inline arm →
+`FrontierWalk.record_gate` → `ScopeStore.set_position` / `put_gate`.
+
+```bash
+rg -c 'def record_gate\(' src/functualize/_engine/frontier.py
+```
+now: `0` · after: `1`
+
+```bash
+rg -c 'self\._walk\.block\(' src/functualize/_engine/workflow_walker.py
+```
+now: `2` · after: `1` — only `_block` (`:929`) still parks the scope.
+
+```bash
+rg -c 'set_scope_status\(self\._scope_id, WalkState\.BLOCKED\)' src/functualize/_engine/frontier.py
+```
+now: `1` · after: `1` — invariant: the suspension writer keeps exactly one `BLOCKED` stamp.
+
+## Wave 3 — enforcement at the two writers
 
 ### [ ] T6 — scope enforcement at the choke point
 
-*Depends on:* T4, T3. *Files:* `src/functualize/_primitives/scope_store.py`,
-`tests/primitives/test_scope_transitions.py` (new), plus the hit set of
-`rg -n 'set_scope_status\(' tests plugins` that writes a now-illegal move (38 sites / 18 files at
-`03fbb64`; known example: `tests/test_state_store.py:112-116` writes `running → blocked →
-completed`, illegal after D2, and is rewritten through `running`; the record-mode run lists the
-rest).
+*Depends on:* T4, T3, T10. *Files:* `src/functualize/_primitives/scope_store.py`,
+`tests/primitives/test_scope_transitions.py` (new), `tests/test_state_store.py`
+(`test_status_transitions`, `:111-116`, writes `blocked → completed` as setup — rewritten through
+`running`), `tests/integration/test_scope_lifecycle.py`
+(`test_a_blocked_scopes_state_is_still_writable`, `:177`, writes `blocked → blocked` as setup —
+rewritten, the self-edge is **not** admitted), plus any further hit of
+`rg -n 'set_scope_status\(' tests plugins` that the record-mode run shows writing an off-table
+pair (none expected beyond these two).
 
-Tests: (a) **record mode first, on a tree that already has T3**: run `tests/workflow
+Tests: (a) **record mode first, on the tree that has T3 and T10**: run `tests/workflow
 tests/integration tests/primitives tests/test_scope_store.py tests/test_state_store.py` and
-`plugins/substrates/functualize-substrate-sqlite/tests` with the check logging every pair; zero
-pairs outside `SCOPE.transitions`. Expected after D2: `running → {running, blocked, completed,
-failed, cancelled}`, `blocked → {running, cancelled}`, `failed → running`,
-`completed → {running, completed}` — the pre-D2 probe's `blocked → completed` and
-`failed → completed` must be gone. (b) Refuse mode: `cancelled → running` and
-`blocked → completed` through `ScopeStore.set_scope_status` raise `IllegalTransition` and leave
-the envelope byte-identical. (c) AST line count of `class ScopeStore` ≤ 930 (smell 1, accepted
-2026-09-26). (d) The cancel race still resolves by the fence first
-(`tests/workflow/test_cancel_wins_the_race.py` unchanged). (e) Sabotage. AC2, AC4.
+`plugins/substrates/functualize-substrate-sqlite/tests` with the check logging every pair, and
+paste the full set with counts. Before the two setup rewrites the only off-table pairs are those
+two direct writes (`blocked → completed` ×1, `blocked → blocked` ×1); after them the set is exactly
+`running → {running, blocked, completed, failed, cancelled}`, `blocked → {running, cancelled}`,
+`failed → running`, `completed → {running, completed}`. The wave-2 probe at `29ae049` found
+`blocked → completed` ×3 — two of them the `[func]` and `[app]` cases of
+`test_the_flag_is_accepted_on_both_doors` (the inline-gate write-ahead, closed by T10) — and
+`blocked → blocked` ×1; if any production pair outside the table remains, stop and report instead
+of enforcing. (b) Refuse mode: `cancelled → running` (the absorbing state) and
+`blocked → completed` (a scope completing out of a parked state) through
+`ScopeStore.set_scope_status` raise `IllegalTransition` and leave the envelope byte-identical.
+These two refusals witness the table; they are not T3's landing evidence, which stays with
+`tests/workflow/test_resumed_walk_says_running.py` (its (a)/(c) failed under T3's sabotage). With
+the guard on, a regression of T3's stamp or of T10's write-ahead would write `blocked → completed`
+on a real path and raise, so `test_resumed_walk_says_running.py` and
+`test_the_flag_is_accepted_on_both_doors` fail loudly rather than silently. (c) AST line count of
+`class ScopeStore` ≤ 930 (smell 1, accepted 2026-09-26; measured 930 at `29ae049`). (d) The
+cancel race still resolves by the fence first (`tests/workflow/test_cancel_wins_the_race.py`
+unchanged). (e) Sabotage. AC2, AC4.
 *Call path:* `FrontierWalk.complete` → `ScopeStore.set_scope_status` (and the other 12 writers).
 
 ```bash
@@ -189,11 +258,11 @@ rg -c 'require_transition\(RUN' src/functualize/_primitives/run_store.py
 ```
 now: `0` · after: `1`
 
-## Wave 3 — the durable half
+## Wave 4 — the durable half
 
 ### [ ] T8 — durable half
 
-*Depends on:* T3, T5, T6, T7. *Files:* `contributor/reference/runtime-persistence-data-model.md`
+*Depends on:* T3, T5, T6, T7, T10. *Files:* `contributor/reference/runtime-persistence-data-model.md`
 (§1 rows per D1/D2 and the absorbing/evictable split, §6, §7 pointing at
 `sqlite-runtime-provider` for the runner), `contributor/reference/workflow-walker.md` (resumed
 walks say `running`), `contributor/architecture/dependency-graph.md` (two new `_types` modules,
@@ -209,7 +278,7 @@ what was true at `e57f0c9` and say so in their headers (`# Verified — fact ind
 the quote stays as it was read rather than being rewritten to today. `contributor/reference/
 workflow-walker.md` is the live page, and it is the one that changes.
 
-## Wave 4 — clearing (second push, deletion-only, last)
+## Wave 5 — clearing (second push, deletion-only, last)
 
 ### [ ] T9 — clearing commit
 
@@ -226,22 +295,25 @@ now: `26` · after: `0`
 ## Task Dependency Graph
 
 Edges (`task ← depends on`): T1 ← ∅ · T2 ← ∅ · T3 ← ∅ · T4 ← {T1, T2} · T5 ← {T1} ·
-T6 ← {T4, T3} · T7 ← {T4} · T8 ← {T3, T5, T6, T7} · T9 ← {T8}.
+T10 ← {T3} · T6 ← {T4, T3, T10} · T7 ← {T4} · T8 ← {T3, T5, T6, T7, T10} · T9 ← {T8}.
+T7 does not depend on T10; it sits in wave 3 so that it stays behind the amended T6, as dispatched.
 
 ```json
 {
   "waves": [
     {"id": 0, "tasks": ["T1", "T2", "T3"]},
     {"id": 1, "tasks": ["T4", "T5"]},
-    {"id": 2, "tasks": ["T6", "T7"]},
-    {"id": 3, "tasks": ["T8"]},
-    {"id": 4, "tasks": ["T9"]}
+    {"id": 2, "tasks": ["T10"]},
+    {"id": 3, "tasks": ["T6", "T7"]},
+    {"id": 4, "tasks": ["T8"]},
+    {"id": 5, "tasks": ["T9"]}
   ],
   "depends_on": {
     "T1": [], "T2": [], "T3": [],
     "T4": ["T1", "T2"], "T5": ["T1"],
-    "T6": ["T4", "T3"], "T7": ["T4"],
-    "T8": ["T3", "T5", "T6", "T7"],
+    "T10": ["T3"],
+    "T6": ["T4", "T3", "T10"], "T7": ["T4"],
+    "T8": ["T3", "T5", "T6", "T7", "T10"],
     "T9": ["T8"]
   }
 }
