@@ -115,7 +115,7 @@ rg -c '^def require_transition\(' src/functualize/_primitives/transitions.py
 ```
 now: `0` · after: `1`
 
-### [ ] T5 — one retention policy; the eviction set named for what it is
+### [x] T5 — one retention policy; the eviction set named for what it is
 
 *Depends on:* T1. *Files:* `src/functualize/_types/retention.py` (new),
 `src/functualize/_primitives/scope_format.py`, `src/functualize/_primitives/run_format.py`,

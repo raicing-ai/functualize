@@ -34,7 +34,12 @@ and lock rather than repeating either.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from functualize._types.retention import DEFAULT_RETENTION
+
+if TYPE_CHECKING:
+    from functualize._types.retention import RetentionPolicy
 
 #: Run-log format version. **Independent of `FRESH_VERSION` and
 #: `SCOPES_VERSION`** — that independence is the reason for the third file.
@@ -52,11 +57,22 @@ RUNS_FILENAME = "runs.json"
 #: in `durable-run-layer`/T3b): an unbounded event
 #: log on a long walk is the same defect the history cap exists to prevent, and
 #: a workflow with a retry loop is exactly where it would bite.
+#:
+#: The one cap that is *not* the retention policy's count: a run's events and a
+#: project's scopes are different quantities, and `RetentionPolicy` names a
+#: record count (`max_records`), not a per-record depth. It stays a constant of
+#: this module, where the log it bounds lives.
 EVENTS_PER_RUN_LIMIT = 200
 
 #: Ring cap across runs. Sorted by `run_id`, which is a ULID, so "the newest N"
 #: needs no index and no timestamp comparison.
-RUNS_LIMIT = 500
+#:
+#: The default policy's count (`_types/retention.py`), shared with the scope
+#: ring so the two logs do not disagree about the horizon. The policy's
+#: ``evictable_only`` does not reach this cap and should not: a run log evicts
+#: oldest-first with no status clause at all, and a run record is an observation
+#: rather than a resume point — the reasoning at the top of this module.
+RUNS_LIMIT = DEFAULT_RETENTION.max_records
 
 
 def empty_runs() -> dict[str, Any]:
@@ -96,7 +112,9 @@ def normalize_runs(data: Any) -> dict[str, Any]:
     return {"format_version": RUNS_VERSION, "runs": runs, "events": events}
 
 
-def stamp_runs(envelope: dict[str, Any]) -> dict[str, Any]:
+def stamp_runs(
+    envelope: dict[str, Any], policy: RetentionPolicy = DEFAULT_RETENTION
+) -> dict[str, Any]:
     """The payload to store: the current version stamped on, and the cap applied.
 
     A copy rather than a mutation, so a caller holding an open batch does not
@@ -104,12 +122,21 @@ def stamp_runs(envelope: dict[str, Any]) -> dict[str, Any]:
     """
     payload = dict(envelope)
     payload["format_version"] = RUNS_VERSION
-    _trim(payload)
+    _trim(payload, policy)
     return payload
 
 
-def _trim(envelope: dict[str, Any]) -> None:
+def _trim(
+    envelope: dict[str, Any], policy: RetentionPolicy = DEFAULT_RETENTION
+) -> None:
     """Hold both rings to their caps, newest kept.
+
+    ``policy.max_records`` is the count for both — the run ring and the
+    orphan-event ring, which exist for the same reason and are bounded the same
+    way. The policy's ``evictable_only`` is deliberately not read here: this log
+    has no status column to filter on, and a run record is an observation rather
+    than a resume point, so "newest kept" is the whole rule (see this module's
+    docstring). `RetentionPolicy` says as much from its side.
 
     Runs are sorted by id, which is a **ULID** — lexicographic order is
     chronological order, so this needs no timestamp parsing and cannot be
@@ -132,9 +159,10 @@ def _trim(envelope: dict[str, Any]) -> None:
     if not isinstance(runs, dict) or not isinstance(events, dict):
         return
 
+    cap = policy.max_records
     evicted: set[str] = set()
-    if len(runs) > RUNS_LIMIT:
-        keep = set(sorted(runs)[-RUNS_LIMIT:])
+    if len(runs) > cap:
+        keep = set(sorted(runs)[-cap:])
         evicted = {r for r in runs if r not in keep}
         for run_id in evicted:
             del runs[run_id]
@@ -145,7 +173,7 @@ def _trim(envelope: dict[str, Any]) -> None:
     # Orphans — events for runs never opened here — are bounded as a group, by
     # the same cap and the same ULID ordering.
     orphans = sorted(r for r in events if r not in runs)
-    for run_id in orphans[:-RUNS_LIMIT] if len(orphans) > RUNS_LIMIT else []:
+    for run_id in orphans[:-cap] if len(orphans) > cap else []:
         del events[run_id]
 
     for run_id, entries in events.items():
