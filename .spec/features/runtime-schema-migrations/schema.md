@@ -3,40 +3,51 @@
 Source of truth for the tables this wave specifies. Adopted from
 `contributor/reference/runtime-persistence-data-model.md` §1–§3, §6–§7 (on `master`), corrected
 where the live code at `03fbb64` disagrees. Every correction is marked **Δ** with its evidence.
-At clearing, the corrections migrate back into that reference document (task 6.1).
+At clearing, the corrections migrate back into that reference document (task T8).
 
 ## 1. State machines
 
-Each machine is a closed state set, a legal-transition table and a terminal set. A pair not in the
+Each machine is a closed state set, a legal-transition table and an **absorbing** set (states
+nothing leaves; Scope also names an **evictable** set, §1.1). A pair not in the
 table is refused with `IllegalTransition(machine, current, target)`. A self-transition is legal
 only where listed.
 
 ### 1.1 Scope (`ScopeStatus`: `running`, `blocked`, `completed`, `failed`, `cancelled`)
 
 Stored values are the five raw strings `ScopeStore` writes today; `stalled`, `waiting`, `ready`,
-`abandoned` stay derived for display (`app/_workflow_view.py`) and are never stored.
+`abandoned` stay derived for display (`app/_workflow_view.py`) and are never stored. Rows follow
+from the maintainer's answers of 2026-09-26: **D1 = A** (a finished scope may be re-entered; only
+`cancelled` is absorbing) and **D2 = 1** (every entry into a walk stamps `running`, task T3).
 
-| From | To | Trigger | Status |
+| From | To | Trigger | Note |
 |---|---|---|---|
-| absent | running | `ensure_scope` / `claim` (blank record is `running`, `scope_store.py:91`) | master |
-| running | running | `complete_step` mid-walk; `FrontierWalk.start` on a fresh scope | master |
-| running | blocked | `suspend` | master |
-| running | completed | `complete_step` reaching END; `_close_scope` | master |
-| running | failed | `_fail`; `_close_scope` | master |
-| running | cancelled | `cancel` | master |
-| blocked | running | `resume` (`ResumeWorkflow`) | master |
-| blocked | cancelled | `cancel` | master |
-| blocked | blocked | a resumed walk suspends again at a later gate (`frontier.py:444`) | **Δ** live |
-| blocked | completed | resumed walk reaches END without writing `running` (`frontier.py:411`) | **Δ D2**, `TRANSITIONAL` |
-| blocked | failed | resumed walk fails (`workflow_walker.py:1055`) | **Δ D2**, `TRANSITIONAL` |
-| failed | running | retry of a failed scope (`resume_scope` refuses only `cancelled`, `_workflow_control.py:306`) | **Δ D1** |
-| failed | completed / failed / blocked | a retried walk that never writes `running` — same cause as D2 | **Δ D1+D2**, `TRANSITIONAL` |
-| completed, cancelled | anything | — | **refused** |
+| absent | running | `ensure_scope` / `claim` (blank record is `running`, `scope_store.py:91`) | creation |
+| running | running | first entry stamps over the blank record (`frontier.py:347`); `complete_step` mid-walk | self-edge, not a change |
+| running | blocked | `suspend` at a gate | |
+| running | completed | `complete_step` reaching END; `_close_scope` | |
+| running | failed | `_fail`; `_close_scope` | |
+| running | cancelled | `cancel` | |
+| blocked | running | resume through the gate (task T3 stamp) | |
+| blocked | cancelled | `cancel` | |
+| failed | running | retry of a failed scope (`resume_scope` refuses only `cancelled`, `_workflow_control.py:305-309`) | **retry edge**, `# TRANSITIONAL(workflow-persistence-atomic)` |
+| completed | running | plain `resume <id>` and `--retry-epilogue`: completion clears the position, so the next entry takes the first-entry branch | **retry edge**, `# TRANSITIONAL(workflow-persistence-atomic)` |
+| completed | completed | the end-of-walk stamp fires twice (`frontier.py:411`, then `workflow_walker.py:449/565`) | self-edge, not a status change; legal so the double stamp does not raise |
+| cancelled | anything | — | **refused** (absorbing) |
 
-Terminal set: `{completed, cancelled}` if D1 is accepted; `{completed, failed, cancelled}` if not
-(then the three `failed → *` rows are dropped and retry must mint a new scope).
-`TERMINAL_SCOPE_STATUSES` (`scope_format.py:133`) is the **eviction** set, not the terminal set,
-and keeps `failed` either way: a failed scope may be evicted by the cap without being immutable.
+Everything else is refused — in particular `blocked → completed`, `blocked → failed`,
+`failed → completed`, `failed → blocked` (reachable at `03fbb64` only because the resumed branch
+did not stamp `running`; gone once task T3 lands), and `completed → cancelled`,
+`failed → cancelled` (`cancel_scope` refuses a non-live scope, `_workflow_control.py:401-405`).
+
+Two sets, two names — "terminal" is no longer used for scopes:
+
+- **absorbing** = `{cancelled}` — nothing leaves it. This is what `IllegalTransition` protects.
+- **evictable** = `{completed, failed, cancelled}` — the ring cap may drop these
+  (`TERMINAL_SCOPE_STATUSES`, `scope_format.py:133`). Its comment "Raw ``status`` values a scope can
+  never leave" (`scope_format.py:125`) is false under D1 — `completed → running` is reachable by
+  a plain `resume <id>` — and is corrected in task T5. Documented consequence, unchanged from
+  today: a completed or failed scope the cap has evicted can no longer be retried (`resume` →
+  `workflow_not_found`).
 
 ### 1.2 Run (`RunStatus`, `_types/enums.py:12` — adopted, not redefined)
 
@@ -89,7 +100,7 @@ from §1 (see plan.md → *Surviving smells*, primitive obsession).
 | `runs` | `namespace_id`, `id`, `scope_id`, `parent_run_id`, `job`, `surface`, `status`, `args_hash`, `invoke_depth INTEGER`, `started_at`, `ended_at` | PK (`namespace_id`, `id`); IX (`namespace_id`, `started_at` DESC), (`job`), (`scope_id`), (`parent_run_id`) |
 | `run_attempts` | `id`, `run_id`, `attempt_no INTEGER`, `status`, `started_at`, `ended_at`, `failure_code`, `failure_detail JSON` | UNIQUE (`run_id`, `attempt_no`); FK `run_id` ON DELETE CASCADE |
 | `run_events` | `run_id`, `seq INTEGER`, `type`, `payload JSON`, `occurred_at` | UNIQUE (`run_id`, `seq`); append only; FK CASCADE |
-| `workflow_scopes` | `namespace_id`, `id`, `workflow`, `graph_digest`, `status`, `position`, `lease_owner`, `lease_expires_at`, `lease_generation INTEGER NOT NULL DEFAULT 0`, `created_at`, `updated_at`, `terminal_at` | PK (`namespace_id`, `id`); IX (`status`), (`lease_expires_at`) |
+| `workflow_scopes` | `namespace_id`, `id`, `workflow`, `graph_digest`, `status`, `position`, `lease_owner`, `lease_expires_at`, `lease_generation INTEGER NOT NULL DEFAULT 0`, `created_at`, `updated_at`, `terminal_at` (set on entering an evictable status, cleared on re-entry into `running` — D1) | PK (`namespace_id`, `id`); IX (`status`), (`lease_expires_at`) |
 | `workflow_steps` | `scope_id`, `step_key`, `iteration INTEGER`, `status`, `inputs JSON`, `result JSON`, `reusable INTEGER`, `started_at`, `completed_at` | UNIQUE (`scope_id`, `step_key`, `iteration`); FK CASCADE |
 | `workflow_branches` | `scope_id`, `decision_key`, `chosen_target`, `chosen_at` | UNIQUE (`scope_id`, `decision_key`); immutable once written; FK CASCADE |
 | `scope_state` | `scope_id`, `key`, `value JSON`, `version INTEGER`, `updated_at` | UNIQUE (`scope_id`, `key`); every write carries the fence predicate; FK CASCADE |
@@ -111,6 +122,8 @@ want an index on it, it is a column.*
 
 ## 4. Migration contract
 
+Fixed here; implemented as `sqlite-runtime-provider` task 0.1 (D3 = B).
+
 - A migration is `(version: int, name: str, sql: str)`; `checksum = sha256(sql)`.
 - Versions are contiguous from 1 and applied in order, each in its own transaction (or its own
   batch on a substrate with no `BEGIN`), with its `schema_migrations` row in the same unit.
@@ -123,11 +136,12 @@ want an index on it, it is a column.*
 
 ## 5. Retention
 
-`RetentionPolicy(max_records=500, terminal_only=True, max_age=None)` — one value.
+`RetentionPolicy(max_records=500, evictable_only=True, max_age=None)` — one value (this wave).
 
 - Document backend: `scope_format._trim` (`SCOPES_LIMIT`, `EVENTS_PER_SCOPE_LIMIT`) and
   `run_format._trim` (`RUNS_LIMIT`) read their counts from the policy; they still apply at write
-  time because the document backend has no maintenance operation (decision D3).
-- Relational: a maintenance statement deletes terminal `workflow_scopes` / `runs` rows beyond the
-  count or older than `max_age`, cascading children, never a live or blocked scope, and never
-  inside a step write.
+  time because the document backend has no maintenance operation.
+- Relational (implemented in `sqlite-runtime-provider`, D3 = B): a maintenance statement deletes
+  evictable `workflow_scopes` rows and terminal `runs` rows (`RunStatus.terminal`) beyond the count
+  or older than `max_age`, cascading children, never a `running` or `blocked` scope, and never
+  inside a step write. Its production caller is that package's task 0.3.

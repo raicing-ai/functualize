@@ -15,20 +15,21 @@ class Machine:
     name: str                                   # "scope" | "run" | "attempt" | "input_request"
     states: frozenset[str]
     transitions: frozenset[tuple[str | None, str]]   # None = absent (creation)
-    terminal: frozenset[str]
+    absorbing: frozenset[str]                   # nothing leaves: SCOPE {cancelled}; RUN = RunStatus.terminal
+    evictable: frozenset[str]                   # a cap may drop: SCOPE {completed, failed, cancelled}
 
 SCOPE: Final[Machine]; RUN: Final[Machine]; ATTEMPT: Final[Machine]; INPUT_REQUEST: Final[Machine]
 
 # _types/errors.py
 class IllegalTransition(Exception):  # noqa: N818 — names a refused move, like TerminalUnavailable
     machine: str; current: str | None; target: str
-    # message names all three: "scope: 'completed' -> 'running' is not a legal transition"
+    # message names all three: "scope: 'cancelled' -> 'running' is not a legal transition"
 
 # _types/retention.py
 @dataclass(frozen=True)
 class RetentionPolicy:
     max_records: int = 500
-    terminal_only: bool = True
+    evictable_only: bool = True
     max_age: timedelta | None = None
 DEFAULT_RETENTION: Final[RetentionPolicy]
 
@@ -38,20 +39,14 @@ def require_transition(machine: Machine, current: str | None, target: str) -> st
     An unknown ``target`` (not in ``machine.states``) is also illegal."""
 ```
 
-Migration surface (only if D3 keeps it in this wave):
+The migration surface (`Migration`, `MigrationTarget`, `MigrationRefused`, `migrate`) moved to
+`sqlite-runtime-provider` with the runner (D3 = B); its contract is `schema.md` §4.
 
 ```python
-# _primitives/migrations/__init__.py
-@dataclass(frozen=True)
-class Migration: version: int; name: str; sql: str   # checksum = sha256(sql)
-
-class MigrationTarget(Protocol):                    # implemented by the SQLite store later
-    def applied(self) -> list[tuple[int, str]]: ... # (version, checksum)
-    def apply(self, migration: Migration, checksum: str) -> None: ...  # DDL + ledger row, one unit
-
-class MigrationRefused(Exception): ...              # mismatch, gap, ahead-of-shipped
-
-def migrate(target: MigrationTarget, migrations: Sequence[Migration]) -> int: ...  # returns version
+# _engine/frontier.py — FrontierWalk.start, resumed branch (task T3, D2 = 1)
+if position is not None:
+    self._store.set_scope_status(self._scope_id, WalkState.RUNNING)   # new: every entry says running
+    return [position]
 ```
 
 ## Behaviour that changes for existing callers
@@ -60,11 +55,12 @@ def migrate(target: MigrationTarget, migrations: Sequence[Migration]) -> int: ..
 |---|---|---|
 | `ScopeStore.set_scope_status(sid, s)` | writes any `str` | writes `s` if legal from the stored status; else raises `IllegalTransition`, envelope unchanged |
 | `RunStore.close_run(rid, s)` | overwrites any status | refuses when the stored status is terminal (`RunStatus.terminal`) |
-| tests that write an illegal move directly | pass | fail by design; each one is listed and rewritten in task 3.1 |
+| `FrontierWalk.start` on a resumed scope | status left as `blocked` / `failed` for the whole walk | status is `running` from entry; `list_scopes` shows `running` (or `abandoned` once the lease lapses) instead of `waiting`/`ready`; `advanceable_scopes` now also lists a scope resumed from `failed`/`completed` while it walks (it reads `running`, which `LIVE_STATUSES` holds); a resumed-from-`blocked` scope was listed before and still is; the silent-step detector (`frontier.py:245`) now covers resumed walks |
+| tests that write an illegal move directly | pass | fail by design; each one is listed and rewritten in task T6 |
 
 `IllegalTransition` propagates. `executor._close_scope` wraps its status write in a broad
 `except Exception` (`executor.py:1068`) and keeps swallowing it at debug level, as it does any store
-error today — a disclosed limit, not a new one. Task 3.1 checks the run-record closers
+error today — a disclosed limit, not a new one. Task T6 checks the run-record closers
 (`executor.py:1082-1110`) for the same wrapper and records what it finds.
 
 ## Public API surface

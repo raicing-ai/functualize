@@ -1,14 +1,15 @@
 # Runtime schema — state machines, relational schema, migration contract
 
 **Status:** refined against `origin/master` @ `03fbb64` (the merged persistence ports).
-Premises re-based 2026-09-25; the three decisions in *Open decisions* gate waves 2 and 4 of
-`tasks.md`, and nothing else.
+Premises re-based 2026-09-25; decisions D1–D3 answered by the maintainer 2026-09-26 and recorded
+under *Decisions*. No task is held.
 
 ## Goal
 
 Make the four runtime state machines executable — a transition outside the table is refused
-with `IllegalTransition` at the point it would be written — and specify the relational schema
-and the forward-only migration contract that the SQLite store builds on.
+with `IllegalTransition` at the point it would be written — make a walk in flight say `running`
+on every entry, and specify the relational schema and the forward-only migration contract that
+the SQLite store builds on.
 
 ## Why
 
@@ -33,45 +34,60 @@ Every row was re-measured on this branch at `03fbb64`; the command is the eviden
 | P8 | InputRequest status is written | Document backend **derives** it (`_primitives/document_store.py:399-414`); no production writer stores it | read |
 | P9 | The migration runner is this wave's | Master reference §7: "The runner arrives with FUN-19's tables"; no relational store exists at `03fbb64` | `rg -n 'CREATE TABLE' src/functualize` → `_config/vault.py` only |
 | P10 | `ScopeStore` can absorb the check | `ScopeStore` is a **930-line class** — past the Constitution's ~500 LOC god-object line; growth is a Forbidden Pattern | AST walk (plan.md) |
+| P11 | (not in the scaffold) | **Probe of every `set_scope_status` write** on `00f58a2` (throwaway, deleted), driving fresh walk to a gate, resume through it, plain resume of a completed scope, resume of a failed scope: `running→running`, `running→blocked`, `blocked→completed`, `completed→completed`, `completed→running`, `running→completed`, `failed→completed`, and nothing else. `completed→running` is reachable by a plain `resume <id>`: completion clears the position, so the next entry takes `FrontierWalk.start`'s first-entry branch. `completed→completed` is the end-of-walk stamp firing twice — not a status change | the decision explanation on the tracking issue, 2026-09-26T00:15Z |
 
 ## Acceptance criteria
 
 Gates run at authoring time; each task's file scope is the gate's hit set.
 
 1. **Tables.** Scope, Run, Attempt and InputRequest each have a legal-transition table held as
-   data, with a named terminal set. Gate: a test enumerates every `(from, to)` pair of each
-   machine's state set and asserts the check accepts exactly the table.
+   data, with a named *absorbing* set (states nothing leaves) and, for Scope, a separately named
+   *evictable* set. Gate: a test enumerates every `(from, to)` pair of each machine's state set
+   and asserts the check accepts exactly the table.
 2. **Refusal.** A scope-status write or a run close outside its table raises `IllegalTransition`
    naming the machine, the current state and the target state, and **nothing is written**.
-   Gate: for each machine with a live writer (Scope, Run), a test drives an illegal move through
-   the production writer and asserts the exception and the unchanged record; sabotage (remove
-   the check) makes that test fail.
-3. **No live path regresses.** Every transition the live engine performs today is either in the
-   table or recorded as a decision in *Open decisions*. Gate: `tests/workflow`,
-   `tests/integration`, `tests/primitives`, `tests/types` and `tests/test_scope_store.py` pass
-   unchanged except for tests that assert a now-illegal move, each listed in `tasks.md`.
-4. **One row per step.** `schema.md` specifies the relational schema at one row per step (never
+   Gate: through the production writer, `cancelled → running` (Scope) and closing an
+   already-`success` run (Run) raise and leave the record unchanged; `blocked → completed`
+   raises too, which is the witness that AC3 landed; sabotage (remove the check) makes each
+   test fail.
+3. **A walk in flight says `running`.** Every entry into a walk — first entry or resume, from
+   `blocked`, `failed` or `completed` — stamps `running` before any step runs. Gate: a resumed
+   walk mid-step reads `running` from the store, from `list_scopes` and in `advanceable_scopes`;
+   the silent-step detector (`_engine/frontier.py:245`, `status == RUNNING`) diagnoses a silent
+   step in a *resumed* walk, which it cannot at `03fbb64`.
+4. **No live path regresses.** Every transition the live engine performs after AC3 is in the
+   table. Gate: the record-mode sweep in task T6 runs after task T3 lands and finds zero pairs
+   outside `SCOPE.transitions`; `tests/workflow`, `tests/integration`, `tests/primitives`,
+   `tests/types` and `tests/test_scope_store.py` pass except tests asserting a now-illegal move
+   or the old "resumed walk reports `blocked`" behaviour, each listed in `tasks.md`.
+5. **One row per step.** `schema.md` specifies the relational schema at one row per step (never
    one row per document) with the JSON boundary rule, and every column the reference model names.
-5. **Forward-only migrations, recorded version.** Migrations are ordered, checksummed and
-   forward-only; the applied version is recorded in `schema_migrations`; a checksum mismatch or a
-   partially applied revision refuses rather than continues. *(Executable placement: decision D3.)*
-6. **Retention is a policy.** The 500-record caps become one explicit `RetentionPolicy` value
-   (count, terminal-only, age), consumed by every place that applies a cap. *(Whether the
-   document backend stops evicting on write: decision D3.)*
+6. **Forward-only migrations, recorded version — as a contract.** `schema.md` §4 fixes the
+   migration contract (ordered, checksummed, forward-only, version recorded in
+   `schema_migrations`, refusal on mismatch, gap or ahead-of-shipped). The runner, revision
+   `0001` and their wiring are implemented and made reachable in `sqlite-runtime-provider` (D3).
+7. **Retention is a policy.** The 500-record caps become one explicit `RetentionPolicy` value
+   (count, evictable-only, age), consumed by every place in this wave that applies a cap. The
+   relational retention statement and its production caller are `sqlite-runtime-provider`'s (D3).
 
-## Open decisions (member confirmation required)
+## Decisions (answered by the maintainer, 2026-09-26)
 
-| ID | Question | Recommendation | Blocks |
+| ID | Question | Answer | Consequence in this package |
 |---|---|---|---|
-| D1 | Is `failed` terminal? Today a failed scope is resumable (P5). | Add FAILED→RUNNING as the **retry** edge (guard: `resume`, not cancelled). Keeps today's behaviour; "terminal" then means `completed` and `cancelled`. The alternative — retry mints a new scope — is a behaviour change owned by the atomic-workflow wave. | task 3.1 |
-| D2 | A resumed walk reports `blocked` until it ends (P5). | Admit BLOCKED→COMPLETED and BLOCKED→FAILED as `# TRANSITIONAL` edges, closed when resume goes through `ResumeWorkflow` (the atomic-workflow wave, which moves the scope to RUNNING in one unit). Forcing RUNNING now changes `advanceable_scopes` and `list_scopes` output. | task 3.1 |
-| D3 | The migration runner and the relational retention statement have **no production caller** until the SQLite store lands (P9), and *Reachability precedes `[x]`* forbids ticking them here. | Keep them in this wave as tasks 5.2/5.3 **only if** the SQLite provider wave's first task wires them; otherwise move both to that wave and let this wave satisfy AC5 in `schema.md` + the contract. The document backend keeps its write-time cap (no maintenance scheduler exists); the policy value makes it explicit. | tasks 5.2, 5.3 |
+| D1 | Can a finished scope be re-run? | **A — yes.** `resume` keeps accepting `completed` and `failed` scopes (`--retry-epilogue`, retry of a failed step); only `cancelled` is absorbing | Scope table carries `failed → running` and `completed → running` as retry edges, `# TRANSITIONAL` until `workflow-persistence-atomic` decides whether a retry mints a fresh attempt. "Terminal" is split: **absorbing** = `{cancelled}`; **evictable** = `{completed, failed, cancelled}` (`TERMINAL_SCOPE_STATUSES`, whose comment "values a scope can never leave" is corrected in task T5). Documented consequence: a completed scope evicted by the cap can no longer be retried (`resume` → `workflow_not_found`), as today |
+| D2 | Should a resumed walk say `running`? | **1 — stamp `running` on every entry** | New task T3 changes `FrontierWalk.start`'s resumed branch (`_engine/frontier.py:341-349`). The edges `blocked → completed`, `blocked → failed`, `failed → completed`, `failed → blocked` leave the table; entry is `{blocked, failed, completed} → running`, exit is `running → {blocked, completed, failed, cancelled}` |
+| D3 | Do the runner and the retention statement belong here? | **B — move both to `sqlite-runtime-provider`, plus one task there for the retention caller** | Former tasks 5.1/5.2 moved to that package as 0.1/0.2, with 0.3 the new retention caller. This package keeps `schema.md` (the DDL and migration contract), the machines and the `RetentionPolicy` value |
+
+Smell dispositions are recorded in `plan.md` → *Surviving smells*.
 
 ## Out of scope
 
-- The SQLite store, its connection handling and boot-step wiring (`sqlite-runtime-provider`).
-- Moving the walk's resume through the port; the fence moving into the predicate
-  (`workflow-persistence-atomic`).
+- The SQLite store, its connection handling, the migration runner and revision `0001`, the
+  relational retention statement and its caller, and boot-step wiring (`sqlite-runtime-provider`).
+- Moving the walk's resume through the port; whether a retry mints a new attempt; the fence
+  moving into the predicate (`workflow-persistence-atomic`).
+- Typing the port's `status: str` fields with the lifecycle types (its own ticket, parked until
+  this wave's vocabulary lands).
 - `input_candidates` append-only writes and the outbox (`gate-interactions-outbox`).
 - Any change to a public `__all__`.
 

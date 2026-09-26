@@ -19,11 +19,12 @@ The tracker key and link live on the tracking issue, never in this repository's 
 ## The one-line goal
 
 Make the four state machines executable — an illegal move raises `IllegalTransition` where it
-would be written — and specify the tables and the forward-only migration contract.
+would be written — make every entry into a walk say `running`, and specify the tables and the
+forward-only migration contract (the runner itself is built in `sqlite-runtime-provider`).
 
 ## Read these first, in this order
 
-1. `spec.md` → *Re-based premises* and *Open decisions*. Ten premises of the original scaffold
+1. `spec.md` → *Re-based premises* and *Decisions*. Ten premises of the original scaffold
    were re-measured at `03fbb64`; five changed the plan.
 2. `contributor/reference/runtime-persistence-data-model.md` (on master) — §1 state machines,
    §2 schema, §6 retention, §7 migration discipline. `schema.md` here is that, corrected (**Δ**).
@@ -33,7 +34,7 @@ would be written — and specify the tables and the forward-only migration contr
 4. `plan.md` — BEFORE/AFTER and the surviving smells.
 
 The research studies under `contributor/architecture/research/` are still on this branch as
-background; they never reach master and are deleted by task 7.1.
+background; they never reach master and are deleted by task T9.
 
 ## Then read the repository's own rules
 
@@ -52,8 +53,8 @@ uv run lint-imports                  # 7 kept, 0 broken at 03fbb64
 cat .spec/features/runtime-schema-migrations/tasks.md
 ```
 
-Work the waves in order. Wave N+1 does not start while wave N has unchecked tasks. A task
-marked **held** waits for its decision in `spec.md`.
+Work the waves in order. Wave N+1 does not start while wave N has unchecked tasks. The three
+decisions are answered (`spec.md` → *Decisions*); no task is held.
 
 ## Three things that will bite you
 
@@ -67,7 +68,7 @@ marked **held** waits for its decision in `spec.md`.
 ## Before you open a PR
 
 - `.spec/features/` and `contributor/architecture/research/` are tracked on this branch and
-  **absent from master**. Migrate the durable half (task 6.1), push and wait for validation, then
-  make the deletion-only clearing commit (task 7.1) the **last** commit.
+  **absent from master**. Migrate the durable half (task T8), push and wait for validation, then
+  make the deletion-only clearing commit (task T9) the **last** commit.
 - Read back `git log --format='%B' origin/master..HEAD`, the PR title and the PR body for tracker
   keys, internal ids and agent trailers before every push.

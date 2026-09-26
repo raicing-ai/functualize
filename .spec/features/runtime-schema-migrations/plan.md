@@ -1,7 +1,8 @@
 # Runtime schema — Plan
 
-**Status:** architecture gate closed 2026-09-25 against `03fbb64`. Execute is gated on member
-confirmation of D1–D3 (`spec.md`) and of the surviving smells below.
+**Status:** architecture gate closed 2026-09-25 against `03fbb64`; decisions D1 = A, D2 = 1,
+D3 = B and both smell dispositions answered by the maintainer 2026-09-26 (`spec.md` →
+*Decisions*, *Surviving smells* below). Execute may start.
 
 ## Retrieval passes (gate step 1)
 
@@ -64,6 +65,7 @@ All three tools, each addressed by the absolute worktree path
  layer            module (real path)                                     change
  ───────────────  ─────────────────────────────────────────────────────  ─────────────────────────
  app/, _engine/   13 writers — UNCHANGED call shape                        still pass a str
+ _engine/         _engine/frontier.py FrontierWalk.start  resumed branch also stamps RUNNING (D2 = 1)
                         │
                         ▼
  _primitives/     _primitives/scope_store.py  ScopeStore.set_scope_status   the assignment expression
@@ -84,9 +86,8 @@ All three tools, each addressed by the absolute worktree path
                   _types/persistence.py       UNCHANGED (ADR-026 not reopened)
                         ▲
  _primitives/     _primitives/scope_format.py / run_format.py  caps read DEFAULT policy
-                  _primitives/migrations/     NEW (D3)  runner + 0001_runtime_schema.sql;
-                                              depends on a MigrationTarget Protocol declared
-                                              in _primitives/migrations/__init__.py, not on sqlite3
+                  (migration runner + 0001 + relational retention: moved to
+                   sqlite-runtime-provider, D3 = B — not in this AFTER)
 
  dependency direction: _primitives/transitions → _types/lifecycle, _types/errors, _types/enums;
  _primitives/{scope,run}_store → _primitives/transitions; _primitives/{scope,run}_format →
@@ -128,33 +129,36 @@ and the serena reference query above. Sizes measured with `wc -l` at `03fbb64`.
 | `src/functualize/_primitives/transitions.py` | new | `require_transition` (~40) |
 | `src/functualize/_primitives/scope_store.py` | 1038 (class 930) | one expression in `set_scope_status._apply`; net 0 |
 | `src/functualize/_primitives/run_store.py` | 368 (class 236) | one expression in `close_run._apply` |
-| `src/functualize/_primitives/scope_format.py` | 197 | caps read the policy |
+| `src/functualize/_primitives/scope_format.py` | 197 | caps read the policy; the eviction-set comment at `:125` ("values a scope can never leave") corrected — it is the evictable set, not an absorbing one |
 | `src/functualize/_primitives/run_format.py` | 153 | cap reads the policy |
-| `src/functualize/_primitives/migrations/` | new (D3) | runner + `0001` |
-| `tests/types/`, `tests/primitives/`, `tests/test_state_store.py`, `tests/test_scope_store.py` | — | new gates; any test asserting a now-illegal move (listed in task 3.1) |
-| `contributor/reference/runtime-persistence-data-model.md`, `contributor/architecture/dependency-graph.md`, `.spec/STATUS.md`, `CHANGELOG.md` | — | durable half (task 6.1) |
+| `src/functualize/_engine/frontier.py` | 506 | resumed branch of `FrontierWalk.start` stamps `running` (D2) |
+| `src/functualize/app/_workflow_view.py`, `src/functualize/app/_workflow_control.py` | 559, 785 | docstrings only: "a resumed walk reports `blocked` for its whole duration" (`_workflow_view.py:109,212-215`, `_workflow_control.py:218-220`) becomes false |
+| `tests/types/`, `tests/primitives/`, `tests/test_state_store.py`, `tests/test_scope_store.py` | — | new gates; any test asserting a now-illegal move (listed in task T6) |
+| `contributor/reference/runtime-persistence-data-model.md`, `contributor/architecture/dependency-graph.md`, `.spec/STATUS.md`, `CHANGELOG.md` | — | durable half (task T8) |
 
 ## Risks
 
 - **A live transition not in the table** turns a working walk into an `IllegalTransition`. The
-  table's Δ rows come from reading the writers, not from a census; task 3.1 therefore runs the
+  table's Δ rows come from reading the writers, not from a census; task T6 therefore runs the
   whole workflow/integration suites with the check in **record** mode first and fails on any
   unlisted pair before switching to refuse.
 - **Legacy records** with a status outside the set (a hand-edited or pre-T11 `scopes.json`) now
   refuse on their next write. The document backend's normalizer is the place to map them; if one
-  is found, it is a finding for D1/D2, not a silent mapping.
+  is found, it is a finding against the decided table (D1 = A, D2 = 1), not a silent mapping.
 - **Plugin substrate tests** call `set_scope_status` directly
   (`plugins/substrates/functualize-substrate-sqlite/tests/test_sqlite_substrate.py:298`); run
-  `pytest plugins/substrates/functualize-substrate-sqlite/tests` in task 3.1.
+  `pytest plugins/substrates/functualize-substrate-sqlite/tests` in task T6.
 
 ## Surviving smells
 
-| Smell (catalogue) | Where | Why accepted | Maintainer review |
-|---|---|---|---|
-| **Large class** (pre-existing, not grown) | `ScopeStore`, `_primitives/scope_store.py`, 930 lines | Decomposing it is its own refactor with its own blast radius (38 test sites, 9 production callers). This wave adds a call inside one existing expression, net 0 lines. Growth would be a Forbidden Pattern, so task 3.1's gate includes an AST line count of the class ≤ 930 | **needs maintainer review** — accepting that the one choke point for legality lives in a class already over the line |
-| **Primitive obsession** (reduced, not removed) | `status: str` on `ScopeStore.set_scope_status`, `RunStore.close_run` and every command in `_types/persistence.py` | Typing the port fields as `ScopeStatus` would edit the frozen port (ADR-026). The writers stay `str`; the check parses `str` → `ScopeStatus` at the choke point, and the relational schema carries `TEXT` + `CHECK (status IN …)` generated from the table | **needs maintainer review** — the port keeps `str` until a port revision |
-| **Temporary field / transitional edges** | Scope rows BLOCKED→COMPLETED/FAILED and FAILED→* (D1/D2) | They describe today's behaviour honestly; each is marked `TRANSITIONAL` with its closing wave in `_types/lifecycle.py` | answered by D1/D2 |
-| **Duplicate code** (kept) | write-time eviction in `scope_format._trim` and `run_format._trim` | The document backend has no maintenance operation; the policy value removes the duplicated *numbers*, not the two trims, which carry different eviction rules (run log discards, scopes refuse) | answered by D3 |
+Dispositions are the maintainer's, recorded 2026-09-26.
+
+| Smell (catalogue) | Where | Disposition |
+|---|---|---|
+| **Large class** (pre-existing, not grown) | `ScopeStore`, `_primitives/scope_store.py`, 930 lines | **Accepted** by the maintainer, 2026-09-26. The one legality choke point stays inside the class; this wave adds one call inside one existing expression, net 0 lines, and task T6's gate asserts the class stays ≤ 930 lines. Splitting it is its own refactor (38 test sites, 9 production callers) |
+| **Primitive obsession** | `status: str` on every command and view in `_types/persistence.py` (`CompleteStep.scope_status`, `FinishAttempt.status`, …) | **Declined** by the maintainer, 2026-09-26 — the port is to be typed. Not absorbed here (it reopens ADR-026's frozen surface): split into its own ticket, MCH-104 (*Type the persistence port's status fields with the lifecycle status types*), parked until this wave's `_types/lifecycle.py` vocabulary lands. Until then the writers stay `str`, the choke point parses `str → ScopeStatus`, and the relational schema carries `TEXT` + `CHECK (status IN …)` generated from the tables |
+| **Temporary field / transitional edges** | Scope rows `failed → running`, `completed → running` (D1 = A) | Accepted by D1: both marked `# TRANSITIONAL(workflow-persistence-atomic)` in `_types/lifecycle.py`, which decides whether a retry mints a fresh attempt instead of re-entering the scope. D2 = 1 removed the other four transitional edges (`blocked → completed/failed`, `failed → completed/blocked`) |
+| **Duplicate code** (kept) | write-time eviction in `scope_format._trim` and `run_format._trim` | Accepted by D3 = B: the document backend has no maintenance operation; the policy value removes the duplicated *numbers*, not the two trims, which carry different eviction rules (run log discards, scopes refuse). The relational statement and its caller live in `sqlite-runtime-provider` (0.2, 0.3) |
 
 No Forbidden Pattern survives: no new layer, no peer edge, no ABC, no module-level mutable state
 (the machines are immutable module constants), no `_types` logic, no `_types/persistence.py`
