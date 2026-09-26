@@ -215,9 +215,10 @@ def guarded_execute(
 def advanceable_scopes(store: Any, workflow_name: str | None = None) -> list[str]:
     """Scope ids a ``resume`` could advance, in store order.
 
-    ``running`` and ``blocked`` both qualify: a resumed walk reports ``blocked``
-    for its whole duration (``FrontierWalk.start`` sets ``RUNNING`` only on
-    first entry), so excluding one would hide live runs rather than stale ones.
+    ``running`` and ``blocked`` both qualify: a resumed walk is stamped
+    ``running`` on entry (D2 = 1), and a walk that stopped at a gate is
+    ``blocked`` while it waits for the answer, so excluding either would hide a
+    scope someone can advance rather than a stale one.
 
     Terminal scopes never qualify — a cancelled one is refused by the engine,
     and a completed one has nothing to advance.

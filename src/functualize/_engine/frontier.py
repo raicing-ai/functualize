@@ -338,11 +338,28 @@ class FrontierWalk:
 
         Resuming is *replay*: a scope with a persisted position resumes there
         rather than re-entering at the graph entry.
+
+        Either way the scope says ``running`` from the moment this walk owns it
+        (D2 = 1). It used to be stamped only on first entry, so a resumed walk
+        kept whatever it had stopped as — ``blocked`` after a gate, ``failed``
+        after a step raised — for the whole walk, and three readers depend on
+        the stamp: ``app/_workflow_view.list_scopes`` shows ``running`` rather
+        than a parked-looking ``blocked``; ``app/_workflow_control``'s
+        ``advanceable_scopes`` lists a scope resumed from ``failed`` (it
+        qualifies on ``running``; ``blocked`` was already live); and
+        :meth:`_step_that_went_silent`, which will not diagnose a lapsed lease
+        unless the scope reads ``running``, can see a resumed walk at all.
+
+        The caller is expected to have refused a scope that must not run: the
+        stamp overwrites whatever is stored, and ``WorkflowRunner.prelude``
+        refuses a cancelled scope before calling this.
         """
         with self._store.batch():
             self._store.ensure_scope(self._scope_id, workflow)
             position = self._store.get_position(self._scope_id)
             if position is not None:
+                # D2 = 1: a resumed walk is live, not parked.
+                self._store.set_scope_status(self._scope_id, WalkState.RUNNING)
                 return [position]
             self._store.set_scope_status(self._scope_id, WalkState.RUNNING)
             self._store.set_position(self._scope_id, self._graph.entry)
