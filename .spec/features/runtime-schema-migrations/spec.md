@@ -79,6 +79,10 @@ Gates run at authoring time; each task's file scope is the gate's hit set.
 7. **Retention is a policy.** The 500-record caps become one explicit `RetentionPolicy` value
    (count, evictable-only, age), consumed by every place in this wave that applies a cap. The
    relational retention statement and its production caller are `sqlite-runtime-provider`'s (D3).
+   The default `max_records` reaches the scope-record ring and run-log ring through their trims
+   and the per-scope event ring through `EVENTS_PER_SCOPE_LIMIT`; `EVENTS_PER_RUN_LIMIT` remains
+   200 and is not policy-derived, so handing a trim a smaller policy does not shrink the
+   per-scope event ring.
 
 ## Decisions (answered by the maintainer, 2026-09-26)
 
