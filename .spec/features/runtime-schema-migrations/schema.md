@@ -23,7 +23,7 @@ from the maintainer's answers of 2026-09-26: **D1 = A** (a finished scope may be
 |---|---|---|---|
 | absent | running | `ensure_scope` / `claim` (blank record is `running`, `scope_store.py:91`) | creation |
 | running | running | first entry stamps over the blank record (`frontier.py:347`); `complete_step` mid-walk | self-edge, not a change |
-| running | blocked | `suspend` at a gate | |
+| running | blocked | a real suspension at a gate: `_service_gate`'s `payload is None` arm → `_block` → `FrontierWalk.block`; a nested child blocking (`workflow_walker.py:800`) | an inline-resolved gate does **not** take this edge (T10) |
 | running | completed | `complete_step` reaching END; `_close_scope` | |
 | running | failed | `_fail`; `_close_scope` | |
 | running | cancelled | `cancel` | |
@@ -34,10 +34,28 @@ from the maintainer's answers of 2026-09-26: **D1 = A** (a finished scope may be
 | completed | completed | the end-of-walk stamp fires twice (`frontier.py:411`, then `workflow_walker.py:449/565`) | self-edge, not a status change; legal so the double stamp does not raise |
 | cancelled | anything | — | **refused** (absorbing) |
 
-Everything else is refused — in particular `blocked → completed`, `blocked → failed`,
-`failed → completed`, `failed → blocked` (reachable at `03fbb64` only because the resumed branch
-did not stamp `running`; gone once task T3 lands), and `completed → cancelled`,
-`failed → cancelled` (`cancel_scope` refuses a non-live scope, `_workflow_control.py:401-405`).
+Everything else is refused. The pairs a probe has actually observed and that stay illegal:
+
+- `blocked → completed` — a scope completing out of a parked state. It had **two** producers, and
+  the table is not widened to accept either. The resumed walk that never re-stamped `running` is
+  closed by T3. The second, found by T6's record-mode probe at `29ae049`, is the inline-resolved
+  gate: `_service_gate`'s inline arm (`workflow_walker.py:747`) wrote the gate slot through
+  `FrontierWalk.block`, which also stamps `blocked`, and the same call then completed the walk
+  (`_advance` → `FrontierWalk.complete`) with no `start` in between — seen on both doors of
+  `test_surface_feature_matrix.py::TestPromptGates::test_the_flag_is_accepted_on_both_doors`. It
+  is closed by T10: the write-ahead persists the position and the gate slot without the status, so
+  the walk stays `running`, which is what it is. The maintainer ruled on 2026-09-26 that the table
+  stands and the producer changes.
+- `blocked → blocked` — no production writer produces it: a resumed walk stamps `running` first
+  (T3), and the four docstore status writers (`document_store.py:833/848/875/887`) have no
+  production caller at `29ae049` (the only production transaction call is `tx.workflows.claim`,
+  `frontier.py:214`, which writes no status). Its one observation is a direct test setup
+  (`test_scope_lifecycle.py:177`), rewritten in T6.
+- `blocked → failed`, `failed → completed`, `failed → blocked` — reachable at `03fbb64` only
+  because the resumed branch did not stamp `running`; closed by T3.
+- `completed → cancelled`, `failed → cancelled` — `cancel_scope` refuses a non-live scope
+  (`_workflow_control.py:401-405`).
+- `cancelled → anything` — absorbing.
 
 Two sets, two names — "terminal" is no longer used for scopes:
 

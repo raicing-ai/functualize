@@ -66,6 +66,9 @@ All three tools, each addressed by the absolute worktree path
  ───────────────  ─────────────────────────────────────────────────────  ─────────────────────────
  app/, _engine/   13 writers — UNCHANGED call shape                        still pass a str
  _engine/         _engine/frontier.py FrontierWalk.start  resumed branch also stamps RUNNING (D2 = 1)
+                  _engine/frontier.py FrontierWalk.record_gate  NEW: position + gate slot, no status (T10);
+                                      block = record_gate + BLOCKED, kept for real suspensions
+                  _engine/workflow_walker.py _service_gate  inline arm → record_gate, not block (T10)
                         │
                         ▼
  _primitives/     _primitives/scope_store.py  ScopeStore.set_scope_status   the assignment expression
@@ -131,7 +134,8 @@ and the serena reference query above. Sizes measured with `wc -l` at `03fbb64`.
 | `src/functualize/_primitives/run_store.py` | 368 (class 236) | one expression in `close_run._apply` |
 | `src/functualize/_primitives/scope_format.py` | 197 | caps read the policy; the eviction-set comment at `:125` ("values a scope can never leave") corrected — it is the evictable set, not an absorbing one |
 | `src/functualize/_primitives/run_format.py` | 153 | cap reads the policy |
-| `src/functualize/_engine/frontier.py` | 506 | resumed branch of `FrontierWalk.start` stamps `running` (D2) |
+| `src/functualize/_engine/frontier.py` | 506 | resumed branch of `FrontierWalk.start` stamps `running` (D2, T3); `block` split into `record_gate` + the `BLOCKED` stamp (T10) |
+| `src/functualize/_engine/workflow_walker.py` | 1183 | `_service_gate`'s inline arm writes its gate slot through `record_gate` (T10) — the write-ahead no longer parks a live walk. *Replace Parameter with Explicit Methods* rather than a boolean `park=` flag, so each caller names what it means |
 | `src/functualize/app/_workflow_view.py`, `src/functualize/app/_workflow_control.py` | 559, 785 | docstrings only: "a resumed walk reports `blocked` for its whole duration" (`_workflow_view.py:109,212-215`, `_workflow_control.py:218-220`) becomes false |
 | `tests/types/`, `tests/primitives/`, `tests/test_state_store.py`, `tests/test_scope_store.py` | — | new gates; any test asserting a now-illegal move (listed in task T6) |
 | `contributor/reference/runtime-persistence-data-model.md`, `contributor/architecture/dependency-graph.md`, `.spec/STATUS.md`, `CHANGELOG.md` | — | durable half (task T8) |

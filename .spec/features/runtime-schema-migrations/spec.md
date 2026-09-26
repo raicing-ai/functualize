@@ -48,18 +48,28 @@ Gates run at authoring time; each task's file scope is the gate's hit set.
    naming the machine, the current state and the target state, and **nothing is written**.
    Gate: through the production writer, `cancelled → running` (Scope) and closing an
    already-`success` run (Run) raise and leave the record unchanged; `blocked → completed`
-   raises too, which is the witness that AC3 landed; sabotage (remove the check) makes each
-   test fail.
+   (a scope completing out of a parked state) raises too; sabotage (remove the check) makes each
+   test fail. These refusals witness the table. T3's landing evidence is
+   `tests/workflow/test_resumed_walk_says_running.py`; T10's is
+   `test_surface_feature_matrix.py::TestPromptGates::test_the_flag_is_accepted_on_both_doors`.
 3. **A walk in flight says `running`.** Every entry into a walk — first entry or resume, from
    `blocked`, `failed` or `completed` — stamps `running` before any step runs. Gate: a resumed
    walk mid-step reads `running` from the store, from `list_scopes` and in `advanceable_scopes`;
    the silent-step detector (`_engine/frontier.py:245`, `status == RUNNING`) diagnoses a silent
    step in a *resumed* walk, which it cannot at `03fbb64`.
-4. **No live path regresses.** Every transition the live engine performs after AC3 is in the
-   table. Gate: the record-mode sweep in task T6 runs after task T3 lands and finds zero pairs
-   outside `SCOPE.transitions`; `tests/workflow`, `tests/integration`, `tests/primitives`,
-   `tests/types` and `tests/test_scope_store.py` pass except tests asserting a now-illegal move
-   or the old "resumed walk reports `blocked`" behaviour, each listed in `tasks.md`.
+4. **No live path regresses, and no live path leaves the table.** Every transition the live
+   engine performs after T3 and T10 is in the table. Gate: the record-mode sweep in task T6 runs
+   on a tree that has both and finds exactly `running → {running, blocked, completed, failed,
+   cancelled}`, `blocked → {running, cancelled}`, `failed → running`,
+   `completed → {running, completed}`; the only other pairs it may see are the two direct test
+   setups T6 rewrites (`blocked → completed` in `test_state_store.py:111-116`, `blocked → blocked`
+   in `test_scope_lifecycle.py:177`). `tests/workflow`, `tests/integration`, `tests/primitives`,
+   `tests/types` and `tests/test_scope_store.py` pass except those rewritten setups.
+4a. **An inline-resolved gate never parks the scope.** A gate the resolution ladder answers inside
+   the walk persists its position and gate slot and deposits the payload without writing
+   `blocked`; the scope stays `running` until the walk ends. Gate (T10): on both doors, the run
+   writes no `blocked` status and ends `completed`; a gate with no resolving strategy still stores
+   `blocked` and reports `BLOCKED`.
 5. **One row per step.** `schema.md` specifies the relational schema at one row per step (never
    one row per document) with the JSON boundary rule, and every column the reference model names.
 6. **Forward-only migrations, recorded version — as a contract.** `schema.md` §4 fixes the
@@ -75,7 +85,7 @@ Gates run at authoring time; each task's file scope is the gate's hit set.
 | ID | Question | Answer | Consequence in this package |
 |---|---|---|---|
 | D1 | Can a finished scope be re-run? | **A — yes.** `resume` keeps accepting `completed` and `failed` scopes (`--retry-epilogue`, retry of a failed step); only `cancelled` is absorbing | Scope table carries `failed → running` and `completed → running` as retry edges, `# TRANSITIONAL` until `workflow-persistence-atomic` decides whether a retry mints a fresh attempt. "Terminal" is split: **absorbing** = `{cancelled}`; **evictable** = `{completed, failed, cancelled}` (`TERMINAL_SCOPE_STATUSES`, whose comment "values a scope can never leave" is corrected in task T5). Documented consequence: a completed scope evicted by the cap can no longer be retried (`resume` → `workflow_not_found`), as today |
-| D2 | Should a resumed walk say `running`? | **1 — stamp `running` on every entry** | New task T3 changes `FrontierWalk.start`'s resumed branch (`_engine/frontier.py:341-349`). The edges `blocked → completed`, `blocked → failed`, `failed → completed`, `failed → blocked` leave the table; entry is `{blocked, failed, completed} → running`, exit is `running → {blocked, completed, failed, cancelled}` |
+| D2 | Should a resumed walk say `running`? | **1 — stamp `running` on every entry** | New task T3 changes `FrontierWalk.start`'s resumed branch (`_engine/frontier.py:341-349`). The edges `blocked → completed`, `blocked → failed`, `failed → completed`, `failed → blocked` leave the table; entry is `{blocked, failed, completed} → running`, exit is `running → {blocked, completed, failed, cancelled}`. **2026-09-26, after T6's probe:** `blocked → completed` had a second producer, the inline-resolved gate's write-ahead; the maintainer ruled that the table stands and the producer changes — task T10 |
 | D3 | Do the runner and the retention statement belong here? | **B — move both to `sqlite-runtime-provider`, plus one task there for the retention caller** | Former tasks 5.1/5.2 moved to that package as 0.1/0.2, with 0.3 the new retention caller. This package keeps `schema.md` (the DDL and migration contract), the machines and the `RetentionPolicy` value |
 
 Smell dispositions are recorded in `plan.md` → *Surviving smells*.
