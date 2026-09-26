@@ -187,7 +187,8 @@ class TestALiveScopeIsNeverFinished:
         def step(rc: RunContext, state: State) -> str:
             state.set("count", (state.get("count") or 0) + 1)
             seen["count"] = state.get("count")
-            self._block_mid_run(rc)
+            if seen["count"] == 1:
+                self._block_mid_run(rc)
             return "ok"
 
         app.register_dynamic_job("step", step)
@@ -207,6 +208,7 @@ class TestALiveScopeIsNeverFinished:
             "the second run could not write to the blocked scope's state — "
             "the store was sealed when it should not have been"
         )
+        assert _records()[scope_id]["status"] == "blocked"
 
 
 class TestANamedScopeBelongsToItsCaller:

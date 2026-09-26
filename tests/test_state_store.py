@@ -112,6 +112,7 @@ class TestScopeRecords:
         store.scopes.ensure_scope("s1")
         store.scopes.set_scope_status("s1", "blocked")
         assert store.scopes.get_scope("s1")["status"] == "blocked"
+        store.scopes.set_scope_status("s1", "running")
         store.scopes.set_scope_status("s1", "completed")
         assert store.scopes.get_scope("s1")["status"] == "completed"
 

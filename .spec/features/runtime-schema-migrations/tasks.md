@@ -198,7 +198,7 @@ now: `1` · after: `1` — invariant: the suspension writer keeps exactly one `B
 
 ## Wave 3 — enforcement at the two writers
 
-### [ ] T6 — scope enforcement at the choke point
+### [x] T6 — scope enforcement at the choke point
 
 *Depends on:* T4, T3, T10. *Files:* `src/functualize/_primitives/scope_store.py`,
 `tests/primitives/test_scope_transitions.py` (new), `tests/test_state_store.py`
