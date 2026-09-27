@@ -21,10 +21,11 @@ that is a poll. There is no blocking read over a document store and there must
 not be one over a substrate that is a table. What survives is the part that
 matters, and the sabotage is what proves it survived.
 
-AC-12 is the sentence `_workflow_view.derived_state` has carried all along:
-*"a resumed walk reports `blocked` for its whole duration… live-versus-parked
-needs a lease."* `walk_is_live` is that answered, and `TestAParkedScopeSaysSo`
-is why it had to be: without it, watching a finished workflow waits for ever.
+AC-12 is answered by `_workflow_view.walk_is_live`, and the reason is the one
+this package sharpened: `derived_state` reports what the store knows, and since
+every entry into a walk stamps `running` the record cannot say whether anyone is
+still walking that scope — the lease can. `TestAParkedScopeSaysSo` is why it had
+to be: without it, watching a finished workflow waits for ever.
 """
 
 from __future__ import annotations

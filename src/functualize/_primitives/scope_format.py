@@ -41,9 +41,14 @@ with the CLI, the adapters and the MCP plugin.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from functualize._types.errors import ScopeStoreUnreadableError
+from functualize._types.lifecycle import SCOPE
+from functualize._types.retention import DEFAULT_RETENTION
+
+if TYPE_CHECKING:
+    from functualize._types.retention import RetentionPolicy
 
 # Scope file format version. **Independent of FRESH_VERSION** — that is the
 # whole point of the split. Bumping one says nothing about the other, and
@@ -122,39 +127,61 @@ def normalize_scopes(data: Any, *, where: str) -> dict[str, Any]:
     return {"format_version": SCOPES_VERSION, "scopes": scopes}
 
 
-#: Raw ``status`` values a scope can never leave. The cap evicts only these.
+#: Raw ``status`` values the cap may drop — the scope machine's *evictable* set.
+#:
+#: Derived from `SCOPE.evictable` rather than written out here, because the
+#: three values are a property of the scope machine and this file is not where
+#: that machine is described (`_types/lifecycle.py`, `schema.md` §1.1). The name
+#: is kept for the callers that had it. What it *means* changed when D1 = A
+#: separated the two sets: `completed` and `failed` are evictable and are not
+#: absorbing any more, since a plain `resume <id>` re-enters both, so this set
+#: answers "may a cap drop it?" and not "is it finished for good?" — only
+#: `cancelled` answers the second, which is `SCOPE.absorbing`.
 #:
 #: These are the values the *store* writes, not the richer set
 #: `app/_workflow_view.derived_state` computes for display — a "stalled" scope
 #: has raw status ``"completed"`` and so is covered here. `_primitives` cannot
-#: import from `app`, and duplicating the derived vocabulary would be worse
-#: than naming the three raw ones: this file's job is the three values it
-#: writes.
-TERMINAL_SCOPE_STATUSES = frozenset({"completed", "failed", "cancelled"})
+#: import from `app`, and duplicating the derived vocabulary would be worse than
+#: naming the three raw ones: this file's job is the three values it writes.
+TERMINAL_SCOPE_STATUSES = SCOPE.evictable
 
 #: Ring cap on scope records, the third of three — `state_format` has
-#: ``EVENTS_PER_RUN_LIMIT`` and `run_format` has ``RUNS_LIMIT = 500``. This file
+#: ``EVENTS_PER_RUN_LIMIT`` and `run_format` has its own count. This file
 #: had none, which is how it reached 2,188 records and 58 ms per state write on
 #: a real project (as confirmed by external review).
 #:
-#: Higher than `RUNS_LIMIT` would be pointless — a scope outliving every run
-#: that could reference it is unreachable — and much lower risks evicting
-#: records a user could still resume. 500 matches the run log so the two files
-#: hold the same horizon.
-SCOPES_LIMIT = 500
+#: It is the default policy's count rather than a number of its own: the
+#: horizon is `DEFAULT_RETENTION.max_records` (`_types/retention.py`), shared
+#: with the run log so the two files hold the same horizon. Higher than the run
+#: log's would be pointless — a scope outliving every run that could reference
+#: it is unreachable — and much lower risks evicting records a user could still
+#: resume.
+SCOPES_LIMIT = DEFAULT_RETENTION.max_records
 
 #: Ring cap on the events one scope keeps.
 #:
 #: A scope's event log is what `func builtin workflow watch` follows, and a walk
 #: emits a handful per node — so this bounds a *long* workflow, not a chatty
-#: one. Matched to `EVENTS_PER_RUN_LIMIT` for the same reason `SCOPES_LIMIT`
-#: matches `RUNS_LIMIT`: two logs with different horizons disagree about what
-#: happened, and the reader has no way to know which one was trimmed.
-EVENTS_PER_SCOPE_LIMIT = 500
+#: one. The same default policy's count, for the reason above: two logs with
+#: different horizons disagree about what happened, and the reader has no way to
+#: know which one was trimmed.
+#:
+#: Not the same number as `run_format.EVENTS_PER_RUN_LIMIT` (200): a run's log
+#: is flushed when the run ends, and one run is a slice of the walk whose events
+#: this list has to hold.
+EVENTS_PER_SCOPE_LIMIT = DEFAULT_RETENTION.max_records
 
 
-def _trim(envelope: dict[str, Any]) -> None:
-    """Evict the oldest **finished** scopes until the file fits the cap.
+def _trim(
+    envelope: dict[str, Any], policy: RetentionPolicy = DEFAULT_RETENTION
+) -> None:
+    """Evict the oldest **finished** scopes until the file fits the policy.
+
+    What leaves is the policy's question, not this function's: ``max_records``
+    is the count, and ``evictable_only`` (true by default) restricts candidates
+    to `SCOPE.evictable`. A policy that turns that off may drop a live scope as
+    readily as a finished one — see `RetentionPolicy`, where the default is
+    explained as the safety property it is rather than a preference.
 
     Two things make this different from `run_format._trim`, and both are the
     point rather than incidental:
@@ -173,19 +200,22 @@ def _trim(envelope: dict[str, Any]) -> None:
     alone, which is exactly the property needed here.
     """
     scopes = envelope.get("scopes")
-    if not isinstance(scopes, dict) or len(scopes) <= SCOPES_LIMIT:
+    if not isinstance(scopes, dict) or len(scopes) <= policy.max_records:
         return
-    excess = len(scopes) - SCOPES_LIMIT
+    excess = len(scopes) - policy.max_records
     evictable = [
         scope_id
         for scope_id, record in scopes.items()
-        if isinstance(record, dict) and record.get("status") in TERMINAL_SCOPE_STATUSES
+        if not policy.evictable_only
+        or (isinstance(record, dict) and record.get("status") in SCOPE.evictable)
     ]
     for scope_id in evictable[:excess]:
         del scopes[scope_id]
 
 
-def stamp_scopes(envelope: dict[str, Any]) -> dict[str, Any]:
+def stamp_scopes(
+    envelope: dict[str, Any], policy: RetentionPolicy = DEFAULT_RETENTION
+) -> dict[str, Any]:
     """The payload to store: the current version stamped on, and the cap applied.
 
     Returns a copy rather than mutating, so a caller holding an open batch does
@@ -193,5 +223,5 @@ def stamp_scopes(envelope: dict[str, Any]) -> dict[str, Any]:
     """
     payload = dict(envelope)
     payload["format_version"] = SCOPES_VERSION
-    _trim(payload)
+    _trim(payload, policy)
     return payload
