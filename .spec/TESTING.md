@@ -7,8 +7,9 @@ This project uses a multi-tier test strategy. Follow these rules when running te
 - **Lint & format (always run first):**
   1. `uv run ruff check --fix src/ tests/ plugins/`
   2. `uv run ruff format src/ tests/ plugins/`
+- **Step tier (run this after every change):** `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)` — the test files that import what you touched, and nothing else; its measured cost is in `.agents/skills/test-tiers/SKILL.md`. Run the mapper on its own first: with an empty selection (every docs-only or `.spec/`-only change) the command above falls through to the whole fast tier, so there is nothing to run and the right move is to stop.
 - **Fast tests (unit only):** `uv run pytest -x -q --no-header`
-- **Full tests (including property-based):** `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` — the `ci` profile (200 examples) is what CI runs; without it you are verifying a weaker gate. Budget ~10 minutes.
+- **Full tests (including property-based):** `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q --no-header` — the `ci` profile (200 examples) is what CI runs; without it you are verifying a weaker gate. It runs far past the 600 s tool-call cap, so it is never a single tool call: see `## Suite tiers` for the shapes to run it in and `.agents/skills/test-tiers/SKILL.md` for its measured cost and the load it was taken at.
 - **Example projects:** `uv run pytest examples/ -v` — `testpaths = ["tests"]`, so the
   root invocation does **not** collect these. Requires `uv sync --all-packages` (the AI
   and plugin examples import workspace packages). CI runs it in the `examples` job.
@@ -31,19 +32,66 @@ This project uses a multi-tier test strategy. Follow these rules when running te
 ## When to run tests
 
 - **Before running any tests:** Always run ruff check and ruff format first to catch lint/format issues early. Fix any remaining errors that `--fix` cannot auto-resolve.
-- **After implementing code changes:** Run fast tests to verify nothing is broken.
-- **After completing a spec task (final checkpoint):** Run the full test suite including `--run-slow` to validate property-based invariants hold.
+- **After implementing code changes:** Run the **step tier** — `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)`. It answers "did I break my callers" for the files the mapper selects, and nothing else. Its exit code decides the next move: `0` printed a selection (an empty one means nothing to run), `3` means shared infrastructure changed and only the tip tier can answer, `2` is a usage or git error.
+- **After completing a spec task (final checkpoint):** Run the **wave tier** — the test directories the task touched, named explicitly, at `-n auto`. Run the **tip tier** when shared infrastructure changed (`tests/conftest.py`, `tests/_support/**`, `pyproject.toml`, `uv.lock`) or the question is release-grade.
 - **Do NOT run full (slow) tests on intermediate steps** — only at the end of each task.
+- **Never issue a pytest command whose expected runtime exceeds the 600 s tool-call cap, and never background or poll one.** The tip tier runs far past that: dispatch it (`gh workflow run CI --ref <branch>`) and read the verdict later, or chunk it into one foreground call per test directory, each bounded with `timeout 570`.
 
-## Test tiers
+## Suite tiers
 
-| Tier | Marker | Speed | Description |
+How much of the suite to run. This table *selects*, it does not price: every cost figure, the
+load it was taken at and the 600 s cap that shapes the tip tier live in
+[`.agents/skills/test-tiers/SKILL.md`](../.agents/skills/test-tiers/SKILL.md) — held once, so
+they cannot drift from this file.
+
+| Tier | What runs | How to select it |
+|------|-----------|------------------|
+| **Step** | only the test files that import what you changed | `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)` |
+| **Wave** | the test directories this task touches | name the directories, `-n auto` |
+| **Tip** | everything, including property tests | `gh workflow run CI --ref <branch>`, or the open PR's CI; locally only as foreground chunks, since it runs far past the 600 s cap |
+
+`tests-for-diff` is deterministic and needs no index: it reads the diff against
+`$(git merge-base origin/master HEAD)` plus uncommitted changes and prints deduplicated
+existing pytest paths. Exit `0` means a selection was printed (possibly empty), exit `3`
+means shared infrastructure changed — `tests/conftest.py`, `tests/_support/**`,
+`pyproject.toml`, `uv.lock` — which prints nothing and means *run the tip tier*, and exit
+`2` is a usage or git error. The step tier is sound only on exit `0`.
+
+**"Tier" means three different things in this document, and they are separate axes:**
+
+| Axis | Where | What it names |
+|------|-------|---------------|
+| **Step / Wave / Tip** | this section | *how much of the suite* runs |
+| Test kinds | `## Test kinds` below | *what kind* of test — marker and speed |
+| `Tier 1` / `Tier 2` / `Tier 3` | **TUI Testing** below | three TUI *techniques*: Pilot, snapshot, pexpect |
+
+A TUI technique tier says nothing about suite selection; pick the suite tier with
+`tests-for-diff`, independently.
+
+## Test kinds
+
+The kinds of test a file can be, by marker and speed. Suite *selection* is `## Suite tiers`
+above; this table is not that axis.
+
+| Kind | Marker | Speed | Description |
 |------|--------|-------|-------------|
 | Unit | (default) | <1s each | Pure logic, single-module isolation |
 | Property-based | `_properties.py` / `_props.py` suffix | ~seconds | Hypothesis-driven invariants |
 | CLI integration | (default) | <100ms each | In-process `cli_run` fixture, real routing |
 | TUI Pilot | `@pytest.mark.asyncio` | <200ms each | Headless Textual interaction |
 | E2E / interactive | `@pytest.mark.slow` | seconds | pexpect with real PTY |
+
+## Performance budgets
+
+`perf_budget` tests assert wall-clock startup budgets, so a run that distorts timing cannot
+speak for them: `tests/conftest.py` skips every `perf_budget` item under `-n auto` (xdist) or
+coverage, and on a host already above 2.0 runnable processes per core. That is why a local
+`-n auto` full run says nothing about the budgets — CI's `test-fast` job enforces them, running
+plain `uv run pytest` (no `--cov`, no `-n`, Python 3.11) on every pull request.
+
+A serial `-m perf_budget` run on a loaded shared machine can therefore fail with no code cause,
+and passing one there is not evidence the budgets hold. The measurement and the observed red
+run are in `.agents/skills/test-tiers/SKILL.md`.
 
 ## CLI Testing Infrastructure
 
@@ -148,6 +196,11 @@ When writing CLI integration tests, consider these dimensions:
 | Error conditions | missing job, bad config syntax, permission errors, failing job |
 
 ## TUI Testing
+
+The `Tier 1` / `Tier 2` / `Tier 3` headings below are three TUI testing **techniques** —
+they are not suite tiers. Which tests to run is decided by `## Suite tiers` above, from the
+change set; a Pilot test, a snapshot test and a pexpect test are all selectable by the step
+and wave tiers on their own merits.
 
 ### Tier 1: Textual Pilot (fast, headless)
 

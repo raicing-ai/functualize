@@ -86,7 +86,19 @@ Run `uv run lint-imports` to verify these constraints.
 
 The test suite is split into **fast** (unit) and **slow** (property-based / Hypothesis) tiers. By default, only fast tests run.
 
+That split says *which* tests exist. How much of them to run for a given change is a
+second axis — **Step**, **Wave**, **Tip** — and it starts with the mapper, because a
+full-tier run is far past what one tool call may hold. `.agents/skills/test-tiers/SKILL.md`
+is the authority for the tiers, their measured costs, the mapper's exit codes, and the
+rule that no pytest command may be expected to outrun the 600 s tool-call cap or be
+backgrounded.
+
 ```bash
+# Step tier — the test files that import what you changed; run this after every edit.
+# Run the mapper alone first: an empty selection (docs-only change) means nothing to run, and
+# with no paths this command falls through to the whole fast tier instead.
+uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)
+
 # Fast tests only (default, skips property-based tests)
 uv run pytest
 
@@ -99,6 +111,11 @@ HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto
 # Quick smoke-check of property tests with fewer examples
 HYPOTHESIS_PROFILE=dev uv run pytest --run-slow
 ```
+
+`tests-for-diff` exits `0` with a sorted, existing selection; `3` when shared infrastructure
+changed — `tests/conftest.py`, `tests/_support/**`, `pyproject.toml`, `uv.lock` — which
+prints nothing and means *run the tip tier*; and `2` on a usage or git error. Only exit `0`
+makes the step tier sound.
 
 Run a specific test file:
 
@@ -113,6 +130,22 @@ uv run pytest -k "test_discovery"
 ```
 
 ### Test tiers explained
+
+Two axes decide what actually runs, and the table below is the second one.
+
+**How much of the suite** — Step, Wave, Tip. The step tier is the one to run after every
+edit: `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)`
+selects the test files that import what you changed, and an empty selection — every docs-only
+change — means nothing to run. Wave is the test directories you touched, named explicitly, at
+`-n auto`. Tip is everything — dispatch it with `gh workflow run CI --ref <branch>` and read
+the verdict later; do not wait on it or run it as one local call, because it runs far past the
+600 s cap. Costs, the mapper's exit codes and that cap are in
+`.agents/skills/test-tiers/SKILL.md`.
+
+**Which tests those tiers include** — the fast/slow split in the table below, where
+`--run-slow` turns on the property-based half. It is not optional at the tip: the row that
+matches CI carries `HYPOTHESIS_PROFILE=ci`, and the `ci` profile draws 200 examples where
+the default draws 100.
 
 | Command | What runs | When to use |
 |---------|-----------|-------------|
@@ -431,7 +464,7 @@ commit**. `ci.yml` runs on pushes to `master` and on pull requests, never on
 tags, so the run the `verify-ci` job looks for is the one that commit got when
 it landed on `master` — the merge that step 3's PR performed. Pushing the tag
 straight after the merge is fine: the gate waits for the in-flight run (up to
-45 minutes, since the slow tier alone takes 20-24 on GitHub runners) rather
+45 minutes — the `verify-ci` job's own deadline in `release.yml`) rather
 than racing it.
 
 Two costs this flow deliberately avoids: after the feature-bearing PR commit

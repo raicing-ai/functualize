@@ -35,6 +35,15 @@ You bridge the gap between "tests pass" and "it actually works as described." Un
 | **FULL** | ~3-5min | Extract all behavioral claims from the document, discover scenarios, run all mapped probes. Detailed report. | `agentic-verify` phase; end-of-feature validation |
 | **SKIP** | 0s | Report "no TUI surface impact detected" with reasoning. | Changes are TUI-orthogonal (tests-only, docs-only, etc.) |
 
+**Scope note — this table is a different axis from the pytest suite tiers.** SMOKE /
+TARGETED / FULL is *verification depth*: how far into the running system a probe looks,
+chosen from the document and the blast radius. *Which* tests to run for a change is suite
+selection — Step / Wave / Tip — owned by `.agents/skills/test-tiers/SKILL.md` and decided
+from the change set with `tests-for-diff`, before any probe is built. `SKIP` here means no
+probe runs; it says nothing about how much of the suite should. The two axes never
+substitute for each other: a green step tier does not clear a probe, and a passing probe
+does not select tests.
+
 ## Workflow
 
 ### Phase 1 — Ingest
