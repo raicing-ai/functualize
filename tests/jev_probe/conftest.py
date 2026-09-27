@@ -45,10 +45,22 @@ if TYPE_CHECKING:
 _HERE = Path(__file__).parent
 
 #: Files in this directory that are machinery rather than a measurement: the
-#: pytest glue, the transport, and the record. A measurement module is a row of
-#: the matrix; these four are the instrument's parts and carry no test of their
-#: own, so collecting them would only add an empty node per file.
-_NOT_A_MODULE = frozenset({"conftest.py", "__init__.py", "client.py", "report.py"})
+#: pytest glue, the transport, the record, and the sentences the rows print. A
+#: measurement module is a row of the matrix; these five are the instrument's
+#: parts and carry no test of their own, so collecting them would only add an
+#: empty node per file.
+_NOT_A_MODULE = frozenset(
+    {"conftest.py", "__init__.py", "claims.py", "client.py", "report.py"}
+)
+
+#: The one item that runs last, whatever order the modules collected in:
+#: `contract.py`'s row F4, the load refusals the run met. `contract.py` sorts
+#: before the model-backed modules, so a counter read in the row's own place
+#: reported this run's first four round trips while the same run went on to
+#: make about a hundred — and the fact is named "what the run met for load".
+#: The name is the whole coupling to that module: rename the test without
+#: renaming this and the row goes back to reporting a snapshot.
+LAST_ITEM = "test_f4_the_run_says_what_load_it_met"
 
 
 def pytest_collect_file(
@@ -80,10 +92,21 @@ def pytest_collect_file(
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Stamp every probe item with the marker, so nobody has to remember to."""
+    """Stamp every probe item with the marker, and put the load counter last.
+
+    The marker is a tag: nobody has to remember it. The move is a measurement —
+    the item named `LAST_ITEM` states the load *the run* met, and that is only
+    true once every other probe item has made its requests.
+    """
+    last: list[pytest.Item] = []
     for item in items:
         if _HERE in item.path.parents:
             item.add_marker(pytest.mark.jev_probe)
+        if item.name == LAST_ITEM:
+            last.append(item)
+    for item in last:
+        items.remove(item)
+        items.append(item)
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -118,7 +141,19 @@ def _banner() -> str:
 
 
 def _skip_reasons(terminalreporter: TerminalReporter) -> tuple[str, ...]:
-    """The first line of every skip, which is the gate's own reason string."""
+    """The first line of every recorded skip's `longrepr`.
+
+    Not "the gate's own reason string", which is what this said before: pytest
+    renders a skip as `(path, lineno, reason)`, so what comes back is
+    path-qualified and points at the gate that raised it rather than at the
+    module that called it — every credential skip in this probe names the same
+    line of this file. The lines after the first are the reason chain, and the
+    reason string itself is the tail of the first.
+
+    Every recorded skip is in that list, not only this directory's: a module
+    elsewhere that skips at collection has already skipped by the time the
+    command line deselects its tests, so a `-m jev_probe` run prints those too.
+    """
     reasons = []
     for report in terminalreporter.stats.get("skipped", []):
         text = str(report.longrepr).strip().splitlines()

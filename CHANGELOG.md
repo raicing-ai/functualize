@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the Jev probe's sentences claimed more than its assertions
+
+**Contributor-facing; no runtime behaviour changes.** Six places in the capability probe
+(`tests/jev_probe/`) printed a claim its own assertion did not carry. That is the failure this
+instrument exists to catch in someone else's numbers, so it is worth naming exactly which
+cells were doing it:
+
+`B2`'s cell read *"confidence never exceeded max(probabilities) in this run"* over an assertion
+that the two ever *differed* — a run whose `confidence` was the larger number would have
+printed that sentence beside a negative gap, with the row green. `B3` is named for two
+properties, *the key order is neither the request's nor stable*, and asserted one: a service
+answering every identical call in the same non-request order satisfied the row while being
+exactly the stability the name rules out. `E16` counted *"5 non-422 refusals"* over a sample
+that includes `E1`, the request-shape `422` the row's own table opens with; the count of shapes
+was right, the adjective was never read from the run. All three now derive their sentences from
+the numbers they assert — `tests/jev_probe/claims.py` — and assert the same quantity the
+sentence names, so a row cannot print a claim its assertion does not carry.
+
+`F4` is the same defect in a different dress. It reports *what the run met for load*, and it
+ran inside `contract.py`, which sorts before the model-backed modules: it read
+`3 × HTTP 429 over 4 round trips`, a snapshot taken four requests in, while the run went on to
+make about a hundred. `conftest.py` now moves that one item to the end of the session, so the
+number is the run's — `none over 95 round trips` on the 2026-09-27 run — and the earlier
+reading stays in the reference where it belongs, as what a run that starts inside a spent
+window meets.
+
+`F1`'s reference cell quoted `0.35 – 0.48 s`: three runs from one afternoon presented as a
+property of the endpoint, which no re-run could confirm or refute. It now quotes one run's
+`0.327 s` beside the `82 models` the catalog answers with (81 when the matrix was first
+written — its own small reminder about a hard-coded list length).
+
+The `_skip_reasons` docstring in `tests/jev_probe/conftest.py` described a function that does
+not exist: it said the summary prints the gate's own reason string, where the function prints
+the first line of each recorded skip's `longrepr` — path-qualified, naming the line of the
+conftest that raised the skip rather than the module that asked for one, and listing every skip
+in the session rather than only this directory's.
+
+**Nothing in `src/` or `plugins/` changed.** The probe's gating tests grew by seven offline
+falsifiers — one separating input for each of the three repaired rows, plus the load-counter
+ordering and the skip rendering — so the credential-less run reports `31 passed, 7 skipped`
+where it reported `24 passed, 7 skipped`, and every one of them runs on a host with no key.
+The reference matrix carries the re-measured B2, B3, F1, F3 and F4 cells, a note recording what
+each previously read, and a Provenance subsection for the run that measured them; row C's
+tables are left on the run of record, with this run's readings recorded beside them rather than
+silently re-pinned.
+
 ### Changed — a scope status outside its state machine is refused, and a walk in flight says `running`
 
 Two behaviour changes an operator can see, and one rule behind them.

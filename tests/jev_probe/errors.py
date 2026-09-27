@@ -29,6 +29,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Final
 
+from tests.jev_probe.claims import REFUSAL_SAMPLE, refusal_shape_claim
 from tests.jev_probe.client import (
     CATALOG,
     ENDPOINT,
@@ -281,9 +282,11 @@ def test_e_every_refusal_is_recorded_verbatim() -> None:
     """E: one request per case, and the body the service returned."""
     refused: list[str] = []
     bodies: dict[str, str] = {}
+    statuses: dict[str, int] = {}
     for case in CASES:
         response = _send(case)
         bodies[case.fact_id] = response.text
+        statuses[case.fact_id] = response.status
         status = f"{case.expect_status}"
         measured(
             "E",
@@ -304,14 +307,13 @@ def test_e_every_refusal_is_recorded_verbatim() -> None:
     assert bodies["E13"] == bodies["E12"], "an omitted header is the stdlib default"
 
     envelopes = {
-        fact_id: sorted(_parsed(bodies[fact_id]))
-        for fact_id in ("E1", "E4", "E8", "E9", "E11")
+        fact_id: sorted(_parsed(bodies[fact_id])) for fact_id in REFUSAL_SAMPLE
     }
     measured(
         "E",
         "E16",
         "error envelopes are not uniform",
-        f"{len(set(map(tuple, envelopes.values())))} shapes over 5 non-422 refusals",
+        refusal_shape_claim(envelopes, statuses),
         detail=(
             f"{envelopes} · validation refusals carry `detail` (a list of paths), "
             "the model resolver carries `type` + `error`, and the upstream proxy "

@@ -301,6 +301,13 @@ def test_f4_the_run_says_what_load_it_met() -> None:
     reader wants when the model calls themselves were refused for load. Folded
     into the test above it would be skipped along with them, and the run would
     report nothing about the refusals it did meet.
+
+    It is also the one item `conftest.py` moves to the end of the session.
+    `contract.py` sorts before the model-backed modules, so read in the row's
+    own place this counted the four round trips the run had made when `F` ran
+    while the run went on to make a hundred more — a snapshot printed under a
+    name that says the whole run. The numbers below are the whole run's only
+    because nothing else is left to run.
     """
     refusals = throttled()
     if refusals:
