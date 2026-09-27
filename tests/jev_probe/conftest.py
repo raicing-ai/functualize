@@ -34,6 +34,7 @@ from urllib.parse import urlparse
 
 import pytest
 
+from tests.jev_probe.claims import WORKER_ENV, WORKERS_ENV, distributed_reason
 from tests.jev_probe.client import ENDPOINT, MODEL, USER_AGENT
 from tests.jev_probe.report import REPORT
 
@@ -57,9 +58,13 @@ _NOT_A_MODULE = frozenset(
 #: `contract.py`'s row F4, the load refusals the run met. `contract.py` sorts
 #: before the model-backed modules, so a counter read in the row's own place
 #: reported this run's first four round trips while the same run went on to
-#: make about a hundred — and the fact is named "what the run met for load".
+#: make about a hundred — and the fact is named for the load the run met.
 #: The name is the whole coupling to that module: rename the test without
 #: renaming this and the row goes back to reporting a snapshot.
+#:
+#: The move makes the count the run's; it cannot make it the run's under xdist,
+#: where each worker keeps its own counters — there the item is skipped with
+#: `distributed_reason` instead. See the hook below.
 LAST_ITEM = "test_f4_the_run_says_what_load_it_met"
 
 
@@ -92,18 +97,37 @@ def pytest_collect_file(
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Stamp every probe item with the marker, and put the load counter last.
+    """Stamp every probe item with the marker, and place the load counter.
 
     The marker is a tag: nobody has to remember it. The move is a measurement —
     the item named `LAST_ITEM` states the load *the run* met, and that is only
     true once every other probe item has made its requests.
+
+    That statement needs a session the item can make it about, so the mode
+    decides which of the two happens: in a session that plays this directory in
+    one process — a plain run, or `-n 1` — the item is moved last, and in one
+    that spreads it over several workers (`-n auto`, which is what CI's full
+    tier runs) it is skipped with `distributed_reason` and left where it is.
+    `client.py` counts round trips and refusals in process-local lists, and each
+    worker of a distributed session plays only its share of the items, so there
+    is no ordering that makes a worker's number the run's: the row would print
+    the harness's count under a label that says otherwise. A skipped item runs
+    nowhere, so moving it would buy nothing but the appearance of having been
+    placed.
     """
+    distributed = distributed_reason(
+        os.environ.get(WORKER_ENV), os.environ.get(WORKERS_ENV)
+    )
     last: list[pytest.Item] = []
     for item in items:
         if _HERE in item.path.parents:
             item.add_marker(pytest.mark.jev_probe)
-        if item.name == LAST_ITEM:
+        if item.name != LAST_ITEM:
+            continue
+        if distributed is None:
             last.append(item)
+        else:
+            item.add_marker(pytest.mark.skip(reason=distributed))
     for item in last:
         items.remove(item)
         items.append(item)

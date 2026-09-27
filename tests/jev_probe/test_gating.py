@@ -7,11 +7,11 @@ visible. These are the cheapest tests here and the ones that keep
 
 This module is also where the instrument's **offline** falsifiers live: the
 import boundary, the record's refusal to invent a cell, the sentences the rows
-print against the numbers they assert, the order the load counter runs in, and
-the terminal summary's behaviour when a run measured nothing at all. Without a
-module like this, `uv run pytest -q tests/jev_probe/` on a credential-less host
-would collect no runnable item and exit 5 (`NO_TESTS_COLLECTED`) rather than
-green.
+print against the numbers they assert, the order the load counter runs in, the
+mode that counter can report in, and the terminal summary's behaviour when a run
+measured nothing at all. Without a module like this, `uv run pytest -q
+tests/jev_probe/` on a credential-less host would collect no runnable item and
+exit 5 (`NO_TESTS_COLLECTED`) rather than green.
 """
 
 from __future__ import annotations
@@ -27,10 +27,15 @@ import pytest
 
 from tests.jev_probe.claims import (
     REFUSAL_SAMPLE,
+    SERIAL_MODE,
+    WORKER_ENV,
+    WORKERS_ENV,
     confidence_claim,
     distinct_key_orders,
+    distributed_reason,
     exceeded_max_probability,
     key_order_claim,
+    load_label,
     matching_key_orders,
     refusal_shape_claim,
 )
@@ -397,6 +402,25 @@ def _summary(reporter: _FakeReporter) -> str:
     return reporter.text
 
 
+def _credential_skip_line() -> int:
+    """The line `require_env`'s `pytest.skip` starts on, read from the file.
+
+    Read rather than written down, because it is a line number in a file that
+    edits above it move — this change moved it twice — and a rendering pinned to
+    a stale number is a claim about the instrument that the instrument does not
+    make.
+    """
+    lines = (_HERE / "conftest.py").read_text(encoding="utf-8").splitlines()
+    gate = next(
+        index for index, line in enumerate(lines) if line.startswith("def require_env")
+    )
+    return next(
+        index + 1
+        for index, line in enumerate(lines)
+        if index > gate and line.strip() == "pytest.skip("
+    )
+
+
 class TestTheSummaryPrintsWhatWasMeasured:
     """`-q` prints an item's pass and nothing a passing module printed.
 
@@ -438,15 +462,16 @@ class TestTheSummaryPrintsWhatWasMeasured:
 
         pytest renders a collection-time skip as `(path, lineno, reason)` on that
         line and puts the rest of the reason after it, so the list it prints is
-        path-qualified. The line below has that shape: the path is this
-        directory's own conftest, the number is where its credential gate raises
-        — so it moves when that file moves, which is why this is a written-down
-        rendering and not something the test looks up.
+        path-qualified. The rendering below has that shape: the path is this
+        directory's own conftest and the number is where its credential gate
+        raises, read from the file by `_credential_skip_line` rather than pinned
+        here, because every edit above the gate moves it.
         """
+        line = _credential_skip_line()
         reporter = _FakeReporter()
         reporter.stats["skipped"] = [
             _SkippedReport(
-                "('/repo/tests/jev_probe/conftest.py', 184, \"Skipped: Jev / System "
+                f"('/repo/tests/jev_probe/conftest.py', {line}, \"Skipped: Jev / System "
                 "One: NOT MEASURED (no credentials) — OPENCODE_API_KEY not set in "
                 'the environment. …")'
             )
@@ -454,21 +479,26 @@ class TestTheSummaryPrintsWhatWasMeasured:
         with _isolated_record():
             text = _summary(reporter)
 
-        assert "Skipped: ('/repo/tests/jev_probe/conftest.py', 184," in text
+        assert f"Skipped: ('/repo/tests/jev_probe/conftest.py', {line}," in text
         assert "NOT MEASURED (no credentials)" in text
         assert "reason chain continues" not in text
 
 
 class _FakeItem:
-    """The part of `pytest.Item` the collection hook touches."""
+    """The part of `pytest.Item` the collection hook touches.
+
+    `markers` holds the marks the hook added, not the decorators it passed:
+    `Node.add_marker` unpacks a `MarkDecorator` into the `Mark` it carries, and
+    the assertions below read the mark's own name and keyword arguments.
+    """
 
     def __init__(self, name: str, path: Path | None = None) -> None:
         self.name = name
         self.path = path or _HERE / "contract.py"
-        self.markers: list[object] = []
+        self.markers: list[pytest.Mark] = []
 
-    def add_marker(self, marker: object) -> None:
-        self.markers.append(marker)
+    def add_marker(self, marker: pytest.MarkDecorator) -> None:
+        self.markers.append(marker.mark)
 
 
 class TestTheLoadCounterRunsLast:
@@ -479,21 +509,103 @@ class TestTheLoadCounterRunsLast:
     run went on to make about a hundred — a snapshot printed under a name that
     says the whole run. The order is not left to the filename because the
     filename is wrong for it.
+
+    These are the serial half of the mode: a session that is not distributed
+    moves the item, and the class below is the distributed half, which withholds
+    the cell instead. The environment is cleared rather than assumed, because
+    `-n auto` is a supported way to run this directory and its workers carry the
+    variable.
     """
 
-    def test_the_item_is_moved_behind_every_other(self) -> None:
+    def test_the_item_is_moved_behind_every_other(self, monkeypatch) -> None:
+        monkeypatch.delenv(WORKER_ENV, raising=False)
         items = [_FakeItem(name) for name in ("a", LAST_ITEM, "b")]
         pytest_collection_modifyitems(cast("list[pytest.Item]", items))
 
         assert [item.name for item in items] == ["a", "b", LAST_ITEM]
 
-    def test_probe_items_are_stamped_and_others_are_not(self) -> None:
+    def test_probe_items_are_stamped_and_others_are_not(self, monkeypatch) -> None:
+        monkeypatch.delenv(WORKER_ENV, raising=False)
         here = _FakeItem("a")
         elsewhere = _FakeItem("b", Path("/elsewhere/tests/test_other.py"))
         pytest_collection_modifyitems(cast("list[pytest.Item]", [here, elsewhere]))
 
         assert here.markers
         assert not elsewhere.markers
+
+
+class TestTheLoadCounterIsWithheldFromADistributedSession:
+    """`F4` counts one process's round trips; `-n auto` gives the run several.
+
+    `client.py` keeps the round-trip count and the refusals in process-local
+    lists. Under xdist every worker collects this directory and plays the share
+    of its items the scheduler handed it, so what a worker holds is a slice of
+    the run whose size the harness chose — and CI's full tier is exactly that
+    command (`pytest --run-slow --cov=functualize -n auto`). No ordering can
+    turn a worker's counters into the run's, so the row is withheld with the
+    reason instead of filled from one worker, and the label names the mode it is
+    a claim about. `-n 1` is the boundary case and is *not* refused: one worker
+    plays every item, so its counters are the run's after the move. Both modes
+    are asserted, in both directions, because a guard that only ever passes is
+    not evidence and the serial pair above would keep passing if this one never
+    fired.
+    """
+
+    def test_a_distributed_session_is_told_so_and_how_to_measure_it(self) -> None:
+        reason = distributed_reason("gw3", "4")
+
+        assert reason is not None
+        assert "NOT MEASURED (distributed session)" in reason
+        assert "gw3" in reason
+        assert "4 xdist workers" in reason
+        assert "-m jev_probe -p no:randomly" in reason
+
+    def test_one_worker_is_not_distributed_and_may_fill_the_cell(self) -> None:
+        """`-n 1` plays every item in one process, so its counters are the run's."""
+        assert distributed_reason("gw0", "1") is None
+
+    def test_a_serial_session_is_not_refused(self) -> None:
+        assert distributed_reason(None) is None
+        assert distributed_reason("") is None
+
+    def test_an_unreadable_worker_count_refuses_rather_than_guesses(self) -> None:
+        """Refusing is recoverable; a slice printed as the run is not."""
+        reason = distributed_reason("gw0", None)
+
+        assert reason is not None
+        assert "does not publish" in reason
+
+    def test_the_label_names_the_mode_the_refusal_withholds(self) -> None:
+        """One mode, two renderings: the cell's name, and the reason for no cell."""
+        reason = distributed_reason("gw3", "4")
+
+        assert SERIAL_MODE in load_label()
+        assert reason is not None and SERIAL_MODE in reason
+
+    def test_the_item_is_skipped_where_it_stands_when_distributed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(WORKER_ENV, "gw1")
+        monkeypatch.setenv(WORKERS_ENV, "3")
+        items = [_FakeItem(name) for name in ("a", LAST_ITEM, "b")]
+        pytest_collection_modifyitems(cast("list[pytest.Item]", items))
+
+        assert [item.name for item in items] == ["a", LAST_ITEM, "b"]
+        skips = [marker for marker in items[1].markers if marker.name == "skip"]
+        assert skips, items[1].markers
+        assert "NOT MEASURED (distributed session)" in skips[0].kwargs["reason"]
+
+    def test_the_item_is_moved_behind_the_others_in_a_single_worker(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`-n 1` is a distributed session that can still answer the row."""
+        monkeypatch.setenv(WORKER_ENV, "gw0")
+        monkeypatch.setenv(WORKERS_ENV, "1")
+        items = [_FakeItem(name) for name in ("a", LAST_ITEM, "b")]
+        pytest_collection_modifyitems(cast("list[pytest.Item]", items))
+
+        assert [item.name for item in items] == ["a", "b", LAST_ITEM]
+        assert not [marker for marker in items[2].markers if marker.name == "skip"]
 
 
 class TestTheBoundaryIsKept:
