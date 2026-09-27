@@ -659,7 +659,22 @@ every behavioural claim you add.
 
 ## Wave 7 — pre-merge lifecycle (serialised; `plan.md` → *Version-control lifecycle*)
 
-### [ ] T12 — migrate the durable half; push 1
+### [x] T12 — migrate the durable half; push 1
+
+**Completion note (T12).** `.spec/STATUS.md` now records AC-1 and AC-2 as
+delivered at `TRANSITIONAL(FUN-21)`, keeps AC-3 open pending FUN-18/19/21,
+states the FUN-4 issue must stay open, and preserves the approved D-1…D-5
+answers. ADR-029 records engine-minted identity, append-only candidates with
+recorded evaluations, the walk as the single consumption writer, superseding
+reopen, and the ADR-025 ownership boundary.
+
+`ruff check --fix`, `ruff format --check`, `mypy src/` (373 files), and
+`lint-imports` (7 kept, 0 broken) passed. The targeted acceptance suite and
+`tests/spec/test_task_gates_still_hold.py` passed with this task ticked:
+`36 passed`.
+The pre-push `git log --format='%B' origin/master..HEAD` was read back for
+commit-message hygiene. This is the first pre-merge push; the deletion-only
+cleanup commit and PR remain in T13.
 
 *Files:* `.spec/STATUS.md`, `contributor/adr/029-gate-resolution-is-recorded-not-recomputed.md` (new, from `contributor/adr/000-template.md`)
 
