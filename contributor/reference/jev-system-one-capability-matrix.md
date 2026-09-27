@@ -66,8 +66,8 @@ note rather than quietly corrected in the table.
 | A5 | `score` answer | `{"confidence", "legend", "probabilities", "score", "type"}` | measured (real service) |
 | A6 | the three answer types | share exactly one field, `type`; the union is 7 fields | measured (real service) |
 | B1 | `score` vs Σ index × probability | max absolute residual **0.01** over 72 answers, inside the **0.02** the wire's reported precision allows | measured (real service) |
-| B2 | `confidence` vs `max(probabilities)` | 0.01 – 0.26 apart; they coincide in 5/24 answers, only where one option is unanimous | measured (real service) |
-| B3 | `probabilities` key order | 6 distinct orders over 12 answers; the request's order appeared once | measured (real service) |
+| B2 | `confidence` vs `max(probabilities)` | 0.01 – 0.26 apart; they coincide in 6/24 answers, only where one option is unanimous | measured (real service) |
+| B3 | `probabilities` key order | 5 distinct orders over 12 answers; the request's order appeared twice | measured (real service) |
 | C1 | stable decision, 20 identical requests | argmax flips **0/20**; per-option range 0.04 – 0.66 | measured (real service) |
 | C2 | near-tied decision, 20 identical requests | argmax flips **9/20**; top-two gap falls to 0.00 – 0.12 | measured (real service) |
 | C3 | one clause is the whole difference | the two sweeps differ by `"I am furious."` and nothing else | measured (real service) |
@@ -77,10 +77,10 @@ note rather than quietly corrected in the table.
 | D4 | three more `choice` criteria | +44 input, +21 output | measured (real service) |
 | D5 | cost by question type | `noul` 283/20 · `score` 307/17 · `choice` 332/38 | measured (real service) |
 | E | 16 request cases around a valid control | 14 refusals, five status layers, three JSON envelopes, one plain-text gate | measured (real service) |
-| F1 | catalog `GET /zen/v1/models` | HTTP 200, 81 models, `0.35 – 0.48 s` | measured (real service) |
+| F1 | catalog `GET /zen/v1/models` | HTTP 200, 82 models, `0.327 s` | measured (real service) |
 | F2 | the model is listed | both `jev-1.13-free` and the paid `jev-1.13` are listed | measured (real service) |
-| F3 | decision endpoint reachability | HTTP 200, `0.995 s`, without a retry | measured (real service) |
-| F4 | what the run met for load | `3 × HTTP 429 over 4 round trips`, asking for ~18834 s | measured (real service) |
+| F3 | decision endpoint reachability | HTTP 200, `0.562 s`, without a retry | measured (real service) |
+| F4 | what the run met for load | one full run: **no refusal over 95 round trips**; the window-closed run met `3 × HTTP 429` over its first 4, asking for ~18834 s | measured (real service) |
 | G1 | `noul` value range | `0.02 – 0.02` over 4 samples; fields `["noul", "type"]` | measured (real service) |
 | G2 | boolean fields in any answer | **0** across every answer type measured | measured (real service) |
 
@@ -141,12 +141,15 @@ them*:
   ranking the legend instead of averaging it, moves the sum by a whole index unit, an order
   of magnitude above the budget.
 - **B2 — `confidence` is not `max(probabilities)`.** The gaps run 0.01 – 0.26, they coincide
-  only when an option is unanimous (5/24), and `confidence` never once exceeded
+  only when an option is unanimous (6/24), and `confidence` never once exceeded
   `max(probabilities)`. It is a provider-supplied scalar. An adapter that treats it as the
   winning probability will be wrong by up to a quarter.
-- **B3 — `probabilities` is not in request order.** Six distinct key orders in 12 answers;
-  the request's order appeared once. Positional reading of `probabilities` reads an order
-  the service never promised.
+- **B3 — `probabilities` is not in request order.** Five distinct key orders in 12 answers;
+  the request's order appeared twice. Positional reading of `probabilities` reads an order
+  the service never promised. Two numbers, and the row has to measure both: *the order is
+  not the request's* and *the order is not stable across identical calls*. A single fixed
+  order that is not the request's satisfies the first and refutes the second, and the row
+  that checked only the first would have published it as a stable non-request order.
 
 `B1`'s cell previously read **max absolute residual 0 across 12 answers**, with the sentence
 *"with two-decimal probabilities and integer indices the sum is exact"* beside it, and the
@@ -167,6 +170,22 @@ rounded, so a budget derived from the reported precision is not defeated by a ro
 downstream of it. The case above is the offline witness, not a wire measurement: no wire
 observed here reports past two decimals, which is why the rounding had to be tested at the
 arithmetic rather than waited for.
+
+`B2` and `B3` were re-measured on 2026-09-27 (see *Provenance*), and their cells carry that
+run: B2's gaps coincided in 6 of 24 answers where the run of record had 5, and B3 met five
+key orders where the run of record met six, with the request's order appearing twice rather
+than once. Both are sample statistics of a service that does not promise either count.
+
+What the two rows *assert* was the larger defect, and it is the one this document was
+written to catch. B2's cell printed **"confidence never exceeded max(probabilities) in this
+run"** over an assertion that the two ever *differed*: a run whose `confidence` exceeded the
+top probability would have printed that sentence beside a negative gap, and the row could
+not have failed. B3 is named for two properties — *not the request's order*, *not stable* —
+and asserted one: a service answering every identical call in the same non-request order
+passed the row while being exactly the stability the row's own name rules out, and a fixed
+order is what a positional reader is most likely to meet. Each row now derives its sentence
+from the numbers it asserts — `tests/jev_probe/claims.py` — and asserts the same quantity
+the sentence names, so a row cannot print a claim its assertion does not carry.
 
 ### Row C — how much a decision is worth
 
@@ -232,7 +251,7 @@ refused, which is the count E17 and the summary row carry.
 | E13 | 403 | edge gate | `error code: 1010` — byte-identical to E12 |
 | E14 | 200 | — | a valid answer, with `User-Agent: ""` |
 | E15 | 403 | edge gate | `error code: 1010`, on the catalog `GET` |
-| E16 | — | — | the envelopes are not uniform: `detail` · `type`+`error` · `error` alone |
+| E16 | — | — | not uniform: 3 shapes over 5 refusals, `2 × 400 · 2 × 401 · 1 × 422` — `detail` · `type`+`error` · `error` alone |
 | E17 | — | — | 14 of 16 cases refused, by **five** statuses: 400 · 401 · 402 · 403 · 422 |
 
 **Two facts in this row matter more than the rest.** The 422s and 400s are *pydantic* — the
@@ -243,6 +262,15 @@ union (400, `detail` as an object), the credential and the model resolver (401,
 `type`+`error`), funds and upstream (402/400, `error` alone), and the edge's `User-Agent`
 gate (403, not JSON at all). **An adapter that deserializes every failure into one shape
 misreads at least half of them** (E16).
+
+`E16`'s cell counts **three shapes over five refusals** — `2 × 400 · 2 × 401 · 1 × 422` — and
+the five are the five the row's own sample holds, not five of a kind. The cell previously read
+**"5 non-422 refusals"**: the count of shapes was right and the adjective was wrong, because
+the sample it counts includes `E1`, the request-shape `422` that opens the table. Nothing in
+the run could have caught it — the statuses were never read, only counted by shape — which is
+why the label is now built from the statuses the run parsed and the row asserts the statuses
+of every case it samples. The three shapes are the finding; the statuses were decoration, and
+that is the failure mode this document exists to prevent.
 
 `E17` is quoted as **five**, from the statuses in the table above. The run of record printed
 `by 4 layers` because that text was a hard-coded set rather than a count of what the run met;
@@ -261,7 +289,13 @@ money rather than measure anything.
 ### Row F — reachability, and the budget that is not the contract
 
 The catalog is a plain `GET /zen/v1/models`, unauthenticated (the probe sends no token to
-it), answering in `0.35 – 0.48 s` with **81 models**; both `jev-1.13-free` and the paid
+it), answering in `0.327 s` with **82 models** — re-measured on 2026-09-27, and both figures
+are younger than the ones this sentence used to carry. It read *"answering in `0.35 – 0.48 s`
+with **81 models**"*: a **range of three runs from one session**, quoted as if it were a
+property of the endpoint, which no re-run could confirm or refute — and a model count the
+catalog has since moved past. A single run's latency is one sample too, but it is a sample
+with a number in it, and a reader can compare it to their own `curl`; a range assembled from
+one machine's afternoon cannot be checked at all. Both `jev-1.13-free` and the paid
 `jev-1.13` are listed. Two consequences: an adapter can discover the model name instead of
 hard-coding one, and **the catalog says a model exists, not that the account may call it** —
 `jev-1.13` is listed and answers `402`.
@@ -287,6 +321,18 @@ adapter that calls this provider per decision has to treat "the provider refused
 as a normal outcome with a bound, not as an exception** — exactly what F4 records, and the
 equivalent of the substrate probe's finding that a client, not the vendor, owns retry and
 timeout policy.
+
+The cell F4 fills had one fault of its own, and it was in the name: it reports **what the run
+met for load**, and the number under it was the load the run had met when row F happened to
+run. `contract.py` sorts before the model-backed modules, so F4 read **`3 × HTTP 429 over 4
+round trips`** — four round trips — while the run went on to make about a hundred, and the
+`Retry-After` it quoted was real but the *sample* was a snapshot taken four requests in. The
+row now runs **last**, after every other probe module, so its number is the run's: measured
+2026-09-27 as **no refusal over 95 round trips**, on a run that began inside a window the
+free tier had restored. The earlier reading is not deleted — it is the evidence for the
+paragraph above, and it stands here as what a run that *starts* inside a spent window meets
+in its first four requests: three refusals asking for `18834` s. Read F4 as a measurement of
+the run, and the run it describes has to have finished before the cell is filled.
 
 `F3`'s reachability is established by a TCP connect *before* the module's first request, so a
 skip means the service was absent and a failure means it is unhappy about the request — the
@@ -453,19 +499,64 @@ that correction is evidenced at the arithmetic, on the `1.0000003` case recorded
 *Row B* above, and not by a measurement. The identity and the budget arithmetic are the ones
 this run measured.
 
+**The instrument's own prose was corrected on 2026-09-27** — six places where a row printed a
+sentence its assertion did not carry, or a sentence about the run derived from a snapshot of
+it — on branch `fix/jev-probe-prose-assertions`, cut from
+`1d8f3da0757949d2c4c0185587c4a9f77e9d533e`, the merge of B1's repair. The sentences are now
+functions of the numbers the rows measure, in `tests/jev_probe/claims.py`; row F4 runs after
+every other probe module, so its count is the run's own; and each of the six cells below that
+changed quotes the run that changed it. The run reported:
+
+```
+$ uv run pytest -q -m jev_probe -p no:randomly        # OPENCODE_API_KEY exported
+B. Identities
+  B2  max(probabilities) − confidence: 0.01 – 0.26 apart, 6/24 coincide — measured (real service)
+  B3  `probabilities` key order: 5 distinct orders over 12 answers; 2 matched the request order — measured (real service)
+E. Error taxonomy
+  E16  error envelopes are not uniform: 3 shapes over 5 refusals: 2 × 400 · 2 × 401 · 1 × 422 — measured (real service)
+F. Reachability
+  F1  catalog reachability: HTTP 200 in 0.327 s · 82 models — measured (real service)
+  F3  decision endpoint reachability: HTTP 200 in 0.562 s — measured (real service)
+  F4  load refusals met by the run: none over 95 round trips — measured (real service)
+41 facts recorded.
+44 passed, 2 skipped, 12775 deselected in 70.78s (0:01:10)
+```
+
+That run measured every row of the matrix, and the cells above carry its values for the five
+rows whose quoted number it did not reproduce: B2, B3, F1, F3 and F4. The rows it reproduced
+are left as they stand — A's field sets, D's seven `usage` blocks (`283/20` through `376/59`,
+identical), E's 14 of 16 refusals by the same five statuses, G's `0.02` four times over four
+identical requests, and B1's twelve answers, every one exactly on the identity and inside the
+`0.01` over 72 the cell carries. **Row C's tables are the run of record's and are not
+updated.** That run flipped `0/20` at the stable state, as the table says, and `11/20` at the
+near-tied one against the table's `9/20`; its per-option ranges were shipping `0.30–0.37` ·
+billing `0.03–0.05` · returns `0.58–0.65`, with a top-two gap of `0.00–0.13` and `confidence`
+`0.22–0.32`. What row C is for is the shape — a clear decision holds to twenty identical
+requests, a near-tied one flips about half the time — and a flip count is one sample of that
+distribution, which is why the reading is recorded here rather than re-pinned in the table.
+
+The fact count moved with the repair, not with this change: this run records **41** where the
+run of record recorded 40, and this change adds no fact of its own — the only probe commit
+between the two runs is B1's, which is where the extra one comes from. The row set is the same.
+
 A run of the same probe with no credential exported is green, every measurement row skipping
 by name — five module-level `NOT MEASURED (no credentials)` skips plus the `.spec` and floci
 gates that are no part of this probe:
 
 ```
 $ env -u OPENCODE_API_KEY uv run pytest -q -m jev_probe -p no:randomly
-24 passed, 7 skipped, 12775 deselected in 21.69s
+31 passed, 7 skipped, 12775 deselected in 14.92s
 ```
 
-The counts are what that run is evidence of; the wall time is machine-local and moves
-between hosts and loads — the same green keyless run has been observed at `14.61 s` and at
-`21.69 s` on this one — which is why the line above is quoted with the command that produced
-it rather than as a bare figure.
+**31 where the quotation above it reads 24**: the probe directory's own offline falsifiers grew
+with the 2026-09-27 correction — the sentence-versus-assertion checks for the three repaired
+rows, the check that the load counter is moved last, and the check on what the summary does
+with a recorded skip — and none of them needs a credential, which is the point: six prose
+corrections in a probe nobody can run without a key had better be testable on a host without
+one. The counts are what that run is evidence of; the wall time is machine-local and moves
+between hosts and loads — the same green keyless run has been observed at `14.61 s`, `21.69 s`
+and `14.92 s` on this one — which is why the line above is quoted with the command that
+produced it rather than as a bare figure.
 
 ### Two things to know before re-running this
 

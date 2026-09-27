@@ -23,6 +23,13 @@ from collections.abc import Iterable, Mapping
 from functools import cache
 from typing import Any, Final
 
+from tests.jev_probe.claims import (
+    confidence_claim,
+    distinct_key_orders,
+    exceeded_max_probability,
+    key_order_claim,
+    matching_key_orders,
+)
 from tests.jev_probe.client import (
     ENDPOINT,
     MODEL,
@@ -168,7 +175,7 @@ def test_b1_score_is_the_expected_value_over_the_legend_index() -> None:
 
 
 def test_b2_confidence_is_not_the_largest_probability() -> None:
-    """B2: how far `confidence` sits from `max(probabilities)`, over both types."""
+    """B2: how far `confidence` sits from `max(probabilities)`, and which way."""
     samples = (*choice_answers(), *score_answers())
     gaps = [
         round(max(sample["probabilities"].values()) - sample["confidence"], 6)
@@ -184,13 +191,13 @@ def test_b2_confidence_is_not_the_largest_probability() -> None:
         f"{len(coincide)}/{len(samples)} coincide",
         detail=(
             f"over {SAMPLES} `choice` and {SAMPLES} `score` answers · gap range "
-            f"{min(gaps):.4g} – {max(gaps):.4g} · confidence never exceeded "
-            f"max(probabilities) in this run · they coincide only where the answer "
-            f"is unanimous · confidence is a provider-supplied scalar, not a "
-            "quantity the adapter can recompute"
+            f"{min(gaps):.4g} – {max(gaps):.4g} · {confidence_claim(gaps)} · they "
+            f"coincide only where the answer is unanimous · confidence is a "
+            "provider-supplied scalar, not a quantity the adapter can recompute"
         ),
     )
     assert len(differ) > 0, gaps[:5]
+    assert not exceeded_max_probability(gaps), confidence_claim(gaps)
     assert all(0.0 <= sample["confidence"] <= 1.0 for sample in samples)
     assert all(
         abs(sum(sample["probabilities"].values()) - 1.0) <= 0.02 for sample in samples
@@ -198,23 +205,29 @@ def test_b2_confidence_is_not_the_largest_probability() -> None:
 
 
 def test_b3_probability_key_order_is_neither_the_request_nor_stable() -> None:
-    """B3: the order the keys arrive in, against the order the request sent."""
+    """B3: the order the keys arrive in, against the order the request sent.
+
+    Both halves of the name are asserted: at least one answer may not arrive in
+    the request's order, and the answers may not all arrive in one order. The
+    second is the one a stable service breaks while passing the first.
+    """
     requested = list(INTENT)
     orders = [tuple(sample["probabilities"]) for sample in choice_answers()]
-    matching = [order for order in orders if list(order) == requested]
+    distinct = distinct_key_orders(orders)
+    matching = matching_key_orders(orders, requested)
     measured(
         "B",
         "B3",
         "`probabilities` key order",
-        f"{len(set(orders))} distinct orders over {len(orders)} answers; "
-        f"{len(matching)} matched the request order",
+        key_order_claim(orders, requested),
         detail=(
-            f"request order {requested} · observed {sorted({order for order in orders})} "
+            f"request order {requested} · observed {sorted(distinct)} "
             "· an adapter that reads options positionally reads an order the "
             "service never promised"
         ),
     )
-    assert len(matching) < len(orders)
+    assert len(matching) < len(orders), matching
+    assert len(distinct) > 1, distinct
 
 
 def test_the_samples_are_identical_requests_to_one_model() -> None:

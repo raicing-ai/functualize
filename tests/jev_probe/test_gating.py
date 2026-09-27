@@ -6,10 +6,12 @@ visible. These are the cheapest tests here and the ones that keep
 `NOT MEASURED` honest; they run on every machine, credentialed or not.
 
 This module is also where the instrument's **offline** falsifiers live: the
-import boundary, the record's refusal to invent a cell, and the terminal
-summary's behaviour when a run measured nothing at all. Without a module like
-this, `uv run pytest -q tests/jev_probe/` on a credential-less host would
-collect no runnable item and exit 5 (`NO_TESTS_COLLECTED`) rather than green.
+import boundary, the record's refusal to invent a cell, the sentences the rows
+print against the numbers they assert, the order the load counter runs in, and
+the terminal summary's behaviour when a run measured nothing at all. Without a
+module like this, `uv run pytest -q tests/jev_probe/` on a credential-less host
+would collect no runnable item and exit 5 (`NO_TESTS_COLLECTED`) rather than
+green.
 """
 
 from __future__ import annotations
@@ -23,9 +25,20 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from tests.jev_probe.claims import (
+    REFUSAL_SAMPLE,
+    confidence_claim,
+    distinct_key_orders,
+    exceeded_max_probability,
+    key_order_claim,
+    matching_key_orders,
+    refusal_shape_claim,
+)
 from tests.jev_probe.conftest import (
+    LAST_ITEM,
     missing_env,
     pytest_collect_file,
+    pytest_collection_modifyitems,
     pytest_terminal_summary,
     reachable,
     require_client,
@@ -202,6 +215,7 @@ class TestTheMeasurementModulesAreCollectedAtAll:
     ) -> None:
         assert pytest_collect_file(_HERE / "conftest.py", parent) is None
         assert pytest_collect_file(_HERE / "__init__.py", parent) is None
+        assert pytest_collect_file(_HERE / "claims.py", parent) is None
         assert pytest_collect_file(_HERE / "client.py", parent) is None
         assert pytest_collect_file(_HERE / "report.py", parent) is None
 
@@ -287,6 +301,72 @@ class TestTheRecordCannotInventACell:
         assert "Z6" not in REPORT.render()
 
 
+class TestAPrintedClaimCannotOutliveItsAssertion:
+    """Each row's sentence is a function of the number the row measured.
+
+    Three rows printed a fixed sentence beside a weaker assertion, and a fixed
+    sentence is only ever checked by reading it — which is how B2 came to say
+    "confidence never exceeded max(probabilities)" while asserting only that the
+    two ever *differed*, how B3 came to be named for two properties while
+    checking one, and how E16 came to count "5 non-422 refusals" over a sample
+    holding a 422. Each case below is the input that separates the old sentence
+    from the assertion under it: the first assertion in each is the old check,
+    holding on that input.
+    """
+
+    def test_b2_reports_a_confidence_larger_than_every_probability(self) -> None:
+        differ = [10.0 - 9.99]
+        assert differ, "the old check — the two ever differ — still holds"
+
+        gaps = [*differ, 10.0 - 10.5]
+        assert exceeded_max_probability(gaps) == [-0.5]
+        assert "never exceeded" in confidence_claim(differ)
+        assert confidence_claim(gaps) == (
+            "confidence exceeded max(probabilities) in 1/2 answers, by up to 0.5"
+        )
+
+    def test_b3_one_fixed_order_passes_the_old_check_and_is_not_stable(self) -> None:
+        """A stable service answering in one non-request order: old check passes."""
+        requested = ["shipping", "billing", "returns"]
+        orders = [("returns", "billing", "shipping")] * 3
+        assert len(matching_key_orders(orders, requested)) < len(orders)
+
+        assert len(distinct_key_orders(orders)) == 1
+        assert "1 distinct orders" in key_order_claim(orders, requested)
+
+    def test_b3_counts_the_two_claims_separately(self) -> None:
+        requested = ["a", "b", "c"]
+        orders = [("a", "b", "c"), ("b", "a", "c"), ("b", "a", "c")]
+        assert len(matching_key_orders(orders, requested)) == 1
+        assert len(distinct_key_orders(orders)) == 2
+        assert key_order_claim(orders, requested) == (
+            "2 distinct orders over 3 answers; 1 matched the request order"
+        )
+
+    def test_e16_states_the_statuses_of_the_refusals_it_parsed(self) -> None:
+        """The sample is not all non-422: `E1` is the row's request-shape 422.
+
+        The statuses below are the ones `errors.py` records for `REFUSAL_SAMPLE`,
+        and the label is built from whatever a run met, so the sentence cannot
+        call a 422 a non-422. The sample's composition is asserted too, because
+        the sentence counts it — and the sample is what makes the count three
+        rather than one.
+        """
+        statuses = {"E1": 422, "E4": 400, "E8": 401, "E9": 400, "E11": 401}
+        envelopes = {
+            "E1": ["detail"],
+            "E4": ["detail"],
+            "E8": ["error", "type"],
+            "E9": ["error"],
+            "E11": ["error", "type"],
+        }
+        assert set(statuses) == set(REFUSAL_SAMPLE)
+
+        label = refusal_shape_claim(envelopes, statuses)
+        assert label == "3 shapes over 5 refusals: 2 × 400 · 2 × 401 · 1 × 422"
+        assert "non-422" not in label
+
+
 class _FakeReporter:
     """The whole of `TerminalReporter` that the summary reads."""
 
@@ -350,6 +430,70 @@ class TestTheSummaryPrintsWhatWasMeasured:
         assert "Z7" in text
         assert "HTTP 422 · too_short" in text
         assert "measured (real service)" in text
+
+    def test_a_skip_keeps_the_path_qualified_first_line_and_not_the_chain(
+        self,
+    ) -> None:
+        """What the summary appends is the first line of the skip's `longrepr`.
+
+        pytest renders a collection-time skip as `(path, lineno, reason)` on that
+        line and puts the rest of the reason after it, so the list it prints is
+        path-qualified. The line below has that shape: the path is this
+        directory's own conftest, the number is where its credential gate raises
+        — so it moves when that file moves, which is why this is a written-down
+        rendering and not something the test looks up.
+        """
+        reporter = _FakeReporter()
+        reporter.stats["skipped"] = [
+            _SkippedReport(
+                "('/repo/tests/jev_probe/conftest.py', 184, \"Skipped: Jev / System "
+                "One: NOT MEASURED (no credentials) — OPENCODE_API_KEY not set in "
+                'the environment. …")'
+            )
+        ]
+        with _isolated_record():
+            text = _summary(reporter)
+
+        assert "Skipped: ('/repo/tests/jev_probe/conftest.py', 184," in text
+        assert "NOT MEASURED (no credentials)" in text
+        assert "reason chain continues" not in text
+
+
+class _FakeItem:
+    """The part of `pytest.Item` the collection hook touches."""
+
+    def __init__(self, name: str, path: Path | None = None) -> None:
+        self.name = name
+        self.path = path or _HERE / "contract.py"
+        self.markers: list[object] = []
+
+    def add_marker(self, marker: object) -> None:
+        self.markers.append(marker)
+
+
+class TestTheLoadCounterRunsLast:
+    """`F4` counts the load the run met, so it cannot run beside its own row.
+
+    `contract.py` sorts before the model-backed modules: read there, the fact
+    reported the four round trips the run had made when row F ran while the same
+    run went on to make about a hundred — a snapshot printed under a name that
+    says the whole run. The order is not left to the filename because the
+    filename is wrong for it.
+    """
+
+    def test_the_item_is_moved_behind_every_other(self) -> None:
+        items = [_FakeItem(name) for name in ("a", LAST_ITEM, "b")]
+        pytest_collection_modifyitems(cast("list[pytest.Item]", items))
+
+        assert [item.name for item in items] == ["a", "b", LAST_ITEM]
+
+    def test_probe_items_are_stamped_and_others_are_not(self) -> None:
+        here = _FakeItem("a")
+        elsewhere = _FakeItem("b", Path("/elsewhere/tests/test_other.py"))
+        pytest_collection_modifyitems(cast("list[pytest.Item]", [here, elsewhere]))
+
+        assert here.markers
+        assert not elsewhere.markers
 
 
 class TestTheBoundaryIsKept:
