@@ -21,7 +21,7 @@ result unobservable and its failure invisible.
 
 | Tier | What runs | Measured cost | How to select |
 |---|---|---|---|
-| **Step** | the test files that import what you touched | one file: 3.2 s wall, 0.18 s of it tests; a 26-file importer set (321 tests): 16.4 s at `-n 6` | `tests-for-diff` output |
+| **Step** | the test files that import what you touched | one file: 3.2 s wall, 0.18 s of it tests; a 26-file importer set (321 tests): 16.4 s at `-n 6` | `tests-for-diff --run` |
 | **Wave** | the directories this wave touches | 4 dirs / 2633 tests: 67.0 s at `-n 6`, 310.9 s serial | name the directories |
 | **Tip** | everything, including property tests | 12 598 tests: **1257 s** at `-n 6` locally — no single tool call holds it; 1597 s in CI | shared infrastructure changed, or a release-grade question |
 
@@ -31,15 +31,25 @@ numbers re-measured at `498a8a5`; wave and tip numbers were measured at
 "~10 min" full-suite claim is false: 1257 s locally, 1597 s on the 4-core
 CI runner (`test-fast` 758.6 s, `test-full` 1597.2 s).
 
-## The mapper: tests-for-diff
+## The step tier: tests-for-diff --run
 
-`scripts/tests-for-diff` in this skill's directory maps a change set to
-pytest paths — deterministic, stdlib-only, no database to build or
-invalidate:
+This is the one command for the step tier. It selects the test files that
+import what you changed, then runs exactly them — deterministic,
+stdlib-only, no database to build or invalidate:
 
 ```bash
-uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)
+.agents/skills/test-tiers/scripts/tests-for-diff --run
 ```
+
+`--run` prints the selection and execs `uv run pytest -n auto -q --no-header`
+on it, so pytest's exit code, output and signals are the command's own.
+Arguments the mapper does not know go to pytest, which is how a narrower
+question is asked without a second command: `tests-for-diff --run -k config`.
+
+**It fails closed.** An empty selection — every docs-only or `.spec/`-only
+change — exits `4` with a one-line message and runs nothing, instead of
+substituting nothing and collecting the whole fast tier. Exit `3` is never
+swallowed either: shared infrastructure changed, run the tip tier.
 
 Default input is the diff against `$(git merge-base origin/master HEAD)`
 plus the uncommitted changes. `--files <path>...` names the change set
@@ -60,11 +70,28 @@ Selection rules, per changed path:
 - shared infrastructure — `tests/conftest.py`, `tests/_support/**`,
   `pyproject.toml`, `uv.lock` — prints nothing and **exits 3**: narrowing
   is not sound there, run the tip tier;
-- everything else (`docs/`, `.spec/`, `contributor/`, …) selects nothing;
-  exit 0.
+- everything else (`docs/`, `.spec/`, `contributor/`, …) selects nothing:
+  the bare mapper exits `0` printing nothing, and `--run` refuses with `4`.
 
-Exit codes: `0` selection printed (possibly empty), `3` shared
-infrastructure changed, `2` usage or git error.
+Exit codes:
+
+| Exit | Meaning |
+|---|---|
+| `0` | a selection was printed, possibly empty — the bare mapper and `--require-selection` when it found something |
+| `2` | usage, git, or environment error |
+| `3` | shared infrastructure changed: nothing selected, run the tip tier |
+| `4` | empty selection under `--require-selection` or `--run`: refused, nothing run |
+| pytest's own | under `--run` once a selection ran; the exec carries pytest's code out unchanged |
+
+Two flags carry that contract:
+
+- `--run` — map, then run the selection; refuse an empty one (`4`); never
+  swallow `3`. This is the tier's command, above.
+- `--require-selection` — refuse an empty selection (`4`) and print nothing,
+  when only the paths are wanted. Neither flag changes the bare mapper's
+  `0`-prints-possibly-empty contract, which direct callers keep: inside a
+  `$( )` an empty selection substitutes nothing, so the bare mapper must
+  never be the published form.
 
 ## Why narrowing beats a cache
 
