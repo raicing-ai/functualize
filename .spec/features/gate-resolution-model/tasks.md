@@ -444,7 +444,33 @@ now: `0` · after: `1`
 
 ## Wave 4 — surfaces
 
-### [ ] T8 — answer, deposit and reopen record candidates
+### [x] T8 — answer, deposit and reopen record candidates
+
+**Completion note (T8).** The two count gates produced, in order, no output
+(exit 1: zero matches) and `1` (exit 0). `ruff check --fix`, `ruff format
+--check`, `mypy src/` (373 files), and `lint-imports` (7 kept, 0 broken)
+passed. Targeted pytest across draft, direct deposit, workflow control, MCP
+workflow tools, and the task gate suite passed: `132 passed` before ticking T8.
+On the resumed run, the same targeted set passed with T8 ticked: `134 passed`.
+The CI-profile full-suite attempt in the earlier run ended at 77% when that
+run hit its usage cap; it produced no final suite result.
+
+Production reachability: `func builtin workflow answer` →
+`_cli/builtins.py:workflow_answer` → `app.utils.answer_gate` →
+`app/_workflow_answer.py:answer_gate` → `gate_requests.append_candidate`.
+`tests/workflow/test_gate_drafts.py::TestAutoCommit::test_complete_answer_records_a_candidate`
+uses the public answer function and reads back the recorded candidate. After
+committing the implementation, replacing the append call with a no-op made
+that test fail: `AssertionError: assert 'open' == 'accepted'` (`1 failed`).
+The first sabotage edit deleted the only statement in `try`, which produced
+an `IndentationError` at collection; it was corrected to a `pass` before the
+behavioral failure was measured. `git checkout --
+src/functualize/app/_workflow_answer.py` restored the committed wire, and no
+sabotage edit remains.
+
+The read projection omits candidate payloads and does not revalidate recorded
+evaluations. `# TRANSITIONAL(FUN-21)` marks the document-backed request and
+candidate storage; the durable interaction/evidence slice remains pending.
 
 *Files:* `src/functualize/app/_workflow_answer.py`, `src/functualize/app/_workflow_resume.py`, `tests/workflow/test_gate_drafts.py`
 

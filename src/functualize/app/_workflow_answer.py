@@ -11,10 +11,9 @@ gate could not be corrected at all — once ``payload`` is non-``None``,
 ``pending_gates`` stops listing it and every addressing path answers
 ``gate_not_found``.
 
-**The invariant that makes drafts safe:**
-
-    ``payload`` is non-null **iff** it is the output of a complete, successful
-    ``model(**draft.values).model_dump()``.
+**The invariant that makes drafts safe:** a payload is written only by an
+accepted candidate. Failed attempts stay in the candidate record; partial
+input stays in ``draft`` until a complete answer is accepted.
 
 Partial input lives in ``draft``; the walker never reads it. A blocked walk
 stays blocked until the draft validates whole, so a partially-answered gate is
@@ -29,9 +28,19 @@ the case where a second actor must review before the gate opens.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
-from functualize.app._workflow_resume import _resolve_gate_model, pending_gates
+from functualize._engine.recording import InputRecorder
+from functualize._gate._evaluation import evaluate_submission
+from functualize._primitives import gate_requests
+from functualize._types.errors import InputRequestNotOpenError
+from functualize._types.gate_resolution import EvaluationOutcome
+from functualize.app._workflow_resume import (
+    _resolution_view,
+    _resolve_gate_model,
+    pending_gates,
+)
 
 __all__ = ["answer_gate", "gate_draft", "resolve_gate"]
 
@@ -147,6 +156,7 @@ def gate_draft(app: Any, store: Any, scope_id: str, gate: str) -> dict[str, Any]
         "invalid": invalid,
         "complete": not missing and not invalid,
         "answered": record.get("payload") is not None,
+        "resolution": _resolution_view(store, scope_id, gate, record),
     }
 
 
@@ -162,6 +172,7 @@ def answer_gate(
     clear: bool = False,
     commit: bool = True,
     reopen: bool = False,
+    source: str = "api",
 ) -> dict[str, Any]:
     """Record input for a gate. Never runs anything.
 
@@ -223,9 +234,35 @@ def answer_gate(
         report["message"] = _drafted_message(gate, report)
         return report
 
-    # The one place `payload` is ever written on this path, and it writes the
-    # validated dump — the same object the walker's own strategy path stores.
-    store.deposit_gate_payload(scope_id, gate, model(**draft).model_dump())
+    evaluation, validated = evaluate_submission(model, draft)
+    resolution = _resolution_view(
+        store, scope_id, gate, store.get_gate(scope_id, gate) or {}
+    )
+    candidate = InputRecorder().submitted(
+        resolution["request_id"],
+        source,
+        evaluation,
+        validated if validated is not None else dict(draft),
+        ordinal=len(resolution["candidates"]),
+        now=datetime.now(UTC),
+    )
+    try:
+        # TRANSITIONAL(FUN-21): this candidate still lands in the scope document.
+        gate_requests.append_candidate(store, scope_id, gate, candidate)
+    except InputRequestNotOpenError:
+        return _error(
+            "gate_already_answered",
+            f"Gate '{gate}' is already answered. Use --reopen to correct it.",
+        )
+    if evaluation.outcome is EvaluationOutcome.INVALID:
+        report = gate_draft(app, store, scope_id, gate)
+        report["invalid"] = [
+            {"field": field, "message": message} for field, message in evaluation.errors
+        ]
+        report["complete"] = False
+        report["status"] = "drafted"
+        report["message"] = _drafted_message(gate, report)
+        return report
     store.clear_gate_draft(scope_id, gate)
 
     answered = gate_draft(app, store, scope_id, gate)
@@ -250,7 +287,7 @@ def _reopen(
     gate: str,
     record: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """Move the payload back to the draft, or refuse. None on success.
+    """Supersede the answer and seed a fresh draft, or refuse. None on success.
 
     **Refused once the walk has consumed the answer.** The walker records the
     gate node as replayed and advances past it, so a scope whose position is
@@ -277,7 +314,22 @@ def _reopen(
             "gate": gate,
             "position": scope.get("position"),
         }
-    store.reopen_gate(scope_id, gate)
+    now = datetime.now(UTC)
+    lease = store.get_lease(scope_id)
+    opened = InputRecorder().opened(
+        scope_id=scope_id,
+        generation=lease.generation if lease else 0,
+        gate_name=gate,
+        position=gate,
+        now=now,
+        schema=record.get("input_schema"),
+        prompt=record.get("prompt"),
+        model=str(record.get("model") or ""),
+        tools=tuple(record.get("tools") or ()),
+    )
+    gate_requests.supersede_request(
+        store, scope_id, gate, new_request_id=opened.request_id, now=now
+    )
     return None
 
 
