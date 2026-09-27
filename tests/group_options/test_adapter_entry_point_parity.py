@@ -19,6 +19,7 @@ they need no install step — the tree under test is the one
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -68,6 +69,32 @@ env = "from-file"
 [deploy.web]
 region = "region-from-file"
 """
+
+
+@pytest.fixture(autouse=True)
+def _isolate_job_modules(clean_sys_modules: None) -> None:
+    """Boot this probe's project with no resident ``_group``/``web`` namesake.
+
+    ``web.py`` imports ``_group`` as a plain top-level module, and Python
+    resolves that through ``sys.modules`` *first* — so a ``_group`` left
+    resident by another probe's tmp project wins over the sibling this fixture
+    just wrote. The variants are not interchangeable:
+    ``tests/integration/test_surface_feature_matrix.py::TestGroupOptions``
+    declares only ``DeployOptions``, and against it this file's
+    ``from _group import DeployOptions, WebOptions`` raises
+    ``ImportError: cannot import name 'WebOptions'``, which discovery swallows
+    into ``web.py not loaded`` — five probes then fail with the group's flags
+    missing, and which variant is resident is a function of how xdist split the
+    suite. That is why this file is green alone and red in the wider run.
+
+    ``clean_sys_modules`` alone does not cover it: it snapshots at setup, so a
+    namesake already resident is *in* the snapshot and comes back at teardown.
+    Evicting before the project boots is what defends against prior pollution;
+    the snapshot is what stops this module's ``_group``/``web`` from becoming
+    the next probe's stale entry.
+    """
+    for name in ("_group", "web"):
+        sys.modules.pop(name, None)
 
 
 @pytest.fixture()
