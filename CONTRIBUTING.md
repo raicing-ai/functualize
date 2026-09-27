@@ -609,6 +609,7 @@ how it becomes enforced; until then a reviewer is what catches it.
 | `conventional-pre-commit` | Commit subject type and shape, at commit time | `.pre-commit-config.yaml` (needs `pre-commit install --hook-type commit-msg`) |
 | PR Title workflow | PR title type, single-token scope, lowercase subject, no trailing period | `.github/workflows/pr-title.yml` |
 | Message Hygiene workflow | Tracker keys and URLs, internal identifiers and machine identities in the PR title, the PR body and every commit message in the range | `.github/workflows/message-hygiene.yml` |
+| Spec Task Graph workflow | A PR whose range changes `src/functualize/**` or `plugins/**/src/**` without carrying a `.spec/features/*/tasks.md` with a parseable `## Task Dependency Graph` — the pull-request half of the write-time gate in `.claude/hooks/spec_gate.py` | `.github/workflows/spec-task-graph.yml` |
 | `master` ruleset | Changes arrive by PR; squash is the only merge method; `lint`, `lint-imports`, `typecheck`, `test-fast`, `test-full` (3.11, 3.12, 3.13), `gitleaks`, `lint-title`, `spec-only-change` and `spec-artifacts-cleared` must pass; no force-push; no branch deletion | GitHub repository ruleset named `master` |
 | `release tags` ruleset | A `v*` tag cannot be deleted or moved once pushed | GitHub repository ruleset named `release tags` |
 
@@ -660,6 +661,42 @@ addresses a `Co-authored-by:` trailer may name — until that one is set, every
 attributed trailer fails, because refusing an unvalidated trailer is the only
 direction that does not silently accept a machine.
 `.github/workflows/message-hygiene.yml` carries the same note at the job.
+
+`contract-diff-carries-task-graph` was added on 2026-09-27, and it is the same
+class of hole once more — this time inside the spec workflow's own enforcement
+claim. `.claude/rules/spec-workflow.md` § *What is mechanically enforced* has said
+since that workflow landed that a change to `src/functualize/**` or
+`plugins/**/src/**` requires a `.spec/features/*/tasks.md` with a wave list, and
+only a `PreToolUse` hook ever checked it. A hook is a property of one harness: it
+fires for no other harness and for none of the shell, which the same rule
+excludes in writing. So a branch that changed three `src/functualize/**` modules
+and the documented CLI contract reached `master` with no task graph, no
+exemption, and nothing that failed anywhere.
+
+The new workflow reads the pull request's *range* — the base commit, the head
+commit, and the `.spec/features/**` the range added, which may already have been
+cleared by the branch's own last commit — and it imports `is_gated` and
+`has_wave_graph` from the hook rather than restating them, so "gated path" and
+"parseable graph" keep one definition. It adds no exemption, and cannot: the
+write-time gate's `.spec/EXEMPT` token and its `Spec-exempt:` line were removed on
+2026-09-16, and a required gate with an in-band escape hatch is not a gate. It is
+**reported but not yet required** — nothing in the `master` ruleset lists it, so
+it is visible on every PR and blocks nothing. Registering it is a
+repository-settings change (ruleset `master`, context
+`contract-diff-carries-task-graph`); `.github/workflows/spec-task-graph.yml`
+carries the same note at the job.
+
+Two passes are deliberate. A range that touches no `src/functualize/**` or
+`plugins/**/src/**` path passes whatever else it carries — tests, docs, CI,
+`.spec/**` — because the rule is about shipped code and the check's path set is
+the hook's own. And a docs-only edit to the *documented* contract still passes:
+`f8abb7d` rewrote `docs/guides/composition.md` and the exit-code table a reader
+takes the contract from, and `docs/` is a gated path neither in the hook nor
+here. The range that shipped in spite of the rule changed three
+`src/functualize/**` modules as well, and that is what this refuses. Widening the
+path set to `docs/` would make the check stricter than the gate it reports and
+would refuse work the gate allows; what "contract-bearing" includes beyond
+shipped code is a member decision, not a check's.
 
 `spec-artifacts-cleared` is what `.spec/CONSTITUTION.md` grants its
 `.spec/features/` tracking exception *on the condition of* — "it blocks merge

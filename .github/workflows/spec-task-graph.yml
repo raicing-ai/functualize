@@ -1,0 +1,65 @@
+name: Spec Task Graph
+
+# A change to `src/functualize/**` or `plugins/**/src/**` is a contract change,
+# and `.claude/rules/spec-workflow.md` § What is mechanically enforced requires
+# it to carry a `.spec/features/*/tasks.md` with a wave graph. The write-time
+# half of that rule is `.claude/hooks/spec_gate.py`, a `PreToolUse` hook — a
+# property of one harness, blind to every other harness and to the shell, which
+# the same rule excludes from the gate in writing. Nothing checked the rule at
+# the pull request, and a branch that changed three `src/functualize/**` modules
+# and the documented CLI contract reached `master` with no task graph and no
+# failure anywhere.
+#
+# This is that rule at the pull request, where how the edit was made no longer
+# matters. It is deliberately not a second contract: the script imports
+# `is_gated` and `has_wave_graph` from the hook itself, so "gated path" and
+# "parseable graph" mean one thing in both places, and a failure names the
+# artifact that is missing rather than a rule.
+#
+# Nothing is exempt, and this adds no escape hatch. The write-time gate's
+# `.spec/EXEMPT` token and its `Spec-exempt:` line were removed on 2026-09-16:
+# the token was a file whose contents decided nothing (honoured for one hour by
+# mtime, never read), and merge-time state is the only state a post-merge review
+# can see. A change genuinely too small to specify is a member decision that
+# arrives in this repository as a `.spec/features/**` artifact.
+#
+# `spec-artifacts-cleared` is untouched and is the other direction of the same
+# file: it refuses a tree that still *keeps* `.spec/features/**` at merge, and
+# this refuses a branch whose contract-bearing change never *had* one.
+#
+# Deliberately `pull_request`, not `pull_request_target`: the check only reads
+# the diff, and pull_request_target would run with a write-scoped token in the
+# context of the base repo for fork PRs. Deliberately no `types:` — the default
+# set (opened, synchronize, reopened) is exactly the events that can change the
+# range.
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  # TRANSITIONAL(master ruleset): the job reports on every PR but is not yet a
+  # required context, so it is visible without blocking. Registering
+  # `contract-diff-carries-task-graph` in the `master` ruleset is a
+  # repository-settings change and is what turns it into a gate; AGENTS.md and
+  # CONTRIBUTING.md describe it as reported-but-not-required until that lands,
+  # and as required once it has.
+  contract-diff-carries-task-graph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Both ends of the range must be local objects, and the base commit
+          # must be reachable so `merge-base` can answer.
+          fetch-depth: 0
+
+      - name: Refuse a contract-bearing diff with no task graph
+        # The event payload goes through `env:` and never into the script text:
+        # a value interpolated into a `run:` block is executed.
+        env:
+          SPEC_TASK_GRAPH_BASE: ${{ github.event.pull_request.base.sha }}
+          SPEC_TASK_GRAPH_HEAD: ${{ github.event.pull_request.head.sha }}
+          SPEC_TASK_GRAPH_PR: ${{ github.event.pull_request.number }}
+        run: python3 .github/scripts/verify_spec_task_graph.py

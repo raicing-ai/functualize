@@ -2341,6 +2341,73 @@ Items identified during development that are worth doing but not yet designed:
 | local-vault-access | `feat/local-vault-access`: the encrypted vault was a cache for values fetched from a remote provider; it is now also somewhere to put one secret you already have. `func builtin vault init / put / inspect / remove`, the same lifecycle as public API in `functualize.app.vault`, and an ordinary `classic()` app reads a vault its project has. Store format gains provenance columns and upgrades in place; `keyring` becomes the `functualize[keychain]` extra. Three behavioural changes, all in [ADR-023](../contributor/adr/023-local-vault-access.md): a stored entry that cannot be opened refuses the run instead of falling through, one vault key per user rather than per project, and nullable provenance fields in `vault list --json`. See `.spec/features/local-vault-access/` on the branch (cleared before merge). |
 | mcp-server-fixes | `fix/mcp-server-fixes`: `func mcp serve` crashed on grouped jobs with parameters — the plugin compiled `async def {dotted_job_name}(...)` via `exec`, a SyntaxError that killed registration (found live by the NOOA integration probe; verified against 0.2.3 and still present on master). Fix: codegen under a sanitized identifier, dotted name restored on the function object; descriptions attach as `__doc__` instead of being interpolated into source (a `'''` in a docstring broke compilation the same way). Server boots no longer run FastMCP's PyPI update check or print its banner unless `FASTMCP_*` env vars opt back in. `fastmcp` dependency bounded to `<5`. Regression net: unit + registration tests, a live subprocess stdio capability test, and a `grouped_tools` example with its own serve harness. Full plugin + examples suites green; ruff clean. See `.spec/features/mcp-server-fixes/` on the branch (cleared before merge). |
 
+### The task-graph rule reaches the pull request (2026-09-27, `ci/spec-task-graph-gate`)
+
+**A contract change merged with no task graph and no exemption — found after the
+fact, and recorded here rather than amended away.** The post-merge review of
+`fix/builtin-why-exit-codes` (PR #52, range `498a8a5..b36968d8`) found the range
+changed ten files with no `.spec/features/**` anywhere in it. Three of the ten are
+shipped code — `src/functualize/_app/impl.py`,
+`src/functualize/_cli/builtins.py`, `src/functualize/_engine/explain.py` — and
+`docs/guides/composition.md` carries the documented CLI contract the same range
+changed (`func why` exits 0 on an answered verdict; the exit-4 claim retired).
+`git ls-tree -r b36968d8` lists no `.spec/features/**`, and
+`.claude/rules/spec-workflow.md` § *What is mechanically enforced* has required a
+`tasks.md` carrying a wave graph for a change to those paths since the spec
+workflow landed. The two commits that did the work (`87b390e`, `f8abb7d`) carried
+none, and nothing failed.
+
+**Why nothing failed.** The rule's only enforcement was
+`.claude/hooks/spec_gate.py`, a `PreToolUse` hook — a property of one harness. It
+fires for no other harness, and § *The shell boundary* excludes the shell from it
+in writing. So the rule was a sentence with half a mechanism behind it, and the
+uncovered half is the half that merges: a hook validates a worktree, and a merge
+is a range of commits. `contributor/adr/010-spec-workflow-enforcement-point.md`
+records the same shape of error one level up — prose was structurally unable to
+carry this requirement — and this is its second instance, the first with a merged
+change on the other side of it.
+
+**What closes it.** `contract-diff-carries-task-graph` — workflow
+`.github/workflows/spec-task-graph.yml`, script
+`.github/scripts/verify_spec_task_graph.py` — refuses a pull request whose range
+changes `src/functualize/**` or `plugins/**/src/**` without a
+`.spec/features/*/tasks.md` carrying a parseable `## Task Dependency Graph` added
+anywhere in that range. It extends § *What is mechanically enforced*, which
+declared a rule with only the write-time half built: the CI counterpart imports
+`is_gated` and `has_wave_graph` from the hook rather than restating them, so one
+contract keeps one definition, and it reads the range rather than the worktree,
+which is what makes the shell write of § *The shell boundary* visible to it. Run
+against the range that got away, it reports the missing artifact and names the
+three modules (`498a8a55634b..b36968d8`). The `.spec/features/` lifecycle is
+untouched and so is the check that guards it: `spec-artifacts-cleared` refuses a
+tree that still *keeps* the artifacts at merge, this refuses a branch whose
+contract-bearing change never *had* them — two directions of one file. The job
+reports on every PR and is **not yet a required context**; registering it
+(ruleset `master`, context `contract-diff-carries-task-graph`) is a
+repository-settings change, and until it lands the rule is watched rather than
+enforced, as `research-artifacts-cleared` and `message-hygiene` were when they
+landed.
+
+**It adds no exemption, and none was available to add.** `.spec/EXEMPT` and the
+`Spec-exempt:` line were removed on 2026-09-16 (`11d77f6`, with
+`.spec/exemptions.log`, `bash_audit.py` and
+`tests/harness/test_bash_audit_ledger.py`), and the token could not have covered a
+branch in any case: it was honoured for one hour by file mtime inside a worktree,
+which is not state a post-merge review can observe. The 2026-08 enforcement row
+below still describes it ("Escape hatch is `.spec/EXEMPT`, logged to the committed
+`.spec/exemptions.log`"), as does the comment on `.gitignore:20`; both are left in
+place, because both are records of a past state and this entry is the correction.
+
+**A consequence to read before cutting a release.** A mechanical version bump is a
+contract-bearing change under this path rule: `9958bd0` (#48, 0.4.0) and
+`a2f453d` (#27, 0.2.3) each changed `src/functualize/__init__.py` and no other
+file under `src/`. A standalone `chore(release)` pull request is therefore refused
+by the new check, while `AGENTS.md` § *Git discipline* and
+`.agents/skills/release/SKILL.md` step 3 both already say the bump rides the
+feature PR. Whether a cut is allowed its own PR without a graph is a member
+decision, filed with the check rather than taken here; the check reports instead
+of blocking until that lands.
+
 ### runtime-schema-migrations
 
 `feat/runtime-schema-migrations`: FUN-18. Recorded here for the same reason as the ports entry below —
