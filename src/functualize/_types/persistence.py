@@ -199,10 +199,11 @@ class CompleteStep:
 
 @dataclass(frozen=True)
 class SuspendAtGate:
-    """Stop a scope at a gate and open the input request that pauses it.
+    """Open a gate request and record the scope's resulting status.
 
-    Applying this moves the scope to ``blocked``; collecting the human or
-    agent input happens outside any transaction.
+    A gate that waits moves the scope to ``blocked``. A ladder that answers
+    inline leaves it ``running``; both paths create the request through the
+    same transaction and the same lifecycle-checked scope writer.
 
     ``request_id`` is the request's own identity, minted by the recorder
     before this command is buffered — see :class:`InputWriter` for why the id
@@ -226,6 +227,7 @@ class SuspendAtGate:
     model: str = ""
     #: The gate's bound tool specs — names, never values.
     tools: tuple[Mapping[str, Any], ...] = ()
+    scope_status: str = "blocked"
 
 
 @dataclass(frozen=True)

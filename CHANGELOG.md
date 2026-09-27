@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — gate answers retain their recorded resolution
+
+Workflow gate drafts and answers now include a payload-free `resolution` view
+with the request identity and each candidate's source, order, outcome and
+evaluation detail. Strategy attempts and submitted answers remain readable as
+recorded candidates across resume and reopen, without revalidating an earlier
+answer. `deposit_gate_input` now returns `gate_already_answered` for a request
+that has already accepted an answer instead of replacing that answer.
+
 ### Fixed — the Jev probe's sentences claimed more than its assertions
 
 **Contributor-facing; no runtime behaviour changes.** Six places in the capability probe

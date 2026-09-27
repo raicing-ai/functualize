@@ -63,8 +63,9 @@ class InputRecorder:
         prompt: Any = None,
         model: str = "",
         tools: tuple[Mapping[str, Any], ...] = (),
+        scope_status: str = "blocked",
     ) -> SuspendAtGate:
-        """The walk stopped at a gate; this is the request that pauses it.
+        """Build the gate request with the status the walk reached.
 
         Mints the request's id. ``model`` and ``tools`` travel on the command
         so a surface that answers without the declaring module — MCP, a
@@ -81,6 +82,7 @@ class InputRecorder:
             prompt=prompt,
             model=model,
             tools=tools,
+            scope_status=scope_status,
         )
 
     def ladder_candidates(

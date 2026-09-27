@@ -99,14 +99,21 @@ class GateService:
 
         # 2. The ladder: one candidate per rung, ordinals continuing.
         strategies = _gate_strategy_list(node, prompt_gates)
+        outcome: LadderOutcome | None = None
         if strategies is not None and registry is not None:
-            if resolution is not None:
-                request_id = resolution.request.request_id
-            else:
-                request_id = self._open(walk, node)
-            outcome: LadderOutcome = registry.evaluate(
+            outcome = registry.evaluate(
                 node.awaits, gate_strategy=strategies, gate_name=node.name
             )
+            if resolution is not None:
+                request_id = resolution.request.request_id
+                if outcome.model is None:
+                    self._open(walk, node)
+            else:
+                request_id = self._open(
+                    walk,
+                    node,
+                    scope_status="running" if outcome.model is not None else "blocked",
+                )
             candidates = self._recorder.ladder_candidates(
                 request_id,
                 outcome,
@@ -122,7 +129,7 @@ class GateService:
             blocked_reason = outcome.blocked_reason
 
         # 3. Block: open the request under a stable id and stop here.
-        if resolution is None and not blocked_reason:
+        if outcome is None:
             self._open(walk, node)
         return WalkReport(
             WalkOutcome.BLOCKED,
@@ -134,9 +141,10 @@ class GateService:
             results=ledger.results,
         )
 
-    def _open(self, walk: FrontierWalk, node: Gate) -> str:
-        """Open the gate's request through the port — position, status and
-        the record an answering surface will read, in one transaction."""
+    def _open(
+        self, walk: FrontierWalk, node: Gate, *, scope_status: str = "blocked"
+    ) -> str:
+        """Record the request, position and lifecycle status in one unit."""
         return walk.open_request(
             node.name,
             position=node.name,
@@ -147,6 +155,7 @@ class GateService:
                 {"tool": spec.name, "bound": sorted(spec.bound)}
                 for spec in node.tool_specs()
             ],
+            scope_status=scope_status,
         )
 
     def _recorded_payload(

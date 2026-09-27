@@ -341,21 +341,24 @@ no transaction open.
 | state batch | verify fence, upsert/delete state keys, optional state event | the caller's computation |
 | complete step | step outcome, branch, position, scope status, scope events, outbox intents | notification and network delivery |
 | finish attempt | attempt outcome, run outcome when terminal, final events, outbox intents | rendering, EventBus notification |
-| suspend at gate | input request row, scope → BLOCKED, position, event | collecting the human or agent input |
-| resume | consume ACCEPTED request, claim at a **new** generation, scope → RUNNING, resume event | the resumed body |
+| open gate request | input request, position, scope → BLOCKED when waiting or scope → RUNNING when the ladder answers inline | collecting input or running a strategy |
+| resume claim | claim at a **new** generation, scope → RUNNING | the resumed body |
+| consume gate answer | accepted request → CONSUMED, issued by the walk as it feeds the payload forward | advancing the graph |
 | cancel | scope → CANCELLED, terminal_at, event | anything observing it |
 | lease renewal | conditional generation/owner update | — |
 | dispatch effect | claim one outbox row | the provider call |
 | acknowledge effect | published_at / last_error / next attempt | — |
 
-**`resume` is one transition, and on the live path it is still two locked writes.** The deposit and
-the claim sit in different call frames (`app/_workflow_answer.py`, `_engine/frontier.py`), with
-`ScopeStore`'s lock taken twice. Today's window is benign because consumption is a read; with
-`CONSUMED` in the state machine it would not be, which is why they merge. **Landed at the port:**
-`ResumeWorkflow` is one command and the document backend's `resume` consumes the accepted request,
-claims at the new generation, moves the scope to `RUNNING` and appends the event as one unit.
-**Forward-looking:** `WorkflowRecorder().resumed` has no production caller, so the merge is FUN-20's
-to wire.
+**Consumption is a write on the live path.** `GateService.service` calls
+`FrontierWalk.consume`, which issues `tx.inputs.consume(ConsumeInput(...))`;
+the document backend records `consumed_at` under the same scope transaction
+path that opens requests and appends candidates. The walk is its one writer.
+The deposit, claim, and later consumption remain separate transaction units;
+the claim stamps the resumed scope `running`, and consumption occurs only when
+the walk feeds the accepted payload forward. `ResumeWorkflow` is a port
+command with no production caller yet. Its document implementation claims and
+stamps `running` without consuming; wiring the combined resume command remains
+forward-looking.
 
 ### Why never around a job body
 

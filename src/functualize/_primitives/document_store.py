@@ -883,7 +883,7 @@ class _DocumentTransaction:
             scopes.set_scope_status(cmd.scope_id, cmd.scope_status)
 
     def _suspend(self, cmd: SuspendAtGate, scopes: ScopeStore) -> None:
-        """Open the gate's request, then block the scope at the node.
+        """Open the request and set the scope status in the same unit.
 
         `open_request` owns the record shape and the one-live-request rule:
         a request already open, accepted or consumed for this gate is reused
@@ -904,7 +904,7 @@ class _DocumentTransaction:
                 now=cmd.now,
             )
             scopes.set_position(cmd.scope_id, cmd.position)
-            scopes.set_scope_status(cmd.scope_id, "blocked")
+            scopes.set_scope_status(cmd.scope_id, cmd.scope_status)
 
     def _resume(self, cmd: ResumeWorkflow, scopes: ScopeStore) -> None:
         """Reclaim the scope at a **new** generation.
