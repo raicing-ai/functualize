@@ -80,7 +80,7 @@ note rather than quietly corrected in the table.
 | F1 | catalog `GET /zen/v1/models` | HTTP 200, 82 models, `0.327 s` | measured (real service) |
 | F2 | the model is listed | both `jev-1.13-free` and the paid `jev-1.13` are listed | measured (real service) |
 | F3 | decision endpoint reachability | HTTP 200, `0.562 s`, without a retry | measured (real service) |
-| F4 | what the run met for load | one full run: **no refusal over 95 round trips**; the window-closed run met `3 × HTTP 429` over its first 4, asking for ~18834 s | measured (real service) |
+| F4 | what one serial run met for load | a full serial run: **no refusal over 95 round trips**; the window-closed run met `3 × HTTP 429` over its first 4, asking for ~18834 s. A distributed session (`-n auto`) leaves the cell unmeasured | measured (real service) |
 | G1 | `noul` value range | `0.02 – 0.02` over 4 samples; fields `["noul", "type"]` | measured (real service) |
 | G2 | boolean fields in any answer | **0** across every answer type measured | measured (real service) |
 
@@ -334,6 +334,24 @@ paragraph above, and it stands here as what a run that *starts* inside a spent w
 in its first four requests: three refusals asking for `18834` s. Read F4 as a measurement of
 the run, and the run it describes has to have finished before the cell is filled.
 
+Running last settles the *order*, and the count has a **scope** the order cannot settle.
+`client.py` keeps the round-trip count and the refusals in process-local lists — deliberately,
+as one `global` would buy nothing but a rebinding hazard — so the cell is a claim about **one
+serial run**, and its label says so: `load refusals met by a serial run`. Under `pytest -n
+auto`, which is what the `test-full` leg runs (`uv run pytest --run-slow --cov=functualize -n
+auto`, `.github/workflows/ci.yml`), every xdist worker collects this directory and plays only
+the share of the items the scheduler handed it, with its own pair of counters: a worker's
+number would count the harness, and no ordering or label can aggregate counters that never
+meet. The item therefore reports the cell as unmeasured under `NOT MEASURED (distributed
+session)` — the probe's fourth reason vocabulary — with the reason naming this command, rather
+than filling a cell that would be read as the run's. The mode test is the *process*, not the
+flag: `-n 1` is one worker playing every item, its counters are the run's, and the item is not
+withheld. What a distributed session prints is a separate and older matter — the record is
+process-local and the summary is the controller's, so `-n auto` prints `No facts recorded`
+however many rows the workers measured, which is why the command that measures any cell of
+this matrix is the serial one. That is the same rule as everywhere else here: a number this
+instrument prints has to be the number its own measurement made.
+
 `F3`'s reachability is established by a TCP connect *before* the module's first request, so a
 skip means the service was absent and a failure means it is unhappy about the request — the
 two are never the same thing.
@@ -435,8 +453,9 @@ The 40 facts in the tables above were measured on branch `spike/jev-decision-pro
 by `uv run pytest -q -m jev_probe -p no:randomly` on 2026-09-25, from the instrument committed
 at `a5b2d10` — repository commit `a5b2d10c08968448e033d206d2907053b6181a63`, whose base is
 `498a8a5`. The values are that run's output; the code in that commit differs from the code that
-produced the run in exactly the three renderings named where they apply — the evidence stamp,
-the whitespace the printer clipped, and row E17's count. That run reported:
+produced the run in exactly the four renderings named where they apply — the evidence stamp,
+the whitespace the printer clipped, row E17's count, and row F4's label, which now names the
+mode the count is a claim about (`load refusals met by a serial run`). That run reported:
 
 ```
 40 facts recorded.
@@ -504,7 +523,9 @@ sentence its assertion did not carry, or a sentence about the run derived from a
 it — on branch `fix/jev-probe-prose-assertions`, cut from
 `1d8f3da0757949d2c4c0185587c4a9f77e9d533e`, the merge of B1's repair. The sentences are now
 functions of the numbers the rows measure, in `tests/jev_probe/claims.py`; row F4 runs after
-every other probe module, so its count is the run's own; and each of the six cells below that
+every other probe module, so its count is the run's own **in a serial session** — the counters
+it reads are process-local, so a distributed one (`-n auto`) reports the cell as unmeasured
+with the reason instead; and each of the six cells below that
 changed quotes the run that changed it. The run reported:
 
 ```
@@ -521,6 +542,12 @@ F. Reachability
 41 facts recorded.
 44 passed, 2 skipped, 12775 deselected in 70.78s (0:01:10)
 ```
+
+That block is quoted as the run printed it, and one line of it is a rendering the instrument
+no longer produces: F4's label read `load refusals met by the run` at that commit and now reads
+`load refusals met by a serial run`. The number, the fact count and the exit line are that
+run's; only the mode word was added, by the review of this branch (below), and no keyed run
+followed it — the window was spent.
 
 That run measured every row of the matrix, and the cells above carry its values for the five
 rows whose quoted number it did not reproduce: B2, B3, F1, F3 and F4. The rows it reproduced
@@ -545,25 +572,68 @@ gates that are no part of this probe:
 
 ```
 $ env -u OPENCODE_API_KEY uv run pytest -q -m jev_probe -p no:randomly
-31 passed, 7 skipped, 12775 deselected in 14.92s
+38 passed, 7 skipped, 12884 deselected in 14.54s
 ```
 
-**31 where the quotation above it reads 24**: the probe directory's own offline falsifiers grew
-with the 2026-09-27 correction — the sentence-versus-assertion checks for the three repaired
-rows, the check that the load counter is moved last, and the check on what the summary does
-with a recorded skip — and none of them needs a credential, which is the point: six prose
-corrections in a probe nobody can run without a key had better be testable on a host without
-one. The counts are what that run is evidence of; the wall time is machine-local and moves
-between hosts and loads — the same green keyless run has been observed at `14.61 s`, `21.69 s`
-and `14.92 s` on this one — which is why the line above is quoted with the command that
-produced it rather than as a bare figure.
+**38 where the quotation above it read 31**, and 31 where it read 24 before the 2026-09-27
+correction: the probe directory's own offline falsifiers grew with the correction — the
+sentence-versus-assertion checks for the three repaired rows, the check that the load counter
+is moved last, and the check on what the summary does with a recorded skip — and grew again
+with the review of it, by the seven mode checks described below. None of them needs a
+credential, which is the point: six prose corrections in a probe nobody can run without a key
+had better be testable on a host without one. The counts are what that run is evidence of; the
+wall time is machine-local and moves between hosts and loads — the same green keyless run has
+been observed at `14.61 s`, `21.69 s` and `14.92 s` on this one — which is why the line above
+is quoted with the command that produced it rather than as a bare figure. The deselected count
+moved with the rebase of this branch onto `master` (`12775` → `12884`), not with this change: it
+counts the suite the command did not select.
 
-### Two things to know before re-running this
+**A review of the correction found F4 still claiming more than it measured**, and that repair
+rides the same branch. Moving the row made its count the run's — in a session that is one
+process. `client.py` keeps the round-trip count and the refusals in process-local lists, and
+the `test-full` leg runs the whole suite as `pytest --run-slow --cov=functualize -n auto`,
+where every xdist worker collects this directory and plays only its own share of the items: a
+worker's number counts the scheduler, and no ordering and no label can aggregate counters that
+never meet. The row now names the mode it is a claim about in its label — `load refusals met by
+a serial run` — and a session spread over several workers reports the cell as unmeasured under
+`NOT MEASURED (distributed session)`, the reason naming the serial command, so the session has
+a gap where it would otherwise have had a number that reads as the run's. The test is the
+process count and not the flag: `-n 1` plays every item in one worker, its counters are the
+run's, and the cell is filled. **No keyed run followed**: the window was spent on 2026-09-27,
+so the `95`-round-trip reading and the `44 passed` line above stand as that run's, and the only
+thing this repair changed in the artifact is the mode word in that label — the number, the fact
+set and the row set are unchanged. Seven offline falsifiers came with it, and they fire in both
+directions: the reason a distributed session is given, `-n 1` and a plain serial session not
+refused, an unreadable worker count refused, the label naming the mode the cell is withheld
+under, the item skipped where it stands under `-n auto` rather than moved, and the single
+worker still moving it.
+
+The mode is evidenced on the hook rather than by a new keyed run: with the F4 item selected and
+a placeholder credential exported so the module's gate opens, and with no request made in any
+of the three cases, `uv run pytest -q tests/jev_probe/contract.py -k f4_the_run -p no:randomly`
+runs the item and prints `F4  load refusals met by a serial run: none over 0 round trips` — the
+label's new mode word, over the run's own counters (empty, because the item was the only one
+selected); the same selection under `-n auto` prints `1 skipped` and the reason `NOT MEASURED
+(distributed session) — this session ran the probe over 6 xdist workers, this one 'gw0' …`;
+and under `-n 1` the item runs as it does serially. The distributed reading shows a second
+thing while it is there: its summary prints `No facts recorded`, because the record is
+process-local and that summary is the controller's — which is why the command that measures a
+cell of this matrix is the serial one.
+
+### Three things to know before re-running this
 
 **It costs the account's budget, and the budget is per window.** Two full runs inside one
 window is one run too many (row F4). The instrument will not hang on a refusal — it records
 it and moves on — but the rows it skipped in an earlier window are exactly the rows a
 re-run is for.
+
+**The load cell needs a serial run.** `F4` counts the round trips and refusals of the process
+that made them, so it is measured by the command above; under `-n auto` every worker holds its
+own pair of counters and the cell reports `NOT MEASURED (distributed session)` rather than a
+number that counts the scheduler. One worker is one process: `-n 1` still runs the item. A
+distributed session prints `No facts recorded` whatever it measured — the record is
+process-local and the summary is the controller's — so the serial command is the one to
+measure with. No other row is affected by the flag.
 
 **The probe is not a monitor and not a contract test.** It asserts that each module made a
 measurement at all; it does not assert that the service still returns `0.02`, and a green

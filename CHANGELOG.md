@@ -33,6 +33,21 @@ number is the run's — `none over 95 round trips` on the 2026-09-27 run — and
 reading stays in the reference where it belongs, as what a run that starts inside a spent
 window meets.
 
+The row's *scope* needed stating as well, because moving it is only enough in a session that
+is one process. `client.py` counts round trips and refusals in process-local lists, and the
+`test-full` leg runs the suite as `pytest --run-slow --cov=functualize -n auto`, where every
+xdist worker collects this directory and plays its own share of the items with its own pair of
+counters — a worker's number counts the scheduler, and no ordering can aggregate it. The cell
+is therefore a claim about **a serial run**, its label says so
+(`load refusals met by a serial run`), and a session spread over several workers reports
+`NOT MEASURED (distributed session)` with the reason naming the command that can measure it,
+rather than filling the cell from one worker. The test is the process count, not the flag:
+`-n 1` plays every item in one worker, so its counters are the run's and the item still runs.
+(A distributed session prints `No facts recorded` whatever its workers measured — the record is
+process-local and the summary is the controller's — which is why the matrix is measured
+serially.) No keyed run followed — the window was spent — so the `95`-round-trip reading
+stands, and the only thing this repair changed in the artifact is the mode word in that label.
+
 `F1`'s reference cell quoted `0.35 – 0.48 s`: three runs from one afternoon presented as a
 property of the endpoint, which no re-run could confirm or refute. It now quotes one run's
 `0.327 s` beside the `82 models` the catalog answers with (81 when the matrix was first
@@ -44,12 +59,16 @@ the first line of each recorded skip's `longrepr` — path-qualified, naming the
 conftest that raised the skip rather than the module that asked for one, and listing every skip
 in the session rather than only this directory's.
 
-**Nothing in `src/` or `plugins/` changed.** The probe's gating tests grew by seven offline
-falsifiers — one separating input for each of the three repaired rows, plus the load-counter
-ordering and the skip rendering — so the credential-less run reports `31 passed, 7 skipped`
-where it reported `24 passed, 7 skipped`, and every one of them runs on a host with no key.
-The reference matrix carries the re-measured B2, B3, F1, F3 and F4 cells, a note recording what
-each previously read, and a Provenance subsection for the run that measured them; row C's
+**Nothing in `src/` or `plugins/` changed.** The probe's gating tests grew by fourteen offline
+falsifiers — one separating input for each of the three repaired rows, the load-counter
+ordering, the skip rendering, and seven that pin the mode that counter can report in (the
+reason a distributed session is given, `-n 1` not refused, a serial session not refused, an
+unreadable worker count refused, the label naming that mode, the item skipped where it stands
+under `-n auto` rather than moved, and the single worker still moving it) — so the
+credential-less run reports `38 passed, 7 skipped` where it reported `24 passed, 7 skipped`,
+and every one of them runs on a host with no key. The reference matrix carries the re-measured
+B2, B3, F1, F3 and F4 cells, a note recording what each previously read, the mode F4's cell is
+a claim about, and a Provenance subsection for the run that measured them; row C's
 tables are left on the run of record, with this run's readings recorded beside them rather than
 silently re-pinned.
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 from typing import Any, Final
 
+from tests.jev_probe.claims import load_label
 from tests.jev_probe.client import (
     CATALOG,
     ENDPOINT,
@@ -306,8 +307,12 @@ def test_f4_the_run_says_what_load_it_met() -> None:
     `contract.py` sorts before the model-backed modules, so read in the row's
     own place this counted the four round trips the run had made when `F` ran
     while the run went on to make a hundred more — a snapshot printed under a
-    name that says the whole run. The numbers below are the whole run's only
-    because nothing else is left to run.
+    name that says the whole run. The numbers below are the run's because
+    nothing else is left to run and because the session is one process: the
+    label is `load_label()`, which names the mode, and a session that spread the
+    probe over xdist workers skips this item instead of filling the cell from
+    one worker's counters. So the claim this fact prints is about `SERIAL_MODE`
+    and cannot be read as anything else, whatever the harness was.
     """
     refusals = throttled()
     if refusals:
@@ -315,7 +320,7 @@ def test_f4_the_run_says_what_load_it_met() -> None:
         measured(
             "F",
             "F4",
-            "load refusals met by the run",
+            load_label(),
             f"{len(refusals)} × HTTP {first.status} over {load()} round trips",
             detail=(
                 f"first body: {first.body} · the service asked to wait "
@@ -330,7 +335,7 @@ def test_f4_the_run_says_what_load_it_met() -> None:
         measured(
             "F",
             "F4",
-            "load refusals met by the run",
+            load_label(),
             f"none over {load()} round trips",
             detail=(
                 "the free model answered every request of a run this size without "
