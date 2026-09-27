@@ -1731,11 +1731,15 @@ without changing the pattern.
   Previously the only way to re-run a fresh job was to touch a source file or
   delete a state directory whose location was reported nowhere.
 
-- **`func builtin why <job> --json`**, and `why` now exits non-zero when the job
-  would run. `ExitCode.STALE` (4) has been pinned in the exit-code table since
-  the table was written and was produced nowhere; this gives it its first
-  producer and makes `why` scriptable. The JSON is built from the same guard
-  verdicts the prose renders, so the two forms cannot disagree.
+- **`func builtin why <job> --json`**, and `why` exited non-zero when the job
+  would run. `ExitCode.STALE` (4) had been pinned in the exit-code table since
+  the table was written and was produced nowhere; 0.1.2 gave it its first
+  producer and made `why` scriptable. **Superseded** — that producer was retired
+  again (see the unreleased change at the top of this file): every answered
+  verdict exits **0**, would-run included, and the run/not-run distinction is
+  data — `will_run` and `state` in the payload, the headline in the prose. The
+  JSON is built from the same guard verdicts the prose renders, so the two forms
+  cannot disagree.
 
 - **`--scope-id` on a job command**, on both surfaces: `app.py walk --scope-id
   <id>`. The pre-command `func --scope-id <id> walk` still works.
@@ -1799,10 +1803,12 @@ without changing the pattern.
   so that machine re-runs the job once. See
   [ADR-013](contributor/adr/013-declared-paths-anywhere.md).
 
-- **`func builtin why` no longer always exits 0.** It exits 4 when the job would
-  run, 3 when it would refuse, 5 when it is blocked at a gate. **If you have a
-  script doing `func builtin why <job> && …`, it changes meaning.** That is the
-  point of the change — the verdict is now something a script can branch on.
+- **`func builtin why` no longer always exited 0.** It exited 4 when the job
+  would run, 3 when it would refuse, 5 when it is blocked at a gate, so a script
+  doing `func builtin why <job> && …` changed meaning: the verdict became
+  something a script could branch on. **Superseded in part** — the exit-4 branch
+  was retired with the change above. 3 and 5 still hold, a would-run job answers
+  0, and the verdict to branch on is `will_run` in the `--json` payload.
 
 - **Every run status routes through the exit-code table.** `deliver_job_result`
   hand-coded `BLOCKED` and `REFUSED` and let every other status fall through to
