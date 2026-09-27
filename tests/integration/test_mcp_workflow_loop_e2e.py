@@ -154,6 +154,7 @@ async def test_an_agent_can_drive_a_blocked_workflow_to_completion(
     accepted = await tools._answer_gate(payload, gate=gate_name)
     assert accepted["status"] == "answered"
     assert accepted["workflow_id"] == workflow_id
+    assert accepted["resolution"]["candidates"][0]["source"] == "mcp"
 
     # Accepting input runs nothing — the walk has not moved.
     assert app.ran == ["build"]  # type: ignore[attr-defined]

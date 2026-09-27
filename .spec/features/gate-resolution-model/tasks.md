@@ -566,7 +566,29 @@ now: `0` · after: `5`
 
 ## Wave 6 — end-to-end gates, then docs (serialised)
 
-### [ ] T10 — acceptance tests through public entry points
+### [x] T10 — acceptance tests through public entry points
+
+**Completion note (T10).** Ten workflow tests and one MCP e2e assertion drive
+the request, ladder, recorded evaluation, submission, reopen, consumption,
+legacy projection, and source attribution through `app.execute`, public
+answer/deposit functions, and the MCP provider. The named task suite passed:
+`13 passed`. `ruff check --fix`, `ruff format --check`, `mypy src/`, and
+`lint-imports` passed. The task suite plus every earlier task gate passed
+with T1–T10 ticked: `36 passed`.
+
+Production reachability: `app.execute(RunRequest(...))` →
+`JobExecutionEngine` → `WorkflowWalker.walk` → `_service_gate` →
+`GateService.service` → `FrontierWalk.record_candidates` →
+`DocumentRuntimeStore.transaction` → `gate_draft(...)["resolution"]`.
+After committing the tests, replacing `walk.record_candidates(candidates)`
+with `pass` made
+`tests/workflow/test_gate_resolution_model.py::test_ladder_rungs_are_recorded`
+fail with `ValueError: request ... is 'open', not accepted — nothing to
+consume` (`1 failed`). `git checkout -- src/functualize/_engine/gate_service.py`
+restored the wire; the source file is unchanged in this task.
+
+The document backend remains transitional: its candidates still live in the
+scope record until the durable interaction slice lands.
 
 *Files:* `tests/workflow/test_gate_resolution_model.py` (new), `tests/integration/test_mcp_workflow_loop_e2e.py`
 
