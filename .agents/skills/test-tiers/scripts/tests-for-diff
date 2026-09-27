@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
-"""Map a change set to the pytest paths worth running.
+"""Map a change set to the pytest paths worth running, and optionally run them.
 
 Usage:
-    tests-for-diff [--base <ref>] [--files <path> ...]
+    tests-for-diff [--base <ref>] [--files <path> ...] [--require-selection]
+    tests-for-diff [--base <ref>] [--files <path> ...] --run [PYTEST_ARG ...]
 
 Prints pytest paths, one per line, deduplicated, sorted, and existing on
-disk — directly usable as:
+disk. --run then executes them, and is the form to publish:
+
+    .agents/skills/test-tiers/scripts/tests-for-diff --run
+
+The bare form
 
     uv run pytest -n auto -q --no-header $(tests-for-diff)
+
+is the low-level primitive, and it fails open: an empty selection
+substitutes nothing, so the command silently collects the whole fast tier,
+and exit 3 — shared infrastructure changed, run the tip tier — is swallowed
+by `$( )`. --run and --require-selection refuse an empty selection with
+exit 4 instead; --run never swallows 3 either.
 
 The default input is the committed diff against the merge base with
 origin/master plus the uncommitted changes (staged, unstaged, untracked).
@@ -25,14 +36,19 @@ Selection rules, first match per changed path:
 Shared infrastructure (M4): tests/conftest.py, tests/_support/**,
 pyproject.toml, uv.lock. Selection is not sound there — run the tip tier.
 
-Exit codes: 0 selection printed (possibly empty), 3 shared infrastructure
-changed, 2 usage or git error.
+Exit codes:
+    0  selection printed (possibly empty) — bare and --require-selection forms
+    2  usage, git, or environment error
+    3  shared infrastructure changed: nothing selected, run the tip tier
+    4  empty selection under --require-selection or --run: refused, nothing run
+    otherwise, under --run, pytest's own exit code, which the exec carries out
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import os
 import re
 import subprocess
 import sys
@@ -41,7 +57,13 @@ from pathlib import Path
 DEFAULT_BASE = "origin/master"
 EXIT_ERROR = 2
 EXIT_SHARED = 3
+EXIT_EMPTY = 4
 SHARED_INFRA_MESSAGE = "shared infrastructure changed: run the tip tier"
+EMPTY_SELECTION_MESSAGE = (
+    "tests-for-diff: empty selection — nothing here imports this change set, "
+    "so there is nothing to run: refusing to fall through to the fast tier\n"
+)
+PYTEST_COMMAND = ("uv", "run", "pytest", "-n", "auto", "-q", "--no-header")
 
 
 class MapperError(RuntimeError):
@@ -201,6 +223,24 @@ def build_selection(changed: list[str], root: Path) -> set[str]:
     return selected
 
 
+def run_pytest(selected: list[str], extra: list[str]) -> int:
+    """Exec the step-tier pytest run.
+
+    ``execvp`` replaces this process, so pytest's exit code, its stdout, and
+    its signal handling are the command's own — nothing is swallowed in a
+    subprocess.
+    """
+    command = [*PYTEST_COMMAND, *selected, *extra]
+    sys.stdout.flush()
+    sys.stderr.flush()
+    try:
+        os.execvp(command[0], command)
+    except OSError as exc:  # a missing `uv`, or an unrunnable pytest
+        sys.stderr.write(f"tests-for-diff: cannot run {command[0]}: {exc}\n")
+        return EXIT_ERROR
+    raise AssertionError("unreachable: execvp replaced the process")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="tests-for-diff",
@@ -218,7 +258,29 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help="explicit change set; bypasses git entirely",
     )
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--require-selection",
+        action="store_true",
+        help=(
+            "exit 4 with a one-line message instead of printing an empty "
+            "selection; the bare form keeps its 0-prints-possibly-empty contract"
+        ),
+    )
+    parser.add_argument(
+        "--run",
+        action="store_true",
+        help=(
+            "run the selection with `uv run pytest -n auto -q --no-header`, "
+            "refusing an empty one (exit 4) and never swallowing exit 3; "
+            "arguments the mapper does not know are passed on to pytest"
+        ),
+    )
+    args, extra = parser.parse_known_args(argv)
+    if extra and not args.run:
+        parser.error(
+            f"unrecognized arguments: {' '.join(extra)} (pytest arguments "
+            "are only accepted together with --run)"
+        )
 
     root = Path.cwd()
     try:
@@ -236,9 +298,15 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"tests-for-diff: {path}: {SHARED_INFRA_MESSAGE}\n")
             return EXIT_SHARED
 
-    selected = build_selection(changed, root)
-    for rel in sorted(p for p in selected if (root / p).exists()):
+    selected = sorted(p for p in build_selection(changed, root) if (root / p).exists())
+    for rel in selected:
         print(rel)
+
+    if not selected and (args.require_selection or args.run):
+        sys.stderr.write(EMPTY_SELECTION_MESSAGE)
+        return EXIT_EMPTY
+    if args.run:
+        return run_pytest(selected, extra)
     return 0
 
 
