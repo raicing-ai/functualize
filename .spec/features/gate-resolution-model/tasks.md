@@ -353,7 +353,32 @@ now: `0` · after: `2`
 
 ## Wave 3 — the walker (first production path for AC-1, AC-2)
 
-### [ ] T7 — extract `GateService`; gate transitions through the port
+### [x] T7 — extract `GateService`; gate transitions through the port
+
+**Completion note (T7).** The three count gates produced, in order, no output
+(exit 1: zero matches), no output (exit 1: zero matches), and `1` (exit 0).
+`ruff check --fix`, `ruff format --check`, `mypy src/` (373 files), and
+`lint-imports` (7 kept, 0 broken) passed. Targeted pytest, including the MCP
+workflow tools and the spec gate tripwire, passed: `98 passed` after ticking T7.
+
+Production reachability: `app.execute(<workflow job>)` →
+`JobExecutionEngine.run` → `WorkflowWalker.walk` → `_service_gate` →
+`GateService.service` → `FrontierWalk.open_request` / `record_candidates` /
+`consume` → `DocumentRuntimeStore.transaction`. The test
+`tests/engine/test_gate_service.py::TestTheLadderIsRecorded::test_ladder_rungs_are_recorded`
+starts at `app.execute`, and reads the recorded rungs from the document store.
+After committing the implementation, removing `walk.record_candidates(candidates)`
+made that test fail (`1 failed`; `ValueError: request ... is 'open', not accepted
+— nothing to consume`), with a traceback through this whole call path.
+`git checkout -- src/functualize/_engine/gate_service.py` restored the wire and
+the working tree was clean before this note.
+
+The document backend needed two adjacent compatibility changes for this first
+production path: generation 0 remains unfenced for an unclaimed walk, and a
+legacy deposited payload still projects as an accepted answer. They are in
+`_primitives/document_store.py` and `_primitives/gate_requests.py` in the same
+implementation commit. `# TRANSITIONAL(FUN-21)` marks document-backed legacy
+answer storage; the durable interaction/evidence slice remains pending there.
 
 *Files:* `src/functualize/_engine/gate_service.py` (new), `src/functualize/_engine/workflow_walker.py`, `src/functualize/_engine/frontier.py`
 

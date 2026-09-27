@@ -44,6 +44,7 @@ from functualize._engine.frontier import (
     WalkState,
     step_key,
 )
+from functualize._engine.gate_service import GateService
 from functualize._engine.loop_state import current_iteration, iteration_step_key
 from functualize._primitives.graph import descendants
 from functualize._types.errors import ScopeCancelledError
@@ -317,6 +318,7 @@ class WorkflowWalker:
         )
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
+        self._gates = GateService()
         self._emit = emit
         self._notifiers = notifiers
         #: None means "the default" — resolved in `workflow_validation` rather
@@ -729,61 +731,10 @@ class WorkflowWalker:
         name: str,
         ledger: _Ledger,
     ) -> _NodeRun | WalkReport:
-        """A gate: replay its deposited payload, resolve it, or block here."""
-        payload = self._walk.gate_payload(node.name)
-        blocked_reason = ""
-        if payload is None:
-            strategies = _gate_strategy_list(node, self._prompt_gates)
-            if strategies is not None and self._gate_registry is not None:
-                from functualize._types.errors import GateResolutionError
-
-                try:
-                    model = self._gate_registry.resolve_gate(
-                        node.awaits,
-                        gate_strategy=strategies,
-                        gate_name=node.name,
-                    )
-                    payload = model.model_dump()
-                    # Not `block`: this walk is not stopping. The gate ladder
-                    # resolved the payload in this same call and the walk
-                    # carries on, so parking the scope here would leave a
-                    # `blocked → completed` move in the durable record for a
-                    # walk that never stopped. `record_gate` writes the slot
-                    # the deposit below needs and leaves the status `running`.
-                    self._walk.record_gate(
-                        node.name,
-                        node.name,
-                        model=getattr(node.awaits, "__name__", ""),
-                        input_schema=node.awaits.model_json_schema(),
-                        tools=[
-                            {"tool": spec.name, "bound": sorted(spec.bound)}
-                            for spec in node.tool_specs()
-                        ],
-                        blocked_at=_now(),
-                    )
-                    self._store.deposit_gate_payload(self._scope_id, node.name, payload)
-                except GateResolutionError as exc:
-                    # Every rung of the ladder failed. That is a block,
-                    # not a crash — but "blocked on triage" alone reads
-                    # identically to a gate waiting by design, so carry
-                    # the reason. `last_error` names the unregistered
-                    # strategies and the package each one needs
-                    # (`_gate/_strategy.STRATEGY_PROVIDERS`), which is
-                    # the difference between "wait for a human" and
-                    # "pip install functualize-ai".
-                    blocked_reason = exc.last_error
-        if payload is None:
-            self._block(node)
-            return WalkReport(
-                WalkOutcome.BLOCKED,
-                self._scope_id,
-                tuple(ledger.executed),
-                tuple(ledger.replayed),
-                blocked_reason=blocked_reason,
-                blocked_on=node.name,
-                results=ledger.results,
-            )
-        return _NodeRun(payload, replayed=True)
+        """A gate: replay its recorded answer, resolve it, or block here."""
+        return self._gates.service(
+            node, self._walk, self._gate_registry, self._prompt_gates, ledger=ledger
+        )
 
     def _service_step(
         self,
@@ -931,20 +882,6 @@ class WorkflowWalker:
             if isinstance(edge, ConditionalEdge):
                 return edge.condition(value)
         return None
-
-    def _block(self, gate: Gate) -> None:
-        """Persist the gate's block, with the schema a resumer must satisfy."""
-        self._walk.block(
-            gate.name,
-            gate.name,
-            model=getattr(gate.awaits, "__name__", ""),
-            input_schema=gate.awaits.model_json_schema(),
-            tools=[
-                {"tool": spec.name, "bound": sorted(spec.bound)}
-                for spec in gate.tool_specs()
-            ],
-            blocked_at=_now(),
-        )
 
     def _notify(self, report: WalkReport) -> None:
         """Fire the declared notifications for the status the walk ended in.
@@ -1121,19 +1058,6 @@ _NODE_HANDLERS: dict[type, _NodeHandler] = {
     Step: WorkflowWalker._service_step,
     AgentStep: WorkflowWalker._service_agent,
 }
-
-
-def _gate_strategy_list(gate: Gate, prompt_gates: bool) -> list[str] | None:
-    declared = gate.strategy if hasattr(gate, "strategy") else None
-    if declared == "ai_outbound":
-        return None  # always block for external AI
-    if declared == "ai_inbound":
-        return ["ai_inbound", "prompt", "resolve"]
-    if declared == "prompt":
-        return ["prompt", "resolve"] if prompt_gates else None
-    if declared is not None:
-        return [declared]  # unknown strategy → try it, fall through to block
-    return ["prompt", "resolve"] if prompt_gates else None
 
 
 #: Recorded when an `OnFailure` routes to `END`.

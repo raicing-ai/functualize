@@ -90,12 +90,40 @@ def _legacy_status(record: dict[str, Any]) -> str:
 
 
 def _status(record: dict[str, Any]) -> str:
-    """The request's status: stored when it was written by this module,
-    derived when the record predates it."""
+    """The request's status — a deposited payload is an answer, whichever
+    path wrote it.
+
+    ``consumed_at`` first and the payload second, so the legacy deposit
+    helper (``ScopeStore.deposit_gate_payload``, kept by member decision
+    D-3 for its test call sites) keeps registering as an answered gate the
+    moment it writes. For records this module writes the two derivations
+    agree by construction — an accepted candidate sets the payload, and
+    nothing else does — so this only widens what reads as accepted, never
+    what stops being it.
+    """
+    if record.get("consumed_at"):
+        return "consumed"
+    if record.get("payload") is not None:
+        return "accepted"
     status = record.get("status")
     if isinstance(status, str) and status:
         return status
-    return _legacy_status(record)
+    return "open"
+
+
+def recorded_answer(store: ScopeStore, scope_id: str, gate_name: str) -> Any:
+    """The answer sitting on a gate record that no candidate recorded.
+
+    The read-only projection for the deposit path: a record written before
+    requests existed, or answered through the legacy deposit helper, holds
+    its answer as ``payload`` and has no candidates to read instead. This
+    is what lets those files and tests keep answering gates exactly as they
+    did — the payload is fed to replay without being re-validated.
+    """
+    record = store.get_gate(scope_id, gate_name)
+    if record is None:
+        return None
+    return record.get("payload")
 
 
 def _request_id(scope_id: str, gate_name: str, record: dict[str, Any]) -> str:
@@ -156,20 +184,28 @@ def open_request(
 def append_candidate(
     store: ScopeStore, scope_id: str, gate_name: str, candidate: GateCandidate
 ) -> None:
-    """Append one candidate, refusing anything but an open request.
+    """Append one candidate, refusing a second answer.
 
     The status is re-read **inside** the batch, so a second writer — another
     process, another ``ScopeStore`` on the same substrate — that already
     landed an accepted candidate is seen here and refused with nothing
     written. An ``accepted`` candidate moves the request to ``accepted``
     and records the payload beside it, which is what the walk replays.
+
+    One submission's tail lands: the ``not_reached`` rungs behind an
+    accepted one belong to the same ladder — they change no answer, and
+    refusing them would record a ladder that stopped one rung short of
+    what ran. Everything else that is not an open request refuses.
     """
     with store.batch():
         record = store.get_gate(scope_id, gate_name)
         if record is None:
             raise InputRequestNotOpenError(candidate.request_id, "missing")
         status = _status(record)
-        if status != "open":
+        if status != "open" and not (
+            status == "accepted"
+            and candidate.evaluation.outcome is EvaluationOutcome.NOT_REACHED
+        ):
             raise InputRequestNotOpenError(
                 _request_id(scope_id, gate_name, record), status
             )

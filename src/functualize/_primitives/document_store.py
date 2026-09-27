@@ -847,7 +847,17 @@ class _DocumentTransaction:
         install it rather than pass it. Restored afterwards: the store outlives
         this transaction and a hold left behind would fence the next caller —
         including a CLI read that holds nothing and must never be refused.
+
+        Generation 0 fences nothing — the spelling `_cancel` already uses for
+        an unfenced force, and the one an unclaimed walk's suspend arrives
+        with: leases count from 1, so 0 names "no generation held". The
+        direct writes the port replaces were never fenced on an unclaimed
+        scope either, and a test or tool blocking a scope nobody claimed is
+        not a writer anybody needs fencing against.
         """
+        if generation <= 0:
+            yield
+            return
         previous = scopes.generation_for(scope_id)
         scopes.hold(scope_id, generation)
         try:
