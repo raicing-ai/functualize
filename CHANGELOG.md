@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the Jev probe asserted an exact `score` the wire does not report
+
+**Contributor-facing; no runtime behaviour changes.** `contributor/reference/jev-system-one-capability-matrix.md`
+row B1 claimed `score` is the expected value of `probabilities` over the `legend` indices and
+that, with two-decimal probabilities and integer indices, the sum is exact; the probe pinned
+the claim with a flat `0.005` tolerance meant to absorb rounding. The wire does not hold it.
+`score` comes back as `1.99` where the printed probabilities are `{"0": 0, "1": 0, "2": 1}`,
+leaving a residual of a whole unit of the wire's last reported place; re-measuring the row
+over six twelve-sample sets met it once — one non-zero residual, `-0.01`, over 72 answers,
+where the sum of the other seventy-one was exact. Twice the tolerance the row asserted, and a
+red row here reads as a broken identity, which is exactly the wrong lesson from a wire
+answering to contract.
+
+The tolerance is now derived from the precision the wire reports instead of assumed. It is
+half of the last reported place of `score`, plus half of the last reported place of each
+probability weighted by that probability's `legend` index — `0.005 + 0.005 × (0 + 1 + 2) =
+0.02` for the probe's three-point legend. Two details make it hold: a value reported as an
+integer (`0`, `1`) is read at the two places the provider prints rather than at none, and
+the derivation follows the values a run actually saw, so a wire that starts reporting a
+third decimal is measured against the tighter precision it printed rather than against a
+constant that outlived it. The row's fact now carries the budget beside the residual, and
+a residual above its own answer's budget still fails — a definitional break, such as
+ranking the legend instead of averaging it, is a whole index unit and cannot pass.
+
+The comparison runs on the **unrounded** residual; only the residual printed in the row is
+rounded, to six places, for reading. Rounding first would have handed the budget's job back
+to the step it was meant to replace: `score` `1.0000003` against probabilities `0.3333333`
+at each legend index `0`, `1`, `2` leaves `4.0000000001150227e-7` against a `2e-7` budget —
+two places outside what the wire's own numbers allow — and rounds to `0.0`. No wire observed
+here reports past two decimals, so that case is a check at the arithmetic rather than a
+measurement, and the reference records it as one.
+
+Two reference lines that repeated the same over-claim are corrected with it: the `score`
+row of the answer-type table called the field "an integer index into `legend`" (it is the
+expected value over those indices; the winning index is what a `choice` answer carries),
+and row E's summary line counted "15 refusals" against the 14 of 16 its own table computes,
+where the control `E0` and the empty-`User-Agent` case `E14` are both `200`.
+
 ### Fixed — `func builtin why` no longer exits 2 on a healthy job
 
 Found by a first-user rehearsal against the published 0.4.0 artifact. Asking
