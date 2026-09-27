@@ -72,7 +72,13 @@ All checks must pass before any change is complete: `ruff check`, `ruff format -
   of `message-hygiene`: it reports tracker keys and URLs, internal identifiers
   and machine identities in the PR title, the PR body and every commit message in
   the range on every PR, and it is **not yet a required context** — see
-  `CONTRIBUTING.md` § *Commit Message Convention*.
+  `CONTRIBUTING.md` § *Commit Message Convention*. So is
+  `contract-diff-carries-task-graph`: it refuses a PR whose range changes
+  `src/functualize/**` or `plugins/**/src/**` without carrying a task graph with a
+  wave list — the pull-request half of the rule `.claude/rules/spec-workflow.md`
+  § *What is mechanically enforced* states and, until now, only the write-time
+  hook checked — and it is **not yet a required context** — see `CONTRIBUTING.md`
+  § *Spec-driven PR validation and cleanup*.
 - Commit subjects are [Conventional Commits](https://www.conventionalcommits.org/):
   `<type>(<scope>)!: <subject>` with types `feat fix docs refactor test perf ci
   build chore revert`. Imperative, lowercase, no trailing period, ≤72 chars.

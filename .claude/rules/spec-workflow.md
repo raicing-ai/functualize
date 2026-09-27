@@ -31,15 +31,39 @@ running the phases — not ad-hoc edits.
 
 **Modifying `src/functualize/**` or `plugins/**/src/**` requires an existing
 `.spec/features/*/tasks.md` carrying a parseable `## Task Dependency Graph`.**
-A `PreToolUse` hook denies the write otherwise.
+A `PreToolUse` hook denies the write otherwise, and the
+`contract-diff-carries-task-graph` check refuses the pull request otherwise.
+
+Two checks carry one rule, one at each end of a change, because neither end can
+see the other:
+
+| Where | What it decides | What it cannot see |
+|---|---|---|
+| `.claude/hooks/spec_gate.py`, write time | Denies an `Edit`, `Write` or `NotebookEdit` to a gated path when the worktree holds no wave graph | Every other harness, and every shell write (§ *The shell boundary* below) |
+| `contract-diff-carries-task-graph` — `.github/scripts/verify_spec_task_graph.py`, pull request | Refuses a PR whose range touches a gated path and carries no `.spec/features/*/tasks.md` with a parseable graph. The graph may have been added anywhere in the range, because the two-push sequence clears it again before merge | Whether the pull request is on the required list, until that context is registered in the ruleset |
+
+The second reads `is_gated` and `has_wave_graph` from the hook rather than
+restating them, so one contract keeps one definition and "parseable graph" means
+the same thing in both places. It reports on every pull request and is **not yet
+a required context** — see [AGENTS.md § *Git discipline*](../../AGENTS.md) and
+[CONTRIBUTING.md § *Spec-driven PR validation and
+cleanup*](../../CONTRIBUTING.md). Nothing is exempt: the write-time gate's
+`.spec/EXEMPT` token and its `Spec-exempt:` line were removed on 2026-09-16, and
+this check adds no replacement — a change small enough to need an exemption is a
+member decision that arrives as a `.spec/features/**` artifact.
 
 Not gated, so the Specify and Plan phases work normally: `.spec/`, `tests/`,
 `plugins/**/tests/`, `plugins/conftest.py`, every `pyproject.toml`, `docs/`,
 `contributor/`, `.claude/`.
 
-The gate fails open. If the validator cannot decide — malformed input, missing
-interpreter, unreadable `.spec/` — the write proceeds. A broken validator
-degrades to unenforced; it never bricks the repository.
+The write-time gate fails open. If the validator cannot decide — malformed
+input, missing interpreter, unreadable `.spec/` — the write proceeds. A broken
+validator degrades to unenforced; it never bricks the repository.
+
+The pull-request check fails closed, and for the opposite reason: it exists
+because the write-time half was silent, so *its* silence must not read as a pass.
+No base or head sha, an unresolvable commit, a failed `git` — it refuses the pull
+request and says what it could not read.
 
 ### The shell boundary
 
@@ -51,6 +75,12 @@ and tested through the normal Git and CI process.
 This is deliberate. Reliably blocking arbitrary shell would mean parsing it,
 which is fragile and easy to fool. The gate stops ad-hoc tool editing; it does
 not claim to control arbitrary shell commands.
+
+What the shell boundary cannot do is hide the *change*. The pull-request check
+reads the branch's range, not the worktree and not the tool that wrote it, so a
+gated blob that arrived by `sed -i` is refused at the merge unless the range
+carries the task graph. Bypassing the editor hook is still possible; bypassing
+the contract is not.
 
 ## Version control lifecycle
 

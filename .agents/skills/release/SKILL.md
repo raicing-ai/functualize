@@ -273,6 +273,16 @@ Determine the target version, then:
    gate only sees `Edit`/`Write`/`NotebookEdit`, so a shell write is not
    blocked. It is also no longer audited: `bash_audit.py` and
    `.spec/exemptions.log` were removed, so nothing records the bypass.
+
+   **The shell write dodges the editor, not the check.** The
+   `contract-diff-carries-task-graph` workflow reads the pull request's *range*
+   and refuses a change to this file that no `.spec/features/*/tasks.md` wave
+   graph accompanies, however the blob was written. So the bump rides a PR whose
+   range carries the current feature's artifacts — which is what `AGENTS.md`
+   means by "the version bump rides the feature PR like any other change". A
+   standalone `chore(release)` PR that bumps the version cannot satisfy this and
+   would be refused; see `CONTRIBUTING.md` § *Spec-driven PR validation and
+   cleanup* before planning one.
 4. **On a minor or major bump, raise the child-project floors too.** They are
    *dependency constraints*, not version declarations, so the grep above does
    not find them and the count in step 3 does not include them:
