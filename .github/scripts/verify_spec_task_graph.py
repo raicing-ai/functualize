@@ -27,9 +27,19 @@ edit was made. It is a check, not a second contract:
 
 The task graph may have arrived and been cleared again — the two-push sequence
 deletes it in the branch's last commit — so the branch tip alone is not the
-question. A graph added anywhere in the range counts, and a graph still at the
-tip counts. Nothing else does:
+question. A graph held by any commit of the range counts, the head commit
+included. Nothing else does:
 
+* every answer is read from the range's commit objects, never from the
+  checkout. An untracked, staged or locally edited `tasks.md` is not part of the
+  change a reviewer merges, and a checkout that differs from the head commit —
+  a local run, or CI's merge commit — must not decide what the range carried.
+  The gated-path test is lexical for the same reason: it is asked of the
+  committed path against an empty directory, so no symlink in the checkout can
+  move a changed path out of `src/functualize/`;
+* only `.spec/features/<name>/tasks.md` is the artifact — the one file per
+  feature directory the hook's `survey_features` reads, not any file under
+  `.spec/features/` whose name ends in `tasks.md`;
 * a `.spec/features/<name>/` directory whose `tasks.md` carries no parseable
   graph is not a graph, exactly as at write time;
 * a directory that exists but belongs to another feature is *not* refused. The
@@ -52,8 +62,8 @@ Inputs, all from the environment so the workflow owns the git invocation:
 ``SPEC_TASK_GRAPH_BASE``  the pull request's base sha
 ``SPEC_TASK_GRAPH_HEAD``  the pull request's head sha
 ``SPEC_TASK_GRAPH_PR``    the pull request number, to reach a fork's head
-``SPEC_TASK_GRAPH_ROOT``  the checkout to inspect (default: the working
-                          directory)
+``SPEC_TASK_GRAPH_ROOT``  the repository whose objects are read (default:
+                          the working directory); its worktree is never read
 
 Every unresolved, unreadable or unparseable input is a failure with its reason
 printed. This job exists because the alternative was silence, so a check that
@@ -66,6 +76,7 @@ import importlib.util
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 #: The write-time gate whose contract this reports. Loaded by path, never
@@ -91,13 +102,23 @@ class UnusableError(Exception):
 
 
 def _git(root: str | Path, *args: str) -> tuple[int, str]:
-    """Run git in `root` and return (returncode, stdout)."""
-    result = subprocess.run(
-        ["git", "-C", str(root), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    """Run git in `root` and return (returncode, stdout).
+
+    A git that cannot be started at all — not on `PATH`, not executable — is
+    the same answer as a git that failed: nothing was checked. Left uncaught it
+    is a traceback, which fails closed but says nothing about why.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        raise UnusableError(
+            f"could not run git ({type(error).__name__}: {error})"
+        ) from error
     return result.returncode, result.stdout
 
 
@@ -168,40 +189,77 @@ def _changed_paths(root: Path, merge_base: str, head: str) -> list[str]:
     return [line for line in out.splitlines() if line.strip()]
 
 
-def _graphs_added_in_range(root: Path, merge_base: str, head: str) -> list[str]:
-    """The `.spec/features/**/tasks.md` blobs the range added, as `sha:path`."""
-    code, out = _git(
-        root,
-        "log",
-        "--format=%H",
-        "--diff-filter=A",
-        "--name-only",
-        f"{merge_base}..{head}",
-        "--",
-        ".spec/features",
+def _gated(gate: object, changed: list[str]) -> list[str]:
+    """The changed paths the hook's `is_gated` calls shipped code.
+
+    Asked against an empty directory, not the checkout. `is_gated` resolves
+    real paths so that a symlink planted in a *worktree* cannot walk a write out
+    of the gated tree; here the paths come from commits, where git records a
+    symlink as a blob and never a path through one, so the lexical answer is the
+    exact one. Resolving them against the checkout would instead let whatever
+    the checkout holds — a local symlink, a stale tree — move a committed
+    `src/functualize/**` path out of the gate, and the check would pass.
+    """
+    with tempfile.TemporaryDirectory(prefix="spec-task-graph-") as nowhere:
+        return [path for path in changed if gate.is_gated(path, nowhere)]  # type: ignore[attr-defined]
+
+
+def _is_feature_tasks(path: str) -> bool:
+    """`.spec/features/<name>/tasks.md` — the one file `survey_features` reads."""
+    parts = path.split("/")
+    return (
+        len(parts) == 4
+        and parts[:2] == [".spec", "features"]
+        and parts[3] == "tasks.md"
     )
+
+
+def _tasks_in_range(
+    root: Path, merge_base: str, head: str
+) -> list[tuple[str, str, str]]:
+    """Every feature `tasks.md` a commit of the range holds, newest commit first.
+
+    Returned as `(commit, path, blob)`. Read from each commit's tree, so the
+    head commit's own graph, a graph added and cleared again, a graph that only
+    became parseable in a later edit, and one that arrived through a merge are
+    all seen — and nothing outside the commits is.
+    """
+    code, out = _git(root, "rev-list", f"{merge_base}..{head}")
     if code != 0:
-        raise UnusableError(f"could not walk {merge_base}..{head} for .spec/features")
-    found: list[str] = []
-    commit = ""
-    for line in out.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if len(line) == _SHA_LENGTH and set(line) <= _HEX:
-            commit = line
-        elif (
-            commit and line.startswith(".spec/features/") and line.endswith("tasks.md")
-        ):
-            found.append(f"{commit}:{line}")
+        raise UnusableError(f"could not list the commits of {merge_base}..{head}")
+    commits = [
+        line for line in out.split() if len(line) == _SHA_LENGTH and set(line) <= _HEX
+    ]
+    if not commits:
+        raise UnusableError(f"{merge_base}..{head} holds no commit")
+    found: list[tuple[str, str, str]] = []
+    for commit in commits:
+        code, listing = _git(
+            root, "ls-tree", "-r", "-z", commit, "--", ".spec/features"
+        )
+        if code != 0:
+            raise UnusableError(f"could not read the tree of {commit}")
+        for entry in listing.split("\0"):
+            meta, _, path = entry.partition("\t")
+            fields = meta.split()
+            if len(fields) == 3 and fields[1] == "blob" and _is_feature_tasks(path):
+                found.append((commit, path, fields[2]))
     return found
 
 
-def _carried_by_the_range(root: Path, gate: object, blobs: list[str]) -> str | None:
-    for blob in blobs:
-        code, text = _git(root, "show", blob)
-        if code == 0 and gate.has_wave_graph(text):  # type: ignore[attr-defined]
-            return blob.split(":", 1)[1]
+def _carried_by_the_range(
+    root: Path, gate: object, tasks: list[tuple[str, str, str]]
+) -> tuple[str, str] | None:
+    """The first `(commit, path)` whose `tasks.md` carries a parseable graph."""
+    verdicts: dict[str, bool] = {}
+    for commit, path, blob in tasks:
+        if blob not in verdicts:
+            code, text = _git(root, "cat-file", "blob", blob)
+            if code != 0:
+                raise UnusableError(f"could not read {path} at {commit}")
+            verdicts[blob] = bool(gate.has_wave_graph(text))  # type: ignore[attr-defined]
+        if verdicts[blob]:
+            return commit, path
     return None
 
 
@@ -231,7 +289,7 @@ def main() -> int:
             )
         merge_base = _merge_base(root, resolved_base, resolved_head)
         changed = _changed_paths(root, merge_base, resolved_head)
-        gated = [path for path in changed if gate.is_gated(path, str(root))]  # type: ignore[attr-defined]
+        gated = _gated(gate, changed)
     except UnusableError as error:
         print(
             f"::error::{error}; nothing was checked. Refusing the pull request "
@@ -249,9 +307,8 @@ def main() -> int:
         return 0
 
     try:
-        _, _, graph_at_tip = gate.survey_features(str(root))  # type: ignore[attr-defined]
-        blobs = _graphs_added_in_range(root, merge_base, resolved_head)
-        carried = None if graph_at_tip else _carried_by_the_range(root, gate, blobs)
+        tasks = _tasks_in_range(root, merge_base, resolved_head)
+        carried = _carried_by_the_range(root, gate, tasks)
     except UnusableError as error:
         print(
             f"::error::{error}; nothing was checked. Refusing the pull request "
@@ -259,18 +316,19 @@ def main() -> int:
         )
         return 1
 
-    if graph_at_tip:
+    if carried and carried[0] == resolved_head:
         print(
-            f"OK: the branch tip carries {REQUIRED} for {len(gated)} "
+            f"OK: the head commit {resolved_head[:12]} carries {carried[1]} with a "
+            f"parseable `## Task Dependency Graph` for {len(gated)} "
             "contract-bearing path(s)."
         )
         return 0
 
     if carried:
         print(
-            f"OK: {carried} carries the task graph for {len(gated)} "
-            "contract-bearing path(s), and was cleared before merge as the "
-            "two-push sequence requires."
+            f"OK: {carried[1]} carries the task graph at {carried[0][:12]} for "
+            f"{len(gated)} contract-bearing path(s), and was cleared before merge "
+            "as the two-push sequence requires."
         )
         return 0
 
@@ -288,9 +346,14 @@ def main() -> int:
     print(f"  range: {span} (base {resolved_base[:12]}, head {resolved_head[:12]})")
     print(f"  contract-bearing path(s) changed ({len(gated)}):")
     print(listed)
+    graphless = sorted({path for _, path, _ in tasks})
     print(
-        f"  {REQUIRED} added anywhere in the range: "
-        f"{'no' if not blobs else ', '.join(blobs)}"
+        f"  {REQUIRED} in any commit of the range: no"
+        + (f" (without a parseable graph: {', '.join(graphless)})" if graphless else "")
+    )
+    print(
+        "  Only committed objects count: an untracked or uncommitted "
+        "`.spec/features/` in the checkout is not part of the range."
     )
     return 1
 
