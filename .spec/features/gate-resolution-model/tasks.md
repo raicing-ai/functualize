@@ -517,7 +517,31 @@ now: `0` · after: `1`
 
 ## Wave 5 — attribution
 
-### [ ] T9 — surfaces say who answered
+### [x] T9 — surfaces say who answered
+
+**Completion note (T9).** The attribution gate was `0` before this task and
+returned `2`, `1`, `2` for `builtins.py`, `workflow_flags.py`, and
+`_workflow_tools.py` after it (total `5`). `resume_scope` now passes its
+`source` to `answer_gate`; the CLI passes `cli` and MCP passes `mcp`.
+The stale CLI resume comment is corrected. The `_cli` public API import
+boundary still passes `lint-imports` (7 kept, 0 broken).
+
+`ruff check --fix`, `ruff format --check`, `mypy src/` (373 files), and
+`lint-imports` passed. Targeted CLI, MCP, workflow control, workflow flag,
+and task gate tests passed: `119 passed, 24 skipped` before ticking T9;
+`120 passed, 24 skipped` with T9 ticked.
+
+Production reachability: `func builtin workflow answer` →
+`_cli/builtins.py:workflow_answer` → `app.utils.answer_gate` →
+`app/_workflow_answer.py:answer_gate` → `gate_requests.append_candidate`.
+A temporary assertion in
+`tests/integration/test_cli_workflow_parity.py::TestTheAnswerCommand::test_set_takes_json_typed_values`
+read `gate_draft(...)["resolution"]["candidates"][0]["source"]` through
+that path: it passed with `cli` (`1 passed`). After the implementation commit,
+changing the CLI call to `source="api"` made the same test fail with
+`AssertionError: assert 'api' == 'cli'` (`1 failed`).
+`git checkout --` restored both temporary edits, so T9's four-file scope
+is preserved. Permanent end-to-end source assertions belong to T10.
 
 *Files:* `src/functualize/_cli/builtins.py`, `src/functualize/app/adapters/workflow_flags.py`, `src/functualize/app/_workflow_control.py`, `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py`
 
