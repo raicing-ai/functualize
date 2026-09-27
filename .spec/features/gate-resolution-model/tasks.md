@@ -615,7 +615,32 @@ uv run pytest tests/workflow/test_gate_resolution_model.py tests/integration/tes
 ```
 Expected: all green. This block is a suite run, not a count, so the gate parser skips it.
 
-### [ ] T11 — documentation parity
+### [x] T11 — documentation parity
+
+**Completion note (T11).** The workflow guide now describes stable request
+identity, the payload-free `resolution` projection, reopen history and
+`gate_already_answered`; its gate strategy table also agrees with the AI guide
+about presets. The AI guide names an absent plugin's recorded `unavailable`
+rung without changing the human-facing `blocked_reason`. The persistence
+reference marks request identity, recorded candidate evaluations and the
+walk's single consumption writer as landed at the port on the document
+backend, with independently durable tables still pending.
+
+Executable parity: T10's public-entry-point tests cover each new behavioral
+claim (`test_blocked_gate_has_a_minted_request_id_stable_across_resume`,
+`test_reading_a_resolution_never_revalidates`, `test_reopen_supersedes_and_keeps_history`,
+`test_second_deposit_is_refused_not_overwritten`, `test_ladder_rungs_are_recorded`,
+and `test_blocked_reason_text_is_unchanged`). `uv run pytest examples/ -v`
+passed (`224 passed`). The `doc-verify` harness baseline `a-core-builtins`
+passed; the targeted `h-workflow` and `i-mcp` scenarios each passed. `uv run
+mkdocs build --strict`, `ruff check --fix`, `ruff format --check`, `mypy src/`
+(373 files), and `lint-imports` (7 kept, 0 broken) passed. The broad scenario
+directory run was stopped during unrelated install/scaffold checks; it has no
+full-corpus result. The T10 suite and prior task gates passed after this tick:
+`36 passed`.
+
+No production wiring changed in this documentation task; T10's public path
+and sabotage proof are the reachability evidence for the behavior described.
 
 *Files:* `docs/guides/workflows.md`, `docs/guides/ai.md`, `contributor/reference/runtime-persistence-data-model.md`
 

@@ -36,7 +36,7 @@ Six names. No overlap with `@job`:
 | Name | Purpose |
 |------|---------|
 | `Step(job)` | References a registered job — by name or by the decorated function. A step takes nothing else: DI, config, `Deps`, `Guards`, `Fingerprint`, `Exec` all come from the referenced job. Its node name is the job's canonical name (`Step(fetch_data)` → `"fetch-data"`). |
-| `Gate(name, awaits=Model, tools=[], strategy=None)` | First-class pause point. Waits for input matching a Pydantic model. `strategy` is one of `"resolve"`, `"prompt"`, `"ai_inbound"`, `"ai_outbound"`, or a registered preset. |
+| `Gate(name, awaits=Model, tools=[], strategy=None)` | First-class pause point. Waits for input matching a Pydantic model. `strategy` is one of `"resolve"`, `"prompt"`, `"ai_inbound"`, or `"ai_outbound"`; see [Gate Strategies](ai.md#gate-strategies) for the preset distinction. |
 | `AgentStep(name, instructions, executor=None, tools=(), requires=frozenset(), time_budget_s=None)` | A node performed by an **agent**, not by a registered job. See [Agent steps](#agent-steps). |
 | `Edge(source, target)` | Unconditional transition. `END` is the sentinel for the walk's terminal node. |
 | `ConditionalEdge(source, condition, targets)` | Runtime routing. `condition` is called with the source step's return value; `targets` maps its return value to node names or `END`. |
@@ -211,6 +211,22 @@ Gate resolution goes through the gate registry. Three surface outcomes:
 | Interactive TUI/CLI | Prompts inline for input |
 | Non-interactive CLI | Exits with a typed error + resume token |
 | MCP (AI agent) | Persists the block; agent calls `resume_workflow(id, input)` |
+
+When a gate blocks, the walk opens a request with its own `request_id`. That ID
+stays stable while the request is open, after an answer is accepted, and when
+the resumed walk consumes it. `gate_draft(app, store, scope_id, gate)` includes
+a `resolution` field with `request_id`, `request_status`, and `candidates`.
+Each candidate reports its ID, ordinal, source, submission time, and recorded
+outcome, detail, and errors; the read view does not expose candidate payloads
+or re-evaluate their outcomes.
+
+`answer_gate(..., reopen=True)` can correct an accepted answer while the walk
+is still parked at that gate. Reopening gives the replacement request a new ID
+and preserves the old request under `superseded`. Once the walk has passed the
+gate, reopening is refused. A direct `deposit_gate_input(...)` accepts one
+answer for an open request; a second deposit returns
+`{"error": "gate_already_answered", ...}` and leaves the first answer intact.
+Invalid deposits are recorded as invalid candidates and leave the request open.
 
 ---
 
