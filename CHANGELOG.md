@@ -16,6 +16,36 @@ recorded candidates across resume and reopen, without revalidating an earlier
 answer. `deposit_gate_input` now returns `gate_already_answered` for a request
 that has already accepted an answer instead of replacing that answer.
 
+### Fixed — the task-graph check read the checkout, not the range
+
+**Contributor-facing; no runtime behaviour changes.** `contract-diff-carries-task-graph`
+(`.github/scripts/verify_spec_task_graph.py`) is meant to answer one question about a pull
+request's range: did any of its commits carry a `.spec/features/<name>/tasks.md` with a parseable
+`## Task Dependency Graph`? Before looking at the range it surveyed the *working tree*, so a
+committed `src/functualize/**` change with no graph was refused, and the same base/head invocation
+passed — `OK: the branch tip carries …` — once an **untracked** `.spec/features/*/tasks.md` sat in
+the checkout. CI's checkout is normally clean, which kept this from biting there, but a check whose
+answer depends on files outside the range it names is not checking the range.
+
+Every answer now comes from commit objects. The graph is looked for in the tree of each commit of
+`merge-base(base, head)..head`, the head commit included, so an untracked, staged or locally edited
+`tasks.md` counts for nothing and a checkout that no longer holds the head's graph refuses nothing.
+Three neighbouring holes closed with it: a `tasks.md` whose graph arrived in a later edit (rather
+than in the commit that added the file) now counts, matching the write-time gate; only
+`.spec/features/<name>/tasks.md` is the artifact — `subtasks.md` or a `tasks.md` one directory
+deeper, which the hook never accepted, no longer satisfy the check; and the gated-path test is asked
+of the committed path against an empty directory, so a local symlink can no longer resolve a changed
+`src/functualize/**` path out of the gate. A `git` that cannot be started now refuses with *could
+not run git …; nothing was checked* instead of a traceback. The changed paths are read NUL-delimited
+and without rename detection (`git diff --name-only -z --no-renames`): git's default output quotes a
+name holding a non-ASCII byte, a quote, a tab or a newline, so a committed `src/functualize/café.py`
+with no graph arrived as `"src/functualize/caf\303\251.py"` and passed as *no contract-bearing path
+changed*, and a `git mv` out of `src/functualize/` was listed by its destination only. Both now
+refuse, and a name that is not valid UTF-8 is gated and printed escaped rather than dropped.
+`.claude/rules/spec-workflow.md` no longer says such a diff "is refused at the merge": the check
+reports the failure on the pull request, and it blocks the merge only once the context is registered
+as required in the `master` ruleset.
+
 ### Fixed — the Jev probe's sentences claimed more than its assertions
 
 **Contributor-facing; no runtime behaviour changes.** Six places in the capability probe

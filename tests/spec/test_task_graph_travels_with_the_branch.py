@@ -9,8 +9,8 @@ ever checked it. A hook sees a worktree and one harness; a merge is a range of
 commits made by anything.
 
 The script is exercised by **shelling out**, not by importing it, for the cases
-where the answer is a process: the two directories this check reads (the checkout
-and a base commit) are inputs of a git invocation, and a fixture that called
+where the answer is a process: what this check reads (a repository's objects and
+the two ends of a range) are inputs of a git invocation, and a fixture that called
 `main()` in-process could pass while the workflow's own invocation failed. The
 predicates themselves are imported in one test, to assert the script really does
 take them from the hook rather than restating them — two definitions of one
@@ -208,6 +208,153 @@ class TestRefused:
         head = _commit(repo, "fix(cli): make why exit zero")
         assert _run(repo, _base(repo), head).returncode == 1
 
+    def test_a_nested_or_misnamed_tasks_file_is_not_the_artifact(
+        self, repo: Path
+    ) -> None:
+        """The artifact is `.spec/features/<name>/tasks.md`, the one file the
+        hook's `survey_features` reads. A suffix match would also have taken
+        `subtasks.md` and a `tasks.md` one directory deeper — neither of which
+        the write-time gate would have accepted."""
+        _write(repo, GATED_FILE, "def explain():\n    return 0\n")
+        _write(repo, ".spec/features/x/subtasks.md", GRAPH)
+        _write(repo, ".spec/features/x/notes/tasks.md", GRAPH)
+        head = _commit(repo, "fix(cli): make why exit zero")
+        assert _run(repo, _base(repo), head).returncode == 1
+
+
+class TestAPathIsWhatTheCommitNamesIt:
+    """`is_gated` must be handed the committed path, byte for byte.
+
+    Git's default path output is for people: `core.quotePath` wraps a name
+    holding a non-ASCII byte, a quote, a tab or a newline in double quotes and
+    escapes it, and rename detection reports a move by its destination alone.
+    Read that way, each of these shipped-code changes arrived as a string
+    outside `src/functualize/`, and the check answered `OK: no
+    contract-bearing path changed`.
+    """
+
+    @pytest.mark.parametrize(
+        "name",
+        ["café.py", 'say"hi.py', "tab\there.py", "line\nbreak.py"],
+        ids=["non-ascii", "double-quote", "tab", "newline"],
+    )
+    def test_a_name_git_would_quote_is_still_gated(self, repo: Path, name: str) -> None:
+        path = f"src/functualize/{name}"
+        try:
+            _write(repo, path, "VALUE = 1\n")
+        except OSError:
+            pytest.skip(f"this filesystem cannot hold {name!r}")
+        head = _commit(repo, "feat(engine): a module with an unusual name")
+        assert _git(repo, "diff", "--name-only", _base(repo), head).startswith('"'), (
+            "the fixture must exercise git's quoted output, or it proves nothing"
+        )
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 1, result.stdout
+        assert path in result.stdout
+
+    def test_a_name_that_is_not_utf8_is_gated_and_named(self, repo: Path) -> None:
+        """A path is bytes. One that is not valid UTF-8 must be refused with
+        its name escaped, never dropped and never turned into a traceback."""
+        target = os.fsencode(repo / "src" / "functualize") + b"/bad\xff.py"
+        (repo / "src" / "functualize").mkdir(parents=True)
+        try:
+            Path(os.fsdecode(target)).write_text("VALUE = 1\n", encoding="utf-8")
+        except OSError:
+            pytest.skip("this filesystem refuses a name that is not UTF-8")
+        head = _commit(repo, "feat(engine): a module with a raw byte in its name")
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 1, result.stdout
+        assert "src/functualize/bad" in result.stdout
+        assert "Traceback" not in result.stderr, result.stderr
+
+    def test_a_move_out_of_the_gated_tree_is_a_change_to_it(self, repo: Path) -> None:
+        """Deleting `src/functualize/_engine/explain.py` is refused; moving it
+        to `docs/` removes the same shipped code, and rename detection used to
+        list only `docs/explain.py`."""
+        _git(repo, "checkout", "-q", "master")
+        _write(repo, GATED_FILE, "def explain():\n    return 0\n")
+        _commit(repo, "feat(engine): explain")
+        _git(repo, "checkout", "-q", "-B", "topic")
+        (repo / "docs").mkdir()
+        _git(repo, "mv", GATED_FILE, "docs/explain.py")
+        head = _commit(repo, "docs: move explain out of the package")
+        assert "R100" in _git(repo, "diff", "--name-status", "-M", _base(repo), head), (
+            "the fixture must be a rename git detects, or it proves nothing"
+        )
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 1, result.stdout
+        assert GATED_FILE in result.stdout
+
+
+class TestTheCheckoutDecidesNothing:
+    """The range is commits. The checkout the script happens to run in — a
+    local worktree, or CI's merge commit — is not the change being merged, so
+    nothing in it may turn a refusal into a pass, or a pass into a refusal."""
+
+    def test_an_untracked_graph_in_the_checkout_does_not_satisfy_it(
+        self, repo: Path
+    ) -> None:
+        """The false pass this class exists for.
+
+        The committed range changes a gated file and carries no graph; an
+        untracked `.spec/features/untracked/tasks.md` sits in the worktree.
+        `git diff --name-only base head` names only the source file, and a
+        check that surveyed the worktree answered `OK: the branch tip carries`.
+        """
+        _write(repo, GATED_FILE, "def explain():\n    return 0\n")
+        head = _commit(repo, "fix(cli): make why exit zero")
+        _write(repo, ".spec/features/untracked/tasks.md", GRAPH)
+        assert "?? .spec/" in _git(repo, "status", "--short")
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 1, result.stdout
+        assert GATED_FILE in result.stdout
+        assert "OK" not in result.stdout
+
+    def test_a_staged_but_uncommitted_graph_does_not_satisfy_it(
+        self, repo: Path
+    ) -> None:
+        """A graphless `tasks.md` was committed; the graph exists only in the
+        index. Staged is not committed, and the range is what merges."""
+        _write(repo, GATED_FILE, "def explain():\n    return 0\n")
+        _write(repo, ".spec/features/x/tasks.md", GRAPH_LESS_TASKS)
+        head = _commit(repo, "fix(cli): make why exit zero")
+        _write(repo, ".spec/features/x/tasks.md", GRAPH)
+        _git(repo, "add", "-A")
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 1, result.stdout
+        assert ".spec/features/x/tasks.md" in result.stdout
+
+    def test_the_head_commits_graph_counts_when_the_checkout_lacks_it(
+        self, repo: Path
+    ) -> None:
+        """The other direction: the evidence is the head commit, so a checkout
+        that no longer holds it must not refuse the range."""
+        _write(repo, ".spec/features/x/tasks.md", GRAPH)
+        _write(repo, GATED_FILE, "def explain():\n    return 0\n")
+        head = _commit(repo, "fix(cli): make why exit zero")
+        _git(repo, "rm", "-q", "-r", "--cached", ".spec")
+        (repo / ".spec" / "features" / "x" / "tasks.md").unlink()
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 0, result.stdout
+        assert f"head commit {head[:12]}" in result.stdout
+
+    def test_a_symlink_in_the_checkout_cannot_move_a_gated_path_out(
+        self, repo: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        """`is_gated` resolves real paths. Asked against the checkout, a local
+        symlink over a committed gated directory resolved the path outside
+        `src/functualize/`, and the range read as touching no shipped code."""
+        _write(repo, GATED_FILE, "def explain():\n    return 0\n")
+        head = _commit(repo, "fix(cli): make why exit zero")
+        elsewhere = tmp_path_factory.mktemp("elsewhere")
+        engine = repo / Path(GATED_FILE).parent
+        (engine / Path(GATED_FILE).name).unlink()
+        engine.rmdir()
+        engine.symlink_to(elsewhere, target_is_directory=True)
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 1, result.stdout
+        assert GATED_FILE in result.stdout
+
 
 class TestPassed:
     """The cases it must let through, each of which would be a false refusal."""
@@ -235,6 +382,22 @@ class TestPassed:
         result = _run(repo, _base(repo), head)
         assert result.returncode == 0, result.stdout
         assert ".spec/features/x/tasks.md" in result.stdout
+
+    def test_a_graph_completed_in_a_later_commit_counts(self, repo: Path) -> None:
+        """The first commit of `tasks.md` may predate its graph. The file that
+        became parseable in a later edit, then was cleared, is still a graph
+        the range carried — reading only the version each commit *added* would
+        refuse it."""
+        _write(repo, ".spec/features/x/tasks.md", GRAPH_LESS_TASKS)
+        _commit(repo, "docs(spec): draft the task list")
+        _write(repo, ".spec/features/x/tasks.md", GRAPH)
+        _write(repo, GATED_FILE, "def explain():\n    return 0\n")
+        _commit(repo, "fix(cli): make why exit zero")
+        _git(repo, "rm", "-q", "-r", ".spec/features/x")
+        head = _commit(repo, "chore(spec): clear the artifacts")
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 0, result.stdout
+        assert "cleared before merge" in result.stdout
 
     def test_a_sibling_features_graph_satisfies_the_range(self, repo: Path) -> None:
         """Deliberately as loose as the hook, which surveys any feature dir.
@@ -303,6 +466,18 @@ class TestFailsClosed:
         result = _run(tmp_path / "gone", "0" * 40, "1" * 40)
         assert result.returncode == 1
         assert "nothing was checked" in result.stdout
+
+    def test_a_missing_git_refuses_with_a_reason_not_a_traceback(
+        self, repo: Path
+    ) -> None:
+        """No `git` on `PATH` is the same answer as a failed `git`. Uncaught, it
+        exited 1 with a `FileNotFoundError` traceback — closed, but mute."""
+        head = _git(repo, "rev-parse", "HEAD")
+        result = _run(repo, head, head, PATH=os.devnull)
+        assert result.returncode == 1
+        assert "could not run git" in result.stdout
+        assert "nothing was checked" in result.stdout
+        assert "Traceback" not in result.stderr, result.stderr
 
 
 class TestThePredicatesComeFromTheHook:
@@ -413,9 +588,11 @@ class TestTheWorkflowCannotSilentlyStopChecking:
                 modules.add((node.module or "").split(".")[0])
         assert modules <= {
             "importlib",
+            "io",
             "os",
             "subprocess",
             "sys",
             "pathlib",
+            "tempfile",
             "__future__",
         }, modules
