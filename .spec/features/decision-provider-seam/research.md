@@ -62,7 +62,7 @@ ls tests/plugins | rg -c "ai_|mcp_"                        # 26: the ai/mcp plug
 CI names `functualize-mcp`'s and `functualize-substrate-sqlite`'s own test
 directories explicitly and no domain plugin's. **Shape change:** the Jev tests
 go under `tests/plugins/` and `tests/integration/`, not
-`plugins/domains/functualize-jev/tests/`, or CI would never run them.
+`plugins/domains/functualize-decision-jev/tests/`, or CI would never run them.
 
 ## F-5. Bundled plugins already import `functualize._types` at runtime
 
@@ -74,7 +74,7 @@ plugins/adapters/functualize-mcp/src/functualize_mcp/_tools.py:24-25
 plugins/adapters/functualize-inline/src/functualize_inline/plugin.py:14
 ```
 
-Precedent for `functualize_jev` importing `functualize._types.decision` and
+Precedent for `functualize_decision_jev` importing `functualize._types.decision` and
 `functualize._gate.decision_strategy` without a public export — recorded as
 surviving smell S-4, for the member.
 

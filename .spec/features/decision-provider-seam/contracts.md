@@ -2,9 +2,20 @@
 
 Declared surfaces only. Internal helpers are the executor's choice, within
 `plan.md`'s module map. Signatures are Python 3.11, `from __future__ import
-annotations` assumed. Nothing here is exported from a public package in Phase 1
-(`spec.md` §6); a bundled plugin reaches `functualize._types` at runtime, as
-`functualize-mcp` and `functualize-substrate-sqlite` already do.
+annotations` assumed.
+
+**Public API (member decision, 2026-09-28).** The names a plugin author or a
+workflow author needs are re-exported, marked **provisional** (design-review
+decision D2):
+
+| public module | names |
+|---|---|
+| `functualize.plugin` | `DecisionProvider`, `ChoiceRequest`, `DecisionResult`, `DecisionProvenance`, `DecisionFailure`, `DecisionUnavailableError`, `DecisionGateResolver` |
+| `functualize.workflow` | `ChoiceDecision` |
+
+The definitions stay in `_types/` and `_gate/` (ADR-026: vocabulary lives in
+`_types/`); the public modules re-export them. `functualize_decision_jev`
+imports only from `functualize.plugin`.
 
 ## C-1. `functualize._types.decision` — provider half
 
@@ -78,10 +89,10 @@ class DecisionUnavailableError(Exception):   # the module's convention: errors d
 `str(error)` is `"<provider> <kind>[ HTTP <status>][ retry after <n> s]: <detail>"`
 — the string a failed rung carries into `blocked_reason` (C-6).
 
-## C-3. The Jev wire mapping — `functualize_jev` (provider half)
+## C-3. The Jev wire mapping — `functualize_decision_jev` (provider half)
 
-New workspace package `plugins/domains/functualize-jev`, distribution name
-`functualize-jev`, import name `functualize_jev`, Tier 3 (experimental) under
+New workspace package `plugins/domains/functualize-decision-jev`, distribution name
+`functualize-decision-jev`, import name `functualize_decision_jev`, Tier 3 (experimental) under
 `plugins/PUBLISHING.md`. Stdlib-only at runtime beyond `functualize` itself.
 
 ### Request (row A1, A4)
@@ -90,7 +101,7 @@ New workspace package `plugins/domains/functualize-jev`, distribution name
 POST https://opencode.ai/zen/v1/systemone
 Authorization: Bearer <OPENCODE_API_KEY>
 Content-Type: application/json
-User-Agent: functualize-jev/<package version>
+User-Agent: functualize-decision-jev/<package version>
 
 {"model": "<request.model or configured default>",
  "state": "<request.state>",
@@ -190,7 +201,7 @@ decide: ChoiceDecision | None = None
 ```
 
 - `"decision"` joins `_VALID_GATE_STRATEGIES`, and `STRATEGY_PROVIDERS` gains
-  `"decision": "functualize-jev"` (the table test pins their key sets equal).
+  `"decision": "functualize-decision-jev"` (the table test pins their key sets equal).
 - `decide` set and `strategy` `None` → `strategy` becomes `"decision"`.
   `decide` set with any other strategy, or `strategy="decision"` without
   `decide` → `ValueError`.
@@ -252,7 +263,7 @@ unchanged `blocked_reason_from` (`_gate/_evaluation.py`) as
 
 ```toml
 [project.entry-points."functualize.plugins"]
-jev = "functualize_jev:JevPlugin"
+jev = "functualize_decision_jev:JevPlugin"
 ```
 
 `JevPlugin.__call__(app)` resolves `JevConfig` from `app.configuration`

@@ -1,9 +1,11 @@
 # decision-provider-seam — plan
 
 **Phase state.** Specify drafted, **not confirmed**; architecture gate run; task
-list drafted, **not reviewed**. Execute is not authorised. Three decisions
-below need the member before it is (D-1 … D-3), and the Gate half additionally
-waits for pull request #68 to reach `master`.
+list drafted, **not reviewed**. Execute is not authorised. Revised 2026-09-28:
+the member answered D-1, D-2 and S-4; D-3, S-3, Q-1 and Q-2 are open
+(*Decisions* below). Pull request #68 merged as `02c6a96`, and the ten seam
+files are byte-identical to `d5747f85` (empty `git diff --name-only`), so no part
+of the Gate half needed re-specifying.
 
 ## Retrieval, as run
 
@@ -88,7 +90,7 @@ only by `_app` injecting the registry (contract "Peer layers are independent").
 
 ## Candidate AFTERs, and what each introduced
 
-**A-1. A Jev-specific gate strategy in a plugin** (`functualize_jev` builds the
+**A-1. A Jev-specific gate strategy in a plugin** (`functualize_decision_jev` builds the
 Jev request from `GateContext` and applies a threshold itself). Rejected: the
 threshold would live in the provider's adapter — the provider package would own
 acceptance, which is exactly the authority the track forbids — and a second
@@ -141,15 +143,18 @@ authorisation" moved the rule onto the distribution (B-16).
                         │  reads ctx.decision, ctx.workflow_context[state step]
                         │  calls provider.choose(ChoiceRequest) ──▶ DecisionResult[str]
                         │  accepts on distribution only; else raises → rung `failed`
-                   _strategy.py   STRATEGY_PROVIDERS += {"decision": "functualize-jev"}
+                   _strategy.py   STRATEGY_PROVIDERS += {"decision": "functualize-decision-jev"}
                    _evaluation.py unchanged — blocked text composed as before
 
- plugins/domains/functualize-jev  [NEW, Tier 3]
-     _wire.py      request build, response parse, status → DecisionFailure   (imports functualize._types)
+ plugins/domains/functualize-decision-jev  [NEW, Tier 3]
+     _wire.py      request build, response parse, status → DecisionFailure   (imports functualize.plugin)
      _provider.py  JevDecisionProvider, JevTransport (Protocol), UrllibTransport, JevConfig
      _plugin.py    JevPlugin ── app.gates.register_gate_strategy("decision", DecisionGateResolver(…))
-                   (imports functualize._gate.decision_strategy at runtime — see S-4)
- core never imports functualize_jev.
+                   (imports DecisionGateResolver from functualize.plugin — S-4 resolved)
+ core never imports functualize_decision_jev.
+
+ PUBLIC re-exports, provisional:  functualize.plugin  ◀── _types/decision.py, _types/errors.py, _gate/decision_strategy.py
+                                  functualize.workflow ◀── ChoiceDecision
 ```
 
 **Boundary check.** `_types/decision.py` imports only stdlib and
@@ -180,7 +185,7 @@ Two halves, one branch, one pull request (the branch is merged only after both
 halves and the two-push clearing sequence):
 
 1. **Provider half — no external dependency.** `_types/decision.py` and the
-   error type; the `functualize-jev` package with its wire mapping and provider;
+   error type; the `functualize-decision-jev` package with its wire mapping and provider;
    offline tests against wire-shaped bodies taken verbatim from the capability
    matrix, plus one credential-gated live test that skips without
    `OPENCODE_API_KEY`.
@@ -202,18 +207,21 @@ wording on its face.
 ## Files to change (from the hit sets in `research.md`)
 
 Provider half: `src/functualize/_types/decision.py` (new),
-`src/functualize/_types/errors.py`, `plugins/domains/functualize-jev/**` (new),
+`src/functualize/_types/errors.py`, `plugins/domains/functualize-decision-jev/**` (new),
 `pyproject.toml` (`[tool.uv.sources]`, `all` extra), `uv.lock`,
 `tests/types/test_decision_values.py` (new), `tests/plugins/test_jev_wire.py`
 (new), `tests/plugins/test_jev_decision_provider.py` (new),
 `tests/plugins/test_jev_live.py` (new).
 
+Public API (T14, T15): `src/functualize/plugin/__init__.py`,
+`src/functualize/workflow/__init__.py`, `tests/test_public_api_surface.py`.
+
 Gate half: `src/functualize/_types/decision.py`, `src/functualize/_types/workflow.py`,
 `src/functualize/_gate/_strategy.py`, `src/functualize/_gate/_context.py`,
 `src/functualize/_gate/_registry.py`, `src/functualize/_gate/decision_strategy.py`
 (new), `src/functualize/_engine/gate_service.py`,
-`plugins/domains/functualize-jev/src/functualize_jev/{_plugin.py,__init__.py}`,
-`plugins/domains/functualize-jev/pyproject.toml`, tests as listed per task,
+`plugins/domains/functualize-decision-jev/src/functualize_decision_jev/{_plugin.py,__init__.py}`,
+`plugins/domains/functualize-decision-jev/pyproject.toml`, tests as listed per task,
 `docs/guides/ai.md`, `docs/guides/workflows.md`,
 `contributor/architecture/codemaps/{overview.md,modules.md}`, `CHANGELOG.md`.
 
@@ -235,33 +243,80 @@ Gate half: `src/functualize/_types/decision.py`, `src/functualize/_types/workflo
 |---|---|---|---|---|
 | S-1 | **Shotgun surgery** (pre-existing) | adding `"decision"` touches `_types/workflow.py`, `_gate/_strategy.py`, `_engine/gate_service.py`, `docs/guides/ai.md`, `tests/gate/test_provider_tables.py` | fixing the strategy-naming spread is explicitly out of scope in `_gate/_strategy.py:36-38` ("Reconciling the two is deliberately out of scope"), and the time box forbids growing this phase into it | no — recorded |
 | S-2 | **Switch statements** (grows by one branch) | `_engine/gate_service.py::_gate_strategy_list` | one branch mirrors `ai_inbound`'s; replacing the switch with polymorphism is the same out-of-scope redesign as S-1 | no — recorded |
-| S-3 | **Speculative generality** (mild) | `DecisionProvider` Protocol with one implementation; `DecisionResult.distribution` / `.confidence` optional while Phase 1's only producer always fills both | provider neutrality is a track constraint, not a guess; `noul` (A3) has neither field, and Phase 3's LLM and deterministic baselines report no distribution — making them required now forces a breaking change next phase | **yes** — put to the member with D-1…D-3 |
-| S-4 | **Inappropriate intimacy** | `functualize_jev._plugin` imports `functualize._gate.decision_strategy` and `functualize._types.decision` at runtime | precedent: bundled plugins already import `functualize._types.*` at runtime (`functualize-mcp/_tools.py:24`, `functualize-substrate-sqlite/substrate.py:49`); a public export is deferred as ADR-029 deferred its own | **yes** — the alternative is a public `functualize.plugin` export, which is a public-API decision |
+| S-3 | **Speculative generality** (mild) | `DecisionProvider` Protocol with one implementation; `DecisionResult.distribution` / `.confidence` optional while Phase 1's only producer always fills both | provider neutrality is a track constraint, not a guess; `noul` (A3) has neither field, and Phase 3's LLM and deterministic baselines report no distribution — making them required now forces a breaking change next phase. Now that the names are public, the optional fields are also what keeps Phase 3 from breaking a published name | **yes** — still open |
+
+**S-4 is resolved, not accepted** (member, 2026-09-28): *inappropriate
+intimacy* — the plugin importing `functualize._*` — is removed by making the
+decision types public API (T14, T15), and the gate in T3 holds the plugin to
+`functualize.plugin` imports. What that introduces instead is **public surface
+before a second consumer**, the risk the design review's A-Q01 names ("every
+public class … is a potential headache"); it is contained by marking all seven
+names provisional, per the review's D2.
 
 No entry is on *Forbidden Patterns*.
 
-## Decisions awaiting the member
+## Decisions
 
-Three, each in full in the Multica issue comment that delivered this package.
-Summary:
+**Answered by the member (2026-09-28):**
 
-- **D-1. Where the Jev adapter lives.** Recommended: a new Tier-3 workspace
-  package `plugins/domains/functualize-jev`. Alternatives: a module in
-  `functualize-ai`; a module in core.
-- **D-2. Where the workflow declares the decision rule.** Recommended:
-  `Gate(decide=ChoiceDecision(...))`. Alternative: registered at boot, keyed by
-  the awaits model (A-2).
-- **D-3. Reachability for the provider half before #68 lands.** Recommended:
-  provider-half tasks close on their own gates with `# TRANSITIONAL(decision-provider-seam/T9)`
-  markers, and checkpoint T12 proves every production call path by sabotage
-  before the branch merges. Alternative: hold every provider-half task open
-  until the Gate half lands.
+- **D-1 → A, renamed.** Own Tier-3 workspace package, named
+  `functualize-decision-jev` (`plugins/domains/functualize-decision-jev`,
+  import `functualize_decision_jev`). The middle part follows the
+  `<contract>-<implementation>` naming of `functualize-ai-pydantic` and
+  `functualize-tasks-local` (`contributor/architecture/codemaps/overview.md:73`);
+  here the contract is the core `decision` seam.
+- **D-2 → A.** `Gate(decide=ChoiceDecision(...))`. Alignment with the North
+  Star and the design review is checked in *Alignment* below.
+- **S-4 → public API.** T14 and T15; see *Surviving smells*.
 
-## Open questions (not blocking Phase 1)
+**Still open:**
 
-- **Q-1.** Should a decision gate with an `effecting=True` step reachable
-  without another gate be refused at declaration? Phase 1's workflow has none;
-  FUN-6 (Phase 2) owns the policy for `human_review` and side effects.
-- **Q-2.** Should the accepted rung's payload carry the distribution and
-  provenance as structured evidence? Deferred to Phase 2, which owns the run
-  record's decision fields.
+- **D-3. Ticking provider-half tasks before their caller exists.** #68 has
+  merged, so this is no longer about waiting for another branch — only about
+  wave order: T1, T3 and T4 land four waves before T9 gives them a production
+  caller. Recommended unchanged: close them on their own gates with
+  `# TRANSITIONAL(decision-provider-seam/T9)` markers; T12 proves every call
+  path by sabotage and removes the markers.
+- **S-3.** Recommended: accept.
+- **Q-1. May a model's answer alone send a walk into a step with a real-world
+  side effect?** Recommended: (a) refuse at declaration — a `decide` gate from
+  which an `effecting=True` step is reachable without passing another gate is a
+  `ValueError`. If accepted, one task: `src/functualize/workflow/_validation.py`
+  (`_validate_workflow_graph`) plus a test; wave 7, disjoint from T8/T15.
+  Alternatives: (b) a per-option auto-accept list on `ChoiceDecision`;
+  (c) allow and document.
+- **Q-2. What is kept about the rule that accepted a decision?** Recommended:
+  (b) now — put the gate's `decide` policy into the gate's entry in
+  `WorkflowShape.to_dict()`, so `graph_digest` changes when a threshold
+  changes and a parked walk is refused rather than resumed under a rule it was
+  not started with; structured storage of the policy and the distribution on
+  the request (the review's FUN-4 follow-up, action 3) stays with Phase 2 and
+  FUN-21. If accepted, one task: `src/functualize/_types/workflow.py`
+  (`WorkflowNodeShape`, `to_dict`, `from_dict`) plus a test, after T6.
+  Alternatives: (a) structured record now — a port and schema change owned by
+  FUN-18/FUN-21; (c) the rung's detail text only.
+
+## Alignment with the North Star and the O'Reilly design review
+
+Read 2026-09-28: the review's 13 pages in the SD space (root page 9240577;
+findings G 9240667, C 9306153, A 9306133; decisions 9273345). Verdicts on the
+Gate model and what they mean for this design:
+
+| review item | what it says | this design | verdict |
+|---|---|---|---|
+| G-Q07, claim G-30 | the Gate owns authority; resolvers only propose typed candidates; *which strategy may auto-accept is declared on the Gate* | `decide` on the `Gate` is exactly that declaration; Jev only proposes; acceptance is #68's candidate machinery | aligned |
+| G-Q07 failure mode: automation bias | show source and evidence, not just a summary | `blocked_reason` names provider, model, proposed option, probability, margin and thresholds (C-6) | aligned for the block; the answer surfaces' candidate display is FUN-21's |
+| G-Q07 failure mode: prompt injection through candidates | candidate content is data, never interpolated into a later prompt | the state text travels in Jev's `state` field, never in `instructions`; the accepted value must be one of the declared `Literal` options, so no free text can come out | aligned — add as a test in T10 |
+| G-Q07 / G-Q17 / review D1: stalls | a gate needs a deadline | a decision gate that blocks is an ordinary open request; D1's deadline applies to it unchanged | aligned, delivered by FUN-21 |
+| G-Q07: threshold misalignment | thresholds declared per gate | `accept_at` / `min_margin` per gate | aligned |
+| G-Q10 | bounded correction loop; an **authorised**-resolver list on the Gate | not needed for `decision` (no generation to correct; an invalid label fails the rung); the authorised-resolver list is not built here | compatible — see risk R-A |
+| G-Q11, claim G-36 | record the *policy* that decided; the policy is not in `graph_digest` | same gap for `decide` | **open — Q-2** |
+| G-Q18, C-Q04 | record model / prompt / tool bindings | `DecisionResult` carries provider, model and provenance; persisting them is Phase 2 (the review routes it to the Jev ticket, FUN-6, and FUN-18) | aligned in shape, deferred in storage |
+| G-Q19, claim G-50 | drop "hermetic"; aim for functional reproducibility | no hermeticity claim anywhere (`spec.md` §7) | aligned |
+| A-Q01, review D2 | minimal stable surface; the rest provisional | the new public names are provisional (T14, T15) | aligned |
+
+**R-A (watch item, not a Phase 1 task).** When the authorised-resolver list
+(G-Q10) is designed, `decide` should become one entry in it — "the `decision`
+strategy may auto-accept under these thresholds" — rather than a second,
+parallel authorisation mechanism on `Gate`. Nothing in `decide` blocks that; it
+is recorded so the FUN-4 follow-up sees it.

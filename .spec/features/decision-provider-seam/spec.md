@@ -7,8 +7,10 @@ through a workflow `Gate`.
 **Status: specified, not confirmed.** Specify-phase confirmation (native step 6
 of `/agentic-specify`) and the Plan-phase task review (step 11 of
 `/agentic-plan`) are both outstanding. Nothing in `tasks.md` may start until
-both are recorded. The three open decisions are in `plan.md` → *Decisions
-awaiting the member*.
+both are recorded. Answered 2026-09-28: D-1 (own package, renamed
+`functualize-decision-jev`), D-2 (the rule is declared on the `Gate`), S-4 (the
+decision types are public API). Still open: D-3, S-3, Q-1, Q-2 — `plan.md` →
+*Decisions*.
 
 ## 1. Problem
 
@@ -202,7 +204,7 @@ Each is an observable behaviour; `tasks.md` binds each to its gate.
   answer path resumes the walk down the answered branch.
 - **AC-15** (B-21, US-5). With the Jev plugin not loaded, a decision gate's
   first recorded rung is `unavailable` and the walk falls through; `import
-  functualize` imports no `functualize_jev` module.
+  functualize` imports no `functualize_decision_jev` module.
 - **AC-16** (standing guard). No new authority primitive: the diff adds no new
   workflow node type, no new walk outcome, no new `EvaluationOutcome` member and
   no new request status.
@@ -216,18 +218,29 @@ Each is an observable behaviour; `tasks.md` binds each to its gate.
 - Any second workflow, any catalog walk, any model-gateway abstraction, any
   provider selection among several installed decision providers.
 - Calibration, benchmarking or threshold tuning — Phase 3.
-- Exporting the new names from a public package. As with ADR-029's vocabulary,
-  the export waits for a consumer outside the repository.
-- Refusing an effecting step downstream of a decision gate. Phase 1's reference
-  workflow has no effecting step; see `plan.md` → *Open questions*.
+- A stable-API promise for the new names. They are public (member decision,
+  2026-09-28) and **provisional**, per the design review's decision D2 ("What
+  1.0 promises": everything outside the stable list is provisional).
+- Refusing an effecting step downstream of a decision gate — pending Q-1; see
+  `plan.md` → *Decisions*. Phase 1's reference workflow has no effecting step.
+- Deadlines on a decision gate that blocks for a person. The design review's
+  decision D1 (a deadline on the gate, checked when the run is touched) applies
+  to every gate alike and lands with FUN-21, not here.
 
 ## 7. Standing constraints (from the track, restated as testable lines)
 
 - Jev returns a candidate and an uncertainty; the gate and the workflow's
   declared thresholds decide (B-16, AC-11).
 - No rename of `Gate` around Jev: the new strategy is named `decision`, and no
-  core symbol names Jev.
-- No mandatory Jev dependency: the adapter is its own workspace package (AC-15).
+  core module names Jev except the install hint in `_gate/_strategy.py`'s
+  provider table — a diagnostic string, as it already is for `functualize-ai`.
+- No mandatory Jev dependency: the adapter is its own workspace package,
+  `functualize-decision-jev` (AC-15), and it reaches core through the public
+  API only.
+- No "hermetic" claim. The design review (G-Q19) found bit-for-bit hermeticity
+  impossible for hosted models; the property this work can support is
+  functional reproducibility, which needs the model identity and inputs
+  recorded — B-1's provenance is the first slice of that.
 - No "zero hallucinations" claim anywhere in code, docs or messages.
 - No confidence-only authorization: the acceptance rule does not read
   `confidence` (AC-11).
