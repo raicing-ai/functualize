@@ -1,9 +1,10 @@
 # decision-provider-seam — plan
 
-**Phase state.** Specify drafted, **not confirmed**; architecture gate run; task
-list drafted, **not reviewed**. Execute is not authorised. Revised 2026-09-28:
-the member answered D-1, D-2 and S-4; D-3, S-3, Q-1 and Q-2 are open
-(*Decisions* below). Pull request #68 merged as `02c6a96`, and the ten seam
+**Phase state.** Specify **confirmed** by the member (2026-09-28);
+architecture gate run; every decision, smell and open question answered
+(*Decisions* below); task list revised to the answers (T16 added). Execute is
+authorised against `tasks.md` as it stands at the commit that carries this
+line. Pull request #68 merged as `02c6a96`, and the ten seam
 files are byte-identical to `d5747f85` (empty `git diff --name-only`), so no part
 of the Gate half needed re-specifying.
 
@@ -243,7 +244,7 @@ Gate half: `src/functualize/_types/decision.py`, `src/functualize/_types/workflo
 |---|---|---|---|---|
 | S-1 | **Shotgun surgery** (pre-existing) | adding `"decision"` touches `_types/workflow.py`, `_gate/_strategy.py`, `_engine/gate_service.py`, `docs/guides/ai.md`, `tests/gate/test_provider_tables.py` | fixing the strategy-naming spread is explicitly out of scope in `_gate/_strategy.py:36-38` ("Reconciling the two is deliberately out of scope"), and the time box forbids growing this phase into it | no — recorded |
 | S-2 | **Switch statements** (grows by one branch) | `_engine/gate_service.py::_gate_strategy_list` | one branch mirrors `ai_inbound`'s; replacing the switch with polymorphism is the same out-of-scope redesign as S-1 | no — recorded |
-| S-3 | **Speculative generality** (mild) | `DecisionProvider` Protocol with one implementation; `DecisionResult.distribution` / `.confidence` optional while Phase 1's only producer always fills both | provider neutrality is a track constraint, not a guess; `noul` (A3) has neither field, and Phase 3's LLM and deterministic baselines report no distribution — making them required now forces a breaking change next phase. Now that the names are public, the optional fields are also what keeps Phase 3 from breaking a published name | **yes** — still open |
+| S-3 | **Speculative generality** (mild) | `DecisionProvider` Protocol with one implementation; `DecisionResult.distribution` / `.confidence` optional while Phase 1's only producer always fills both | provider neutrality is a track constraint, not a guess; `noul` (A3) has neither field, and Phase 3's LLM and deterministic baselines report no distribution — making them required now forces a breaking change next phase. Now that the names are public, the optional fields are also what keeps Phase 3 from breaking a published name | accepted by the member, 2026-09-28 |
 
 **S-4 is resolved, not accepted** (member, 2026-09-28): *inappropriate
 intimacy* — the plugin importing `functualize._*` — is removed by making the
@@ -269,32 +270,27 @@ No entry is on *Forbidden Patterns*.
   Star and the design review is checked in *Alignment* below.
 - **S-4 → public API.** T14 and T15; see *Surviving smells*.
 
-**Still open:**
+**Answered by the member (2026-09-28, second round):**
 
-- **D-3. Ticking provider-half tasks before their caller exists.** #68 has
-  merged, so this is no longer about waiting for another branch — only about
-  wave order: T1, T3 and T4 land four waves before T9 gives them a production
-  caller. Recommended unchanged: close them on their own gates with
+- **D-3 → yes.** T1, T3 and T4 close on their own gates with
   `# TRANSITIONAL(decision-provider-seam/T9)` markers; T12 proves every call
-  path by sabotage and removes the markers.
-- **S-3.** Recommended: accept.
-- **Q-1. May a model's answer alone send a walk into a step with a real-world
-  side effect?** Recommended: (a) refuse at declaration — a `decide` gate from
-  which an `effecting=True` step is reachable without passing another gate is a
-  `ValueError`. If accepted, one task: `src/functualize/workflow/_validation.py`
-  (`_validate_workflow_graph`) plus a test; wave 7, disjoint from T8/T15.
-  Alternatives: (b) a per-option auto-accept list on `ChoiceDecision`;
-  (c) allow and document.
-- **Q-2. What is kept about the rule that accepted a decision?** Recommended:
-  (b) now — put the gate's `decide` policy into the gate's entry in
-  `WorkflowShape.to_dict()`, so `graph_digest` changes when a threshold
-  changes and a parked walk is refused rather than resumed under a rule it was
-  not started with; structured storage of the policy and the distribution on
-  the request (the review's FUN-4 follow-up, action 3) stays with Phase 2 and
-  FUN-21. If accepted, one task: `src/functualize/_types/workflow.py`
-  (`WorkflowNodeShape`, `to_dict`, `from_dict`) plus a test, after T6.
-  Alternatives: (a) structured record now — a port and schema change owned by
-  FUN-18/FUN-21; (c) the rung's detail text only.
+  path by sabotage and removes them.
+- **S-3 → accepted** (see *Surviving smells*).
+- **Q-1 → (b), expressed with existing syntax.** The member's reasoning:
+  whether an option needs a person's approval is the functualize user's
+  decision, and conditional edges already express it. So there is no
+  `auto_accept` field and no declaration-time refusal: the gate's answer feeds a
+  `ConditionalEdge`, and the author routes a branch that must be approved
+  through a second `Gate` before its effecting step (`spec.md` B-22, AC-17).
+  Consequence recorded plainly: the framework no longer enforces the track's
+  "no confidence-only authorisation of consequential side effects" — it holds
+  where the author draws the approval gate. T10 proves the pattern and T11
+  documents it, with that consequence stated.
+- **Q-2 → (b) now, (a) later.** The decision rule joins the gate's entry in
+  `WorkflowShape.to_dict()` and so the graph digest (T16; `spec.md` B-23,
+  AC-18). Structured storage on the request follows with the review's FUN-4
+  follow-up, FUN-18/FUN-21 and Phase 2.
+- **`spec.md` confirmed**, name `functualize-decision-jev` confirmed.
 
 ## Alignment with the North Star and the O'Reilly design review
 
@@ -310,7 +306,7 @@ Gate model and what they mean for this design:
 | G-Q07 / G-Q17 / review D1: stalls | a gate needs a deadline | a decision gate that blocks is an ordinary open request; D1's deadline applies to it unchanged | aligned, delivered by FUN-21 |
 | G-Q07: threshold misalignment | thresholds declared per gate | `accept_at` / `min_margin` per gate | aligned |
 | G-Q10 | bounded correction loop; an **authorised**-resolver list on the Gate | not needed for `decision` (no generation to correct; an invalid label fails the rung); the authorised-resolver list is not built here | compatible — see risk R-A |
-| G-Q11, claim G-36 | record the *policy* that decided; the policy is not in `graph_digest` | same gap for `decide` | **open — Q-2** |
+| G-Q11, claim G-36 | record the *policy* that decided; the policy is not in `graph_digest` | the rule joins the graph digest now (T16); structured storage later | **fenced now, recorded later** (Q-2) |
 | G-Q18, C-Q04 | record model / prompt / tool bindings | `DecisionResult` carries provider, model and provenance; persisting them is Phase 2 (the review routes it to the Jev ticket, FUN-6, and FUN-18) | aligned in shape, deferred in storage |
 | G-Q19, claim G-50 | drop "hermetic"; aim for functional reproducibility | no hermeticity claim anywhere (`spec.md` §7) | aligned |
 | A-Q01, review D2 | minimal stable surface; the rest provisional | the new public names are provisional (T14, T15) | aligned |

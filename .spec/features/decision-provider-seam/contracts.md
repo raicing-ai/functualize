@@ -271,6 +271,21 @@ jev = "functualize_decision_jev:JevPlugin"
 `app.gates.register_gate_strategy("decision", DecisionGateResolver(JevDecisionProvider(config)))`.
 It registers no preset and no DI capability, and reads no credential at boot.
 
+## C-9. The decision rule in the graph digest (Gate half)
+
+`WorkflowNodeShape.decision: Mapping[str, Any] | None = None`. For a gate with
+`decide`, `WorkflowShape.to_dict()` emits
+
+```json
+{"gate": "route", "model": "Route",
+ "decision": {"field": "route", "instructions": "...",
+              "options": {"billing": "...", "returns": "...", "shipping": "..."},
+              "state": "intake", "accept_at": 0.7, "min_margin": 0.1, "model": null}}
+```
+
+and, for a gate without one, exactly `{"gate": <name>, "model": <model>}` as
+today. `graph_digest` is unchanged code; it hashes this projection.
+
 ## Unchanged, and asserted unchanged
 
 - `EvaluationOutcome`'s five members; the input-request status set; `WalkOutcome`;

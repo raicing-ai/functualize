@@ -4,13 +4,13 @@ Phase 1 of the Jev / System One decision-layer experiment: a provider-neutral
 decision seam, a Jev adapter behind it, and one `choice` decision driven
 through a workflow `Gate`.
 
-**Status: specified, not confirmed.** Specify-phase confirmation (native step 6
-of `/agentic-specify`) and the Plan-phase task review (step 11 of
-`/agentic-plan`) are both outstanding. Nothing in `tasks.md` may start until
-both are recorded. Answered 2026-09-28: D-1 (own package, renamed
-`functualize-decision-jev`), D-2 (the rule is declared on the `Gate`), S-4 (the
-decision types are public API). Still open: D-3, S-3, Q-1, Q-2 — `plan.md` →
-*Decisions*.
+**Status: confirmed by the member, 2026-09-28** (native Specify step 6), with
+every decision and flagged smell answered: D-1 (own package,
+`functualize-decision-jev`), D-2 (the rule is declared on the `Gate`), D-3,
+S-3, S-4 (the decision types are public API), Q-1 (human approval is the
+workflow author's choice, expressed with existing conditional edges — B-22),
+Q-2 (the policy joins the graph digest now — B-23; structured storage later).
+`plan.md` → *Decisions* records each.
 
 ## 1. Problem
 
@@ -160,6 +160,18 @@ Retrieved in this checkout (commands in `research.md`):
   **the provider is not called again**.
 - **B-20.** After a block, a person answers the gate through the existing answer
   surfaces and the walk continues down the branch they chose.
+- **B-22.** Whether an accepted option needs a person's approval before
+  anything irreversible happens is the **workflow author's** decision, expressed
+  with the graph that already exists: the gate's answer feeds a
+  `ConditionalEdge`, and a branch that must be approved routes through a second
+  `Gate` before its effecting step. The framework adds no syntax and refuses no
+  graph shape for this (member decision Q-1, 2026-09-28).
+- **B-23.** A gate's declared decision rule — field, options and their
+  meanings, instructions, state step, `accept_at`, `min_margin`, model — is part
+  of the workflow's graph digest. Changing any of it changes the digest, so a
+  walk parked under the old rule refuses to resume rather than continuing under
+  a rule it did not start with. A gate without a decision keeps exactly the
+  digest it has today (member decision Q-2, 2026-09-28).
 - **B-21.** The Jev plugin registers the `decision` strategy at boot. Without the
   plugin, a decision gate's first rung is `unavailable` with an install hint, and
   the walk falls through to `prompt`/`resolve` as today.
@@ -205,6 +217,15 @@ Each is an observable behaviour; `tasks.md` binds each to its gate.
 - **AC-15** (B-21, US-5). With the Jev plugin not loaded, a decision gate's
   first recorded rung is `unavailable` and the walk falls through; `import
   functualize` imports no `functualize_decision_jev` module.
+- **AC-17** (B-22). In the reference workflow the `returns` branch passes a
+  second, human `Gate` before an `effecting=True` refund step: a `returns`
+  proposal accepted at 0.80 blocks at that approval gate and the refund step has
+  not run; a `billing` proposal accepted at 0.80 reaches its step with no
+  person involved.
+- **AC-18** (B-23). Two declarations differing only in `accept_at` have
+  different graph digests; a walk parked at the gate under one refuses to resume
+  under the other with `WorkflowGraphChangedError`; a gate with no `decide`
+  projects to exactly `{"gate": <name>, "model": <model>}` as on `master`.
 - **AC-16** (standing guard). No new authority primitive: the diff adds no new
   workflow node type, no new walk outcome, no new `EvaluationOutcome` member and
   no new request status.
@@ -221,8 +242,12 @@ Each is an observable behaviour; `tasks.md` binds each to its gate.
 - A stable-API promise for the new names. They are public (member decision,
   2026-09-28) and **provisional**, per the design review's decision D2 ("What
   1.0 promises": everything outside the stable list is provisional).
-- Refusing an effecting step downstream of a decision gate — pending Q-1; see
-  `plan.md` → *Decisions*. Phase 1's reference workflow has no effecting step.
+- Refusing an effecting step downstream of a decision gate, and a per-option
+  auto-accept list. Declined by the member (Q-1): approval is the workflow
+  author's choice, made with conditional edges (B-22).
+- Storing the decision rule and the distribution as structured data on the
+  gate request — later, with the design review's FUN-4 follow-up (action 3),
+  FUN-18/FUN-21 and Phase 2 (Q-2 option (a)).
 - Deadlines on a decision gate that blocks for a person. The design review's
   decision D1 (a deadline on the gate, checked when the run is touched) applies
   to every gate alike and lands with FUN-21, not here.
@@ -242,5 +267,7 @@ Each is an observable behaviour; `tasks.md` binds each to its gate.
   functional reproducibility, which needs the model identity and inputs
   recorded — B-1's provenance is the first slice of that.
 - No "zero hallucinations" claim anywhere in code, docs or messages.
-- No confidence-only authorization: the acceptance rule does not read
-  `confidence` (AC-11).
+- No confidence-only authorization **inside the framework**: the acceptance
+  rule does not read `confidence` (AC-11). Whether a model-accepted option may
+  reach a consequential side effect without a person is the workflow author's
+  call (B-22), and the docs say so plainly (T11).
