@@ -425,7 +425,7 @@ def _record(app: Any, outcome: WorkflowFlagOutcome) -> None:
         raise SystemExit(_usage() if "ambiguous" in resolved["error"] else 1)
 
     scope_id, gate_name = resolved
-    result = answer_gate(app, store, scope_id, gate_name, values)
+    result = answer_gate(app, store, scope_id, gate_name, values, source="cli")
     if "error" in result:
         click.echo(f"Error: {result['message']}", err=True)
         raise SystemExit(1)

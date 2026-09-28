@@ -590,6 +590,33 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### Gate resolution requests — behavior delivered, durable evidence open
+
+AC-1 and AC-2 are delivered on `feat/gate-resolution-model`: a gate request has
+a minted `request_id` stable across resume, and candidates carry their ordinal,
+source, and evaluation recorded at submission. The read projection returns
+those verdicts without recomputing them. The storage location is
+**`TRANSITIONAL(FUN-21)`**: the document backend still stores requests and
+candidates inside each gate record in `scopes.json`.
+
+**AC-3 remains open**, pending FUN-18's tables and legal transitions, FUN-19's
+durable provider, and FUN-21's interaction/evidence slice and answer-surface
+migration. Interaction evidence is not yet durable and readable independently
+of the scope document. The **FUN-4 issue must not close** until AC-3 is
+delivered, even if this parallel branch merges first.
+
+The maintainer approved D-1 through D-5 as Option A:
+
+| Decision | Recorded answer |
+|----------|-----------------|
+| D-1 | Merge the parallel request/candidate behavior once green while AC-3 and the FUN-4 issue remain open. |
+| D-2 | This branch owns the input recorder, walker request/candidate wiring, and deposit behavior. FUN-21 retains the outbox, evidence by reference and digest, redelivery, durable implementation, and migration of answer surfaces to the selected `RuntimeStore`; refine its task list at that work's premise rebase. |
+| D-3 | Keep `ScopeStore.deposit_gate_payload` for existing test callers, with no production caller; it is a declared surviving smell, not the new answer path. |
+| D-4 | The durable `InputRequest` transition table must allow `accepted → cancelled` when reopen supersedes a request. |
+| D-5 | Record invalid submissions as candidates rather than discarding them. |
+
+The enduring transition-ownership decision is [ADR-029](../contributor/adr/029-gate-resolution-is-recorded-not-recomputed.md), under ADR-025's engine/storage boundary.
+
 ## Deferred
 
 Specified work that is not being picked up yet, and what it is waiting on.

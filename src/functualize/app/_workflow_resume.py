@@ -12,7 +12,42 @@ re-pointing the tool at these functions is behaviour-preserving.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
+
+from functualize._engine.recording import InputRecorder
+from functualize._gate._evaluation import evaluate_submission
+from functualize._primitives import gate_requests
+from functualize._types.errors import InputRequestNotOpenError
+from functualize._types.gate_resolution import EvaluationOutcome
+
+
+def _resolution_view(
+    store: Any, scope_id: str, gate: str, record: dict[str, Any]
+) -> dict[str, Any]:
+    """Read recorded evaluations without validating or exposing payloads."""
+    # TRANSITIONAL(FUN-21): the document gate record backs this read projection.
+    lease = store.get_lease(scope_id)
+    request = gate_requests.request_for(
+        scope_id, gate, record, lease.generation if lease else 0
+    )
+    candidates = gate_requests.candidates_for(record)
+    return {
+        "request_id": request.request_id,
+        "request_status": request.status,
+        "candidates": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "ordinal": candidate.ordinal,
+                "source": candidate.source,
+                "submitted_at": candidate.submitted_at.isoformat(),
+                "outcome": candidate.evaluation.outcome.value,
+                "detail": candidate.evaluation.detail,
+                "errors": [list(pair) for pair in candidate.evaluation.errors],
+            }
+            for candidate in candidates
+        ],
+    }
 
 
 def pending_gates(scope: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -58,13 +93,20 @@ def _resolve_gate_model(
 
 
 def deposit_gate_input(
-    app: Any, store: Any, scope_id: str, gate: str, payload: dict[str, Any]
+    app: Any,
+    store: Any,
+    scope_id: str,
+    gate: str,
+    payload: dict[str, Any],
+    *,
+    source: str = "api",
 ) -> dict[str, Any]:
-    """Validate ``payload`` against the gate's model, then deposit it.
+    """Evaluate and record one submitted candidate for the gate.
 
     The shared resume path: the MCP ``resume_gate`` tool and the CLI
     ``func builtin workflow resume`` both call this, so there is one notion of
-    "accept input for a gate". Nothing is stored if validation fails.
+    "accept input for a gate". An invalid attempt is recorded while the
+    request remains open; only an accepted candidate writes a payload.
 
     Returns a flat result dict:
     - ``{"status": "input_accepted", "gate", "workflow_id", "message"}`` on success
@@ -76,29 +118,37 @@ def deposit_gate_input(
     if error is not None:
         return error
 
-    try:
-        validated = model(**payload)
-    except Exception as exc:
+    evaluation, validated = evaluate_submission(model, payload)
+    record = store.get_gate(scope_id, gate)
+    if record is None:
         return {
-            "error": "validation_error",
-            "message": f"Input does not satisfy '{model.__name__}': {exc}",
-            "gate": gate,
+            "error": "gate_already_answered",
+            "message": f"Gate '{gate}' has no open request.",
+        }
+    resolution = _resolution_view(store, scope_id, gate, record)
+    candidate = InputRecorder().submitted(
+        resolution["request_id"],
+        source,
+        evaluation,
+        validated if validated is not None else payload,
+        ordinal=len(resolution["candidates"]),
+        now=datetime.now(UTC),
+    )
+    try:
+        # TRANSITIONAL(FUN-21): this candidate still lands in the scope document.
+        gate_requests.append_candidate(store, scope_id, gate, candidate)
+    except InputRequestNotOpenError:
+        return {
+            "error": "gate_already_answered",
+            "message": f"Gate '{gate}' is already answered.",
         }
 
-    # Store the **dump**, not the raw input.
-    #
-    # This path validated with `model(**payload)` and then stored `payload`,
-    # discarding every Pydantic default and coercion the validation had just
-    # applied. The walker's own strategy path stores `model.model_dump()`
-    # (`workflow_walker.py`), and the walker feeds whichever it finds straight
-    # to the node — so one gate produced two different objects depending on who
-    # answered it, and a model with a defaulted field had that field *missing*
-    # when a human deposited the answer.
-    #
-    # One invariant, stated once: `payload` is only ever the output of a
-    # complete, successful validation, dumped. Nothing downstream has to know
-    # which path wrote it.
-    store.deposit_gate_payload(scope_id, gate, validated.model_dump())
+    if evaluation.outcome is EvaluationOutcome.INVALID:
+        return {
+            "error": "validation_error",
+            "message": f"Input does not satisfy '{model.__name__}': {evaluation.detail}",
+            "gate": gate,
+        }
     # Name the command, not the concept. "Run the workflow job with scope_id
     # 'X'" named neither the flag nor its position, and the audit that found
     # this got both wrong twice before reading `dispatch.py`. The job address
@@ -120,5 +170,6 @@ def deposit_gate_input(
         "status": "input_accepted",
         "gate": gate,
         "workflow_id": scope_id,
+        "request_id": resolution["request_id"],
         "message": f"Input accepted for gate '{gate}'.{resume_hint}",
     }

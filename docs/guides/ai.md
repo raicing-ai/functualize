@@ -282,15 +282,18 @@ result = app.execute("review")
 result.status                      # RunStatus.BLOCKED
 result.metadata["blocked_on"]      # 'triage'
 result.metadata["blocked_reason"]
-# "unregistered gate strategy 'ai_inbound' (install functualize-ai to register
-#  it); Cannot resolve model Approval from config chain: unresolved fields:
-#  ['approved']"
+# Begins with "unregistered gate strategy 'ai_inbound' (install functualize-ai
+# to register it)"; subsequent rung failures keep their existing text.
 ```
 
-The reason has two halves, `;`-separated: the unregistered strategies come
-first because they are the actionable part, followed by the last rung's own
-error. Here `resolve` was the last rung, and it failed for the ordinary reason
-a gate exists — nothing had supplied `approved` yet.
+The missing `ai_inbound` rung is recorded as an `unavailable` candidate, with
+source `strategy:ai_inbound` and the install hint in its detail. The ladder
+still tries `prompt` and `resolve`, recording each result. A read through
+`gate_draft(...)["resolution"]["candidates"]` reports those recorded
+outcomes without running the strategies again. This recording does not change
+the human-facing `blocked_reason` text: unregistered strategies come first,
+then failed rungs with their existing details, separated by `;`. In this
+example `resolve` fails because nothing supplied `approved`.
 
 `blocked_reason` appears only when there is something to say. A gate waiting
 for a human by design carries `blocked_on` and no reason at all.

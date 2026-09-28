@@ -26,7 +26,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+
+from functualize._engine.recording import InputRecorder
+from functualize._primitives.gate_requests import recorded_answer
+from functualize._types.gate_resolution import (
+    EvaluationOutcome,
+    GateResolution,
+)
 
 # At runtime, not under TYPE_CHECKING: `claim` branches on it with
 # `isinstance`, so a type-only import would be a NameError on every claim.
@@ -36,6 +44,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from functualize._primitives.scope_store import ScopeStore
+    from functualize._types.gate_resolution import GateCandidate
     from functualize._types.persistence import Claimed, RuntimeStore
 
 __all__ = [
@@ -166,6 +175,8 @@ class FrontierWalk:
         self._store = store
         self._scope_id = scope_id
         self._runtime_store = runtime_store
+        #: Builds the input commands this walk issues — the id minter.
+        self._inputs = InputRecorder()
         #: The lease generation this walk holds, or None if it never claimed.
         #: Set by `claim`; every scope write it makes carries it (T6).
         self._generation: int | None = None
@@ -431,56 +442,6 @@ class FrontierWalk:
             self._store.set_position(self._scope_id, runnable[0] if runnable else None)
         return runnable
 
-    def record_gate(
-        self,
-        node: str,
-        gate_name: str,
-        *,
-        model: str = "",
-        input_schema: Mapping[str, Any] | None = None,
-        tools: Sequence[Mapping[str, Any]] = (),
-        blocked_at: str = "",
-    ) -> None:
-        """Persist a gate's payload slot and the position, status untouched.
-
-        **The write-ahead without the parking.** The slot has to exist before
-        `ScopeStore.deposit_gate_payload` can fill it, and two callers need it:
-        `block` for a walk that really stops, and `_service_gate`'s inline arm
-        for a gate the ladder resolved in this same call. The second
-        one carries on through `_advance` to `complete` with no
-        `FrontierWalk.start` in between, so stamping `blocked` for it put a
-        `blocked → completed` move in the durable record — the move D2 makes
-        impossible — for a walk that never stopped. The walk is live the whole
-        time, so `running` is the true stored state, and a reader can no longer
-        observe a parked scope mid-resolution.
-
-        Two methods rather than a ``park=`` flag: each caller names what it
-        means.
-
-        ``tools`` is persisted alongside the schema so an agent that finds this
-        gate over MCP learns what it may use to answer it without importing the
-        declaring module — the same reason the schema itself is persisted.
-        Each entry is ``{"tool": name, "bound": [param names]}``: the *names*
-        of pinned parameters, never their values. Names are all a reader needs
-        to strip them from the schema it publishes, and they are always
-        JSON-safe, whereas a bound value is arbitrary. The values are read from
-        the declaration at call time, which has to import it anyway to run the
-        job.
-        """
-        with self._store.batch():
-            self._store.set_position(self._scope_id, node)
-            self._store.put_gate(
-                self._scope_id,
-                gate_name,
-                {
-                    "model": model,
-                    "input_schema": dict(input_schema or {}),
-                    "tools": [dict(entry) for entry in tools],
-                    "payload": None,
-                    "blocked_at": blocked_at,
-                },
-            )
-
     def block(
         self,
         node: str,
@@ -491,30 +452,157 @@ class FrontierWalk:
         tools: Sequence[Mapping[str, Any]] = (),
         blocked_at: str = "",
     ) -> None:
-        """Persist a BLOCKED position and its gate payload slot (§D.7b/c).
+        """Persist a BLOCKED position and open its gate's request (§D.7b/c).
 
-        The walk stops here until input is deposited; because position and gate
-        both persist, a different process can observe and resume it.
-
-        The position and the slot are `record_gate`'s; the status stamp is what
-        makes this the suspension, and it goes in the same batch so the record
-        never shows a parked scope without its slot.
+        The walk stops here until input is deposited; because position and
+        request both persist, a different process can observe and resume it.
+        Now one port transaction — :meth:`open_request` — rather than three
+        direct writes, so the gate record this leaves is a request with its
+        own identity, and ``tools`` and ``model`` persist beside the schema
+        for an agent that finds the gate without the declaring module.
         """
-        with self._store.batch():
-            self.record_gate(
-                node,
-                gate_name,
-                model=model,
-                input_schema=input_schema,
-                tools=tools,
-                blocked_at=blocked_at,
-            )
-            self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
+        when = datetime.fromisoformat(blocked_at) if blocked_at else datetime.now(UTC)
+        self.open_request(
+            gate_name,
+            position=node,
+            schema=dict(input_schema or {}),
+            prompt=None,
+            model=model,
+            tools=tools,
+            when=when,
+        )
 
     def gate_payload(self, gate_name: str) -> Any:
-        """Deposited input for a gate, or None while still blocked."""
-        gate = self._store.get_gate(self._scope_id, gate_name)
-        return None if gate is None else gate.get("payload")
+        """The answer this gate holds, or None while still blocked.
+
+        The accepted candidate's payload when the request recorded one;
+        otherwise the answer an older path deposited on the record — the
+        read-only projection that keeps pre-change files answering gates.
+        """
+        resolution = self.resolution(gate_name)
+        if resolution is not None and resolution.accepted_id is not None:
+            for candidate in resolution.candidates:
+                if candidate.candidate_id == resolution.accepted_id:
+                    return candidate.payload
+            return None
+        # TRANSITIONAL(FUN-21): legacy deposits still answer from the document record.
+        return recorded_answer(self._store, self._scope_id, gate_name)
+
+    # ------------------------------------------------------------------
+    # Gate requests — the input port, one transaction unit per verb
+    # ------------------------------------------------------------------
+
+    @property
+    def scope_id(self) -> str:
+        """The scope this walk's records belong to."""
+        return self._scope_id
+
+    def open_request(
+        self,
+        gate_name: str,
+        *,
+        position: str,
+        schema: Any,
+        prompt: Any,
+        model: str = "",
+        tools: Sequence[Mapping[str, Any]] = (),
+        when: datetime | None = None,
+        scope_status: str = WalkState.BLOCKED,
+    ) -> str:
+        """Open (or rejoin) the gate request through the runtime port.
+
+        One transaction unit: the request record, position and lifecycle
+        status land together, and a request already live for
+        the gate is rejoined under its own id — which is what keeps a
+        request's identity stable across the resumes that re-enter it.
+
+        Returns the minted request id. The store may have reused a live
+        request's id instead; :meth:`resolution` reads the effective one
+        back off the record.
+        """
+        command = self._inputs.opened(
+            scope_id=self._scope_id,
+            generation=self._generation or 0,
+            gate_name=gate_name,
+            position=position,
+            now=when or datetime.now(UTC),
+            schema=schema,
+            prompt=prompt,
+            model=model,
+            tools=tuple(tools),
+            scope_status=scope_status,
+        )
+        with self._runtime_store.transaction() as tx:
+            tx.workflows.suspend(command)
+        return command.request_id
+
+    def record_candidates(self, candidates: Sequence[GateCandidate]) -> None:
+        """Record proposed answers against their request — one unit.
+
+        Appending is refused for a request that is no longer open, with
+        nothing from the unit applied, so a second writer's answer cannot
+        overwrite a recorded one.
+        """
+        with self._runtime_store.transaction() as tx:
+            for candidate in candidates:
+                tx.inputs.append(candidate)
+
+    def consume(self, request_id: str) -> None:
+        """Retire the request the walk is moving past — its single writer.
+
+        Idempotent: consuming an already-consumed request is a no-op, so a
+        replayed resume is a legitimate caller.
+        """
+        command = self._inputs.consumed(
+            scope_id=self._scope_id,
+            generation=self._generation or 0,
+            request_id=request_id,
+            now=datetime.now(UTC),
+        )
+        with self._runtime_store.transaction() as tx:
+            tx.inputs.consume(command)
+
+    def resolution(self, gate_name: str) -> GateResolution | None:
+        """The gate's request and its recorded candidates, through the port.
+
+        The request is found by the id its record owns — falling back to the
+        id a legacy record projects to — and the candidates come back with
+        the evaluations they were recorded with, never re-validated.
+        """
+        request = self._runtime_store.inputs.request(self._request_id_for(gate_name))
+        if request is None:
+            return None
+        candidates = self._runtime_store.inputs.candidates_for(request.request_id)
+        accepted = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.evaluation.outcome is EvaluationOutcome.ACCEPTED
+            ),
+            None,
+        )
+        return GateResolution(
+            request=request,
+            candidates=tuple(candidates),
+            accepted_id=accepted.candidate_id if accepted is not None else None,
+        )
+
+    def _request_id_for(self, gate_name: str) -> str:
+        """The request id this gate's record owns, or its legacy derivation.
+
+        Reads identity, not answers: which request this gate's record was
+        opened as. The status and the candidates it holds are the reader
+        port's business; this is only how the question is addressed.
+        """
+        scope = self._store.get_scope(self._scope_id)
+        gates = scope.get("gates") if scope is not None else None
+        if isinstance(gates, dict):
+            gate = gates.get(gate_name)
+            if isinstance(gate, dict):
+                stored = gate.get("request_id")
+                if isinstance(stored, str) and stored:
+                    return stored
+        return f"{self._scope_id}::{gate_name}"
 
     def is_blocked(self) -> bool:
         scope = self._store.get_scope(self._scope_id)

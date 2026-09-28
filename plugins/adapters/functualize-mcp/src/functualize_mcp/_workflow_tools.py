@@ -295,6 +295,7 @@ class WorkflowToolProvider:
             clear=clear,
             commit=commit,
             reopen=reopen,
+            source="mcp",
         )
 
     _answer_gate.__name__ = "answer_gate"
@@ -349,6 +350,7 @@ class WorkflowToolProvider:
             input=input,
             gate=gate,
             retry_epilogue=retry_epilogue,
+            source="mcp",
             # An MCP tool asked for this resume; `guarded_execute` used to
             # stamp every one of them `app.execute` (rre F9).
             surface="mcp.tool",
