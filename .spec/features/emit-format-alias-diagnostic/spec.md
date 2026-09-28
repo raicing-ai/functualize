@@ -59,23 +59,22 @@ third place that decides what the token means.
 ## Behavior
 
 - **B1 — one arity per flag.** Every flag the pre-boot router reads is boolean
-  or value-required, and the vocabulary says so in two tables.
-  `GLOBAL_BOOL_FLAGS` (6 members) consumes no token; the value-required table
-  (16 members) consumes exactly one. `--perf-report` and `--emit-format` move
-  from the optional-value table into the value-required table. A boolean flag
-  has no accepted-values set.
-- **B2 — a value-required flag always takes the next token.** `func --emit-format json greet`
+  or value-required. `GLOBAL_BOOL_FLAGS` consumes no token;
+  `GLOBAL_OPTIONS_ALWAYS_VALUE` consumes one. `--perf-report` and
+  `--emit-format` join the latter, and `GLOBAL_OPTIONS_OPTIONAL_VALUE` is
+  removed. The existing global-flag detectors, `GLOBAL_OPTIONS_WITH_VALUE` and
+  `OPTIONAL_VALUE_VALID_SET` remain; their public rename is a separate follow-up.
+- **B2 — a required value has one position.** `func --emit-format json greet`
   and `func --emit-format=json greet` remain valid: a value, then the command.
-  The spaced form takes the next argv token whatever it looks like — an accepted
-  value, a job name, an alias key, another flag (`--force`, `--no-dotenv`), an
-  unrecognized flag, or a bare `-`. There is no exception for a token that
-  starts with `-`, and no exception for a token that names a job or an alias.
-  This is the rule the always-value flags already have (`func --log-level --force`
-  reports `Error: --log-level must be one of CRITICAL, DEBUG, ERROR, INFO, WARNING,
-  got '--force'.`) and the rule Click applies to a value-required option on an
-  app's own surface.
+  A job name or alias key after the spaced flag is its value, with no command
+  lookup. A following **known global flag** instead means the value is missing,
+  so `--force` is not silently swallowed. An unrecognized dash token (`-x`) or
+  negative number (`-1` after `--discovery-depth`) remains a value candidate.
+  The `--flag=value` form supplies its value explicitly, even when the value is
+  empty or spells a flag.
 - **B3 — a value flag with no value is a usage error.** When a value-required
-  pre-boot flag is the last token of argv, `func` exits `2` with
+  pre-boot flag is last, or the next token is a known global flag, `func` exits
+  `2` with
   `Error: <flag> requires a value: one of {<accepted values>}.` — the
   accepted-values clause for a flag that declares a selection table, and
   `Error: <flag> requires a value.` for one that does not. This is new behavior
@@ -87,8 +86,8 @@ third place that decides what the token means.
   a configured `[aliases]` key. `func --emit-format shortcut` now reports
   `Error: --emit-format must be one of {auto, json, ndjson, none, raw}, got 'shortcut'.`
   and mentions no alias; `--emit-format greet` no longer runs `greet`. The
-  invalid-value diagnostic is exit `1`, unchanged
-  (`_cli/dispatch.py::_assign_option`, `:545-555`).
+  invalid-value diagnostic is exit `2`, the same usage family as a missing
+  value.
 - **B5 — command-position diagnostics are unchanged.** `func shortcut` still
   reports `Error: Alias 'shortcut' maps to job 'absent', which was not found.`
   (exit 1); `func bogus` still reports `Error: Unknown command 'bogus'.`;
@@ -103,19 +102,17 @@ third place that decides what the token means.
   invalid-value sentence and never mentions `absent`. The finding's
   operator-facing requirement (the caller must be told which setting to repair)
   is met by B5: the alias error survives wherever the alias is in command
-  position, unreachable from value position. **This is a behavior change to a
-  documented spelling, and it is item (d) of the confirmation list below.**
-- **B7 — explicit values, absent-flag defaults and boundaries stay as they
-  are.** `--emit-format auto|json|ndjson|none|raw` and `--perf-report text|json`
+  position, unreachable from value position. This deliberately changes a
+  documented spelling.
+- **B7 — explicit values and boundaries stay as they are.**
+  `--emit-format auto|json|ndjson|none|raw` and `--perf-report text|json`
   remain valid wherever they are valid today, including
   `func --emit-format auto greet` (the default is still typeable by name); an
-  *absent* `--emit-format` still means `auto` and an absent `--perf-report`
-  still means `text` for the run; `func greet --emit-format json` and
+  *absent* `--emit-format` still means `auto`, while an absent `--perf-report`
+  requests no performance report; `func greet --emit-format json` and
   `func --emit-format json builtin version` still fail as job-level
   `No such option '--emit-format'` (exit 2); `func bogus` is still an unknown
-  command; the job-name/alias precedence documented in
-  `contributor/architecture/codemaps/data-flow.md:57` is unchanged. The
-  `--flag=value` split is unchanged; `--emit-format=` (empty value) is an
+  command. The `--flag=value` split is unchanged; `--emit-format=` (empty value) is an
   invalid value, not a missing one.
 - **B8 — the rendered and documented surfaces follow the grammar.** The
   `func --help` run-options row renders `--emit-format TEXT` with its accepted
@@ -125,15 +122,14 @@ third place that decides what the token means.
   optional value. The app's own entry point (`app/adapters/cli.py`) declares
   `--emit-format` without `flag_value`, so a value is required there too.
   Prose that reasons from the optional value (`docs/api/types.md:150-187`,
-  `contributor/architecture/surface-boundary.md`,
-  `contributor/architecture/run-model/06-outcome-authority.md:126-150`) is
-  updated in the same change; the constitution's rule is that a code change owes
-  the docs that describe it.
+  `contributor/architecture/surface-boundary.md`, and ADR-020's neutral note)
+  is updated or marked superseded in the same change. The two-parser boundary
+  remains: pre-boot and Click share a vocabulary but still parse separately.
 
 ## Acceptance criteria
 
 - **AC1.** With `[aliases] shortcut = "absent"` and no `absent` job,
-  `func --emit-format shortcut` exits 1, stderr contains
+  `func --emit-format shortcut` exits 2, stderr contains
   `Error: --emit-format must be one of {auto, json, ndjson, none, raw}, got 'shortcut'.`,
   and stderr contains no `Alias` and no `absent`. `func --perf-report shortcut`
   behaves the same with the `--perf-report` set.
@@ -150,24 +146,25 @@ third place that decides what the token means.
   selection table (`func --config-directory` exits 2 with
   `Error: --config-directory requires a value.`) — for every member of the
   value-required table, including the 14 that already require a value.
-- **AC5.** A token that merely *starts with* `-` is a value:
-  `func --emit-format --force greet` and `func --emit-format -x greet` exit 1
-  with the invalid-value sentence for `--force` / `-x`, and `greet` does not run.
-  `func --emit-format=` exits 1 with `got ''.`
+- **AC5.** `func --emit-format --force greet` exits 2 with the missing-value
+  message and does not consume `--force`. An unrecognized dash token remains a
+  value candidate: `func --emit-format -x greet` exits 2 with the invalid-value
+  sentence for `-x`. `func --emit-format=` exits 2 with `got ''.` A negative
+  number after `--discovery-depth` is passed to that flag's value parser.
 - **AC6.** `func greet --emit-format json` and `func --emit-format json builtin version`
   exit 2 with `No such option '--emit-format'`; `func bogus` exits 1 with
   `Unknown command 'bogus'`; `func --version` still prints the version and
-  `func --emit-format --version` exits 1 with the invalid-value sentence and
+  `func --emit-format --version` exits 2 with the missing-value sentence and
   prints no version.
 - **AC7.** `func --help` shows `--emit-format TEXT` with the accepted values in
   its description and no `[auto|json|ndjson|none|raw]` bracket.
-- **AC8.** The grammar publishes two arity tables and one selection table, and
-  no spelling of "optional value" survives in `src/**`. A parity test asserts
-  that for every flag in the value-required table, `_extract_global_options`
-  and `detect_mode` treat the following token as a value and raise the usage
-  error when there is none — the shape
-  `contributor/reference/pitfalls.md:318-346` asks for a rule spelled in several
-  places.
+- **AC8.** The grammar has no optional-value members. The existing global-flag
+  detectors remain and use the new arity. A parity test covers `detect_mode`,
+  `_extract_global_options`, and the position-aware `--version` scan for every
+  value-required flag: the scans agree on which token is the value and which is
+  the command; the pre-boot parser reports a missing value when none follows or
+  when the next token is a known global flag; the version scan does not mistake
+  a value-position `--version` for the version command.
 - **AC9.** The app's own surface requires a value for `--emit-format`:
   `main.py --emit-format emit` exits 2 with
   `Error: Option '--emit-format' requires an argument.` (Click's message), and
@@ -179,19 +176,21 @@ third place that decides what the token means.
 Every count and every "only" below was produced by running the command that
 would falsify it (`.spec/CONSTITUTION.md` → *Retrieval Before Assertion*).
 
-**The four grammar names this replaces** — 118 occurrences, by `rg -c`:
-`OPTIONAL_VALUE_VALID_SET` 49, `GLOBAL_OPTIONS_OPTIONAL_VALUE` 24,
-`GLOBAL_OPTIONS_ALWAYS_VALUE` 23, `GLOBAL_OPTIONS_WITH_VALUE` 22. They live in 6
-source files (`_types/flag_grammar.py`, `_cli/dispatch.py`, `_cli/main.py`,
-`app/utils.py`, `types/__init__.py`, `app/adapters/cli.py`), 9 test files and 3
-documentation files (`docs/api/types.md`, `CHANGELOG.md`,
-`contributor/architecture/surface-boundary.md`).
+**Grammar vocabulary.** `GLOBAL_OPTIONS_OPTIONAL_VALUE` is removed after its
+two members move to `GLOBAL_OPTIONS_ALWAYS_VALUE`.
+`GLOBAL_OPTIONS_WITH_VALUE` continues to serve global-flag detection and has
+the same members as `GLOBAL_OPTIONS_ALWAYS_VALUE` after that move.
+`OPTIONAL_VALUE_VALID_SET` continues to carry accepted values. Its legacy
+default fields no longer supply values to present bare flags; an absent
+`--perf-report` still requests no report. Its name and the duplicate value-set
+name are marked transitional in code; a separate follow-up renames them. The
+public rename proposed in the previous draft is not part of this fix.
 
 **Behavior change is not limited to the two flags.** With 16 value-required
 flags, every one of them gains the "requires a value" error, and a bare
 optional-value flag no longer leaves the next token alone — so any script
 relying on `func --perf-report --perf-filter=X job` or
-`func --emit-format --force job` changes from exit 0 to exit 1. `--perf-filter`
+`func --emit-format --force job` changes to a missing-value usage error (exit 2). `--perf-filter`
 is in `GLOBAL_OPTIONS_ALWAYS_VALUE`, so that pairing is a real, currently working
 spelling.
 
@@ -208,14 +207,14 @@ token outside its accepted set, then read at each hit):
 | `tests/cli/test_emit_format_discoverability.py` | `:106-111` (`TestTheLookaheadIsUnchanged::test_a_bare_flag_before_a_job_still_runs_it`), module docstring `:6-7,:15` |
 | `tests/cli/test_dispatch_characterization.py` | `:71-73` (`test_optional_value_flag_releases_an_invalid_value`) |
 
-**Tests that read the tables and need the rename only** — 5 files:
-`tests/types/test_flag_grammar_roundtrip.py` (`:201-214` pins the release itself
-and is rewritten, not renamed), `tests/types/test_flag_grammar_consumer_count.py`
-(pins the spelling set in `_PATTERN` and the consumer list),
-`tests/test_public_api_surface.py`, `tests/cli/test_app_surface_output_format.py`
-(`:23`), `tests/skills/test_api_claims.py` (`:288`). Two further assertions move
-with B8: `tests/cli/test_emit_format_discoverability.py:52` (the help row) and
-`tests/cli/test_version_flag_position.py` (the `--version` scan's arity).
+**Tests that read the grammar** need their membership and deleted-table
+assertions updated, without a public rename: `tests/types/test_flag_grammar_roundtrip.py`,
+`tests/types/test_flag_grammar_consumer_count.py`, `tests/test_public_api_surface.py`,
+`tests/cli/test_app_surface_output_format.py`, and
+`tests/skills/test_api_claims.py`. The help row in
+`tests/cli/test_emit_format_discoverability.py` and the `--version` arity tests
+also change. The parity test must include the `--version` scan, not just the
+two dispatch readers.
 
 **Not affected**, checked rather than assumed: `tests/_cli/test_dispatch_preservation.py`
 (its optional-value cases use explicit accepted values or `=` syntax),
@@ -231,25 +230,16 @@ does not reach it.
 This change is `func`'s pre-boot routing and the grammar it reads. It does not
 extend `[aliases]` resolution to an app's own entry point (the deferred gap in
 `.spec/STATUS.md` #40), does not touch alias configuration syntax, does not
-change what an accepted value does at run time, and does not add a shim or alias
-for any removed grammar name — this is pre-release, and the constitution says
-delete rather than shim. `_cli/dispatch.py::ParsedGlobalOptions.first_positional_index`
+change what an accepted value does at run time, and does not remove the global
+flag detectors or rename the remaining public grammar names.
+`_cli/dispatch.py::ParsedGlobalOptions.first_positional_index`
 has no consumer outside `dispatch.py`, so re-basing it on the new arity is
 internal.
 
-## Decision list carried into confirmation
+## Confirmed decisions
 
-1. **(a)** A valueless value flag exits **2** (usage). The invalid-value path
-   stays **1**, so a missing value and a wrong value differ by exit code. The
-   alternative — flatten both to 2 — is a one-line change plus four test
-   updates, and is the doctrine `docs/cli/modes.md:144-148` and
-   `contributor/reference/pitfalls.md:485-490` describe.
-2. **(b)** The next token is the value even when it is another flag
-   (`--force`, `-x`). This is what `--log-level` already does and what Click
-   does; it is a behavior change for the two flags' users.
-3. **(c)** The app's own entry point follows the same rule: `--emit-format` there
-   loses `flag_value`, so a valueless `--emit-format` is an error on that surface
-   too. The alternative is to leave it optional there and document the
-   divergence.
-4. **(d)** The re-draft supersedes the earlier AC1 (see B6): the alias error is
-   no longer reachable from `func --emit-format shortcut`.
+The member confirmed the five choices on 2026-09-28: preserve every global-flag
+detector while removing the optional-value lookahead; treat a following known
+global flag as a missing value; use exit 2 for both missing and wrong values;
+require a value on the app's own `--emit-format` surface and accept that an
+alias in value position is invalid; and defer the public grammar rename.
