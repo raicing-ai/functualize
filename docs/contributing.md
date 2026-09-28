@@ -353,7 +353,7 @@ Public API symbols are what users import. Adding one requires updates in multipl
     ```bash
     uv run lint-imports       # Verify no contract violations
     uv run mypy src/          # Verify type correctness
-    uv run pytest             # Verify nothing broke
+    .agents/skills/test-tiers/scripts/tests-for-diff --run   # Verify nothing broke
     ```
 
 !!! warning "The `_cli/` dogfooding rule"
@@ -363,7 +363,29 @@ Public API symbols are what users import. Adding one requires updates in multipl
 
 ## Running Tests
 
-The test suite is split into **fast** (unit) and **slow** (property-based / Hypothesis) tiers. By default, only fast tests run — giving you quick feedback during development.
+The test suite is split into **fast** (unit/integration) and **slow** (property-based / Hypothesis) tiers. By default, only fast tests run.
+
+That split says *which* tests exist. How much of them to run for a given change is a second, independent axis — **Step**, **Wave**, **Tip** — and it is the first thing to decide; the fast/slow split only says what a tier contains.
+
+### Suite tiers
+
+| Tier | What runs | How to select |
+|------|-----------|---------------|
+| **Step** | the test files that import what you changed | `.agents/skills/test-tiers/scripts/tests-for-diff --run` |
+| **Wave** | the test directories the change touches | name those directories explicitly, at `-n auto` |
+| **Tip** | everything, including the property-based half | dispatch it to CI — never one local call |
+
+The step tier is the one to run after every edit:
+
+```bash
+.agents/skills/test-tiers/scripts/tests-for-diff --run
+```
+
+The mapper walks the import graph out from the changed paths, prints the selection, and runs exactly those files. It **fails closed**, which is why it — and not the bare mapper inside `$( )` — is the published form: an empty selection, which is every docs-only or `.spec/`-only change, exits `4` and runs nothing instead of falling through to the whole fast tier, and shared infrastructure (`tests/conftest.py`, `tests/_support/**`, `pyproject.toml`, `uv.lock`) exits `3` with nothing selected and means the question needs the tip tier. Exit `2` is a usage, git or environment error.
+
+The tip tier is the whole suite, and it is never one local command: it runs far past the 600 s tool-call cap, so it is dispatched — `gh workflow run CI --ref <branch>`, or push and read the verdict on the pull request in a later turn — and a local run is chunked into foreground calls of at most 570 s each. Never background a pytest run: that hides its failure rather than shortening it.
+
+Each tier's measured cost and the load it was taken at, the mapper's full selection and exit-code rules, and the cap that shapes them all live in `.agents/skills/test-tiers/SKILL.md`. That file is the authority; this page names the tiers, the commands, the exit codes and the 600 s cap, and deliberately restates no measured figure.
 
 ### Fast tests (default)
 
@@ -371,28 +393,34 @@ The test suite is split into **fast** (unit) and **slow** (property-based / Hypo
 uv run pytest
 ```
 
-This skips all property-based tests (files named `*_properties.py`, `*_props.py`, `*_property.py`) and runs only unit/integration tests. Target: under a minute (see ADR-003); the suite has drifted past this and runs several minutes — use `-k` to scope during development.
+This skips all property-based tests (files named `*_properties.py`, `*_props.py`, `*_property.py`) and runs only unit and integration tests. It is serial and uninstrumented, and that is what makes it the only local run that enforces the wall-clock `perf_budget` budgets — coverage and xdist skip those tests by design, so a `--cov` / `-n auto` run is not a substitute for it. Reach for it when the step tier refuses with exit `3` but the tip tier is out of reach.
 
-### Full test suite
+### Full test suite (the tip tier)
 
 ```bash
 uv run pytest --run-slow
 ```
 
-Includes property-based tests with the default Hypothesis profile (100 examples per test).
+Adds the property-based tests, at the default Hypothesis profile (100 examples per test). This is tip-tier content: it outruns the 600 s tool-call cap, so it is dispatched or chunked, never a single local call. To scope a fast run during development, use the step tier, or name a directory.
 
-### CI-equivalent run
+### Reproducing a CI leg locally
 
-```bash
-HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto
-```
+| CI leg | Command |
+|--------|---------|
+| `test-fast` — fast tests, serial | `uv run pytest` |
+| `test-full` — property tests + coverage, parallel, one interpreter per matrix leg | `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto` |
 
-Runs all tests in parallel across CPU cores with coverage measurement.
+The `HYPOTHESIS_PROFILE=ci` prefix is what makes the second row the `test-full` leg rather than
+a refinement of it. The `ci` profile draws 200 examples per property where the default draws 100,
+so it reaches inputs a plain `--run-slow` never generates — a suite that passes locally without
+it can still fail on CI.
 
-The `HYPOTHESIS_PROFILE=ci` prefix is what makes this equivalent to CI, not a refinement
-of it. The `ci` profile draws 200 examples per property where the default draws 100, so
-it reaches inputs a plain `--run-slow` never generates — a suite that passes locally
-without it can still fail on CI.
+Neither row is "the CI equivalent" on its own. The wall-clock `perf_budget` budgets are enforced
+in the `test-fast` leg, and only because it runs `pytest` plain and serial: the coverage and the
+xdist workers in the `test-full` row skip every `perf_budget` test, so those budgets are enforced
+once per pull request, there. And the second row replicates one leg of a three-interpreter matrix
+on a single local interpreter; like any tip-tier run, it outruns the 600 s cap, so chunk or
+dispatch it rather than issuing it as one call.
 
 ### Quick smoke-check of property tests
 
@@ -400,16 +428,7 @@ without it can still fail on CI.
 HYPOTHESIS_PROFILE=dev uv run pytest --run-slow
 ```
 
-Runs property tests with only 10 examples each — useful for a quick sanity check before pushing.
-
-### Test tiers summary
-
-| Command | What runs | When to use |
-|---------|-----------|-------------|
-| `uv run pytest` | Unit tests only | After every change |
-| `uv run pytest --run-slow` | All tests including property-based | Before pushing |
-| `HYPOTHESIS_PROFILE=dev uv run pytest --run-slow` | All tests, 10 hypothesis examples | Quick full check |
-| `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow --cov=functualize -n auto` | Full CI equivalent | Replicate CI locally |
+Runs property tests with only 10 examples each — a quick sanity check of the property-based half. The CI gate is the `ci` profile's 200 examples, so this is a smoke check, not a substitute for it.
 
 !!! tip "Hypothesis profiles"
     The project defines three Hypothesis profiles:
@@ -494,8 +513,12 @@ uv run lint-imports
     uv run ruff format --check src/ tests/ plugins/ examples/
     uv run mypy src/
     uv run lint-imports
-    HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto
+    .agents/skills/test-tiers/scripts/tests-for-diff --run
     ```
+
+    The last line is the step tier — the test files that import what you changed. The tip tier
+    (everything, including the property-based half) runs far past the 600 s tool-call cap, so it
+    is not run here: push the branch and read its verdict in CI. See *Running Tests* above.
 
 ## Commit Message Convention
 
@@ -558,8 +581,11 @@ git checkout -b docs/update-api-reference
     uv run ruff format --check src/ tests/ plugins/ examples/
     uv run mypy src/
     uv run lint-imports
-    uv run pytest
+    .agents/skills/test-tiers/scripts/tests-for-diff --run
     ```
+
+    The last line is the step tier. The tip tier is dispatched by pushing the branch — the CI
+    checks below report on it — not run as one local command; see *Running Tests*.
 
 2. Write tests for any new functionality.
 
