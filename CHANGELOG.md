@@ -36,9 +36,15 @@ than in the commit that added the file) now counts, matching the write-time gate
 deeper, which the hook never accepted, no longer satisfy the check; and the gated-path test is asked
 of the committed path against an empty directory, so a local symlink can no longer resolve a changed
 `src/functualize/**` path out of the gate. A `git` that cannot be started now refuses with *could
-not run git …; nothing was checked* instead of a traceback. `.claude/rules/spec-workflow.md` no
-longer says such a diff "is refused at the merge": the check reports the failure on the pull request,
-and it blocks the merge only once the context is registered as required in the `master` ruleset.
+not run git …; nothing was checked* instead of a traceback. The changed paths are read NUL-delimited
+and without rename detection (`git diff --name-only -z --no-renames`): git's default output quotes a
+name holding a non-ASCII byte, a quote, a tab or a newline, so a committed `src/functualize/café.py`
+with no graph arrived as `"src/functualize/caf\303\251.py"` and passed as *no contract-bearing path
+changed*, and a `git mv` out of `src/functualize/` was listed by its destination only. Both now
+refuse, and a name that is not valid UTF-8 is gated and printed escaped rather than dropped.
+`.claude/rules/spec-workflow.md` no longer says such a diff "is refused at the merge": the check
+reports the failure on the pull request, and it blocks the merge only once the context is registered
+as required in the `master` ruleset.
 
 ### Fixed — the Jev probe's sentences claimed more than its assertions
 

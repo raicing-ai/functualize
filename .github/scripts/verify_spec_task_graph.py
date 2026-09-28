@@ -73,6 +73,7 @@ cannot decide refuses rather than passes.
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 import subprocess
 import sys
@@ -107,12 +108,18 @@ def _git(root: str | Path, *args: str) -> tuple[int, str]:
     A git that cannot be started at all — not on `PATH`, not executable — is
     the same answer as a git that failed: nothing was checked. Left uncaught it
     is a traceback, which fails closed but says nothing about why.
+
+    Decoded as UTF-8 with `surrogateescape`, not the locale's codec: a path is
+    bytes to git, and a name that is not valid UTF-8 must still arrive as a
+    path — one that round-trips to the same bytes — rather than as a decode
+    error.
     """
     try:
         result = subprocess.run(
             ["git", "-C", str(root), *args],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             check=False,
         )
     except OSError as error:
@@ -183,10 +190,25 @@ def _merge_base(root: Path, base: str, head: str) -> str:
 
 
 def _changed_paths(root: Path, merge_base: str, head: str) -> list[str]:
-    code, out = _git(root, "diff", "--name-only", merge_base, head)
+    """Every path the range touches, exactly as the commits name it.
+
+    `-z` because git's default output is not a list of paths: `core.quotePath`
+    prints `src/functualize/café.py` as `"src/functualize/caf\\303\\251.py"`,
+    quotes and all, and a name holding a newline would split into two. Either
+    way `is_gated` is handed a string that is not under `src/functualize/`, and
+    a shipped-code change reads as none. NUL is the one byte a path cannot hold.
+
+    `--no-renames` because rename detection reports a move by its destination
+    only: `git mv src/functualize/x.py docs/x.py` would list `docs/x.py` and
+    drop the shipped-code path it removed, while deleting the same file lists
+    it. A move out of the gated tree changes it exactly as a deletion does.
+    """
+    code, out = _git(
+        root, "diff", "--name-only", "-z", "--no-renames", merge_base, head
+    )
     if code != 0:
         raise UnusableError(f"could not diff {merge_base}..{head}")
-    return [line for line in out.splitlines() if line.strip()]
+    return [path for path in out.split("\0") if path]
 
 
 def _gated(gate: object, changed: list[str]) -> list[str]:
@@ -264,6 +286,11 @@ def _carried_by_the_range(
 
 
 def main() -> int:
+    # A refusal names the paths it refuses, and a path is whatever bytes the
+    # commit holds. Printing one the stream's codec cannot carry must escape it,
+    # not raise: a traceback here would replace the refusal's message.
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(errors="backslashreplace")
     base = os.environ.get("SPEC_TASK_GRAPH_BASE", "").strip()
     head = os.environ.get("SPEC_TASK_GRAPH_HEAD", "").strip()
     pull_request = os.environ.get("SPEC_TASK_GRAPH_PR", "").strip()

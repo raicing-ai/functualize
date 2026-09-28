@@ -222,6 +222,70 @@ class TestRefused:
         assert _run(repo, _base(repo), head).returncode == 1
 
 
+class TestAPathIsWhatTheCommitNamesIt:
+    """`is_gated` must be handed the committed path, byte for byte.
+
+    Git's default path output is for people: `core.quotePath` wraps a name
+    holding a non-ASCII byte, a quote, a tab or a newline in double quotes and
+    escapes it, and rename detection reports a move by its destination alone.
+    Read that way, each of these shipped-code changes arrived as a string
+    outside `src/functualize/`, and the check answered `OK: no
+    contract-bearing path changed`.
+    """
+
+    @pytest.mark.parametrize(
+        "name",
+        ["café.py", 'say"hi.py', "tab\there.py", "line\nbreak.py"],
+        ids=["non-ascii", "double-quote", "tab", "newline"],
+    )
+    def test_a_name_git_would_quote_is_still_gated(self, repo: Path, name: str) -> None:
+        path = f"src/functualize/{name}"
+        try:
+            _write(repo, path, "VALUE = 1\n")
+        except OSError:
+            pytest.skip(f"this filesystem cannot hold {name!r}")
+        head = _commit(repo, "feat(engine): a module with an unusual name")
+        assert _git(repo, "diff", "--name-only", _base(repo), head).startswith('"'), (
+            "the fixture must exercise git's quoted output, or it proves nothing"
+        )
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 1, result.stdout
+        assert path in result.stdout
+
+    def test_a_name_that_is_not_utf8_is_gated_and_named(self, repo: Path) -> None:
+        """A path is bytes. One that is not valid UTF-8 must be refused with
+        its name escaped, never dropped and never turned into a traceback."""
+        target = os.fsencode(repo / "src" / "functualize") + b"/bad\xff.py"
+        (repo / "src" / "functualize").mkdir(parents=True)
+        try:
+            Path(os.fsdecode(target)).write_text("VALUE = 1\n", encoding="utf-8")
+        except OSError:
+            pytest.skip("this filesystem refuses a name that is not UTF-8")
+        head = _commit(repo, "feat(engine): a module with a raw byte in its name")
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 1, result.stdout
+        assert "src/functualize/bad" in result.stdout
+        assert "Traceback" not in result.stderr, result.stderr
+
+    def test_a_move_out_of_the_gated_tree_is_a_change_to_it(self, repo: Path) -> None:
+        """Deleting `src/functualize/_engine/explain.py` is refused; moving it
+        to `docs/` removes the same shipped code, and rename detection used to
+        list only `docs/explain.py`."""
+        _git(repo, "checkout", "-q", "master")
+        _write(repo, GATED_FILE, "def explain():\n    return 0\n")
+        _commit(repo, "feat(engine): explain")
+        _git(repo, "checkout", "-q", "-B", "topic")
+        (repo / "docs").mkdir()
+        _git(repo, "mv", GATED_FILE, "docs/explain.py")
+        head = _commit(repo, "docs: move explain out of the package")
+        assert "R100" in _git(repo, "diff", "--name-status", "-M", _base(repo), head), (
+            "the fixture must be a rename git detects, or it proves nothing"
+        )
+        result = _run(repo, _base(repo), head)
+        assert result.returncode == 1, result.stdout
+        assert GATED_FILE in result.stdout
+
+
 class TestTheCheckoutDecidesNothing:
     """The range is commits. The checkout the script happens to run in — a
     local worktree, or CI's merge commit — is not the change being merged, so
@@ -524,6 +588,7 @@ class TestTheWorkflowCannotSilentlyStopChecking:
                 modules.add((node.module or "").split(".")[0])
         assert modules <= {
             "importlib",
+            "io",
             "os",
             "subprocess",
             "sys",
