@@ -56,7 +56,7 @@ a counted pattern in prose inside them.
 
 ## Wave 0 — foundation
 
-### [ ] T1 — the provider-neutral vocabulary
+### [x] T1 — the provider-neutral vocabulary
 
 *Files:* `src/functualize/_types/decision.py` (new), `src/functualize/_types/errors.py`, `tests/types/test_decision_values.py` (new)
 
