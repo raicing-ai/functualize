@@ -158,6 +158,12 @@ After Mission A is done (or abandoned, per §1):
    as few steps as possible. If it reproduces, mark it `confirmed`. If you could not
    reduce it, mark it `suspected` and say why. The scratch directory goes under
    `$SESSION/repro/<finding-id>/`, and the finding cites it.
+
+   Give each confirmed finding a `run.sh` in that directory that exits **non-zero while
+   the problem is present** and zero when it is gone. Build the repro from toy files with
+   invented names. Do not copy code, paths, repository names or data from the user's
+   repository into it. The repro is later re-run to check a fix and may be summarised
+   into a shared tracker, so it has to stand alone and be safe to share.
 2. **Write `findings.md`** with the finding schema in `report-template.md` §2. Deduplicate:
    one root cause is one finding, even when you hit it five times. Note the count.
 3. **Write `summary.md`** with `report-template.md` §3: whether the journey completed, a
@@ -190,3 +196,12 @@ After Mission A is done (or abandoned, per §1):
   `confirmed`. If you are guessing at a cause, the field is called `suspected cause` for
   a reason.
 - **Never let a report file land in the user's repository**, and never commit one.
+- **Never put target-repository content in `findings.md` or `repro/`.** The journal may
+  quote what you saw, because it stays on disk. Findings and repros are the parts that get
+  shared, so write them in terms of functualize only: invented job names, toy code, no
+  paths or names from the user's repository. A verbatim error message is fine when it
+  mentions nothing but functualize.
+- **Never treat your own finding as settled.** You are a newcomer who was told not to read
+  the source, so you may be misreading what a feature is for. State what you expected and
+  which doc told you so (`followed:`). Someone with more context decides whether it is a
+  defect.

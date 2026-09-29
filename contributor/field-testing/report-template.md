@@ -67,9 +67,12 @@ type: bug                      # bug | ux | docs | gap | opinion | win
 severity: S1                   # S1..S4, or - for win/opinion
 category: skills               # observation-guide.md §4.3
 stage: J7                      # journey stage where it surfaced
-status: confirmed              # confirmed | suspected | not-reproduced
+status: confirmed              # confirmed | suspected | not-reproduced (= does it reproduce; NOT a verdict on whether it is a defect)
 hits: 3                        # how many times you ran into it
 functualize: 0.4.0 (pypi)
+sha: -                         # `git rev-parse --short HEAD` of the checkout when source is a local checkout, else -
+followed: functualize-skill/SKILL.md §3   # the doc / skill / --help section you relied on, or `none (guessed)`
+repro: repro/F01/run.sh        # runnable check, exits NON-ZERO while the bug shows; `-` if status is not confirmed
 cost: ~20 min                  # time lost, your best estimate
 ---
 
@@ -112,7 +115,18 @@ Rules for the block:
 - **`Suggestion` is optional** and is only ever a suggestion. You never apply it to
   functualize.
 - **Cite the doc or skill you followed**, by file and section, whenever the finding is
-  about following instructions.
+  about following instructions. Put it in the `followed:` field. It is **mandatory for
+  `bug`, `ux` and `docs`**. Whoever triages the finding uses it to tell "the docs misled
+  the reporter" from "the reporter guessed".
+- **`repro:` points at a runnable script**, not a description. `run.sh` must exit non-zero
+  while the problem is present and zero once it is fixed, so anyone can re-run it later to
+  check a fix. Prose steps go in "Minimal repro" as before; the script is the executable
+  form of the same steps.
+- **The repro must contain nothing from the target repository.** Toy files, invented
+  names, fake values. See `AGENT_BRIEF.md` §5 step 1 and §6.
+- **`status: confirmed` means the finding reproduces.** It does not mean maintainers have
+  agreed it is a defect. Triage decides that, and it can rule your finding working as
+  intended even though it reproduces. That is fine and useful.
 
 ---
 

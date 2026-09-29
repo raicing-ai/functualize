@@ -54,18 +54,50 @@ By default:
 ~/functualize-field-reports/<YYYY-MM-DD>-<target-repo>-<task-slug>/
 ├── journal.md      raw, timestamped, written while working
 ├── findings.md     one block per finding, structured, deduplicated
-└── summary.md      the one-page verdict: did the journey complete, top issues, opinions
+├── summary.md      the one-page verdict: did the journey complete, top issues, opinions
+└── repro/<id>/     one toy reproduction per confirmed finding, with a runnable run.sh
 ```
 
-Reports are **deliberately kept out of this repository**. They quote other repositories'
-code, and they are raw material rather than decisions. If a finding becomes a decision,
-it arrives here as an issue, a `.spec/features/**` artifact, or an entry in
-`contributor/reference/pitfalls.md`. The report itself never gets committed here.
+Reports are **deliberately kept out of this repository**. The journal quotes other
+repositories' code, and reports are raw material rather than decisions. The report itself
+never gets committed here. `findings.md` and `repro/` are written to contain nothing from
+the target repository (see `AGENT_BRIEF.md` §6), so they are the parts that can be
+ingested into the shared tracker described below. The journal never is.
 
-## Triage
+## From report to plan
 
-Every finding carries an `id`, a `category`, a `severity` and a `status`
-(`confirmed` / `suspected`). That makes a batch of reports mergeable:
+A finding is a **claim from a newcomer who was told not to read the source**. It may be a
+real defect, a misreading of what a feature is for, or a symptom of something else. It
+does not go straight into the plan.
+
+```
+report on disk ──ingest──▶ ledger (REPORTED) ──agent triage──▶ verdict
+                                                                  │
+      ┌────────────── needs a human ──────────────────────────────┤
+      ▼                                                           ▼
+ discussion page (Confluence comments)                     clear-cut defect
+      │                                                           │
+      └──▶ RECONCILED: accepted → plan │ new decision │ rejected │ deferred
+                                       │
+                                       ▼
+                          Jira issue under the Initiative's Epic
+```
+
+The shared tracker is the **Alignment Hub** in the Functualize Confluence space (`SD`),
+under `00 — Start Here`. It holds the append-only ledger, the triage rules, the
+discussion pages and the mapping from `category` to the area of the code it touches.
+This folder defines what a report looks like. The Hub defines what happens to it.
+
+Ingest is done by the maintainer or an agent acting for them, never by the field-testing
+agent, which still files and posts nothing. Ingest gives each finding a global `FT-NNN`
+ID and records which report and finding id it came from, so a report is never ingested
+twice and the same finding in several reports is counted, not duplicated.
+
+## Local triage
+
+Before ingesting, every finding carries an `id`, a `category`, a `severity` and a
+`status` (`confirmed` / `suspected`). `status` says whether it **reproduces**, not
+whether it is a defect. That makes a batch of reports easy to look through:
 
 ```bash
 # Every blocker across all sessions
@@ -76,7 +108,8 @@ rg -A3 '^category: discovery' ~/functualize-field-reports/*/findings.md
 
 When the same finding shows up in several reports, that is the priority signal. Agents
 are told to reproduce a finding in a minimal case before marking it `confirmed`. A
-`suspected` finding is a lead to chase, not a fact.
+`suspected` finding is a lead to chase, not a fact, and even a `confirmed` one is a
+reproducible observation, not yet an agreed defect.
 
 ## What the agent is told not to do
 

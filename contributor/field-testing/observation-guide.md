@@ -152,6 +152,15 @@ all of them. Each takes seconds. Record the result, including "worked as expecte
 
 `win` and `opinion` take no severity. Give them `severity: -`.
 
+Type also decides what happens next, after you have written the finding:
+
+| Type | What triage does with it |
+|---|---|
+| `bug`, `ux` | Re-run your repro, then check the result against the feature's documented and decided intent |
+| `docs` | Usually confirms the docs were unclear and proposes a wording or `--help` fix |
+| `gap`, `opinion` | Goes straight to discussion, since there is no defect to reproduce |
+| `win` | Recorded as behaviour to keep, so later cleanups do not remove it |
+
 ### 4.3 Category (pick the closest one)
 
 `install` · `invocation` · `discovery` · `signature-mapping` · `capabilities` ·
