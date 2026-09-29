@@ -6,7 +6,10 @@ half's seam, pull request #68); revised 2026-09-28 after the member's answers
 `02c6a96`; revised again the same day for the second round (D-3, S-3 yes;
 Q-1 → conditional edges, no new syntax; Q-2 → the rule joins the graph digest);
 revised 2026-09-29 so T1 restates C-1 and C-2 in full (Execute reads only
-this file) and pins the two renderings C-2 left open.
+this file) and pins the two renderings C-2 left open; revised again
+2026-09-29 after wave 0: T2's `uv.lock` gate anchored, T2 owns the plugin
+catalog row its `all` entry requires, and T3, T4, T6 and T7 restate C-3…C-6
+and the acceptance criteria their tests cite.
 Sixteen tasks in twelve waves. Every `now:`
 below was produced by running the command at authoring time — on this branch
 for files that exist on `master`, and with `git show d5747f85:<path> | rg -c`
@@ -206,7 +209,7 @@ now: `0` · after: `0` — invariant: the vocabulary imports nothing outside `_t
 
 ### [ ] T2 — the `functualize-decision-jev` package, empty
 
-*Files:* `plugins/domains/functualize-decision-jev/pyproject.toml`, `plugins/domains/functualize-decision-jev/README.md`, `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/__init__.py`, `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/py.typed`, `pyproject.toml`, `uv.lock`
+*Files:* `plugins/domains/functualize-decision-jev/pyproject.toml`, `plugins/domains/functualize-decision-jev/README.md`, `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/__init__.py`, `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/py.typed`, `pyproject.toml`, `uv.lock`, `src/functualize/_cli/data/plugin_catalog.toml`
 
 Mechanical scaffold, modelled on `plugins/domains/functualize-tasks-local/`:
 name `functualize-decision-jev`, version `0.1.0`, `license = "Apache-2.0"`, no `License ::`
@@ -221,6 +224,26 @@ has a docstring and `__all__ = []`. Root `pyproject.toml`: add
 `"functualize-decision-jev"` to the `all` extra. Then `uv lock` and
 `uv sync --frozen --all-extras --all-packages`.
 
+**The catalog row (decided 2026-09-29).** The package stays in `[all]`, as
+`plan.md` → *Files to change* already lists (`all` extra). The repository pins
+`[all]` to the plugin catalog: `tests/cli/test_plugin_catalog.py::TestManifestMatchesReality::test_recommended_set_matches_the_all_extra`
+asserts the `recommended = true` rows of `src/functualize/_cli/data/plugin_catalog.toml`
+equal the `[all]` distributions, so this task also adds one row, after the
+`flow-viz` row in the *Adapters* section (the group T9's entry point uses):
+
+```toml
+[[plugin]]
+name = "jev"
+distribution = "functualize-decision-jev"
+group = "functualize.plugins"
+description = "Experimental: a gate's choice proposed by Jev (needs OPENCODE_API_KEY)"
+recommended = true
+```
+
+`name` is C-8's entry-point name. With the row in place,
+`uv run pytest tests/cli -k 'catalog or plugin'` passes (measured on the
+wave-0 head with the row applied: 91 passed, 5 skipped).
+
 ```bash
 ls -d plugins/*/*/ | wc -l
 ```
@@ -232,14 +255,19 @@ rg -c 'functualize-decision-jev' pyproject.toml
 now: `0` · after: `2`
 
 ```bash
-rg -c 'name = "functualize-decision-jev"' uv.lock
+rg -c '^name = "functualize-decision-jev"' uv.lock
 ```
 now: `0` · after: `1`
 
 ```bash
-rg -c -i 'jev' src/functualize --glob '!**/_gate/_strategy.py'
+rg -c -i 'jev' src/functualize --glob '*.py' --glob '!**/_gate/_strategy.py'
 ```
-now: `0` · after: `0` — invariant: no core module names the provider (AC-15, "no Gate rename around Jev"). The one excluded file carries the install hint T6 adds — a diagnostic string, not a dependency, exactly as it already names `functualize-ai`.
+now: `0` · after: `0` — invariant: no core module names the provider (AC-15, "no Gate rename around Jev"). The one excluded file carries the install hint T6 adds — a diagnostic string, not a dependency, exactly as it already names `functualize-ai`. The gate counts Python modules only (re-authored 2026-09-29): the catalog row above is data under `src/functualize/_cli/data/` that names the distribution, exactly as its neighbouring rows name `functualize-ai`, and is not a module.
+
+```bash
+rg -c '^distribution = "functualize-decision-jev"$' src/functualize/_cli/data/plugin_catalog.toml
+```
+now: `0` · after: `1` — the catalog row.
 
 ## Wave 1
 
@@ -268,23 +296,83 @@ now: `0` · after: `6`
 
 *Files:* `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/_wire.py` (new), `tests/plugins/test_jev_wire.py` (new)
 
-Pure functions, no I/O, implementing C-3's tables:
-`build_request(request: ChoiceRequest, *, model: str) -> dict[str, Any]`,
-`parse_choice(payload: Mapping[str, Any], request: ChoiceRequest, *, requested_model: str, latency_seconds: float) -> DecisionResult[str]`,
-`failure_for(status: int, body: str, headers: Mapping[str, str]) -> DecisionUnavailableError`.
-The question id is the constant `"decision"`. `parse_choice` raises
-`DecisionUnavailableError(kind=MALFORMED)` for a non-`choice` answer, a `choice`
-outside the options, missing `probabilities`, or a missing `answers.decision`.
-`failure_for` implements the status table; body clipped to 300 characters.
-Every `functualize` name is imported from `functualize.plugin` (T14), never
-from `functualize._*`.
+Pure functions, no I/O, implementing C-3 (restated below in full). Exactly
+these three public functions, with these signatures:
+
+```python
+def build_request(request: ChoiceRequest, *, model: str) -> dict[str, Any]: ...
+def parse_choice(payload: Mapping[str, Any], request: ChoiceRequest, *,
+                 requested_model: str, latency_seconds: float) -> DecisionResult[str]: ...
+def failure_for(status: int, body: str, headers: Mapping[str, str]) -> DecisionUnavailableError: ...
+```
+
+The question id is the module constant `"decision"`. Every `functualize` name is
+imported from `functualize.plugin` (T14), never from `functualize._*`. Every
+error these functions create has `provider="jev"`.
+
+**Request (C-3, rows A1/A4).** `build_request` returns exactly this object;
+`model` is `request.model` when it is not `None`, else the `model` argument (the
+configured default the provider passes):
+
+```json
+{"model": "<request.model or model>",
+ "state": "<request.state>",
+ "questions": {"decision": {"type": "choice",
+                            "instructions": "<request.instructions>",
+                            "criteria": {"<option>": "<meaning>", ...}}}}
+```
+
+`criteria` is `dict(request.options)`: an object, option → meaning. The
+endpoint, method and headers are T4's (`POST`, `Authorization: Bearer <key>`,
+`Content-Type: application/json`, `User-Agent: functualize-decision-jev/<version>`).
+
+**Response → `DecisionResult[str]` (C-3, a `200`).** Let `answer =
+payload["answers"]["decision"]`.
+
+| wire (200) | result |
+|---|---|
+| `answers.decision.type` | must be `"choice"`, else `MALFORMED` |
+| `answers.decision.choice` | `value`; must be a key of `request.options`, else `MALFORMED` |
+| `answers.decision.probabilities` | `distribution`, as a dict keyed by option; required, else `MALFORMED` |
+| `answers.decision.confidence` | `confidence` (absent → `None`: it is not in the required set, and B-2 says absent, not invented) |
+| `model` | `model` |
+| `usage.input_tokens` / `usage.output_tokens` | `provenance.input_tokens` / `output_tokens`; absent → `None` |
+| — | `provider = "jev"`, `provenance.requested_model` and `provenance.latency_seconds` from the arguments |
+
+A missing `answers` or `answers.decision`, a missing top-level `model`, or any
+value of the wrong type is a shape violation, and a shape-violating `200` is
+`MALFORMED` (B-9) — including a `ValueError` from `DecisionResult`'s range check,
+which `parse_choice` converts. `status=200` on every `MALFORMED` it raises;
+`detail` says which rule failed (e.g. `answer type is 'noul', expected 'choice'`).
+`parse_choice` never raises anything but `DecisionUnavailableError`.
+
+**Status → `DecisionFailure` (C-3, row E).** `failure_for` is called for every
+non-`200` response:
+
+| status | kind | fields |
+|---|---|---|
+| `429` | `RATE_LIMITED` | `status=429`; `retry_after = float(headers["retry-after"])` (key looked up case-insensitively), `None` if absent or not a number |
+| `400`, `401`, `402`, `403`, `422` | `REFUSED` | `status` set; `detail` is the body clipped to 300 chars, plain text included (E12) |
+| any other non-`200` | `REFUSED` | same |
+
+`detail` for every kind is `body[:300]` (the constructor clips again; that is
+harmless). `UNREACHABLE` (T4's transport), `MALFORMED` (above) and
+`NOT_CONFIGURED` (T4's provider) are not `failure_for`'s.
 
 Test inputs are copied **verbatim** from `contributor/reference/jev-system-one-capability-matrix.md`
-rows A3 (the `noul` body → MALFORMED), A4 (a `choice` body), and every status
-row in the E table (E1, E4, E8, E10, E11, E12 plain text, and a `429` with
-`Retry-After: 19014`). Each test names the row it copies. AC-3 (request
-shape), AC-4, AC-5. One test builds a `probabilities` object in two key orders
-and asserts equal results (B3).
+(a reference document, not a spec artifact) rows A3 (the `noul` body →
+MALFORMED), A4 (a `choice` body), and every status row in the E table (E1, E4,
+E8, E10, E11, E12 plain text, and a `429` with `Retry-After: 19014`). Each test
+names the row it copies. Behaviour the tests pin:
+
+- AC-3: `build_request` for options `{billing, returns, shipping}` equals the
+  object above, with `criteria` an object of those three keys.
+- AC-4: a `200` carrying a `noul` answer, a `choice` not among the options, or
+  a missing `probabilities` raises `MALFORMED`.
+- AC-5: each E-row status maps to the kind in the table; `429` carries
+  `retry_after == 19014.0`; no case sleeps.
+- B3: one test builds `probabilities` in two key orders and asserts equal
+  results.
 
 ```bash
 rg -c '^def (build_request|parse_choice|failure_for)\b' plugins/domains/functualize-decision-jev/src/functualize_decision_jev/_wire.py
@@ -307,19 +395,82 @@ now: `0` · after: `0` — invariant: the plugin uses the public API only (S-4, 
 
 *Files:* `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/_provider.py` (new), `tests/plugins/test_jev_decision_provider.py` (new), `tests/plugins/test_jev_live.py` (new)
 
-C-3's *Transport port* and *Provider*. `UrllibTransport.post` sends through
-`urllib.request`, returns `WireResponse` for every HTTP status (catching
-`HTTPError`), lower-cases header keys, and raises `DecisionUnavailableError(kind=UNREACHABLE)`
-for `URLError`/`TimeoutError`/`OSError`. `JevDecisionProvider.choose`:
-credential read at call time (unset/empty → `NOT_CONFIGURED`, no request);
-`User-Agent: functualize-decision-jev/<version from importlib.metadata>`; one `post`;
-latency by `time.monotonic()`; `200` → `_wire.parse_choice`, else
-`_wire.failure_for`. No retry, no sleep. `name == "jev"`.
+C-3's *Transport port* and *Provider*, restated in full. Exactly these five
+classes in `_provider.py`, with these fields and signatures (Python 3.11,
+`from __future__ import annotations`):
+
+```python
+@runtime_checkable
+class JevTransport(Protocol):
+    def post(self, url: str, body: bytes, headers: Mapping[str, str], timeout: float) -> WireResponse: ...
+
+@dataclass(frozen=True)
+class WireResponse:
+    status: int
+    body: str
+    headers: Mapping[str, str]   # keys lower-cased
+
+class UrllibTransport: ...       # the production JevTransport; raises only for transport failure
+
+@dataclass(frozen=True)
+class JevConfig:                       # resolved from config section [jev]; all optional
+    model: str = "jev-1.13-free"
+    endpoint: str = "https://opencode.ai/zen/v1/systemone"
+    timeout_seconds: float = 30.0
+
+class JevDecisionProvider:             # satisfies DecisionProvider
+    def __init__(self, config: JevConfig = JevConfig(), *,
+                 transport: JevTransport | None = None,
+                 credential: Callable[[], str | None] | None = None) -> None: ...
+    name: str                          # "jev"
+    def choose(self, request: ChoiceRequest) -> DecisionResult[str]: ...
+```
+
+`JevTransport` is a Protocol, not a bare callable (`.spec/CONSTITUTION.md` →
+*Forbidden Patterns*, "Implicit `Callable` conventions for ports").
+`jev-1.13-free` appears once in the package, as this default (AC-7).
+
+- `UrllibTransport.post` sends a `POST` through `urllib.request` with the given
+  body, headers and timeout; returns `WireResponse` for **every** HTTP status
+  (an `HTTPError` is read, not raised); decodes the body as UTF-8 (`errors="replace"`);
+  lower-cases header keys; and raises
+  `DecisionUnavailableError(kind=UNREACHABLE, provider="jev", status=None, detail=str(exc))`
+  for `URLError`, `TimeoutError` or `OSError`.
+- `JevDecisionProvider.__init__`: `transport` defaults to `UrllibTransport()`;
+  `credential` defaults to a supplier returning `os.environ.get("OPENCODE_API_KEY")`.
+  It reads the credential **at call time** — never at construction, at import,
+  or from a config file — and stores nothing credential-bearing that `repr`
+  would show. (`credential` is a zero-argument supplier used inside one class,
+  not a port: `plan.md` *Surviving smells* S-3, answered by the member.)
+- `choose(request)`, in order:
+  1. `key = credential()`; `None` or `""` → raise
+     `DecisionUnavailableError(kind=NOT_CONFIGURED, provider="jev", detail="OPENCODE_API_KEY is not set")`
+     with **no** request sent.
+  2. `model = request.model or config.model`; body =
+     `json.dumps(_wire.build_request(request, model=config.model)).encode()`.
+  3. Headers: `Authorization: Bearer <key>`, `Content-Type: application/json`,
+     `User-Agent: functualize-decision-jev/<importlib.metadata.version("functualize-decision-jev")>`.
+  4. Exactly one `transport.post(config.endpoint, body, headers, config.timeout_seconds)`,
+     timed with `time.monotonic()` around the call.
+  5. `status == 200` → `json.loads(response.body)`; a decode error →
+     `DecisionUnavailableError(kind=MALFORMED, provider="jev", status=200, detail=…)`;
+     otherwise `_wire.parse_choice(payload, request, requested_model=model, latency_seconds=elapsed)`.
+     Any other status → raise `_wire.failure_for(response.status, response.body, response.headers)`.
+  No retry, no sleep, no second request, on any path (B-5).
+- `name == "jev"`.
 
 `test_jev_decision_provider.py` uses a fake `JevTransport` recording what it was
-sent: AC-3's `User-Agent` clause, AC-5's no-sleep (monkeypatch `time.sleep` to
-raise), AC-6 (unset key; sentinel key never in `str`/`repr` of any error or of
-the provider), one request per `choose`.
+sent. Behaviour it pins:
+
+- AC-3's header clause: the `User-Agent` sent is neither empty nor
+  `Python-urllib/*`, and starts `functualize-decision-jev/`.
+- AC-5's no-sleep: monkeypatch `time.sleep` to raise; a `429` fake response
+  still returns promptly as `RATE_LIMITED`.
+- AC-6: with the credential unset (and with `""`), `choose` raises
+  `NOT_CONFIGURED` and the fake records no call; with the credential set to a
+  sentinel, the sentinel appears in no error's `str`/`repr` and not in the
+  provider's `repr`.
+- One `post` per `choose`; a `200` with a non-JSON body → `MALFORMED`.
 
 `test_jev_live.py`: module-level skip without `OPENCODE_API_KEY` (reason names
 the variable); one `choose` against the real endpoint with the matrix's row C
@@ -367,23 +518,62 @@ the full five checks once on the rebased branch; they must be green before T6.
 
 *Files:* `src/functualize/_types/decision.py`, `src/functualize/_types/workflow.py`, `src/functualize/_gate/_strategy.py`, `tests/workflow/test_gate_decide_declaration.py` (new)
 
-C-4 and C-5. `ChoiceDecision` in `_types/decision.py` (it imports `FromStep`
-from `functualize._types.from_job`); `__post_init__` range checks only.
-`Gate.decide` is a new last field with default `None`; `Gate.__post_init__`
-gains the checks C-5 lists: strategy normalisation and conflicts, field
-existence on `awaits`, the field's allowed values (`typing.get_args` of a
-`Literal`, or the members' values of a `StrEnum`) equal to `decide.options`'
-keys, message naming both sets. `"decision"` joins `_VALID_GATE_STRATEGIES`;
-`STRATEGY_PROVIDERS` gains `"decision": "functualize-decision-jev"` — the existing
-`tests/gate/test_provider_tables.py` must stay green unchanged. Update
-`Gate`'s docstring `strategy` paragraph to list the fifth name.
+C-4 and C-5, restated in full.
+
+**C-4 — `ChoiceDecision`**, added to `src/functualize/_types/decision.py` (it
+imports `FromStep` from `functualize._types.from_job`, which keeps T1's import
+invariant) and to that module's `__all__`:
+
+```python
+@dataclass(frozen=True)
+class ChoiceDecision:
+    field: str                       # the awaits field the decision fills
+    instructions: str
+    options: Mapping[str, str]       # option -> meaning
+    state: FromStep                  # the step whose recorded result is the text
+    accept_at: float                 # 0 < accept_at <= 1
+    min_margin: float = 0.0          # 0 <= min_margin < 1
+    model: str | None = None         # passed through to ChoiceRequest.model
+```
+
+`__post_init__` range checks only: `ValueError` unless `0 < accept_at <= 1` and
+`0 <= min_margin < 1`.
+
+**C-5 — `Gate`** (`src/functualize/_types/workflow.py`, re-exported unchanged
+as `functualize.workflow.Gate`) gains one keyword field, **last**, so existing
+positional construction is unchanged:
+
+```python
+decide: ChoiceDecision | None = None
+```
+
+`Gate.__post_init__` gains, in this order:
+
+- `decide` set and `strategy is None` → `strategy` becomes `"decision"`
+  (`object.__setattr__` if the dataclass is frozen). `decide` set with any
+  other `strategy`, or `strategy == "decision"` without `decide` →
+  `ValueError`.
+- `decide.field` must be a field of `awaits`, whose annotation is a `Literal`
+  of strings (allowed values: `typing.get_args`) or a `StrEnum` (allowed values:
+  the members' `.value`s); anything else → `ValueError`.
+- The allowed values must equal `set(decide.options)` exactly → otherwise
+  `ValueError` whose message names both sets.
+
+`"decision"` joins `_VALID_GATE_STRATEGIES`; `STRATEGY_PROVIDERS` gains
+`"decision": "functualize-decision-jev"` — the existing
+`tests/gate/test_provider_tables.py` (which pins the two key sets equal) must
+stay green unchanged. Update `Gate`'s docstring `strategy` paragraph to list the
+fifth name.
 
 Before editing, run serena `find_referencing_symbols` on `Gate` and
 `_VALID_GATE_STRATEGIES` against this worktree's absolute path, and record the
 counts in the completion note.
 
-Tests: AC-8 (four failure cases), the happy path, and `strategy` normalised to
-`"decision"`.
+Tests: AC-8 — declaring a decision raises `ValueError` at declaration when
+(1) its options differ from the field's allowed values, (2) its field is absent
+from `awaits`, (3) `accept_at` is out of range, (4) `min_margin` is out of
+range; plus the strategy conflicts, the happy path with a `Literal` field and
+with a `StrEnum` field, and `strategy` normalised to `"decision"`.
 
 ```bash
 rg -c '"decision": "functualize-decision-jev"' src/functualize/_gate/_strategy.py
@@ -406,21 +596,67 @@ now: `0` · after: `1`
 
 *Files:* `src/functualize/_gate/decision_strategy.py` (new), `src/functualize/_gate/_context.py`, `src/functualize/_gate/_registry.py`, `tests/gate/test_decision_strategy.py` (new)
 
-C-6. `GateContext.decision` (new last field, default `None`);
-`GateRegistry.evaluate(..., decision=None)` passes it into the `GateContext` it
-builds; `resolve_gate` is **not** changed. `DecisionGateResolver.resolve`
-follows C-6's six steps, and `DecisionBelowThresholdError(ValueError)` lives in
-`decision_strategy.py` with C-6's exact message. The module imports `_types`
-only.
+C-6, restated in full. `src/functualize/_gate/decision_strategy.py` (new):
+
+```python
+class DecisionGateResolver:            # satisfies GateResolver
+    def __init__(self, provider: DecisionProvider) -> None: ...
+    def resolve(self, ctx: GateContext) -> BaseModel: ...
+
+class DecisionBelowThresholdError(ValueError): ...
+```
+
+- `GateContext` (`_gate/_context.py`) gains `decision: ChoiceDecision | None = None`
+  as its **last** field.
+- `GateRegistry.evaluate` (`_gate/_registry.py`) gains the keyword
+  `decision: ChoiceDecision | None = None`, passed into the `GateContext` it
+  builds unchanged. `GateRegistry.resolve_gate` and `app.gates.resolve_gate` are
+  **not** widened: the walk (T8) is Phase 1's only caller.
+
+`resolve(ctx)`, exactly these six steps (`decision = ctx.decision`):
+
+1. `decision is None` → raise `ValueError("gate has no decision declared")`.
+2. State: `ctx.workflow_context[decision.state.name]`; missing → raise
+   `ValueError` naming the step. A `str` is used as is; anything else is
+   `json.dumps(value, sort_keys=True, default=str)`.
+3. `result = provider.choose(ChoiceRequest(state=<that text>,
+   instructions=decision.instructions, options=decision.options,
+   model=decision.model))`; `DecisionUnavailableError` propagates (the ladder
+   records it as `failed`, `detail = str(error)`).
+4. `result.distribution is None` → raise `ValueError` (a threshold needs one).
+5. `p = distribution[value]`;
+   `runner_up = max((v for k, v in distribution.items() if k != value), default=0.0)`;
+   `margin = p - runner_up`. Accept iff `p >= accept_at and margin >= min_margin`.
+   The provider's scalar self-assessment field is not read — the module never
+   names it (gate below).
+6. Accepted → return `ctx.model_class(**{**ctx.resolved_fields, decision.field: value})`.
+   Not accepted → raise `DecisionBelowThresholdError` whose `str` is exactly
+
+```
+<provider>/<model> proposed '<value>' at <p:.2f> (margin <margin:.2f>); workflow requires >= <accept_at:.2f>, margin >= <min_margin:.2f>
+```
+
+with `<provider>`/`<model>` from `result.provider`/`result.model` and the
+thresholds from `decision`. The rung's detail is this string, and
+`blocked_reason` composes it through the unchanged `blocked_reason_from`
+(`_gate/_evaluation.py`) as `decision: <that string>; …`. The module imports
+from `functualize._types` only.
 
 Tests drive `GateRegistry.evaluate` with a fake `DecisionProvider` and a
-`ChoiceDecision`, and read the rungs: accepted (AC-9 values), below threshold
-with the exact detail string (AC-10 values), AC-11 both directions, a provider
-raising each `DecisionFailure` kind → `failed` rung with the kind in the
-detail, missing state step → `failed`, distribution `None` → `failed`, and the
-existing 50 `GateContext(` constructions across 7 test files still construct
-(run `tests/plugins/test_*gate_strategy*.py`, `tests/test_gate_module.py` and
-`tests/test_gate_resolution_algorithm.py`).
+`ChoiceDecision` with `accept_at=0.70, min_margin=0.10`, and read the rungs:
+
+- AC-9: a proposal at `0.80` with margin `0.40` → accepted, the model built
+  with that option.
+- AC-10: `0.54` / margin `0.08` → below threshold; the detail is exactly
+  `<provider>/<model> proposed '<option>' at 0.54 (margin 0.08); workflow requires >= 0.70, margin >= 0.10`
+  with the fake's provider and model names substituted.
+- AC-11: probability below threshold with the scalar at `1.0` → not accepted;
+  above threshold with it at `0.0` → accepted.
+- A provider raising each `DecisionFailure` kind → `failed` rung with the kind
+  in the detail; missing state step → `failed`; distribution `None` → `failed`.
+- The existing 50 `GateContext(` constructions across 7 test files still
+  construct (run `tests/plugins/test_*gate_strategy*.py`,
+  `tests/test_gate_module.py` and `tests/test_gate_resolution_algorithm.py`).
 
 ```bash
 rg -c '^class DecisionGateResolver\b' src/functualize/_gate/decision_strategy.py
