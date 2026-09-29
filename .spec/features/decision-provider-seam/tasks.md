@@ -271,7 +271,7 @@ now: `0` · after: `1` — the catalog row.
 
 ## Wave 1
 
-### [ ] T14 — the provider vocabulary is public API (provisional)
+### [x] T14 — the provider vocabulary is public API (provisional)
 
 *Files:* `src/functualize/plugin/__init__.py`, `tests/test_public_api_surface.py`
 

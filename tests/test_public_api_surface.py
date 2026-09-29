@@ -165,6 +165,15 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "AgentCapability",
         "AgentStepContext",
         "AgentStepResult",
+        # The decision provider port, provisional (decision-provider-seam):
+        # the Protocol a provider implements, the request it is handed, the
+        # candidate it returns, and the one error it raises instead.
+        "DecisionProvider",
+        "ChoiceRequest",
+        "DecisionResult",
+        "DecisionProvenance",
+        "DecisionFailure",
+        "DecisionUnavailableError",
         "discover_domains",
         "scan_domain_providers",
         "validate_extension_id",
