@@ -292,7 +292,7 @@ now: `0` · after: `6`
 
 ## Wave 2
 
-### [ ] T3 — the wire mapping
+### [x] T3 — the wire mapping
 
 *Files:* `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/_wire.py` (new), `tests/plugins/test_jev_wire.py` (new)
 
