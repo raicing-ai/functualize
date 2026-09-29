@@ -207,7 +207,7 @@ rg -c -P '^\s*(from|import) functualize\.(?!_types\b)' src/functualize/_types/de
 ```
 now: `0` · after: `0` — invariant: the vocabulary imports nothing outside `_types`.
 
-### [ ] T2 — the `functualize-decision-jev` package, empty
+### [x] T2 — the `functualize-decision-jev` package, empty
 
 *Files:* `plugins/domains/functualize-decision-jev/pyproject.toml`, `plugins/domains/functualize-decision-jev/README.md`, `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/__init__.py`, `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/py.typed`, `pyproject.toml`, `uv.lock`, `src/functualize/_cli/data/plugin_catalog.toml`
 
