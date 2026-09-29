@@ -89,6 +89,13 @@ class DecisionUnavailableError(Exception):   # the module's convention: errors d
 `str(error)` is `"<provider> <kind>[ HTTP <status>][ retry after <n> s]: <detail>"`
 — the string a failed rung carries into `blocked_reason` (C-6).
 
+The constructor is keyword-only —
+`__init__(self, *, kind, provider, detail, status=None, retry_after=None)` —
+and stores `detail[:300]`. In the message, `<kind>` is `kind.value`; the
+bracketed parts appear iff `status` / `retry_after` is not `None`; `<n>` is
+`int(retry_after)` when it is integral, else `str(retry_after)`
+(`429` with `Retry-After: 19014` → `jev rate_limited HTTP 429 retry after 19014 s: …`).
+
 ## C-3. The Jev wire mapping — `functualize_decision_jev` (provider half)
 
 New workspace package `plugins/domains/functualize-decision-jev`, distribution name

@@ -4,7 +4,9 @@ Authored 2026-09-27 against `4cd37f7` (provider half) and `d5747f85` (the Gate
 half's seam, pull request #68); revised 2026-09-28 after the member's answers
 (D-1 = A, renamed; D-2 = A; S-4 → public API) and after #68 merged as
 `02c6a96`; revised again the same day for the second round (D-3, S-3 yes;
-Q-1 → conditional edges, no new syntax; Q-2 → the rule joins the graph digest).
+Q-1 → conditional edges, no new syntax; Q-2 → the rule joins the graph digest);
+revised 2026-09-29 so T1 restates C-1 and C-2 in full (Execute reads only
+this file) and pins the two renderings C-2 left open.
 Sixteen tasks in twelve waves. Every `now:`
 below was produced by running the command at authoring time — on this branch
 for files that exist on `master`, and with `git show d5747f85:<path> | rg -c`
@@ -58,18 +60,129 @@ a counted pattern in prose inside them.
 
 *Files:* `src/functualize/_types/decision.py` (new), `src/functualize/_types/errors.py`, `tests/types/test_decision_values.py` (new)
 
-Implement C-1 and C-2 exactly. `DecisionResult` is `Generic[T]`, frozen;
-`distribution` is copied into a read-only mapping (`types.MappingProxyType` over
-a `dict`) and equality compares it as a mapping (AC-2). `__post_init__` rejects
-any probability or `confidence` outside `[0, 1]`. `ChoiceRequest` rejects fewer
-than 2 or more than 32 options and empty option keys. `DecisionProvider` is a
-`@runtime_checkable Protocol`. `DecisionUnavailableError.__str__` follows C-2's
-format; its constructor takes keyword arguments only. `decision.py` imports
-stdlib and `functualize._types` modules only. Define `__all__`.
+Implement C-1 and C-2 exactly. Both are restated here in full, so this task
+is buildable without opening `contracts.md`. Python 3.11; both modules start
+with `from __future__ import annotations`.
 
-Tests: AC-1 (both shapes), AC-2 (two key orders, equal), range rejection, the
-`str(error)` format for `RATE_LIMITED` with and without `retry_after`, and
-`isinstance(obj, DecisionProvider)` for a two-member fake.
+**C-1 — `src/functualize/_types/decision.py`.** Values and one Protocol; no
+logic beyond `__post_init__` range checks (the `_types/__init__.py` rule).
+Field names, order, types and defaults are exactly these:
+
+```python
+T = TypeVar("T")
+
+@dataclass(frozen=True)
+class DecisionProvenance:
+    requested_model: str             # what the caller asked for
+    latency_seconds: float           # monotonic wall clock of the one round trip
+    input_tokens: int | None = None  # the request's single usage block (A2), when reported
+    output_tokens: int | None = None
+
+@dataclass(frozen=True)
+class DecisionResult(Generic[T]):
+    value: T                                   # the proposed candidate
+    provider: str                              # e.g. "jev"; never parsed
+    model: str                                 # the model the provider says answered
+    provenance: DecisionProvenance
+    distribution: Mapping[T, float] | None = None  # keyed by option; order is meaningless (B3)
+    confidence: float | None = None            # provider's own scalar; NOT max(distribution) (B2)
+
+@dataclass(frozen=True)
+class ChoiceRequest:
+    state: str                     # the text to decide about, as given
+    instructions: str
+    options: Mapping[str, str]     # option -> meaning; 2..32 entries, non-empty keys
+    model: str | None = None       # None = the provider's configured default
+
+@runtime_checkable
+class DecisionProvider(Protocol):
+    @property
+    def name(self) -> str: ...
+    def choose(self, request: ChoiceRequest) -> DecisionResult[str]: ...
+```
+
+- `DecisionResult.__post_init__`: when `distribution` is not `None`, replace it
+  (via `object.__setattr__`, the class is frozen) with
+  `types.MappingProxyType(dict(distribution))`. Equality then compares it as a
+  mapping, so key order never affects `==` (AC-2). Every value in
+  `distribution` and `confidence` (when not `None`) must lie in `[0, 1]`, else
+  `ValueError`. **No** sum-to-one check: the wire reports two decimals.
+- `DecisionResult` has no boolean field and no `accepted` field — acceptance
+  is not the result's to state. Add no field beyond the six above.
+- `ChoiceRequest.__post_init__`: `ValueError` when `options` has fewer than 2 or
+  more than 32 entries, or any key is the empty string. `options` is stored as
+  given.
+- `DecisionProvider` is the whole port: `choose` either returns a result whose
+  `value` is a key of `request.options`, or raises `DecisionUnavailableError`;
+  it performs at most one round trip, never sleeps, never retries (that is the
+  implementers' obligation, stated in the Protocol docstring; T1 has no
+  implementation of it).
+- `decision.py` imports stdlib and `functualize._types` modules only.
+  `__all__ = ["ChoiceRequest", "DecisionProvenance", "DecisionProvider", "DecisionResult"]`
+  (`T` is not exported).
+
+**C-2 — `src/functualize/_types/errors.py`** (append; the module's convention is
+that errors derive from `Exception`):
+
+```python
+class DecisionFailure(StrEnum):
+    NOT_CONFIGURED = "not_configured"
+    RATE_LIMITED = "rate_limited"
+    REFUSED = "refused"
+    UNREACHABLE = "unreachable"
+    MALFORMED = "malformed"
+
+class DecisionUnavailableError(Exception):
+    kind: DecisionFailure
+    provider: str
+    status: int | None           # HTTP status when there was one
+    retry_after: float | None    # seconds, RATE_LIMITED only, as the service sent it
+    detail: str                  # clipped to 300 chars; never contains the credential
+
+    def __init__(
+        self,
+        *,
+        kind: DecisionFailure,
+        provider: str,
+        detail: str,
+        status: int | None = None,
+        retry_after: float | None = None,
+    ) -> None: ...
+```
+
+- The constructor is keyword-only. It stores the five attributes, with
+  `detail` stored as `detail[:300]` (so the clip holds for every caller), and
+  calls `super().__init__(<the message below>)` as the module's other errors do.
+- `str(error)` is exactly
+  `"<provider> <kind>[ HTTP <status>][ retry after <n> s]: <detail>"`, where
+  `<kind>` is `kind.value`; ` HTTP <status>` appears iff `status is not None`;
+  ` retry after <n> s` appears iff `retry_after is not None`, with `<n>` =
+  `int(retry_after)` when `retry_after.is_integer()`, else `str(retry_after)`;
+  `<detail>` is the clipped detail. This is the string a failed rung later
+  carries into `blocked_reason`.
+
+```python
+str(DecisionUnavailableError(kind=DecisionFailure.RATE_LIMITED, provider="jev",
+    status=429, retry_after=19014.0, detail="Rate limit exceeded"))
+# 'jev rate_limited HTTP 429 retry after 19014 s: Rate limit exceeded'
+str(DecisionUnavailableError(kind=DecisionFailure.RATE_LIMITED, provider="jev",
+    status=429, detail="Rate limit exceeded"))
+# 'jev rate_limited HTTP 429: Rate limit exceeded'
+str(DecisionUnavailableError(kind=DecisionFailure.NOT_CONFIGURED, provider="jev",
+    detail="OPENCODE_API_KEY is not set"))
+# 'jev not_configured: OPENCODE_API_KEY is not set'
+```
+
+`errors.py` needs `from enum import StrEnum`; it has no `__all__` and gains
+none. `_types/__init__.py` is not in this task's files and stays unchanged —
+T14 is where the six names become importable publicly.
+
+Tests: AC-1 (both shapes — a result with `distribution` and `confidence`, and
+one with both `None`), AC-2 (two key orders, equal), range rejection (a
+probability of `1.2`, a `confidence` of `-0.1`), `ChoiceRequest` with 1 and 33
+options and with an empty key, the three `str(error)` strings above verbatim,
+a 400-character `detail` stored as 300, and `isinstance(obj, DecisionProvider)`
+for a two-member fake.
 
 ```bash
 rg -c '^class (DecisionResult|DecisionProvenance|ChoiceRequest|DecisionProvider)\b' src/functualize/_types/decision.py
