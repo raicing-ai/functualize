@@ -498,7 +498,7 @@ now: `0` · after: `0` — invariant: the refused default is never sent (E12).
 
 ## Wave 4 — seam checkpoint (#68 is on `master`)
 
-### [ ] T5 — the Gate seam is the one this was specified against
+### [x] T5 — the Gate seam is the one this was specified against
 
 *Files:* none (branch operation and a check)
 
