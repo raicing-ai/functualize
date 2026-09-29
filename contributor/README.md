@@ -30,6 +30,9 @@ contributor/
 │   ├── tui-panels.md               — TUI panel widget hard rules (min-height, deferred population)
 │   ├── steering_textual_tui.md     — Textual architecture + testing HARD rules, compliance audit
 │   └── plugin-development.md       — How to develop official plugins in the monorepo
+├── field-testing/                  — Protocol an agent follows while converting scripts/skills
+│                                     to functualize elsewhere, collecting bugs and UX findings
+│                                     (README.md is for the maintainer; AGENT_BRIEF.md is the entry point)
 └── reference/
     ├── layer-rules.md              — Which layer can import what (quick reference)
     ├── code-map.md                 — Which classes/functions live where
