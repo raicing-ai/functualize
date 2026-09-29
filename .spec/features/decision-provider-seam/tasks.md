@@ -391,7 +391,7 @@ now: `0` · after: `0` — invariant: the plugin uses the public API only (S-4, 
 
 ## Wave 3
 
-### [ ] T4 — the provider and its transport
+### [x] T4 — the provider and its transport
 
 *Files:* `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/_provider.py` (new), `tests/plugins/test_jev_decision_provider.py` (new), `tests/plugins/test_jev_live.py` (new)
 
