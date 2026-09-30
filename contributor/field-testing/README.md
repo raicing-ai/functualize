@@ -83,7 +83,7 @@ report on disk ──ingest──▶ ledger (REPORTED) ──agent triage──�
                           Jira issue under the Initiative's Epic
 ```
 
-The shared tracker is the **Alignment Hub** in the Functualize Confluence space (`SD`),
+The shared tracker is the **Alignment Hub** in the Functualize Confluence space (key `FUN`),
 under `00 — Start Here`. It holds the append-only ledger, the triage rules, the
 discussion pages and the mapping from `category` to the area of the code it touches.
 This folder defines what a report looks like. The Hub defines what happens to it.
