@@ -678,7 +678,7 @@ rg -c '^from functualize\._(engine|app|config|discovery|plugins|events|primitive
 ```
 now: `0` · after: `0` — invariant: `_gate` stays a peer that reads `_types` only.
 
-### [ ] T16 — the decision rule is part of the graph digest
+### [x] T16 — the decision rule is part of the graph digest
 
 *Files:* `src/functualize/_types/workflow.py`, `tests/workflow/test_decision_policy_digest.py` (new)
 

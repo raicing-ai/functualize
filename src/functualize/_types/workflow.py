@@ -33,7 +33,7 @@ re-exports these as the user-facing facade.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
@@ -689,11 +689,18 @@ class WorkflowNodeShape:
     ``model`` is the awaited model's *class name*, not the class — resolving it
     back needs the defining module, which is exactly the import warm boot
     avoids. Callers that need the JSON schema materialize the job first.
+
+    ``decision`` is a gate's declared decision rule (``Gate.decide``) as JSON:
+    the field, instructions, options, state step, thresholds and model. It is
+    part of the shape because it is part of what a parked walk was started
+    under — the graph digest hashes the shape, so changing a threshold refuses
+    the resume exactly as moving an edge does. ``None`` for every other node.
     """
 
     name: str
     kind: str  # "step" | "gate" | "agent"
     model: str | None = None
+    decision: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -749,7 +756,12 @@ class WorkflowShape:
         nodes: list[dict[str, Any]] = []
         for node in self.nodes:
             if node.kind == "gate":
-                nodes.append({"gate": node.name, "model": node.model})
+                entry: dict[str, Any] = {"gate": node.name, "model": node.model}
+                # Only when declared, so every gate without one projects —
+                # and digests — byte-for-byte as it did before the field.
+                if node.decision is not None:
+                    entry |= {"decision": dict(node.decision)}
+                nodes.append(entry)
             elif node.kind == "agent":
                 # Its own key, not "step": an agent step runs no registered
                 # job, so a consumer that read it as one would look up a job
@@ -789,9 +801,15 @@ class WorkflowShape:
             if not isinstance(raw, dict):
                 return None
             if "gate" in raw:
+                decision = raw.get("decision")
+                if decision is not None and not isinstance(decision, dict):
+                    return None
                 nodes.append(
                     WorkflowNodeShape(
-                        name=str(raw["gate"]), kind="gate", model=raw.get("model")
+                        name=str(raw["gate"]),
+                        kind="gate",
+                        model=raw.get("model"),
+                        decision=decision,
                     )
                 )
             elif "agent" in raw:
@@ -822,6 +840,24 @@ class WorkflowShape:
                 )
 
         return cls(nodes=tuple(nodes), edges=tuple(edges))
+
+
+def _decision_shape(decide: ChoiceDecision) -> dict[str, Any]:
+    """A gate's declared decision as JSON-safe values, for the cached shape.
+
+    ``state`` is the step's *name* and ``options`` a plain dict, so the shape
+    round-trips through JSON and a warm boot reads it without importing the
+    module that declared the gate.
+    """
+    return {
+        "field": decide.field,
+        "instructions": decide.instructions,
+        "options": {str(k): str(v) for k, v in decide.options.items()},
+        "state": decide.state.name,
+        "accept_at": float(decide.accept_at),
+        "min_margin": float(decide.min_margin),
+        "model": decide.model,
+    }
 
 
 def _node_kind(node: Step | Gate | AgentStep) -> str:
@@ -1018,6 +1054,11 @@ class WorkflowDeclaration:
                 model=(
                     getattr(node.awaits, "__name__", None)
                     if isinstance(node, Gate)
+                    else None
+                ),
+                decision=(
+                    _decision_shape(node.decide)
+                    if isinstance(node, Gate) and node.decide is not None
                     else None
                 ),
             )
