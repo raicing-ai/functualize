@@ -152,26 +152,71 @@ class JevDecisionProvider:
             "User-Agent": self._user_agent,
         }
 
-        started = time.monotonic()
-        response = self._transport.post(
-            config.endpoint, body, headers, config.timeout_seconds
-        )
-        elapsed = time.monotonic() - started
-
-        if response.status != 200:
-            raise _wire.failure_for(response.status, response.body, response.headers)
+        failure: DecisionUnavailableError | None = None
         try:
-            payload = json.loads(response.body)
-        except ValueError as error:
-            raise DecisionUnavailableError(
-                kind=DecisionFailure.MALFORMED,
-                provider=_PROVIDER,
-                status=200,
-                detail=f"body is not JSON: {error}",
-            ) from error
-        return _wire.parse_choice(
-            payload, request, requested_model=model, latency_seconds=elapsed
-        )
+            started = time.monotonic()
+            response = _without(
+                key,
+                self._transport.post(
+                    config.endpoint, body, headers, config.timeout_seconds
+                ),
+            )
+            elapsed = time.monotonic() - started
+
+            if response.status != 200:
+                raise _wire.failure_for(
+                    response.status, response.body, response.headers
+                )
+            try:
+                payload = json.loads(response.body)
+            except ValueError as error:
+                raise DecisionUnavailableError(
+                    kind=DecisionFailure.MALFORMED,
+                    provider=_PROVIDER,
+                    status=200,
+                    detail=f"body is not JSON: {error}",
+                ) from error
+            return _wire.parse_choice(
+                payload, request, requested_model=model, latency_seconds=elapsed
+            )
+        except DecisionUnavailableError as error:
+            # Every failure's text is recorded as a gate rung's detail, so the
+            # key must not survive into it by any route — an echoing body, a
+            # transport message, a parsed value. Rebuilt outside this block so
+            # the original is not kept as the new error's context.
+            failure = _scrubbed(error, key) if key in error.detail else error
+        raise failure
+
+
+_REDACTED = "[redacted]"
+
+
+def _without(key: str, response: WireResponse) -> WireResponse:
+    """The response with the credential removed from its body and headers.
+
+    A service may echo what it was sent — a refusal quoting the rejected
+    ``Authorization`` header is the common case — and everything built from a
+    response can end up in recorded run state.
+    """
+    return WireResponse(
+        status=response.status,
+        body=response.body.replace(key, _REDACTED),
+        headers={
+            name: value.replace(key, _REDACTED)
+            for name, value in response.headers.items()
+        },
+    )
+
+
+def _scrubbed(error: DecisionUnavailableError, key: str) -> DecisionUnavailableError:
+    """``error`` rebuilt with the credential removed from its detail."""
+    return DecisionUnavailableError(
+        kind=error.kind,
+        provider=error.provider,
+        detail=error.detail.replace(key, _REDACTED),
+        status=error.status,
+        retry_after=error.retry_after,
+    )
 
 
 def _from_environment() -> str | None:

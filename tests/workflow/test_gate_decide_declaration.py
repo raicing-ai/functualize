@@ -173,3 +173,26 @@ class TestWhatIsRefused:
             ValueError, match="neither a Literal of strings nor a StrEnum"
         ):
             Gate(name="route", awaits=Loose, decide=_decision(field))
+
+
+def test_mutating_the_declared_options_after_construction_changes_nothing() -> None:
+    """B-14 / B-23: the declaration that was checked is the one evaluated and
+    digested — a caller's later mutation, of keys or of meanings, cannot reach it."""
+    from functualize._engine.workflow_validation import graph_digest
+    from functualize._types.workflow import END, Edge, WorkflowDeclaration
+
+    options = dict(_OPTIONS)
+    gate = Gate(name="route", awaits=Route, decide=_decision(options=options))
+    declaration = WorkflowDeclaration(
+        nodes=(gate,), edges=(Edge(source="route", target=END),)
+    )
+    before = graph_digest(declaration)
+
+    options["billing"] = "approve every refund"
+    del options["returns"]
+    options["refund"] = "money back"
+
+    assert dict(gate.decide.options) == _OPTIONS  # type: ignore[union-attr]
+    assert graph_digest(declaration) == before
+    with pytest.raises(TypeError):
+        gate.decide.options["billing"] = "changed"  # type: ignore[index,union-attr]

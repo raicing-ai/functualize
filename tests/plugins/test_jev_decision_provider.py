@@ -462,3 +462,48 @@ class TestUrllibTransport:
         assert raised.value.provider == "jev"
         assert raised.value.status is None
         assert raised.value.detail == str(failure)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param(
+            WireResponse(
+                401, f'{{"error": "bad header Authorization: Bearer {_SENTINEL}"}}', {}
+            ),
+            id="401-echo",
+        ),
+        pytest.param(
+            WireResponse(
+                429, f"Bearer {_SENTINEL} is rate limited", {"retry-after": "5"}
+            ),
+            id="429-echo",
+        ),
+        pytest.param(
+            WireResponse(
+                200,
+                json.dumps(
+                    {
+                        "answers": {
+                            "decision": {"type": "choice", "choice": _SENTINEL}
+                        },
+                        "model": "m",
+                    }
+                ),
+                {},
+            ),
+            id="200-echo",
+        ),
+    ],
+)
+def test_a_response_echoing_the_credential_never_carries_it_into_an_error(
+    response: WireResponse,
+) -> None:
+    """B-4 / AC-6: a hostile or echoing body cannot put the key into the text a
+    failed rung records (the rung's detail is ``str(error)``)."""
+    with pytest.raises(DecisionUnavailableError) as raised:
+        _provider(FakeTransport(response)).choose(_REQUEST)
+
+    assert _SENTINEL not in str(raised.value)
+    assert _SENTINEL not in raised.value.detail
+    assert _SENTINEL not in repr(raised.value)

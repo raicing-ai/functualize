@@ -160,6 +160,14 @@ class ChoiceDecision:
     model: str | None = None  # passed through to ChoiceRequest.model
 
     def __post_init__(self) -> None:
+        # The declaration that was checked is the one evaluated and digested:
+        # copy the options into a read-only mapping, so a caller mutating the
+        # dict it passed in cannot change the keys or the meanings afterwards.
+        object.__setattr__(
+            self,
+            "options",
+            MappingProxyType({str(k): str(v) for k, v in self.options.items()}),
+        )
         # Positive range tests, so NaN is refused too.
         if not 0.0 < self.accept_at <= 1.0:
             raise ValueError(
