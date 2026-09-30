@@ -12,8 +12,14 @@ provider's own scalar and is **not** ``max(distribution)``. Neither is checked
 to sum to one: the wire reports two decimals, so a faithful record of it can
 sum to 0.99 or 1.01.
 
+``ChoiceDecision`` is the other side: what a workflow *declares* on a gate —
+which field a decision fills, from which step's result, and the thresholds a
+proposal must clear before the gate accepts it. The thresholds are the
+workflow's, never the provider's.
+
 Nothing here performs I/O and nothing here depends on a particular provider;
-the imports are the standard library only.
+the imports are the standard library and ``FromStep``, another vocabulary
+value.
 """
 
 from __future__ import annotations
@@ -21,9 +27,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Generic, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Generic, Protocol, TypeVar, runtime_checkable
+
+if TYPE_CHECKING:
+    from functualize._types.from_job import FromStep
 
 __all__ = [
+    "ChoiceDecision",
     "ChoiceRequest",
     "DecisionProvenance",
     "DecisionProvider",
@@ -128,3 +138,36 @@ class DecisionProvider(Protocol):
     def name(self) -> str: ...
 
     def choose(self, request: ChoiceRequest) -> DecisionResult[str]: ...
+
+
+@dataclass(frozen=True)
+class ChoiceDecision:
+    """A gate's declared decision: who fills which field, and when it counts.
+
+    Declared on ``Gate(decide=...)``. The gate hands the recorded result of
+    ``state``'s step to a decision provider as the text to decide about, and
+    accepts the proposed option only when its probability reaches
+    ``accept_at`` and leads the runner-up by at least ``min_margin``; anything
+    less blocks the gate for a person. Whether ``options`` match the awaited
+    field is checked by the gate, which knows the field; this class checks its
+    own ranges only.
+    """
+
+    field: str  # the awaits field the decision fills
+    instructions: str
+    options: Mapping[str, str]  # option -> meaning
+    state: FromStep  # the step whose recorded result is the text
+    accept_at: float  # 0 < accept_at <= 1
+    min_margin: float = 0.0  # 0 <= min_margin < 1
+    model: str | None = None  # passed through to ChoiceRequest.model
+
+    def __post_init__(self) -> None:
+        # Positive range tests, so NaN is refused too.
+        if not 0.0 < self.accept_at <= 1.0:
+            raise ValueError(
+                f"ChoiceDecision accept_at must lie in (0, 1], got {self.accept_at!r}"
+            )
+        if not 0.0 <= self.min_margin < 1.0:
+            raise ValueError(
+                f"ChoiceDecision min_margin must lie in [0, 1), got {self.min_margin!r}"
+            )

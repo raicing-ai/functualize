@@ -35,13 +35,16 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
 
 from functualize._types.job_declaration import _ref_name
 from functualize._types.protocols import AgentCapability
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
+
+    from functualize._types.decision import ChoiceDecision
 
 __all__ = [
     "END",
@@ -274,7 +277,7 @@ def _as_tool(ref: ToolRef) -> Tool:
 
 
 _VALID_GATE_STRATEGIES: frozenset[str] = frozenset(
-    {"resolve", "prompt", "ai_inbound", "ai_outbound"}
+    {"resolve", "prompt", "ai_inbound", "ai_outbound", "decision"}
 )
 
 
@@ -298,15 +301,25 @@ class Gate:
             restriction.
         strategy: Preferred resolution strategy. One of ``"resolve"``
             (config chain), ``"prompt"`` (interactive surface), ``"ai_inbound"``
-            (LLM generation), or ``"ai_outbound"`` (external AI via MCP).
-            ``None`` (default) defers to the walker's policy (block unless a
-            CLI flag overrides).
+            (LLM generation), ``"ai_outbound"`` (external AI via MCP), or
+            ``"decision"`` (a decision provider proposes one field's value,
+            and the gate accepts it only past the thresholds ``decide``
+            declares). ``None`` (default) defers to the walker's policy (block
+            unless a CLI flag overrides), except that declaring ``decide``
+            makes it ``"decision"``.
+        decide: A :class:`~functualize._types.decision.ChoiceDecision` naming
+            the ``awaits`` field a decision fills. The field must be a
+            ``Literal`` of strings or a ``StrEnum``, and its allowed values
+            must be exactly the decision's options — checked here, at
+            declaration, so a workflow whose options drift from its model
+            fails to load rather than blocking at run time.
     """
 
     name: str
     awaits: type[BaseModel]
     tools: Sequence[ToolRef] = ()
     strategy: str | None = None
+    decide: ChoiceDecision | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name.strip():
@@ -339,10 +352,63 @@ class Gate:
             raise TypeError(
                 f"Gate awaits must be a BaseModel subclass, got {self.awaits!r}"
             )
+        self._check_decision()
+
+    def _check_decision(self) -> None:
+        """The declared decision against the strategy and the awaited field."""
+        decide = self.decide
+        if decide is None:
+            if self.strategy == "decision":
+                raise ValueError(
+                    f"Gate '{self.name}' declares strategy 'decision' but no "
+                    f"decide=ChoiceDecision(...) to say what it decides"
+                )
+            return
+        if self.strategy is None:
+            object.__setattr__(self, "strategy", "decision")
+        elif self.strategy != "decision":
+            raise ValueError(
+                f"Gate '{self.name}' declares decide=..., which is resolved by "
+                f"the 'decision' strategy, but also strategy={self.strategy!r}"
+            )
+        allowed = _allowed_values(self.awaits, decide.field, gate=self.name)
+        options = set(decide.options)
+        if allowed != options:
+            raise ValueError(
+                f"Gate '{self.name}' decides {self.awaits.__name__}."
+                f"{decide.field}, whose allowed values {sorted(allowed)} are "
+                f"not the decision's options {sorted(options)}"
+            )
 
     def tool_specs(self) -> tuple[Tool, ...]:
         """Every offered tool, normalized to :class:`Tool`."""
         return tuple(_as_tool(ref) for ref in self.tools)
+
+
+def _allowed_values(awaits: type[BaseModel], name: str, *, gate: str) -> set[str]:
+    """The values a decided field accepts: a string ``Literal`` or a ``StrEnum``.
+
+    Anything else — a free ``str``, an ``Optional``, a union — has no closed
+    set to compare the decision's options against, so it is refused.
+    """
+    fields = awaits.model_fields
+    if name not in fields:
+        raise ValueError(
+            f"Gate '{gate}' decides field {name!r}, which "
+            f"{awaits.__name__} does not declare (fields: {sorted(fields)})"
+        )
+    annotation = fields[name].annotation
+    if get_origin(annotation) is Literal:
+        values = get_args(annotation)
+        if all(isinstance(value, str) for value in values):
+            return set(values)
+    elif isinstance(annotation, type) and issubclass(annotation, StrEnum):
+        return {member.value for member in annotation}
+    raise ValueError(
+        f"Gate '{gate}' decides {awaits.__name__}.{name}, whose annotation "
+        f"{annotation!r} is neither a Literal of strings nor a StrEnum, so it "
+        f"has no closed set of options to decide between"
+    )
 
 
 @dataclass(frozen=True)

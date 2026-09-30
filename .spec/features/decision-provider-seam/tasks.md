@@ -514,7 +514,7 @@ the full five checks once on the rebased branch; they must be green before T6.
 
 ## Wave 5
 
-### [ ] T6 — the declaration
+### [x] T6 — the declaration
 
 *Files:* `src/functualize/_types/decision.py`, `src/functualize/_types/workflow.py`, `src/functualize/_gate/_strategy.py`, `tests/workflow/test_gate_decide_declaration.py` (new)
 
