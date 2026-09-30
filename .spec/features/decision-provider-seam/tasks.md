@@ -834,7 +834,7 @@ now: `0` · after: `0` — invariant.
 
 ## Wave 10 — reachability checkpoint
 
-### [ ] T12 — every production call path, proven by breaking it
+### [x] T12 — every production call path, proven by breaking it
 
 *Files:* none new; removes the `TRANSITIONAL(decision-provider-seam/T9)` markers from T1/T3/T4's files
 

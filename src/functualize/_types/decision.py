@@ -117,8 +117,6 @@ class ChoiceRequest:
             raise ValueError("a ChoiceRequest option may not be the empty string")
 
 
-# TRANSITIONAL(decision-provider-seam/T9): no production caller until the
-# plugin registers the decision strategy
 @runtime_checkable
 class DecisionProvider(Protocol):
     """The whole port a decision provider implements.

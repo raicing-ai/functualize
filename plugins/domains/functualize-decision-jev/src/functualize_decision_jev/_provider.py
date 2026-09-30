@@ -73,8 +73,6 @@ class WireResponse:
     headers: Mapping[str, str]  # keys lower-cased
 
 
-# TRANSITIONAL(decision-provider-seam/T9): no production caller until the
-# plugin registers the decision strategy
 class UrllibTransport:
     """The production ``JevTransport``: one ``POST`` through ``urllib.request``.
 
@@ -115,8 +113,6 @@ class JevConfig:
     timeout_seconds: float = 30.0
 
 
-# TRANSITIONAL(decision-provider-seam/T9): no production caller until the
-# plugin registers the decision strategy
 class JevDecisionProvider:
     """A ``DecisionProvider`` that proposes a choice through Jev."""
 

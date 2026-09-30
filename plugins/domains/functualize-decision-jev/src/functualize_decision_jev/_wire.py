@@ -44,8 +44,6 @@ class _MalformedError(Exception):
     """A shape rule a ``200`` body broke; carries the rule, for ``detail``."""
 
 
-# TRANSITIONAL(decision-provider-seam/T9): no production caller until the
-# plugin registers the decision strategy
 def build_request(request: ChoiceRequest, *, model: str) -> dict[str, Any]:
     """The request body for one ``choice`` question.
 
@@ -65,8 +63,6 @@ def build_request(request: ChoiceRequest, *, model: str) -> dict[str, Any]:
     }
 
 
-# TRANSITIONAL(decision-provider-seam/T9): no production caller until the
-# plugin registers the decision strategy
 def parse_choice(
     payload: Mapping[str, Any],
     request: ChoiceRequest,
@@ -99,8 +95,6 @@ def parse_choice(
     )
 
 
-# TRANSITIONAL(decision-provider-seam/T9): no production caller until the
-# plugin registers the decision strategy
 def failure_for(
     status: int, body: str, headers: Mapping[str, str]
 ) -> DecisionUnavailableError:

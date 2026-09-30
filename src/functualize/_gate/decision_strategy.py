@@ -49,8 +49,6 @@ class DecisionBelowThresholdError(ValueError):
     """
 
 
-# TRANSITIONAL(decision-provider-seam/T9): no production caller until the
-# plugin registers the decision strategy
 class DecisionGateResolver:
     """Gate resolver that fills one field from a decision provider's proposal.
 
