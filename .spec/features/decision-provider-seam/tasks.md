@@ -703,7 +703,7 @@ now: `0` · after: `1` — the `to_dict()` emission. If the implementation needs
 
 ## Wave 7
 
-### [ ] T8 — the walk hands the gate its results and its decision
+### [x] T8 — the walk hands the gate its results and its decision
 
 *Files:* `src/functualize/_engine/gate_service.py`, `tests/engine/test_gate_service.py`
 

@@ -49,6 +49,10 @@ def _gate_strategy_list(gate: Gate, prompt_gates: bool) -> list[str] | None:
         return None  # always block for external AI
     if declared == "ai_inbound":
         return ["ai_inbound", "prompt", "resolve"]
+    if declared == "decision":
+        # A below-threshold or failed proposal falls through to a person, the
+        # same ladder an inbound AI answer has.
+        return ["decision", "prompt", "resolve"]
     if declared == "prompt":
         return ["prompt", "resolve"] if prompt_gates else None
     if declared is not None:
@@ -101,8 +105,15 @@ class GateService:
         strategies = _gate_strategy_list(node, prompt_gates)
         outcome: LadderOutcome | None = None
         if strategies is not None and registry is not None:
+            # The walk's results so far, and the gate's declared decision: a
+            # decision reads the text a named step produced, so a strategy
+            # cannot see this walk unless the walk hands it over.
             outcome = registry.evaluate(
-                node.awaits, gate_strategy=strategies, gate_name=node.name
+                node.awaits,
+                gate_strategy=strategies,
+                gate_name=node.name,
+                workflow_context=dict(ledger.results),
+                decision=node.decide,
             )
             if resolution is not None:
                 request_id = resolution.request.request_id
