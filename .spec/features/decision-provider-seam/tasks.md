@@ -771,7 +771,7 @@ now: `0` · after: `1`
 
 ## Wave 9
 
-### [ ] T10 — one `choice` decision through a walked gate, end to end
+### [x] T10 — one `choice` decision through a walked gate, end to end
 
 *Files:* `tests/integration/test_decision_gate_e2e.py` (new)
 
