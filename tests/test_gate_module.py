@@ -94,6 +94,7 @@ class TestGateContext:
             "all_fields",
             "force_gate",
             "workflow_context",
+            "decision",
         ]
         assert field_names == expected
 

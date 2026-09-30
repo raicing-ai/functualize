@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
+    from functualize._types.decision import ChoiceDecision
+
 
 @dataclass(frozen=True)
 class GateContext:
@@ -24,6 +26,8 @@ class GateContext:
         all_fields: Complete list of all field names in the model.
         force_gate: Whether strategy dispatch was forced.
         workflow_context: Current workflow execution state.
+        decision: The decision the gate declares (``Gate.decide``), for the
+            ``decision`` strategy; ``None`` for every other gate.
     """
 
     model_class: type[BaseModel]
@@ -32,3 +36,4 @@ class GateContext:
     all_fields: list[str]
     force_gate: bool
     workflow_context: dict[str, Any] = field(default_factory=dict)
+    decision: ChoiceDecision | None = None

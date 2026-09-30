@@ -592,7 +592,7 @@ now: `0` · after: `1`
 
 ## Wave 6
 
-### [ ] T7 — the provider-neutral resolver
+### [x] T7 — the provider-neutral resolver
 
 *Files:* `src/functualize/_gate/decision_strategy.py` (new), `src/functualize/_gate/_context.py`, `src/functualize/_gate/_registry.py`, `tests/gate/test_decision_strategy.py` (new)
 
