@@ -853,7 +853,7 @@ now: `0` · after: `0` — invariant at the boundaries: zero before T1 and zero 
 
 ## Wave 11 — pre-merge clearing
 
-### [ ] T13 — migrate the durable half, then clear the artifacts
+### [x] T13 — migrate the durable half, then clear the artifacts
 
 *Files:* `contributor/adr/030-decisions-are-candidates-not-authority.md` (new), `.spec/STATUS.md`, `.spec/features/decision-provider-seam/**` (deleted)
 
