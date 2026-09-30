@@ -726,7 +726,7 @@ rg -c 'functualize\._gate|functualize_decision_jev' src/functualize/_engine/gate
 ```
 now at d5747f85: `0` · after: `0` — invariant: the registry stays injected.
 
-### [ ] T15 — the Gate-side names are public API (provisional)
+### [x] T15 — the Gate-side names are public API (provisional)
 
 *Files:* `src/functualize/workflow/__init__.py`, `src/functualize/plugin/__init__.py`, `tests/test_public_api_surface.py`
 

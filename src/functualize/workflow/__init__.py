@@ -16,8 +16,13 @@ Public API:
     - END: Sentinel marking workflow termination.
     - FromStep: A read of this walk's recorded result for one step, used to
       bind a gate tool's argument (``Tool(read_file, allowed=FromStep(...))``).
+    - ChoiceDecision: A gate's declared decision (``Gate(decide=...)``) — which
+      field a decision provider fills, from which step's result, and the
+      thresholds a proposal must clear. Provisional: outside the names 1.0
+      promises to keep.
 """
 
+from functualize._types.decision import ChoiceDecision
 from functualize._types.from_job import FromStep
 from functualize._types.workflow import (
     END,
@@ -38,6 +43,9 @@ from functualize.workflow._decorator import workflow
 __all__ = [
     "workflow",
     "AgentStep",
+    # Provisional: outside the names 1.0 promises to keep, and this comment is
+    # the marker until the mechanism that marks provisional names exists.
+    "ChoiceDecision",
     "ConditionalEdge",
     "Edge",
     "END",

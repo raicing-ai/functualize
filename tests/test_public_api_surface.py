@@ -174,6 +174,8 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "DecisionProvenance",
         "DecisionFailure",
         "DecisionUnavailableError",
+        # ...and the resolver a provider plugin registers around its provider.
+        "DecisionGateResolver",
         "discover_domains",
         "scan_domain_providers",
         "validate_extension_id",
@@ -233,6 +235,8 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "END",
         "FromStep",
         "Gate",
+        # A gate's declared decision (decision-provider-seam), provisional.
+        "ChoiceDecision",
         "Loop",
         "OnFailure",
         # A notification on a walk's outcome, and what its deliverer is handed

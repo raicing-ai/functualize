@@ -12,6 +12,7 @@ Usage:
 from functualize._discovery.providers import Job, StaticProvider
 from functualize._events.bus import EventBus, StructuredEvent
 from functualize._events.hooks import HookEvent
+from functualize._gate.decision_strategy import DecisionGateResolver
 from functualize._plugins.domain_registry import discover_domains, scan_domain_providers
 from functualize._plugins.loader import PluginMetadata
 from functualize._types.commands import CommandNode, CommandProvider
@@ -147,6 +148,9 @@ __all__ = [
     "DecisionProvenance",
     "DecisionFailure",
     "DecisionUnavailableError",
+    # The provider-neutral resolver a provider plugin registers as the
+    # `decision` gate strategy, wrapped around its own DecisionProvider.
+    "DecisionGateResolver",
     # Domain discovery
     "discover_domains",
     "scan_domain_providers",
