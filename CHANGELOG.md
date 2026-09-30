@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — decision gates: a provider proposes, the workflow decides
+
+A workflow can declare `Gate(decide=ChoiceDecision(...))`: a decision provider
+proposes one of the options the workflow lists for one field, reading the
+recorded result of a step the workflow names, and the workflow's own
+`accept_at` and `min_margin` decide whether the proposal is taken. The
+provider's confidence score is recorded and never consulted. Anything short of
+acceptance — a weak proposal, a rate limit, a provider error — blocks the gate
+for a person with the proposal and the thresholds in `blocked_reason`, and never
+retries or waits. Which options need a person is the workflow's choice, made by
+routing those branches through a second gate; an option routed straight to an
+effecting step runs on the provider's answer alone. The declaration is checked
+at import (the field must be a `Literal` or `StrEnum` whose values equal the
+options), and the rule is part of the graph digest, so a parked walk refuses to
+resume under a changed rule.
+
+The strategy is `decision`, the fifth name `Gate(strategy=...)` accepts, and a
+decision gate is walked as `decision` → `prompt` → `resolve`. Walked gates now
+receive the walk's step results in `GateContext.workflow_context`. The
+provider vocabulary (`DecisionProvider`, `ChoiceRequest`, `DecisionResult`,
+`DecisionProvenance`, `DecisionFailure`, `DecisionUnavailableError`) and
+`DecisionGateResolver` are exported from `functualize.plugin`, and
+`ChoiceDecision` from `functualize.workflow`, all **provisional**. The first
+provider is a new, experimental plugin, `functualize-decision-jev`, which needs
+`OPENCODE_API_KEY` and reads `[jev]` (`model`, `endpoint`, `timeout_seconds`).
+Core never imports it.
+
 ### Added — gate answers retain their recorded resolution
 
 Workflow gate drafts and answers now include a payload-free `resolution` view

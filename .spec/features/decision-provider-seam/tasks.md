@@ -805,7 +805,7 @@ rg -c '^def test_' tests/integration/test_decision_gate_e2e.py
 ```
 now: `0` · after: `10`
 
-### [ ] T11 — documentation
+### [x] T11 — documentation
 
 *Files:* `docs/guides/ai.md`, `docs/guides/workflows.md`, `contributor/architecture/codemaps/overview.md`, `contributor/architecture/codemaps/modules.md`, `CHANGELOG.md`
 

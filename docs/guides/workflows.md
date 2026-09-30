@@ -228,6 +228,116 @@ answer for an open request; a second deposit returns
 `{"error": "gate_already_answered", ...}` and leaves the first answer intact.
 Invalid deposits are recorded as invalid candidates and leave the request open.
 
+### Decision gates
+
+A gate can let a **decision provider** fill one field of its model with
+`decide=ChoiceDecision(...)`. The provider proposes one of the options the
+workflow declares, reading the recorded result of a step the workflow names;
+the workflow's own thresholds decide whether the proposal is taken:
+
+```python
+from typing import Literal
+
+from pydantic import BaseModel
+from functualize.workflow import (
+    END,
+    ChoiceDecision,
+    ConditionalEdge,
+    Edge,
+    FromStep,
+    Gate,
+    Step,
+    workflow,
+)
+
+class Route(BaseModel):
+    route: Literal["billing", "returns", "shipping"]
+
+class Approval(BaseModel):
+    approved: bool
+
+@workflow(
+    steps=[
+        Step(intake),                          # returns the ticket text
+        Gate(
+            name="route",
+            awaits=Route,
+            decide=ChoiceDecision(
+                field="route",
+                instructions="Route the ticket to the team that owns it.",
+                options={
+                    "billing": "a question about an invoice or a charge",
+                    "returns": "the customer wants to send something back",
+                    "shipping": "where a parcel is, or when it arrives",
+                },
+                state=FromStep("intake"),
+                accept_at=0.70,                # the proposal's probability
+                min_margin=0.10,               # its lead over the runner-up
+            ),
+        ),
+        Step(bill),
+        Step(ship),
+        Gate(name="approve_refund", awaits=Approval),   # a person, always
+        Step(refund, effecting=True),
+    ],
+    edges=[
+        Edge("intake", "route"),
+        ConditionalEdge(
+            source="route",
+            condition=lambda answer: answer["route"],
+            targets={
+                "billing": "bill",
+                "shipping": "ship",
+                "returns": "approve_refund",
+            },
+        ),
+        Edge("approve_refund", "refund"),
+        Edge("bill", END),
+        Edge("ship", END),
+        Edge("refund", END),
+    ],
+)
+def support():
+    """Route a ticket; refunds need a person."""
+```
+
+- **The declaration is checked when it is made.** `field` must be a field of
+  `awaits` typed as a `Literal` of strings or a `StrEnum`, and its allowed
+  values must be exactly the keys of `options`; `0 < accept_at <= 1` and
+  `0 <= min_margin < 1`. A mismatch is a `ValueError` at import, not a gate
+  that cannot be answered at run time. `decide` implies
+  `strategy="decision"`; any other strategy with it is refused.
+- **The provider proposes; the workflow decides.** The proposal is accepted
+  only when its probability reaches `accept_at` *and* leads the runner-up by
+  at least `min_margin`. The provider's own confidence score is recorded and
+  never consulted. The strategy is registered by the `functualize-decision-jev`
+  plugin (experimental; it needs `OPENCODE_API_KEY`); without it the gate
+  records the rung `unavailable` and blocks.
+- **Anything short of acceptance blocks for a person.** A weak proposal, a
+  rate limit or a provider error is a failed rung, never a retry or a wait; the
+  gate falls through to `prompt` and `resolve` and blocks with a reason such as
+  `decision: jev/jev-1.13-free proposed 'returns' at 0.54 (margin 0.08);
+  workflow requires >= 0.70, margin >= 0.10`. Answering the gate
+  (`answer_gate`) takes the answered branch; address a gate by its stored,
+  canonical name, which is the one `blocked_on` reports (`approve_refund` is
+  stored as `approve-refund`). A resumed walk never asks the provider again:
+  the accepted or answered value is replayed from the record.
+- **The rule is part of the graph.** A walk parked at, or after, a decision gate
+  refuses to resume if the module has since changed that gate's thresholds,
+  options, instructions or model — the same refusal a moved edge gets.
+
+**The framework does not decide which options need a person — the workflow
+does, by routing those branches through a second gate.** Above, an accepted
+`returns` still stops at `approve_refund` before the effecting `refund` step,
+while an accepted `billing` or `shipping` proceeds with nobody involved. An
+option routed straight to an effecting step is executed on the model's answer
+alone.
+
+The ticket text reaches the provider as data (the request's `state`), never as
+part of its instructions, and an answer outside the declared options is
+refused rather than followed — so text in a ticket cannot open a branch the
+workflow did not declare.
+
 ---
 
 ## Getting values into a step
