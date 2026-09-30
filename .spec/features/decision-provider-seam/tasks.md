@@ -746,7 +746,7 @@ now: `0` · after: `1`
 
 ## Wave 8
 
-### [ ] T9 — the plugin registers the strategy
+### [x] T9 — the plugin registers the strategy
 
 *Files:* `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/_plugin.py` (new), `plugins/domains/functualize-decision-jev/src/functualize_decision_jev/__init__.py`, `plugins/domains/functualize-decision-jev/pyproject.toml`
 

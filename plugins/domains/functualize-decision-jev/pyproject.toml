@@ -20,6 +20,9 @@ dependencies = [
     "functualize>=0.1.0,<1.0.0",
 ]
 
+[project.entry-points."functualize.plugins"]
+jev = "functualize_decision_jev:JevPlugin"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",

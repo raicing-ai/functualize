@@ -1,8 +1,10 @@
 """Functualize decision provider backed by the Jev model service.
 
-Experimental. Empty for now: the provider, its wire mapping and the plugin
-that registers the ``decision`` gate strategy are added by later steps of the
-change that introduced this package, so nothing is exported yet.
+Experimental. ``JevPlugin`` is loaded through the ``functualize.plugins`` entry
+point and registers the ``decision`` gate strategy, answered by
+``JevDecisionProvider``; the provider needs ``OPENCODE_API_KEY`` at call time.
 """
 
-__all__: list[str] = []
+from functualize_decision_jev._plugin import JevPlugin
+
+__all__ = ["JevPlugin"]
