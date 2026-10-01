@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
 
+from functualize._types.decision import decision_shape
 from functualize._types.job_declaration import _ref_name
 from functualize._types.protocols import AgentCapability
 
@@ -379,6 +380,25 @@ class Gate:
                 f"{decide.field}, whose allowed values {sorted(allowed)} are "
                 f"not the decision's options {sorted(options)}"
             )
+        if not self.awaits.model_fields[decide.field].is_required():
+            raise ValueError(
+                f"Gate '{self.name}' decides {self.awaits.__name__}."
+                f"{decide.field}, which has a default; a default would bypass "
+                f"the decision — declare it as ChoiceDecision(fallback=...)"
+            )
+        if decide.fallback is not None:
+            other_required = [
+                name
+                for name, spec in self.awaits.model_fields.items()
+                if name != decide.field and spec.is_required()
+            ]
+            if other_required:
+                raise ValueError(
+                    f"Gate '{self.name}' declares a fallback for "
+                    f"{decide.field}, but {self.awaits.__name__} still "
+                    f"requires {other_required}; the fallback alone must "
+                    f"complete the answer — give every other field a default"
+                )
 
     def tool_specs(self) -> tuple[Tool, ...]:
         """Every offered tool, normalized to :class:`Tool`."""
@@ -842,24 +862,6 @@ class WorkflowShape:
         return cls(nodes=tuple(nodes), edges=tuple(edges))
 
 
-def _decision_shape(decide: ChoiceDecision) -> dict[str, Any]:
-    """A gate's declared decision as JSON-safe values, for the cached shape.
-
-    ``state`` is the step's *name* and ``options`` a plain dict, so the shape
-    round-trips through JSON and a warm boot reads it without importing the
-    module that declared the gate.
-    """
-    return {
-        "field": decide.field,
-        "instructions": decide.instructions,
-        "options": {str(k): str(v) for k, v in decide.options.items()},
-        "state": decide.state.name,
-        "accept_at": float(decide.accept_at),
-        "min_margin": float(decide.min_margin),
-        "model": decide.model,
-    }
-
-
 def _node_kind(node: Step | Gate | AgentStep) -> str:
     """The kind a node is recorded as in the cache shape.
 
@@ -1057,7 +1059,7 @@ class WorkflowDeclaration:
                     else None
                 ),
                 decision=(
-                    _decision_shape(node.decide)
+                    decision_shape(node.decide)
                     if isinstance(node, Gate) and node.decide is not None
                     else None
                 ),

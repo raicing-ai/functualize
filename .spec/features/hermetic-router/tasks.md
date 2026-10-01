@@ -73,7 +73,7 @@ repository root.
 
 ## Wave 0 — foundation
 
-### [ ] T1 — the declared fallback, and the decision's projection moved to its owner
+### [x] T1 — the declared fallback, and the decision's projection moved to its owner
 
 *Files:* `src/functualize/_types/decision.py`, `src/functualize/_types/workflow.py`,
 `tests/types/test_decision_values.py`, `tests/workflow/test_gate_decide_declaration.py`,
