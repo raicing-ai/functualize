@@ -488,7 +488,7 @@ Closed when: gates as `after:`, pytest passes, five checks clean. Commit:
 
 ## Wave 4 — the reference workflow, and the guards
 
-### [ ] T7 — the hermetic router reference workflow
+### [x] T7 — the hermetic router reference workflow
 
 *Files (all new unless marked):* `examples/standalone/hermetic_router/README.md`,
 `examples/standalone/hermetic_router/router.py`,
