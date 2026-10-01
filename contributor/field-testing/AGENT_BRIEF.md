@@ -90,10 +90,11 @@ The prompt may carry these options. Apply the defaults for anything it leaves ou
 ```bash
 REPORT_ROOT="${REPORT_ROOT:-$HOME/functualize-field-reports}"
 SESSION="$REPORT_ROOT/$(date +%F)-<target-repo-name>-<task-slug>"
-mkdir -p "$SESSION"
+mkdir -p "$SESSION/local" "$SESSION/upload"
 ```
 
-Create `journal.md` in it now from the header in `report-template.md` §1. Keep all field
+`local/` never leaves this machine. `upload/` is the only folder that may be sent anywhere.
+Create `local/journal.md` now from the header in `report-template.md` §1. Keep all field
 notes **out of the user's repository**. Do not commit them and do not leave them in the
 user's working tree.
 
@@ -157,23 +158,27 @@ After Mission A is done (or abandoned, per §1):
    minimal case in a scratch directory. That means a new directory, one small file, and
    as few steps as possible. If it reproduces, mark it `confirmed`. If you could not
    reduce it, mark it `suspected` and say why. The scratch directory goes under
-   `$SESSION/repro/<finding-id>/`, and the finding cites it.
+   `$SESSION/upload/repro/<finding-id>/`, and the finding cites it.
 
    Give each confirmed finding a `run.sh` in that directory that exits **non-zero while
    the problem is present** and zero when it is gone. Build the repro from toy files with
    invented names. Do not copy code, paths, repository names or data from the user's
    repository into it. The repro is later re-run to check a fix and may be summarised
    into a shared tracker, so it has to stand alone and be safe to share.
-2. **Write `findings.md`** with the finding schema in `report-template.md` §2. Deduplicate:
+2. **Write `upload/findings.md`** with the finding schema in `report-template.md` §2. Deduplicate:
    one root cause is one finding, even when you hit it five times. Note the count.
-3. **Write `summary.md`** with `report-template.md` §3: whether the journey completed, a
+3. **Write `upload/summary.md`** with `report-template.md` §3: whether the journey completed, a
    before/after comparison of the converted code, the top three problems, and your
    opinions.
-4. **Tell the user**, in your final message, as a short trailer after you have reported on
+4. **Check `upload/` before you finish.** Read `findings.md`, `summary.md` and every file
+   under `repro/` once more, looking for: the target repository's name, any path or
+   hostname from it, anything key-shaped, and code that is not a toy. Fix what you find.
+   Say in your final message that you did the check.
+5. **Tell the user**, in your final message, as a short trailer after you have reported on
    Mission A:
 
    ```text
-   Field-testing notes: <N> findings (<S1 count> blockers) → <path to $SESSION>
+   Field-testing notes: <N> findings (<S1 count> blockers) → <path to $SESSION> (only `upload/` may be sent)
    Top issue: <one line>
    ```
 
@@ -196,11 +201,12 @@ After Mission A is done (or abandoned, per §1):
   `confirmed`. If you are guessing at a cause, the field is called `suspected cause` for
   a reason.
 - **Never let a report file land in the user's repository**, and never commit one.
-- **Never put target-repository content in `findings.md` or `repro/`.** The journal may
-  quote what you saw, because it stays on disk. Findings and repros are the parts that get
-  shared, so write them in terms of functualize only: invented job names, toy code, no
-  paths or names from the user's repository. A verbatim error message is fine when it
-  mentions nothing but functualize.
+- **Never put target-repository content under `upload/`.** That folder (`findings.md`,
+  `summary.md`, `repro/`) is the only part that may be sent anywhere, so write it in
+  terms of functualize only: invented job names, toy code, no paths, hostnames or names
+  from the user's repository, and no repository name in a title. A verbatim error message
+  is fine when it mentions nothing but functualize. The journal in `local/` may quote what
+  you saw, because it never leaves the machine. Even there, mask secrets as you paste.
 - **Never treat your own finding as settled.** You are a newcomer who was told not to read
   the source, so you may be misreading what a feature is for. State what you expected and
   which doc told you so (`followed:`). Someone with more context decides whether it is a

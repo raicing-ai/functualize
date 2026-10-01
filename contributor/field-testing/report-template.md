@@ -1,16 +1,30 @@
 # Report template
 
-Three files in `$SESSION/`. Keep the field names and headings exactly as shown, because
-the maintainer greps across many reports.
+Three files in `$SESSION/`, split into two folders. Keep the field names and headings
+exactly as shown, because the maintainer greps across many reports.
+
+```
+$SESSION/
+├── local/      NEVER LEAVES THIS MACHINE
+│   └── journal.md
+└── upload/     the only folder that may be sent anywhere
+    ├── summary.md
+    ├── findings.md
+    └── repro/<id>/run.sh
+```
+
+A file's folder says what is allowed in it. `local/` may quote the target repository.
+Everything in `upload/` is written as if a stranger will read it, so it contains nothing
+from the target repository (`AGENT_BRIEF.md` §6).
 
 ---
 
-## 1. `journal.md` — written while you work
+## 1. `local/journal.md` — written while you work (stays on this machine)
 
 ### Header (write it at setup)
 
 ```markdown
-# Field journal — <target-repo> — <task in one line>
+# Field journal — <target-repo> — <task in one line>   (local only: never upload)
 
 - date: 2026-09-29
 - agent / model: <what you are, if known>
@@ -42,13 +56,13 @@ narration. That is fine, and it shows which stages you passed through.
 
 ---
 
-## 2. `findings.md` — written at the end
+## 2. `upload/findings.md` — written at the end
 
 Start with a one-line index, then one block per **root cause**. Order the blocks by
 severity, then by how often you hit them.
 
 ```markdown
-# Findings — <target-repo> — <date>
+# Findings — <what kind of task, no repo name> — <date>
 
 | id | sev | type | category | status | title |
 |----|-----|------|----------|--------|-------|
@@ -130,10 +144,10 @@ Rules for the block:
 
 ---
 
-## 3. `summary.md` — the one page the maintainer reads first
+## 3. `upload/summary.md` — the one page the maintainer reads first
 
 ```markdown
-# Summary — <target-repo> — <task in one line>
+# Summary — <task in one line, no repo name>
 
 ## Verdict
 - Journey completed with functualize: **yes | partially | no**

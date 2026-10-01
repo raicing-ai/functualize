@@ -52,17 +52,26 @@ By default:
 
 ```
 ~/functualize-field-reports/<YYYY-MM-DD>-<target-repo>-<task-slug>/
-├── journal.md      raw, timestamped, written while working
-├── findings.md     one block per finding, structured, deduplicated
-├── summary.md      the one-page verdict: did the journey complete, top issues, opinions
-└── repro/<id>/     one toy reproduction per confirmed finding, with a runnable run.sh
+├── local/                  STAYS ON THIS MACHINE. May quote the target repository
+│   └── journal.md          raw, timestamped, written while working
+└── upload/                 the ONLY folder that may be sent anywhere. No target-repo content
+    ├── summary.md          the one-page verdict: did the journey complete, top issues, opinions
+    ├── findings.md         one block per finding, structured, deduplicated
+    └── repro/<id>/         one toy reproduction per confirmed finding, with a runnable run.sh
 ```
 
 Reports are **deliberately kept out of this repository**. The journal quotes other
 repositories' code, and reports are raw material rather than decisions. The report itself
-never gets committed here. `findings.md` and `repro/` are written to contain nothing from
-the target repository (see `AGENT_BRIEF.md` §6), so they are the parts that can be
-ingested into the shared tracker described below. The journal never is.
+never gets committed here. The two folders say what may leave the machine:
+
+| Folder | Holds | May quote the target repo? | May be sent to the tracker? |
+|---|---|---|---|
+| `local/` | `journal.md` | yes | **no, never** |
+| `upload/` | `summary.md`, `findings.md`, `repro/` | **no** (`AGENT_BRIEF.md` §6) | yes, the whole folder |
+
+If a file is in `upload/`, a stranger can read it. If it might not be safe for that, it
+belongs in `local/`. How `upload/` reaches the tracker (who sends it, and where) is the
+ingest step below, not the agent's job while it works.
 
 ## From report to plan
 
@@ -101,9 +110,9 @@ whether it is a defect. That makes a batch of reports easy to look through:
 
 ```bash
 # Every blocker across all sessions
-rg -l '^severity: S1' ~/functualize-field-reports/*/findings.md
+rg -l '^severity: S1' ~/functualize-field-reports/*/upload/findings.md
 # Everything about discovery
-rg -A3 '^category: discovery' ~/functualize-field-reports/*/findings.md
+rg -A3 '^category: discovery' ~/functualize-field-reports/*/upload/findings.md
 ```
 
 When the same finding shows up in several reports, that is the priority signal. Agents

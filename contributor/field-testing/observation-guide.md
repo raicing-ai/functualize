@@ -173,7 +173,7 @@ If none fits, use `other` and propose a name in the finding.
 
 ### 4.4 Status
 
-- `confirmed`: reproduced in a minimal case under `$SESSION/repro/<id>/`.
+- `confirmed`: reproduced in a minimal case under `$SESSION/upload/repro/<id>/`.
 - `suspected`: seen, but not reduced. Say what stopped you.
 - `not-reproduced`: seen once and could not be made to happen again. Keep it, because
   flaky behaviour is also data.
