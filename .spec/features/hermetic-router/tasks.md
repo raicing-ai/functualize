@@ -423,7 +423,7 @@ Closed when: gates as `after:`, pytest passes, five checks clean. Commit:
 
 ## Wave 3 — the reader
 
-### [ ] T6 — `decision_record`: one record per routed run
+### [x] T6 — `decision_record`: one record per routed run
 
 *Files:* `src/functualize/app/_decision_record.py` (new), `src/functualize/app/utils.py`,
 `tests/workflow/test_decision_record.py` (new)
