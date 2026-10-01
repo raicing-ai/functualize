@@ -61,6 +61,8 @@ dev = [
     "mypy>=1.13.0",
     "pre-commit>=4.0.0",
     "import-linter>=2.0",
+    # `.github/scripts/dead_code_delta.py` — the base-vs-head dead-code report.
+    "vulture>=2.14",
     "invoke>=2.2.0",
     "debugpy>=1.8.21",
     # Not in the `all` extra -- see the comment there: `bitwarden-sdk>=2.0.0`
@@ -246,6 +248,86 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = ["textual.*"]
 ignore_missing_imports = true
+
+# Read by `.github/scripts/dead_code_delta.py` (from the head commit of the range
+# it compares) and by a bare `uv run vulture <paths>`. Only names a framework
+# dispatches belong here — it hides *new* code from the delta, so a pattern that
+# also matches ordinary helpers silently exempts them. Keys are vulture's own:
+# an unknown key makes the vulture CLI refuse the file.
+[tool.vulture]
+min_confidence = 60
+ignore_names = [
+    # Textual: handlers, actions, reactive hooks and widget class attributes.
+    "compose",
+    "on_*",
+    "_on_*",
+    "action_*",
+    "watch_*",
+    "_watch_*",
+    "validate_*",
+    "_validate_*",
+    "compute_*",
+    "_compute_*",
+    "render",
+    "render_line",
+    "render_lines",
+    "get_content_width",
+    "get_content_height",
+    "DEFAULT_CSS",
+    "CSS",
+    "CSS_PATH",
+    "SCOPED_CSS",
+    "BINDINGS",
+    "COMPONENT_CLASSES",
+    "TITLE",
+    "SUB_TITLE",
+    "AUTO_FOCUS",
+    "COMMANDS",
+    "SCREENS",
+    "MODES",
+    "can_focus",
+    "can_focus_children",
+    "border_title",
+    "border_subtitle",
+    "show_cursor",
+    "show_header",
+    "show_root",
+    "show_guides",
+    "guide_depth",
+    "select_on_focus",
+    "cursor_type",
+    "zebra_stripes",
+    # textual-autocomplete: the AutoComplete override surface.
+    "get_candidates",
+    "get_search_string",
+    "get_matches",
+    "should_show_dropdown",
+    "apply_completion",
+    "post_completion",
+    # pytest hooks and module markers; pydantic model configuration.
+    "pytest_*",
+    "pytestmark",
+    "model_config",
+    # http.server request handlers (`do_GET`, `do_POST`, ...).
+    "do_[A-Z]*",
+    # Dunders: module `__getattr__`, `__class_getitem__`, `__signature__`.
+    "__*__",
+]
+ignore_decorators = [
+    # Click registration: `@<group>.command`, `@<group>.group`, `@click.command`.
+    "@*.command",
+    "@*.group",
+    "@*.callback",
+    # Textual message handlers.
+    "@on",
+    # pytest and hypothesis: resolved by name or by `@given`.
+    "@pytest.fixture",
+    "@pytest_asyncio.fixture",
+    "@st.composite",
+    # functualize: registered by the decorator, dispatched by the engine.
+    "@job",
+    "@workflow",
+]
 
 [tool.importlinter]
 root_package = "functualize"
