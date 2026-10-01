@@ -20,6 +20,7 @@ decision waits for it.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -73,11 +74,18 @@ class CandidateEvaluation:
     a rendered string: a caller that wants to highlight the offending field in
     a UI should not have to parse prose to find it. Empty for every outcome
     but ``invalid`` — a strategy failure's text lives in ``detail``.
+
+    ``evidence`` is JSON-safe context a strategy rung records beside its
+    verdict — what it saw, and what it cost to see it. Written by a rung,
+    never by an answer surface: a person or an agent answering a gate records
+    a candidate, and fabricating rung evidence beside it would be a forgery.
+    ``None`` for every candidate a rung did not produce.
     """
 
     outcome: EvaluationOutcome
     detail: str = ""
     errors: tuple[tuple[str, str], ...] = ()
+    evidence: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)

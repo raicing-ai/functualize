@@ -11,6 +11,7 @@ The invariant under all of it: only an accepted candidate writes a payload.
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,11 @@ from pydantic import BaseModel, Field
 from functualize._app.state import AppState
 from functualize._primitives import gate_requests
 from functualize._types.errors import InputRequestNotOpenError
+from functualize._types.gate_resolution import (
+    CandidateEvaluation,
+    EvaluationOutcome,
+    GateCandidate,
+)
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import (
     ScopeStore,
@@ -186,6 +192,34 @@ class TestAutoCommit:
         ]
         assert "payload" not in result["resolution"]["candidates"][0]
         assert record["candidates"][0]["payload"] == record["payload"]
+
+    def test_a_candidate_with_evidence_projects_an_eighth_key(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        """A strategy rung's evidence rides the resolution view when present."""
+        record = store.get_gate("rel-1", "approve") or {}
+        gate_requests.append_candidate(
+            store,
+            "rel-1",
+            "approve",
+            GateCandidate(
+                candidate_id="cand_ev",
+                request_id=record["request_id"],
+                ordinal=0,
+                source="strategy:decision",
+                submitted_at=datetime(2026, 10, 1, 12, 0, tzinfo=UTC),
+                evaluation=CandidateEvaluation(
+                    EvaluationOutcome.FAILED,
+                    detail="below threshold",
+                    evidence={"schema": "decision-evidence/1", "x": 1},
+                ),
+            ),
+        )
+
+        report = gate_draft(app, store, "rel-1", "approve")
+
+        projected = report["resolution"]["candidates"][0]
+        assert projected["evidence"] == {"schema": "decision-evidence/1", "x": 1}
 
     def test_the_payload_is_the_validated_dump(
         self, app: FunctualizeApp, store: ScopeStore

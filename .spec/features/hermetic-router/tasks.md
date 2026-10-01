@@ -150,7 +150,7 @@ now: `2` · after: `0`
 Closed when: the three gates read as `after:`, the pytest command passes, and
 the five checks are clean. Commit: `feat(workflow): let a decision declare its fallback option`.
 
-### [ ] T2 — candidates carry evidence, stored and projected only when present
+### [x] T2 — candidates carry evidence, stored and projected only when present
 
 *Files:* `src/functualize/_types/gate_resolution.py`,
 `src/functualize/_primitives/gate_requests.py`,
