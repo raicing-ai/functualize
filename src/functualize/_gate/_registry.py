@@ -266,8 +266,6 @@ class GateRegistry:
                 )
                 continue
             try:
-                # TRANSITIONAL(hermetic-router/T4): evidence has no producer
-                # until the decision rung records it.
                 sink = RungEvidence()
                 model = resolver.resolve(dataclasses.replace(ctx, evidence=sink))
             except Exception as exc:

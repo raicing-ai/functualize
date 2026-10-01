@@ -222,8 +222,6 @@ def append_candidate(
             "payload": candidate.payload,
         }
         if candidate.evaluation.evidence is not None:
-            # TRANSITIONAL(hermetic-router/T4): evidence has no producer until
-            # the decision rung records it.
             entry["evidence"] = dict(candidate.evaluation.evidence)
         entries.append(entry)
         record["candidates"] = entries

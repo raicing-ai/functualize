@@ -319,7 +319,7 @@ Closed when: gate as `after:`, pytest passes, five checks clean. Commit:
 
 ## Wave 2 — the decision rung records evidence
 
-### [ ] T4 — the decision rung builds and records its evidence
+### [x] T4 — the decision rung builds and records its evidence
 
 *Files:* `src/functualize/_gate/decision_evidence.py` (new),
 `src/functualize/_gate/decision_strategy.py`,
