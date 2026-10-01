@@ -4,11 +4,12 @@ Phase 2 of the decision-layer experiment: **one small reference workflow** whose
 route is proposed by a decision provider and decided by a `Gate`, with every
 routing decision recorded as first-class, auditable evidence.
 
-**Status: awaiting member confirmation** (native Specify step 6). The Plan
-phase was authored in the same pass, on the instruction that this package ends
-at the member's approval; `plan.md` and `tasks.md` are **provisional** until
-`spec.md` is confirmed and D-1…D-4 in `plan.md` → *Decisions* are answered. A
-change to this file sends both back for revision before any `src/**` write.
+**Status: confirmed by the member, 2026-10-01** (native Specify step 6), with
+every decision and flagged smell answered as recommended: D-1 A (declared
+fallback, taken by `resolve`), D-2 A (evidence on the rung's evaluation), D-3 A
+(tokens only), D-4 A (`decision_record`), S-1 and S-4 accepted. `plan.md` →
+*Decisions* records each. A change to this file sends `plan.md` and
+`tasks.md` back for revision before any `src/**` write.
 
 ## 1. Problem
 

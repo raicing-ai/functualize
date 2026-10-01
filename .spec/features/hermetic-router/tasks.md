@@ -4,11 +4,11 @@ Authored 2026-10-01 against `ef1939d` (`origin/master`). Eleven tasks in eight
 waves. Every `now:` below was produced by running its command on this branch
 at authoring time.
 
-**Execute is NOT yet authorised.** `spec.md` awaits the member's confirmation
-and `plan.md` → *Decisions* D-1…D-4 and the review-flagged smells S-1, S-4
-await answers. When they arrive, record them here (one line each) and only
-then start wave 0. A changed answer sends `spec.md`/`plan.md` back for
-revision and the affected gates are re-authored before any `src/**` write.
+**Execute is authorised** (member, 2026-10-01): `spec.md` is confirmed and
+D-1…D-4, S-1 and S-4 are answered, each as recommended — see *Decisions
+recorded* below. No artifact needed revision. A change of scope from here
+sends `spec.md`/`plan.md` back for revision and the affected gates are
+re-authored before any `src/**` write.
 
 **The implementation lands on this branch, in this pull request.** The spec is
 created, executed and completed within the same PR and removed before merging
@@ -59,13 +59,17 @@ repository root.
 - Wave ordering is binding: never start wave N+1 while wave N has an unchecked
   task.
 
-## Decisions recorded (fill in on approval)
+## Decisions recorded (member, 2026-10-01)
 
-- D-1 (default route): _pending_
-- D-2 (evidence location): _pending_
-- D-3 (cost): _pending_
-- D-4 (`decision_record`): _pending_
-- S-1 (rung sink), S-4 (`source` mapping): _pending_
+- D-1 (default route): **A** — `ChoiceDecision(fallback=...)`, taken by the
+  existing `resolve` rung; a default on the decided field is refused (T1, T3, T5).
+- D-2 (evidence location): **A** — optional `evidence` on the rung's
+  `CandidateEvaluation`, written only by the gate (T2, T3, T4).
+- D-3 (cost): **A** — token usage only; monetary cost is Phase 3's (T4).
+- D-4 (`decision_record`): **A** — a public, provisional reader in
+  `functualize.app.utils` (T6).
+- S-1 (per-rung write-once evidence sink on the frozen `GateContext`): **accepted**.
+- S-4 (`decision_record` maps `source` strings): **accepted**.
 
 ## Wave 0 — foundation
 

@@ -1,7 +1,7 @@
 # hermetic-router — plan
 
-**Provisional** until `spec.md` is confirmed and D-1…D-4 below are answered.
-Authored against `ef1939d` (`origin/master`, observed 2026-10-01).
+**Approved** (member, 2026-10-01): `spec.md` confirmed; D-1…D-4 answered **A**
+as recommended; S-1 and S-4 accepted. Authored against `ef1939d` (`origin/master`, observed 2026-10-01).
 
 ## Retrieval record
 
@@ -130,7 +130,7 @@ Boundary crossings, checked against the seven import-linter contracts:
 import; peer independence holds). No new `_types` import of anything internal.
 `uv run lint-imports` is part of every task's checks.
 
-## Decisions (for the member — each also in the issue comment)
+## Decisions (answered by the member, 2026-10-01: D-1 A, D-2 A, D-3 A, D-4 A)
 
 - **D-1 — the default route.** `ChoiceDecision(fallback="human_review")`,
   taken by the existing `resolve` rung (recommended) · or keep Phase 1's
@@ -194,10 +194,10 @@ them per task):
 
 | # | smell (catalogue name) | where | why accepted | maintainer review? |
 |---|---|---|---|---|
-| S-1 | **Temporal coupling via a mutable collecting parameter** — a write-once `RungEvidence` held by the frozen `GateContext` | `_gate/_context.py`, `_gate/_registry.py` | Keeps the `GateResolver` protocol (`resolve(ctx) -> BaseModel`) unchanged for four resolvers in core and plugins; the alternative (a second return/raise shape) changes every resolver. One sink per rung, created by the registry, never global. | **yes** |
+| S-1 | **Temporal coupling via a mutable collecting parameter** — a write-once `RungEvidence` held by the frozen `GateContext` | `_gate/_context.py`, `_gate/_registry.py` | Keeps the `GateResolver` protocol (`resolve(ctx) -> BaseModel`) unchanged for four resolvers in core and plugins; the alternative (a second return/raise shape) changes every resolver. One sink per rung, created by the registry, never global. | reviewed — **accepted** (member, 2026-10-01) |
 | S-2 | **Primitive Obsession** — evidence is a JSON mapping, not a typed value | `CandidateEvaluation.evidence`, C-3 | The data-model doc's rule: provider metadata documented as opaque is JSON (`runtime-persistence-data-model.md` §3); the shape is versioned (`schema`) and fixed by C-3 and its tests. A typed class would add a third representation to keep in sync. | no |
 | S-3 | **Large Class/Module**, pre-existing | `_types/workflow.py` (1 083 lines) | Not introduced; this change shrinks it by moving `_decision_shape` out. | no |
-| S-4 | **Inappropriate Intimacy (mild)** — `decision_record` reads `source` strings (`strategy:resolve` ⇒ fallback) | `app/_decision_record.py` | `GateCandidate` reserves `source` for readers; this is a reader and routes nothing. The mapping lives in one function. | **yes** |
+| S-4 | **Inappropriate Intimacy (mild)** — `decision_record` reads `source` strings (`strategy:resolve` ⇒ fallback) | `app/_decision_record.py` | `GateCandidate` reserves `source` for readers; this is a reader and routes nothing. The mapping lives in one function. | reviewed — **accepted** (member, 2026-10-01) |
 
 No *Forbidden Patterns* entry appears in the AFTER: no global mutable state, no
 ABC, no implicit `Callable` port, no peer cross-import, no `_cli` internals, no
