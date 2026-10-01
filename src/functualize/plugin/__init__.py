@@ -12,10 +12,21 @@ Usage:
 from functualize._discovery.providers import Job, StaticProvider
 from functualize._events.bus import EventBus, StructuredEvent
 from functualize._events.hooks import HookEvent
+from functualize._gate.decision_strategy import DecisionGateResolver
 from functualize._plugins.domain_registry import discover_domains, scan_domain_providers
 from functualize._plugins.loader import PluginMetadata
 from functualize._types.commands import CommandNode, CommandProvider
-from functualize._types.errors import SubstrateInstallError
+from functualize._types.decision import (
+    ChoiceRequest,
+    DecisionProvenance,
+    DecisionProvider,
+    DecisionResult,
+)
+from functualize._types.errors import (
+    DecisionFailure,
+    DecisionUnavailableError,
+    SubstrateInstallError,
+)
 from functualize._types.host import PluginHost
 from functualize._types.input_modes import DEFAULT_SIGIL, InputMode, InputModeRegistry
 from functualize._types.interactivity import (
@@ -126,6 +137,20 @@ __all__ = [
     "AgentCapability",
     "AgentStepContext",
     "AgentStepResult",
+    # The decision provider port. PROVISIONAL: outside the list of names 1.0
+    # promises to keep, and this comment is the marker until the mechanism that
+    # marks provisional names exists. A provider proposes a candidate for a
+    # closed choice; whether it is acted on is the gate's declared rule, never
+    # the provider's.
+    "DecisionProvider",
+    "ChoiceRequest",
+    "DecisionResult",
+    "DecisionProvenance",
+    "DecisionFailure",
+    "DecisionUnavailableError",
+    # The provider-neutral resolver a provider plugin registers as the
+    # `decision` gate strategy, wrapped around its own DecisionProvider.
+    "DecisionGateResolver",
     # Domain discovery
     "discover_domains",
     "scan_domain_providers",

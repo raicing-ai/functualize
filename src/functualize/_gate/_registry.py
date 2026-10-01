@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from functualize._gate._resolver import GateResolver
+    from functualize._types.decision import ChoiceDecision
 
 
 class GateRegistry:
@@ -92,6 +93,7 @@ class GateRegistry:
         resolved_fields: dict[str, Any] | None = None,
         workflow_context: dict[str, Any] | None = None,
         force_gate: bool = False,
+        decision: ChoiceDecision | None = None,
     ) -> LadderOutcome:
         """Run the resolution ladder, recording one rung per strategy.
 
@@ -123,6 +125,9 @@ class GateRegistry:
                 from the config chain. If None, resolution uses model defaults.
             workflow_context: Arbitrary context from the current workflow state.
             force_gate: If True, dispatch to strategy even when fully resolved.
+            decision: The gate's declared decision, handed to every resolver
+                through ``GateContext.decision`` unchanged. Only the
+                ``decision`` strategy reads it.
 
         Returns:
             The ladder's outcome: rungs in order, the accepted model when a
@@ -176,6 +181,7 @@ class GateRegistry:
             all_fields=all_fields,
             force_gate=force_gate,
             workflow_context=workflow_context,
+            decision=decision,
         )
 
         # Step 4: Determine strategy list

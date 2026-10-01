@@ -117,6 +117,7 @@ all = [
     "functualize-ai-pydantic",
     "functualize-tasks",
     "functualize-tasks-local",
+    "functualize-decision-jev",
     "functualize-mcp",
     # Pulls boto3/botocore (~20MB of wheel). `all` means every plugin, and it
     # is itself opt-in, so the cost lands only on someone who asked for
@@ -155,6 +156,7 @@ functualize-ai = { workspace = true }
 functualize-ai-pydantic = { workspace = true }
 functualize-tasks = { workspace = true }
 functualize-tasks-local = { workspace = true }
+functualize-decision-jev = { workspace = true }
 functualize-mcp = { workspace = true }
 functualize-aws = { workspace = true }
 functualize-bitwarden = { workspace = true }

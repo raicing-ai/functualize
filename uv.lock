@@ -16,6 +16,7 @@ members = [
     "functualize-ai-pydantic",
     "functualize-aws",
     "functualize-bitwarden",
+    "functualize-decision-jev",
     "functualize-flow-viz",
     "functualize-http",
     "functualize-inline",
@@ -1235,6 +1236,7 @@ all = [
     { name = "functualize-ai" },
     { name = "functualize-ai-pydantic" },
     { name = "functualize-aws" },
+    { name = "functualize-decision-jev" },
     { name = "functualize-flow-viz" },
     { name = "functualize-http" },
     { name = "functualize-inline" },
@@ -1291,6 +1293,7 @@ requires-dist = [
     { name = "functualize-ai", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai" },
     { name = "functualize-ai-pydantic", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai-pydantic" },
     { name = "functualize-aws", marker = "extra == 'all'", editable = "plugins/credentials/functualize-aws" },
+    { name = "functualize-decision-jev", marker = "extra == 'all'", editable = "plugins/domains/functualize-decision-jev" },
     { name = "functualize-flow-viz", marker = "extra == 'all'", editable = "plugins/adapters/functualize-flow-viz" },
     { name = "functualize-http", marker = "extra == 'all'", editable = "plugins/adapters/functualize-http" },
     { name = "functualize-inline", marker = "extra == 'all'", editable = "plugins/adapters/functualize-inline" },
@@ -1424,6 +1427,28 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bitwarden-sdk", specifier = ">=2.0.0" },
+    { name = "functualize", editable = "." },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "functualize-decision-jev"
+version = "0.1.0"
+source = { editable = "plugins/domains/functualize-decision-jev" }
+dependencies = [
+    { name = "functualize" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
     { name = "functualize", editable = "." },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },

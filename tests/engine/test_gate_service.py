@@ -8,21 +8,31 @@ The candidates it reads are the ones the walk wrote through the port.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
 from pydantic import BaseModel
 from tests._support.engine_storage import port_for
 
+from functualize._engine.gate_service import _gate_strategy_list
 from functualize._engine.recording import InputRecorder
 from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
 from functualize._gate import GateRegistry
+from functualize._gate.decision_strategy import DecisionGateResolver
 from functualize._primitives.gate_requests import candidates_for
 from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._types.decision import (
+    ChoiceDecision,
+    ChoiceRequest,
+    DecisionProvenance,
+    DecisionResult,
+)
+from functualize._types.from_job import FromStep
 from functualize._types.gate_resolution import (
     CandidateEvaluation,
     EvaluationOutcome,
+    LadderOutcome,
 )
 from functualize._types.workflow import END, Edge, Gate, WorkflowDeclaration
 from functualize.app import FunctualizeApp
@@ -191,3 +201,156 @@ class TestTheRequestIdentity:
         assert outcomes.count(EvaluationOutcome.ACCEPTED) == 1
         assert outcomes[-1] is EvaluationOutcome.ACCEPTED
         assert candidates_for(record)[-1].ordinal == 3
+
+
+class Route(BaseModel):
+    route: Literal["billing", "returns", "shipping"]
+
+
+_DECISION = ChoiceDecision(
+    field="route",
+    instructions="Route the ticket to the team that owns it.",
+    options={
+        "billing": "money",
+        "returns": "the customer wants a refund",
+        "shipping": "the parcel's journey",
+    },
+    state=FromStep("intake"),
+    accept_at=0.70,
+    min_margin=0.10,
+)
+
+
+class _RecordingRegistry:
+    """A registry stub: records what ``evaluate`` received, accepts one rung."""
+
+    def __init__(self) -> None:
+        self.received: list[dict[str, Any]] = []
+
+    def evaluate(self, model_class: type[BaseModel], **kwargs: Any) -> LadderOutcome:
+        self.received.append({"model_class": model_class, **kwargs})
+        model = Route(route="billing")
+        return LadderOutcome(
+            rungs=(
+                (
+                    "decision",
+                    CandidateEvaluation(EvaluationOutcome.ACCEPTED),
+                    model.model_dump(),
+                ),
+            ),
+            model=model,
+        )
+
+
+class _Proposes:
+    """A ``DecisionProvider`` proposing ``shipping`` clearly, recording its asks."""
+
+    def __init__(self) -> None:
+        self.asked: list[ChoiceRequest] = []
+
+    @property
+    def name(self) -> str:
+        return "fake"
+
+    def choose(self, request: ChoiceRequest) -> DecisionResult[str]:
+        self.asked.append(request)
+        return DecisionResult(
+            value="shipping",
+            provider="fake",
+            model="fake-1",
+            provenance=DecisionProvenance(
+                requested_model="fake-1", latency_seconds=0.0
+            ),
+            distribution={"shipping": 0.85, "returns": 0.10, "billing": 0.05},
+        )
+
+
+def _decision_walk(store: ScopeStore, registry: Any) -> WorkflowWalker:
+    declaration = WorkflowDeclaration(
+        nodes=(Step("intake"), Gate(name="route", awaits=Route, decide=_DECISION)),
+        edges=(Edge(source="intake", target="route"), Edge(source="route", target=END)),
+    )
+    return WorkflowWalker(
+        declaration,
+        store,
+        "wf-decision",
+        run_step=lambda name: f"{name}-result",
+        runtime_store=port_for(store),
+        gate_registry=registry,
+    )
+
+
+class TestTheWalkHandsTheGateItsResultsAndItsDecision:
+    """C-7: a strategy can only read this walk if the walk hands it over."""
+
+    def test_evaluate_receives_the_results_and_the_decision(
+        self, store: ScopeStore
+    ) -> None:
+        registry = _RecordingRegistry()
+
+        report = _decision_walk(store, registry).run()
+
+        assert report.outcome is WalkOutcome.COMPLETED
+        (received,) = registry.received
+        assert received["workflow_context"] == {"intake": "intake-result"}
+        assert received["decision"] is _DECISION
+        assert received["gate_strategy"] == ["decision", "prompt", "resolve"]
+
+    def test_the_results_are_a_copy_not_the_ledger(self, store: ScopeStore) -> None:
+        registry = _RecordingRegistry()
+
+        report = _decision_walk(store, registry).run()
+
+        assert registry.received[0]["workflow_context"] is not report.results
+
+    def test_a_gate_without_a_decision_hands_over_none(self, store: ScopeStore) -> None:
+        registry = _RecordingRegistry()
+        declaration = WorkflowDeclaration(
+            nodes=(Gate(name="triage", awaits=Approval, strategy="ai_inbound"),),
+            edges=(Edge(source="triage", target=END),),
+        )
+
+        WorkflowWalker(
+            declaration,
+            store,
+            "wf-plain",
+            run_step=lambda name: name,
+            runtime_store=port_for(store),
+            gate_registry=registry,
+        ).run()
+
+        assert registry.received[0]["decision"] is None
+        assert registry.received[0]["workflow_context"] == {}
+
+    @pytest.mark.parametrize("prompt_gates", [True, False])
+    def test_a_decision_gates_ladder_is_the_three_names(
+        self, prompt_gates: bool
+    ) -> None:
+        gate = Gate(name="route", awaits=Route, decide=_DECISION)
+
+        assert _gate_strategy_list(gate, prompt_gates) == [
+            "decision",
+            "prompt",
+            "resolve",
+        ]
+
+    def test_a_real_registry_decides_from_the_step_the_decision_names(
+        self, store: ScopeStore
+    ) -> None:
+        """The whole chain short of the plugin: walk → service → registry →
+        resolver → provider, reading the ``intake`` step's recorded result."""
+        provider = _Proposes()
+        registry = GateRegistry()
+        registry.register_strategy("decision", DecisionGateResolver(provider))
+
+        report = _decision_walk(store, registry).run()
+
+        assert report.outcome is WalkOutcome.COMPLETED
+        assert provider.asked[0].state == "intake-result"
+        record = store.get_gate("wf-decision", "route") or {}
+        assert record["payload"] == {"route": "shipping"}
+        assert [c.source for c in candidates_for(record)] == [
+            "strategy:decision",
+            "strategy:prompt",
+            "strategy:resolve",
+        ]

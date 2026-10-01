@@ -617,6 +617,32 @@ The maintainer approved D-1 through D-5 as Option A:
 
 The enduring transition-ownership decision is [ADR-029](../contributor/adr/029-gate-resolution-is-recorded-not-recomputed.md), under ADR-025's engine/storage boundary.
 
+### Decision gates — delivered, provider experimental
+
+`Gate(decide=ChoiceDecision(...))` is delivered on `sdd/decision-provider-seam`:
+a provider-neutral `DecisionProvider` seam in core, the `decision` gate strategy
+(`DecisionGateResolver`) applying the workflow's `accept_at`/`min_margin` to the
+proposal's distribution, the rule in the graph digest, and a first provider,
+the **experimental** `functualize-decision-jev` plugin (needs
+`OPENCODE_API_KEY`). The public names are **provisional**. The decision and its
+rejected alternatives are [ADR-030](../contributor/adr/030-decisions-are-candidates-not-authority.md);
+the behaviour is documented in `docs/guides/workflows.md` → *Decision gates*.
+
+Still open, and deliberately not part of this delivery:
+
+- **The rule is fenced, not yet recorded.** It joins the graph digest now;
+  storing it structurally on the gate request waits for the durable
+  request/evidence work above.
+- **Margin comparison is exact.** Probabilities arrive with two decimals, so a
+  lead printed as `0.10` can fail `min_margin=0.10`. Rounding before comparing
+  would change the rule and needs a maintainer decision.
+- **The live provider test has not run against the service** in CI; it skips
+  without `OPENCODE_API_KEY`.
+- **Release hygiene for the new plugin** — it is `0.1.0` while every other
+  package shares one release version, ships no `LICENSE`/`NOTICE`, and is baked
+  into every standalone binary through `[all]`; eight new public names have no
+  `examples/` caller yet.
+
 ## Deferred
 
 Specified work that is not being picked up yet, and what it is waiting on.

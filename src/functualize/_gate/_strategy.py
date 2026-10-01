@@ -32,16 +32,17 @@ class GateStrategy(StrEnum):
 #: both depend on core -- importing either from here would invert the graph.
 #: `tests/gate/test_registry.py` pins that with a grep over `src/`.
 #:
-#: Note `"ai_outbound"` has no `GateStrategy` member. The enum carries three
-#: names, `_types.workflow._VALID_GATE_STRATEGIES` accepts four, and this
-#: table follows the validator because that is the set a `Gate` can actually
-#: declare. Reconciling the two is deliberately out of scope here
-#: (`spec.md`, "Redesigning gate strategy naming").
+#: Note `"ai_outbound"` and `"decision"` have no `GateStrategy` member. The
+#: enum carries three names, `_types.workflow._VALID_GATE_STRATEGIES` accepts
+#: five, and this table follows the validator because that is the set a
+#: `Gate` can actually declare. Reconciling the two is deliberately out of
+#: scope here (`spec.md`, "Redesigning gate strategy naming").
 STRATEGY_PROVIDERS: dict[str, str] = {
     GateStrategy.RESOLVE.value: "functualize",
     GateStrategy.PROMPT.value: "functualize",
     GateStrategy.AI_INBOUND.value: "functualize-ai",
     "ai_outbound": "functualize-mcp",
+    "decision": "functualize-decision-jev",
 }
 
 #: The two the core registers itself, at boot. Naming a package for these

@@ -7,6 +7,8 @@ public contract for job authors and platform developers.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from enum import StrEnum
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -737,3 +739,98 @@ class IllegalTransition(Exception):  # noqa: N818 — names a refused move, not 
         a round trip. Naming the constructor's arguments is the whole fix.
         """
         return (type(self), (self.machine, self.current, self.target))
+
+
+class DecisionFailure(StrEnum):
+    """Why a decision provider produced no candidate.
+
+    Five kinds, because each asks the operator something different: configure
+    the provider, wait, change the request, check the network, or report a
+    provider defect. The value is what a failed rung's detail carries.
+    """
+
+    NOT_CONFIGURED = "not_configured"
+    RATE_LIMITED = "rate_limited"
+    REFUSED = "refused"
+    UNREACHABLE = "unreachable"
+    MALFORMED = "malformed"
+
+
+#: The longest ``detail`` a ``DecisionUnavailableError`` keeps. A provider's
+#: error body is unbounded and is quoted into a gate's blocked reason.
+_DECISION_DETAIL_LIMIT = 300
+
+
+class DecisionUnavailableError(Exception):
+    """A decision provider could not propose a candidate.
+
+    Raised by ``DecisionProvider.choose`` (``_types/decision.py``) instead of
+    returning a result. It is a report, not a retry signal: a provider never
+    sleeps or retries, so ``retry_after`` is carried exactly as the service
+    sent it for the caller to act on.
+
+    The message is ``"<provider> <kind>[ HTTP <status>][ retry after <n> s]:
+    <detail>"`` — the string a failed rung carries into ``blocked_reason``.
+
+    Attributes:
+        kind: Which of the five failures this is.
+        provider: The provider's name.
+        status: The HTTP status, when there was one.
+        retry_after: Seconds, for ``RATE_LIMITED`` only, as the service sent it.
+        detail: Clipped to 300 characters on construction, so the clip holds
+            for every caller. Never contains the credential.
+    """
+
+    kind: DecisionFailure
+    provider: str
+    status: int | None
+    retry_after: float | None
+    detail: str
+
+    def __init__(
+        self,
+        *,
+        kind: DecisionFailure,
+        provider: str,
+        detail: str,
+        status: int | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        self.kind = kind
+        self.provider = provider
+        self.status = status
+        self.retry_after = retry_after
+        self.detail = detail[:_DECISION_DETAIL_LIMIT]
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        message = f"{self.provider} {self.kind.value}"
+        if self.status is not None:
+            message += f" HTTP {self.status}"
+        if self.retry_after is not None:
+            seconds = float(self.retry_after)
+            rendered = str(int(seconds)) if seconds.is_integer() else str(seconds)
+            message += f" retry after {rendered} s"
+        return f"{message}: {self.detail}"
+
+    def __reduce__(
+        self,
+    ) -> tuple[partial[DecisionUnavailableError], tuple[()]]:
+        """Rebuild from the five attributes, not from the rendered message.
+
+        The constructor is keyword-only, so ``BaseException.__reduce__`` —
+        which calls the class with ``self.args`` positionally — would raise
+        `TypeError` on a copy or a pickle round trip, as `IllegalTransition`
+        records above.
+        """
+        return (
+            partial(
+                type(self),
+                kind=self.kind,
+                provider=self.provider,
+                detail=self.detail,
+                status=self.status,
+                retry_after=self.retry_after,
+            ),
+            (),
+        )
