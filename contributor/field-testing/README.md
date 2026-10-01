@@ -80,27 +80,31 @@ real defect, a misreading of what a feature is for, or a symptom of something el
 does not go straight into the plan.
 
 ```
-report on disk ──ingest──▶ ledger (REPORTED) ──agent triage──▶ verdict
-                                                                  │
-      ┌────────────── needs a human ──────────────────────────────┤
-      ▼                                                           ▼
- discussion page (Confluence comments)                     clear-cut defect
-      │                                                           │
-      └──▶ RECONCILED: accepted → plan │ new decision │ rejected │ deferred
-                                       │
-                                       ▼
-                          Jira issue under the Initiative's Epic
+report on disk ──ingest──▶ Field Report in Jira (Reported) ──agent triage──▶ verdict comment (Triaged)
+                                                                                    │
+                ┌───────────────────────────── needs the maintainer ────────────────┤
+                ▼                                                                   ▼
+ discussion in the issue's comments                                          clear-cut defect
+                │                                                                   │
+                └──▶ Accepted → a linked Bug or Story │ Rejected │ Triaged + `deferred`
 ```
 
-The shared tracker is the **Alignment Hub** in the Functualize Confluence space (key `FUN`),
-under `00 — Start Here`. It holds the append-only ledger, the triage rules, the
-discussion pages and the mapping from `category` to the area of the code it touches.
-This folder defines what a report looks like. The Hub defines what happens to it.
+Every finding is ingested as a `Field Report`, whatever its type. A `Bug` or `Story` is a
+**new ticket**, created only once triage has confirmed there is work to do, and the report
+is linked to it.
+
+The shared tracker is the Jira project for the repository, with the **Alignment Hub** in
+the Functualize Confluence space (key `FUN`, under `00 — Start Here`) holding the rules:
+what to check before planning, how triage works, how a report is ingested, the label
+vocabulary and the mapping from `category` to the area of the code it touches. This
+folder defines what a report looks like. The Hub defines what happens to it.
 
 Ingest is done by the maintainer or an agent acting for them, never by the field-testing
-agent, which still files and posts nothing. Ingest gives each finding a global `FT-NNN`
-ID and records which report and finding id it came from, so a report is never ingested
-twice and the same finding in several reports is counted, not duplicated.
+agent, which still files and posts nothing. Ingest reads only `upload/`, names the session
+by an opaque report key (never by its folder name, which carries the target repository's
+name), and records the report key, the finding id and a content hash in each issue, so a
+report is never ingested twice and the same finding in several reports is linked as a
+duplicate, not counted twice.
 
 ## Local triage
 
