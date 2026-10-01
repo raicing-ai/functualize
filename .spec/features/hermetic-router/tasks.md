@@ -211,7 +211,7 @@ Closed when: gates as `after:`, pytest passes, five checks clean. Commit:
 
 ## Wave 1 — the ladder
 
-### [ ] T3 — each rung gets its own evidence sink; a declared fallback is resolved and forced
+### [x] T3 — each rung gets its own evidence sink; a declared fallback is resolved and forced
 
 *Files:* `src/functualize/_gate/_context.py`, `src/functualize/_gate/_registry.py`,
 `tests/gate/test_registry_evidence.py` (new)

@@ -7,9 +7,10 @@ Intended to be composed into FunctualizeApp.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING, Any, cast
 
-from functualize._gate._context import GateContext
+from functualize._gate._context import GateContext, RungEvidence
 from functualize._gate._evaluation import blocked_reason_from
 from functualize._gate._strategy import GateStrategy, missing_strategy_hint
 from functualize._types.errors import GateResolutionError
@@ -112,6 +113,9 @@ class GateRegistry:
         - ``not_reached`` — every rung after the accepted one, recorded
           rather than omitted so a ladder that stopped early reads as one.
 
+        A rung that ran also carries whatever it recorded into its
+        ``RungEvidence`` sink as the rung evaluation's ``evidence``.
+
         The two loud ``ValueError`` paths raise from here exactly as they
         always have — an unregistered strategy inside a preset, and a single
         explicitly-named unregistered strategy — with nothing returned.
@@ -127,7 +131,12 @@ class GateRegistry:
             force_gate: If True, dispatch to strategy even when fully resolved.
             decision: The gate's declared decision, handed to every resolver
                 through ``GateContext.decision`` unchanged. Only the
-                ``decision`` strategy reads it.
+                ``decision`` strategy reads it. When it declares a
+                ``fallback``, that option seeds ``resolved_fields`` under the
+                decided field and dispatch is forced — the ladder's later
+                ``resolve`` rung takes the fallback when the ``decision`` rung
+                does not accept, so a gate with a declared fallback never
+                blocks for a person.
 
         Returns:
             The ladder's outcome: rungs in order, the accepted model when a
@@ -137,6 +146,17 @@ class GateRegistry:
             resolved_fields = {}
         if workflow_context is None:
             workflow_context = {}
+
+        # Step 0: A declared fallback is the answer of last resort. Seed it
+        # under the decided field and force dispatch, so the decision rung
+        # still runs (its evidence is recorded either way) and the resolve
+        # rung can complete the model when no proposal was accepted.
+        if decision is not None and decision.fallback is not None:
+            resolved_fields = {
+                **resolved_fields,
+                decision.field: decision.fallback,
+            }
+            force_gate = True
 
         # Step 1: Determine all fields and classify resolved/unresolved
         all_fields = list(model_class.model_fields.keys())
@@ -246,14 +266,21 @@ class GateRegistry:
                 )
                 continue
             try:
-                model = resolver.resolve(ctx)
+                # TRANSITIONAL(hermetic-router/T4): evidence has no producer
+                # until the decision rung records it.
+                sink = RungEvidence()
+                model = resolver.resolve(dataclasses.replace(ctx, evidence=sink))
             except Exception as exc:
                 # **Every** rung's failure, each labelled with the rung it
                 # came from — not just the last one.
                 rungs.append(
                     (
                         strategy_name,
-                        CandidateEvaluation(EvaluationOutcome.FAILED, detail=str(exc)),
+                        CandidateEvaluation(
+                            EvaluationOutcome.FAILED,
+                            detail=str(exc),
+                            evidence=sink.value,
+                        ),
                         None,
                     )
                 )
@@ -261,7 +288,9 @@ class GateRegistry:
             rungs.append(
                 (
                     strategy_name,
-                    CandidateEvaluation(EvaluationOutcome.ACCEPTED),
+                    CandidateEvaluation(
+                        EvaluationOutcome.ACCEPTED, evidence=sink.value
+                    ),
                     model.model_dump(),
                 )
             )
