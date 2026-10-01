@@ -288,7 +288,7 @@ now: `0` · after: `1`
 Closed when: gates as `after:`, pytest passes, five checks clean. Commit:
 `feat(gate): give each ladder rung an evidence sink and honour fallbacks`.
 
-### [ ] T5 — a gate with a fallback is walked `decision → resolve`
+### [x] T5 — a gate with a fallback is walked `decision → resolve`
 
 *Files:* `src/functualize/_engine/gate_service.py`, `tests/engine/test_gate_service.py`
 

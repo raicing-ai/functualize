@@ -50,6 +50,11 @@ def _gate_strategy_list(gate: Gate, prompt_gates: bool) -> list[str] | None:
     if declared == "ai_inbound":
         return ["ai_inbound", "prompt", "resolve"]
     if declared == "decision":
+        decide = getattr(gate, "decide", None)
+        if decide is not None and decide.fallback is not None:
+            # A declared fallback means the router never blocks; `resolve`
+            # takes the fallback when the decision rung does not accept.
+            return ["decision", "resolve"]
         # A below-threshold or failed proposal falls through to a person, the
         # same ladder an inbound AI answer has.
         return ["decision", "prompt", "resolve"]
