@@ -1,106 +1,258 @@
 # gate-name-resolution — Tasks
 
-Authored 2026-09-30 against `e7a93bf` (`origin/master`). Seven tasks in seven
-waves, serialized: T1–T3 share the new unit-test file, and T4 depends on all
-three. Every `now:` below was produced by running the command at authoring time
-on this branch.
+Authored 2026-09-30 against `e7a93bf`; **re-authored 2026-10-01** against
+`ef1939d` (PR #71 merged, branch rebased) for the member's answers: D1 = **(a)
+raise `GateNotFoundError`**, `gate: str` stays, `deposit_gate_input` is fixed in
+place, spec confirmed. Ten tasks in nine waves. Every `now:` below was produced
+by running the command on this branch at `ef1939d` + the spec commit.
 
 **The Execute phase reads only this file from the feature directory.** Each task
-restates the behavior it needs; `B-n` and `AC-n` are defined in `spec.md`.
+restates the behavior it needs; `B-n` and `AC-n` are defined in `spec.md`, `C-n`
+in `contracts.md`.
 
-**Execute is NOT yet authorized.** `spec.md` awaits member confirmation, and
-decision **D1** (unknown gate: returned `gate_not_found` envelope, recommended,
-vs. a raised `GateNotFoundError`) is open. The tasks below implement D1-(b). If
-the member picks (a), `spec.md` AC-6 and T1/T2 are re-authored and a CLI/MCP
-translation task is inserted before T4. The two *needs maintainer review* smells
-in `plan.md` → *Surviving smells* (Primitive Obsession on `gate: str`;
-`deposit_gate_input` as dead-code candidate) must be answered too. Neither
-answer changes these tasks unless the member widens scope.
+**Execute authorization:** the spec is confirmed and D1 and both review-flagged
+smells are answered (member, 2026-10-01). What remains is the member's approval
+of **this task list**, which `/agentic-plan` step 11 requires before Execute
+begins. A change of scope from here sends `spec.md`/`plan.md` back for revision,
+and the affected gates are re-authored before code is written.
 
 ## How to read a gate
 
 A fenced `bash` block holding a **count** (`rg -c` or `| wc -l`), followed by
 `now:` (measured at authoring) and `after:` (what the task must produce).
 `tests/spec/test_task_gates_still_hold.py` re-runs every gate of every `[x]` task
-against `HEAD` for the life of the branch, so each gate stays true through later
-tasks. `invariant` marks a count that must not change. **Comments and docstrings
-in counted files count too** — never write `_canonical_gate(` (with the
-parenthesis), `name == gate` or `name == blocked_on` in prose inside them.
+against `HEAD` for the life of the branch, so each gate was chosen to stay true
+through every later task. `invariant` marks a count that must not change.
+**Comments and docstrings in counted files count too** — in prose inside them,
+never write `_canonical_gate(` with its parenthesis, `except GateNotFoundError`,
+`raise GateNotFoundError`, `name == gate`, `name == blocked_on`, or the
+decorator line `@_refuse_unknown_gates`.
 
 ## Standing rules for every task
 
+- **Before T1, rebase.** The pushed branch sits on `e7a93bf`, because the
+  spec author's runtime could not force-push; these gates were measured on the
+  same two spec commits rebased onto `ef1939d`. First step of Execute:
+  `git fetch origin && git rebase origin/master` (only `.spec/features/` files
+  are on the branch, so it cannot conflict), force-push with lease, then
+  re-run every `now:` gate below. If `origin/master` has moved past `ef1939d`,
+  re-measure the cited line numbers in the files you touch and record any drift
+  in the task's completion note; the scope-fence gate's base becomes the new
+  merge-base.
 - Run `uv run ruff check --fix src/ tests/ plugins/ examples/`,
   `uv run ruff format src/ tests/ plugins/ examples/`, `uv run mypy src/`,
   `uv run lint-imports`, and targeted `uv run pytest` (at most two invocations
-  per verification). Redirect output to `/tmp/functualize-<cmd>.log`.
-- **Test fixtures:** tests use the repo's `tests/conftest.py` isolation plus the
-  fixture shape of `tests/workflow/test_gate_drafts.py:45-86`, with the gate
-  declared `Gate(name="approve_refund", awaits=Approval)` where
-  `class Approval(BaseModel): approved: bool`. A bare `python` script does not
-  read back the scope it wrote (research.md) — do not verify with one.
+  per verification). Redirect long output to a log file inside the run workdir
+  and read the file, rather than piping through `head`/`tail`.
+- **Fixtures:** tests use `tests/conftest.py` isolation plus the fixture shape
+  of `tests/workflow/test_gate_drafts.py:45-86`, with the gate declared
+  `Gate(name="approve_refund", awaits=Approval)`, where
+  `class Approval(BaseModel): approved: bool`, in a workflow
+  `build → approve_refund → deploy → END` registered as `release` and run to
+  `blocked` in scope `rel-1`. A bare `python` script does not read back the
+  scope it wrote (research.md) — do not verify with one.
 - **Reachability precedes `[x]`**: name the production call path in the
-  completion note and prove it — commit, break the call (replace the
-  `_canonical_gate` call in the named entry with the raw `gate`), watch a named
-  test fail, `git checkout -- <file>`, amend.
-- **Scope fence**, checked by every task:
+  completion note and prove it. Commit, break the call, watch a named test fail,
+  `git checkout -- <file>`, amend.
+- **Transitional disclosure:** T2 and T3 add catch arms whose production raiser
+  only lands in T4/T5. Each arm carries
+  `# TRANSITIONAL(gate-name-resolution/T4): no production raiser until T4–T5`,
+  their tests drive them with a monkeypatched raiser, and T9 removes every
+  marker and proves each arm by sabotage.
+- **The exception (C-1),** restated so no task needs `contracts.md`:
+
+  ```python
+  class GateNotFoundError(Exception):
+      """Raised when a scope is addressed and the gate reference matches none of its gates."""
+
+      def __init__(self, gate: str, *, scope_id: str, known: Sequence[str]) -> None:
+          self.gate = gate
+          self.scope_id = scope_id
+          self.known = tuple(sorted(known))
+          super().__init__(
+              f"Workflow '{scope_id}' has no gate '{gate}'. "
+              f"Gates: {', '.join(self.known) or 'none'}. "
+              "Run `func builtin workflow list` to see what is waiting."
+          )
+  ```
+
+- **Scope fence**, re-run by T9:
 
 ```bash
-git diff --name-only e7a93bf -- src/functualize/_types src/functualize/_primitives src/functualize/_engine src/functualize/_cli plugins | wc -l
+git diff --name-only ef1939d -- src/functualize/_primitives src/functualize/_engine src/functualize/_discovery src/functualize/_config src/functualize/_plugins src/functualize/_app src/functualize/_types/workflow.py src/functualize/_types/naming.py | wc -l
 ```
-now: `0` · after: `0` — invariant: no file outside `src/functualize/app/` changes; `_types/workflow.py` and `_types/errors.py` belong to PR #71.
+now: `0` · after: `0` — invariant: no peer layer, no `_app`, and neither `_types/workflow.py` nor `_types/naming.py` changes.
 
 ```bash
-rg -c 'gate_unresolvable' src/functualize/_cli/builtins.py
+rg -c '"gate_not_found": 1' src/functualize/_cli/builtins.py
 ```
-now: `1` · after: `1` — invariant: the CLI exit mapping is untouched.
+now: `1` · after: `1` — invariant: the CLI exit code for an unknown gate stays 1.
 
-- No tracker key, issue URL, agent, model or run identity in any commit message.
-  Subjects are conventional commits, e.g. `fix(workflow): resolve a gate by its declared spelling`.
+- No tracker key, issue URL, agent, model or run identity in any commit message
+  or trailer. On a Multica runtime the daemon's `prepare-commit-msg` hook adds a
+  `Co-authored-by: multica-agent` trailer; commit with
+  `git -c core.hooksPath=/dev/null commit …` so it does not land.
 
-## Wave 0 — the resolver
+## Wave 0 — the vocabulary
 
-### [ ] T1 — `_canonical_gate`, and the two `_workflow_resume.py` entries
+### [ ] T1 — `GateNotFoundError` and its public door
+
+*Files:* `src/functualize/_types/errors.py`, `src/functualize/app/utils.py`, `tests/types/test_gate_not_found_error.py` (new)
+
+- Add the class above to `_types/errors.py`, after `AmbiguousJobError`
+  (`:241`). Import `Sequence` under the module's existing `TYPE_CHECKING`
+  convention (or `collections.abc` if there is none). The class imports nothing
+  internal.
+- Re-export from `functualize.app.utils`: add it to the `_types.errors` import
+  block (`utils.py:80-84`) and to `__all__` beside `"ScopeStoreUnreadableError"`
+  (`:282`).
+- Tests: attributes round-trip; `known` is sorted and a tuple; the message names
+  the scope, the reference and every known gate; `known=[]` renders `none`;
+  `from functualize.app.utils import GateNotFoundError` works.
+
+*Production call path:* none yet — the first raiser is T4. Disclosed by the
+standing *Transitional* rule; T9 proves it.
+
+```bash
+rg -c '^class GateNotFoundError\(Exception\):' src/functualize/_types/errors.py
+```
+now: `0` · after: `1`
+
+```bash
+rg -c 'GateNotFoundError' src/functualize/app/utils.py
+```
+now: `0` · after: `2` (the import and the `__all__` entry)
+
+## Wave 1 — the surfaces learn to translate it (before anything raises it)
+
+### [ ] T2 — CLI: `_workflow_refusal()` and the fused `--wf-input` path
+
+*Files:* `src/functualize/_cli/builtins.py`, `src/functualize/app/adapters/workflow_flags.py`, `tests/cli/test_gate_not_found_refusal.py` (new)
+
+- `_cli/builtins.py` `_workflow_refusal()` (`:1144-1153`): import
+  `GateNotFoundError` beside `ScopeStoreUnreadableError` from
+  `functualize.app.utils` (never from `_types` — contract *_cli uses public API
+  only*). Add a second arm: `except GateNotFoundError as exc:` →
+  `click.echo(f"Error: {exc}", err=True)`; `raise SystemExit(1) from exc` — the
+  exit code `gate_not_found` already maps to (`:1113`). Update the docstring:
+  it now covers two refusals. It already wraps `workflow answer` (`:1451`) and
+  `workflow resume` (`:1554`).
+- `workflow_flags._record` (`:411-436`): wrap the `resolve_gate` and
+  `answer_gate` calls in `try … except GateNotFoundError as exc:` → same
+  `Error:` line, `SystemExit(1)`. Import inside the function, as the module
+  already does for `answer_gate`/`resolve_gate` (`:418`).
+- Mark both arms with the standing `TRANSITIONAL` comment.
+- Tests (`CliRunner`, modelled on `tests/integration/test_cli_workflow_parity.py`):
+  monkeypatch `functualize.app.utils.answer_gate` and
+  `functualize.app.utils.gate_draft` to raise
+  `GateNotFoundError("nope", scope_id="rel-1", known=["approve-refund"])`;
+  `func builtin workflow answer rel-1 nope --input '{}'`, the same with
+  `--show`, and `func builtin workflow resume rel-1 --input '{}' --gate nope`
+  each exit **1**, output contains `Error: Workflow 'rel-1' has no gate 'nope'`
+  and `approve-refund`, and `result.exception` is a `SystemExit` (no other
+  exception escaped). One test does the same for the fused
+  `--wf-resume rel-1 --wf-input '{}' --wf-gate nope`.
+
+*Production call paths:* `builtin workflow answer|resume` → `_workflow_refusal()`;
+`<entry> <workflow> --wf-resume` → `apply_workflow_flags` → `_record`.
+
+```bash
+rg -c 'except GateNotFoundError' src/functualize/_cli/builtins.py
+```
+now: `0` · after: `1`
+
+```bash
+rg -c 'except GateNotFoundError' src/functualize/app/adapters/workflow_flags.py
+```
+now: `0` · after: `1`
+
+```bash
+rg -c '_workflow_refusal\(\)' src/functualize/_cli/builtins.py
+```
+now: `12` · after: `12` — invariant: the definition plus its 11 uses; no new wrapper is introduced.
+
+### [ ] T3 — MCP: `_refuse_unknown_gates` on the three gate-taking tools
+
+*Files:* `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py`, `tests/plugins/test_mcp_gate_not_found.py` (new)
+
+- Add `_refuse_unknown_gates(fn)` beside `_refuse_unreadable_scopes`
+  (`:78-103`), same shape (`functools.wraps`, async wrapper, lazy import of
+  `GateNotFoundError` from `functualize.app.utils`). On the exception return
+  `{**_error("gate_not_found", str(exc)), "gates": list(exc.known)}`. Mark it
+  with the standing `TRANSITIONAL` comment.
+- Apply it to `_answer_gate` (`:272`), `_get_gate_draft` (`:317`) and
+  `_resume_workflow` (`:336`), **under** the existing
+  `@_refuse_unreadable_scopes` (so that one stays outermost). Leave
+  `_refuse_unreadable_scopes` unchanged — widening it would give one decorator
+  two unrelated reasons to change (`plan.md` → candidate 5b).
+- Tests: monkeypatch `functualize_mcp._workflow_tools.answer_gate`,
+  `.gate_draft` and `.resume_scope` to raise the C-1 error; each tool returns
+  `error == "gate_not_found"`, `gates == ["approve-refund"]`, and a `message`
+  naming `nope`. Model the provider fixture on
+  `tests/plugins/test_mcp_workflow_tools.py`.
+
+*Production call path:* MCP `tools/call answer_gate|get_gate_draft|resume_workflow`
+→ the decorated methods.
+
+```bash
+rg -c 'def _refuse_unknown_gates' plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py
+```
+now: `0` · after: `1`
+
+```bash
+rg -c '@_refuse_unknown_gates' plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py
+```
+now: `0` · after: `3`
+
+```bash
+rg -c '@_refuse_unreadable_scopes' plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py
+```
+now: `10` · after: `10` — invariant: the unreadable-store guard still wraps every tool.
+
+## Wave 2 — the resolver
+
+### [ ] T4 — `_canonical_gate`, `deposit_gate_input`, and the missing-node raise
 
 *Files:* `src/functualize/app/_workflow_resume.py`, `tests/workflow/test_gate_name_resolution.py` (new)
 
-Behavior (B-1, B-2, B-4, B-5):
+Behavior (B-1, B-2, B-3, B-4, B-5; AC-5, AC-6, AC-7, AC-9):
 
-1. Add, in `src/functualize/app/_workflow_resume.py`, a module-level import
-   `from functualize._types.naming import resolve_name` and:
-
-   ```python
-   def _canonical_gate(known: Iterable[str], gate: str) -> str | dict[str, Any]:
+1. Module-level imports: `from functualize._types.naming import resolve_name`,
+   and `GateNotFoundError` added to the existing `functualize._types.errors`
+   import (`:21`). `Iterable` from `collections.abc` under `TYPE_CHECKING`.
+2. ```python
+   def _canonical_gate(known: Iterable[str], gate: str, *, scope_id: str) -> str:
    ```
-
-   - `names = sorted(known)`; `return resolve_name(gate, names)` — exact match
-     first, then the canonical form (`approve_refund`, `approveRefund`,
-     `Approve_Refund` all reach `approve-refund`).
-   - On `LookupError` whose message contains `"ambiguous"`: return
-     `{"error": "ambiguous_gate", "message": f"{len(c)} gates match '{gate}'. Name one exactly.", "candidates": c}`
-     where `c` is the names whose `normalize_name` equals `normalize_name(gate)`.
-   - Any other `LookupError`: return
-     `{"error": "gate_not_found", "message": f"No gate '{gate}'. Gates: {', '.join(names) or 'none'}.", "gates": names}`.
-     The caller may prefix the scope id; the message must name the known gates.
-   - Import `Iterable` under `TYPE_CHECKING` from `collections.abc`.
-2. `_resolve_gate_model`: after `node = declaration.node(gate)`, if `node is
-   None` return `(None, {"error": "gate_not_found", "message": f"Workflow '{workflow_name}' declares no gate '{gate}'."})`
-   **before** touching `.awaits`. The broad `except` stays for
-   materialization failures, which remain `gate_unresolvable`.
-3. `deposit_gate_input`: immediately after `scope = store.get_scope(scope_id) or {}`,
-   `resolved = _canonical_gate(scope.get("gates") or {}, gate)`; if it is a
-   dict, return it; otherwise `gate = resolved` and continue unchanged. Every
-   later use (`store.get_gate`, `_resolution_view`, the result `gate` field and
-   messages) then carries the canonical name (B-3).
-4. Tests in `tests/workflow/test_gate_name_resolution.py`, one class
-   `TestCanonicalGate` (the helper, pure: exact, underscore, camel, title-case,
-   unknown → `gate_not_found` with `gates`, empty known → `gate_not_found` with
-   `gates == []`) and one class `TestDeposit` (AC-5, AC-6, AC-7 through
-   `deposit_gate_input`: `"approve_refund"` → `status == "input_accepted"`,
-   `gate == "approve-refund"`, payload stored under `approve-refund`; `"nope"` →
-   `gate_not_found`, message contains `approve-refund`, not `AttributeError`).
+   `names = sorted(known)`; `return resolve_name(gate, names)` (exact match
+   first, then canonical form: `approve_refund`, `approveRefund`,
+   `Approve_Refund` all reach `approve-refund`). Any `LookupError` →
+   raise `GateNotFoundError(gate, scope_id=scope_id, known=names)`, chained
+   `from None`.
+3. `_resolve_gate_model`: when `declaration.node(gate)` is `None`, return
+   `(None, {"error": "gate_unresolvable", "message": f"Workflow '{workflow_name}' no longer declares gate '{gate}'; the run was parked under an older declaration."})`
+   **before** touching `.awaits`. This is declaration drift, not a caller typo:
+   after step 4 and T5 every entry has already resolved the reference against
+   the scope's recorded gates, so a typo cannot reach this line. Materialization
+   failures keep returning `gate_unresolvable` as today.
+4. `deposit_gate_input`: immediately after `scope = store.get_scope(scope_id) or {}`,
+   `gate = _canonical_gate(scope.get("gates") or {}, gate, scope_id=scope_id)`.
+   Every later use (`store.get_gate`, `_resolution_view`, the result `gate`
+   field, messages) then carries the canonical name.
+5. Tests in `tests/workflow/test_gate_name_resolution.py`:
+   - `TestCanonicalGate` (pure): exact; underscore; camel; title-case; unknown
+     raises with `.known == ("approve-refund",)`; empty `known` raises with
+     `.known == ()`; dotted miss `"x.approve_refund"` raises.
+   - `TestDeposit`: `"approve_refund"` → `status == "input_accepted"`,
+     `gate == "approve-refund"`, payload stored under `approve-refund` (AC-7);
+     `"nope"` raises `GateNotFoundError` with `.scope_id == "rel-1"`, and the
+     gate record's candidates are unchanged afterwards (AC-6).
+   - `TestModelLookup` (AC-9): call `_resolve_gate_model` directly with a
+     scope recording a gate the declaration does not have → `gate_unresolvable`
+     whose message says *no longer declares* and contains no `AttributeError`;
+     a scope whose `workflow` names no registered job → `gate_unresolvable`.
 
 *Production call path:* `functualize.app.utils.deposit_gate_input` →
-`_canonical_gate`. Sabotage: pass the raw `gate` → `TestDeposit` fails.
+`_canonical_gate`. Sabotage: pass the raw `gate` through → `TestDeposit` fails.
 
 ```bash
 rg -c '_canonical_gate\(' src/functualize/app/_workflow_resume.py
@@ -113,48 +265,52 @@ rg -c '^from functualize._types.naming import resolve_name$' src/functualize/app
 now: `0` · after: `1`
 
 ```bash
-rg -c 'if node is None' src/functualize/app/_workflow_resume.py
+rg -c 'raise GateNotFoundError' src/functualize/app/_workflow_resume.py
 ```
-now: `0` · after: `1`
+now: `0` · after: `1` (in `_canonical_gate` only — the one raiser)
 
 Also green: `uv run pytest tests/workflow/test_gate_name_resolution.py tests/workflow/test_gate_payload_shape.py tests/workflow/test_gate_resolution_model.py -q --no-header`, and `uv run lint-imports`.
 
-## Wave 1 — the answer entries
+## Wave 3 — the answer entries
 
-### [ ] T2 — `resolve_gate`, `answer_gate`, `gate_draft` resolve once
+### [ ] T5 — `resolve_gate`, `answer_gate`, `gate_draft` resolve once
 
 *Files:* `src/functualize/app/_workflow_answer.py`, `tests/workflow/test_gate_name_resolution.py`
 
-Behavior (B-1–B-4; AC-1 unit half, AC-2, AC-5, AC-6):
+Behavior (B-1–B-4, B-8; AC-1, AC-2, AC-5, AC-6, AC-12):
 
 1. Import `_canonical_gate` from `functualize.app._workflow_resume` (extend the
-   existing import at `_workflow_answer.py:39-43`).
+   import at `_workflow_answer.py:39-43`) and `GateNotFoundError` from
+   `functualize._types.errors` (extend `:37`).
 2. `resolve_gate`, both-named branch (`:72-83`): after the `workflow_not_found`
-   check, replace the `store.get_gate(scope_id, gate) is None` test with
-   `resolved = _canonical_gate(scope.get("gates") or {}, gate)`; a dict is
-   returned as the refusal, with `gate_not_found`'s message kept as
-   `Workflow '{scope_id}' has no gate '{gate}'.` plus the gate list; otherwise
-   return `(scope_id, resolved)`.
-3. `resolve_gate`, scan branch (`:85-101`): when `gate` is not `None`, resolve it
-   against that scope's `names`; append `(sid, resolved)` only when the result
-   is a `str`. When `gate` is `None`, unchanged. The `name == gate` comparison
-   disappears.
+   check, `return scope_id, _canonical_gate(scope.get("gates") or {}, gate, scope_id=scope_id)`.
+   The raw `store.get_gate(scope_id, gate) is None` test and its envelope go.
+3. `resolve_gate`, scan branch (`:85-101`) — **never raises** (B-8): when `gate`
+   is given, resolve it against that scope's `names` inside
+   `try … except GateNotFoundError: continue`, and append `(sid, resolved)`.
+   When `gate` is `None`, unchanged. The `name == gate` comparison disappears.
+   No candidate keeps the existing envelope naming `workflow list` (`:106-115`).
 4. `answer_gate` (`:191-201`): immediately after the `workflow_not_found` check,
-   `resolved = _canonical_gate(scope.get("gates") or {}, gate)`; dict → return
-   it; else `gate = resolved`. Every later line is unchanged and now receives
-   the canonical name.
-5. `gate_draft` (`:139-142`): read `scope = store.get_scope(scope_id)`; `None` →
+   `gate = _canonical_gate(scope.get("gates") or {}, gate, scope_id=scope_id)`.
+   The now-unreachable `record is None → gate_not_found` envelope at `:195-197`
+   is removed. Every later line receives the canonical name.
+5. `gate_draft` (`:139-142`): `scope = store.get_scope(scope_id)`; `None` →
    `_error("workflow_not_found", …)`; then resolve as in 4, before
    `_resolve_gate_model`.
-6. Tests appended to `tests/workflow/test_gate_name_resolution.py`:
-   `TestResolveGate` (both forms × the four spellings of AC-5; `"nope"` →
-   `gate_not_found`), `TestAnswerGate` (`"approve_refund"` + complete values →
-   `status == "answered"`, `gate == "approve-refund"`; then
-   `resume_scope(app, store, "rel-1")` → `status == "success"` — AC-1),
-   `TestGateDraft` (AC-2; `"nope"` → `gate_not_found`, message has no
-   `AttributeError`), and `test_resume_scope_answers_by_declared_name`
-   (`resume_scope(..., input={"approved": True}, gate="approve_refund")` →
-   `success`).
+6. Tests appended:
+   - `TestResolveGate`: both forms × the four AC-5 spellings → `("rel-1",
+     "approve-refund")`; both-named `"nope"` raises; gate-only `"nope"` returns
+     the envelope with `workflow list` in the message (AC-12).
+   - `TestAnswerGate`: `"approve_refund"` + `{"approved": True}` →
+     `status == "answered"`, `gate == "approve-refund"`; then
+     `resume_scope(app, store, "rel-1")` → `status == "success"` and `deploy`
+     has a step record (AC-1). `"nope"` raises, and the draft is unchanged.
+   - `TestGateDraft`: `"approve_refund"` → no `error` key, `gate ==
+     "approve-refund"` (AC-2); `"nope"` raises; an unknown scope returns
+     `workflow_not_found`.
+   - `test_resume_scope_answers_by_declared_name`:
+     `resume_scope(…, input={"approved": True}, gate="approve_refund")` →
+     `success`; and with `gate="nope"` it raises (AC-6).
 
 *Production call paths:* MCP `answer_gate`/`get_gate_draft` and
 `workflow_flags._record` → `resolve_gate`; CLI `workflow answer` and
@@ -174,22 +330,22 @@ now: `1` · after: `0`
 
 Also green: `uv run pytest tests/workflow/test_gate_name_resolution.py tests/workflow/test_gate_drafts.py tests/workflow/test_workflow_surface_parity.py -q --no-header`.
 
-## Wave 2 — the survey filter
+## Wave 4 — the survey filter
 
-### [ ] T3 — `list_scopes(blocked_on=…)` resolves the same way
+### [ ] T6 — `list_scopes(blocked_on=…)` resolves the same way, never raising
 
 *Files:* `src/functualize/app/_workflow_view.py`, `tests/workflow/test_gate_name_resolution.py`
 
-Behavior (B-6, AC-8): in `list_scopes` (`_workflow_view.py:318-321`) replace the
-`name == blocked_on` predicate with "`_canonical_gate([n for n, _ in
-pending_gates(scope)], blocked_on)` returned a `str`". A refusal envelope means
-*this scope does not match*, never an error. Import `_canonical_gate` beside the
-existing `pending_gates` import (`:31`). **Net-zero lines**: the module is 563
-lines today (`wc -l`), and this task must not grow it.
+Behavior (B-6, B-8; AC-8, AC-12): in `list_scopes` (`_workflow_view.py:318-321`)
+replace the `name == blocked_on` predicate with "`_canonical_gate` resolves
+`blocked_on` against the scope's pending names", where `GateNotFoundError`
+means *this scope does not match*. Import `_canonical_gate` beside
+`pending_gates` (`:31`). **Net-zero lines** — the module is 563 lines today
+(`wc -l`) — so put the try/except in a two-line private predicate only if the
+swap cannot otherwise stay net-zero, and say which in the completion note.
 
-Test: `TestListScopes` — `list_scopes(app, store, blocked_on="approve_refund")`
-and `blocked_on="approve-refund"` both return the one row for `rel-1`;
-`blocked_on="nope"` returns `[]`.
+Test `TestListScopes`: `blocked_on="approve_refund"` and `"approve-refund"`
+both return the one row for `rel-1`; `"nope"` returns `[]` (AC-12).
 
 *Production call path:* CLI `workflow list --blocked-on` (`_cli/builtins.py:1283`)
 and MCP `list_workflows` (`_workflow_tools.py:256`) → `list_scopes`. Sabotage:
@@ -205,29 +361,31 @@ rg -c '_canonical_gate\(' src/functualize/app/_workflow_view.py
 ```
 now: `0` · after: `1`
 
-## Wave 3 — surfaces, end to end
+## Wave 5 — surfaces, end to end
 
-### [ ] T4 — integration: CLI, fused flags and MCP by the declared name
+### [ ] T7 — integration: CLI, fused flags and MCP, real raisers
 
 *Files:* `tests/integration/test_gate_name_resolution_e2e.py` (new)
 
-No `src/` change. Model on `tests/integration/test_mcp_workflow_loop_e2e.py`
-(MCP provider fixture, `anyio`) and `tests/integration/test_cli_workflow_parity.py`
-(CLI runner). Workflow as in the standing rules.
+No `src/` change, no monkeypatching. Model on
+`tests/integration/test_mcp_workflow_loop_e2e.py` (MCP provider, `anyio`) and
+`tests/integration/test_cli_workflow_parity.py` (CLI runner).
 
 - **AC-3 (MCP):** `answer_gate(values={"approved": True}, gate="approve_refund")`
   → `status == "answered"`; `get_gate_draft(workflow_id="rel-1",
   gate="approve_refund")` → no `error`; on a fresh scope
   `resume_workflow(workflow_id=…, input={"approved": True}, gate="approve_refund")`
-  → the walk passes the gate (`deploy` has a step record);
-  `list_workflows(blocked_on="approve_refund")` lists the scope.
+  walks past the gate; `list_workflows(blocked_on="approve_refund")` lists it.
 - **AC-4 (CLI):** `func builtin workflow answer <id> approve_refund --input
-  '{"approved": true}'` exits 0; `func builtin workflow resume <id>` then
-  finishes the walk. The fused `--wf-resume <id> --wf-input '{"approved": true}'
-  --wf-gate approve_refund` path records and walks on.
-- **AC-6 (CLI, loud):** `func builtin workflow answer <id> nope --input '{}'`
-  exits **1**, stderr starts `Error:` and names `approve-refund`, and the output
-  contains no `Traceback`.
+  '{"approved": true}'` exits 0; `func builtin workflow resume <id>` finishes
+  the walk; the fused `--wf-resume <id> --wf-input '{"approved": true}'
+  --wf-gate approve_refund` records and walks on.
+- **AC-11:** the CLI unknown-gate cases of T2 again, now with the real raiser
+  (exit 1, `Error:` naming `approve-refund`, no traceback); MCP
+  `answer_gate(values={}, workflow_id="rel-1", gate="nope")`,
+  `get_gate_draft(workflow_id="rel-1", gate="nope")` and
+  `resume_workflow(workflow_id="rel-1", input={}, gate="nope")` each return
+  `error == "gate_not_found"` with `gates == ["approve-refund"]`.
 
 ```bash
 ls tests/integration/test_gate_name_resolution_e2e.py 2>/dev/null | wc -l
@@ -236,67 +394,94 @@ now: `0` · after: `1`
 
 Also green: `uv run pytest tests/integration/test_gate_name_resolution_e2e.py -q --no-header`.
 
-## Wave 4 — documentation
+## Wave 6 — documentation
 
-### [ ] T5 — guide and changelog
+### [ ] T8 — guide and changelog
 
 *Files:* `docs/guides/workflows.md`, `CHANGELOG.md`
 
-- `docs/guides/workflows.md`: beside the gate-answering section (`:215-230`),
-  one short paragraph: a gate is addressed by its declared name or its
+- `docs/guides/workflows.md`, beside the gate-answering section (`:215-230`):
+  one short paragraph. A gate is addressed by its declared name or its
   canonical form (`approve_refund` and `approve-refund` both work);
-  `workflow list` prints the canonical form; an unknown name is refused with
-  `gate_not_found` listing the scope's gates.
-- `CHANGELOG.md`: under `## [Unreleased]`, a `### Fixed — a gate answers to the
-  name it was declared with` entry in the file's hand-written prose style;
-  mention that `gate_draft` and `deposit_gate_input` now report an unknown gate
-  as `gate_not_found` rather than `gate_unresolvable`, and that result `gate`
-  fields carry the canonical spelling.
+  `workflow list` prints the canonical form; naming a gate a workflow does not
+  have raises `GateNotFoundError` from the Python API (exit 1 on the CLI, a
+  `gate_not_found` result over MCP). Name `GateNotFoundError` on exactly one
+  line of the file.
+- `CHANGELOG.md`, under `## [Unreleased]`: a `### Fixed — a gate answers to the
+  name it was declared with` entry in the file's hand-written prose. Say that
+  `answer_gate`, `gate_draft`, `deposit_gate_input`, `resume_scope(gate=…)` and
+  the scope-and-gate form of `resolve_gate` now **raise** `GateNotFoundError`
+  for a gate the scope does not have (previously a returned dict, and from
+  `gate_draft`/`deposit_gate_input` a misleading `gate_unresolvable`); that the
+  CLI and MCP results are unchanged in code; and that result `gate` fields
+  carry the canonical spelling.
 
 ```bash
 rg -c 'a gate answers to the name it was declared with' CHANGELOG.md
 ```
 now: `0` · after: `1`
 
-## Wave 5 — checkpoint
+```bash
+rg -c 'GateNotFoundError' docs/guides/workflows.md
+```
+now: `0` · after: `1`
 
-### [ ] T6 — verify the whole feature
+## Wave 7 — checkpoint
 
-*Files:* none (fixes, if any, go back to the owning task's file and are noted there)
+### [ ] T9 — verify the whole feature, close the transitional window
 
+*Files:* `src/functualize/_cli/builtins.py`, `src/functualize/app/adapters/workflow_flags.py`, `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py` (marker removal only); fixes found here go back to the owning task's file and are noted there.
+
+- Remove the three `TRANSITIONAL(gate-name-resolution/T4)` markers, then prove
+  each arm reachable **with the real raiser**: commit; delete the arm; watch a
+  named T7 test fail; `git checkout -- <file>`; amend. Same for the one
+  raiser (break `_canonical_gate`'s raise → T4 tests fail).
 - All five checks green: `ruff check`, `ruff format --check`, `mypy src/`,
   `lint-imports`, and the fast suite `uv run pytest -x -q --no-header`.
-- AC-10: `git diff --name-only e7a93bf -- tests | rg -v 'test_gate_name_resolution'`
-  prints nothing — no existing test was edited.
 - Orphan scan (Verify pass): serena `find_referencing_symbols` on
-  `_canonical_gate` returns six call sites — 1 in `_workflow_resume.py`, 4 in
-  `_workflow_answer.py`, 1 in `_workflow_view.py` (the gate below counts 7
-  because it also matches the definition).
-- Re-run the two *Scope fence* gates from the standing rules; both still read
-  `0` and `1`.
-- Re-measure `wc -l` for the three `app/_workflow_*` files and record them; none
-  may exceed its authoring size by more than the plan states (175 → ≲205,
-  454 → ≲470, 563 → 563).
-- Real-terminal check of AC-6 (`contributor/reference/pitfalls.md` §25):
-  run the unknown-gate `workflow answer` against a real project directory with
-  `func`, not `CliRunner`, and record the exit code and stderr.
+  `_canonical_gate` → six call sites (1 in `_workflow_resume.py`, 4 in
+  `_workflow_answer.py`, 1 in `_workflow_view.py`); on `GateNotFoundError` →
+  raisers in `_workflow_resume.py`, catchers in `_cli/builtins.py`,
+  `workflow_flags.py`, `_workflow_tools.py`, plus the `utils.py` re-export.
+- Re-run the two *Scope fence* gates; re-measure `wc -l` for every file in
+  `plan.md` → *Surviving smells* and record them; `_workflow_view.py` stays at
+  563.
+- Real-terminal check of AC-11 (`contributor/reference/pitfalls.md` §25): in a
+  scratch project with the standing fixture workflow, run
+  `func builtin workflow answer <id> nope --input '{}'` as a real process, not
+  through `CliRunner`; record the exit code and stderr in the completion note.
+
+```bash
+rg -c 'TRANSITIONAL\(gate-name-resolution' src plugins
+```
+now: `0` · after: `0` (T2 and T3 add three; this task removes them)
 
 ```bash
 rg -c '_canonical_gate\(' src/functualize/app/_workflow_resume.py src/functualize/app/_workflow_answer.py src/functualize/app/_workflow_view.py
 ```
-now: `0` · after: `7`
+now: `0` · after: `7` (six calls and the definition)
 
-## Wave 6 — pre-merge cleanup
+```bash
+git diff --name-only ef1939d -- tests | rg -v 'test_gate_not_found_error|test_gate_not_found_refusal|test_mcp_gate_not_found|test_gate_name_resolution' | wc -l
+```
+now: `0` · after: `0` — invariant: AC-10, no existing test is edited.
 
-### [ ] T7 — migrate the durable half, then clear the artifacts
+## Wave 8 — pre-merge cleanup
+
+### [ ] T10 — migrate the durable half, then clear the artifacts
 
 *Files:* `.spec/STATUS.md`, then deletion of `.spec/features/gate-name-resolution/`
 
-- Push the feature branch; wait for validation including all three `test-full`
-  jobs (the artifact checks are expected to fail at this point).
-- Add a `.spec/STATUS.md` entry: the naming rule for gate references (resolved
-  once per public entry via `resolve_name` against the scope's gate keys), D1's
-  outcome and its reason, and the two surviving smells with the member's answers.
+- Push the feature branch and open the PR (title a conventional commit, e.g.
+  `fix(workflow): resolve a gate by its declared name`). Wait for validation,
+  including all three `test-full` jobs (the artifact checks are expected to
+  fail at this point).
+- Add a `.spec/STATUS.md` entry naming the feature `gate-name-resolution`: gate
+  references resolve once per public entry via `resolve_name` against the
+  scope's gate keys; an unknown gate in an addressed scope raises
+  `GateNotFoundError` and each surface translates it (D1, member 2026-10-01);
+  survey paths keep their envelopes; `gate: str` and `deposit_gate_input` kept
+  by member decision.
 - Last commit, deletion-only: `git rm -r .spec/features/gate-name-resolution`;
   push. `spec-artifacts-cleared` then passes.
 
@@ -311,12 +496,20 @@ now: `0` · after: `1`
 {
   "waves": [
     { "id": 0, "tasks": ["T1"] },
-    { "id": 1, "tasks": ["T2"] },
-    { "id": 2, "tasks": ["T3"] },
-    { "id": 3, "tasks": ["T4"] },
-    { "id": 4, "tasks": ["T5"] },
-    { "id": 5, "tasks": ["T6"] },
-    { "id": 6, "tasks": ["T7"] }
+    { "id": 1, "tasks": ["T2", "T3"] },
+    { "id": 2, "tasks": ["T4"] },
+    { "id": 3, "tasks": ["T5"] },
+    { "id": 4, "tasks": ["T6"] },
+    { "id": 5, "tasks": ["T7"] },
+    { "id": 6, "tasks": ["T8"] },
+    { "id": 7, "tasks": ["T9"] },
+    { "id": 8, "tasks": ["T10"] }
   ]
 }
 ```
+
+Wave 1 is the only parallel wave: T2 and T3 touch disjoint files (CLI + flags
+adapter vs. the MCP plugin) and disjoint new test files, and both consume only
+T1's class. T4–T6 are serialized because they share
+`tests/workflow/test_gate_name_resolution.py`, and each consumes the previous
+one's resolver.

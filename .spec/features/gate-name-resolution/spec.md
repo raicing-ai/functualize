@@ -1,7 +1,10 @@
 # gate-name-resolution — Specification
 
-Status: **Specify complete, awaiting member confirmation** (D1 below is open).
-Base: `master` at `e7a93bf`. Branch: `fix/gate-name-resolution`.
+Status: **Confirmed by the member, 2026-10-01**, with D1 = (a) *raise*. Revised
+the same day to carry that answer (B-4, B-5, B-8, B-9, AC-6, AC-9, AC-11, AC-12).
+Base: `master` at `ef1939d` (PR #71 merged; branch rebased). Branch:
+`fix/gate-name-resolution`. The probe below ran on `e7a93bf`; PR #71 does not
+touch any file it exercised.
 
 ## Problem
 
@@ -78,23 +81,56 @@ is still `blocked` with `payload None`.
   field — uses the canonical name.
 - **B-3** The returned `gate` field (and every message naming the gate) carries
   the canonical name, so a response is directly reusable as input on any surface.
-- **B-4** A reference matching no recorded gate returns `gate_not_found`, whose
-  message names the scope and lists its gate names. A reference matching more
-  than one returns `ambiguous_gate` with candidates (unreachable with today's
-  declarations — `src/functualize/workflow/_validation.py:7` rejects duplicate
-  node names, and names are already canonical — but defined).
-- **B-5** `gate_unresolvable` is reserved for its documented meaning — *the
-  model won't load* (the workflow cannot be materialized). A node missing from a
-  loadable declaration is `gate_not_found`, never an `AttributeError` string.
+- **B-4** When a scope is addressed (named by the caller, or the one an entry
+  operates on) and the gate reference matches none of its recorded gates, the
+  entry **raises `GateNotFoundError`** carrying the reference, the scope id and
+  the scope's gate names. It never returns a value for this case. Ambiguity
+  inside one scope cannot occur — `src/functualize/workflow/_validation.py:7`
+  rejects duplicate node names, node names are canonical, and canonicalization
+  is idempotent (measured: `normalize_segment(normalize_segment(x)) ==
+  normalize_segment(x)` for every spelling in AC-5) — so a reference matches at
+  most one recorded gate. Should a legacy scope ever hold two keys sharing a
+  canonical form, the reference must match one of them exactly, and otherwise
+  raises `GateNotFoundError` naming both.
+- **B-5** `gate_unresolvable` keeps its documented meaning — *the model won't
+  load*. Because every entry resolves the reference against the scope's
+  recorded gates first (B-2), a caller typo never reaches the model lookup; the
+  only way that lookup can miss is **declaration drift** — the scope recorded a
+  gate the current workflow no longer declares. That case returns
+  `gate_unresolvable` with the message `Workflow '<w>' no longer declares gate
+  '<g>' …`, never an `AttributeError` string. Materialization failures stay
+  `gate_unresolvable` as today.
 - **B-6** The `blocked_on` filter of `list_scopes` (CLI `--blocked-on`, MCP
   `list_workflows(blocked_on=…)`) applies the same resolution, so the declared spelling filters
   the same as the canonical one.
 - **B-7** Canonical-spelling behavior is unchanged: every existing test passes
   without edit.
+- **B-8** **Where nothing is addressed, nothing is raised.** `resolve_gate` with
+  no scope named surveys every live scope; finding no pending gate that matches
+  is a *survey answer* (the gate may exist but already be answered), so it keeps
+  returning the existing `gate_not_found` envelope that names `func builtin
+  workflow list` (`_workflow_answer.py:106-115`). Likewise `list_scopes(blocked_on=…)`
+  is a filter: no match means no rows. `resume_scope` with no `gate` and nothing
+  pending keeps its envelope (`_workflow_control.py:316-320`).
+- **B-9** **Every surface translates the exception; none lets it escape.**
+  - CLI `func builtin workflow answer` / `answer --show` / `resume`: print
+    `Error: <message>` on stderr and exit **1** — the exit code
+    `gate_not_found` already maps to (`_cli/builtins.py:1113`), so the CLI
+    contract is unchanged.
+  - The fused `--wf-resume … --wf-input … --wf-gate` path: same message, exit 1.
+  - MCP `answer_gate`, `get_gate_draft`, `resume_workflow`: return
+    `{"error": "gate_not_found", "message": <message>, "gates": [...]}` — the
+    agent keeps a structured, readable refusal.
+  - A direct Python caller of `functualize.app.utils` gets the exception.
 
-## Decision D1 — unknown gate: raise, or return a correctly-classified envelope?  (OPEN, member)
+## Decision D1 — unknown gate: raise, or return a correctly-classified envelope?  (DECIDED: (a), member, 2026-10-01)
 
-Recommendation: **(b) return `gate_not_found`**, reclassified and informative.
+The member chose **(a) raise**: *"the most appropriate and long-term fix that
+others can build upon."* This overrules the earlier recommendation of (b), which
+is kept below as the record of the trade-off. Two premises in that table have
+since moved: PR #71 merged on 2026-10-01 (`ef1939d`), so the *conflict with
+PR #71* row no longer applies; and pitfalls §25's traceback risk is answered by
+B-9, which makes every surface translate the exception.
 
 | | (a) Raise a new `GateNotFoundError` | (b) Return `{"error": "gate_not_found", …}` (recommended) |
 |---|---|---|
@@ -111,7 +147,8 @@ return a value a caller can ignore"* — is met by (a) only. (b) meets it on eve
 discards the return. The root cause the issue observed (the declared name
 silently not working) is fixed by B-1/B-2 under either option. Choosing (a)
 adds tasks to the graph (exception type, three CLI catches, MCP translation) and
-sequences this branch behind PR #71.
+sequences this branch behind PR #71 *(true when written; #71 has since
+merged)*.
 
 ## Decision D2 — where to canonicalize  (SETTLED by evidence)
 
@@ -121,8 +158,8 @@ model lookup: the store is keyed by the canonical name the engine wrote
 (`_primitives/gate_requests.py:180`, `_engine/gate_service.py:105,140,149`), and
 `answer_gate` reads `store.get_gate(scope_id, gate)` with the raw string at
 `_workflow_answer.py:195` *before* the model lookup — so it would still return
-`gate_not_found`. It also edits `_types/workflow.py`, which PR #71 rewrites
-(+123 lines), sequencing this branch behind that merge. The issue's proposed fix
+`gate_not_found`. It would also have edited `_types/workflow.py`, which PR #71
+rewrote (+123 lines; now merged). The issue's proposed fix
 (resolve inside `_resolve_gate_model`) has the same gap.
 
 ## Acceptance criteria
@@ -148,23 +185,41 @@ blocked at the gate in scope `rel-1`.
   and `"Approve_Refund"` each reach the one gate, through `resolve_gate` (both
   the scope-and-gate and the gate-only form), `answer_gate`, `gate_draft` and
   `deposit_gate_input`.
-- **AC-6** Unknown name `"nope"`, through each entry of AC-5: `error ==
-  "gate_not_found"`, the message names `approve-refund`, and contains no
-  `AttributeError`. CLI `workflow answer rel-1 nope` exits 1 with an `Error:`
-  line and no traceback. *(Under D1-(a) this AC becomes "raises
-  `GateNotFoundError`; CLI exits 1 with no traceback".)*
+- **AC-6** Unknown name `"nope"` with scope `rel-1` addressed, through
+  `resolve_gate(store, "rel-1", …)`, `answer_gate`, `gate_draft`,
+  `deposit_gate_input` and `resume_scope(…, gate="nope", input=…)`: **raises
+  `GateNotFoundError`** with `.gate == "nope"`, `.scope_id == "rel-1"`,
+  `.known == ("approve-refund",)`; `str(exc)` names `approve-refund` and contains
+  no `AttributeError`. Nothing is written to the scope (draft and candidates
+  unchanged).
 - **AC-7** `deposit_gate_input(app, store, "rel-1", "approve_refund", {…})`
   returns `status == "input_accepted"` with `gate == "approve-refund"`.
 - **AC-8** `list_scopes(app, store, blocked_on="approve_refund")`
   (`app/_workflow_view.py:261`; CLI `workflow list --blocked-on`, MCP
   `list_workflows`) returns `rel-1`.
-- **AC-9** `gate_unresolvable` is returned only when the workflow cannot be
-  materialized (a scope whose `workflow` names no registered job).
+- **AC-9** `gate_unresolvable` is returned only when the model cannot be
+  loaded: a scope whose `workflow` names no registered job, or a scope recording
+  a gate its workflow no longer declares. Neither message contains
+  `AttributeError`.
 - **AC-10** Full suite green with no edit to an existing test.
+- **AC-11** Surfaces (B-9): CLI `func builtin workflow answer rel-1 nope --input
+  '{}'` and `--show` exit **1**, stderr begins `Error:` and names
+  `approve-refund`, and no `Traceback` appears — verified once through
+  `CliRunner` and once as a real `func` process (`pitfalls.md` §25). The fused
+  `--wf-gate nope` path exits 1 the same way. MCP `answer_gate(…,
+  workflow_id="rel-1", gate="nope")`, `get_gate_draft(workflow_id="rel-1",
+  gate="nope")` and `resume_workflow(workflow_id="rel-1", input=…, gate="nope")`
+  each **return** `error == "gate_not_found"` with `gates == ["approve-refund"]`.
+- **AC-12** Survey paths keep their envelopes (B-8): `resolve_gate(store, None,
+  "nope")` returns `error == "gate_not_found"` with `workflow list` in the
+  message; `list_scopes(app, store, blocked_on="nope")` returns `[]`.
 
 ## Out of scope
 
-- `Declaration.node()` and `_types/workflow.py` (D2; PR #71 owns that file).
+- `Declaration.node()` and `_types/workflow.py` (D2).
+- A `GateRef` value object replacing `gate: str` — member, 2026-10-01: *"it's ok
+  the gate name stays plain string"*.
 - The engine's gate-record key format (already canonical).
-- Removing or re-homing `deposit_gate_input` despite its zero production callers
-  — recorded as a surviving smell in `plan.md`, not acted on here.
+- Removing or deprecating `deposit_gate_input` despite its zero production
+  callers — member, 2026-10-01: *"fix it in place"*. It gets the same resolution
+  and the same exception as its siblings.

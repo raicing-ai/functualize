@@ -80,3 +80,44 @@ rg -n 'get_gate\(|get_gate_draft\(|put_gate_draft\(|clear_gate_draft\(|declarati
 tool routes through `resolve_gate` / `answer_gate` / `gate_draft` /
 `resume_scope` / `list_scopes`). So `src/` edits are exactly three files:
 `app/_workflow_resume.py`, `app/_workflow_answer.py`, `app/_workflow_view.py`.
+*(Superseded for D1-(a) — see the addendum below.)*
+
+## Addendum 2026-10-01 — D1 = (a), rebased onto `ef1939d`
+
+- **Rebase.** PR #71 merged as `ef1939d`. `git diff --stat e7a93bf origin/master
+  -- src/functualize/app src/functualize/_cli plugins/adapters/functualize-mcp
+  src/functualize/types src/functualize/_types/errors.py` → only
+  `_types/errors.py` (+97) and `_cli/data/plugin_catalog.toml` (+7); none of the
+  probed `app/` files moved, so the probe stands.
+- **Who must translate a raise** — non-test, non-definition callers of the five
+  entries: `rg -n 'resume_scope\(|answer_gate\(|gate_draft\(|deposit_gate_input\(|resolve_gate\(' src plugins`
+  → `_cli/builtins.py:1453,1455,1555`; `app/adapters/workflow_flags.py:422,428`;
+  `functualize_mcp/_workflow_tools.py:283,287,320,324,346`;
+  `app/_workflow_control.py:330`. The `_gate_registry.resolve_gate` hits
+  (`_app/impl.py:1462`, `_app/gates_facade.py:68`, `_engine/capabilities/invoke.py:415`)
+  are a different method and are not affected.
+- **Prior art for raise-then-translate.** `ScopeStoreUnreadableError`: raised in
+  `_primitives/scope_store.py:237`, translated by `_cli/builtins.py`
+  `_workflow_refusal()` (`:1144-1153`; `rg -c '_workflow_refusal\(\)'` → 12 =
+  definition + 11 uses) and by MCP `_refuse_unreadable_scopes`
+  (`_workflow_tools.py:78-103`; `rg -c '@_refuse_unreadable_scopes'` → 10). It
+  reaches both through `functualize.app.utils` (`utils.py:82,282`), which the
+  *_cli uses public API only* contract (`pyproject.toml:354-367`) requires.
+- **Existing tests that assert `gate_not_found`.** `rg -n gate_not_found tests`
+  → `test_gate_drafts.py:471` (gate-only `resolve_gate`), `test_mcp_workflow_tools.py:433`
+  (gate-only MCP `answer_gate`), `test_mcp_workflow_loop_e2e.py:191` (gate-only,
+  after cancel) — all **survey** paths, which spec B-8 keeps as envelopes — and
+  `test_mcp_workflow_tools.py:508,688`, which accept either of two codes and do
+  not name an unknown gate in an addressed scope. So AC-10 (no existing test
+  edited) still holds under (a).
+- **Ambiguity is unreachable inside one scope.** `uv run python -c` over
+  `normalize_segment`: `approve-refund`, `http-server`, `a1-b2`,
+  `approve_refund`, `approveRefund`, `Approve_Refund` — normalizing twice
+  equals normalizing once in every case; with `workflow/_validation.py:7`
+  rejecting duplicate node names, a scope's canonical keys cannot collide.
+- **A scope dict carries no id** (`rg '"scope_id"|\["id"\]|"id":' _primitives/scope_store.py`
+  → 0), which is one reason `_resolve_gate_model`'s miss stays a
+  `gate_unresolvable` envelope (declaration drift) rather than the exception.
+- **Public API snapshot.** `tests/test_public_api_surface.py` snapshots
+  `functualize.types`, not `functualize.app.utils`; re-exporting from `utils`
+  needs no snapshot edit.
