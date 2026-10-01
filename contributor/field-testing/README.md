@@ -53,9 +53,9 @@ By default:
 ```
 ~/functualize-field-reports/<YYYY-MM-DD>-<target-repo>-<task-slug>/
 ├── local/                  STAYS ON THIS MACHINE. May quote the target repository
-│   └── journal.md          raw, timestamped, written while working
+│   ├── journal.md          raw, timestamped, written while working
+│   └── summary.md          the one-page verdict: did the journey complete, top issues, opinions
 └── upload/                 the ONLY folder that may be sent anywhere. No target-repo content
-    ├── summary.md          the one-page verdict: did the journey complete, top issues, opinions
     ├── findings.md         one block per finding, structured, deduplicated
     └── repro/<id>/         one toy reproduction per confirmed finding, with a runnable run.sh
 ```
@@ -66,8 +66,8 @@ never gets committed here. The two folders say what may leave the machine:
 
 | Folder | Holds | May quote the target repo? | May be sent to the tracker? |
 |---|---|---|---|
-| `local/` | `journal.md` | yes | **no, never** |
-| `upload/` | `summary.md`, `findings.md`, `repro/` | **no** (`AGENT_BRIEF.md` §6) | yes, the whole folder |
+| `local/` | `journal.md`, `summary.md` | yes | **no, never** |
+| `upload/` | `findings.md`, `repro/` | **no** (`AGENT_BRIEF.md` §6) | yes, the whole folder |
 
 If a file is in `upload/`, a stranger can read it. If it might not be safe for that, it
 belongs in `local/`. How `upload/` reaches the tracker (who sends it, and where) is the

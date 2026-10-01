@@ -6,14 +6,14 @@ exactly as shown, because the maintainer greps across many reports.
 ```
 $SESSION/
 ├── local/      NEVER LEAVES THIS MACHINE
-│   └── journal.md
+│   ├── journal.md
+│   └── summary.md
 └── upload/     the only folder that may be sent anywhere
-    ├── summary.md
     ├── findings.md
     └── repro/<id>/run.sh
 ```
 
-A file's folder says what is allowed in it. `local/` may quote the target repository.
+A file's folder says what is allowed in it. `local/` may quote the target repository and name it.
 Everything in `upload/` is written as if a stranger will read it, so it contains nothing
 from the target repository (`AGENT_BRIEF.md` §6).
 
@@ -144,10 +144,10 @@ Rules for the block:
 
 ---
 
-## 3. `upload/summary.md` — the one page the maintainer reads first
+## 3. `local/summary.md` — the one page the maintainer reads first (stays on this machine)
 
 ```markdown
-# Summary — <task in one line, no repo name>
+# Summary — <target-repo> — <task in one line>   (local only: never upload)
 
 ## Verdict
 - Journey completed with functualize: **yes | partially | no**
