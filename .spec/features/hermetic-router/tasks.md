@@ -619,7 +619,7 @@ now: `0` · after: `0` (invariant — AC-15)
 Closed when: gates hold, the example's tests pass, five checks clean. Commit:
 `docs(examples): add the hermetic router reference workflow`.
 
-### [ ] T8 — guards: no provider, Phase 1 unchanged, no new primitive
+### [x] T8 — guards: no provider, Phase 1 unchanged, no new primitive
 
 *Files:* `tests/integration/test_decision_fallback_e2e.py` (new)
 
