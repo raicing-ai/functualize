@@ -43,6 +43,23 @@ recorded candidates across resume and reopen, without revalidating an earlier
 answer. `deposit_gate_input` now returns `gate_already_answered` for a request
 that has already accepted an answer instead of replacing that answer.
 
+### Fixed — a `perf_budget` red now says what load it ran at
+
+**Contributor-facing; no runtime behaviour changes.** `tests/conftest.py` skips the wall-clock
+budgets only above 2.0 runnable processes per core, and below that a shared host still turned
+them red with no code cause: a serial `-m perf_budget` run at 0.55–0.7× of 6 cores read
+`boot.total` 614 ms against its 500 ms budget in one run of three, and passed on the idle host.
+Nothing in the red said so, so every reader had to guess, and a red people have learned to
+guess about is one they learn to discount.
+
+The skip did not move. A serial pytest alone puts a 2-core CI runner near 0.5×, so skipping
+there would stop the budgets in the one place they are enforced. Instead every `perf_budget`
+failure carries the host's 1/5/15-minute load, core count and per-core ratio, read when the
+assertion fails, as a `perf_budget host load` section and again in a summary section that
+`--tb=line` and `--tb=no` still print. Above 0.5× the note says the load may explain the red and
+to re-run it serially on an idle host; at or below it, that load does not explain it. The red
+stays a red either way, and an idle run still asserts every budget: `11 passed`.
+
 ### Fixed — the task-graph check read the checkout, not the range
 
 **Contributor-facing; no runtime behaviour changes.** `contract-diff-carries-task-graph`
