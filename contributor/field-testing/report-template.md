@@ -90,8 +90,9 @@ repro: repro/F01/run.sh        # runnable check, exits NON-ZERO while the bug sh
 cost: ~20 min                  # time lost, your best estimate
 ---
 
-**What I was doing.** Converting `.claude/skills/asset-sync/scripts/sync.py` into a
-functualize job, following the `functualize-skill` skill §3.
+**What I was doing.** Converting a small sync script into a functualize job,
+following the `functualize-skill` skill §3. (In `upload/`, describe the task like this: no
+file names or paths from the target repository.)
 
 **Expected.** `uv run --script scripts/jobs.py --help` prints the job's flags, as the
 skill says.
