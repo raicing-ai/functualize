@@ -410,7 +410,7 @@ Conventions
 
 ## Wave 5 — documentation and the live check
 
-- [ ] **5.1 — Docs and the ADR amendment**
+- [x] **5.1 — Docs and the ADR amendment**
   - [F] `contributor/adr/016-remote-source-activation.md`, `docs/guides/configuration.md`, `CHANGELOG.md`
     (hit set *run at authoring*: `docs/guides/configuration.md` — key table at 604–607
     and prose at 609–611; `contributor/adr/016-…md` — the "Ordering is part of the
@@ -429,6 +429,19 @@ Conventions
     (currently 1, line 611); the ADR contains `Amended by`; doc code blocks run
     (`doc-verify` on the new `[vault]` example).
   - Spec: A12.
+  - **Executed 2026-10-02.** `rg -n -i "only on a real terminal|a Lambda must not hang on a keychain dialog" docs/guides/configuration.md`
+    -> 0; ADR-016 contains `Amended by` (3 blocks; the new one at §5).
+    doc-verify, shell engine: `a-core-builtins` (harness control),
+    `p-remote-vault` and `l-secrets` all ✅; `tests/skills` 71 passed. The
+    `[vault]` TOML block has no command that echoes it (`func builtin config
+    show` renders only `[discovery]`, `[cli]`, `[aliases]`), so it is pinned
+    by `tests/cli/test_cli_config_vault.py`, which parses exactly that table,
+    rather than by a doc-verify step. **Deviation, for the maintainer:** the
+    ADR "Amended by" block does **not** embed the Confluence Decision record
+    URL — this repository is public and no ADR links an internal page; it
+    names the decision by feature and date instead. Add the link if you want
+    it. Also touched (not in [F]): `examples/docs/scenarios/p-remote-vault.toml`'s
+    `[source] lines`, moved to the vault-commands section's new range.
 
 - [ ] **5.2 — The live check on this host** `[verify-e2e:targeted]`
   - [F] `.spec/features/vault-keyring-unlock/live-check.md`,
@@ -443,6 +456,16 @@ Conventions
     collection's `Locked` property is read before and after and shown **unchanged**
     (`busctl --user get-property org.freedesktop.secrets /org/freedesktop/secrets/aliases/default org.freedesktop.Secret.Collection Locked`).
   - Spec: A11.
+  - **Prepared 2026-10-02, NOT RUN — needs the maintainer at the keyboard.**
+    `live-check.sh` drives the four scenarios against a throwaway collection,
+    pointed at by `KEYRING_PROPERTY_PREFERRED_COLLECTION` (read from the
+    installed `keyring`: `KeyringBackend.__init__` applies
+    `KEYRING_PROPERTY_*`, and its Secret Service backend reads and unlocks only
+    `preferred_collection`); it refuses if that collection is the default one,
+    reads `Login`'s `Locked` property before and after, and deletes the
+    throwaway at exit. Checked only with `bash -n` here (this host has no
+    desktop session). `live-check.md` says NOT RUN until real output replaces
+    its placeholder.
 
 ## Wave 6 — checkpoint
 
