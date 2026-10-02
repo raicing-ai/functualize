@@ -485,7 +485,7 @@ between calls. `ruff check`/`ruff format` clean.
 
 ## Wave 6 — documentation
 
-### [ ] T8 — guide and changelog
+### [x] T8 — guide and changelog
 
 *Files:* `docs/guides/workflows.md`, `CHANGELOG.md`
 
@@ -514,6 +514,13 @@ now: `0` · after: `1`
 rg -c 'GateNotFoundError' docs/guides/workflows.md
 ```
 now: `0` · after: `1`
+
+**Done 2026-10-02.** Gates 1/1 hold; `uv run pytest tests/skills/ -q` → 71
+passed, 4 skipped (the skills-prose conformance the AGENTS.md table requires
+after touching guides that name `func builtin` commands). The guide names the
+error on exactly one line; the paragraph sits directly after the
+deposit/draft prose (the cited `:215-230` window, unchanged by the rebase).
+The changelog entry lands under `## [Unreleased]` as the newest `### Fixed`.
 
 ## Wave 7 — checkpoint
 
