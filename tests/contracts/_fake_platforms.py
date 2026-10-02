@@ -15,12 +15,14 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from functualize._config.vault_keyring import AdapterOutcome, AdapterRead, UnlockHow
 from functualize._types.enums import KeyAvailability
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from functualize._config.vault_keyring import KeyringAdapter
 
 
@@ -152,6 +154,180 @@ class _InMemoryHarness:
         return _InMemoryAdapter(world, secret, recorder)
 
 
+# --------------------------------------------------------------------------
+# Linux: a fake `secretstorage` module (no D-Bus).
+# --------------------------------------------------------------------------
+
+
+class _SecretStorageError(Exception):
+    pass
+
+
+class _ItemNotFoundError(_SecretStorageError):
+    pass
+
+
+class _LockedError(_SecretStorageError):
+    pass
+
+
+class _NotAvailableError(_SecretStorageError):
+    pass
+
+
+class _Exceptions:
+    SecretStorageException = _SecretStorageError
+    ItemNotFoundException = _ItemNotFoundError
+    LockedException = _LockedError
+    SecretServiceNotAvailableException = _NotAvailableError
+
+
+class FakeSecretService:
+    """The service's state, shared by every connection a test opens."""
+
+    def __init__(
+        self,
+        world: World,
+        secret: str,
+        recorder: Recorder,
+        *,
+        attributes: dict[str, str] | None = None,
+        collections: tuple[str, ...] = ("/org/freedesktop/secrets/aliases/default",),
+    ) -> None:
+        self.world = world
+        self.secret = secret
+        self.recorder = recorder
+        self.attributes = attributes or {
+            "username": "vault-key",
+            "service": "functualize-vault",
+        }
+        self.collections = set(collections)
+        self.created: list[str] = []
+        self.opened: list[str] = []
+        self.unlock_delay = 0.0
+        """How long the person takes to answer the dialog."""
+
+
+class _FakeItem:
+    def __init__(self, service: FakeSecretService) -> None:
+        self._service = service
+
+    def get_secret(self) -> bytes:
+        if self._service.world is World.LOCKED:
+            raise _LockedError("Item is locked!")
+        self._service.recorder.secret_reads += 1
+        return self._service.secret.encode()
+
+
+class _FakeCollection:
+    def __init__(self, service: FakeSecretService, path: str) -> None:
+        if path not in service.collections:
+            raise _ItemNotFoundError(path)
+        service.opened.append(path)
+        self._service = service
+
+    def is_locked(self) -> bool:
+        if self._service.world is World.HUNG:
+            time.sleep(HANG_SECONDS)
+        return self._service.world is World.LOCKED
+
+    def search_items(self, attributes: dict[str, str]) -> Iterator[_FakeItem]:
+        if self._service.world is World.EMPTY or attributes != self._service.attributes:
+            return
+        yield _FakeItem(self._service)
+
+    def unlock(self) -> bool:
+        """Returns whether the prompt was dismissed, as `secretstorage` does."""
+        recorder = self._service.recorder
+        recorder.prompts += 1
+        if self._service.unlock_delay:
+            time.sleep(self._service.unlock_delay)
+        if recorder.answer is Answer.NO_DIALOG:
+            time.sleep(HANG_SECONDS)
+        if recorder.answer is Answer.CANCEL:
+            return True
+        self._service.world = World.UNLOCKED
+        return False
+
+
+class _FakeConnection:
+    def close(self) -> None:
+        pass
+
+
+class FakeSecretStorageModule:
+    """Just the surface of `secretstorage` the adapter uses."""
+
+    exceptions = _Exceptions
+
+    def __init__(self, service: FakeSecretService) -> None:
+        self._service = service
+
+    def dbus_init(self) -> _FakeConnection:
+        if self._service.world is World.ABSENT:
+            raise _NotAvailableError("no Secret Service on the bus")
+        return _FakeConnection()
+
+    def Collection(  # noqa: N802 - mirrors secretstorage.Collection
+        self, connection: object, path: str = "/org/freedesktop/secrets/aliases/default"
+    ) -> _FakeCollection:
+        return _FakeCollection(self._service, path)
+
+    def create_collection(self, *args: object, **kwargs: object) -> None:
+        self._service.created.append(str(args))
+        msg = "the adapter must never create a collection: that prompts"
+        raise AssertionError(msg)
+
+    def get_default_collection(self, *args: object, **kwargs: object) -> None:
+        msg = (
+            "get_default_collection creates a collection when none exists: that prompts"
+        )
+        raise AssertionError(msg)
+
+
+class FakeBusNames:
+    """gnome-keyring on the bus; its prompter present unless no dialog appears."""
+
+    def __init__(self, recorder: Recorder, *, gnome: bool = True) -> None:
+        self._recorder = recorder
+        self._gnome = gnome
+
+    def has_owner(self, name: str) -> bool | None:
+        if name == "org.gnome.keyring":
+            return self._gnome
+        if name == "org.gnome.keyring.SystemPrompter":
+            return self._recorder.answer is not Answer.NO_DIALOG
+        return None
+
+
+def secret_service_adapter(
+    world: World, secret: str, recorder: Recorder, **kwargs: Any
+) -> tuple[KeyringAdapter, FakeSecretService]:
+    from functualize._config.vault_keyring_secretservice import SecretServiceAdapter
+
+    service = FakeSecretService(world, secret, recorder)
+    adapter = SecretServiceAdapter(
+        "functualize-vault",
+        "vault-key",
+        module=FakeSecretStorageModule(service),
+        bus_names=kwargs.pop("bus_names", FakeBusNames(recorder)),
+        state_bound=0.5,
+        prompt_appear_seconds=0.3,
+        **kwargs,
+    )
+    return adapter, service
+
+
+class _SecretServiceHarness:
+    name = "linux"
+    worlds = frozenset(World)
+    proves_silence = True
+    detects_missing_prompt = True
+
+    def build(self, world: World, secret: str, recorder: Recorder) -> KeyringAdapter:
+        return secret_service_adapter(world, secret, recorder)[0]
+
+
 #: Every adapter the contract suite holds to the contract. An adapter task adds
 #: its harness here.
-HARNESSES: list[Harness] = [_InMemoryHarness()]
+HARNESSES: list[Harness] = [_InMemoryHarness(), _SecretServiceHarness()]
