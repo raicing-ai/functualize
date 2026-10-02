@@ -346,7 +346,7 @@ Conventions
 
 ## Wave 4 — close the transitional states; end-to-end
 
-- [ ] **4.1 — Delete the old API**
+- [x] **4.1 — Delete the old API**
   - [F] `src/functualize/_config/vault_source.py`, `src/functualize/_config/vault_keys.py`,
     `tests/integration/test_local_vault_e2e.py`
     (hit set: *run at authoring* `rg -l "allow_interactive|KeyResolution" src tests` after waves 2–3 should list only these)
@@ -359,8 +359,27 @@ Conventions
     (currently 4 files / 13 hits); `uv run python -c "import inspect; from functualize._config.vault_source import VaultSource as V; p=inspect.signature(V).parameters; assert 'encryption_key' not in p and 'key_provider_id' not in p"`;
     `rg -n "TRANSITIONAL\(4.1\)" src` -> 0; `uv run pytest tests/integration/test_local_vault_e2e.py -q`.
   - Spec: B2 (the gate is gone).
+  - **Executed 2026-10-02.** `rg -n "allow_interactive|KeyResolution" src plugins tests -g '*.py'`
+    -> 0; the signature check passes; `rg -n "TRANSITIONAL\(4.1\)" src` -> 0
+    — **both transitional states are closed** (the `encryption_key=` /
+    `key_provider_id=` kwargs and `_NoKeyStored` in `vault_source.py`; the old
+    `resolve_vault_key` / `KeyResolution` in `vault_keys.py`);
+    `test_local_vault_e2e.py` green (in a 1238-test run of `tests/config`,
+    `tests/app`, it and `test_vault_commands.py`). **Narrowed gate, disclosed:**
+    `rg -n "isatty" src/functualize/_config` returns **1**, not 0 —
+    `vault_key_resolver.py`'s `on_tty` check, which *is* B2.3 ("a provider that
+    can only work by prompting at a terminal is still consulted only on a real
+    TTY") and the schema's lookup table; the gate was authored when the only
+    `isatty` lived in `vault_keys.py`, and that file now has 0. Also in scope
+    and not in [F]: `tests/config/test_vault_keys.py` exercised the deleted
+    function, so its ordering tests were **ported** to the resolver (forced
+    terminal via the resolver's `sys`), and the resolver keeps the deleted
+    function's two-pass order (terminal-needing providers last, only on a TTY);
+    sabotage of that order turned `test_non_interactive_wins_over_interactive`
+    red; restored. The `KeyResolution` repr test was dropped — its
+    replacement is `TestTheLookupIsSafeToLog` in the resolver tests.
 
-- [ ] **4.2 — Capability test through the public entry point**
+- [x] **4.2 — Capability test through the public entry point**
   - [F] `tests/integration/test_vault_keyring_unlock_e2e.py` (new),
     `tests/integration/_fake_keyring.py` (new)
   - A `keyring` backend module selectable by `PYTHON_KEYRING_BACKEND`, controlled by
@@ -377,6 +396,17 @@ Conventions
     record the red output in `STATE.md`. (Not run on the `master` checkout: this
     session is isolated to its worktree.)
   - Spec: A1–A6. Call path: the whole feature, through `func`.
+  - **Executed 2026-10-02.** Gate: 8 passed (`-n auto`, 28 s). Sabotage
+    (commit first; `VaultKeyResolver._resolve` drops every non-env provider
+    when `not sys.stdout.isatty()`) turned A1 red:
+    `Error: Cannot open the stored vault entry 'deploy.api_token': no OS
+    keyring is reachable here, … assert 3 == <ExitCode.OK: 0>`; restored.
+    **Falsifying check against the old code** (for 7.1): the same A1 test,
+    copied into a scratch worktree at the base commit `65b2cc7`, fails with
+    the field report's own message — `The vault holds a value for
+    'deploy.api_token', but no vault key is available on this machine. …
+    Fix it with one of: func builtin vault sync / func builtin vault remove
+    deploy.api_token / func builtin vault clear` — and passes on this branch.
 
 ## Wave 5 — documentation and the live check
 
