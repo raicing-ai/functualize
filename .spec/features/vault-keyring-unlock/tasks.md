@@ -113,7 +113,7 @@ Conventions
 
 ## Wave 2 — consumers, part 1 (disjoint; depend on waves 0–1)
 
-- [ ] **2.1 — `VaultSource` takes a lazy key**
+- [x] **2.1 — `VaultSource` takes a lazy key**
   - [F] `src/functualize/_config/vault_source.py`,
     `tests/config/test_vault_source_lazy.py` (new)
   - Add `key: VaultKeyResolver` and implement the D1 table: stored-names check first;
@@ -135,8 +135,23 @@ Conventions
     `uv run pytest tests/config/test_vault_miss.py tests/config/test_vault_staleness.py -q`
     still green (they use the old kwargs until 3.4); `wc -l src/functualize/_config/vault_source.py` < 500 (currently 3xx, *measure at execution*).
   - Spec: B1, B3, R-1..R-3. Call path: 3.1 (boot builds it), chain -> `VaultSource.get`.
+  - **Executed 2026-10-02.** Gate green (175 passed over the three files plus
+    the resolver tests); `wc -l` = 499 (the ~30 transitional lines go at 4.1).
+    Reachability: `ResolutionChain._walk` -> `VaultSource.get` -> `_lookup` ->
+    `VaultKeyResolver.lookup`; boot still reaches it through the transitional
+    `encryption_key=` translation until 3.1. Sabotage (eager `_lookup()` before
+    the stored-names check) turned 5 tests in `test_vault_source_lazy.py` red;
+    restored. **Disclosed deviations:** (a) two `test_vault_miss.py` cases
+    asserted the boot-time no-key silence that R-1 replaces
+    (`test_an_unusable_vault_warns_per_run_not_per_key`,
+    `test_no_file_and_no_key_stays_silent`); they now assert the moved
+    warning, once per run — rewritten, not deleted. (b) `describe_key_failure`'s
+    NOT_STORED text (task 1.2's file) now names the entry in its last-resort
+    `vault remove <key>`, adds `vault clear` and "need no key", because the
+    transitional `encryption_key=None` maps to NOT_STORED (3.4's rule) and the
+    existing keyless-recovery test pins that text.
 
-- [ ] **2.2 — The func setting**
+- [x] **2.2 — The func setting**
   - [F] `src/functualize/_cli/data/func_settings.py`, `src/functualize/_cli/config.py`,
     `tests/cli/test_func_settings_store.py`, `tests/cli/test_cli_config_vault.py` (new)
     (hit set: the drift-catcher is `tests/cli/test_func_settings_store.py::TestCatalog`;
@@ -151,8 +166,20 @@ Conventions
     `"5s"`; global file; nearest project wins; env `FUNCTUALIZE_VAULT_KEYRING_TIMEOUT`
     wins; unknown key in `[vault]` ignored with the existing warn path).
   - Spec: B2, A12a. Call path: 3.3 -> `CliConfig.config_sources()`.
+  - **Executed 2026-10-02.** Gate: `test_cli_config_vault.py` 11 passed;
+    `test_func_settings_store.py` — `TestCatalog` (with `"vault"` added to its
+    section list) green, and **one pre-existing failure** unrelated to this
+    task: `TestChainPrecedence::test_default_when_nothing_sets_it` fails when
+    the file runs alone because `tui.*` is registered only once the shell has
+    been imported — reproduced identically on the base commit `65b2cc7` in a
+    scratch worktree. Reachability: `_cli/main.py` -> `resolve_cli_config` ->
+    `_get_value(..., section="vault")` -> `CliConfig.vault_keyring_timeout`;
+    sabotaging the section name turned 7 of 11 tests red; restored.
+    `CliConfig.config_sources()` has **no production caller until 3.3**
+    (stated, not hidden). The value is carried as unparsed text; the warning
+    for a bad value fires where it is parsed (`resolve_keyring_timeout`).
 
-- [ ] **2.3 — The public vault API**
+- [x] **2.3 — The public vault API**
   - [F] `src/functualize/app/vault.py`, `tests/app/test_vault_seam.py`
     (hit set: `rg -l "resolve_vault_key|KeyResolution|allow_interactive" src/functualize/app` -> `app/vault.py`, `app/utils.py`; `tests/app/test_vault_seam.py` has 4 hits)
   - `_resolve_key` -> BOUNDED `VaultKeyResolver.lookup`, timeout from
@@ -167,8 +194,29 @@ Conventions
     `rg -n "no vault key is available|key_unavailable" src/functualize/app/vault.py` -> only the one compatibility mapping
     (currently 12 hits in the file, *run at authoring*; record the new count).
   - Spec: B3, B4, B5. Call path: 3.2 (`_cli/vault_cmd.py`) -> `app.vault.vault_unlock/_resolve_key`.
+  - **Executed 2026-10-02.** Gate: `test_vault_seam.py` 30 passed. The `rg`
+    gate returns 3 lines, not "only the one mapping": the `Readability.
+    KEY_UNAVAILABLE = "key_unavailable"` value (kept unchanged, as this task
+    requires for inspect), and the compatibility mapping
+    `VaultKeySourceError._LEGACY_REASONS` with its comment. Before the change
+    the same command counted **2**, not 12 as recorded at authoring (the
+    authoring count was likely case-insensitive). `vault_unlock` returns a
+    `KeyLookup` with the key **stripped** and raises `VaultKeySourceError` on
+    failure, so the CLI gets the reason and the message from the public API.
+    It is added to `__all__`; it has **no `examples/` caller** yet
+    (`public-api-example-coverage.md`, not test-enforced) — residual.
+    Reachability: `vault_put` -> `_resolve_key` (bounded) and `vault_inspect`
+    (silent) are live through `func builtin vault put/inspect`; `vault_unlock`
+    is unwired until 3.2. Sabotage (inspect -> BOUNDED, unlock -> 1 s bound)
+    turned 3 tests red; restored. **Disclosed fix to task 1.2's resolver:**
+    SILENT access read every provider that lacked `probe()`, so a third-party
+    backend with no probe (which may raise its own dialog) was read by
+    `status`/`inspect`, contrary to schema D4 ("UNKNOWN/no probe -> no read").
+    It now reads only `EnvKeyProvider` without a probe; the 1.2 test that
+    covered the case used an *unavailable* provider and could not see it, and
+    now uses an available one.
 
-- [ ] **2.4 — Status and sync**
+- [x] **2.4 — Status and sync**
   - [F] `src/functualize/app/utils.py`, `tests/app/test_vault_status_key_state.py` (new)
     (hit set: `rg -n "resolve_vault_key|allow_interactive" src/functualize/app/utils.py` -> lines 1835, 1837 (status), 1977 (sync); `rg -c` for the message = 6)
   - `vault_status` -> SILENT lookup; `VaultStatusReport.key_state`
@@ -181,6 +229,12 @@ Conventions
     probe -> `"unknown"`); `rg -n "allow_interactive" src/functualize/app/utils.py` -> 0
     (currently 1).
   - Spec: B5, B3. Call path: 3.2 -> `vault_status`.
+  - **Executed 2026-10-02.** Gate: `test_vault_status_key_state.py` 8 passed;
+    `rg -n "allow_interactive" src/functualize/app/utils.py` -> 0.
+    `VaultKeyUnavailableError` gains `reason` (`key_locked` / `no_keyring` /
+    `key_not_stored`). Reachability: `func builtin vault status` ->
+    `vault_status` -> `resolve_vault_key(SILENT)` -> `probe()`; sabotage
+    (SILENT -> BOUNDED) turned 2 tests red; restored.
 
 ## Wave 3 — consumers, part 2 (disjoint; depend on wave 2)
 
