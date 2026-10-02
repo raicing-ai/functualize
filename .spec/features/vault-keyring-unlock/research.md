@@ -205,3 +205,15 @@ In the sandbox, `gnome-keyring-daemon --unlock` exited 0 but the collection stay
 locked; the log shows D-Bus had started its own on-demand daemon, so the harness
 talked to two different daemons. **Unproven — the R7.1 spike decides.** macOS's
 `security unlock-keychain -p` is the candidate there (also unverified).
+
+**Decided by R7.1** (workflow `keyring-platforms.yml`, run 37019350426 on head
+`420d9dc`, all three jobs green):
+
+| Platform | Tier 1 (silent read of a locked keyring) | Tier 2 (headless unlock, then a silent read) |
+|---|---|---|
+| Linux (private `dbus-run-session`, gnome-keyring) | **passed** — unlocked read `found` (0.32 s); after `Collection.lock()`, `locked` / state `locked` (0.30 s); prompt objects before/after `[]` / `[]` | **dropped** — a second `gnome-keyring-daemon --unlock` left the collection locked and the read `locked`; Linux stays at tier 1 plus the manual tier |
+| macOS (`macos-latest`, throwaway keychain) | **passed** — unlocked read `found` (0.31 s); after `security lock-keychain`, `locked` / state `locked` in **0.49 s** with user interaction disabled: no dialog, so the R10 design holds on a real runner | **passed** — `security unlock-keychain -p` then a silent read found the key |
+| Windows (`windows-latest`, Credential Manager) | **passed** — stored read `found` (0.61 s), nothing stored `not_stored` | not applicable — no locked state |
+
+Still not field-verified: a user's own Mac (login keychain, real ACLs) and a
+user's Windows machine.

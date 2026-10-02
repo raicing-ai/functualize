@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Live check for vault-keyring-unlock (spec A11; plan risks K-1, K-2).
+# Live check v2 for vault-keyring-unlock (spec A11'): a run never raises an
+# unlock prompt; only `func builtin vault unlock` does.
 #
 # Run by the maintainer, at the keyboard, on a Linux desktop with a Secret
 # Service (gnome-keyring), from the repository root of this branch:
@@ -9,14 +10,19 @@
 # then paste live-check.out into live-check.md next to this file.
 #
 # SAFETY — what this touches and what it never touches:
-#   * It creates ONE throwaway Secret Service collection, stores a throwaway
-#     test key in it, locks/unlocks ONLY that collection, and deletes it at the
-#     end. functualize is pointed at it with KEYRING_PROPERTY_PREFERRED_COLLECTION,
-#     which `keyring` applies to its Secret Service backend.
+#   * It creates ONE throwaway Secret Service collection (the keyring asks for
+#     a password for it: answer that dialog — never leave it), stores a
+#     throwaway test key in it, locks ONLY that collection, and deletes it at
+#     the end. functualize is pointed at it with
+#     KEYRING_PROPERTY_PREFERRED_COLLECTION.
 #   * It never locks, unlocks or writes the default ("Login") collection. It
-#     only READS that collection's `Locked` property, before and after, and
-#     prints whether it changed. It aborts if the throwaway collection would be
-#     the default one.
+#     only READS that collection's `Locked` property, and the coredump count,
+#     before and after, and prints whether either changed. It aborts if the
+#     throwaway collection would be the default one.
+#   * It never ends an unlock prompt from the client side: every dialog in
+#     scenarios 3 and 4 is answered or cancelled IN THE DIALOG. The abandon-style
+#     experiments (Ctrl-C, kill, a deadline) run only in sandbox/, on a private
+#     bus — never here.
 #   * Vaults go to a temporary XDG_DATA_HOME, so no real project vault is read
 #     or written. FUNCTUALIZE_VAULT_KEY is unset for every run below.
 #   * Not shipped: this file lives under .spec/features/ and is removed before
@@ -32,6 +38,14 @@ LOGIN_LOCKED() {
     org.freedesktop.Secret.Collection Locked
 }
 
+COREDUMPS() {  # read-only: how many coredumps the system has recorded
+  coredumpctl list --no-pager 2>/dev/null | wc -l || echo "n/a"
+}
+
+PROMPT_OBJECTS() {  # read-only: the Secret Service's live prompt objects
+  busctl --user tree --list org.freedesktop.secrets 2>/dev/null | grep -c '/prompt/' || true
+}
+
 command -v busctl >/dev/null || { echo "busctl is required"; exit 2; }
 command -v uv >/dev/null || { echo "uv is required"; exit 2; }
 uv sync --frozen --all-extras --all-packages >/dev/null
@@ -41,20 +55,22 @@ uname -a
 date --iso-8601=seconds
 git rev-parse --short HEAD
 
-say "Login collection Locked property, BEFORE (read-only)"
+say "BEFORE (read-only): Login Locked, coredump count"
 BEFORE="$(LOGIN_LOCKED)"
-echo "$BEFORE"
+DUMPS_BEFORE="$(COREDUMPS)"
+echo "Login Locked: $BEFORE"
+echo "coredumps:    $DUMPS_BEFORE"
 
 WORK="$(mktemp -d -t functualize-live-check.XXXXXX)"
 export XDG_DATA_HOME="$WORK/data" XDG_CACHE_HOME="$WORK/cache"
 unset FUNCTUALIZE_VAULT_KEY FUNCTUALIZE_VAULT_KEYRING_TIMEOUT || true
 
 # --- the throwaway collection -------------------------------------------
-say "create the throwaway collection (gnome-keyring asks for a password for it)"
+say "create the throwaway collection (ANSWER the keyring's password dialog for it)"
 COLL="$(uv run python - <<'PY'
 import secretstorage
 bus = secretstorage.dbus_init()
-default = secretstorage.get_default_collection(bus).collection_path
+default = secretstorage.Collection(bus).collection_path
 coll = secretstorage.create_collection(bus, "functualize-live-check")
 if coll.collection_path == default:
     raise SystemExit("ABORT: the throwaway collection is the default collection")
@@ -64,47 +80,37 @@ PY
 echo "throwaway collection: $COLL"
 export KEYRING_PROPERTY_PREFERRED_COLLECTION="$COLL"
 
-lock_throwaway() {
-  uv run python - "$COLL" <<'PY'
+guard() {  # every helper below refuses to act on the default collection
+  uv run python - "$COLL" "$1" <<'PY'
 import sys, secretstorage
 bus = secretstorage.dbus_init()
-default = secretstorage.get_default_collection(bus).collection_path
-path = sys.argv[1]
+default = secretstorage.Collection(bus).collection_path
+path, action = sys.argv[1], sys.argv[2]
 if path == default:
-    raise SystemExit("ABORT: refusing to lock the default collection")
-secretstorage.Collection(bus, path).lock()
-print("locked", path)
-PY
-}
-
-throwaway_state() {  # read-only: is the THROWAWAY collection locked right now?
-  uv run python - "$COLL" <<'PY'
-import sys, secretstorage
-bus = secretstorage.dbus_init()
-default = secretstorage.get_default_collection(bus).collection_path
-path = sys.argv[1]
-if path == default:
-    raise SystemExit("ABORT: the throwaway collection is the default collection")
-print("throwaway Locked =", secretstorage.Collection(bus, path).is_locked())
+    raise SystemExit("ABORT: refusing to touch the default collection")
+coll = secretstorage.Collection(bus, path)
+if action == "lock":
+    coll.lock()
+    print("locked", path)
+elif action == "state":
+    print("throwaway Locked =", coll.is_locked())
+elif action == "delete":
+    coll.delete()
+    print("deleted", path)
 PY
 }
 
 cleanup() {
   say "cleanup: delete the throwaway collection and the temp project"
-  uv run python - "$COLL" <<'PY' || echo "delete failed; remove 'functualize-live-check' in Seahorse"
-import sys, secretstorage
-bus = secretstorage.dbus_init()
-default = secretstorage.get_default_collection(bus).collection_path
-path = sys.argv[1]
-if path != default:
-    secretstorage.Collection(bus, path).delete()
-    print("deleted", path)
-PY
+  guard delete || echo "delete failed; remove 'functualize-live-check' in Seahorse"
   rm -rf "$WORK"
-  say "Login collection Locked property, AFTER (read-only)"
+  say "AFTER (read-only): Login Locked, coredump count"
   AFTER="$(LOGIN_LOCKED)"
-  echo "$AFTER"
+  DUMPS_AFTER="$(COREDUMPS)"
+  echo "Login Locked: $AFTER"
+  echo "coredumps:    $DUMPS_AFTER"
   if [ "$BEFORE" = "$AFTER" ]; then echo "Login Locked: UNCHANGED"; else echo "Login Locked: CHANGED"; fi
+  if [ "$DUMPS_BEFORE" = "$DUMPS_AFTER" ]; then echo "coredumps: UNCHANGED"; else echo "coredumps: CHANGED"; fi
 }
 trap cleanup EXIT
 
@@ -114,7 +120,6 @@ KEY="$KEY" uv run python - <<'PY'
 import os, keyring
 backend = keyring.get_keyring()
 print("backend:", type(backend).__module__, type(backend).__name__)
-print("preferred_collection:", getattr(backend, "preferred_collection", None))
 assert getattr(backend, "preferred_collection", None) == os.environ["KEYRING_PROPERTY_PREFERRED_COLLECTION"]
 keyring.set_password("functualize-vault", "vault-key", os.environ["KEY"])
 print("stored functualize-vault/vault-key in the throwaway collection")
@@ -146,8 +151,9 @@ PY
 FUNC="$(pwd)/.venv/bin/func"
 ( cd "$PROJ" && printf 'live-check-token' | FUNCTUALIZE_VAULT_KEY="$KEY" "$FUNC" builtin vault put deploy.api_token --stdin )
 
-run_piped() {  # run `func deploy` with stdout piped, print exit code and elapsed
-  local start end rc
+run_piped() {  # `func deploy` with stdout piped: exit code, elapsed, prompt objects
+  local start end rc prompts_before prompts_after
+  prompts_before="$(PROMPT_OBJECTS)"
   start=$EPOCHREALTIME
   set +e
   # pipefail is on, so the subshell's status is func's, not cat's.
@@ -155,41 +161,49 @@ run_piped() {  # run `func deploy` with stdout piped, print exit code and elapse
   rc=$?
   set -e
   end=$EPOCHREALTIME
-  awk -v rc="$rc" -v s="$start" -v e="$end" 'BEGIN { printf "exit=%s elapsed=%.1fs\n", rc, e - s }'
+  prompts_after="$(PROMPT_OBJECTS)"
+  awk -v rc="$rc" -v s="$start" -v e="$end" -v pb="$prompts_before" -v pa="$prompts_after" \
+    'BEGIN { printf "exit=%s elapsed=%.1fs prompt-objects before=%s after=%s\n", rc, e - s, pb, pa }'
 }
 
 # --- scenario 1 ----------------------------------------------------------
 say "1. unlocked + piped: expect 'token ok', exit 0, no dialog"
-throwaway_state   # must say False (unlocked) before the run; if True, the run below is not scenario 1
+guard state   # must say False
 run_piped env
-ask "Did any unlock dialog appear? (y/n)"
+ask "Did any unlock dialog appear? (expected: n)"
 
 # --- scenario 2 ----------------------------------------------------------
-say "2. locked + dialog answered: lock, run piped; ANSWER the dialog within 30 s"
-lock_throwaway
-throwaway_state   # must say True (locked)
-run_piped env
-ask "Did the dialog appear, and did you answer it? (describe)"
+say "2. locked + piped: expect a refusal in under 2 s, exit 3, NO dialog, no prompt object"
+guard lock
+guard state   # must say True
+run_piped env FUNCTUALIZE_VAULT_KEYRING_TIMEOUT=30s
+ask "Did any unlock dialog appear? (expected: n)"
 
 # --- scenario 3 ----------------------------------------------------------
-say "3. locked + unanswered at 10s: lock, run piped; DO NOT answer the dialog"
-printf '\n########################################################################\n'
-printf '# NEXT: a password dialog WILL pop up. DO NOT TYPE IN IT, DO NOT CLICK IT.\n'
-printf '# Just watch. Within ~10 s the run prints "exit=3". Only THEN look at the\n'
-printf '# dialog (it may still be open) and answer the question below.\n'
-printf '########################################################################\n'
-ask "Press Enter to start scenario 3, then hands off the dialog."
-lock_throwaway
-throwaway_state   # must say True (locked)
-run_piped env FUNCTUALIZE_VAULT_KEYRING_TIMEOUT=10s
-ask "K-1: after the refusal, is the unlock dialog STILL on screen? (y/n; then dismiss it)"
+say "3. locked, then 'vault unlock' in this terminal: ANSWER the dialog (type the throwaway password)"
+guard state   # must say True
+( cd "$PROJ" && "$FUNC" builtin vault unlock ) || echo "vault unlock exit=$?"
+guard state   # must say False
+run_piped env
+ask "Did exactly one dialog appear, during 'vault unlock' only? (expected: y)"
 
 # --- scenario 4 ----------------------------------------------------------
-say "4. two parallel jobs against a locked keyring (K-2), 20s wait each"
-lock_throwaway
-throwaway_state   # must say True (locked)
-( cd "$PROJ" && FUNCTUALIZE_VAULT_KEYRING_TIMEOUT=20s "$FUNC" deploy | cat; echo "job A exit=${PIPESTATUS[0]}" ) &
-( cd "$PROJ" && FUNCTUALIZE_VAULT_KEYRING_TIMEOUT=20s "$FUNC" deploy | cat; echo "job B exit=${PIPESTATUS[0]}" ) &
-ask "K-2: how many unlock dialogs appeared? Answer ONE of them now, then press Enter."
+say "4. locked, 'vault unlock', and press CANCEL in the dialog: expect exit 3; then unlock again and ANSWER"
+guard lock
+set +e
+( cd "$PROJ" && "$FUNC" builtin vault unlock ); echo "vault unlock (cancelled) exit=$?"
+set -e
+guard state   # must say True
+( cd "$PROJ" && "$FUNC" builtin vault unlock ) || echo "vault unlock exit=$?"
+guard state   # must say False
+ask "Did the second dialog appear and unlock normally after the cancel? (expected: y)"
+
+# --- scenario 5 ----------------------------------------------------------
+say "5. two parallel piped jobs on a locked keyring: both refuse at once, ZERO dialogs"
+guard lock
+guard state   # must say True
+( cd "$PROJ" && "$FUNC" deploy | cat; echo "job A exit=${PIPESTATUS[0]}" ) &
+( cd "$PROJ" && "$FUNC" deploy | cat; echo "job B exit=${PIPESTATUS[0]}" ) &
 wait
+ask "How many unlock dialogs appeared? (expected: 0)"
 say "done"
