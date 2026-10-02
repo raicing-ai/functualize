@@ -517,7 +517,7 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
 
 ## Wave 6 — contracts first (disjoint)
 
-- [ ] **R1.1 — The provider contract: `get_key` never prompts; `VaultKeyUnlocker`**
+- [x] **R1.1 — The provider contract: `get_key` never prompts; `VaultKeyUnlocker`**
   - [F] `src/functualize/_types/protocols.py`, `src/functualize/plugin/__init__.py`,
     `tests/plugin/test_vault_key_provider.py`, `tests/test_public_api_surface.py`
   - State in the `VaultKeyProvider` docstring that `get_key` must not prompt and
@@ -528,8 +528,13 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: `uv run pytest tests/plugin/test_vault_key_provider.py tests/test_public_api_surface.py -q`
     green; `uv run lint-imports` -> 7 kept.
   - Spec: B2', B4', contracts §8.
+  - **Executed 2026-10-02.** Gate: 63 passed; lint-imports 7 kept. `VaultKeyProvider`
+    docstring and `get_key` state the never-prompt contract (a test reads it);
+    `VaultKeyUnlocker` exported from `functualize.plugin` and `_types.protocols.__all__`.
+    Call path: satisfied by `KeychainKeyProvider` (R3.1), consumed by the resolver's
+    FOREGROUND access (R4.1).
 
-- [ ] **R1.2 — The adapter contract suite (written before the adapters)**
+- [x] **R1.2 — The adapter contract suite (written before the adapters)**
   - [F] `tests/contracts/__init__.py` (new), `tests/contracts/_fake_platforms.py` (new),
     `tests/contracts/test_keyring_adapter_contract.py` (new)
   - A parametrized suite every keyring adapter must pass, using fakes that record
@@ -541,10 +546,20 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: the suite collects and passes with the placeholder fake adapter;
     `uv run pytest tests/contracts -q` green.
   - Spec: B9, A15.
+  - **Executed 2026-10-02.** Gate: `tests/contracts` 21 passed with the in-memory
+    placeholder. **Disclosed scope addition:** the port types (`AdapterOutcome`,
+    `AdapterRead`, `UnlockHow`, the `KeyringAdapter` Protocol) are created here in
+    `src/functualize/_config/vault_keyring.py` — the wave-7 adapters return them, so
+    they cannot wait for R3.1, which adds only `select_adapter` to that module.
+    `AdapterRead` carries `secret: str` (the stored hex text) rather than schema's
+    `key: bytes`, so one decoding rule stays in the provider; `how: UnlockHow` carries
+    the unlock outcomes contracts §10 lists. Sabotage (the placeholder's locked read
+    records a prompt) turned `test_no_prompt_in_any_world[in-memory-locked]` red;
+    restored.
 
 ## Wave 7 — the adapters (disjoint new files)
 
-- [ ] **R2.1 — Linux Secret Service adapter (silent read, state, unlock)**
+- [x] **R2.1 — Linux Secret Service adapter (silent read, state, unlock)**
   - [F] `src/functualize/_config/vault_keyring_secretservice.py` (new),
     `tests/config/test_vault_keyring_secretservice.py` (new)
   - Uses `secretstorage` directly, imported lazily inside the adapter. `read_silent()`:
@@ -561,8 +576,18 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: `uv run pytest tests/config/test_vault_keyring_secretservice.py tests/contracts -q`;
     `rg -n "get_password|Dismiss" src/functualize/_config/vault_keyring_secretservice.py` -> 0.
   - Spec: B2', B4', B9. Call path: R3.1 factory -> `KeychainKeyProvider`.
+  - **Executed 2026-10-02.** Gate: 49 passed (adapter tests + contracts);
+    `rg -n "get_password|Dismiss" …secretservice.py` -> 0. Opens the collection with
+    `secretstorage.Collection(conn[, preferred])`, never `get_default_collection`
+    (it creates one when absent, which prompts); honours the backend's attribute
+    scheme and `preferred_collection` (what `KEYRING_PROPERTY_PREFERRED_COLLECTION`
+    sets). The missing-dialog watcher applies only when `org.gnome.keyring` is owned;
+    elsewhere a slow dialog is waited for (test). **Residual risk, stated:** on
+    NO_PROMPT the pending Unlock request is left to the daemon (the spec's choice);
+    whether that is safe on a wedged gnome-keyring is unmeasured. Sabotage
+    (`read_silent` calls `collection.unlock()`) turned 3 contract cases red; restored.
 
-- [ ] **R2.2 — macOS adapter**
+- [x] **R2.2 — macOS adapter**
   - [F] `src/functualize/_config/vault_keyring_macos.py` (new),
     `tests/config/test_vault_keyring_macos.py` (new)
   - Reads through the Security framework with user interaction **disabled** around the
@@ -575,8 +600,13 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: `uv run pytest tests/config/test_vault_keyring_macos.py tests/contracts -q`;
     `uv run mypy --platform darwin --follow-imports=silent src/functualize/_config/vault_keyring_macos.py`.
   - Spec: B9, A15, A16.
+  - **Executed 2026-10-02.** Gate: 8 + contracts passed; `mypy --platform darwin
+    --follow-imports=silent` clean, and clean on the host. The four Security calls sit
+    behind `SecurityAPI`; the real `_CtypesSecurity` (ctypes over `keyring`'s
+    `api._sec`) is **untested here** — only the darwin CI job (R7.1) can run it.
+    Sabotage (interaction left on during the silent read) turned 7 red; restored.
 
-- [ ] **R2.3 — Windows adapter**
+- [x] **R2.3 — Windows adapter**
   - [F] `src/functualize/_config/vault_keyring_windows.py` (new),
     `tests/config/test_vault_keyring_windows.py` (new)
   - `CredRead` through `keyring`'s Windows backend; no lock model, so `state()` is
@@ -586,8 +616,12 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: `uv run pytest tests/config/test_vault_keyring_windows.py tests/contracts -q`;
     `uv run mypy --platform win32 --follow-imports=silent src/functualize/_config/vault_keyring_windows.py`.
   - Spec: B9, A15, A16.
+  - **Executed 2026-10-02.** Gate: 5 + contracts passed; `mypy --platform win32
+    --follow-imports=silent` clean. Harness worlds are UNLOCKED/EMPTY/ABSENT (no lock
+    model, no hangable state query). Sabotage (unlock reports UNLOCKED_NOW) turned 3
+    red; restored.
 
-- [ ] **R2.4 — Generic adapter for unrecognised backends (fail-safe)**
+- [x] **R2.4 — Generic adapter for unrecognised backends (fail-safe)**
   - [F] `src/functualize/_config/vault_keyring_generic.py` (new),
     `tests/config/test_vault_keyring_generic.py` (new)
   - For a `keyring` backend that is not on the allowlist (R3.1): `state()` is UNKNOWN,
@@ -597,6 +631,8 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
     `keyring` in the foreground (the backend may prompt; a person is present).
   - Gate: `uv run pytest tests/config/test_vault_keyring_generic.py tests/contracts -q`.
   - Spec: B9 (allowlist), A15.
+  - **Executed 2026-10-02.** Gate: 4 + contracts passed (100 in the contract run).
+    Sabotage (`read_silent` reads in the foreground) turned 5 red; restored.
 
 ## Wave 8 — selection and the provider
 
