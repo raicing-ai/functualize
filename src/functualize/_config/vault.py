@@ -234,9 +234,9 @@ class KeyringUnavailableError(VaultError):
     """
 
 
-# TRANSITIONAL(R4.1): a subclass of KeyringUnavailableError, so until the
-# resolver gives it its own outcome (R4.1) a run reports it as "no keyring"
-# rather than crashing on an unknown error.
+# A subclass of KeyringUnavailableError, so a caller that knows only the wider
+# error still refuses rather than crashing; the resolver catches it first and
+# reports its own outcome.
 class KeyringUnverifiedError(KeyringUnavailableError):
     """A keyring backend nobody has proven can be read without a prompt.
 

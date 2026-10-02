@@ -11,15 +11,23 @@ is consulted regardless of terminal (a developer who unlocked their keyring
 this morning gets their secret from a pipe, an agent's shell tool or a stdio
 MCP job exactly as from a terminal).
 
-**A deadline** — :class:`KeyAccess.BOUNDED` (the run path) asks every remaining
-provider under one shared deadline. The wait is enforced by a daemon thread
-that is abandoned when the deadline elapses — backend-agnostic, and the same
-strategy ``gh`` uses for its keyring. Where no keyring can answer at all the
-outcome is immediate, not waited out.
+**No prompt from a run** — :class:`KeyAccess.BOUNDED` (the run path) reads
+every provider *silently*: an unlocked keyring answers with the key, a locked
+one is reported LOCKED at once, with no wait and no unlock request. A run must
+never create an unlock prompt: a prompt the client later abandons (a deadline
+followed by exit, Ctrl-C, an agent killing its child) can crash the keyring
+daemon and re-lock every keyring the user has. Only
+:class:`KeyAccess.FOREGROUND` — ``func builtin vault unlock``, run by a person
+— asks a keyring to unlock, and it waits for the prompt's own outcome.
+
+**A hung-backend guard** — the silent read runs in a daemon thread under the
+``vault.keyring_timeout`` deadline. That deadline only bounds a backend that
+does not answer at all ("the keyring did not answer"); it is never the way an
+active prompt is walked away from, because a silent read never creates one.
 
 **A memo** — the outcome (found *or* failed) of a bounded lookup is retained
-for the life of the resolver, so a run resolving many config fields waits at
-most once against a locked keyring. functualize caches no key across
+for the life of the resolver, so a run resolving many config fields asks the
+keyring at most once. functualize caches no key across
 processes and runs no timer: when the keyring relocks, the next run finds it
 locked.
 
@@ -35,21 +43,26 @@ import threading
 import time
 from collections.abc import Callable
 from enum import Enum
-from functools import partial
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 
 from functualize._config.vault import (
     KeyringLockedError,
     KeyringUnavailableError,
+    KeyringUnverifiedError,
     app_keyring_timeout,
 )
-from functualize._config.vault_keys import EnvKeyProvider, default_providers
-from functualize._types.enums import KeyAvailability
-from functualize._types.protocols import VaultKeyProbe
+from functualize._config.vault_keyring import AdapterOutcome
+from functualize._config.vault_keys import (
+    EnvKeyProvider,
+    KeychainKeyProvider,
+    default_providers,
+)
+from functualize._types.protocols import VaultKeyUnlocker
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from functualize._config.vault_keyring import UnlockHow
     from functualize._types.protocols import VaultKeyProvider
 
 __all__ = [
@@ -61,23 +74,21 @@ __all__ = [
     "resolve_vault_key",
 ]
 
-#: How long a SILENT lookup may spend reading a provider that just probed
-#: UNLOCKED. Short on purpose: it is a diagnostic path, and UNLOCKED means the
-#: read should answer immediately.
-_SILENT_READ_SECONDS: Final = 5.0
-
 
 class KeyAccess(Enum):
     """How a caller may wait on the key."""
 
     BOUNDED = "bounded"
-    """The run path: env, then the remaining providers under the deadline."""
+    """The run path: env, then a silent read of the rest; never a prompt."""
 
     FOREGROUND = "foreground"
-    """``vault unlock``: no deadline, because a person is there to answer one."""
+    """``vault unlock``: may prompt, and waits for the prompt's own outcome."""
 
+    # TRANSITIONAL(R5.1): now resolved exactly as BOUNDED (a silent read), only
+    # never memoised. Kept until `vault_status` and `vault_inspect` move to
+    # `vault_key_state` / BOUNDED in R5.1, which removes it.
     SILENT = "silent"
-    """``vault status`` / ``inspect``: probe first; read only if UNLOCKED."""
+    """``vault status`` / ``inspect``: a silent read, never memoised."""
 
 
 class KeyStatus(Enum):
@@ -85,7 +96,7 @@ class KeyStatus(Enum):
 
     FOUND = "found"
     LOCKED = "locked"
-    """Locked, or the deadline elapsed. The key may well exist."""
+    """Locked (not opened), or a hung backend did not answer. The key may well exist."""
 
     NO_KEYRING = "no_keyring"
     """No backend, extra missing, or no session bus."""
@@ -93,8 +104,13 @@ class KeyStatus(Enum):
     NOT_STORED = "not_stored"
     """A keyring answered; no entry. The key really is gone."""
 
+    UNVERIFIED = "unverified"
+    """A keyring backend nobody has proven silent, so a run did not read it."""
+
+    # TRANSITIONAL(R5.1): no longer produced by the resolver; `vault_status`
+    # still maps it until R5.1 moves status to `vault_key_state`.
     UNKNOWN = "unknown"
-    """SILENT access only: the backend cannot say without risking a prompt."""
+    """The backend cannot say without risking a prompt."""
 
 
 class KeyLookup:
@@ -106,7 +122,7 @@ class KeyLookup:
     the repr: this object is safe to log.
     """
 
-    __slots__ = ("key", "provider_id", "status", "timed_out", "waited")
+    __slots__ = ("key", "provider_id", "status", "timed_out", "unlock_how", "waited")
 
     def __init__(
         self,
@@ -116,12 +132,15 @@ class KeyLookup:
         provider_id: str | None = None,
         waited: float = 0.0,
         timed_out: bool = False,
+        unlock_how: UnlockHow | None = None,
     ) -> None:
         self.status = status
         self.key = key
         self.provider_id = provider_id
         self.waited = waited
         self.timed_out = timed_out
+        self.unlock_how = unlock_how
+        """How a FOREGROUND unlock ended (already unlocked, cancelled, …)."""
 
     def __repr__(self) -> str:
         """Never render the key — this object is safe to log."""
@@ -137,8 +156,10 @@ def _run_bounded(fn: Callable[[], KeyLookup], seconds: float) -> KeyLookup | Non
     """Run ``fn`` in a daemon thread, abandoning it after ``seconds``.
 
     Returns ``None`` when the deadline elapsed — the caller turns that into a
-    timed-out LOCKED outcome. The blocked thread is abandoned and dies with
-    the process; waiting for it would be the hang this exists to remove. An
+    timed-out "did not answer" outcome. This guards a *hung backend* only:
+    ``fn`` is a silent read, which never creates an unlock prompt, so nothing
+    a person could see is abandoned. The blocked thread dies with the
+    process; waiting for it would be the hang this exists to remove. An
     exception raised by ``fn`` is captured and re-raised on the caller, so a
     bad hex key stays a loud error instead of becoming thread-excepthook
     noise.
@@ -242,45 +263,91 @@ class VaultKeyResolver:
     def _resolve(self, access: KeyAccess) -> KeyLookup:
         started = time.monotonic()
 
-        if access is KeyAccess.SILENT:
-            return self._resolve_silent(started)
-
         # A provider that can only work by prompting is still terminal-only;
         # everything else is read regardless of terminal (the point of this
-        # feature) and, under BOUNDED, inside one shared deadline.
-        # Two passes rather than one filtered list: a provider that needs a
-        # terminal is asked last, and only when nothing that cannot prompt had
-        # a key — never merely because it was registered earlier.
+        # feature). Two passes rather than one filtered list: a provider that
+        # needs a terminal is asked last, and only when nothing that cannot
+        # prompt had a key — never merely because it was registered earlier.
         on_tty = sys.stdin.isatty() and sys.stdout.isatty()
         candidates = [p for p in self._providers if p.interactive() is False]
         if on_tty:
             candidates += [p for p in self._providers if p.interactive() is not False]
 
-        if access is KeyAccess.BOUNDED:
-            # Env first and outside the deadline: reading a variable cannot
-            # block, and when it holds a key neither the keyring nor the wait
-            # setting is touched at all.
-            env = [p for p in candidates if isinstance(p, EnvKeyProvider)]
-            rest = [p for p in candidates if not isinstance(p, EnvKeyProvider)]
-            if env:
-                first = self._ask(env, started)
-                if first.status is KeyStatus.FOUND or not rest:
-                    return first
+        # Env first and outside every deadline: reading a variable cannot
+        # block, and when it holds a key neither the keyring nor the wait
+        # setting is touched at all.
+        env = [p for p in candidates if isinstance(p, EnvKeyProvider)]
+        rest = [p for p in candidates if not isinstance(p, EnvKeyProvider)]
+        if env:
+            first = self._ask(env, started)
+            if first.status is KeyStatus.FOUND or not rest:
+                return first
 
-            def ask() -> KeyLookup:
-                return self._ask(rest, started)
+        if access is KeyAccess.FOREGROUND:
+            return self._unlock(rest, started)
 
-            outcome = _run_bounded(ask, self._deadline())
-            if outcome is None:
-                return KeyLookup(
-                    KeyStatus.LOCKED,
-                    waited=time.monotonic() - started,
-                    timed_out=True,
-                )
-        else:
-            outcome = self._ask(candidates, started)
-        assert outcome is not None
+        def ask() -> KeyLookup:
+            return self._ask(rest, started)
+
+        outcome = _run_bounded(ask, self._deadline())
+        if outcome is None:
+            return KeyLookup(
+                KeyStatus.LOCKED,
+                waited=time.monotonic() - started,
+                timed_out=True,
+            )
         return outcome
+
+    def _unlock(
+        self, providers: Sequence[VaultKeyProvider], started: float
+    ) -> KeyLookup:
+        """FOREGROUND: ask each keyring to unlock — the one path that may prompt.
+
+        No deadline: a person ran ``vault unlock`` and is answering the
+        keyring's own dialog, and ending an active prompt from this side can
+        crash the keyring daemon. The keychain provider hands back the key with
+        the outcome; any other :class:`~functualize.plugin.VaultKeyUnlocker` is
+        unlocked and then read; anything else is just read.
+        """
+        fallback = KeyLookup(KeyStatus.NO_KEYRING)
+        for provider in providers:
+            if not provider.is_available():
+                continue
+            ident = provider.identifier()
+            if isinstance(provider, KeychainKeyProvider):
+                unlocked = provider.unlock_key(self._project_id)
+                if unlocked.key is not None:
+                    return self._finish(
+                        KeyLookup(
+                            KeyStatus.FOUND,
+                            key=unlocked.key,
+                            provider_id=ident,
+                            unlock_how=unlocked.how,
+                        ),
+                        started,
+                    )
+                if unlocked.outcome is AdapterOutcome.LOCKED:
+                    return self._finish(
+                        KeyLookup(
+                            KeyStatus.LOCKED, provider_id=ident, unlock_how=unlocked.how
+                        ),
+                        started,
+                    )
+                if unlocked.outcome is AdapterOutcome.NOT_STORED:
+                    fallback = KeyLookup(
+                        KeyStatus.NOT_STORED, provider_id=ident, unlock_how=unlocked.how
+                    )
+                continue
+            if isinstance(provider, VaultKeyUnlocker) and not provider.unlock():
+                return self._finish(
+                    KeyLookup(KeyStatus.LOCKED, provider_id=ident), started
+                )
+            outcome = self._ask([provider], started)
+            if outcome.status is KeyStatus.FOUND:
+                return outcome
+            if outcome.status is not KeyStatus.NO_KEYRING:
+                fallback = outcome
+        return self._finish(fallback, started)
 
     def _ask(self, providers: Sequence[VaultKeyProvider], started: float) -> KeyLookup:
         """Walk providers in order; typed errors map to typed statuses.
@@ -298,6 +365,12 @@ class VaultKeyResolver:
             except KeyringLockedError:
                 return self._finish(
                     KeyLookup(KeyStatus.LOCKED, provider_id=provider.identifier()),
+                    started,
+                )
+            except KeyringUnverifiedError:
+                # A backend nobody has proven silent: not read, and said so.
+                return self._finish(
+                    KeyLookup(KeyStatus.UNVERIFIED, provider_id=provider.identifier()),
                     started,
                 )
             except KeyringUnavailableError:
@@ -322,51 +395,6 @@ class VaultKeyResolver:
         # Nothing answered: unavailable, skipped, or absent altogether.
         return self._finish(KeyLookup(KeyStatus.NO_KEYRING), started)
 
-    def _resolve_silent(self, started: float) -> KeyLookup:
-        """Answer without ever risking a prompt (status/inspect).
-
-        The env provider reads a variable and cannot prompt, so it is read
-        under the short silent bound. Probe-capable providers answer LOCKED /
-        UNLOCKED / UNKNOWN; only UNLOCKED is read. Every other provider — one
-        that needs a terminal, or a backend with no probe, which may raise its
-        own dialog — is never asked: the question itself is the prompt risk,
-        so the answer is UNKNOWN.
-        """
-
-        def ask_one(provider: VaultKeyProvider) -> KeyLookup:
-            return self._ask([provider], started)
-
-        quiet = [p for p in self._providers if p.interactive() is False]
-        for provider in quiet:
-            if not isinstance(provider, EnvKeyProvider) or not provider.is_available():
-                continue
-            outcome = _run_bounded(partial(ask_one, provider), _SILENT_READ_SECONDS)
-            if outcome is not None and outcome.status is KeyStatus.FOUND:
-                return outcome
-        for provider in quiet:
-            if not isinstance(provider, VaultKeyProbe):
-                continue
-            availability = provider.probe()
-            if availability is not KeyAvailability.UNLOCKED:
-                status = (
-                    KeyStatus.LOCKED
-                    if availability is KeyAvailability.LOCKED
-                    else KeyStatus.UNKNOWN
-                )
-                return self._finish(
-                    KeyLookup(status, provider_id=provider.identifier()), started
-                )
-            outcome = _run_bounded(partial(ask_one, provider), _SILENT_READ_SECONDS)
-            if outcome is None:
-                return self._finish(
-                    KeyLookup(KeyStatus.UNKNOWN, provider_id=provider.identifier()),
-                    started,
-                )
-            return outcome
-        # No probe-capable provider: the question "is a read safe?" has no
-        # answer here, and guessing one way would either prompt or lie.
-        return self._finish(KeyLookup(KeyStatus.UNKNOWN), started)
-
     @staticmethod
     def _finish(lookup: KeyLookup, started: float) -> KeyLookup:
         """Stamp the elapsed time onto a just-computed outcome."""
@@ -377,6 +405,7 @@ class VaultKeyResolver:
                 provider_id=lookup.provider_id,
                 waited=time.monotonic() - started,
                 timed_out=lookup.timed_out,
+                unlock_how=lookup.unlock_how,
             )
         return lookup
 
@@ -406,9 +435,11 @@ def describe_key_failure(
 ) -> str:
     """The one refusal message for a key that could not be had (spec B3).
 
+    Messages are provider-neutral: they say "keyring", never a product name.
+
     Which next steps are offered follows the outcome, and one rule is
-    absolute: for LOCKED and NO_KEYRING — states where the key may well exist
-    — the message **never** offers ``vault remove`` or ``vault clear`` (they
+    absolute: for LOCKED, NO_KEYRING and UNVERIFIED — states where the key may
+    well exist — the message **never** offers ``vault remove`` or ``vault clear`` (they
     destroy an entry that is fine) and never offers ``vault sync`` for a
     ``direct`` entry (it is the only copy; sync cannot restore it). Only for
     NOT_STORED, where the key really is gone, may remove/clear appear, last,
@@ -418,7 +449,7 @@ def describe_key_failure(
         lookup: The failed lookup. FOUND is a programming error and raises.
         qualified: The config key the run was resolving, if any.
         direct: Whether the stored entry was written by hand — the only copy.
-        timeout: The wait that was applied, for "did not answer within N s".
+        timeout: The hung-backend bound, for "did not answer within N s".
     """
     if lookup.status is KeyStatus.FOUND:
         msg = "describe_key_failure called on a FOUND lookup"
@@ -427,11 +458,23 @@ def describe_key_failure(
     prefix = f"Cannot open the stored vault entry {qualified!r}: " if qualified else ""
     waited = timeout if timeout is not None else lookup.waited
 
+    if lookup.status is KeyStatus.LOCKED and lookup.timed_out:
+        return (
+            f"{prefix}the keyring did not answer within {waited:.0f}s. Check "
+            f"that it is running, or set `FUNCTUALIZE_VAULT_KEY`, then retry."
+        )
     if lookup.status is KeyStatus.LOCKED:
         return (
-            f"{prefix}the OS keyring is locked or did not answer within "
-            f"{waited:.0f}s. Unlock it, or run `func builtin vault unlock` in "
-            f"another terminal, or export $FUNCTUALIZE_VAULT_KEY; then retry."
+            f"{prefix}the keyring is locked. Unlock it with your system's "
+            f"keyring manager, or run `func builtin vault unlock` in a "
+            f"terminal, or set `FUNCTUALIZE_VAULT_KEY`, then retry."
+        )
+    if lookup.status is KeyStatus.UNVERIFIED:
+        return (
+            f"{prefix}this keyring cannot be read without a possible prompt, "
+            f"so a run does not read it. Set `FUNCTUALIZE_VAULT_KEY` for runs "
+            f"without a terminal; `func builtin vault unlock` reads it in a "
+            f"terminal."
         )
     if lookup.status is KeyStatus.NO_KEYRING:
         return (

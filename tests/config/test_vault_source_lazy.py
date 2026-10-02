@@ -210,7 +210,7 @@ class TestAStoredEntryThatCannotBeOpenedRefuses:
         with pytest.raises(VaultEntryUnreadableError) as exc:
             source.get("password", "database")
         text = str(exc.value)
-        assert "locked or did not answer" in text
+        assert "keyring is locked" in text
         assert "func builtin vault unlock" in text
         assert "FUNCTUALIZE_VAULT_KEY" in text
 
@@ -292,7 +292,7 @@ class TestTheNoKeyWarningMoved:
         assert len(caplog.records) == 1
         message = caplog.records[0].getMessage()
         assert _ANNOTATION in message
-        assert "locked or did not answer" in message
+        assert "keyring is locked" in message
         assert provider.calls == 1
 
     def test_an_app_whose_values_all_come_from_elsewhere_never_warns(

@@ -23,6 +23,7 @@ from functualize._config.vault import (
     KEY_BYTES,
     KeyringLockedError,
     KeyringUnavailableError,
+    KeyringUnverifiedError,
     VaultError,
 )
 from functualize._config.vault_key_resolver import (
@@ -33,6 +34,8 @@ from functualize._config.vault_key_resolver import (
     describe_key_failure,
     resolve_vault_key,
 )
+from functualize._config.vault_keyring import AdapterOutcome, AdapterRead, UnlockHow
+from functualize._config.vault_keys import KeychainKeyProvider
 from functualize._types.enums import KeyAvailability
 
 if TYPE_CHECKING:
@@ -400,56 +403,140 @@ class TestForegroundAccess:
         assert keychain.get_key_calls == 1
 
 
-class TestSilentAccess:
-    """A8 — status/inspect never prompt; they probe, then read only if safe."""
+class _Unlockable(_Provider):
+    """A third-party provider with the optional unlock capability."""
 
-    def test_a_locked_probe_never_reads(self) -> None:
-        keychain = _ProbedProvider("keychain", KeyAvailability.LOCKED, key=_KEY)
-        resolver = _resolver([keychain])
+    def __init__(self, ident: str, *, unlocks: bool, **kwargs: object) -> None:
+        super().__init__(ident, **kwargs)  # type: ignore[arg-type]
+        self._unlocks = unlocks
+        self.unlock_calls = 0
 
-        lookup = resolver.lookup(KeyAccess.SILENT)
+    def unlock(self) -> bool:
+        self.unlock_calls += 1
+        if self._unlocks:
+            self._raises = None
+        return self._unlocks
 
+
+class TestARunNeverPrompts:
+    """Addendum B2' — a run reads silently; a locked keyring refuses at once."""
+
+    def test_a_bounded_lookup_never_asks_to_unlock(self) -> None:
+        locked = _Unlockable(
+            "vendor", unlocks=True, raises=KeyringLockedError("locked")
+        )
+        lookup = _resolver([locked]).lookup(KeyAccess.BOUNDED)
         assert lookup.status is KeyStatus.LOCKED
-        assert keychain.get_key_calls == 0
-        assert keychain.probe_calls == 1
+        assert locked.unlock_calls == 0
 
-    def test_an_unlocked_probe_reads(self) -> None:
-        keychain = _ProbedProvider("keychain", KeyAvailability.UNLOCKED, key=_KEY)
-        lookup = _resolver([keychain]).lookup(KeyAccess.SILENT)
+    def test_a_locked_keyring_costs_no_wait(self) -> None:
+        locked = _Provider("keychain", raises=KeyringLockedError("locked"))
+        started = time.monotonic()
+        lookup = _resolver([locked], timeout=30.0).lookup()
+        assert lookup.status is KeyStatus.LOCKED
+        assert lookup.timed_out is False
+        assert time.monotonic() - started < 2.0
+
+    def test_an_unproven_backend_is_its_own_outcome(self) -> None:
+        unproven = _Provider("keychain", raises=KeyringUnverifiedError("unproven"))
+        lookup = _resolver([unproven]).lookup()
+        assert lookup.status is KeyStatus.UNVERIFIED
+
+
+class TestSilentAccessIsTheSameSilentRead:
+    """TRANSITIONAL(R5.1): SILENT is BOUNDED's silent read, never memoised."""
+
+    def test_it_reads_any_provider_because_get_key_never_prompts(self) -> None:
+        plain = _Provider("kms", key=_KEY)
+        lookup = _resolver([plain]).lookup(KeyAccess.SILENT)
+        assert lookup.status is KeyStatus.FOUND
+
+    def test_a_silent_failure_is_not_memoised(self) -> None:
+        locked = _Provider("keychain", raises=KeyringLockedError("locked"))
+        resolver = _resolver([locked])
+        resolver.lookup(KeyAccess.SILENT)
+        resolver.lookup(KeyAccess.BOUNDED)
+        assert locked.get_key_calls == 2
+
+
+class _AvailableKeychain(KeychainKeyProvider):
+    """The shipped provider over a scripted adapter, available whatever the host has."""
+
+    def is_available(self) -> bool:
+        return True
+
+
+class _ScriptedAdapter:
+    def __init__(self, read: AdapterRead, unlocked: AdapterRead) -> None:
+        self._read = read
+        self._unlocked = unlocked
+        self.unlocks = 0
+
+    @property
+    def name(self) -> str:
+        return "scripted"
+
+    def read_silent(self) -> AdapterRead:
+        return self._read
+
+    def state(self) -> KeyAvailability:
+        return KeyAvailability.UNKNOWN
+
+    def unlock(self) -> AdapterRead:
+        self.unlocks += 1
+        return self._unlocked
+
+
+class TestForegroundUnlocks:
+    """`vault unlock` is the one path that asks a keyring to unlock."""
+
+    def test_the_keychain_is_unlocked_and_says_how(self) -> None:
+        adapter = _ScriptedAdapter(
+            AdapterRead(AdapterOutcome.LOCKED),
+            AdapterRead(
+                AdapterOutcome.FOUND, secret=_HEX_KEY, how=UnlockHow.UNLOCKED_NOW
+            ),
+        )
+        provider = _AvailableKeychain(adapter=adapter)  # type: ignore[arg-type]
+        lookup = _resolver([provider]).lookup(KeyAccess.FOREGROUND)
         assert lookup.status is KeyStatus.FOUND
         assert lookup.key == _KEY
-        assert lookup.provider_id == "keychain"
+        assert lookup.unlock_how is UnlockHow.UNLOCKED_NOW
+        assert adapter.unlocks == 1
 
-    def test_no_probe_capability_answers_unknown(self) -> None:
-        """A live backend with no probe may raise its own dialog, so silent
-        access never asks it — even though it is available and holds a key."""
-        plain = _Provider("kms", key=_KEY)  # no probe, would answer if asked
+    def test_a_cancelled_dialog_is_locked_and_says_so(self) -> None:
+        adapter = _ScriptedAdapter(
+            AdapterRead(AdapterOutcome.LOCKED),
+            AdapterRead(AdapterOutcome.LOCKED, how=UnlockHow.CANCELLED),
+        )
+        provider = _AvailableKeychain(adapter=adapter)  # type: ignore[arg-type]
+        lookup = _resolver([provider]).lookup(KeyAccess.FOREGROUND)
+        assert lookup.status is KeyStatus.LOCKED
+        assert lookup.unlock_how is UnlockHow.CANCELLED
 
-        lookup = _resolver([plain]).lookup(KeyAccess.SILENT)
+    def test_a_third_party_unlocker_is_unlocked_then_read(self) -> None:
+        vendor = _Unlockable(
+            "vendor", unlocks=True, key=_KEY, raises=KeyringLockedError("x")
+        )
+        lookup = _resolver([vendor]).lookup(KeyAccess.FOREGROUND)
+        assert lookup.status is KeyStatus.FOUND
+        assert vendor.unlock_calls == 1
 
-        assert lookup.status is KeyStatus.UNKNOWN
-        assert plain.get_key_calls == 0
+    def test_a_third_party_unlocker_that_stays_locked_is_locked(self) -> None:
+        vendor = _Unlockable("vendor", unlocks=False, raises=KeyringLockedError("x"))
+        lookup = _resolver([vendor]).lookup(KeyAccess.FOREGROUND)
+        assert lookup.status is KeyStatus.LOCKED
 
-    def test_the_env_provider_is_read_silently(
+    def test_the_env_key_answers_before_any_unlock(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Reading a variable cannot prompt, so env with a key set reports
-        available."""
         from functualize._config.vault_keys import ENV_VAR, EnvKeyProvider
 
         monkeypatch.setenv(ENV_VAR, _HEX_KEY)
-        lookup = _resolver([EnvKeyProvider()]).lookup(KeyAccess.SILENT)
-        assert lookup.status is KeyStatus.FOUND
+        vendor = _Unlockable("vendor", unlocks=True)
+        lookup = _resolver([EnvKeyProvider(), vendor]).lookup(KeyAccess.FOREGROUND)
         assert lookup.provider_id == "env"
-
-    def test_a_silent_failure_is_not_memoised(self) -> None:
-        keychain = _ProbedProvider("keychain", KeyAvailability.LOCKED, key=_KEY)
-        resolver = _resolver([keychain])
-
-        resolver.lookup(KeyAccess.SILENT)
-        resolver.lookup(KeyAccess.BOUNDED)  # the run path still reads
-
-        assert keychain.get_key_calls == 1
+        assert vendor.unlock_calls == 0
 
 
 class TestTheOneShotHelper:
@@ -480,10 +567,14 @@ class TestTheLookupIsSafeToLog:
 
 
 class TestTheRefusalMessages:
-    """B3 — four outcomes, four messages, none of them destructive."""
+    """B3/B3' — one message per outcome, none destructive, none naming a product."""
 
     @pytest.fixture
     def locked(self) -> KeyLookup:
+        return KeyLookup(KeyStatus.LOCKED, provider_id="keychain")
+
+    @pytest.fixture
+    def hung(self) -> KeyLookup:
         return KeyLookup(KeyStatus.LOCKED, provider_id="keychain", timed_out=True)
 
     @pytest.fixture
@@ -494,19 +585,40 @@ class TestTheRefusalMessages:
     def not_stored(self) -> KeyLookup:
         return KeyLookup(KeyStatus.NOT_STORED, provider_id="keychain")
 
-    def test_locked_says_locked_or_did_not_answer_and_names_the_exits(
+    @pytest.fixture
+    def unverified(self) -> KeyLookup:
+        return KeyLookup(KeyStatus.UNVERIFIED, provider_id="keychain")
+
+    def test_locked_is_the_neutral_text_and_names_the_exits(
         self, locked: KeyLookup
     ) -> None:
-        text = describe_key_failure(locked, timeout=30.0)
-        assert "locked or did not answer" in text
+        text = describe_key_failure(locked)
+        assert "keyring is locked" in text
+        assert "your system's keyring manager" in text
         assert "func builtin vault unlock" in text
         assert "FUNCTUALIZE_VAULT_KEY" in text
 
-    @pytest.mark.parametrize("direct", [True, False])
-    def test_locked_never_offers_destructive_fixes(
-        self, locked: KeyLookup, direct: bool
+    def test_a_hung_backend_did_not_answer(self, hung: KeyLookup) -> None:
+        text = describe_key_failure(hung, timeout=30.0)
+        assert "did not answer within 30s" in text
+        assert "FUNCTUALIZE_VAULT_KEY" in text
+
+    def test_unverified_says_a_run_does_not_read_it(
+        self, unverified: KeyLookup
     ) -> None:
-        text = describe_key_failure(locked, direct=direct, timeout=30.0)
+        text = describe_key_failure(unverified)
+        assert "without a possible prompt" in text
+        assert "FUNCTUALIZE_VAULT_KEY" in text
+        assert "func builtin vault unlock" in text
+
+    @pytest.mark.parametrize("direct", [True, False])
+    @pytest.mark.parametrize("which", ["locked", "hung", "no_keyring", "unverified"])
+    def test_where_the_key_may_exist_nothing_destructive_is_offered(
+        self, request: pytest.FixtureRequest, which: str, direct: bool
+    ) -> None:
+        text = describe_key_failure(
+            request.getfixturevalue(which), direct=direct, timeout=30.0
+        )
         assert "vault remove" not in text
         assert "vault clear" not in text
         assert "vault sync" not in text
@@ -518,15 +630,6 @@ class TestTheRefusalMessages:
         assert "no OS keyring is reachable" in text
         assert "FUNCTUALIZE_VAULT_KEY" in text
         assert "functualize[keychain]" in text
-
-    @pytest.mark.parametrize("direct", [True, False])
-    def test_no_keyring_never_offers_destructive_fixes(
-        self, no_keyring: KeyLookup, direct: bool
-    ) -> None:
-        text = describe_key_failure(no_keyring, direct=direct)
-        assert "vault remove" not in text
-        assert "vault clear" not in text
-        assert "vault sync" not in text
 
     def test_not_stored_names_init_and_the_env_var(self, not_stored: KeyLookup) -> None:
         text = describe_key_failure(not_stored)
@@ -548,13 +651,29 @@ class TestTheRefusalMessages:
         assert "only copy" in text
 
     def test_a_qualified_entry_is_named(self, locked: KeyLookup) -> None:
-        text = describe_key_failure(locked, qualified="database.password", timeout=30.0)
+        text = describe_key_failure(locked, qualified="database.password")
         assert "database.password" in text
 
-    def test_unknown_says_it_could_not_tell(self) -> None:
-        unknown = KeyLookup(KeyStatus.UNKNOWN, provider_id="keychain")
-        text = describe_key_failure(unknown)
-        assert "could not be determined" in text
+    @pytest.mark.parametrize(
+        "status", [status for status in KeyStatus if status is not KeyStatus.FOUND]
+    )
+    @pytest.mark.parametrize("timed_out", [False, True])
+    def test_no_message_names_a_keyring_product(
+        self, status: KeyStatus, timed_out: bool
+    ) -> None:
+        """A18. The `functualize[keychain]` extra is a package name, not a
+        product claim, so it is set aside before the check."""
+        lookup = KeyLookup(status, provider_id="keychain", timed_out=timed_out)
+        text = describe_key_failure(lookup, qualified="db.password", timeout=30.0)
+        text = text.replace("functualize[keychain]", "").lower()
+        for product in (
+            "gnome",
+            "kwallet",
+            "keychain",
+            "credential manager",
+            "secret service",
+        ):
+            assert product not in text, (status, product)
 
     def test_found_is_a_programming_error(self) -> None:
         found = KeyLookup(KeyStatus.FOUND, key=_KEY)
