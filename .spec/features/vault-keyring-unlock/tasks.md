@@ -636,7 +636,7 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
 
 ## Wave 8 — selection and the provider
 
-- [ ] **R3.1 — Adapter factory; `KeychainKeyProvider` delegates**
+- [x] **R3.1 — Adapter factory; `KeychainKeyProvider` delegates**
   - [F] `src/functualize/_config/vault_keyring.py` (new), `src/functualize/_config/vault_keys.py`,
     `tests/config/test_vault_keys.py`
     (hit set: `rg -n "get_password" src` -> `vault_keys.py:254`, the only direct call)
@@ -651,10 +651,29 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
     `rg -n "get_password" src/functualize/_config/vault_keys.py` -> 0 reads (the write path
     uses `set_password` only); `uv run lint-imports` -> 7 kept.
   - Spec: B2', B9.
+  - **Executed 2026-10-02.** Gate: `test_vault_keys.py` + contracts 160 passed;
+    `rg -n "get_password" src/functualize/_config/vault_keys.py` -> 0; lint-imports
+    7 kept. `select_adapter(service, account, *, platform, backend)` — service and
+    account added to schema's signature, because the adapters need them. Backends
+    are matched by module/class name (a chainer by its first real backend), so
+    choosing imports no other platform's module. `KeychainKeyProvider(adapter=…)`
+    is the test seam; `unlock_key()` returns `UnlockedKey(outcome, how, key)`, used
+    by the resolver's FOREGROUND path and by `initialize_key` (`vault init` is run by
+    a person, so it reads through unlock). **Disclosed additions outside [F]:** new
+    `KeyringUnverifiedError` in `_config/vault.py` (a `KeyringUnavailableError`
+    subclass; carried a `TRANSITIONAL(R4.1)` marker, closed there). The
+    keychain tests that faked the whole `keyring` module were rewritten at the
+    adapter port (typed outcomes, probe = `state()`, unlock, scope by recording the
+    factory's arguments, init over a store-backed adapter) plus 13 allowlist
+    cases. **Expected red until R6.4:** 4 cases in
+    `tests/integration/test_vault_keyring_unlock_e2e.py` — their fake `keyring`
+    backend is now, correctly, an unproven backend a run refuses to read.
+    Sabotage (`get_key` reads through `unlock()`) turned
+    `test_get_key_never_unlocks` red; restored.
 
 ## Wave 9 — resolver and platform hygiene (disjoint)
 
-- [ ] **R4.1 — The resolver stops prompting; neutral messages**
+- [x] **R4.1 — The resolver stops prompting; neutral messages**
   - [F] `src/functualize/_config/vault_key_resolver.py`, `tests/config/test_vault_key_resolver.py`,
     `tests/config/test_vault_source_lazy.py`
     (hit set *run at authoring*: `rg -n "_run_bounded" src` -> 4 sites in
@@ -671,8 +690,21 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
     green, including a test that no message contains `gnome`, `kwallet`, `keychain`,
     `credential manager`, `secret service` (case-insensitive).
   - Spec: B2', B3', A4', A18.
+  - **Executed 2026-10-02.** Gate: 81 passed, including
+    `test_no_message_names_a_keyring_product` over every status (the
+    `functualize[keychain]` extra is set aside first: it is a package name, and
+    the no-keyring text must name it). BOUNDED reads silently; `_run_bounded` is
+    the hung-backend guard only, with its own "did not answer within N s" text;
+    FOREGROUND -> `_unlock()` (keychain: `unlock_key`; a third-party
+    `VaultKeyUnlocker`: `unlock()` then `get_key`). `KeyLookup.unlock_how` carries
+    how an unlock ended. **Transitional, marked `TRANSITIONAL(R5.1)`:**
+    `KeyAccess.SILENT` (now the same silent read, never memoised) and
+    `KeyStatus.UNKNOWN` (no longer produced) stay until R5.1 moves `vault_status`
+    and `vault_inspect` off them. **Expected red until R6.1/R6.4:** the CLI and e2e
+    assertions on the old "locked or did not answer" text. Sabotage (BOUNDED goes
+    through `_unlock`) turned the bounded-path tests red; restored.
 
-- [ ] **R3.2 — No Linux-only code on other platforms**
+- [x] **R3.2 — No Linux-only code on other platforms**
   - [F] `tests/config/test_keyring_platform_imports.py` (new)
   - With `sys.platform` forced to `darwin` and then `win32` and an import hook that
     raises on `secretstorage` and `jeepney`, importing the factory and building a
@@ -683,6 +715,13 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
     `uv run mypy --platform win32 --follow-imports=silent src/functualize/_config/vault_key*.py`
     clean (research R10: the 8 Windows errors are pre-existing, elsewhere).
   - Spec: B9, A16.
+  - **Executed 2026-10-02.** Gate: 3 passed; `mypy --platform darwin
+    src/functualize/_config/` clean (29 files); `mypy --platform win32
+    --follow-imports=silent src/functualize/_config/vault_key*.py` clean (7 files).
+    `sys.platform` is forced *after* the imports (forcing it first breaks the
+    stdlib's own start-up); the import hook is installed first, so an import-time
+    load of a blocked library still fails. Sabotage (a top-level import of the
+    Linux adapter in `vault_keyring.py`) turned all 3 red; restored.
 
 ## Wave 10 — the public API
 
