@@ -110,8 +110,16 @@ class CapabilityContract:          # defined in functualize_rise
 class OperationContract:
     name: str                      # "diagnose" | "provision"
     required: bool                 # must a conformant package implement it?
-    mutating: bool
+    mutating: bool                 # PROVISIONAL — see "Operation effects" below
 ```
+
+- **Operation effects are PROVISIONAL [OS-1].** `mutating: bool` was revision
+  1's placeholder. The owner asked whether operations should carry "destructive",
+  "mutating" or "side-effect" markers, and whether to support opt-in
+  plan/dry-run (Shape Intent 5407068 comments 11927574, 11927557). research.md
+  § *R-2* lays out the candidate vocabulary, its semantics, its limits and its
+  migration cost. **T2 must not freeze this field before OS-1 is answered.**
+  Whatever OS-1 picks replaces the line above.
 
 - **Resolution (S6):** Rise imports the `contract_ref` module, reads the
   attribute, and requires a `CapabilityContract` whose `identity` equals the
