@@ -687,8 +687,27 @@ Depends on T1–T8 (documents what exists).
   input can route differently; the records make that visible, they do not
   prevent it.
 - ADR-030: add `## Addendum — fallback and evidence (2026-10)` recording D-1…D-4
-  as answered, the rejected alternatives A/B/C from `plan.md`, and that the
+  as answered, the rejected alternatives A/B/C below, and that the
   fallback is taken by the existing `resolve` rung (no new primitive).
+  *Amended 2026-10-02 (member-approved clarification; gates unchanged):* the
+  alternatives, as `plan.md` *Candidate AFTERs considered* records them, all
+  rejected —
+  - **A** — evidence on the **answer model** (an `evidence` field the resolver
+    fills), the resolver applying the fallback: evidence is forgeable (an answer
+    surface can submit any `evidence`); answer and provenance mixed in one model
+    (Divergent Change on every awaits model); an absent provider has no evidence.
+  - **B** — evidence in a **new evidence store/table**, the default route via a
+    new `decision_fallback` strategy: duplicates the `input_candidates` work
+    the runtime-persistence tickets own (Shotgun Surgery when they land); a new
+    strategy name breaks the `STRATEGY_PROVIDERS == _VALID_GATE_STRATEGIES` pin
+    and edges toward a new primitive.
+  - **C** — evidence in a provider **Decorator** that logs `DecisionResult`s:
+    the provider cannot see the scope, so records are uncorrelated with runs; a
+    side channel outside the run record (Inappropriate Intimacy with a sink).
+  - **D (chosen)** — evidence on the rung's `CandidateEvaluation.evidence`
+    through a per-rung write-once sink on `GateContext` (S-1), as a JSON mapping;
+    the fallback declared on `ChoiceDecision` and taken by the existing
+    `resolve` rung.
 - `runtime-persistence-data-model.md` §2.4: `input_candidates` row gains
   `evidence JSON` (nullable; opaque, so JSON per §3).
 - `codemaps/modules.md` `_gate/` paragraph: "Eight modules" → "Nine modules",
