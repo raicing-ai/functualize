@@ -365,19 +365,24 @@ class TestSilentAccess:
         assert lookup.provider_id == "keychain"
 
     def test_no_probe_capability_answers_unknown(self) -> None:
-        env = _EnvProvider(None)  # unavailable: nothing to ask
-        plain = _Provider("kms", available=False)  # no probe, nothing to read
+        """A live backend with no probe may raise its own dialog, so silent
+        access never asks it — even though it is available and holds a key."""
+        plain = _Provider("kms", key=_KEY)  # no probe, would answer if asked
 
-        lookup = _resolver([env, plain]).lookup(KeyAccess.SILENT)
+        lookup = _resolver([plain]).lookup(KeyAccess.SILENT)
 
         assert lookup.status is KeyStatus.UNKNOWN
         assert plain.get_key_calls == 0
 
-    def test_a_non_prompting_source_is_read_silently(self) -> None:
-        """A provider without probe() cannot prompt by construction, so the
-        silent path may read it — env with a key set reports available."""
-        env = _EnvProvider(_HEX_KEY)
-        lookup = _resolver([env]).lookup(KeyAccess.SILENT)
+    def test_the_env_provider_is_read_silently(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reading a variable cannot prompt, so env with a key set reports
+        available."""
+        from functualize._config.vault_keys import ENV_VAR, EnvKeyProvider
+
+        monkeypatch.setenv(ENV_VAR, _HEX_KEY)
+        lookup = _resolver([EnvKeyProvider()]).lookup(KeyAccess.SILENT)
         assert lookup.status is KeyStatus.FOUND
         assert lookup.provider_id == "env"
 

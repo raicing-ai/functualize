@@ -7,11 +7,14 @@ An app embedding functualize gets the same lifecycle with no CLI present.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from functualize._config.vault import (
+    KeyringLockedError,
     VaultEntryExistsError,
     VaultOrigin,
     VaultOriginConflictError,
@@ -25,7 +28,12 @@ from functualize.app.vault import (
     vault_inspect,
     vault_put,
     vault_remove,
+    vault_unlock,
 )
+from functualize.plugin import KeyAvailability
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _SECRET = "correct-horse-battery-staple-9f3a"  # gitleaks:allow
 
@@ -170,11 +178,11 @@ class TestPut:
         self, app: FunctualizeApp, project: Path
     ) -> None:
         from functualize._config.vault import SecretsVault
-        from functualize._config.vault_keys import resolve_vault_key
+        from functualize._config.vault_key_resolver import resolve_vault_key
         from functualize._config.vault_paths import vault_path_for_project
 
         resolution = resolve_vault_key("ignored")
-        assert resolution is not None
+        assert resolution.key is not None
         SecretsVault(vault_path_for_project(project)).put(
             "deploy.api_token",
             "from-aws",
@@ -228,11 +236,11 @@ class TestRemove:
         exists to clear unreachable.
         """
         from functualize._config.vault import SecretsVault
-        from functualize._config.vault_keys import resolve_vault_key
+        from functualize._config.vault_key_resolver import resolve_vault_key
         from functualize._config.vault_paths import vault_path_for_project
 
         resolution = resolve_vault_key("ignored")
-        assert resolution is not None
+        assert resolution.key is not None
         SecretsVault(vault_path_for_project(project)).put(
             "deleted-job.token",
             _SECRET,
@@ -305,3 +313,178 @@ class TestInspect:
         report = vault_inspect(app, "deploy.api_token", cwd=project)
 
         assert report.readability is Readability.WRONG_KEY
+
+
+class _FakeKeyring:
+    """A keyring-shaped provider: never needs a terminal, may probe."""
+
+    def __init__(
+        self,
+        *,
+        key: bytes | None = None,
+        locked: bool = False,
+        available: bool = True,
+        delay: float = 0.0,
+        probe: KeyAvailability | None = None,
+    ) -> None:
+        self._key = key
+        self._locked = locked
+        self._available = available
+        self._delay = delay
+        self._probe = probe
+        self.get_key_calls = 0
+
+    def identifier(self) -> str:
+        return "keychain"
+
+    def interactive(self) -> bool:
+        return False
+
+    def is_available(self) -> bool:
+        return self._available
+
+    def get_key(self, project_id: str) -> bytes | None:
+        self.get_key_calls += 1
+        if self._delay:
+            time.sleep(self._delay)
+        if self._locked:
+            msg = "locked"
+            raise KeyringLockedError(msg)
+        return self._key
+
+
+class _ProbedKeyring(_FakeKeyring):
+    def probe(self) -> KeyAvailability:
+        assert self._probe is not None
+        return self._probe
+
+
+@pytest.fixture
+def keyring_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[_FakeKeyring], _FakeKeyring]:
+    """No env key; the given fake is the only provider the resolver sees."""
+    from functualize._config.vault_keys import ENV_VAR
+
+    def install(fake: _FakeKeyring) -> _FakeKeyring:
+        monkeypatch.delenv(ENV_VAR, raising=False)
+        monkeypatch.setattr(
+            "functualize._config.vault_key_resolver.default_providers",
+            lambda: (fake,),
+        )
+        return fake
+
+    return install
+
+
+class TestPutTellsWhyThereIsNoKey:
+    """B3 through the public seam: three reasons, none destructive."""
+
+    def test_a_locked_keyring_is_key_locked(
+        self, app: FunctualizeApp, project: Path, keyring_only: Any
+    ) -> None:
+        keyring_only(_FakeKeyring(locked=True))
+        with pytest.raises(VaultKeySourceError) as exc:
+            vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        assert exc.value.reason == "key_locked"
+        message = str(exc.value)
+        assert "func builtin vault unlock" in message
+        assert "vault remove" not in message
+        assert "vault clear" not in message
+
+    def test_no_keyring_is_no_keyring(
+        self, app: FunctualizeApp, project: Path, keyring_only: Any
+    ) -> None:
+        keyring_only(_FakeKeyring(available=False))
+        with pytest.raises(VaultKeySourceError) as exc:
+            vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        assert exc.value.reason == "no_keyring"
+        assert "functualize[keychain]" in str(exc.value)
+
+    def test_nothing_stored_is_key_not_stored(
+        self, app: FunctualizeApp, project: Path, keyring_only: Any
+    ) -> None:
+        keyring_only(_FakeKeyring(key=None))
+        with pytest.raises(VaultKeySourceError) as exc:
+            vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        assert exc.value.reason == "key_not_stored"
+        assert "func builtin vault init" in str(exc.value)
+
+    def test_put_is_bounded_by_the_keyring_timeout(
+        self,
+        app: FunctualizeApp,
+        project: Path,
+        keyring_only: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """`put` runs from scripts too: a keyring that never answers costs the
+        configured wait, then a refusal — not a hang."""
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEYRING_TIMEOUT", "1s")
+        keyring_only(_FakeKeyring(key=b"\x01" * 32, delay=5.0))
+        started = time.monotonic()
+        with pytest.raises(VaultKeySourceError) as exc:
+            vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        assert time.monotonic() - started < 3.0
+        assert exc.value.reason == "key_locked"
+        assert "did not answer within 1s" in str(exc.value)
+
+    def test_the_legacy_reason_spelling_means_no_keyring(self) -> None:
+        assert VaultKeySourceError("key_unavailable", "x").reason == "no_keyring"
+
+
+class TestUnlock:
+    def test_it_names_the_provider_and_never_returns_the_key(
+        self, project: Path, keyring_only: Any
+    ) -> None:
+        key = b"\x5a" * 32
+        keyring_only(_FakeKeyring(key=key))
+        lookup = vault_unlock(cwd=project)
+        assert lookup.provider_id == "keychain"
+        assert lookup.key is None
+        assert key.hex() not in repr(lookup)
+
+    def test_it_applies_no_deadline(
+        self, project: Path, keyring_only: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A person is answering a dialog; the configured wait does not apply."""
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEYRING_TIMEOUT", "1s")
+        keyring_only(_FakeKeyring(key=b"\x5a" * 32, delay=1.5))
+        assert vault_unlock(cwd=project).provider_id == "keychain"
+
+    @pytest.mark.parametrize(
+        ("fake", "reason"),
+        [
+            (_FakeKeyring(locked=True), "key_locked"),
+            (_FakeKeyring(available=False), "no_keyring"),
+            (_FakeKeyring(key=None), "key_not_stored"),
+        ],
+    )
+    def test_a_failure_raises_with_its_reason(
+        self, project: Path, keyring_only: Any, fake: _FakeKeyring, reason: str
+    ) -> None:
+        keyring_only(fake)
+        with pytest.raises(VaultKeySourceError) as exc:
+            vault_unlock(cwd=project)
+        assert exc.value.reason == reason
+
+
+class TestInspectNeverPrompts:
+    """B5 — a locked keyring is reported, not opened."""
+
+    def test_a_locked_keyring_is_never_read(
+        self, app: FunctualizeApp, project: Path, keyring_only: Any
+    ) -> None:
+        vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        fake = keyring_only(_ProbedKeyring(probe=KeyAvailability.LOCKED))
+        report = vault_inspect(app, "deploy.api_token", cwd=project)
+        assert report.readability is Readability.KEY_UNAVAILABLE
+        assert fake.get_key_calls == 0
+
+    def test_a_keyring_that_cannot_say_is_never_read(
+        self, app: FunctualizeApp, project: Path, keyring_only: Any
+    ) -> None:
+        vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        fake = keyring_only(_FakeKeyring(key=b"\x5a" * 32))
+        report = vault_inspect(app, "deploy.api_token", cwd=project)
+        assert report.readability is Readability.KEY_UNAVAILABLE
+        assert fake.get_key_calls == 0

@@ -42,7 +42,7 @@ from functualize._config.vault import (
     KeyringLockedError,
     KeyringUnavailableError,
 )
-from functualize._config.vault_keys import default_providers
+from functualize._config.vault_keys import EnvKeyProvider, default_providers
 from functualize._types.enums import KeyAvailability
 from functualize._types.protocols import VaultKeyProbe
 
@@ -289,10 +289,12 @@ class VaultKeyResolver:
     def _resolve_silent(self, started: float) -> KeyLookup:
         """Answer without ever risking a prompt (status/inspect).
 
-        Env-shaped providers (no probe method) cannot prompt, so they are read
+        The env provider reads a variable and cannot prompt, so it is read
         under the short silent bound. Probe-capable providers answer LOCKED /
-        UNLOCKED / UNKNOWN; only UNLOCKED is read. A provider that needs a
-        terminal is never asked — the question itself is the prompt risk.
+        UNLOCKED / UNKNOWN; only UNLOCKED is read. Every other provider — one
+        that needs a terminal, or a backend with no probe, which may raise its
+        own dialog — is never asked: the question itself is the prompt risk,
+        so the answer is UNKNOWN.
         """
 
         def ask_one(provider: VaultKeyProvider) -> KeyLookup:
@@ -300,7 +302,7 @@ class VaultKeyResolver:
 
         quiet = [p for p in self._providers if p.interactive() is False]
         for provider in quiet:
-            if isinstance(provider, VaultKeyProbe) or not provider.is_available():
+            if not isinstance(provider, EnvKeyProvider) or not provider.is_available():
                 continue
             outcome = _run_bounded(partial(ask_one, provider), _SILENT_READ_SECONDS)
             if outcome is not None and outcome.status is KeyStatus.FOUND:
