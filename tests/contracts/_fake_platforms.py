@@ -328,6 +328,77 @@ class _SecretServiceHarness:
         return secret_service_adapter(world, secret, recorder)[0]
 
 
+# --------------------------------------------------------------------------
+# macOS: a fake of the four Security-framework calls the adapter makes.
+# --------------------------------------------------------------------------
+
+
+class FakeSecurity:
+    """The Keychain as the Security framework reports it, with no Mac."""
+
+    def __init__(self, world: World, secret: str, recorder: Recorder) -> None:
+        self.world = world
+        self.secret = secret
+        self.recorder = recorder
+        self.allowed = True
+        self.allowed_at_copy: list[bool] = []
+
+    def interaction_allowed(self) -> bool:
+        return self.allowed
+
+    def set_interaction_allowed(self, allowed: bool) -> None:
+        self.allowed = allowed
+
+    def copy_password(self, service: str, account: str) -> tuple[int, str | None]:
+        self.allowed_at_copy.append(self.allowed)
+        if self.world is World.HUNG:
+            time.sleep(HANG_SECONDS)
+        if self.world is World.ABSENT:
+            return -25291, None  # errSecNotAvailable
+        if self.world is World.EMPTY:
+            return -25300, None
+        if self.world is World.LOCKED:
+            if not self.allowed:
+                return -25308, None
+            self.recorder.prompts += 1
+            if self.recorder.answer is Answer.CANCEL:
+                return -128, None
+            self.world = World.UNLOCKED
+        self.recorder.secret_reads += 1
+        return 0, self.secret
+
+    def default_keychain_unlocked(self) -> bool | None:
+        if self.world is World.HUNG:
+            time.sleep(HANG_SECONDS)
+        if self.world is World.ABSENT:
+            return None
+        return self.world is not World.LOCKED
+
+
+def mac_adapter(
+    world: World, secret: str, recorder: Recorder
+) -> tuple[KeyringAdapter, FakeSecurity]:
+    from functualize._config.vault_keyring_macos import MacKeychainAdapter
+
+    security = FakeSecurity(world, secret, recorder)
+    return (
+        MacKeychainAdapter(
+            "functualize-vault", "vault-key", security=security, state_bound=0.5
+        ),
+        security,
+    )
+
+
+class _MacHarness:
+    name = "macos"
+    worlds = frozenset(World)
+    proves_silence = True
+    detects_missing_prompt = False
+
+    def build(self, world: World, secret: str, recorder: Recorder) -> KeyringAdapter:
+        return mac_adapter(world, secret, recorder)[0]
+
+
 #: Every adapter the contract suite holds to the contract. An adapter task adds
 #: its harness here.
-HARNESSES: list[Harness] = [_InMemoryHarness(), _SecretServiceHarness()]
+HARNESSES: list[Harness] = [_InMemoryHarness(), _SecretServiceHarness(), _MacHarness()]
