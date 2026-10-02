@@ -399,6 +399,59 @@ class _MacHarness:
         return mac_adapter(world, secret, recorder)[0]
 
 
+# --------------------------------------------------------------------------
+# Windows: a fake of keyring's Windows backend (Credential Manager).
+# --------------------------------------------------------------------------
+
+
+class FakeWinBackend:
+    def __init__(self, world: World, secret: str, recorder: Recorder) -> None:
+        self.world = world
+        self.secret = secret
+        self.recorder = recorder
+
+    def get_password(self, service: str, username: str) -> str | None:
+        if self.world is World.EMPTY:
+            return None
+        self.recorder.secret_reads += 1
+        return self.secret
+
+
+class FakeWinLoader:
+    """Credential Manager present, unless the world says there is none."""
+
+    def __init__(self, world: World, secret: str, recorder: Recorder) -> None:
+        self.backend = (
+            None if world is World.ABSENT else FakeWinBackend(world, secret, recorder)
+        )
+
+    def load(self) -> FakeWinBackend | None:
+        return self.backend
+
+
+class _WindowsHarness:
+    name = "windows"
+    # No lock model, so there is no locked world; and no state query that
+    # could hang, so no hung one either.
+    worlds = frozenset({World.UNLOCKED, World.EMPTY, World.ABSENT})
+    proves_silence = True
+    detects_missing_prompt = False
+
+    def build(self, world: World, secret: str, recorder: Recorder) -> KeyringAdapter:
+        from functualize._config.vault_keyring_windows import WindowsCredentialAdapter
+
+        return WindowsCredentialAdapter(
+            "functualize-vault",
+            "vault-key",
+            loader=FakeWinLoader(world, secret, recorder),
+        )
+
+
 #: Every adapter the contract suite holds to the contract. An adapter task adds
 #: its harness here.
-HARNESSES: list[Harness] = [_InMemoryHarness(), _SecretServiceHarness(), _MacHarness()]
+HARNESSES: list[Harness] = [
+    _InMemoryHarness(),
+    _SecretServiceHarness(),
+    _MacHarness(),
+    _WindowsHarness(),
+]
