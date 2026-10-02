@@ -1143,14 +1143,22 @@ def register_builtin_commands(cli_group: Any) -> None:
 
     @contextlib.contextmanager
     def _workflow_refusal() -> Any:
-        """Exit 2 rather than a traceback when the scope store cannot be read."""
-        from functualize.app.utils import ScopeStoreUnreadableError
+        """Exit rather than a traceback on the two refusals that raise.
+
+        An unreadable scope store exits 2; an unknown gate reference exits 1 —
+        the code `gate_not_found` already maps to.
+        """
+        from functualize.app.utils import GateNotFoundError, ScopeStoreUnreadableError
 
         try:
             yield
         except ScopeStoreUnreadableError as exc:
             click.echo(f"Error: {exc}", err=True)
             raise SystemExit(ExitCode.USAGE) from exc
+        except GateNotFoundError as exc:
+            # TRANSITIONAL(gate-name-resolution/T4): no production raiser until T4–T5
+            click.echo(f"Error: {exc}", err=True)
+            raise SystemExit(1) from exc
 
     def _render_walk_event(event: dict[str, Any]) -> str:
         """One walk event as a line.

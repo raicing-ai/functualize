@@ -142,7 +142,7 @@ extras and are identical on clean master), `lint-imports` 7 kept 0 broken,
 
 ## Wave 1 — the surfaces learn to translate it (before anything raises it)
 
-### [ ] T2 — CLI: `_workflow_refusal()` and the fused `--wf-input` path
+### [x] T2 — CLI: `_workflow_refusal()` and the fused `--wf-input` path
 
 *Files:* `src/functualize/_cli/builtins.py`, `src/functualize/app/adapters/workflow_flags.py`, `tests/cli/test_gate_not_found_refusal.py` (new)
 
@@ -187,6 +187,21 @@ now: `0` · after: `1`
 rg -c '_workflow_refusal\(\)' src/functualize/_cli/builtins.py
 ```
 now: `12` · after: `12` — invariant: the definition plus its 11 uses; no new wrapper is introduced.
+
+**Done 2026-10-02.** Gates 1/1/12 hold. Line drift in this task's files:
+`_workflow_refusal()` sits at `:1145` (cited `:1144`), the `gate_not_found`
+exit map still at `:1113`, `workflow answer` at `:1413` (cited `:1451`),
+`workflow resume` at `:1522` (cited `:1554`), and `_record` still at `:411`.
+One deviation from the letter of the test spec: the resume path does not
+reach `answer_gate` through `functualize.app.utils` — `resume_scope` binds it
+as a module-global from the resume-control module — so the tests patch that
+binding too (`functualize.app._workflow_control.answer_gate`) beside the two
+named homes. Reachability proved by sabotage after commit: deleting the
+builtins arm → `test_answer_exits_one_with_the_error_line` fails; re-pointing
+the flags arm's catch → `test_wf_resume_with_input_and_gate_exits_one` fails
+(deleting that arm outright is a SyntaxError — a lone `try:` — so the
+sabotage narrows the catch instead). Validation: `ruff check`/`ruff format`
+clean, `uv run pytest tests/cli/test_gate_not_found_refusal.py` → 4 passed.
 
 ### [ ] T3 — MCP: `_refuse_unknown_gates` on the three gate-taking tools
 
