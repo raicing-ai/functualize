@@ -565,6 +565,7 @@ class TestStatus:
         from functualize.plugin import KeyAvailability
 
         monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _seed_vault(report__password="fake-sm://prod/db")
         fake = _Keyring(probe=KeyAvailability.LOCKED)
         _only_keyring(monkeypatch, fake)
 
@@ -578,6 +579,7 @@ class TestStatus:
         from functualize.plugin import KeyAvailability
 
         monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _seed_vault(report__password="fake-sm://prod/db")
         _only_keyring(monkeypatch, _Keyring(probe=KeyAvailability.UNLOCKED, key=_KEY))
 
         payload = json.loads(_run(["status", "--json"]).output)
@@ -588,6 +590,7 @@ class TestStatus:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _seed_vault(report__password="fake-sm://prod/db")
         fake = _Keyring(key=_KEY)
         _only_keyring(monkeypatch, fake)
 
@@ -1499,6 +1502,10 @@ class TestTheDeclaredReasonCodesAreReachable:
             "key_locked",
             "no_keyring",
             "key_not_stored",
+            "key_unverified",
+            "cancelled",
+            "no_prompt",
+            "unlock_abandoned",
             "confirmation_required",
             "key_mismatch",
         }
@@ -1573,7 +1580,7 @@ class TestUnlock:
         result = _run(["unlock"])
 
         assert result.exit_code == 0, result.output
-        assert "'keychain' provider" in result.stdout
+        assert "already unlocked" in result.stdout
 
     def test_the_key_never_appears_in_any_rendering(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1587,12 +1594,16 @@ class TestUnlock:
         for text in (human.stdout, human.stderr, machine.stdout, machine.stderr):
             assert _KEY_HEX not in text
             assert _KEY_HEX.upper() not in text
-        assert json.loads(machine.stdout) == {"ok": True, "provider": "keychain"}
+        assert json.loads(machine.stdout) == {
+            "ok": True,
+            "reason": "already_unlocked",
+            "provider": "keychain",
+        }
 
     @pytest.mark.parametrize(
         ("fake", "reason", "says"),
         [
-            (_Keyring(locked=True), "key_locked", "locked or did not answer"),
+            (_Keyring(locked=True), "key_locked", "keyring is locked"),
             (_Keyring(available=False), "no_keyring", "no OS keyring is reachable"),
             (_Keyring(key=None), "key_not_stored", "no vault key is stored"),
         ],
@@ -1672,3 +1683,126 @@ class TestTheDifferentKeyMessage:
         text = self._rotated(monkeypatch)
         assert "destroy" in text
         assert "1 typed in by hand have no other copy" in text
+
+
+def _scripted_keychain(monkeypatch: pytest.MonkeyPatch, unlocked: Any) -> None:
+    """The shipped keychain provider, locked, over an adapter whose unlock answers `unlocked`."""
+    from functualize._config.vault_keyring import AdapterOutcome, AdapterRead
+    from functualize._config.vault_keys import KeychainKeyProvider
+    from functualize._types.enums import KeyAvailability
+
+    class _Adapter:
+        name = "linux"
+
+        def read_silent(self) -> AdapterRead:
+            return AdapterRead(AdapterOutcome.LOCKED)
+
+        def state(self) -> KeyAvailability:
+            return KeyAvailability.LOCKED
+
+        def unlock(self) -> AdapterRead:
+            return unlocked
+
+    class _Keychain(KeychainKeyProvider):
+        def is_available(self) -> bool:
+            return True
+
+    keychain = _Keychain(adapter=_Adapter())  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        "functualize._config.vault_key_resolver.default_providers", lambda: (keychain,)
+    )
+
+
+@pytest.mark.usefixtures("project")
+class TestUnlockSaysHowItEnded:
+    """A7' — already unlocked, unlocked now, nothing to unlock, cancelled, no prompt."""
+
+    def test_unlocked_now(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from functualize._config.vault_keyring import (
+            AdapterOutcome,
+            AdapterRead,
+            UnlockHow,
+        )
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _scripted_keychain(
+            monkeypatch,
+            AdapterRead(
+                AdapterOutcome.FOUND, secret=_KEY_HEX, how=UnlockHow.UNLOCKED_NOW
+            ),
+        )
+        human = _run(["unlock"])
+        machine = _run(["unlock", "--json"])
+        assert human.exit_code == 0
+        assert "Unlocked." in human.stdout
+        assert json.loads(machine.stdout)["reason"] == "unlocked"
+        assert _KEY_HEX not in human.stdout + machine.stdout
+
+    def test_nothing_to_unlock(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from functualize._config.vault_keyring import (
+            AdapterOutcome,
+            AdapterRead,
+            UnlockHow,
+        )
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _scripted_keychain(
+            monkeypatch,
+            AdapterRead(
+                AdapterOutcome.FOUND, secret=_KEY_HEX, how=UnlockHow.NOTHING_TO_UNLOCK
+            ),
+        )
+        result = _run(["unlock"])
+        assert result.exit_code == 0
+        assert "Nothing to unlock" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("how", "reason", "says"),
+        [
+            ("cancelled", "cancelled", "cancelled in the keyring's dialog"),
+            ("no_prompt", "no_prompt", "no unlock dialog appeared"),
+        ],
+    )
+    def test_a_dialog_that_ended_without_a_key_exits_refused(
+        self, monkeypatch: pytest.MonkeyPatch, how: str, reason: str, says: str
+    ) -> None:
+        from functualize._config.vault_keyring import (
+            AdapterOutcome,
+            AdapterRead,
+            UnlockHow,
+        )
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _scripted_keychain(
+            monkeypatch, AdapterRead(AdapterOutcome.LOCKED, how=UnlockHow(how))
+        )
+        human = _run(["unlock"])
+        machine = _run(["unlock", "--json"])
+        assert human.exit_code == ExitCode.REFUSED
+        assert says in human.stderr
+        assert json.loads(machine.stdout)["reason"] == reason
+
+    def test_an_env_key_has_nothing_to_unlock(self) -> None:
+        result = _run(["unlock"])
+        assert result.exit_code == 0
+        assert "nothing to unlock" in result.stdout
+
+    @pytest.mark.parametrize("args", [["unlock"], ["status"]], ids=["unlock", "status"])
+    def test_no_wording_names_a_keyring_product(
+        self, monkeypatch: pytest.MonkeyPatch, args: list[str]
+    ) -> None:
+        """A18 at the CLI."""
+        from functualize._config.vault_keyring import (
+            AdapterOutcome,
+            AdapterRead,
+            UnlockHow,
+        )
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _scripted_keychain(
+            monkeypatch, AdapterRead(AdapterOutcome.LOCKED, how=UnlockHow.CANCELLED)
+        )
+        result = _run(args)
+        text = (result.stdout + result.stderr).lower()
+        for product in ("gnome", "kwallet", "credential manager", "secret service"):
+            assert product not in text

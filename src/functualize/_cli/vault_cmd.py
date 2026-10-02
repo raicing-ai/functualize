@@ -204,7 +204,7 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
         f"({report.direct_entries} direct, {report.provider_entries} synced)"
     )
     click.echo(f"Key provider: {report.key_provider or '(none available)'}")
-    click.echo(f"Key state:    {report.key_state or '(no key provider)'}")
+    click.echo(f"Key state:    {report.key_state or '(no vault)'}")
     if report.age is not None:
         marker = "  ← stale" if report.stale else ""
         click.echo(f"Last synced:  {vault_duration(report.age)} ago{marker}")
@@ -576,7 +576,7 @@ def vault_init_command(key_source: str | None, json_out: bool) -> None:
 @click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
 @click.pass_context
 def vault_unlock_command(ctx: click.Context, json_out: bool) -> None:
-    """Unlock the OS keyring for the vault key, waiting as long as it takes.
+    """Unlock the keyring for the vault key, waiting as long as it takes.
 
     For a run that was refused because the keyring is locked: run this in a
     terminal, answer the keyring's own unlock dialog, and every later run —
@@ -584,22 +584,55 @@ def vault_unlock_command(ctx: click.Context, json_out: bool) -> None:
     as the keyring stays unlocked. The keyring decides how long that is;
     functualize keeps no copy and runs no timer.
 
-    Reports which provider answered. Never prints the key.
+    This is the only command that asks the keyring to unlock. It waits for the
+    dialog to be answered or cancelled there; interrupt once and it keeps
+    waiting, interrupt twice to stop. Never prints the key.
     """
-    from functualize.app.vault import VaultKeySourceError, vault_unlock
+    from functualize.app.vault import (
+        UnlockAbandonedError,
+        VaultKeySourceError,
+        vault_unlock,
+    )
 
     obj = ctx.find_root().obj
     app = obj.get("app") if isinstance(obj, dict) else None
     try:
         lookup = vault_unlock(app)
+    except UnlockAbandonedError as exc:
+        _fail(exc.reason, str(exc), json_out=json_out, code=ExitCode.REFUSED)
+        return
     except VaultKeySourceError as exc:
         _fail(exc.reason, str(exc), json_out=json_out, code=ExitCode.REFUSED)
         return
 
+    # `unlock_how` is an internal enum; its value is the documented reason.
+    how = getattr(lookup.unlock_how, "value", None)
+    from_env = lookup.provider_id == "env"
+    reason = (
+        "already_unlocked" if from_env or how in (None, "already_unlocked") else how
+    )
     if json_out:
-        _vault_json({"ok": True, "provider": lookup.provider_id})
+        _vault_json({"ok": True, "reason": reason, "provider": lookup.provider_id})
         return
-    click.echo(f"Vault key available from the {lookup.provider_id!r} provider.")
+    if from_env:
+        click.echo(
+            "The vault key is available from $FUNCTUALIZE_VAULT_KEY; there is "
+            "nothing to unlock."
+        )
+    elif reason == "unlocked":
+        click.echo(
+            "Unlocked. The vault key is available from the system keyring, and "
+            "runs read it silently while the keyring stays unlocked."
+        )
+    elif reason == "nothing_to_unlock":
+        click.echo(
+            "Nothing to unlock: this system's keyring has no locked state. The "
+            "vault key is available from it."
+        )
+    else:
+        click.echo(
+            "The keyring is already unlocked; the vault key is available from it."
+        )
 
 
 @vault_app.command("put")
