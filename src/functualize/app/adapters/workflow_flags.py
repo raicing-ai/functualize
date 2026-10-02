@@ -428,7 +428,6 @@ def _record(app: Any, outcome: WorkflowFlagOutcome) -> None:
         scope_id, gate_name = resolved
         result = answer_gate(app, store, scope_id, gate_name, values, source="cli")
     except GateNotFoundError as exc:
-        # TRANSITIONAL(gate-name-resolution/T4): no production raiser until T4–T5
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(1) from exc
     if "error" in result:

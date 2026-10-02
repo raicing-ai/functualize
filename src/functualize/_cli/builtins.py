@@ -1156,7 +1156,6 @@ def register_builtin_commands(cli_group: Any) -> None:
             click.echo(f"Error: {exc}", err=True)
             raise SystemExit(ExitCode.USAGE) from exc
         except GateNotFoundError as exc:
-            # TRANSITIONAL(gate-name-resolution/T4): no production raiser until T4–T5
             click.echo(f"Error: {exc}", err=True)
             raise SystemExit(1) from exc
 

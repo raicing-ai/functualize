@@ -336,3 +336,34 @@ class TestFusedFlags:
 
         status = _func(scratch, "release", "--wf-status")
         assert scope not in status.stdout, status.stdout + status.stderr
+
+    def test_an_unknown_wf_gate_refuses_without_a_traceback(
+        self, scratch: Path
+    ) -> None:
+        """AC-11 through the fused flags, with the real raiser: exit 1, the
+        Error line naming the gates that exist, and the walk not started."""
+        blocked_run = _func(scratch, "release")
+        assert blocked_run.returncode == 5, blocked_run.stdout + blocked_run.stderr
+        scope = _scope_of(blocked_run)
+
+        refused = _func(
+            scratch,
+            "release",
+            "--wf-resume",
+            scope,
+            "--wf-input",
+            "{}",
+            "--wf-gate",
+            "nope",
+        )
+        blob = refused.stdout + refused.stderr
+
+        assert refused.returncode == 1, blob
+        assert "Error: Workflow" in blob and "has no gate 'nope'" in blob, blob
+        assert "approve-refund" in blob, blob
+        assert "Traceback" not in blob, blob
+        assert "WALK BODY RAN" not in blob, blob
+
+        # The refusal left the scope untouched and still waiting.
+        still = _func(scratch, "release", "--wf-status")
+        assert scope in still.stdout, still.stdout + still.stderr

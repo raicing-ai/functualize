@@ -120,7 +120,6 @@ def _refuse_unknown_gates(fn: Any) -> Any:
         try:
             return await fn(*args, **kwargs)
         except GateNotFoundError as exc:
-            # TRANSITIONAL(gate-name-resolution/T4): no production raiser until T4–T5
             return {**_error("gate_not_found", str(exc)), "gates": list(exc.known)}
 
     return _wrapped

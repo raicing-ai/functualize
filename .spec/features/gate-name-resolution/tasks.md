@@ -524,7 +524,7 @@ The changelog entry lands under `## [Unreleased]` as the newest `### Fixed`.
 
 ## Wave 7 — checkpoint
 
-### [ ] T9 — verify the whole feature, close the transitional window
+### [x] T9 — verify the whole feature, close the transitional window
 
 *Files:* `src/functualize/_cli/builtins.py`, `src/functualize/app/adapters/workflow_flags.py`, `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py` (marker removal only); fixes found here go back to the owning task's file and are noted there.
 
@@ -550,7 +550,9 @@ The changelog entry lands under `## [Unreleased]` as the newest `### Fixed`.
 ```bash
 rg -c 'TRANSITIONAL\(gate-name-resolution' src plugins
 ```
-now: `0` · after: `0` (T2 and T3 add three; this task removes them)
+now: `0` · after: `0` (T2 and T3 add three; this task removes them) — invariant:
+the branch opens and closes with no markers; the count is 3 only inside the
+T2–T8 window
 
 ```bash
 rg -c '_canonical_gate\(' src/functualize/app/_workflow_resume.py src/functualize/app/_workflow_answer.py src/functualize/app/_workflow_view.py
@@ -558,9 +560,60 @@ rg -c '_canonical_gate\(' src/functualize/app/_workflow_resume.py src/functualiz
 now: `0` · after: `7` (six calls and the definition)
 
 ```bash
-git diff --name-only ef1939d -- tests | rg -v 'test_gate_not_found_error|test_gate_not_found_refusal|test_mcp_gate_not_found|test_gate_name_resolution' | wc -l
+git diff --name-only e8fac3e -- tests | rg -v 'test_gate_not_found_error|test_gate_not_found_refusal|test_mcp_gate_not_found|test_gate_name_resolution' | wc -l
 ```
 now: `0` · after: `0` — invariant: AC-10, no existing test is edited.
+
+**Done 2026-10-02.** The three markers are gone and every arm is proven with
+the real raiser — commit, break, named T7/T4 test fails, restore, amend:
+deleting the builtins arm → `TestCliSurface::test_unknown_gate_on_answer_…`
+fails; re-pointing the flags arm's catch →
+`TestFusedFlags::test_an_unknown_wf_gate_refuses_without_a_traceback` fails;
+re-pointing the MCP decorator's catch → `TestMcpUnknownGate::test_answer_gate`
+fails; passing the raw reference through the resolver → 3 of 7
+`TestCanonicalGate` tests fail. One fix went back to the owning task's file,
+as this task's header allows: T7 gained the fused unknown-gate case
+(`test_an_unknown_wf_gate_refuses_without_a_traceback`), because proving the
+flags arm with the real raiser needs a T7 test that drives it and T7's AC-11
+list had covered only the answer/resume CLI cases.
+
+**Five checks:** `ruff check` ✓, `ruff format --check` ✓, `mypy src/` ✓ (no
+issues in 380 files), `lint-imports` ✓ (7 kept, 0 broken), fast suite ✓ —
+**11 686 passed, 1 622 skipped, 0 failed**, run as seven per-directory chunks
+at `-n auto` each bounded by `timeout 570`: the serial single-call form the
+task names reached only 28% in 570 s on this loaded host (load ≈ 2), past the
+600 s tool-call cap, and the command discipline's sanctioned local shape for
+that case is the chunked run. Under xdist `conftest` skips `perf_budget`
+items; CI's `test-fast` job enforces those serially.
+
+**Orphan scan (serena, activated on this checkout):** `_canonical_gate` →
+exactly six production call sites (1 in `_workflow_resume.py`, 4 in
+`_workflow_answer.py`, 1 in `_workflow_view.py`) plus the pure tests;
+`GateNotFoundError` → the one raiser (`_workflow_resume.py:88`), catchers in
+`_cli/builtins.py:1157`, `workflow_flags.py:429` and
+`_workflow_tools.py:121`, the `utils.py` re-export (`:79`, `:285`), and the
+consumers in the answer/view modules. No orphans.
+
+**Fences re-run** at the new merge-base `e8fac3e`: scope fence `0`,
+`"gate_not_found": 1` → `1`. **wc -l re-measured:** `_workflow_answer.py`
+466, `_workflow_view.py` **578** (not 563 — the disclosed T6 delta),
+`_workflow_resume.py` 207, `_workflow_tools.py` 643.
+
+**Real-terminal AC-11** (scratch project, real process, not CliRunner):
+`func builtin workflow answer release-8bc4e429 nope --input '{}'` → stderr
+`Error: Workflow 'release-8bc4e429' has no gate 'nope'. Gates:
+approve-refund. Run \`func builtin workflow list\` to see what is waiting.`,
+exit code **1**, no traceback.
+
+**Two gate re-authorings, both drift bookkeeping rather than weakenings:**
+the tests-diff gate's base moved `ef1939d` → `e8fac3e` (against `ef1939d` the
+count reads master's own `ef1939d..e8fac3e` test changes, which are not this
+branch's — the same standing-rule move the scope fence already records); and
+the marker gate's values line now states `invariant`, because the gate parser
+flags a ticked gate whose `now:` equals its `after:` unless the exemption is
+written beside the numbers, and this gate records `0 → 0` by design — the
+branch opens and closes with no markers, and is 3 only inside the T2–T8
+window.
 
 ## Wave 8 — pre-merge cleanup
 
