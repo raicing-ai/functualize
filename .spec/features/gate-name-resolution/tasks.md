@@ -95,7 +95,7 @@ now: `1` · after: `1` — invariant: the CLI exit code for an unknown gate stay
 
 ## Wave 0 — the vocabulary
 
-### [ ] T1 — `GateNotFoundError` and its public door
+### [x] T1 — `GateNotFoundError` and its public door
 
 *Files:* `src/functualize/_types/errors.py`, `src/functualize/app/utils.py`, `tests/types/test_gate_not_found_error.py` (new)
 
@@ -122,6 +122,23 @@ now: `0` · after: `1`
 rg -c 'GateNotFoundError' src/functualize/app/utils.py
 ```
 now: `0` · after: `2` (the import and the `__all__` entry)
+
+**Done 2026-10-02** (branch rebased onto `e8fac3e` and force-pushed with lease
+first, per the standing rebase rule). Gates re-measured post-rebase: `now:`
+values all held.
+Line drift in this task's files: `AmbiguousJobError` still at `:241` (no
+drift); the `utils.py` errors import block is `:79-84` (cited `:80-84`), and
+the `__all__` slot beside `ScopeStoreUnreadableError` sat at `:284` at rebase
+time (`:282` cited) and moves to `:285` with this change. The scope-fence
+gate's base is now `origin/master` (`e8fac3e`): against `ef1939d` as written it
+reads 3, because master's own `ef1939d..e8fac3e` touched
+`_engine/gate_service.py`, `_primitives/gate_requests.py` and
+`_types/workflow.py` — not this branch. Production call path: none yet by
+design (first raiser is T4; T9 proves reachability). Validation:
+`ruff check` / `ruff format` clean, `mypy src/` clean (after `uv sync
+--all-extras`; 8 pre-existing errors about missing optional deps appear without
+extras and are identical on clean master), `lint-imports` 7 kept 0 broken,
+`uv run pytest tests/types/test_gate_not_found_error.py` → 7 passed.
 
 ## Wave 1 — the surfaces learn to translate it (before anything raises it)
 

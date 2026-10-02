@@ -77,6 +77,7 @@ from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize._types.enums import RunStatus
 from functualize._types.errors import (
+    GateNotFoundError,
     JobMaterializationError,
     ScopeCancelledError,
     ScopeStoreUnreadableError,
@@ -282,6 +283,7 @@ __all__ = [
     # `_cli` may import public folders only.
     "ScopeCancelledError",
     "ScopeStoreUnreadableError",
+    "GateNotFoundError",
     "resolved_hints",
     "detect_config_class",
     "CLI_MARKER_TYPE_NAMES",
