@@ -441,7 +441,7 @@ sabotage after commit: restoring the equality predicate →
 
 ## Wave 5 — surfaces, end to end
 
-### [ ] T7 — integration: CLI, fused flags and MCP, real raisers
+### [x] T7 — integration: CLI, fused flags and MCP, real raisers
 
 *Files:* `tests/integration/test_gate_name_resolution_e2e.py` (new)
 
@@ -471,6 +471,17 @@ ls tests/integration/test_gate_name_resolution_e2e.py 2>/dev/null | wc -l
 now: `0` · after: `1`
 
 Also green: `uv run pytest tests/integration/test_gate_name_resolution_e2e.py -q --no-header`.
+
+**Done 2026-10-02.** Gate 1/1; that pytest selection → 11 passed in 9.6 s
+(4 MCP + 3 MCP-unknown + 3 CLI + 1 fused subprocess). No `src/` change, no
+monkeypatching — the tests themselves drive the production paths (MCP tool
+methods, the registered builtin group in-process, and a real `func`
+subprocess against a scratch project, modelled on the dispatch-matrix
+pattern), so there is no separate sabotage step for this task: deleting any
+production seam they cover is a failing test by construction. One test
+iterated: the first version parsed `list --format json` without draining the
+resume output first (stdout pollution), fixed by draining the capture
+between calls. `ruff check`/`ruff format` clean.
 
 ## Wave 6 — documentation
 
