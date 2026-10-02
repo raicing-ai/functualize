@@ -218,3 +218,54 @@ class TestVaultKeyProbe:
 
         assert "VaultKeyProbe" in plugin_api.__all__
         assert "KeyAvailability" in plugin_api.__all__
+
+
+class TestVaultKeyUnlocker:
+    """The one key-provider capability that may prompt (`vault unlock` only).
+
+    Split like the other two, so the negative test matters most: a provider
+    without `unlock()` stays a valid provider.
+    """
+
+    def test_an_unlock_less_provider_is_not_an_unlocker(self) -> None:
+        from functualize.plugin import VaultKeyUnlocker
+
+        assert not isinstance(_KeychainLike(), VaultKeyUnlocker)
+
+    def test_adding_unlock_opts_in_structurally(self) -> None:
+        from functualize.plugin import VaultKeyUnlocker
+
+        class Unlockable:
+            def identifier(self) -> str:
+                return "unlockable"
+
+            def interactive(self) -> bool:
+                return False
+
+            def is_available(self) -> bool:
+                return True
+
+            def get_key(self, project_id: str) -> bytes | None:
+                return None
+
+            def unlock(self) -> bool:
+                return True
+
+        assert isinstance(Unlockable(), VaultKeyUnlocker)
+
+    def test_it_is_runtime_checkable_like_its_base(self) -> None:
+        from functualize.plugin import VaultKeyUnlocker
+
+        assert getattr(VaultKeyUnlocker, "_is_runtime_protocol", False)
+
+    def test_the_provider_contract_says_get_key_never_prompts(self) -> None:
+        """The contract a third-party provider is held to, stated where it reads."""
+        from functualize.plugin import VaultKeyProvider
+
+        doc = VaultKeyProvider.get_key.__doc__ or ""
+        assert "Must not prompt" in doc
+
+    def test_it_is_reachable_from_the_public_plugin_surface(self) -> None:
+        import functualize.plugin as plugin_api
+
+        assert "VaultKeyUnlocker" in plugin_api.__all__

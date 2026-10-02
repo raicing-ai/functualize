@@ -55,6 +55,7 @@ from functualize._types.protocols import (
     VaultKeyInitializer,
     VaultKeyProbe,
     VaultKeyProvider,
+    VaultKeyUnlocker,
 )
 from functualize._types.settings import (
     AppSettingsSchema,
@@ -136,6 +137,9 @@ __all__ = [
     # structural implementation that exists today.
     "VaultKeyProbe",
     "KeyAvailability",
+    # The unlock half: the one capability that may prompt, used only by
+    # `func builtin vault unlock`. A provider's `get_key` never prompts.
+    "VaultKeyUnlocker",
     # The agent step port. A step performed by an agent is an executor behind
     # this Protocol; what an executor can enforce is declared, and a step that
     # requires what the executor lacks is refused at validation rather than run

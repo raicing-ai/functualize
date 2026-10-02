@@ -163,6 +163,8 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         # as amended).
         "VaultKeyProbe",
         "KeyAvailability",
+        # The one key-provider capability that may prompt: `vault unlock` only.
+        "VaultKeyUnlocker",
         # The agent step port (agent-step-port F6): one Protocol a plugin
         # implements, plus the capability flags it declares and the payload
         # types it is handed and returns.
