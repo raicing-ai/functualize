@@ -443,7 +443,7 @@ Conventions
     it. Also touched (not in [F]): `examples/docs/scenarios/p-remote-vault.toml`'s
     `[source] lines`, moved to the vault-commands section's new range.
 
-- [ ] **5.2 — The live check on this host** `[verify-e2e:targeted]`
+- (RETIRED — replaced by R7.2 and R8.2) **5.2 — The live check on this host**
   - [F] `.spec/features/vault-keyring-unlock/live-check.md`,
     `.spec/features/vault-keyring-unlock/live-check.sh` (new; not shipped)
   - A script that creates a **throwaway** Secret Service collection (never `Login`),
@@ -467,9 +467,9 @@ Conventions
     desktop session). `live-check.md` says NOT RUN until real output replaces
     its placeholder.
 
-## Wave 6 — checkpoint
+## (retired) Wave 6 — checkpoint
 
-- [ ] **6.1 — Full gates** `[verify-e2e:full]`
+- (RETIRED — replaced by R8.1) **6.1 — Full gates**
   - Gate: `uv run ruff check src/ tests/`; `uv run ruff format --check src/ tests/`;
     `uv run mypy src/`; `uv run lint-imports` -> 7 kept, 0 broken; pytest by tier
     (test-tiers: step -> wave -> tip, never one 600 s call); warm-boot import count
@@ -477,9 +477,9 @@ Conventions
     existing lazy-boot measurement); `agentic-verify` walk of `contracts.md`
     (every signature and CLI shape present; orphan scan).
 
-## Wave 7 — knowledge and tracker close-out
+## (retired) Wave 7 — knowledge and tracker close-out
 
-- [ ] **7.1 — Confluence and Jira**
+- (RETIRED — replaced by R8.3) **7.1 — Confluence and Jira**
   - [F] none in the repository.
   - Decision record (page 12222468) -> Accepted (status, date, link to the PR); the
     shipped behavior promoted in the **existing draft** under *50 — Current
@@ -495,19 +495,424 @@ Conventions
 
 ---
 
+# Rework after the live findings (Addendum 1, 2026-10-02)
+
+Waves 0-5 above are **done and stay valid** except where the addendum
+(`spec.md` → *Addendum 1*, `plan.md` → *Addendum 1*) supersedes a behavior: a run
+no longer raises an unlock prompt, the 30 s wait is no longer a prompt wait, the
+keyring layer becomes a platform-neutral adapter port, and a lightweight
+`vault_key_state` API is added. Tasks 5.2, 6.1 and 7.1 above are **retired**
+(their work moves to R7.2, R8.1, R8.2 and R8.3) and are no longer in the
+dependency graph. Read `research.md` R9-R12 first: they are the evidence.
+
+**Rules that apply to every R-task**
+- Nothing in the test suite, in CI, or in a script may raise an unlock prompt on a
+  real user session. The suite-wide `_isolate_os_keyring` fixture in
+  `tests/conftest.py` already fences this; do not weaken it.
+- Messages are provider-neutral: they say "keyring", never a product name
+  (gnome-keyring, KWallet, Keychain, Credential Manager). A test greps them.
+- Never call `Prompt.Dismiss`, and never end an active unlock prompt from the
+  client side (research R9). `vault unlock` waits for the prompt's own outcome.
+- `get_key()` on a keyring-family provider **never prompts** (new contract, R1.1).
+
+## Wave 6 — contracts first (disjoint)
+
+- [ ] **R1.1 — The provider contract: `get_key` never prompts; `VaultKeyUnlocker`**
+  - [F] `src/functualize/_types/protocols.py`, `src/functualize/plugin/__init__.py`,
+    `tests/plugin/test_vault_key_provider.py`, `tests/test_public_api_surface.py`
+  - State in the `VaultKeyProvider` docstring that `get_key` must not prompt and
+    must return promptly (or raise a typed locked/unavailable error); add the
+    optional `VaultKeyUnlocker` Protocol (`unlock() -> bool`, may prompt) and export it
+    from `functualize.plugin`. `interactive()` keeps its meaning (needs a person at a
+    terminal).
+  - Gate: `uv run pytest tests/plugin/test_vault_key_provider.py tests/test_public_api_surface.py -q`
+    green; `uv run lint-imports` -> 7 kept.
+  - Spec: B2', B4', contracts §8.
+
+- [ ] **R1.2 — The adapter contract suite (written before the adapters)**
+  - [F] `tests/contracts/__init__.py` (new), `tests/contracts/_fake_platforms.py` (new),
+    `tests/contracts/test_keyring_adapter_contract.py` (new)
+  - A parametrized suite every keyring adapter must pass, using fakes that record
+    "a prompt was requested": `read_silent()` on a locked fake returns LOCKED and
+    records **zero** prompts; on an unlocked fake returns FOUND; no entry ->
+    NOT_STORED; backend absent -> NO_KEYRING; `state()` agrees with those; `unlock()` is
+    the only call that may record a prompt; no adapter blocks longer than its bound.
+    The parameter list starts empty and each adapter task (R2.x) registers itself.
+  - Gate: the suite collects and passes with the placeholder fake adapter;
+    `uv run pytest tests/contracts -q` green.
+  - Spec: B9, A15.
+
+## Wave 7 — the adapters (disjoint new files)
+
+- [ ] **R2.1 — Linux Secret Service adapter (silent read, state, unlock)**
+  - [F] `src/functualize/_config/vault_keyring_secretservice.py` (new),
+    `tests/config/test_vault_keyring_secretservice.py` (new)
+  - Uses `secretstorage` directly, imported lazily inside the adapter. `read_silent()`:
+    default collection `is_locked()` -> LOCKED (return at once); else search by the
+    clear-text attributes and `get_secret()`, mapping `LockedException` -> LOCKED. It
+    **never calls `unlock()`** and never `keyring.get_password` (which auto-unlocks).
+    `state()`: UNLOCKED / LOCKED / UNKNOWN (any D-Bus failure), bounded ~1 s.
+    `unlock()`: the only prompt-capable call; runs `collection.unlock()` and waits for the
+    prompt's own outcome; **no `Dismiss`**; a watcher notices "no prompt helper appeared
+    within ~3 s" (gnome-keyring: `org.gnome.keyring.SystemPrompter` has no owner) and
+    reports it through a neutral error. It speaks the Secret Service protocol, so it
+    also serves any implementation of it (KWallet 6, KeePassXC).
+  - Tests use a fake `secretstorage` module (no D-Bus). Register in R1.2's suite.
+  - Gate: `uv run pytest tests/config/test_vault_keyring_secretservice.py tests/contracts -q`;
+    `rg -n "get_password|Dismiss" src/functualize/_config/vault_keyring_secretservice.py` -> 0.
+  - Spec: B2', B4', B9. Call path: R3.1 factory -> `KeychainKeyProvider`.
+
+- [ ] **R2.2 — macOS adapter**
+  - [F] `src/functualize/_config/vault_keyring_macos.py` (new),
+    `tests/config/test_vault_keyring_macos.py` (new)
+  - Reads through the Security framework with user interaction **disabled** around the
+    read (`SecKeychainSetUserInteractionAllowed(false)` via ctypes, reusing `keyring`'s
+    Security handle; restore on exit). Status `-25308` (interaction not allowed) ->
+    LOCKED; item not found -> NOT_STORED. `unlock()`: interaction allowed + read.
+    **Unverified on a real Mac** (research R10): the design is only as good as the
+    macOS smoke job (R7.1) and the manual checklist (R7.2).
+  - Tests inject a fake ctypes layer (so they run on Linux). Register in R1.2.
+  - Gate: `uv run pytest tests/config/test_vault_keyring_macos.py tests/contracts -q`;
+    `uv run mypy --platform darwin --follow-imports=silent src/functualize/_config/vault_keyring_macos.py`.
+  - Spec: B9, A15, A16.
+
+- [ ] **R2.3 — Windows adapter**
+  - [F] `src/functualize/_config/vault_keyring_windows.py` (new),
+    `tests/config/test_vault_keyring_windows.py` (new)
+  - `CredRead` through `keyring`'s Windows backend; no lock model, so `state()` is
+    UNLOCKED whenever the backend is present, `unlock()` is a no-op that reports
+    "nothing to unlock", and a read never prompts. Not found (`winerror` 1168) ->
+    NOT_STORED. Register in R1.2.
+  - Gate: `uv run pytest tests/config/test_vault_keyring_windows.py tests/contracts -q`;
+    `uv run mypy --platform win32 --follow-imports=silent src/functualize/_config/vault_keyring_windows.py`.
+  - Spec: B9, A15, A16.
+
+- [ ] **R2.4 — Generic adapter for unrecognised backends (fail-safe)**
+  - [F] `src/functualize/_config/vault_keyring_generic.py` (new),
+    `tests/config/test_vault_keyring_generic.py` (new)
+  - For a `keyring` backend that is not on the allowlist (R3.1): `state()` is UNKNOWN,
+    and `read_silent()` **refuses to read** (returns a new `UNVERIFIED` outcome that the
+    resolver maps to the neutral "this keyring cannot be read without a possible
+    prompt" message), because silence cannot be proven. `unlock()` reads once through
+    `keyring` in the foreground (the backend may prompt; a person is present).
+  - Gate: `uv run pytest tests/config/test_vault_keyring_generic.py tests/contracts -q`.
+  - Spec: B9 (allowlist), A15.
+
+## Wave 8 — selection and the provider
+
+- [ ] **R3.1 — Adapter factory; `KeychainKeyProvider` delegates**
+  - [F] `src/functualize/_config/vault_keyring.py` (new), `src/functualize/_config/vault_keys.py`,
+    `tests/config/test_vault_keys.py`
+    (hit set: `rg -n "get_password" src` -> `vault_keys.py:254`, the only direct call)
+  - The factory picks an adapter by `sys.platform` and the active `keyring` backend
+    class, with a short allowlist (Secret Service family, macOS, Windows); everything
+    else -> generic. Adapter modules are imported **lazily and only on their own
+    platform**. `KeychainKeyProvider.get_key` delegates to `read_silent()`;
+    `probe()` to `state()`; new `unlock()` (it satisfies `VaultKeyUnlocker`);
+    `initialize_key` keeps writing through `keyring.set_password`. The `except
+    Exception: return None` is already gone; do not reintroduce it.
+  - Gate: `uv run pytest tests/config/test_vault_keys.py tests/contracts -q`;
+    `rg -n "get_password" src/functualize/_config/vault_keys.py` -> 0 reads (the write path
+    uses `set_password` only); `uv run lint-imports` -> 7 kept.
+  - Spec: B2', B9.
+
+## Wave 9 — resolver and platform hygiene (disjoint)
+
+- [ ] **R4.1 — The resolver stops prompting; neutral messages**
+  - [F] `src/functualize/_config/vault_key_resolver.py`, `tests/config/test_vault_key_resolver.py`,
+    `tests/config/test_vault_source_lazy.py`
+    (hit set *run at authoring*: `rg -n "_run_bounded" src` -> 4 sites in
+    `vault_key_resolver.py` (136, 273, 343, 359))
+  - BOUNDED and SILENT both call `read_silent()`: **locked -> LOCKED at once, no wait**.
+    `_run_bounded` stays only as the safety net against a hung backend (its message
+    says "did not answer"); it must never be the way a prompt is abandoned. FOREGROUND
+    calls `unlock()` and has no deadline. If BOUNDED and SILENT become identical,
+    collapse them (Speculative Generality). `describe_key_failure`: the locked text
+    becomes *"The keyring is locked. Unlock it with your system's keyring manager, or
+    run `func builtin vault unlock` in a terminal, or set `FUNCTUALIZE_VAULT_KEY`, then
+    retry."*; add the UNVERIFIED text; no product names anywhere.
+  - Gate: `uv run pytest tests/config/test_vault_key_resolver.py tests/config/test_vault_source_lazy.py -q`
+    green, including a test that no message contains `gnome`, `kwallet`, `keychain`,
+    `credential manager`, `secret service` (case-insensitive).
+  - Spec: B2', B3', A4', A18.
+
+- [ ] **R3.2 — No Linux-only code on other platforms**
+  - [F] `tests/config/test_keyring_platform_imports.py` (new)
+  - With `sys.platform` forced to `darwin` and then `win32` and an import hook that
+    raises on `secretstorage` and `jeepney`, importing the factory and building a
+    provider must succeed and must not import either; and the reverse (Linux) must not
+    import the macOS or Windows adapter modules.
+  - Gate: `uv run pytest tests/config/test_keyring_platform_imports.py -q`;
+    `uv run mypy --platform darwin src/functualize/_config/` and
+    `uv run mypy --platform win32 --follow-imports=silent src/functualize/_config/vault_key*.py`
+    clean (research R10: the 8 Windows errors are pre-existing, elsewhere).
+  - Spec: B9, A16.
+
+## Wave 10 — the public API
+
+- [ ] **R5.1 — `vault_key_state`; `vault_unlock` signal policy; `vault_status` uses it**
+  - [F] `src/functualize/app/vault.py`, `src/functualize/app/utils.py`,
+    `tests/app/test_vault_seam.py`, `tests/app/test_vault_status_key_state.py`,
+    `tests/app/test_vault_key_state.py` (new)
+  - `vault_key_state(app=None, cwd=None) -> VaultKeyState` (`schema.md`): no vault file
+    -> NOT_APPLICABLE; env set -> UNLOCKED with source `env`, **no keyring touch**;
+    else the adapter `state()` plus whether an entry is stored (clear-text attributes);
+    hard cap ~250 ms (UNKNOWN on timeout); process-level cache with a short TTL held on
+    the resolver instance (no module global). Never prompts, never reads the secret,
+    never unlocks. `vault_status()` fills `key_state` from it (one implementation).
+    `vault_unlock`: while a prompt is outstanding, the first SIGINT/SIGTERM sets a flag
+    and keeps waiting (the CLI prints guidance); a second one raises
+    `UnlockAbandoned` after restoring handlers, with a warning that the keyring may
+    misbehave; restores signal handlers in a `finally`.
+  - Gate: `uv run pytest tests/app/test_vault_key_state.py tests/app/test_vault_status_key_state.py tests/app/test_vault_seam.py -q`
+    green; a test asserts the state call makes **zero** `get_key`/secret reads and zero
+    prompts on a locked fake, and finishes under the cap with a hung fake.
+  - Spec: B4', B8, A7', A13.
+
+## Wave 11 — surfaces (disjoint)
+
+- [ ] **R6.1 — CLI: `vault unlock` behavior and wording**
+  - [F] `src/functualize/_cli/vault_cmd.py`, `tests/cli/test_vault_commands.py`
+  - Messages for: already unlocked (exit 0), unlocked now (exit 0, provider named), user
+    cancelled in the dialog (exit 3), no prompt appeared (exit 3), nothing to unlock on
+    this platform (exit 0), waiting guidance on the first signal. `--json` keeps the
+    sibling envelope. Update tests asserting the old wording.
+  - Gate: `uv run pytest tests/cli/test_vault_commands.py -q` green.
+  - Spec: B4', A7'.
+
+- [ ] **R6.2 — TUI: show the vault state (never blocks the UI thread)**
+  - [F] `src/functualize/_cli/tui/bar_items.py`, `src/functualize/_cli/tui/dynamic_footer_widget.py`,
+    `src/functualize/_cli/tui/app.py`, `tests/tui_audit/test_vault_state_item.py` (new)
+    (candidates from `rg -l -i "status.?bar|StatusBar|DynamicFooter" src/functualize/_cli/tui`;
+    the executor confirms the minimal subset by reading them)
+  - **Read first:** `contributor/guides/steering_textual_tui.md` (§2.5 workers) and
+    `contributor/guides/tui-panels.md`. Poll `vault_key_state` from a **thread worker**
+    (`run_worker(fn, thread=True)` + `call_from_thread`) every ~10 s and on focus, show
+    only when the project has a vault (`not_applicable` renders nothing). Public API only
+    (`functualize.app.vault`). `func --help` is **not touched** (maintainer decision
+    2026-10-02). Inline mode is not supported on Windows (steering doc), so the item
+    simply never renders there.
+  - Gate: `uv run pytest tests/tui_audit/ -q` green before and after (re-run per
+    CLAUDE.md); the new test proves a hung `vault_key_state` does not block the event loop.
+  - Spec: B8, A14.
+
+- [ ] **R6.3 — Docs, ADR amendment, changelog**
+  - [F] `docs/guides/configuration.md`, `contributor/adr/016-remote-source-activation.md`,
+    `CHANGELOG.md`
+  - Replace every statement that a locked keyring is waited on or that a dialog appears
+    during a run; document `vault unlock`, `vault_key_state`, the TUI item, the platform
+    support levels (Linux verified; macOS/Windows implemented and CI-smoked, not
+    field-verified), and the advice "unlock before running agents". Adjust the ADR-016
+    "Amended by" block: the reason (no unbounded hang on a prompt) is kept, the
+    mechanism is now *no prompt from a run at all*. Keep the repository free of
+    internal page links and tracker keys.
+  - Gate: `rg -n -i "30 seconds|dialog.*within|waits? up to" docs/guides/configuration.md CHANGELOG.md`
+    shows no remaining claim of a prompt wait; doc code blocks run (`doc-verify`).
+  - Spec: A12.
+
+- [ ] **R6.4 — End-to-end tests follow the new behavior**
+  - [F] `tests/integration/test_vault_keyring_unlock_e2e.py`, `tests/integration/_fake_keyring.py`
+  - Mode `locked-blocks` becomes `locked` (raises a locked error at once). A4 becomes:
+    locked + piped -> exit 3 in under 2 s, neutral message, backend recorded **no**
+    prompt. Add: `vault unlock` against a fake that "unlocks" (exit 0) and then a piped
+    run succeeds (the unlock-elsewhere story), and a fake that cancels (exit 3).
+  - Gate: `uv run pytest tests/integration/test_vault_keyring_unlock_e2e.py -q` green;
+    reachability by sabotage: making `read_silent` call the fake's prompt path turns A4 red.
+  - Spec: A1-A6, A4'.
+
+## Wave 12 — CI and the manual tier
+
+- [ ] **R7.1 — Cross-platform keyring jobs (non-required at first)**
+  - [F] `.github/workflows/keyring-platforms.yml` (new), `.github/scripts/keyring_smoke.py` (new)
+  - Matrix `ubuntu-latest`, `macos-latest`, `windows-latest`. **Tier 1** (all three):
+    the adapter contract suite plus a real-OS smoke — macOS: create a temporary keychain
+    with `security`, lock it, assert the silent read returns LOCKED within 5 s (a hang
+    means a dialog and fails the job); Windows: write then read a credential, assert
+    UNLOCKED; Linux: private D-Bus session (`dbus-run-session`) with its own
+    `gnome-keyring-daemon`, lock, assert LOCKED and **zero prompt objects**. Also
+    `mypy --platform darwin|win32` on the keyring modules. **Tier 2 (spike with a
+    prove-or-drop gate):** programmatic unlock stands in for "unlocked elsewhere" —
+    macOS `security unlock-keychain -p`, Linux `gnome-keyring-daemon --unlock` (**unproven**,
+    research R12); a platform whose tier 2 cannot be made reliable stays at tier 1 plus
+    the manual tier and the docs say so. The jobs are not in the required-checks ruleset
+    until the maintainer decides.
+  - Gate: the workflow passes on a branch push for all three runners (link the run); the
+    tier-2 outcome per platform is written into `research.md` R12.
+  - Spec: B9, A15-A17.
+
+- [ ] **R7.2 — The manual tier: live check v2 and the sandbox harness**
+  - [F] `.spec/features/vault-keyring-unlock/live-check.sh`, `.spec/features/vault-keyring-unlock/live-check.md`,
+    `.spec/features/vault-keyring-unlock/sandbox/run_sandbox.sh`,
+    `.spec/features/vault-keyring-unlock/sandbox/interrupt_probe.py`,
+    `.spec/features/vault-keyring-unlock/sandbox/unlock_roundtrip.py`
+  - Rewrite the live check around the new design, on a **throwaway** collection only:
+    (1) unlocked + piped -> `token ok`, no dialog; (2) locked + piped -> refusal in under
+    2 s, **no dialog, no prompt object, no new coredump**; (3) locked, then
+    `func builtin vault unlock` in a terminal, the maintainer answers the dialog, then
+    piped works; (4) `vault unlock` and the maintainer presses **Cancel** in the dialog ->
+    exit 3 and the next unlock still works; (5) two parallel piped jobs on a locked
+    keyring -> both refuse, zero dialogs. Before and after: `Login` `Locked` property and
+    `coredumpctl list | wc -l`, both shown unchanged. The sandbox directory holds the
+    scripts used for the daemon-crash reproduction (copied from the maintainer session);
+    they run only on a private bus and are never pointed at the real session. Add a
+    macOS/Windows manual checklist to `live-check.md`.
+  - Gate: scripts pass `bash -n`; `live-check.md` states what each scenario proves and
+    that abandon-style scenarios run only in the sandbox.
+  - Spec: A11'.
+
+## Wave 13 — checkpoint
+
+- [ ] **R8.1 — Full gates** `[verify-e2e:full]`
+  - Gate: `uv run ruff check src/ tests/`; `uv run ruff format --check src/ tests/`;
+    `uv run mypy src/`; `uv run lint-imports` -> 7 kept; pytest by tier (never one call
+    over 600 s); `uv run pytest tests/tui_audit/ -q`; the warm-boot import count is
+    unchanged and `keyring`/`secretstorage` are absent from a vault-less run (A10);
+    `agentic-verify` walk of `contracts.md`. The pre-existing failure
+    `tests/cli/test_func_settings_store.py::TestChainPrecedence::test_default_when_nothing_sets_it`
+    (order-dependent on master at 04d90ac) is **not** this feature's; record it, do not fix it here.
+
+## Wave 14 — the live check with the maintainer (a human step)
+
+- [ ] **R8.2 — Run the live check, together**
+  - Run `live-check.sh` (R7.2) with the maintainer at the keyboard of the Arch/niri
+    machine; paste the real output into `live-check.md`. **Stop and ask** before any step
+    that is not in the script. Never touch `Login`; never run abandon-style scenarios on the
+    real session.
+  - Gate: output pasted; `Login Locked: UNCHANGED`; `coredumpctl` count unchanged;
+    scenarios 1-5 each marked pass/fail with the evidence.
+  - Spec: A11'.
+
+## Wave 15 — knowledge and tracker close-out
+
+- [ ] **R8.3 — Confluence and Jira**
+  - [F] none in the repository.
+  - As the retired 7.1, plus: update the Decision record (page 12222468) and the draft
+    reference (page 12255236) to the final behavior *before* promoting; record the
+    macOS/Windows evidence level per platform; comment on FOSS-88, FOSS-31 and FOSS-34 with
+    the PR, the re-run falsifying check (A1 on old vs new code) and the live-check result.
+  - Gate: the Reference page cites the PR and the live-check result; the Jira comments exist.
+
+---
+
 ## Task Dependency Graph
 
 ```json
 {
   "waves": [
-    { "id": 0, "tasks": ["0.1", "0.2"] },
-    { "id": 1, "tasks": ["1.1", "1.2"] },
-    { "id": 2, "tasks": ["2.1", "2.2", "2.3", "2.4"] },
-    { "id": 3, "tasks": ["3.1", "3.2", "3.3", "3.4"] },
-    { "id": 4, "tasks": ["4.1", "4.2"] },
-    { "id": 5, "tasks": ["5.1", "5.2"] },
-    { "id": 6, "tasks": ["6.1"] },
-    { "id": 7, "tasks": ["7.1"] }
+    {
+      "id": 0,
+      "tasks": [
+        "0.1",
+        "0.2"
+      ]
+    },
+    {
+      "id": 1,
+      "tasks": [
+        "1.1",
+        "1.2"
+      ]
+    },
+    {
+      "id": 2,
+      "tasks": [
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4"
+      ]
+    },
+    {
+      "id": 3,
+      "tasks": [
+        "3.1",
+        "3.2",
+        "3.3",
+        "3.4"
+      ]
+    },
+    {
+      "id": 4,
+      "tasks": [
+        "4.1",
+        "4.2"
+      ]
+    },
+    {
+      "id": 5,
+      "tasks": [
+        "5.1"
+      ]
+    },
+    {
+      "id": 6,
+      "tasks": [
+        "R1.1",
+        "R1.2"
+      ]
+    },
+    {
+      "id": 7,
+      "tasks": [
+        "R2.1",
+        "R2.2",
+        "R2.3",
+        "R2.4"
+      ]
+    },
+    {
+      "id": 8,
+      "tasks": [
+        "R3.1"
+      ]
+    },
+    {
+      "id": 9,
+      "tasks": [
+        "R3.2",
+        "R4.1"
+      ]
+    },
+    {
+      "id": 10,
+      "tasks": [
+        "R5.1"
+      ]
+    },
+    {
+      "id": 11,
+      "tasks": [
+        "R6.1",
+        "R6.2",
+        "R6.3",
+        "R6.4"
+      ]
+    },
+    {
+      "id": 12,
+      "tasks": [
+        "R7.1",
+        "R7.2"
+      ]
+    },
+    {
+      "id": 13,
+      "tasks": [
+        "R8.1"
+      ]
+    },
+    {
+      "id": 14,
+      "tasks": [
+        "R8.2"
+      ]
+    },
+    {
+      "id": 15,
+      "tasks": [
+        "R8.3"
+      ]
+    }
   ]
 }
 ```

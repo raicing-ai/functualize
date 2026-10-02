@@ -312,3 +312,116 @@ was found and a TTY exists."* The maintainer decided on 2026-10-02 to change it
 `area-config`, status Proposed) supersedes the clause, and ADR-016 gets an
 "Amended by" note in ADR-023's style. The ADR's *reason* — an unattended run must
 not hang on a prompt — is **kept**: the bounded wait is its replacement mechanism.
+
+
+---
+
+# Addendum 1 — plan changes after the live findings (2026-10-02)
+
+Evidence: `research.md` R9-R12. Behavior: `spec.md` → Addendum 1. This addendum
+**supersedes** D2 (deadline) and the K-1 mitigation above; D1, D3, D5-D9 stand.
+Skills consulted again: `python-design-patterns`, `coding__design-patterns-refactoring`.
+
+## 1. AFTER' — the keyring layer behind a platform-neutral port
+
+```
+ [P] app/vault.py     vault_key_state()  vault_unlock()  _resolve_key()   <- public API (the only door for _cli)
+ [P] app/utils.py     vault_status()  -> uses vault_key_state()
+        ▲ public API only ||
+ [I] _cli/vault_cmd.py   `unlock` UX (two-signal policy)        [I] _cli/tui/{bar_items,dynamic_footer_widget}.py
+                                                                      status item, polled from a THREAD WORKER
+ ───────────────────────────────────────────────────────────────────────────────────────────────────────
+ [I] _config/vault_key_resolver.py   VaultKeyResolver: memo + lock; BOUNDED/SILENT -> read_silent() (no prompt, no wait)
+        │                                            FOREGROUND -> unlock()      _run_bounded = hung-backend guard only
+        ▼
+ [I] _config/vault_keys.py   KeychainKeyProvider (VaultKeyProvider + VaultKeyProbe + VaultKeyUnlocker)
+        │ delegates to
+        ▼
+ [I] _config/vault_keyring.py  select_adapter(platform, backend)  -- lazy import, allowlist, fail-safe --
+        ├── vault_keyring_secretservice.py  (Linux; secretstorage; never unlock() in read_silent)
+        ├── vault_keyring_macos.py          (darwin; ctypes Security; interaction disabled; -25308 -> LOCKED)
+        ├── vault_keyring_windows.py        (win32; CredRead; no lock model)
+        └── vault_keyring_generic.py        (anything else; state UNKNOWN; read_silent -> UNVERIFIED)
+ [I] _types/protocols.py   VaultKeyProvider (get_key never prompts), VaultKeyProbe, VaultKeyUnlocker (NEW)
+```
+
+Boundaries and direction are unchanged from the first AFTER: `_cli -> app` (public), `app -> _config`,
+`_app -> _config`; the adapters live in `_config` and import nothing above it; platform
+libraries (`secretstorage`, `jeepney`, `ctypes` Security, `win32ctypes`) are imported lazily inside
+their own adapter only. Re-verify with `uv run lint-imports` (7 kept) and the per-platform mypy runs.
+
+## 2. Decisions (new or changed)
+
+- **D2' (replaces D2).** The daemon-thread deadline no longer implements "wait for a
+  prompt". On the keyring family it is a guard against a hung backend. A deadline must
+  never be the mechanism by which an active unlock prompt is abandoned (R9).
+- **D10. One port, four adapters.** The keyring layer is an internal Protocol with three
+  operations (`read_silent`, `state`, `unlock`); `KeychainKeyProvider` is a thin delegate.
+  This is the "abstraction that hides the implementation" and keeps platform APIs out of
+  every caller. It also removes the single direct `keyring.get_password` read
+  (`vault_keys.py:254`), which was the unsafe call.
+- **D11. Linux adapter speaks the Secret Service protocol, not gnome-keyring.** It serves
+  KWallet 6 and KeePassXC too. The "prompt helper never appeared" watcher inside
+  `unlock()` is gnome-keyring-specific and optional; its output is neutral.
+- **D12. macOS adapter** forces "interaction not allowed" around reads (unverified; tier-1/2
+  CI and the manual tier decide). **D13. Windows adapter** has no lock model.
+- **D14. Allowlist, fail-safe.** A backend not on the allowlist is not read by a run
+  (`UNVERIFIED`), because silence cannot be proven; the user gets the env var or `vault unlock`.
+- **D15. `vault_key_state`** is the single status function; the TUI polls it from a thread
+  worker; `--help` is untouched (maintainer decision). A short-TTL cache lives on the
+  resolver instance (no module global).
+- **D16. Verification tiers.** (1) contract suite with fakes on every OS; (2) real-OS smoke
+  on macOS/Windows/Linux runners, non-required at first; (2b) a "unlocked elsewhere" step
+  only where a no-dialog unlock exists, as a prove-or-drop spike (R12); (3) the dialog
+  itself is manual (live check v2) plus field reports. No mock prompter, no screen automation.
+- **D17. Sandbox harness.** The private-bus scripts used to reproduce the crash ship under
+  `.spec/features/vault-keyring-unlock/sandbox/` (not shipped with the package) and run only
+  on a private session.
+
+## 3. Candidates rejected in this round
+
+| Candidate | Rejected because | Smell it would have introduced |
+|---|---|---|
+| Keep design A and make `Dismiss` the clean cancel | `Dismiss` is itself a crash trigger on the real daemon (R9) | — (unsafe, not a smell) |
+| Detect a wedged daemon in every run and warn | adds a D-Bus probe to every run for a state that only interrupted prompts create; with no prompts from runs the state no longer arises | **Speculative Generality** |
+| One class with `if sys.platform` branches | three platforms in one module defeats lazy import and per-platform typing | **Large Class**, **Switch Statements** |
+| Shell out to `secret-tool`/`security`/`cmdkey` | a new process per read, parsing text, extra binaries | **Primitive Obsession** at the boundary |
+| A mock prompter to auto-answer dialogs in CI | brittle, and it exercises the crash path | — |
+
+## 4. Smells — status after the addendum
+
+Still accepted from the first plan: S-1 Data Clumps (`vault_max_age` + `vault_keyring_timeout`),
+S-2 Inappropriate Intimacy (`app_keyring_timeout` reading `app._config_sources`), S-3 Temporal
+Coupling (rebuilding `SecretsVault`), S-4 Speculative Generality (`_non_interactive_first`), S-6
+Middle Man (public wrappers).
+
+- **S-5 (Switch Statements on `KeyAccess`)** shrinks: BOUNDED and SILENT now differ little. R4.1
+  collapses them if they become identical.
+- **S-7 — Switch Statements (mild)**: `select_adapter` chooses by platform/backend. Accepted: a
+  short ordered list of (predicate, adapter) beats a Strategy registry for four entries.
+  *Needs maintainer review? no.*
+- **S-8 — Duplicate Code risk across adapters** is contained by the shared contract suite
+  (R1.2), which every adapter must pass. *No review.*
+- No Forbidden Pattern is introduced: no module-level mutable state (the cache is instance
+  state), no `Callable` ports, no ABC ports, no `_cli -> internals`, no peer-layer imports.
+
+## 5. Risks (updated)
+
+| # | Risk | Status / mitigation |
+|---|---|---|
+| K-1 | A client leaving a prompt crashes the daemon | **Evidenced** (R9). Runs never create a prompt; `vault unlock` never cancels from the client and holds on the first interrupt. A user can still kill `vault unlock` with SIGKILL or a second Ctrl-C: documented |
+| K-2 | Parallel runs on a locked keyring | Resolved by design: each refuses at once, no dialogs |
+| K-8 | macOS/Windows adapters are not verified on real systems | Stated support levels; real-OS CI smoke (R7.1); manual checklist; field reports |
+| K-9 | The tier-2 headless unlock may not work (R12) | prove-or-drop spike with its own gate; the docs say what each platform is verified at |
+| K-10 | `vault unlock` ignoring the first Ctrl-C may read as a hang | explicit message on the first signal; second Ctrl-C exits |
+| K-11 | TUI polling cost | ~250 ms cap, ~10 s interval, thread worker; hidden when there is no vault |
+| K-12 | The maintainer's real keyring daemon could be destabilised by tests | the suite fixture fences it; CI uses private sessions; R8.2 runs only the safe scenarios on the real session |
+
+## 6. Alignment (changes)
+
+- **Decision record 12222468** is updated to the new decision (it is still Proposed): the
+  mechanism changes from "bounded wait" to "no prompt from a run"; the reason stays.
+- **FOSS-34** (agent routes) is now served directly: unlock once, then agent runs read silently.
+- **FOSS-89** unchanged. **ADR-016 §5** remains contradicted deliberately; ADR-023 §1/§4 untouched.
+- The maintainer's decisions of 2026-10-02 are recorded: switch to this design; follow the
+  CI tiering; the state is shown in the TUI and `vault status` only, `--help` untouched.

@@ -216,3 +216,128 @@ Behavior only. Each is falsifiable; the plan phase assigns the command.
 
 None. (Plan's architecture gate may send work back here; see
 `.claude/rules/spec-workflow.md`.)
+
+
+---
+
+# Addendum 1 — a run never raises an unlock prompt (2026-10-02)
+
+Decided by the maintainer after the live check (`research.md` R9-R12). Where this
+addendum conflicts with B2-B5 or A4-A8/A11 above, **the addendum wins**; the original
+text stays as the record of what was first agreed.
+
+## What changed, in one paragraph
+
+The first design let a locked keyring raise its own unlock dialog during a run and waited
+up to 30 s. On gnome-keyring 50.0 that is unsafe: ending an active unlock prompt from the
+client side (a timeout followed by exit, Ctrl-C, an agent kill, `Dismiss`) can crash the
+keyring daemon and re-lock **every** keyring. So a run reads the key **silently** or fails
+at once; the only thing that ever asks the keyring to unlock is `func builtin vault unlock`,
+run by a person, which waits for the dialog's own outcome.
+
+## B2'. How a run gets the key
+
+1. `FUNCTUALIZE_VAULT_KEY`, if set (unchanged; the keyring is not touched).
+2. Otherwise the OS keyring, **read silently**: if it is unlocked the key is returned; if it
+   is locked the run is **refused at once** (exit 3), with no wait, no dialog and no
+   unlock request. This holds for every caller: pipes, agent shells, MCP, cron, jobs
+   started from the TUI, `vault put`, `vault sync`.
+3. `vault.keyring_timeout` (default 30 s, setting and env name unchanged) now only bounds
+   a *hung* backend; reaching it yields "the keyring did not answer". It is never a way to
+   walk away from a prompt.
+4. A keyring backend that is not on the proven-silent allowlist (B9) is not read by a run;
+   the refusal says so.
+
+## B3'. Messages are provider-neutral
+
+No message names a product (no gnome-keyring, KWallet, Keychain, Credential Manager,
+Secret Service). The locked text:
+
+> The keyring is locked. Unlock it with your system's keyring manager, or run
+> `func builtin vault unlock` in a terminal, or set `FUNCTUALIZE_VAULT_KEY`, then retry.
+
+`vault remove` / `vault clear` remain absent from the locked and no-keyring messages
+(unchanged from B3).
+
+## B4'. `func builtin vault unlock`
+
+- The **only** operation that may ask the keyring to unlock. It waits, with no deadline,
+  for the prompt's own outcome. It never cancels a prompt from the client side.
+- Already unlocked: says so, exit 0. Unlocked now: names the adapter, exit 0 (never prints
+  the key). The user pressed Cancel in the dialog: neutral message, exit 3. No prompt
+  appeared (adapter-detected): neutral message, exit 3. A platform with nothing to unlock
+  (Windows): says so, exit 0.
+- Signals: while a prompt is outstanding, the **first** SIGINT/SIGTERM prints guidance
+  ("waiting for the unlock prompt; answer or cancel it there") and keeps waiting; a
+  **second** one exits with a warning that the keyring may misbehave. Handlers are
+  restored afterwards.
+
+## B8. The vault key state, for any surface
+
+A public, side-effect-free function `functualize.app.vault.vault_key_state()` (contracts §9)
+answers *unlocked / locked / unknown / no keyring / not applicable* plus where the answer
+came from. It never prompts, never unlocks, never reads the secret, is capped at about
+250 ms (UNKNOWN on timeout) and is cached briefly. `vault_status()` uses it for its
+`key_state`, so there is one implementation.
+
+- **Where it is shown (maintainer decision 2026-10-02):** the TUI status bar, updated from a
+  thread worker, and `func builtin vault status`. **`func --help` is not changed.**
+- The state probe is the one key-provider call a surface may make without being asked to
+  resolve a key; A2/A10 are amended accordingly (A2').
+
+## B9. Cross-platform behavior
+
+- The keyring layer sits behind a small adapter contract — `read_silent()`, `unlock()`,
+  `state()` — implemented per platform (Linux Secret Service family, macOS, Windows) and a
+  fail-safe generic adapter. Platform code is imported lazily and only on its platform.
+- **Allowlist rule:** a run reads only through an adapter proven silent. An unrecognised
+  `keyring` backend is not read by a run; the refusal points to the env var or
+  `vault unlock`.
+- **Support levels are stated, not implied:** Linux is field-verified; macOS and Windows are
+  implemented and CI-smoked but not field-verified until a user confirms. The docs say so.
+- Verification is tiered (plan Addendum 1, D16): contract tests with fakes everywhere; a
+  real-OS smoke on macOS/Windows/Linux runners; an unlock-elsewhere step where a
+  no-dialog unlock exists (a spike); and a manual tier for the dialog itself.
+
+## B10. The test suite and CI never touch a real session keyring
+
+Already enforced by the suite-wide `_isolate_os_keyring` fixture; CI jobs use private
+keychains/D-Bus sessions only. No script in this repository may raise an unlock prompt on a
+user's real session, and the abandon-style experiments live in a private sandbox only.
+
+## Acceptance changes
+
+| Was | Now |
+|---|---|
+| A4: locked + piped waits then exits 3 at the timeout | **A4'**: locked + piped exits 3 in **under 2 s**; neutral message; the backend recorded **no** prompt request; on the live check, no new daemon coredump |
+| A2/A10: no key-provider call for `--help` and unrelated runs | **A2'**: no secret read and no unlock ever; the only allowed call is the bounded, side-effect-free state probe, and only from a surface that displays it |
+| A7: `vault unlock` reports provider, no deadline | **A7'**: adds the already-unlocked / cancelled / no-prompt / nothing-to-unlock outcomes and the two-signal policy |
+| A8: `vault status` never prompts | covered by **A13** |
+| A11: live check with dialog answered / unanswered / parallel | **A11'**: live check v2 (tasks R7.2/R8.2): unlocked+piped; locked+piped refuses fast with no dialog and no coredump; `vault unlock` answered; `vault unlock` cancelled; parallel locked runs show zero dialogs |
+
+New criteria:
+- **A13** `vault_key_state`: env set -> `unlocked` from `env` with no keyring call; no vault
+  file -> `not_applicable`; locked fake -> `locked` with zero secret reads and zero prompts;
+  a hung backend returns within the cap; repeated calls are served from the cache.
+- **A14** the TUI shows the state from a thread worker and a hung probe does not block the
+  event loop (`tests/tui_audit/`); `func --help` output is byte-identical to before.
+- **A15** every adapter passes the same contract suite against fakes.
+- **A16** with `sys.platform` forced to `darwin`/`win32`, importing and constructing the
+  provider imports no Linux-only library; `mypy --platform darwin|win32` is clean on the
+  keyring modules.
+- **A17** the macOS/Windows/Linux CI smoke passes (tier 1); tier 2 passes or is dropped
+  per platform with the reason recorded.
+- **A18** no user-facing message names a keyring product (a test greps them).
+
+## Out of scope (unchanged) and newly out of scope
+
+Unchanged: a key cache or timer in functualize; per-key fresh fetch (FOSS-89); the
+file-path invocation defect. Newly: fixing gnome-keyring itself (we avoid its crash path and
+may file upstream evidence); the pre-existing Windows type errors in `shell.py` and
+`fresh_format.py`; the pre-existing order-dependent test
+`test_default_when_nothing_sets_it`.
+
+## Open items (small; defaults stand unless the maintainer says otherwise)
+
+1. **Default of `vault.keyring_timeout`.** It is now only a hung-backend bound, so 30 s is
+   generous; 5-10 s might fit better. Default stays 30 s.

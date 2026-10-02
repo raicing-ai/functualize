@@ -117,3 +117,44 @@ gains `"vault"`; `_RECOGNIZED_KEYS["vault"] = {"keyring_timeout"}`.
 ## `functualize.app.utils`
 
 `VaultStatusReport.key_state: str | None` (`"available" | "locked" | "unknown" | None`).
+
+
+---
+
+# Addendum 1 schema (2026-10-02)
+
+## `functualize._config.vault_keyring` (new) and the adapters
+
+```python
+class AdapterOutcome(Enum):
+    FOUND = "found"; LOCKED = "locked"; NO_KEYRING = "no_keyring"
+    NOT_STORED = "not_stored"; UNVERIFIED = "unverified"
+
+@dataclass(frozen=True, slots=True)
+class AdapterRead:
+    outcome: AdapterOutcome
+    key: bytes | None = None      # only FOUND; excluded from repr
+
+def select_adapter(*, platform: str | None = None, backend: object | None = None) -> KeyringAdapter: ...
+#   pure of side effects apart from lazy imports; `platform`/`backend` injectable for tests
+```
+
+Adapters (each in its own module, imported only on its platform):
+`vault_keyring_secretservice.SecretServiceAdapter`, `vault_keyring_macos.MacKeychainAdapter`,
+`vault_keyring_windows.WindowsCredentialAdapter`, `vault_keyring_generic.GenericAdapter`.
+
+## Resolver changes
+
+`KeyStatus` gains `UNVERIFIED`. `KeyAccess.BOUNDED` and `SILENT` both use `read_silent()`;
+collapse them if nothing distinguishes them any more. `KeyAccess.FOREGROUND` -> `unlock()`.
+`_run_bounded` remains as a hung-backend guard only. Memoise FOUND and BOUNDED failures
+exactly as before; `vault_key_state` keeps its own short-TTL cache **on the instance**.
+
+## `functualize.app.vault`
+
+`VaultKeyStatus`, `VaultKeyState`, `vault_key_state`, `UnlockAbandoned` (contracts §9).
+
+## `functualize.app.utils`
+
+`VaultStatusReport.key_state` is derived from `VaultKeyState.status`
+(`unlocked`->`available`, `locked`->`locked`, otherwise `unknown`, `not_applicable`->`None`).

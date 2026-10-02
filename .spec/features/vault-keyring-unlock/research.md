@@ -126,3 +126,82 @@ to do (KWallet and KeePassXC have timers). functualize owns no expiry.
 A run resolves many config fields. If each failed lookup re-attempted the
 keyring, a locked keyring would cost `N × 30s`. The outcome (found *or* failed)
 must be remembered for the life of the process.
+
+
+---
+
+# Addendum 1 findings (2026-10-02, from the live check)
+
+These are measurements from the maintainer's machine (Arch, niri, gnome-keyring
+50.0, gcr 3.41.2) and a private sandbox. They **supersede** the K-1 assumption in
+`plan.md` ("a disconnecting client cancels its prompt").
+
+## R9. A client that ends an unlock prompt from its side can crash the keyring daemon
+
+- **On the real daemon.** `coredumpctl` shows two `SIGABRT` dumps of
+  `/usr/bin/gnome-keyring-daemon` at 20:04:42 and 20:04:45, at the moments two
+  `Prompt.Dismiss` calls (made by a test, from the connection that created the
+  prompt) were being processed. systemd restarted the daemon each time, which
+  **re-locked the Login keyring**. The stack ends in `g_assertion_message_expr`
+  inside the daemon's unlock code.
+- **In a private sandbox** (own D-Bus session, own daemon, own data dir): a client
+  killed mid-prompt by SIGINT, SIGTERM and SIGKILL was each followed, on the next unlock
+  request, by `gkd-secret-unlock.c:243: perform_next_unlock: assertion failed
+  (!self->current)` and an abort (4 SIGABRT dumps between 20:09:49 and 20:10:06).
+  A first reading of "all healthy afterwards" was wrong: D-Bus silently started a fresh
+  daemon on each request, which hid the crashes.
+- **Earlier symptom.** After interrupted runs the same daemon stopped showing any unlock
+  dialog (the prompt helper never appeared on the bus) and logged `G_IS_OBJECT`
+  assertion failures (42 in 90 minutes).
+- **Not a trigger:** pressing **Cancel inside the dialog** (the prompt's own outcome)
+  produced no crash.
+- `Prompt.Dismiss` from a *different* connection is refused (`Access denied`); only the
+  creator may call it, and from the creator it is itself unsafe (above).
+- Upstream: the same assertion text is on record
+  (https://gitlab.gnome.org/GNOME/gnome-keyring/-/issues/64, and a CachyOS forum thread
+  about autologin). Those reports involve other triggers, so this is a recognised crash
+  site, not a confirmed duplicate of this sequence.
+
+**Consequence.** Any design that can *abandon* an active unlock prompt — a deadline
+followed by process exit, Ctrl-C, an agent killing its child, or `Dismiss` — can crash the
+daemon and re-lock every keyring the user has. A run therefore must never create an
+unlock prompt (Addendum 1, B2').
+
+## R10. What each platform's `keyring` backend does (installed `keyring` 25.7.0 source)
+
+- **Linux.** Secret Service via `secretstorage`; `get_preferred_collection()` calls
+  `collection.unlock()` when locked (a blocking prompt), then raises `KeyringLocked` if
+  still locked. So `keyring.get_password` is **not silent** on a locked collection.
+  `secretstorage` exposes `Collection.is_locked()`, `search_items()` (attributes are
+  clear-text, usable while locked) and `Item.get_secret()` (raises `LockedException`
+  without unlocking) — a silent read is possible. Verified in the sandbox: locked read ->
+  `LockedException`, **zero prompt objects created**.
+- **macOS.** ctypes into Security.framework. `-25308` (`sec_interaction_not_allowed`) is
+  defined but **not mapped**; only `KeychainDenied` becomes `KeyringLocked`. The backend
+  never disables user interaction, so a locked keychain read may raise a system dialog.
+  Apple's forums confirm `-25308` means "interaction needed but not allowed in this
+  context". The call to force that behavior, `SecKeychainSetUserInteractionAllowed(false)`,
+  is **unverified** here.
+- **Windows.** `CredRead` through win32ctypes; no lock model, no prompt; not found is
+  `winerror` 1168.
+- **Repo CI.** Every job in `ci.yml` is `ubuntu-latest`. macOS and Windows runners exist only
+  in `release.yml` (binary builds). No test in this repository runs on those OSes today.
+- **Static.** `mypy --platform darwin src/` passes (379 files). `--platform win32` reports 8
+  errors, all pre-existing in `_engine/capabilities/shell.py` and
+  `_primitives/fresh_format.py`; none in the vault modules.
+- Inline TUI mode is not supported on Windows (`steering_textual_tui.md`).
+
+## R11. The headless-run cost model
+
+A run that never raises a prompt needs the keyring to be unlocked **before** it starts.
+Unlocking is a human act (the desktop's keyring manager, or `func builtin vault unlock`).
+This is the "unlock once, elsewhere" story the maintainer described originally, and it is
+also what FOSS-34 asked for on the agent routes.
+
+## R12. Open: a no-dialog "unlocked elsewhere" step for CI
+
+Tier 2 of the CI plan needs something that unlocks a locked keyring without a dialog.
+In the sandbox, `gnome-keyring-daemon --unlock` exited 0 but the collection stayed
+locked; the log shows D-Bus had started its own on-demand daemon, so the harness
+talked to two different daemons. **Unproven — the R7.1 spike decides.** macOS's
+`security unlock-keychain -p` is the candidate there (also unverified).

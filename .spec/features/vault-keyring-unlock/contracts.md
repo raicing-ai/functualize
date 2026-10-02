@@ -126,3 +126,74 @@ compatibility and maps to `no_keyring`.
 How the deadline is enforced (thread, subprocess, or the Secret Service API
 directly), where the memoized result lives, and how `VaultSource` receives a
 lazy key are plan-phase decisions.
+
+
+---
+
+# Addendum 1 contracts (2026-10-02)
+
+## 8. Provider protocols (public, `functualize.plugin`)
+
+- **`VaultKeyProvider.get_key`** gains a stated contract: it **must not prompt** and must
+  return promptly; it returns `None` when it has no key and may raise a typed
+  locked/unavailable error. Signatures are unchanged.
+- **`interactive()`** keeps its meaning: obtaining the key requires a person at a terminal.
+- New optional Protocol, separate from the provider (as `VaultKeyInitializer` is):
+
+```python
+@runtime_checkable
+class VaultKeyUnlocker(VaultKeyProvider, Protocol):
+    def unlock(self) -> bool: ...   # MAY prompt; True when a key is available afterwards
+```
+
+`VaultKeyProbe.probe()` is unchanged (never prompts).
+
+## 9. The state API (public, `functualize.app.vault`)
+
+```python
+class VaultKeyStatus(Enum):
+    UNLOCKED       = "unlocked"
+    LOCKED         = "locked"
+    UNKNOWN        = "unknown"        # the backend cannot say, or the probe hit its cap
+    NO_KEYRING     = "no_keyring"
+    NOT_APPLICABLE = "not_applicable" # this project has no vault file
+
+@dataclass(frozen=True, slots=True)
+class VaultKeyState:
+    status: VaultKeyStatus
+    source: str | None        # "env", or the adapter name, or None
+    key_stored: bool | None   # on an unlocked keyring: is an entry present? None if unknown
+
+def vault_key_state(app: Any | None = None, cwd: str | Path | None = None) -> VaultKeyState: ...
+```
+
+Guarantees: never prompts, never unlocks, never reads the secret, never raises (failure ->
+`UNKNOWN`), returns within about 250 ms, cached briefly per resolver instance. When
+`FUNCTUALIZE_VAULT_KEY` is set it returns `UNLOCKED`/`"env"` without touching a keyring.
+
+`vault_unlock(app=None, cwd=None) -> KeyLookup` (existing) additionally raises
+`UnlockAbandoned` after a second interrupt (B4').
+
+## 10. CLI
+
+- `func builtin vault unlock [--json]`: outcomes and exit codes per spec B4'. `--json`
+  reasons: `already_unlocked`, `unlocked`, `cancelled`, `no_prompt`, `nothing_to_unlock`,
+  `key_locked`, `no_keyring`, `key_not_stored`.
+- `func builtin vault status` is unchanged except that `key_state` comes from
+  `vault_key_state`.
+- **`func --help` and every other help output are unchanged.**
+
+## 11. Internal adapter contract (not public; `functualize._config`)
+
+```python
+class KeyringAdapter(Protocol):
+    name: str
+    def read_silent(self) -> AdapterRead: ...   # never prompts; bounded
+    def state(self) -> KeyAvailability: ...      # never prompts; bounded ~1 s
+    def unlock(self) -> AdapterRead: ...         # the only call that may prompt
+```
+
+`AdapterRead` is `FOUND(key)` | `LOCKED` | `NO_KEYRING` | `NOT_STORED` | `UNVERIFIED`
+(generic adapter only: silence cannot be proven). The factory in
+`_config/vault_keyring.py` selects by `sys.platform` and the active `keyring` backend; the
+allowlist is the Secret Service family, macOS Keychain and Windows Credential Manager.

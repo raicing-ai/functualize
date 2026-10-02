@@ -77,6 +77,18 @@ print("locked", path)
 PY
 }
 
+throwaway_state() {  # read-only: is the THROWAWAY collection locked right now?
+  uv run python - "$COLL" <<'PY'
+import sys, secretstorage
+bus = secretstorage.dbus_init()
+default = secretstorage.get_default_collection(bus).collection_path
+path = sys.argv[1]
+if path == default:
+    raise SystemExit("ABORT: the throwaway collection is the default collection")
+print("throwaway Locked =", secretstorage.Collection(bus, path).is_locked())
+PY
+}
+
 cleanup() {
   say "cleanup: delete the throwaway collection and the temp project"
   uv run python - "$COLL" <<'PY' || echo "delete failed; remove 'functualize-live-check' in Seahorse"
@@ -148,24 +160,34 @@ run_piped() {  # run `func deploy` with stdout piped, print exit code and elapse
 
 # --- scenario 1 ----------------------------------------------------------
 say "1. unlocked + piped: expect 'token ok', exit 0, no dialog"
+throwaway_state   # must say False (unlocked) before the run; if True, the run below is not scenario 1
 run_piped env
 ask "Did any unlock dialog appear? (y/n)"
 
 # --- scenario 2 ----------------------------------------------------------
 say "2. locked + dialog answered: lock, run piped; ANSWER the dialog within 30 s"
 lock_throwaway
+throwaway_state   # must say True (locked)
 run_piped env
 ask "Did the dialog appear, and did you answer it? (describe)"
 
 # --- scenario 3 ----------------------------------------------------------
 say "3. locked + unanswered at 10s: lock, run piped; DO NOT answer the dialog"
+printf '\n########################################################################\n'
+printf '# NEXT: a password dialog WILL pop up. DO NOT TYPE IN IT, DO NOT CLICK IT.\n'
+printf '# Just watch. Within ~10 s the run prints "exit=3". Only THEN look at the\n'
+printf '# dialog (it may still be open) and answer the question below.\n'
+printf '########################################################################\n'
+ask "Press Enter to start scenario 3, then hands off the dialog."
 lock_throwaway
+throwaway_state   # must say True (locked)
 run_piped env FUNCTUALIZE_VAULT_KEYRING_TIMEOUT=10s
 ask "K-1: after the refusal, is the unlock dialog STILL on screen? (y/n; then dismiss it)"
 
 # --- scenario 4 ----------------------------------------------------------
 say "4. two parallel jobs against a locked keyring (K-2), 20s wait each"
 lock_throwaway
+throwaway_state   # must say True (locked)
 ( cd "$PROJ" && FUNCTUALIZE_VAULT_KEYRING_TIMEOUT=20s "$FUNC" deploy | cat; echo "job A exit=${PIPESTATUS[0]}" ) &
 ( cd "$PROJ" && FUNCTUALIZE_VAULT_KEYRING_TIMEOUT=20s "$FUNC" deploy | cat; echo "job B exit=${PIPESTATUS[0]}" ) &
 ask "K-2: how many unlock dialogs appeared? Answer ONE of them now, then press Enter."
