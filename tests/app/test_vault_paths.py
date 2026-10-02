@@ -72,6 +72,7 @@ class TestTheIdentityThatMakesTheFeatureWork:
         this drifts, nothing raises — the entry is stored under a name nothing
         ever looks up, and the job silently falls through to a weaker source.
         """
+        from functualize._config.vault_key_resolver import VaultKeyResolver
         from functualize._config.vault_source import VaultSource
 
         resolved = resolve_canonical_path(app, "deploy.api_token")
@@ -81,7 +82,9 @@ class TestTheIdentityThatMakesTheFeatureWork:
         # would only restate how config_key is written; it would stay green if
         # VaultSource started qualifying keys some other way, which is exactly
         # the drift that would break the feature silently.
-        source = VaultSource(Path("unused.db"), encryption_key=None)
+        source = VaultSource(
+            Path("unused.db"), key=VaultKeyResolver.fixed(b"\x00" * 32, "test")
+        )
         assert resolved.config_key == source._qualified(
             resolved.field_name, resolved.job_name
         )
