@@ -316,19 +316,3 @@ class TestAMissIsRecordedWithNoKey:
         source.get("port", "database")
         assert source.misses == ["database.port"]
         assert resolver.calls == 0
-
-
-class TestTheTransitionalSpelling:
-    """TRANSITIONAL(4.1): `encryption_key=` survives until every site moves."""
-
-    def test_key_and_encryption_key_are_mutually_exclusive(self, vault: Path) -> None:
-        with pytest.raises(TypeError, match="not both"):
-            VaultSource(
-                vault,
-                key=VaultKeyResolver.fixed(_KEY),
-                encryption_key=_KEY,
-            )
-
-    def test_one_of_them_is_required(self, vault: Path) -> None:
-        with pytest.raises(TypeError, match="key="):
-            VaultSource(vault)

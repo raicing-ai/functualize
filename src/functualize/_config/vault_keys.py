@@ -62,7 +62,6 @@ from __future__ import annotations
 
 import binascii
 import os
-import sys
 import threading
 from typing import TYPE_CHECKING, Final
 
@@ -75,7 +74,7 @@ from functualize._config.vault import (
 from functualize._types.enums import KeyAvailability
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Sequence
 
     from functualize._types.protocols import VaultKeyProvider
 
@@ -85,9 +84,8 @@ __all__ = [
     "KEYCHAIN_SERVICE",
     "EnvKeyProvider",
     "KeychainKeyProvider",
-    "KeyResolution",
     "generate_key",
-    "resolve_vault_key",
+    "default_providers",
 ]
 
 #: Where the non-interactive provider looks. Hex-encoded, 64 characters.
@@ -354,78 +352,6 @@ class KeychainKeyProvider:
         return _decode(created, source=f"the OS keyring ({KEYCHAIN_SERVICE})")
 
 
-# TRANSITIONAL(4.1): KeyResolution and resolve_vault_key below are the old
-# key-resolution API, kept only until every caller has moved to
-# _config.vault_key_resolver.VaultKeyResolver. Until then resolve_vault_key
-# swallows the new typed provider errors to keep its "KeyResolution | None"
-# contract — and, the keychain being non-interactive now, it consults the
-# keyring even without a TTY, without a deadline. Both differences close when
-# the callers migrate and this API is deleted (task 4.1).
-class KeyResolution:
-    """Which provider supplied the key, and the key itself.
-
-    Carries the provider id so a later decryption failure can name the key that
-    was actually tried.
-    """
-
-    __slots__ = ("key", "provider_id")
-
-    def __init__(self, key: bytes, provider_id: str) -> None:
-        self.key = key
-        self.provider_id = provider_id
-
-    def __repr__(self) -> str:
-        """Never render the key — this object is safe to log."""
-        return f"KeyResolution(provider_id={self.provider_id!r}, key=<{len(self.key)} bytes>)"
-
-
 def default_providers() -> Sequence[VaultKeyProvider]:
     """The two implementations that ship with core."""
     return (EnvKeyProvider(), KeychainKeyProvider())
-
-
-def resolve_vault_key(
-    project_id: str,
-    providers: Iterable[VaultKeyProvider] | None = None,
-    *,
-    allow_interactive: bool | None = None,
-) -> KeyResolution | None:
-    """Find a vault key, non-interactive sources first.
-
-    Args:
-        project_id: The project whose vault is being opened.
-        providers: Providers to consult, in order. Defaults to the two shipped
-            implementations.
-        allow_interactive: Whether providers needing a terminal may be
-            consulted. ``None`` decides from the terminal, matching how the
-            CLI decides elsewhere (``sys.stdin.isatty() and
-            sys.stdout.isatty()``).
-
-    Returns:
-        The first key found, with the provider that supplied it, or ``None``
-        when no provider has one. ``None`` is not an error here: the caller
-        decides whether a missing key is fatal.
-    """
-    candidates = list(default_providers() if providers is None else providers)
-    if allow_interactive is None:
-        allow_interactive = sys.stdin.isatty() and sys.stdout.isatty()
-
-    # Two passes rather than one sorted list: a terminal-needing provider must
-    # not be reached merely because it registered earlier.
-    for interactive in (False, True):
-        if interactive and not allow_interactive:
-            return None
-        for provider in candidates:
-            if provider.interactive() is not interactive:
-                continue
-            if not provider.is_available():
-                continue
-            try:
-                key = provider.get_key(project_id)
-            except (KeyringLockedError, KeyringUnavailableError):
-                # TRANSITIONAL(4.1): the old API reports "no key", never why;
-                # the resolver replaces it with typed outcomes.
-                continue
-            if key is not None:
-                return KeyResolution(key, provider.identifier())
-    return None

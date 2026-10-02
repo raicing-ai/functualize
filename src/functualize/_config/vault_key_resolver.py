@@ -100,7 +100,7 @@ class KeyStatus(Enum):
 class KeyLookup:
     """The outcome of one key resolution, with the reason attached.
 
-    Replaces ``KeyResolution | None`` — the type whose single ``None`` covered
+    Replaces the old key-or-``None`` result — whose single ``None`` covered
     locked, absent, no-backend and not-stored, which is why the old refusal
     text was false. The key is present only when FOUND and never appears in
     the repr: this object is safe to log.
@@ -248,8 +248,13 @@ class VaultKeyResolver:
         # A provider that can only work by prompting is still terminal-only;
         # everything else is read regardless of terminal (the point of this
         # feature) and, under BOUNDED, inside one shared deadline.
+        # Two passes rather than one filtered list: a provider that needs a
+        # terminal is asked last, and only when nothing that cannot prompt had
+        # a key — never merely because it was registered earlier.
         on_tty = sys.stdin.isatty() and sys.stdout.isatty()
-        candidates = [p for p in self._providers if on_tty or p.interactive() is False]
+        candidates = [p for p in self._providers if p.interactive() is False]
+        if on_tty:
+            candidates += [p for p in self._providers if p.interactive() is not False]
 
         if access is KeyAccess.BOUNDED:
             # Env first and outside the deadline: reading a variable cannot

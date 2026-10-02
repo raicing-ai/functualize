@@ -101,25 +101,6 @@ logger = logging.getLogger(__name__)
 #: keeps exactly one answer, the same discipline ADR-008 applies to secrets.
 _PROBE = "_"
 
-#: Distinguishes "not passed" from an explicit ``encryption_key=None``.
-_UNSET: Any = object()
-
-
-class _NoKeyStored:
-    """Live, holds nothing. TRANSITIONAL(4.1): goes with ``encryption_key=None``."""
-
-    def identifier(self) -> str:
-        return "none"
-
-    def interactive(self) -> bool:
-        return False
-
-    def is_available(self) -> bool:
-        return True
-
-    def get_key(self, project_id: str) -> bytes | None:
-        return None
-
 
 class VaultSource:
     """Resolves config values from the project's encrypted vault."""
@@ -128,12 +109,7 @@ class VaultSource:
         self,
         vault_path: Path,
         *,
-        key: VaultKeyResolver | None = None,
-        # TRANSITIONAL(4.1): the eager spelling, kept until every construction
-        # site has moved to `key=` (3.1 for boot, 3.4 for the tests). Mutually
-        # exclusive with `key=`; translated into a resolver below.
-        encryption_key: bytes | None = _UNSET,
-        key_provider_id: str = "unknown",
+        key: VaultKeyResolver,
         providers: Iterable[str] = (),
         max_age: timedelta | None = None,
     ) -> None:
@@ -143,8 +119,6 @@ class VaultSource:
             vault_path: This project's vault file. It need not exist.
             key: Resolves the vault key — consulted only when a stored entry
                 is about to be opened, never at construction.
-            encryption_key: Transitional eager spelling of ``key``, with
-                ``key_provider_id`` naming its provider.
             providers: Identifiers of the registered remote providers. Used
                 only to recognise an annotation when warning about a miss; a
                 scheme absent here is not an annotation, exactly as in
@@ -152,18 +126,6 @@ class VaultSource:
             max_age: How old the vault may be before the first read of the run
                 warns. None disables the staleness check entirely.
         """
-        if key is None:
-            if encryption_key is _UNSET:
-                msg = "VaultSource needs key= (a VaultKeyResolver)."
-                raise TypeError(msg)
-            key = (
-                VaultKeyResolver("", providers=(_NoKeyStored(),))
-                if encryption_key is None
-                else VaultKeyResolver.fixed(encryption_key, key_provider_id)
-            )
-        elif encryption_key is not _UNSET:
-            msg = "VaultSource takes key= or encryption_key=, not both."
-            raise TypeError(msg)
         # Metadata only until a lookup names the provider; see `_lookup`.
         self._vault = SecretsVault(vault_path)
         self._key = key

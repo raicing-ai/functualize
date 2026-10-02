@@ -21,12 +21,16 @@ from functualize._config.vault import (
     KeyringUnavailableError,
     VaultError,
 )
+from functualize._config.vault_key_resolver import (
+    KeyAccess,
+    KeyStatus,
+    VaultKeyResolver,
+)
 from functualize._config.vault_keys import (
     ENV_VAR,
     EnvKeyProvider,
     KeychainKeyProvider,
     generate_key,
-    resolve_vault_key,
 )
 from functualize._types.enums import KeyAvailability
 from functualize.plugin import VaultKeyProbe, VaultKeyProvider
@@ -66,48 +70,78 @@ class _FakeProvider:
         return self._key
 
 
+class _Terminal:
+    """A stand-in for the `sys` module the resolver reads: a real terminal."""
+
+    class _Tty:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    stdin = _Tty()
+    stdout = _Tty()
+
+
+@pytest.fixture
+def on_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("functualize._config.vault_key_resolver.sys", _Terminal())
+
+
+def _lookup(*providers: _FakeProvider) -> object:
+    return VaultKeyResolver("proj", list(providers)).lookup(KeyAccess.FOREGROUND)
+
+
 class TestResolutionOrder:
+    """Ported from the deleted terminal-flag resolver in `vault_keys`: the
+    same rules, now asked of the resolver. The terminal decides only whether a
+    provider that *needs* one is consulted."""
+
+    @pytest.mark.usefixtures("on_a_terminal")
     def test_non_interactive_wins_over_interactive(self) -> None:
         env = _FakeProvider("env", interactive=False, key=b"\x01" * KEY_BYTES)
-        chain = _FakeProvider("keychain", interactive=True, key=b"\x02" * KEY_BYTES)
+        chain = _FakeProvider("prompt", interactive=True, key=b"\x02" * KEY_BYTES)
         # Interactive listed FIRST, to prove order is not registration order.
-        got = resolve_vault_key("proj", [chain, env], allow_interactive=True)
-        assert got is not None
-        assert got.provider_id == "env"
+        got = _lookup(chain, env)
+        assert got.provider_id == "env"  # type: ignore[attr-defined]
         assert chain.get_key_calls == 0
 
     def test_an_interactive_provider_is_never_reached_without_a_tty(self) -> None:
         """The Lambda-hangs-on-a-prompt case."""
-        chain = _FakeProvider("keychain", interactive=True, key=b"\x02" * KEY_BYTES)
-        got = resolve_vault_key("proj", [chain], allow_interactive=False)
-        assert got is None
+        chain = _FakeProvider("prompt", interactive=True, key=b"\x02" * KEY_BYTES)
+        got = _lookup(chain)
+        assert got.status is not KeyStatus.FOUND  # type: ignore[attr-defined]
         assert chain.get_key_calls == 0
 
+    @pytest.mark.usefixtures("on_a_terminal")
     def test_an_interactive_provider_is_reached_with_a_tty(self) -> None:
-        chain = _FakeProvider("keychain", interactive=True, key=b"\x02" * KEY_BYTES)
-        got = resolve_vault_key("proj", [chain], allow_interactive=True)
-        assert got is not None
-        assert got.provider_id == "keychain"
+        chain = _FakeProvider("prompt", interactive=True, key=b"\x02" * KEY_BYTES)
+        got = _lookup(chain)
+        assert got.provider_id == "prompt"  # type: ignore[attr-defined]
+
+    def test_a_provider_that_needs_no_terminal_is_read_without_one(self) -> None:
+        """The rule this feature exists for: a pipe is not a reason to skip a
+        keyring that can answer."""
+        keyring = _FakeProvider("keychain", interactive=False, key=b"\x05" * KEY_BYTES)
+        got = _lookup(keyring)
+        assert got.provider_id == "keychain"  # type: ignore[attr-defined]
 
     def test_an_unavailable_provider_is_skipped(self) -> None:
         absent = _FakeProvider("absent", interactive=False, available=False)
         present = _FakeProvider("present", interactive=False, key=b"\x03" * KEY_BYTES)
-        got = resolve_vault_key("proj", [absent, present], allow_interactive=False)
-        assert got is not None
-        assert got.provider_id == "present"
+        got = _lookup(absent, present)
+        assert got.provider_id == "present"  # type: ignore[attr-defined]
         assert absent.get_key_calls == 0
 
     def test_a_provider_returning_none_defers_to_the_next(self) -> None:
         """Returning None is normal, not an error."""
         empty = _FakeProvider("empty", interactive=False, key=None)
         full = _FakeProvider("full", interactive=False, key=b"\x04" * KEY_BYTES)
-        got = resolve_vault_key("proj", [empty, full], allow_interactive=False)
-        assert got is not None
-        assert got.provider_id == "full"
+        got = _lookup(empty, full)
+        assert got.provider_id == "full"  # type: ignore[attr-defined]
 
-    def test_no_key_anywhere_returns_none(self) -> None:
+    def test_no_provider_at_all_is_no_keyring(self) -> None:
         """The caller decides whether that is fatal."""
-        assert resolve_vault_key("proj", [], allow_interactive=True) is None
+        assert _lookup().status is KeyStatus.NO_KEYRING  # type: ignore[attr-defined]
 
 
 class TestTheEnvProvider:
@@ -276,21 +310,6 @@ class TestKeychainFailureStatesAreTyped:
         not missing. The resolver turns it into NOT_STORED."""
         assert KeychainKeyProvider().get_key("proj") is None
 
-    def test_the_old_api_still_reports_no_key_rather_than_raising(
-        self, fake_keyring: _FakeKeyring
-    ) -> None:
-        """TRANSITIONAL(4.1): the old resolve_vault_key keeps its
-        `KeyResolution | None` contract by swallowing the typed errors."""
-        fake_keyring.locked = True
-        assert (
-            resolve_vault_key(
-                "proj",
-                [EnvKeyProvider(), KeychainKeyProvider()],
-                allow_interactive=False,
-            )
-            is None
-        )
-
 
 class _FakeCollection:
     def __init__(self, locked: bool) -> None:
@@ -423,18 +442,6 @@ class TestProtocolConformance:
         self, provider: object
     ) -> None:
         assert isinstance(provider, VaultKeyProvider)
-
-
-class TestKeyResolutionIsSafeToLog:
-    def test_its_repr_does_not_contain_the_key(self) -> None:
-        got = resolve_vault_key(
-            "proj",
-            [_FakeProvider("env", interactive=False, key=bytes.fromhex(_HEX_B))],
-            allow_interactive=False,
-        )
-        assert got is not None
-        assert _HEX_B not in repr(got)
-        assert "bytes" in repr(got)
 
 
 class TestKeychainKeyScope:
