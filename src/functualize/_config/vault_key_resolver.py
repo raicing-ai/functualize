@@ -36,11 +36,12 @@ import time
 from collections.abc import Callable
 from enum import Enum
 from functools import partial
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from functualize._config.vault import (
     KeyringLockedError,
     KeyringUnavailableError,
+    app_keyring_timeout,
 )
 from functualize._config.vault_keys import EnvKeyProvider, default_providers
 from functualize._types.enums import KeyAvailability
@@ -179,9 +180,29 @@ class VaultKeyResolver:
     ) -> None:
         self._project_id = project_id
         self._providers = tuple(default_providers() if providers is None else providers)
-        self._timeout = timeout
+        self._timeout: float | None = timeout
+        self._timeout_app: Any = None
         self._outcome: KeyLookup | None = None
         self._lock = threading.Lock()
+
+    @classmethod
+    def for_app(cls, project_id: str, app: Any) -> VaultKeyResolver:
+        """The resolver boot builds: the app's keyring wait, read on first need.
+
+        The wait is read through :func:`app_keyring_timeout` only when a
+        keyring is about to be consulted — so a run whose key comes from
+        ``$FUNCTUALIZE_VAULT_KEY``, or that opens nothing, never reads the
+        setting and never warns about a bad one (spec A12a).
+        """
+        resolver = cls(project_id)
+        resolver._timeout = None
+        resolver._timeout_app = app
+        return resolver
+
+    def _deadline(self) -> float:
+        if self._timeout is None:
+            self._timeout = app_keyring_timeout(self._timeout_app)
+        return self._timeout
 
     @classmethod
     def fixed(cls, key: bytes, provider_id: str = "fixed") -> VaultKeyResolver:
@@ -230,11 +251,21 @@ class VaultKeyResolver:
         on_tty = sys.stdin.isatty() and sys.stdout.isatty()
         candidates = [p for p in self._providers if on_tty or p.interactive() is False]
 
-        def ask() -> KeyLookup:
-            return self._ask(candidates, started)
-
         if access is KeyAccess.BOUNDED:
-            outcome = _run_bounded(ask, self._timeout)
+            # Env first and outside the deadline: reading a variable cannot
+            # block, and when it holds a key neither the keyring nor the wait
+            # setting is touched at all.
+            env = [p for p in candidates if isinstance(p, EnvKeyProvider)]
+            rest = [p for p in candidates if not isinstance(p, EnvKeyProvider)]
+            if env:
+                first = self._ask(env, started)
+                if first.status is KeyStatus.FOUND or not rest:
+                    return first
+
+            def ask() -> KeyLookup:
+                return self._ask(rest, started)
+
+            outcome = _run_bounded(ask, self._deadline())
             if outcome is None:
                 return KeyLookup(
                     KeyStatus.LOCKED,

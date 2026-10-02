@@ -161,6 +161,62 @@ class TestEnvShortCircuits:
             _resolver([bad]).lookup()
 
 
+class _AppWithTimeout:
+    """The one attribute `app_keyring_timeout` reads."""
+
+    def __init__(self, configured: str | None) -> None:
+        class _Sources:
+            vault_keyring_timeout = configured
+
+        self._config_sources = _Sources()
+
+
+class TestTheAppTimeoutIsReadOnFirstNeed:
+    """A12a — a run with $FUNCTUALIZE_VAULT_KEY set never reads the setting."""
+
+    def test_an_env_key_never_reads_the_setting(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from functualize._config.vault_keys import ENV_VAR, EnvKeyProvider
+
+        monkeypatch.setenv(ENV_VAR, _HEX_KEY)
+        keychain = _Provider("keychain", raises=AssertionError("never reached"))
+        resolver = VaultKeyResolver.for_app("proj", _AppWithTimeout("not-a-duration"))
+        resolver._providers = (EnvKeyProvider(), keychain)
+
+        with caplog.at_level("WARNING"):
+            lookup = resolver.lookup()
+
+        assert lookup.status is KeyStatus.FOUND
+        assert caplog.records == []
+        assert keychain.get_key_calls == 0
+
+    def test_the_setting_bounds_the_keyring_and_warns_once(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        resolver = VaultKeyResolver.for_app("proj", _AppWithTimeout("1s"))
+        resolver._providers = (_Provider("keychain", key=_KEY, delay=5.0),)
+
+        started = time.monotonic()
+        lookup = resolver.lookup()
+
+        assert lookup.timed_out is True
+        assert time.monotonic() - started < 3.0
+
+    def test_a_bad_setting_warns_once_and_falls_back(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        resolver = VaultKeyResolver.for_app("proj", _AppWithTimeout("30"))
+        resolver._providers = (_Provider("keychain", key=_KEY),)
+
+        with caplog.at_level("WARNING"):
+            for _ in range(5):
+                assert resolver.lookup().status is KeyStatus.FOUND
+
+        assert len(caplog.records) == 1
+        assert resolver._deadline() == 30.0
+
+
 class TestTheBoundedWait:
     """A4/A5 — a blocking backend refuses after the deadline; a dead one is
     immediate."""
