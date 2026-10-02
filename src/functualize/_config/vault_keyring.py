@@ -26,9 +26,10 @@ so a Linux-only library never loads on macOS or Windows and the reverse.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from functualize._types.enums import KeyAvailability
@@ -38,6 +39,7 @@ __all__ = [
     "AdapterRead",
     "KeyringAdapter",
     "UnlockHow",
+    "select_adapter",
 ]
 
 
@@ -109,3 +111,112 @@ class KeyringAdapter(Protocol):
     def unlock(self) -> AdapterRead:
         """Ask the keyring to unlock — may prompt — and then read."""
         ...
+
+
+# -- choosing the adapter ------------------------------------------------------
+#
+# A short ordered allowlist of (backend class, platform) rather than a strategy
+# registry: four entries, and every one of them is a decision about which
+# backends have been proven silent. Backends are matched by module and class
+# name, so choosing never imports another platform's backend module.
+
+_SECRET_SERVICE: Final = frozenset(
+    {
+        ("keyring.backends.SecretService", "Keyring"),
+        ("keyring.backends.libsecret", "Keyring"),
+    }
+)
+_MACOS: Final = frozenset({("keyring.backends.macOS", "Keyring")})
+_WINDOWS: Final = frozenset({("keyring.backends.Windows", "WinVaultKeyring")})
+_NONE: Final = frozenset(
+    {("keyring.backends.fail", "Keyring"), ("keyring.backends.null", "Keyring")}
+)
+_CHAINER: Final = ("keyring.backends.chainer", "ChainerBackend")
+
+#: Distinguishes "no backend passed" from an explicit ``backend=None``.
+_ACTIVE: Any = object()
+
+
+def select_adapter(
+    service: str,
+    account: str,
+    *,
+    platform: str | None = None,
+    backend: Any = _ACTIVE,
+) -> KeyringAdapter:
+    """The adapter for this platform's active ``keyring`` backend.
+
+    Only backends proven silent get a platform adapter: the Secret Service
+    family (off macOS and Windows), the macOS Keychain on darwin, Credential
+    Manager on win32. Anything else — a third-party backend, or a platform
+    backend on the wrong platform — gets the generic adapter, which a run never
+    reads through. No backend at all is the generic adapter with none, which
+    answers "no keyring".
+
+    Args:
+        service: The keyring service name of the vault key.
+        account: The keyring account name of the vault key.
+        platform: ``sys.platform`` unless given (tests).
+        backend: The active ``keyring`` backend unless given (tests); None
+            means there is none.
+    """
+    from functualize._config.vault_keyring_generic import GenericAdapter
+
+    chosen_platform = sys.platform if platform is None else platform
+    active = _active_backend() if backend is _ACTIVE else backend
+    active = _first_in_chain(active)
+    ident = _ident(active)
+    if active is None or ident in _NONE:
+        return GenericAdapter(service, account, backend=None)
+    if ident in _SECRET_SERVICE and chosen_platform not in ("darwin", "win32"):
+        from functualize._config.vault_keyring_secretservice import SecretServiceAdapter
+
+        return SecretServiceAdapter(service, account, backend=active)
+    if ident in _MACOS and chosen_platform == "darwin":
+        from functualize._config.vault_keyring_macos import MacKeychainAdapter
+
+        return MacKeychainAdapter(service, account)
+    if ident in _WINDOWS and chosen_platform == "win32":
+        from functualize._config.vault_keyring_windows import WindowsCredentialAdapter
+
+        return WindowsCredentialAdapter(service, account, loader=_GivenBackend(active))
+    return GenericAdapter(service, account, backend=active)
+
+
+class _GivenBackend:
+    """A backend loader over a backend already chosen."""
+
+    def __init__(self, backend: Any) -> None:
+        self._backend = backend
+
+    def load(self) -> Any:
+        return self._backend
+
+
+def _active_backend() -> Any:
+    """``keyring``'s active backend, or None when there is no ``keyring`` or none loads."""
+    try:
+        import keyring
+    except ImportError:
+        return None
+    try:
+        return keyring.get_keyring()
+    except Exception:  # noqa: BLE001 - a backend that cannot load is no backend
+        return None
+
+
+def _first_in_chain(backend: Any) -> Any:
+    """A chainer reads its backends in priority order; the first one decides."""
+    if _ident(backend) != _CHAINER:
+        return backend
+    for member in getattr(backend, "backends", ()) or ():
+        if _ident(member) not in _NONE:
+            return member
+    return None
+
+
+def _ident(backend: Any) -> tuple[str, str] | None:
+    if backend is None:
+        return None
+    kind = type(backend)
+    return (kind.__module__, kind.__qualname__)

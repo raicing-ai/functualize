@@ -82,6 +82,7 @@ __all__ = [
     "InvalidDurationError",
     "KeyringLockedError",
     "KeyringUnavailableError",
+    "KeyringUnverifiedError",
     "SecretsVault",
     "VaultDecryptionError",
     "VaultEntry",
@@ -230,6 +231,18 @@ class KeyringUnavailableError(VaultError):
     honest next step is ``$FUNCTUALIZE_VAULT_KEY`` or installing
     ``functualize[keychain]`` — not waiting, and never deleting a stored
     entry that may be perfectly fine.
+    """
+
+
+# TRANSITIONAL(R4.1): a subclass of KeyringUnavailableError, so until the
+# resolver gives it its own outcome (R4.1) a run reports it as "no keyring"
+# rather than crashing on an unknown error.
+class KeyringUnverifiedError(KeyringUnavailableError):
+    """A keyring backend nobody has proven can be read without a prompt.
+
+    Not read by a run at all, because a run must never create an unlock
+    prompt. The ways round it are ``$FUNCTUALIZE_VAULT_KEY`` and
+    ``func builtin vault unlock``, which reads in the foreground.
     """
 
 

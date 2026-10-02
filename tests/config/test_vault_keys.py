@@ -11,7 +11,6 @@ typed so the refusal can say what actually happened.
 from __future__ import annotations
 
 import sys
-import types
 
 import pytest
 
@@ -19,6 +18,7 @@ from functualize._config.vault import (
     KEY_BYTES,
     KeyringLockedError,
     KeyringUnavailableError,
+    KeyringUnverifiedError,
     VaultError,
 )
 from functualize._config.vault_key_resolver import (
@@ -26,6 +26,7 @@ from functualize._config.vault_key_resolver import (
     KeyStatus,
     VaultKeyResolver,
 )
+from functualize._config.vault_keyring import AdapterOutcome, AdapterRead, UnlockHow
 from functualize._config.vault_keys import (
     ENV_VAR,
     EnvKeyProvider,
@@ -203,9 +204,8 @@ class TestTheEnvProvider:
 
 class TestTheKeychainProvider:
     def test_it_does_not_need_a_terminal(self) -> None:
-        """Reading may block on the backend; it needs no person at *this*
-        process's terminal. The resolver's deadline is the bound, so a pipe is
-        not a reason to skip the read.
+        """Reading needs no person at *this* process's terminal, and never
+        prompts, so a pipe is not a reason to skip the read.
 
         Rewritten from `test_it_is_interactive` (interactive() was True): the
         TTY gate this feature removes was exactly that flag.
@@ -216,13 +216,8 @@ class TestTheKeychainProvider:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A missing optional dep degrades, never crashes — and the refusal is
-        now typed, so the resolver can say *no keyring* instead of a false
+        typed, so the resolver can say *no keyring* instead of a false
         "no key is available".
-
-        `keyring` is a declared extra (`functualize[keychain]`) rather than
-        something present transitively by accident, but declaring it does not
-        make it installed: a base `pip install functualize` has no keyring,
-        and that must stay a reported state.
         """
         monkeypatch.setitem(sys.modules, "keyring", None)
         provider = KeychainKeyProvider()
@@ -231,30 +226,163 @@ class TestTheKeychainProvider:
             provider.get_key("proj")
 
 
-class _FakeKeyring:
-    """A keyring backend in a dict, so scope can be asserted on the real API.
+class _ScriptedAdapter:
+    """A keyring adapter that answers what a test says, and counts the calls."""
 
-    Mocking `get_key` would assert nothing: the whole change is *which
-    (service, account) pair* the provider reads and writes, so the fake has to
-    be at the `keyring` module boundary where that pair is visible. Raises the
-    *real* `keyring.errors` exceptions so the provider's typed mapping is
-    exercised against the classes the installed library actually raises.
+    def __init__(
+        self,
+        read: AdapterRead,
+        *,
+        state: KeyAvailability = KeyAvailability.UNKNOWN,
+        unlocked: AdapterRead | None = None,
+    ) -> None:
+        self._read = read
+        self._state = state
+        self._unlocked = unlocked or read
+        self.reads = 0
+        self.unlocks = 0
+
+    @property
+    def name(self) -> str:
+        return "scripted"
+
+    def read_silent(self) -> AdapterRead:
+        self.reads += 1
+        return self._read
+
+    def state(self) -> KeyAvailability:
+        return self._state
+
+    def unlock(self) -> AdapterRead:
+        self.unlocks += 1
+        return self._unlocked
+
+
+def _provider(read: AdapterRead, **kwargs: object) -> KeychainKeyProvider:
+    return KeychainKeyProvider(adapter=_ScriptedAdapter(read, **kwargs))  # type: ignore[arg-type]
+
+
+class TestKeychainFailureStatesAreTyped:
+    """Locked / no keyring / unverified / nothing stored are different answers,
+    and the refusal text must be able to say which one happened (the field
+    report this feature exists for was one false sentence covering them all).
     """
+
+    def test_a_locked_keyring_raises_locked(self) -> None:
+        with pytest.raises(KeyringLockedError, match="locked"):
+            _provider(AdapterRead(AdapterOutcome.LOCKED)).get_key("proj")
+
+    def test_no_keyring_raises_unavailable(self) -> None:
+        with pytest.raises(KeyringUnavailableError, match="keychain"):
+            _provider(AdapterRead(AdapterOutcome.NO_KEYRING)).get_key("proj")
+
+    def test_an_unverified_backend_raises_unverified(self) -> None:
+        with pytest.raises(KeyringUnverifiedError, match="vault unlock"):
+            _provider(AdapterRead(AdapterOutcome.UNVERIFIED)).get_key("proj")
+
+    def test_nothing_stored_returns_none(self) -> None:
+        """None means 'an unlocked keyring answered; nothing is stored'. The
+        resolver turns it into NOT_STORED."""
+        assert _provider(AdapterRead(AdapterOutcome.NOT_STORED)).get_key("proj") is None
+
+    def test_a_found_secret_is_decoded(self) -> None:
+        key = _provider(AdapterRead(AdapterOutcome.FOUND, secret=_HEX_A)).get_key(
+            "proj"
+        )
+        assert key == bytes.fromhex(_HEX_A)
+
+    def test_a_malformed_secret_is_a_loud_error(self) -> None:
+        with pytest.raises(VaultError, match="not valid hex"):
+            _provider(AdapterRead(AdapterOutcome.FOUND, secret="nothex")).get_key(
+                "proj"
+            )
+
+    def test_get_key_never_unlocks(self) -> None:
+        """The provider contract: a read never asks the keyring to unlock."""
+        adapter = _ScriptedAdapter(AdapterRead(AdapterOutcome.LOCKED))
+        with pytest.raises(KeyringLockedError):
+            KeychainKeyProvider(adapter=adapter).get_key("proj")  # type: ignore[arg-type]
+        assert (adapter.reads, adapter.unlocks) == (1, 0)
+
+
+class TestTheProbe:
+    """status/inspect ask 'would a read succeed?' and must never prompt."""
+
+    @pytest.mark.parametrize("state", list(KeyAvailability))
+    def test_it_is_the_adapter_state(self, state: KeyAvailability) -> None:
+        provider = _provider(AdapterRead(AdapterOutcome.NOT_STORED), state=state)
+        assert provider.probe() is state
+
+    def test_the_probe_does_not_read_the_key(self) -> None:
+        adapter = _ScriptedAdapter(
+            AdapterRead(AdapterOutcome.FOUND, secret=_HEX_A),
+            state=KeyAvailability.UNLOCKED,
+        )
+        KeychainKeyProvider(adapter=adapter).probe()  # type: ignore[arg-type]
+        assert (adapter.reads, adapter.unlocks) == (0, 0)
+
+    def test_the_shipped_provider_satisfies_the_probe_protocol(self) -> None:
+        assert isinstance(KeychainKeyProvider(), VaultKeyProbe)
+
+
+class TestUnlock:
+    def test_it_satisfies_the_unlocker_protocol(self) -> None:
+        from functualize.plugin import VaultKeyUnlocker
+
+        assert isinstance(KeychainKeyProvider(), VaultKeyUnlocker)
+
+    def test_unlocking_returns_the_key_with_how_it_went(self) -> None:
+        provider = _provider(
+            AdapterRead(AdapterOutcome.LOCKED),
+            unlocked=AdapterRead(
+                AdapterOutcome.FOUND, secret=_HEX_B, how=UnlockHow.UNLOCKED_NOW
+            ),
+        )
+        unlocked = provider.unlock_key()
+        assert unlocked.key == bytes.fromhex(_HEX_B)
+        assert unlocked.how is UnlockHow.UNLOCKED_NOW
+        assert _HEX_B not in repr(unlocked)
+
+    def test_a_cancelled_unlock_is_false(self) -> None:
+        provider = _provider(
+            AdapterRead(AdapterOutcome.LOCKED),
+            unlocked=AdapterRead(AdapterOutcome.LOCKED, how=UnlockHow.CANCELLED),
+        )
+        assert provider.unlock() is False
+
+
+class TestTheAdapterIsChosenForThisPlatform:
+    def test_it_is_built_once_with_the_fixed_service_and_account(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One key for every project (ADR-023 §4): the address never involves
+        the project id."""
+        from functualize._config import vault_keyring
+        from functualize._config.vault_keys import KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE
+
+        calls: list[tuple[str, str]] = []
+
+        def recording(service: str, account: str, **kwargs: object) -> _ScriptedAdapter:
+            calls.append((service, account))
+            return _ScriptedAdapter(AdapterRead(AdapterOutcome.NOT_STORED))
+
+        monkeypatch.setattr(vault_keyring, "select_adapter", recording)
+        provider = KeychainKeyProvider()
+        provider.get_key("project-aaa")
+        provider.get_key("project-bbb")
+
+        assert calls == [(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)]
+
+
+class _StoreKeyring:
+    """`keyring` at the module boundary, for the write path `init` still uses."""
 
     def __init__(self) -> None:
         import keyring.errors as real_errors
 
         self.store: dict[tuple[str, str], str] = {}
         self.locked = False
-        self.error: Exception | None = None
         self.errors = real_errors
-
-    def get_password(self, service: str, account: str) -> str | None:
-        if self.error is not None:
-            raise self.error
-        if self.locked:
-            raise self.errors.KeyringLocked("collection is locked")
-        return self.store.get((service, account))
 
     def set_password(self, service: str, account: str, password: str) -> None:
         if self.locked:
@@ -262,159 +390,49 @@ class _FakeKeyring:
         self.store[(service, account)] = password
 
 
+class _StoreAdapter:
+    """Reads the same store `_StoreKeyring` writes, as an unlocked keyring would."""
+
+    def __init__(self, keyring_module: _StoreKeyring) -> None:
+        self._keyring = keyring_module
+
+    @property
+    def name(self) -> str:
+        return "store"
+
+    def read_silent(self) -> AdapterRead:
+        from functualize._config.vault_keys import KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE
+
+        if self._keyring.locked:
+            return AdapterRead(AdapterOutcome.LOCKED)
+        secret = self._keyring.store.get((KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT))
+        if secret is None:
+            return AdapterRead(AdapterOutcome.NOT_STORED)
+        return AdapterRead(AdapterOutcome.FOUND, secret=secret)
+
+    def state(self) -> KeyAvailability:
+        return (
+            KeyAvailability.LOCKED if self._keyring.locked else KeyAvailability.UNLOCKED
+        )
+
+    def unlock(self) -> AdapterRead:
+        read = self.read_silent()
+        how = (
+            UnlockHow.CANCELLED if self._keyring.locked else UnlockHow.ALREADY_UNLOCKED
+        )
+        return AdapterRead(read.outcome, secret=read.secret, how=how)
+
+
 @pytest.fixture
-def fake_keyring(monkeypatch: pytest.MonkeyPatch) -> _FakeKeyring:
-    fake = _FakeKeyring()
+def store_keyring(monkeypatch: pytest.MonkeyPatch) -> _StoreKeyring:
+    fake = _StoreKeyring()
     monkeypatch.setitem(sys.modules, "keyring", fake)
     monkeypatch.setitem(sys.modules, "keyring.errors", fake.errors)
     return fake
 
 
-class TestKeychainFailureStatesAreTyped:
-    """Locked / no-backend / nothing-stored are three different answers, and
-    the refusal text must be able to say which one happened (the field report
-    this feature exists for was one false sentence covering all three).
-    """
-
-    def test_a_locked_keyring_raises_locked(self, fake_keyring: _FakeKeyring) -> None:
-        fake_keyring.locked = True
-        with pytest.raises(KeyringLockedError, match="locked"):
-            KeychainKeyProvider().get_key("proj")
-
-    def test_a_backendless_environment_raises_unavailable(
-        self, fake_keyring: _FakeKeyring
-    ) -> None:
-        fake_keyring.error = fake_keyring.errors.NoKeyringError("no backend")
-        with pytest.raises(KeyringUnavailableError):
-            KeychainKeyProvider().get_key("proj")
-
-    def test_a_failed_backend_init_raises_unavailable(
-        self, fake_keyring: _FakeKeyring
-    ) -> None:
-        fake_keyring.error = fake_keyring.errors.InitError("chainer failed")
-        with pytest.raises(KeyringUnavailableError):
-            KeychainKeyProvider().get_key("proj")
-
-    def test_a_raw_runtime_error_from_backend_init_raises_unavailable(
-        self, fake_keyring: _FakeKeyring
-    ) -> None:
-        """keyring raises bare RuntimeError when no backend could be chosen."""
-        fake_keyring.error = RuntimeError("No recommended backend was available")
-        with pytest.raises(KeyringUnavailableError):
-            KeychainKeyProvider().get_key("proj")
-
-    def test_a_live_backend_with_no_entry_returns_none(
-        self, fake_keyring: _FakeKeyring
-    ) -> None:
-        """None means 'a keyring answered; nothing is stored' — not locked,
-        not missing. The resolver turns it into NOT_STORED."""
-        assert KeychainKeyProvider().get_key("proj") is None
-
-
-class _FakeCollection:
-    def __init__(self, locked: bool) -> None:
-        self._locked = locked
-
-    def is_locked(self) -> bool:
-        return self._locked
-
-
-class _FakeSecretStorage(types.ModuleType):
-    """Stands in for `secretstorage` at the module boundary the probe imports.
-
-    The probe asks the default collection's Locked property — the same read
-    keyring's SecretService backend makes before calling unlock() — so the
-    fake has to sit where dbus_init/get_default_collection are visible.
-    """
-
-    def __init__(
-        self, collection: _FakeCollection | None, error: Exception | None = None
-    ):
-        super().__init__("secretstorage")
-        self._collection = collection
-        self._error = error
-
-    def dbus_init(self) -> object:
-        if self._error is not None:
-            raise self._error
-        return object()
-
-    def get_default_collection(self, bus: object) -> _FakeCollection | None:
-        return self._collection
-
-
-def _install_secretstorage(
-    monkeypatch: pytest.MonkeyPatch, fake: _FakeSecretStorage
-) -> None:
-    monkeypatch.setitem(sys.modules, "secretstorage", fake)
-
-
-class TestTheProbe:
-    """status/inspect ask 'would a read prompt?' and must never prompt."""
-
-    def test_an_unlocked_collection_probes_unlocked(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        _install_secretstorage(
-            monkeypatch, _FakeSecretStorage(_FakeCollection(locked=False))
-        )
-        assert KeychainKeyProvider().probe() is KeyAvailability.UNLOCKED
-
-    def test_a_locked_collection_probes_locked(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        _install_secretstorage(
-            monkeypatch, _FakeSecretStorage(_FakeCollection(locked=True))
-        )
-        assert KeychainKeyProvider().probe() is KeyAvailability.LOCKED
-
-    def test_a_missing_secretstorage_answers_unknown(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setitem(sys.modules, "secretstorage", None)
-        assert KeychainKeyProvider().probe() is KeyAvailability.UNKNOWN
-
-    def test_a_dead_dbus_answers_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_secretstorage(
-            monkeypatch,
-            _FakeSecretStorage(None, error=RuntimeError("no session bus")),
-        )
-        assert KeychainKeyProvider().probe() is KeyAvailability.UNKNOWN
-
-    def test_no_default_collection_answers_unknown(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        _install_secretstorage(monkeypatch, _FakeSecretStorage(None))
-        assert KeychainKeyProvider().probe() is KeyAvailability.UNKNOWN
-
-    def test_the_shipped_provider_satisfies_the_probe_protocol(self) -> None:
-        assert isinstance(KeychainKeyProvider(), VaultKeyProbe)
-
-    def test_the_probe_does_not_read_the_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A probe is a question about prompting, not a read: it must leave
-        the keyring untouched — no get_password, no entry access."""
-
-        class _RecordingKeyring(_FakeKeyring):
-            def __init__(self) -> None:
-                super().__init__()
-                self.reads = 0
-
-            def get_password(self, service: str, account: str) -> str | None:
-                self.reads += 1
-                return super().get_password(service, account)
-
-        recording = _RecordingKeyring()
-        monkeypatch.setitem(sys.modules, "keyring", recording)
-        monkeypatch.setitem(sys.modules, "keyring.errors", recording.errors)
-        _install_secretstorage(
-            monkeypatch, _FakeSecretStorage(_FakeCollection(locked=True))
-        )
-
-        KeychainKeyProvider().probe()
-
-        assert recording.reads == 0
+def _store_provider(store: _StoreKeyring) -> KeychainKeyProvider:
+    return KeychainKeyProvider(adapter=_StoreAdapter(store))  # type: ignore[arg-type]
 
 
 class TestGenerateKey:
@@ -447,107 +465,71 @@ class TestProtocolConformance:
 class TestKeychainKeyScope:
     """One key for every project (ADR-023 §4)."""
 
-    def test_two_projects_read_the_same_key(self, fake_keyring: _FakeKeyring) -> None:
+    def test_two_projects_read_the_same_key(self, store_keyring: _StoreKeyring) -> None:
         """The change itself. The provider used to key on project_id."""
-        from functualize._config.vault_keys import (
-            KEYCHAIN_ACCOUNT,
-            KEYCHAIN_SERVICE,
-            KeychainKeyProvider,
-        )
+        from functualize._config.vault_keys import KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE
 
-        fake_keyring.store[(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)] = generate_key()
-        provider = KeychainKeyProvider()
+        store_keyring.store[(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)] = generate_key()
+        provider = _store_provider(store_keyring)
 
         assert provider.get_key("project-aaa") == provider.get_key("project-bbb")
         assert provider.get_key("project-aaa") is not None
 
-    def test_it_never_reads_a_project_scoped_entry(
-        self, fake_keyring: _FakeKeyring
-    ) -> None:
-        """A key left at the old per-project address is not picked up.
-
-        Stated as a test because it is the one visible consequence for anyone
-        who had manually run `keyring set functualize-vault <project_id>`:
-        nothing in functualize has ever written such an entry, so this is
-        expected to affect nobody, but it should fail loudly if it does rather
-        than resolve a key the current code would not have written.
-        """
-        from functualize._config.vault_keys import (
-            KEYCHAIN_SERVICE,
-            KeychainKeyProvider,
-        )
-
-        fake_keyring.store[(KEYCHAIN_SERVICE, "some-project-id")] = generate_key()
-
-        assert KeychainKeyProvider().get_key("some-project-id") is None
-
     def test_it_agrees_with_the_environment_provider(
-        self, fake_keyring: _FakeKeyring, monkeypatch: pytest.MonkeyPatch
+        self, store_keyring: _StoreKeyring, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Both shipped providers ignore project_id. The hazard this closes is
         that *which* scope applied depended on whether the env var was set."""
-        from functualize._config.vault_keys import (
-            ENV_VAR,
-            EnvKeyProvider,
-            KeychainKeyProvider,
-        )
-
         key = generate_key()
         monkeypatch.setenv(ENV_VAR, key)
         env = EnvKeyProvider()
+        keychain = _store_provider(store_keyring)
 
         assert env.get_key("a") == env.get_key("b")
-        assert KeychainKeyProvider().get_key("a") == KeychainKeyProvider().get_key("b")
+        assert keychain.get_key("a") == keychain.get_key("b")
 
 
 class TestKeychainInitialize:
-    def test_it_creates_and_persists_a_key(self, fake_keyring: _FakeKeyring) -> None:
-        from functualize._config.vault_keys import (
-            KEYCHAIN_ACCOUNT,
-            KEYCHAIN_SERVICE,
-            KeychainKeyProvider,
-        )
+    def test_it_creates_and_persists_a_key(self, store_keyring: _StoreKeyring) -> None:
+        from functualize._config.vault_keys import KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE
 
-        created = KeychainKeyProvider().initialize_key("proj")
+        created = _store_provider(store_keyring).initialize_key("proj")
 
         assert len(created) == KEY_BYTES
-        assert (KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) in fake_keyring.store
+        assert (KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) in store_keyring.store
 
-    def test_it_is_idempotent(self, fake_keyring: _FakeKeyring) -> None:
+    def test_it_is_idempotent(self, store_keyring: _StoreKeyring) -> None:
         """A second call must return what the first persisted.
 
         Generating a fresh key here would strand every value already written
         under the old one — silently, because nothing in the store records
         which key wrote a row.
         """
-        provider = KeychainKeyProvider()
+        provider = _store_provider(store_keyring)
 
         first = provider.initialize_key("proj")
         second = provider.initialize_key("proj")
 
         assert first == second
-        assert len(fake_keyring.store) == 1
+        assert len(store_keyring.store) == 1
 
     def test_it_returns_the_same_key_for_any_project(
-        self, fake_keyring: _FakeKeyring
+        self, store_keyring: _StoreKeyring
     ) -> None:
-        provider = KeychainKeyProvider()
+        provider = _store_provider(store_keyring)
 
         assert provider.initialize_key("one") == provider.initialize_key("two")
 
     def test_a_locked_keyring_refuses_rather_than_returning_a_stray_key(
-        self, fake_keyring: _FakeKeyring
+        self, store_keyring: _StoreKeyring
     ) -> None:
-        from functualize._config.vault import VaultError
-
-        fake_keyring.locked = True
+        store_keyring.locked = True
 
         with pytest.raises(VaultError, match="keyring"):
-            KeychainKeyProvider().initialize_key("proj")
+            _store_provider(store_keyring).initialize_key("proj")
+        assert store_keyring.store == {}
 
-    def test_it_satisfies_the_initializer_protocol(
-        self, fake_keyring: _FakeKeyring
-    ) -> None:
+    def test_it_satisfies_the_initializer_protocol(self) -> None:
         """T1.2 shipped the port unwired; this is the shipped implementor."""
         from functualize.plugin import VaultKeyInitializer
 
@@ -560,3 +542,89 @@ class TestKeychainInitialize:
         provider = EnvKeyProvider()
         assert isinstance(provider, VaultKeyProvider)
         assert not isinstance(provider, VaultKeyInitializer)
+
+
+def _backend(module: str, name: str, **attributes: object) -> object:
+    """An object whose class looks like a `keyring` backend, without importing one."""
+    kind = type(name, (), dict(attributes))
+    kind.__module__ = module
+    kind.__qualname__ = name
+    return kind()
+
+
+_SECRET_SERVICE = ("keyring.backends.SecretService", "Keyring")
+_MACOS = ("keyring.backends.macOS", "Keyring")
+_WINDOWS = ("keyring.backends.Windows", "WinVaultKeyring")
+
+
+class TestTheAllowlist:
+    """Only backends proven silent get a platform adapter (spec B9, D14)."""
+
+    @pytest.mark.parametrize(
+        ("backend", "platform", "adapter"),
+        [
+            (_SECRET_SERVICE, "linux", "linux"),
+            (("keyring.backends.libsecret", "Keyring"), "linux", "linux"),
+            (_SECRET_SERVICE, "freebsd14", "linux"),
+            (_MACOS, "darwin", "macos"),
+            (_WINDOWS, "win32", "windows"),
+            # A platform backend on the wrong platform is not proven silent.
+            (_SECRET_SERVICE, "darwin", "keyring"),
+            (_MACOS, "linux", "keyring"),
+            (_WINDOWS, "linux", "keyring"),
+            # A third-party backend nobody has proven silent.
+            (("keyrings.alt.file", "PlaintextKeyring"), "linux", "keyring"),
+        ],
+    )
+    def test_the_adapter_follows_backend_and_platform(
+        self, backend: tuple[str, str], platform: str, adapter: str
+    ) -> None:
+        from functualize._config.vault_keyring import select_adapter
+
+        chosen = select_adapter(
+            "functualize-vault",
+            "vault-key",
+            platform=platform,
+            backend=_backend(*backend),
+        )
+        assert chosen.name == adapter
+
+    def test_an_unproven_backend_is_never_read_by_a_run(self) -> None:
+        from functualize._config.vault_keyring import select_adapter
+
+        chosen = select_adapter(
+            "functualize-vault",
+            "vault-key",
+            platform="linux",
+            backend=_backend("keyrings.alt.file", "PlaintextKeyring"),
+        )
+        assert chosen.read_silent().outcome is AdapterOutcome.UNVERIFIED
+
+    @pytest.mark.parametrize(
+        "backend",
+        [None, _backend("keyring.backends.fail", "Keyring")],
+        ids=["none", "fail"],
+    )
+    def test_no_backend_is_no_keyring(self, backend: object) -> None:
+        from functualize._config.vault_keyring import select_adapter
+
+        chosen = select_adapter(
+            "functualize-vault", "vault-key", platform="linux", backend=backend
+        )
+        assert chosen.read_silent().outcome is AdapterOutcome.NO_KEYRING
+
+    def test_a_chainer_is_decided_by_its_first_real_backend(self) -> None:
+        from functualize._config.vault_keyring import select_adapter
+
+        chainer = _backend(
+            "keyring.backends.chainer",
+            "ChainerBackend",
+            backends=[
+                _backend("keyring.backends.fail", "Keyring"),
+                _backend(*_SECRET_SERVICE),
+            ],
+        )
+        chosen = select_adapter(
+            "functualize-vault", "vault-key", platform="linux", backend=chainer
+        )
+        assert chosen.name == "linux"
