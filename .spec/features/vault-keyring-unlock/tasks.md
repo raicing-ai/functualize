@@ -725,7 +725,7 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
 
 ## Wave 10 — the public API
 
-- [ ] **R5.1 — `vault_key_state`; `vault_unlock` signal policy; `vault_status` uses it**
+- [x] **R5.1 — `vault_key_state`; `vault_unlock` signal policy; `vault_status` uses it**
   - [F] `src/functualize/app/vault.py`, `src/functualize/app/utils.py`,
     `tests/app/test_vault_seam.py`, `tests/app/test_vault_status_key_state.py`,
     `tests/app/test_vault_key_state.py` (new)
@@ -743,10 +743,30 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
     green; a test asserts the state call makes **zero** `get_key`/secret reads and zero
     prompts on a locked fake, and finishes under the cap with a hung fake.
   - Spec: B4', B8, A7', A13.
+  - **Executed 2026-10-02.** Gate: `test_vault_key_state.py` (9), `test_vault_status_key_state.py`,
+    `test_vault_seam.py` (35) green; 985 passed with `tests/config` under `-n auto`.
+    A13 covered: env -> UNLOCKED/`env` with zero keyring calls; no vault file ->
+    NOT_APPLICABLE; locked -> zero `get_key` and zero `unlock`; a hung probe returns
+    UNKNOWN inside 1 s; five calls on one app -> one probe (cache on the app's
+    resolver). The state logic lives on `VaultKeyResolver.key_state()` (instance
+    cache, `KeyringState`), reached through a new read-only `VaultSource.resolver`;
+    `KeychainKeyProvider` gains `adapter_name()` / `key_stored()`, and the Linux
+    adapter an optional `has_entry()` (clear-text attributes, no secret read).
+    **Both `TRANSITIONAL(R5.1)` markers closed:** `KeyAccess.SILENT` and
+    `KeyStatus.UNKNOWN` are removed; `vault_inspect` reads silently under a 2 s
+    hung-backend bound, `vault_status` reads only when the state is unlocked.
+    Signal policy: first SIGINT/SIGTERM logs the guidance and keeps waiting, second
+    raises; handlers restored (tests send the signals from inside the fake read, so
+    they never reach the runner). **Deviations:** the error is
+    `UnlockAbandonedError` (Constitution: error classes end in `Error`), not
+    contracts' `UnlockAbandoned`; `vault init` no longer treats a locked keyring as
+    "no key" (`_init_with`). Touched outside [F] for the above: the resolver, the
+    keychain provider, the Linux adapter, `vault_source.py`. Sabotage (the state
+    probe reads the secret) turned 5 red; restored.
 
 ## Wave 11 — surfaces (disjoint)
 
-- [ ] **R6.1 — CLI: `vault unlock` behavior and wording**
+- [x] **R6.1 — CLI: `vault unlock` behavior and wording**
   - [F] `src/functualize/_cli/vault_cmd.py`, `tests/cli/test_vault_commands.py`
   - Messages for: already unlocked (exit 0), unlocked now (exit 0, provider named), user
     cancelled in the dialog (exit 3), no prompt appeared (exit 3), nothing to unlock on
@@ -754,8 +774,16 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
     sibling envelope. Update tests asserting the old wording.
   - Gate: `uv run pytest tests/cli/test_vault_commands.py -q` green.
   - Spec: B4', A7'.
+  - **Executed 2026-10-02.** Gate: `test_vault_commands.py` (+ inventory parity)
+    125 passed. Outcomes: already unlocked / unlocked now / nothing to unlock /
+    env (exit 0); cancelled / no prompt / locked / no keyring / not stored (exit 3);
+    `--json` `{"ok", "reason", "provider"}`; drift-catcher declares `cancelled`,
+    `no_prompt`, `key_unverified`, `unlock_abandoned`. `vault status` shows
+    `(no vault)` for an absent key state (the schema maps `not_applicable` to None).
+    The first-signal guidance is logged by `vault_unlock` (stderr through the CLI's
+    logging). Sabotage (reason mapping) turned the JSON case red; restored.
 
-- [ ] **R6.2 — TUI: show the vault state (never blocks the UI thread)**
+- [x] **R6.2 — TUI: show the vault state (never blocks the UI thread)**
   - [F] `src/functualize/_cli/tui/bar_items.py`, `src/functualize/_cli/tui/dynamic_footer_widget.py`,
     `src/functualize/_cli/tui/app.py`, `tests/tui_audit/test_vault_state_item.py` (new)
     (candidates from `rg -l -i "status.?bar|StatusBar|DynamicFooter" src/functualize/_cli/tui`;
@@ -770,8 +798,16 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: `uv run pytest tests/tui_audit/ -q` green before and after (re-run per
     CLAUDE.md); the new test proves a hung `vault_key_state` does not block the event loop.
   - Spec: B8, A14.
+  - **Executed 2026-10-02.** Gate: `tests/tui_audit/` 33 passed before, 40 after.
+    Minimal subset: `bar_items.py` (pure `render_vault_state`) and `app.py` (thread
+    worker at mount, every 10 s and on `AppFocus`; `call_from_thread`; text through
+    the one `_update_status_bar`). `dynamic_footer_widget.py` not needed. `func
+    --help` untouched. The first draft of the hung-probe test was **vacuous** — it
+    started its clock after mount, where a loop-thread probe stalls; sabotage (probe
+    on the loop thread) caught it, the clock now starts before `run_test`, and the
+    same sabotage turns both Pilot tests red.
 
-- [ ] **R6.3 — Docs, ADR amendment, changelog**
+- [x] **R6.3 — Docs, ADR amendment, changelog**
   - [F] `docs/guides/configuration.md`, `contributor/adr/016-remote-source-activation.md`,
     `CHANGELOG.md`
   - Replace every statement that a locked keyring is waited on or that a dialog appears
@@ -784,8 +820,13 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: `rg -n -i "30 seconds|dialog.*within|waits? up to" docs/guides/configuration.md CHANGELOG.md`
     shows no remaining claim of a prompt wait; doc code blocks run (`doc-verify`).
   - Spec: A12.
+  - **Executed 2026-10-02.** Gate: `rg -n -i "30 seconds|dialog.*within|waits? up to"
+    docs/guides/configuration.md CHANGELOG.md` -> 0 (also no "bounded wait");
+    doc-verify `a-core-builtins`, `p-remote-vault`, `l-secrets` ✅. The platform
+    table says macOS/Windows are "implemented; not yet confirmed" — R7.1 decides
+    whether "CI-smoked" may be added. No tracker key or internal link in any file.
 
-- [ ] **R6.4 — End-to-end tests follow the new behavior**
+- [x] **R6.4 — End-to-end tests follow the new behavior**
   - [F] `tests/integration/test_vault_keyring_unlock_e2e.py`, `tests/integration/_fake_keyring.py`
   - Mode `locked-blocks` becomes `locked` (raises a locked error at once). A4 becomes:
     locked + piped -> exit 3 in under 2 s, neutral message, backend recorded **no**
@@ -794,6 +835,14 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: `uv run pytest tests/integration/test_vault_keyring_unlock_e2e.py -q` green;
     reachability by sabotage: making `read_silent` call the fake's prompt path turns A4 red.
   - Spec: A1-A6, A4'.
+  - **Executed 2026-10-02.** Gate: 9 passed. The e2e now drives the **real**
+    provider and Linux adapter: `keyring.backends.SecretService.Keyring` selected,
+    and a two-line `secretstorage` shim (re-exporting `_fake_keyring.py`) put first
+    on the child's `PYTHONPATH`; keyring state persists in a file between processes.
+    A4': locked + piped -> exit 3, neutral text, no `unlock` call; plus unlock-then-run
+    and cancelled-unlock. Sabotage (the Linux adapter's silent read calls
+    `collection.unlock()`) turned A4' red: `assert 'unlock' not in ['import',
+    'dbus_init', 'dbus_init', 'unlock']`; restored.
 
 ## Wave 12 — CI and the manual tier
 
