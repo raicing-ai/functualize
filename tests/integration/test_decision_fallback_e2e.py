@@ -238,20 +238,65 @@ def test_no_new_gate_or_walk_primitive_was_added() -> None:
     }
 
 
+#: The Phase 1 merge that introduced the provider. AC-16 diffs this branch's
+#: copy of the provider source against it. The whole object name, because a
+#: server-side fetch of one commit needs it (GitHub refuses abbreviated SHAs).
+_PROVIDER_BASE = "ef1939dde60e846d5ed1216cbb32bc0de9214b75"
+
+_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _have(revision: str) -> bool:
+    return (
+        subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}"],
+            check=False,
+            cwd=_ROOT,
+        ).returncode
+        == 0
+    )
+
+
+def _provider_base() -> str | None:
+    """The revision to diff the provider source against, resolved for this clone.
+
+    A full clone already holds the Phase 1 merge. A CI checkout is
+    ``fetch-depth: 1`` and holds none of the branch's history, so the object
+    is fetched on demand — one commit, from the same remote the checkout
+    cloned — before the guard gives up and skips.
+    """
+    if _have(_PROVIDER_BASE):
+        return _PROVIDER_BASE
+    for fetch in (
+        ["git", "fetch", "--quiet", "--depth=1", "origin", _PROVIDER_BASE],
+        ["git", "fetch", "--quiet", "--unshallow", "origin"],
+    ):
+        subprocess.run(fetch, check=False, cwd=_ROOT, capture_output=True)
+        if _have(_PROVIDER_BASE):
+            return _PROVIDER_BASE
+    return None
+
+
 def test_provider_source_is_unchanged() -> None:
     """AC-16: this branch did not rewrite the experimental provider."""
     if shutil.which("git") is None:
         pytest.skip("git is unavailable")
+    base = _provider_base()
+    if base is None:
+        pytest.skip(
+            f"revision {_PROVIDER_BASE} is neither present nor fetchable in this "
+            "clone; the provider-source guard did not run"
+        )
     result = subprocess.run(
         [
             "git",
             "diff",
             "--quiet",
-            "ef1939d",
+            base,
             "--",
             "plugins/domains/functualize-decision-jev/src",
         ],
         check=False,
-        cwd=Path(__file__).resolve().parents[2],
+        cwd=_ROOT,
     )
     assert result.returncode == 0
