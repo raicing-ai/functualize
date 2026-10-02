@@ -48,10 +48,12 @@ from functualize._types.protocols import (
     FormatProvider,
     JobProvider,
     JobTransform,
+    KeyAvailability,
     ModulePreFilter,
     PluginWithShutdown,
     Source,
     VaultKeyInitializer,
+    VaultKeyProbe,
     VaultKeyProvider,
 )
 from functualize._types.settings import (
@@ -128,6 +130,12 @@ __all__ = [
     "FormatProvider",
     "VaultKeyInitializer",
     "VaultKeyProvider",
+    # The optional probe half of the key seam: can this provider answer
+    # without prompting? Separate for the same reason VaultKeyInitializer is
+    # — widening VaultKeyProvider would invalidate every read-only
+    # structural implementation that exists today.
+    "VaultKeyProbe",
+    "KeyAvailability",
     # The agent step port. A step performed by an agent is an executor behind
     # this Protocol; what an executor can enforce is declared, and a step that
     # requires what the executor lacks is refused at validation rather than run

@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, NewType, Protocol, runtime_checkable
 
+from functualize._types.enums import KeyAvailability
 from functualize._types.interactivity import (
     InputNotAvailable,
     PromptChoice,
@@ -307,13 +308,17 @@ class VaultKeyProvider(Protocol):
     a cloud KMS, a password manager or a hosted control plane are all the same
     shape (ADR-016).
 
-    Two implementations ship: an environment-variable provider
-    (non-interactive) and an OS keychain provider (interactive).
+    Two implementations ship: an environment-variable provider and an OS
+    keychain provider.
 
-    **Resolution order is part of the contract.** Non-interactive providers are
-    consulted first, and interactive ones only when no key was found *and* a
-    TTY is present. Reversed, an unattended run — CI, Lambda, a container —
-    would block forever on a prompt nobody can answer.
+    **Reading the key is not gated on a terminal.** A run that needs the key
+    consults providers whether or not stdin and stdout are TTYs, behind a
+    deadline the resolver owns; the keyring's own unlock dialog may appear
+    inside that window. The terminal rule survives only for *prompting*:
+    a provider whose :meth:`interactive` is True — one that can only obtain
+    the key by asking a person at a terminal — is still consulted only on a
+    real TTY, so an unattended run cannot block forever on a prompt nobody
+    can answer.
     """
 
     def identifier(self) -> str:
@@ -321,9 +326,13 @@ class VaultKeyProvider(Protocol):
         ...
 
     def interactive(self) -> bool:
-        """Whether obtaining the key may prompt, block, or require a TTY.
+        """Whether obtaining the key **requires a person at a terminal**.
 
-        A provider returning True is never consulted on an unattended run.
+        True means the provider can only work through a prompt a pipe cannot
+        answer; such a provider is consulted only on a real TTY. A provider
+        that may *block* on a backend — an OS keyring that might show its own
+        unlock dialog — returns False and is bounded by the resolver's
+        deadline instead.
         """
         ...
 
@@ -379,20 +388,46 @@ class VaultKeyInitializer(VaultKeyProvider, Protocol):
     def initialize_key(self, project_id: str) -> bytes:
         """Return the existing key, or create, persist, and return one.
 
-        Args:
-            project_id: Carried for providers that scope per project. Both
-                shipped implementations ignore it; see the class docstring.
+            Args:
+                project_id: Carried for providers that scope per project. Both
+                    shipped implementations ignore it; see the class docstring.
 
-        Returns:
-            Exactly ``KEY_BYTES`` bytes. Idempotent: a second call returns what
-            the first one persisted, never a fresh key — a provider that
-            generated a new key each time would silently strand every value
-            already written under the old one.
+            Returns:
+                Exactly ``KEY_BYTES`` bytes. Idempotent: a second call returns what
+                the first one persisted, never a fresh key — a provider that
+                generated a new key each time would silently strand every value
+                already written under the old one.
 
         The key is never logged, printed or returned through any report. `init`
         reports *which provider* holds it, never the key itself; `keygen` is the
         one command that puts a key on screen, and it is explicitly the
         operator's to place.
+        """
+        ...
+
+
+@runtime_checkable
+class VaultKeyProbe(VaultKeyProvider, Protocol):
+    """A key provider that can say whether it would prompt, without prompting.
+
+    Separate from :class:`VaultKeyProvider` rather than a method added to it,
+    exactly as :class:`VaultKeyInitializer` is: widening that protocol would
+    retroactively invalidate every structural implementation that satisfies
+    it today. A provider opts in by having the method; nothing registers,
+    and nothing inherits.
+
+    ``vault status`` and ``vault inspect`` look for this capability. They must
+    never raise a dialog and never wait on one, so they ask ``probe()`` first
+    and read the key only when the answer is
+    :attr:`~functualize._types.enums.KeyAvailability.UNLOCKED`.
+    """
+
+    def probe(self) -> KeyAvailability:
+        """Report whether this provider can answer without prompting.
+
+        Never prompts, never blocks beyond a short fixed bound, never raises:
+        a backend that cannot answer the question returns ``UNKNOWN`` rather
+        than failing the surface that asked.
         """
         ...
 
@@ -947,6 +982,9 @@ __all__ = [
     "StoreSubstrate",
     "VaultKeyInitializer",
     "VaultKeyProvider",
+    "VaultKeyProbe",
+    # The probe port's answer vocabulary
+    "KeyAvailability",
     # Agent step port payload vocabulary
     "AgentCapability",
     "AgentStepContext",

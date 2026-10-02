@@ -66,9 +66,14 @@ class TestStructuralSatisfaction:
 
 
 class TestTheInteractivityAxis:
-    """`interactive()` is what keeps an unattended run from blocking."""
+    """`interactive()` now means "needs a person at a terminal", nothing else.
 
-    def test_providers_declare_whether_they_may_prompt(self) -> None:
+    A provider that may block on a backend (an OS keyring showing its own
+    unlock dialog) returns False: it is bounded by the resolver's deadline,
+    not gated on a TTY. True is reserved for a prompt a pipe cannot answer.
+    """
+
+    def test_providers_declare_whether_they_need_a_terminal(self) -> None:
         assert _EnvLike().interactive() is False
         assert _KeychainLike().interactive() is True
 
@@ -154,3 +159,62 @@ class TestVaultKeyInitializer:
         import functualize.plugin as plugin_api
 
         assert "VaultKeyInitializer" in plugin_api.__all__
+
+
+class TestVaultKeyProbe:
+    """The optional "can you answer without prompting?" half of the seam.
+
+    Split from `VaultKeyProvider` exactly as `VaultKeyInitializer` is, so the
+    test that matters most is again the negative one: a provider without
+    `probe()` must remain a valid provider after this exists.
+    """
+
+    def test_a_probe_less_provider_is_not_a_probe(self) -> None:
+        """The whole reason this is a second protocol, twice over."""
+        from functualize.plugin import VaultKeyProbe
+
+        assert not isinstance(_KeychainLike(), VaultKeyProbe)
+
+    def test_adding_probe_opts_in_structurally(self) -> None:
+        """No registration, no inheritance — the method is the opt-in."""
+        from functualize.plugin import KeyAvailability, VaultKeyProbe
+
+        class Probed:
+            def identifier(self) -> str:
+                return "probed"
+
+            def interactive(self) -> bool:
+                return False
+
+            def is_available(self) -> bool:
+                return True
+
+            def get_key(self, project_id: str) -> bytes | None:
+                return b"\x02" * 32
+
+            def probe(self) -> KeyAvailability:
+                return KeyAvailability.UNLOCKED
+
+        provider = Probed()
+        assert isinstance(provider, VaultKeyProbe)
+
+    def test_probe_answers_use_the_shared_vocabulary(self) -> None:
+        """UNLOCKED / LOCKED / UNKNOWN are the only three answers."""
+        from functualize._types.enums import KeyAvailability
+
+        assert {state.value for state in KeyAvailability} == {
+            "unlocked",
+            "locked",
+            "unknown",
+        }
+
+    def test_it_is_runtime_checkable_like_its_base(self) -> None:
+        from functualize.plugin import VaultKeyProbe
+
+        assert getattr(VaultKeyProbe, "_is_runtime_protocol", False)
+
+    def test_it_is_reachable_from_the_public_plugin_surface(self) -> None:
+        import functualize.plugin as plugin_api
+
+        assert "VaultKeyProbe" in plugin_api.__all__
+        assert "KeyAvailability" in plugin_api.__all__
