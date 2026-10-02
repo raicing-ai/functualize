@@ -909,7 +909,7 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
 
 ## Wave 13 — checkpoint
 
-- [ ] **R8.1 — Full gates** `[verify-e2e:full]`
+- [x] **R8.1 — Full gates** `[verify-e2e:full]`
   - Gate: `uv run ruff check src/ tests/`; `uv run ruff format --check src/ tests/`;
     `uv run mypy src/`; `uv run lint-imports` -> 7 kept; pytest by tier (never one call
     over 600 s); `uv run pytest tests/tui_audit/ -q`; the warm-boot import count is
@@ -917,6 +917,26 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
     `agentic-verify` walk of `contracts.md`. The pre-existing failure
     `tests/cli/test_func_settings_store.py::TestChainPrecedence::test_default_when_nothing_sets_it`
     (order-dependent on master at 04d90ac) is **not** this feature's; record it, do not fix it here.
+  - **Executed 2026-10-02.** `ruff check`, `ruff format --check` (1572 files), `mypy
+    src/` (384 files), `lint-imports` 7 kept / 0 broken — all clean. Fast suite by
+    directory chunk, each under the 600 s cap: 2851 + 5400 + 1958 + 1698 passed;
+    `examples/` 224 passed; `tests/tui_audit/` green (in the third chunk). CI on head
+    `420d9dc` had found two stale tests this branch broke (a spec'd status-bar stub
+    without the vault item's text; the settings-namespace list without `vault`) —
+    fixed in `7a793ac`; `doc-verify` failed only because it runs the fast tier.
+    **A10**, measured by booting an app over a vault-less project, resolving its
+    chain and running a job, cold and warm: **1269 modules on this branch and 1269 on
+    `master` (`04d90ac`)**, and none of `keyring`, `secretstorage`, `jeepney`,
+    `cryptography` loaded on either. **A14**: `func --help` is byte-identical to
+    `master` (3202 bytes, sha256 `e8034f586bbc…` on both). `contracts.md` §8–§11
+    walked: every name present, with two disclosed deviations — `UnlockAbandonedError`
+    (not `UnlockAbandoned`) and `AdapterRead.secret: str` (not `key: bytes`). Dead-code
+    delta (advisory) over `65b2cc7..7a793ac`: KNOWN — `VaultKeyResolver.fixed` (D1
+    test seam), the fakes' `create_collection`/`get_default_collection` tripwires, the
+    fake `secretstorage` functions `keyring` calls in the child; UNMARKED, test-only —
+    `_ProbedProvider` in `test_vault_key_resolver.py` and `EXCEPTIONS` in
+    `_fake_keyring.py` (left for the reviewer, not deleted). The pre-existing
+    order-dependent `test_default_when_nothing_sets_it` is not this feature's.
 
 ## Wave 14 — the live check with the maintainer (a human step)
 
