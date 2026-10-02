@@ -34,9 +34,10 @@ from typing import Any
 from functualize._engine.recording import InputRecorder
 from functualize._gate._evaluation import evaluate_submission
 from functualize._primitives import gate_requests
-from functualize._types.errors import InputRequestNotOpenError
+from functualize._types.errors import GateNotFoundError, InputRequestNotOpenError
 from functualize._types.gate_resolution import EvaluationOutcome
 from functualize.app._workflow_resume import (
+    _canonical_gate,
     _resolution_view,
     _resolve_gate_model,
     pending_gates,
@@ -67,7 +68,10 @@ def resolve_gate(
     answer means addressing a gate that is, by definition, no longer pending —
     without this, ``--reopen`` could never name its own target.
 
-    Returns ``(scope_id, gate)`` or an error envelope.
+    Returns ``(scope_id, gate)`` or an error envelope. With both halves named,
+    a gate the scope does not have raises rather than returning: the caller
+    addressed one workflow and one gate, and a miss is a typo, not a survey
+    result.
     """
     if scope_id is not None and gate is not None:
         # Both named: there is nothing to disambiguate, so this path must not
@@ -76,11 +80,9 @@ def resolve_gate(
         scope = store.get_scope(scope_id)
         if scope is None:
             return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
-        if store.get_gate(scope_id, gate) is None:
-            return _error(
-                "gate_not_found", f"Workflow '{scope_id}' has no gate '{gate}'."
-            )
-        return scope_id, gate
+        return scope_id, _canonical_gate(
+            scope.get("gates") or {}, gate, scope_id=scope_id
+        )
 
     candidates: list[tuple[str, str]] = []
     for sid in store.scope_ids():
@@ -96,9 +98,17 @@ def resolve_gate(
             if include_answered
             else [name for name, _record in pending_gates(scope)]
         )
-        for name in names:
-            if gate is None or name == gate:
-                candidates.append((sid, name))
+        if gate is None:
+            candidates.extend((sid, name) for name in names)
+            continue
+        # A survey never raises: a gate that does not match this scope may
+        # exist elsewhere, or already be answered, and the caller asked a
+        # question whose honest answer can be an empty list.
+        try:
+            resolved = _canonical_gate(names, gate, scope_id=sid)
+        except GateNotFoundError:
+            continue
+        candidates.append((sid, resolved))
 
     if scope_id is not None and store.get_scope(scope_id) is None:
         return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
@@ -136,7 +146,10 @@ def gate_draft(app: Any, store: Any, scope_id: str, gate: str) -> dict[str, Any]
     path already produces, so the two can never describe the same draft
     differently.
     """
-    scope = store.get_scope(scope_id) or {}
+    scope = store.get_scope(scope_id)
+    if scope is None:
+        return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
+    gate = _canonical_gate(scope.get("gates") or {}, gate, scope_id=scope_id)
     model, error = _resolve_gate_model(app, scope, gate)
     if error is not None:
         return error
@@ -192,9 +205,8 @@ def answer_gate(
     if scope is None:
         return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
 
+    gate = _canonical_gate(scope.get("gates") or {}, gate, scope_id=scope_id)
     record = store.get_gate(scope_id, gate)
-    if record is None:
-        return _error("gate_not_found", f"Workflow '{scope_id}' has no gate '{gate}'.")
 
     model, error = _resolve_gate_model(app, scope, gate)
     if error is not None:

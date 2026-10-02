@@ -327,7 +327,7 @@ tests fail.
 
 ## Wave 3 — the answer entries
 
-### [ ] T5 — `resolve_gate`, `answer_gate`, `gate_draft` resolve once
+### [x] T5 — `resolve_gate`, `answer_gate`, `gate_draft` resolve once
 
 *Files:* `src/functualize/app/_workflow_answer.py`, `tests/workflow/test_gate_name_resolution.py`
 
@@ -383,6 +383,17 @@ rg -c 'name == gate\b' src/functualize/app/_workflow_answer.py
 now: `1` · after: `0`
 
 Also green: `uv run pytest tests/workflow/test_gate_name_resolution.py tests/workflow/test_gate_drafts.py tests/workflow/test_workflow_surface_parity.py -q --no-header`.
+
+**Done 2026-10-02.** Gates 4/0 hold; that pytest selection → 87 passed (27
+new), `ruff`/`mypy src/` clean. Line drift: `resolve_gate` at `:48` (cited
+`:72` for the both-named branch), `gate_draft` at `:130` (cited `:139`),
+`answer_gate` at `:163` (cited `:191`); the errors import is still `:37` and
+the resume import block `:39-43`, both extended in place. All four
+canonicalizing calls sabotaged in turn after commit, each failing a named
+test: both-named → `test_both_named_resolves_every_spelling` (3 of 4
+spellings), scan → `test_gate_only_scan_resolves_every_spelling` (3 of 4),
+`answer_gate` → `test_the_declared_spelling_answers_and_the_walk_resumes`,
+`gate_draft` → `test_the_declared_spelling_drafts`.
 
 ## Wave 4 — the survey filter
 

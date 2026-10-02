@@ -22,7 +22,15 @@ from functualize._app.state import AppState
 from functualize._primitives import gate_requests
 from functualize.app._workflow_resume import _canonical_gate, _resolve_gate_model
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import GateNotFoundError, ScopeStore, deposit_gate_input
+from functualize.app.utils import (
+    GateNotFoundError,
+    ScopeStore,
+    answer_gate,
+    deposit_gate_input,
+    gate_draft,
+    resolve_gate,
+    resume_scope,
+)
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
@@ -191,3 +199,105 @@ class TestModelLookup:
 
         assert error is not None
         assert error["error"] == "gate_unresolvable"
+
+
+_SPELLINGS = ["approve-refund", "approve_refund", "approveRefund", "Approve_Refund"]
+
+
+class TestResolveGate:
+    """The addressing half: every spelling resolves, and a miss is loud."""
+
+    @pytest.mark.parametrize("spelling", _SPELLINGS)
+    def test_both_named_resolves_every_spelling(
+        self, store: ScopeStore, spelling: str
+    ) -> None:
+        assert resolve_gate(store, "rel-1", spelling) == ("rel-1", "approve-refund")
+
+    @pytest.mark.parametrize("spelling", _SPELLINGS)
+    def test_gate_only_scan_resolves_every_spelling(
+        self, store: ScopeStore, spelling: str
+    ) -> None:
+        assert resolve_gate(store, None, spelling) == ("rel-1", "approve-refund")
+
+    def test_both_named_unknown_raises(self, store: ScopeStore) -> None:
+        with pytest.raises(GateNotFoundError):
+            resolve_gate(store, "rel-1", "nope")
+
+    def test_gate_only_unknown_keeps_the_survey_envelope(
+        self, store: ScopeStore
+    ) -> None:
+        """A search across scopes never raises: the gate may exist, answered,
+        somewhere this search cannot see."""
+        result = resolve_gate(store, None, "nope")
+
+        assert isinstance(result, dict)
+        assert result["error"] == "gate_not_found"
+        assert "workflow list" in result["message"]
+
+
+class TestAnswerGate:
+    def test_the_declared_spelling_answers_and_the_walk_resumes(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        result = answer_gate(app, store, "rel-1", "approve_refund", {"approved": True})
+
+        assert result["status"] == "answered"
+        assert result["gate"] == "approve-refund"
+
+        resumed = resume_scope(app, store, "rel-1")
+        assert resumed["status"] == "success"
+        scope = store.get_scope("rel-1")
+        assert scope is not None
+        assert any(
+            key.split("::", 1)[0] == "deploy" for key in scope.get("steps") or {}
+        )
+
+    def test_an_unknown_reference_raises_and_leaves_the_draft_alone(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        assert store.get_gate_draft("rel-1", "approve-refund") is None
+
+        with pytest.raises(GateNotFoundError):
+            answer_gate(app, store, "rel-1", "nope", {"approved": True})
+
+        assert store.get_gate_draft("rel-1", "approve-refund") is None
+
+
+class TestGateDraft:
+    def test_the_declared_spelling_drafts(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        result = gate_draft(app, store, "rel-1", "approve_refund")
+
+        assert "error" not in result
+        assert result["gate"] == "approve-refund"
+
+    def test_an_unknown_reference_raises(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        with pytest.raises(GateNotFoundError):
+            gate_draft(app, store, "rel-1", "nope")
+
+    def test_an_unknown_scope_is_workflow_not_found(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        result = gate_draft(app, store, "nope", "approve_refund")
+
+        assert result["error"] == "workflow_not_found"
+
+
+def test_resume_scope_answers_by_declared_name(
+    app: FunctualizeApp, store: ScopeStore
+) -> None:
+    resumed = resume_scope(
+        app, store, "rel-1", input={"approved": True}, gate="approve_refund"
+    )
+
+    assert resumed["status"] == "success"
+
+
+def test_resume_scope_with_an_unknown_gate_raises(
+    app: FunctualizeApp, store: ScopeStore
+) -> None:
+    with pytest.raises(GateNotFoundError):
+        resume_scope(app, store, "rel-1", input={"approved": True}, gate="nope")
