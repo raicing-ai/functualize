@@ -203,7 +203,7 @@ the flags arm's catch → `test_wf_resume_with_input_and_gate_exits_one` fails
 sabotage narrows the catch instead). Validation: `ruff check`/`ruff format`
 clean, `uv run pytest tests/cli/test_gate_not_found_refusal.py` → 4 passed.
 
-### [ ] T3 — MCP: `_refuse_unknown_gates` on the three gate-taking tools
+### [x] T3 — MCP: `_refuse_unknown_gates` on the three gate-taking tools
 
 *Files:* `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py`, `tests/plugins/test_mcp_gate_not_found.py` (new)
 
@@ -240,6 +240,19 @@ now: `0` · after: `3`
 rg -c '@_refuse_unreadable_scopes' plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py
 ```
 now: `10` · after: `10` — invariant: the unreadable-store guard still wraps every tool.
+
+**Done 2026-10-02.** Gates 1/3/10 hold. Line drift: `_refuse_unreadable_scopes`
+still at `:78`, `_answer_gate` at `:272`, `_get_gate_draft` at `:317`,
+`_resume_workflow` at `:336` (no drift); `_list_workflows` is at `:244`
+(cited `:256`). One deviation: the tests also patch
+`functualize_mcp._workflow_tools.resolve_gate` beside the three named homes —
+`answer_gate` and `get_gate_draft` resolve their target first, and until T5
+that resolution returns its envelope instead of raising, so the decorator
+would never fire. Reachability proved by sabotage after commit: deleting
+`@_refuse_unknown_gates` from `_answer_gate` →
+`TestAnswerGateRefuses::test_unknown_gate_returns_the_gate_list` fails with
+the raw error escaping. Validation: `ruff check`/`ruff format` clean,
+`uv run pytest tests/plugins/test_mcp_gate_not_found.py` → 3 passed.
 
 ## Wave 2 — the resolver
 
