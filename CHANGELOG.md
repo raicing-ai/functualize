@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — the vault key is read from an unlocked keyring with or without a terminal
+
+A run that needed a stored vault secret used to get it in a terminal and be
+refused the moment stdout was piped, captured by an agent's shell tool, or
+served over stdio MCP — with a message that said no key existed and offered to
+delete the entry. The OS keyring was consulted only when stdin and stdout were
+both terminals, which also blocked a silent read of a keyring the developer
+had already unlocked.
+
+Now `$FUNCTUALIZE_VAULT_KEY` still wins when set and nothing else is touched;
+otherwise the keyring is read **regardless of terminal**, behind a wait
+(default `30s`), and the outcome is remembered for the process, so a run reading
+many secrets waits at most once. The key is resolved **lazily**: only a run
+that opens a stored vault entry asks for it, so an unrelated job, `--help` and
+completions never touch the keyring, even in a project with a vault. A
+refusal (exit `3`) now says which of *locked or timed out*, *no keyring*,
+*nothing stored* or *wrong key* happened and gives the next step; for the first
+two it never suggests `vault remove`, `vault clear` or — for a typed-in entry —
+`vault sync`. `vault put` and `vault sync` use the same bounded wait.
+`VaultKeyProvider.interactive()` now means "needs a person at a terminal"; the
+keychain provider returns `False`. Recorded as an amendment to ADR-016 §5.
+
+Two behaviours move with it:
+
+- A config section holding a stored entry that cannot be opened now
+  **refuses** at that entry. Listing a section needs no key any more, so the
+  entry is no longer silently left out of the section.
+- The `remote_first()` warning that no vault key is available is no longer
+  printed at start-up. It is printed once, at the first declared-remote value
+  that falls through — the first moment the key is needed — and an app whose
+  values all come from env or files no longer prints it at all.
+
+### Added — `func builtin vault unlock`, `[vault] keyring_timeout`, and the key state
+
+- `func builtin vault unlock [--json]` resolves the key in the foreground with
+  no deadline, so you can answer the keyring's own unlock dialog; it names the
+  provider that answered, never prints the key, and exits `3` with
+  `key_locked`, `no_keyring` or `key_not_stored` otherwise. The same reasons
+  are carried by `VaultKeySourceError.reason` (whose old `key_unavailable`
+  spelling now means `no_keyring`) and the new
+  `VaultKeyUnavailableError.reason`.
+- `[vault] keyring_timeout` in `.functualize.toml` or the global config, or
+  `$FUNCTUALIZE_VAULT_KEYRING_TIMEOUT`, sets the wait. An invalid value warns
+  once and the default is used. A `FunctualizeApp` built outside `func` can
+  pass `ConfigSources(vault_keyring_timeout=...)`.
+- `func builtin vault status` prints `Key state: available | locked | unknown`
+  and adds `key_state` to `--json`. It asks the keyring whether it is locked and
+  never opens a locked one; `vault inspect` likewise never prompts.
+- `functualize.plugin` exports `VaultKeyProbe` and `KeyAvailability`, for a key
+  provider that can say whether a read would prompt.
+
 ### Added — decision gates: a provider proposes, the workflow decides
 
 A workflow can declare `Gate(decide=ChoiceDecision(...))`: a decision provider

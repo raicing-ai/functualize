@@ -598,17 +598,65 @@ from `classic()` worth knowing before you switch.
 
 ### The key
 
-The vault key is resolved by a `VaultKeyProvider`, non-interactive sources
-first:
+The vault key is resolved by a `VaultKeyProvider`:
 
-| Provider | Source | Interactive | Installed by default |
+| Provider | Source | Needs a terminal | Installed by default |
 |---|---|---|---|
 | `env` | `$FUNCTUALIZE_VAULT_KEY` (64 hex characters) | no | yes |
-| `keychain` | the OS keyring | yes | no — `functualize[keychain]` |
+| `keychain` | the OS keyring | no | no — `functualize[keychain]` |
 
-The environment wins **when set**, so an automated run is deterministic and
-never blocks on a prompt. Interactive providers are consulted only on a real
-terminal — a Lambda must not hang on a keychain dialog.
+The environment wins **when set**: nothing else is touched, so an automated run
+is deterministic and never waits on anything. In CI, Lambda or a container,
+export it.
+
+Otherwise the OS keyring is read **whether or not stdout is a terminal** — a
+pipe, an agent's shell tool and a stdio MCP job read it exactly as a terminal
+does. Unlock your keyring once (your desktop session usually does it at login)
+and every run reads the key silently for as long as the keyring stays
+unlocked; the keyring's own policy decides how long that is. functualize keeps
+no copy of the key and runs no timer of its own.
+
+**The key is read only when it is needed.** A run asks for it the first time it
+opens a stored vault entry. A job whose config never reads a stored secret —
+and `func --help`, completions and `builtin info` — never touches the keyring
+at all, even in a project that has a vault.
+
+**A locked keyring is a bounded wait, not a hang.** A locked keyring may show
+its own unlock dialog. Answer it within the wait and the run proceeds;
+otherwise the run is refused, and the outcome is remembered for the rest of
+the process, so a run that reads ten secrets waits once, not ten times. Where
+no keyring can answer at all — no backend, no session bus — the refusal is
+immediate. The wait is a func setting:
+
+```toml
+# .functualize.toml (this project) or ~/.config/functualize/config.toml (you)
+[vault]
+keyring_timeout = "30s"
+```
+
+`$FUNCTUALIZE_VAULT_KEYRING_TIMEOUT` overrides both, with the usual precedence
+(default < global < nearest project < env). Durations are spelled as for
+`max_age` below; a bare number or `0s` is refused with a warning and the
+default is used. `vault put` and `vault sync` use the same wait — they also run
+from scripts.
+
+**Refused because the keyring was locked?** Unlock it, or run
+
+```bash
+func builtin vault unlock
+```
+
+in a terminal. It waits for you to answer the keyring's dialog — no deadline —
+names the provider that answered, and never prints the key. Then rerun the job;
+nothing needs reconfiguring.
+
+The setting reaches every app `func` builds. A `FunctualizeApp` you construct
+yourself gets the env var and the default, or the value you pass as
+`ConfigSources(vault_keyring_timeout="10s")`.
+
+A provider that needs a person *at this terminal* — none ships — is still
+skipped unless stdin and stdout are both terminals, and is asked only after
+every provider that cannot prompt.
 
 **One key, every project.** Both shipped providers are user-scoped: the same key
 opens every project's vault on this machine. The vaults stay separate — one
@@ -616,7 +664,7 @@ encrypted file each — so isolation comes from the files, not from the keys. A
 third-party provider may still hold one key per project; scope is the
 provider's choice.
 
-With no key at all the vault does not open, and there is **no plaintext
+With no key the vault does not open, and there is **no plaintext
 fallback**. What happens next depends on whether anything is actually stored
 for the key being resolved:
 
@@ -628,14 +676,21 @@ the vault HOLDS a value for this key  ->  the run refuses
 
 The second case is the one worth understanding. A stored value is the one you
 provisioned; continuing past it to an environment variable would hand the job a
-*different* secret while the run reported success. The refusal names the three
-ways out, two of which need no key:
+*different* secret while the run reported success. The refusal (exit code `3`)
+says which of four things happened, and the next step for each:
 
-```text
-func builtin vault sync                    refresh from upstream
-func builtin vault remove <path>           drop this entry
-func builtin vault clear                   drop the whole store
-```
+| Outcome | What the refusal tells you to do |
+|---|---|
+| the keyring is locked, or did not answer within the wait | unlock it, or run `func builtin vault unlock`, or export `$FUNCTUALIZE_VAULT_KEY`; then retry |
+| no keyring is reachable here | export `$FUNCTUALIZE_VAULT_KEY`, or install `functualize[keychain]` |
+| a keyring answered and holds no vault key | `func builtin vault init`, or export `$FUNCTUALIZE_VAULT_KEY` |
+| a key was found and does not open this vault | supply the key it was written with |
+
+In the first two the key may well still exist, so the message never suggests
+deleting anything. Only where the key really is gone does it list
+`func builtin vault remove <path>` and `func builtin vault clear` — last, and
+saying that they destroy the stored value, which for an entry typed in with
+`vault put` is the only copy.
 
 ### Three things that warn rather than fail
 
@@ -655,7 +710,10 @@ file (/srv/my-platform/config.base.toml), not the secret it names. Run
 
 That is also what a **first run** looks like — a key exported and `vault sync`
 not yet run. It warns per declared key rather than once, because unlike a
-missing key it has a one-command fix the message can name.
+missing key it has a one-command fix the message can name. With **no key**,
+declared values fall back to local sources and that is said once per run, at
+the first declared value that needed the key — not at start-up, because a run
+that never needs the key never asks for it.
 
 Once per key per run, not once per access.
 
@@ -684,7 +742,8 @@ func builtin vault inspect   # explain a path -- never the value
 func builtin vault remove    # drop one entry, needs no key
 func builtin vault sync      # fetch every annotation, write the vault
 func builtin vault list      # names, origins, timestamps -- never values
-func builtin vault status    # key provider in use, age, entry counts
+func builtin vault status    # key provider and key state, age, entry counts
+func builtin vault unlock    # unlock the OS keyring for the key -- never prints it
 func builtin vault clear     # delete this project's vault, needs no key
 func builtin vault keygen    # print a fresh 32-byte key, hex-encoded
 ```
@@ -703,7 +762,10 @@ conflict rather than overwriting it, and `put` refuses a path a provider owns.
 
 `list` and `status` need **no key** — they read the cleartext metadata columns,
 which is what makes them useful on the machine where something is wrong.
-`status` also never prompts, so it is safe in a script.
+`status` also never prompts and never waits on a keyring: it asks the keyring
+whether it is locked and reports `Key state: available`, `locked` or `unknown`
+(the last where the backend cannot say without risking a prompt — macOS and
+Windows today), so it is safe in a script.
 
 ```console
 $ func builtin vault status
@@ -711,6 +773,7 @@ Path:         ~/.local/share/functualize/vaults/0f8c5900f3b1/vault.db
 Exists:       yes
 Entries:      3 (1 direct, 2 synced)
 Key provider: env
+Key state:    available
 Last synced:  4d 2h ago  ← stale
 Max age:      1d
 Providers:    aws-sm, aws-ssm, bws

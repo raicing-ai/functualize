@@ -5,7 +5,7 @@ description = "The builtin vault family: keygen, and the surfaces that answer wi
 
 [source]
 file = "docs/guides/configuration.md"
-lines = "605-641"
+lines = "736-791"
 description = "The `builtin vault` commands, and the claim that `list` and `status` need no key"
 
 requires = []
