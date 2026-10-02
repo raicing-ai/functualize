@@ -402,21 +402,20 @@ def describe_key_failure(
             f"`functualize[keychain]`."
         )
     if lookup.status is KeyStatus.NOT_STORED:
-        destroy = (
-            " — it destroys the stored value"
-            + (
-                ", and for an entry typed in by hand that is the only copy"
-                if direct
-                else ""
-            )
-            + " —"
+        only_copy = (
+            ", and for an entry typed in by hand that is the only copy"
+            if direct
+            else ""
         )
+        target = qualified or "<key>"
         return (
             f"{prefix}no vault key is stored on this machine. Run "
             f"`func builtin vault init`, or export $FUNCTUALIZE_VAULT_KEY. "
-            f"If the entry itself is stale, `func builtin vault remove` can "
-            f"delete it{destroy} but init or the env var is the fix that "
-            f"keeps the secret."
+            f"Last resort, if the entry itself is stale: "
+            f"`func builtin vault remove {target}` or `func builtin vault "
+            f"clear` — they need no key, but each destroys stored "
+            f"values{only_copy}; init or the env var is the fix that keeps "
+            f"the secret."
         )
     # UNKNOWN (SILENT access only)
     return (
