@@ -456,7 +456,7 @@ class TestSettingsPanelPreservation:
         """
         from functualize._cli.tui.settings_panel import _SETTINGS_ORDER
 
-        known_namespaces = {"tui", "cli", "discovery", "plugins", "shell"}
+        known_namespaces = {"tui", "cli", "discovery", "plugins", "shell", "vault"}
         top_level = {"dotenv", "dotenv_path", "import_libs"}
 
         for setting in _SETTINGS_ORDER:
