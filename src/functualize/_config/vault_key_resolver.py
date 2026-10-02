@@ -42,6 +42,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -57,7 +58,8 @@ from functualize._config.vault_keys import (
     KeychainKeyProvider,
     default_providers,
 )
-from functualize._types.protocols import VaultKeyUnlocker
+from functualize._types.enums import KeyAvailability
+from functualize._types.protocols import VaultKeyProbe, VaultKeyUnlocker
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -69,6 +71,7 @@ __all__ = [
     "KeyAccess",
     "KeyLookup",
     "KeyStatus",
+    "KeyringState",
     "VaultKeyResolver",
     "describe_key_failure",
     "resolve_vault_key",
@@ -83,12 +86,6 @@ class KeyAccess(Enum):
 
     FOREGROUND = "foreground"
     """``vault unlock``: may prompt, and waits for the prompt's own outcome."""
-
-    # TRANSITIONAL(R5.1): now resolved exactly as BOUNDED (a silent read), only
-    # never memoised. Kept until `vault_status` and `vault_inspect` move to
-    # `vault_key_state` / BOUNDED in R5.1, which removes it.
-    SILENT = "silent"
-    """``vault status`` / ``inspect``: a silent read, never memoised."""
 
 
 class KeyStatus(Enum):
@@ -107,10 +104,20 @@ class KeyStatus(Enum):
     UNVERIFIED = "unverified"
     """A keyring backend nobody has proven silent, so a run did not read it."""
 
-    # TRANSITIONAL(R5.1): no longer produced by the resolver; `vault_status`
-    # still maps it until R5.1 moves status to `vault_key_state`.
-    UNKNOWN = "unknown"
-    """The backend cannot say without risking a prompt."""
+
+@dataclass(frozen=True, slots=True)
+class KeyringState:
+    """What :meth:`VaultKeyResolver.key_state` found. Never carries a key."""
+
+    availability: KeyAvailability
+    reachable: bool = True
+    """False when no keyring could be asked at all."""
+
+    source: str | None = None
+    """``"env"``, the keyring adapter's name, or None."""
+
+    key_stored: bool | None = None
+    """On an unlocked keyring: whether the vault key entry exists."""
 
 
 class KeyLookup:
@@ -205,6 +212,8 @@ class VaultKeyResolver:
         self._timeout_app: Any = None
         self._outcome: KeyLookup | None = None
         self._lock = threading.Lock()
+        self._state: tuple[float, KeyringState] | None = None
+        self._state_lock = threading.Lock()
 
     @classmethod
     def for_app(cls, project_id: str, app: Any) -> VaultKeyResolver:
@@ -240,12 +249,11 @@ class VaultKeyResolver:
         """Resolve the key under the given :class:`KeyAccess`.
 
         Memo rules (``research.md`` R8): a BOUNDED outcome — found **or**
-        failed — is retained for the resolver's life, so N lookups wait at
-        most once. FOREGROUND and SILENT reuse a FOUND memo but never a
-        failure: the person at ``vault unlock`` gets a fresh chance, and a
-        SILENT probe never poisons a later bounded read. Two threads asking
-        at once serialise on the lock, so a locked keyring costs one timeout
-        total, not one per thread.
+        failed — is retained for the resolver's life, so N lookups ask the
+        keyring once. FOREGROUND reuses a FOUND memo but never a failure: the
+        person at ``vault unlock`` gets a fresh chance. Two threads asking at
+        once serialise on the lock, so a hung backend costs one timeout total,
+        not one per thread.
         """
         with self._lock:
             memo = self._outcome
@@ -257,6 +265,67 @@ class VaultKeyResolver:
             if result.status is KeyStatus.FOUND or access is KeyAccess.BOUNDED:
                 self._outcome = result
             return result
+
+    def key_state(self, *, cap: float = 0.25, ttl: float = 2.0) -> KeyringState:
+        """Whether a run would get the key, without ever reading it (spec B8).
+
+        Never prompts, never unlocks, never reads the secret, never raises.
+        The environment answers without touching a keyring; otherwise the
+        keyring is asked whether it is locked, within ``cap`` seconds (UNKNOWN
+        past it). The answer is held for ``ttl`` seconds on this instance, so a
+        surface polling it costs one probe per window.
+        """
+        with self._state_lock:
+            cached = self._state
+            if cached is not None and time.monotonic() - cached[0] < ttl:
+                return cached[1]
+        state = self._key_state_now(cap)
+        with self._state_lock:
+            self._state = (time.monotonic(), state)
+        return state
+
+    def _key_state_now(self, cap: float) -> KeyringState:
+        for provider in self._providers:
+            if isinstance(provider, EnvKeyProvider) and provider.is_available():
+                return KeyringState(KeyAvailability.UNLOCKED, source="env")
+        answer: list[KeyringState] = []
+
+        def ask() -> None:
+            try:
+                answer.append(self._probe_keyrings())
+            except Exception:  # noqa: BLE001 - a state probe never raises
+                answer.append(KeyringState(KeyAvailability.UNKNOWN))
+
+        thread = threading.Thread(
+            target=ask, daemon=True, name="functualize-vault-key-state"
+        )
+        thread.start()
+        thread.join(cap)
+        return answer[0] if answer else KeyringState(KeyAvailability.UNKNOWN)
+
+    def _probe_keyrings(self) -> KeyringState:
+        for provider in self._providers:
+            if (
+                isinstance(provider, EnvKeyProvider)
+                or provider.interactive() is not False
+            ):
+                continue
+            if not provider.is_available():
+                continue
+            if isinstance(provider, KeychainKeyProvider):
+                availability = provider.probe()
+                stored = (
+                    provider.key_stored()
+                    if availability is KeyAvailability.UNLOCKED
+                    else None
+                )
+                return KeyringState(
+                    availability, source=provider.adapter_name(), key_stored=stored
+                )
+            if isinstance(provider, VaultKeyProbe):
+                return KeyringState(provider.probe(), source=provider.identifier())
+            return KeyringState(KeyAvailability.UNKNOWN, source=provider.identifier())
+        return KeyringState(KeyAvailability.UNKNOWN, reachable=False)
 
     # -- resolution ---------------------------------------------------------
 
@@ -498,10 +567,5 @@ def describe_key_failure(
             f"values{only_copy}; init or the env var is the fix that keeps "
             f"the secret."
         )
-    # UNKNOWN (SILENT access only)
-    return (
-        f"{prefix}it could not be determined whether the vault key is "
-        f"available without risking an unlock prompt. Run "
-        f"`func builtin vault status` for detail, or `func builtin vault "
-        f"unlock` to resolve it in the foreground."
-    )
+    msg = f"describe_key_failure has no text for {lookup.status!r}"
+    raise ValueError(msg)

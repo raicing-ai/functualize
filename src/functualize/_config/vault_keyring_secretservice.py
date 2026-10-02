@@ -149,6 +149,27 @@ class SecretServiceAdapter:
         thread.join(self._state_bound)
         return answer[0] if answer else KeyAvailability.UNKNOWN
 
+    def has_entry(self) -> bool | None:
+        """Whether the vault key item exists, from its clear-text attributes.
+
+        Readable while the collection is locked, and never reads the secret;
+        None when the service cannot be asked.
+        """
+        ss = self._secretstorage()
+        if ss is None:
+            return None
+        try:
+            connection = ss.dbus_init()
+        except Exception:  # noqa: BLE001 - "cannot tell" is an answer here
+            return None
+        try:
+            collection = self._collection(ss, connection)
+            return any(True for _ in collection.search_items(dict(self._attributes())))
+        except Exception:  # noqa: BLE001 - "cannot tell" is an answer here
+            return None
+        finally:
+            _close(connection)
+
     def unlock(self) -> AdapterRead:
         """Ask the service to unlock — the one call that may show a dialog.
 

@@ -22,6 +22,7 @@ from functualize._config.vault import (
 from functualize.app import FunctualizeApp, JobSources
 from functualize.app.vault import (
     Readability,
+    UnlockAbandonedError,
     VaultKeySourceError,
     VaultPathError,
     vault_init,
@@ -30,7 +31,6 @@ from functualize.app.vault import (
     vault_remove,
     vault_unlock,
 )
-from functualize.plugin import KeyAvailability
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -316,7 +316,7 @@ class TestInspect:
 
 
 class _FakeKeyring:
-    """A keyring-shaped provider: never needs a terminal, may probe."""
+    """A keyring-shaped provider: never needs a terminal."""
 
     def __init__(
         self,
@@ -325,13 +325,11 @@ class _FakeKeyring:
         locked: bool = False,
         available: bool = True,
         delay: float = 0.0,
-        probe: KeyAvailability | None = None,
     ) -> None:
         self._key = key
         self._locked = locked
         self._available = available
         self._delay = delay
-        self._probe = probe
         self.get_key_calls = 0
 
     def identifier(self) -> str:
@@ -351,12 +349,6 @@ class _FakeKeyring:
             msg = "locked"
             raise KeyringLockedError(msg)
         return self._key
-
-
-class _ProbedKeyring(_FakeKeyring):
-    def probe(self) -> KeyAvailability:
-        assert self._probe is not None
-        return self._probe
 
 
 @pytest.fixture
@@ -468,23 +460,171 @@ class TestUnlock:
         assert exc.value.reason == reason
 
 
+class _UnlockableKeyring(_FakeKeyring):
+    """A keyring that can be asked to unlock, and counts whether it was."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.unlock_calls = 0
+
+    def unlock(self) -> bool:
+        self.unlock_calls += 1
+        return True
+
+
 class TestInspectNeverPrompts:
-    """B5 — a locked keyring is reported, not opened."""
+    """B5 — a locked keyring is reported, never asked to unlock."""
 
-    def test_a_locked_keyring_is_never_read(
+    def test_a_locked_keyring_is_never_unlocked(
         self, app: FunctualizeApp, project: Path, keyring_only: Any
     ) -> None:
         vault_put(app, "deploy.api_token", _SECRET, cwd=project)
-        fake = keyring_only(_ProbedKeyring(probe=KeyAvailability.LOCKED))
+        fake = keyring_only(_UnlockableKeyring(locked=True))
         report = vault_inspect(app, "deploy.api_token", cwd=project)
         assert report.readability is Readability.KEY_UNAVAILABLE
-        assert fake.get_key_calls == 0
+        assert fake.unlock_calls == 0
 
-    def test_a_keyring_that_cannot_say_is_never_read(
+    def test_an_unlocked_keyring_is_read_silently(
         self, app: FunctualizeApp, project: Path, keyring_only: Any
     ) -> None:
+        """`get_key` never prompts (the provider contract), so inspect may
+        read: here the key is a different one, and inspect says so."""
         vault_put(app, "deploy.api_token", _SECRET, cwd=project)
-        fake = keyring_only(_FakeKeyring(key=b"\x5a" * 32))
+        fake = keyring_only(_UnlockableKeyring(key=b"\x5a" * 32))
         report = vault_inspect(app, "deploy.api_token", cwd=project)
-        assert report.readability is Readability.KEY_UNAVAILABLE
-        assert fake.get_key_calls == 0
+        assert report.readability is Readability.WRONG_KEY
+        assert fake.unlock_calls == 0
+
+
+def _scripted_keychain(unlocked: Any) -> Any:
+    """The shipped keychain provider over an adapter whose unlock answers `unlocked`."""
+    from functualize._config.vault_keyring import AdapterOutcome, AdapterRead
+    from functualize._config.vault_keys import KeychainKeyProvider
+
+    class _Adapter:
+        name = "linux"
+
+        def read_silent(self) -> AdapterRead:
+            return AdapterRead(AdapterOutcome.LOCKED)
+
+        def state(self) -> Any:
+            from functualize._types.enums import KeyAvailability
+
+            return KeyAvailability.LOCKED
+
+        def unlock(self) -> AdapterRead:
+            return unlocked
+
+    class _Keychain(KeychainKeyProvider):
+        def is_available(self) -> bool:
+            return True
+
+    return _Keychain(adapter=_Adapter())  # type: ignore[arg-type]
+
+
+class TestUnlockOutcomes:
+    """B4' — how the dialog ended is reported, never the key."""
+
+    def test_unlocked_now_says_so(self, project: Path, keyring_only: Any) -> None:
+        from functualize._config.vault_keyring import (
+            AdapterOutcome,
+            AdapterRead,
+            UnlockHow,
+        )
+
+        key_hex = "5a" * 32
+        keyring_only(
+            _scripted_keychain(
+                AdapterRead(
+                    AdapterOutcome.FOUND, secret=key_hex, how=UnlockHow.UNLOCKED_NOW
+                )
+            )
+        )
+        lookup = vault_unlock(cwd=project)
+        assert lookup.unlock_how is UnlockHow.UNLOCKED_NOW
+        assert lookup.key is None
+        assert key_hex not in repr(lookup)
+
+    @pytest.mark.parametrize(
+        ("how", "reason"),
+        [("cancelled", "cancelled"), ("no_prompt", "no_prompt")],
+    )
+    def test_a_dialog_that_ended_without_a_key_names_why(
+        self, project: Path, keyring_only: Any, how: str, reason: str
+    ) -> None:
+        from functualize._config.vault_keyring import (
+            AdapterOutcome,
+            AdapterRead,
+            UnlockHow,
+        )
+
+        keyring_only(
+            _scripted_keychain(AdapterRead(AdapterOutcome.LOCKED, how=UnlockHow(how)))
+        )
+        with pytest.raises(VaultKeySourceError) as exc:
+            vault_unlock(cwd=project)
+        assert exc.value.reason == reason
+        assert "keychain" not in str(exc.value).lower()
+
+
+class _InterruptingKeyring(_FakeKeyring):
+    """Answers slowly, sending this process `interrupts` SIGINTs while it waits.
+
+    The signals come from inside the read, so they always arrive while
+    `vault_unlock`'s handlers are installed — never into the test runner.
+    """
+
+    def __init__(self, *, interrupts: int, answer_after: float, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._interrupts = interrupts
+        self._answer_after = answer_after
+
+    def get_key(self, project_id: str) -> bytes | None:
+        import os
+        import signal
+
+        for _ in range(self._interrupts):
+            os.kill(os.getpid(), signal.SIGINT)
+            time.sleep(0.3)
+        time.sleep(self._answer_after)
+        return super().get_key(project_id)
+
+
+class TestUnlockSignalPolicy:
+    """B4' — the first interrupt warns and keeps waiting; a second stops."""
+
+    def test_the_first_interrupt_only_warns(
+        self,
+        project: Path,
+        keyring_only: Any,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import signal
+
+        before = signal.getsignal(signal.SIGINT)
+        keyring_only(
+            _InterruptingKeyring(interrupts=1, answer_after=0.3, key=b"\x5a" * 32)
+        )
+        with caplog.at_level("WARNING"):
+            lookup = vault_unlock(cwd=project)
+        assert lookup.provider_id == "keychain"
+        assert any(
+            "answer or cancel it there" in r.getMessage() for r in caplog.records
+        )
+        assert signal.getsignal(signal.SIGINT) is before
+
+    def test_a_second_interrupt_stops_waiting(
+        self, project: Path, keyring_only: Any
+    ) -> None:
+        import signal
+
+        before = signal.getsignal(signal.SIGINT)
+        keyring_only(
+            _InterruptingKeyring(interrupts=2, answer_after=10.0, key=b"\x5a" * 32)
+        )
+        started = time.monotonic()
+        with pytest.raises(UnlockAbandonedError) as exc:
+            vault_unlock(cwd=project)
+        assert time.monotonic() - started < 5.0
+        assert exc.value.reason == "unlock_abandoned"
+        assert signal.getsignal(signal.SIGINT) is before

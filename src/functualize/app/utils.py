@@ -1735,10 +1735,10 @@ class VaultStatusReport:
             key check value. ``None`` when the store does not exist or was
             written before check values did, in which case the question has no
             answer rather than a negative one.
-        key_state: ``"available"`` (a key was read without prompting),
+        key_state: ``"available"`` (a run would get the key),
             ``"locked"`` (the keyring said so; it was not opened),
-            ``"unknown"`` (the backend cannot say without risking a prompt),
-            or None when no provider holds a key at all.
+            ``"unknown"`` (the keyring cannot say, or none is reachable), or
+            None when the project has no vault file.
     """
 
     path: Path
@@ -1834,10 +1834,11 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
         cwd: Project directory. Defaults to the current one.
 
     Note:
-        Resolving the key here is what lets the report name the provider in
-        use, and it is done **silently**: a status command never raises a
-        dialog and never waits on one. A keyring that says it is locked is
-        reported as locked, not opened.
+        ``key_state`` is :func:`~functualize.app.vault.vault_key_state` — one
+        implementation for every surface. It never prompts and never waits on
+        a dialog; a locked keyring is reported as locked, not opened. Only
+        when it says the keyring is unlocked is the key read (silently), to
+        name the provider and check it against the store.
     """
     from functualize._config.vault import SecretsVault, resolve_max_age
     from functualize._config.vault_key_resolver import (
@@ -1846,22 +1847,33 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
         resolve_vault_key,
     )
     from functualize._primitives.locator import compute_project_id
+    from functualize.app.vault import VaultKeyStatus, vault_key_state
 
     path = vault_location(cwd)
     exists = path.exists()
     entries = vault_entries(cwd) if exists else []
     vault = SecretsVault(path)
 
-    lookup = resolve_vault_key(
-        compute_project_id(Path(cwd) if cwd is not None else Path.cwd()),
-        access=KeyAccess.SILENT,
+    state = vault_key_state(app, cwd)
+    key_state = (
+        None
+        if state.status is VaultKeyStatus.NOT_APPLICABLE
+        else {
+            VaultKeyStatus.UNLOCKED: "available",
+            VaultKeyStatus.LOCKED: "locked",
+        }.get(state.status, "unknown")
     )
-    found_key = lookup.key if lookup.status is KeyStatus.FOUND else None
-    key_state = {
-        KeyStatus.FOUND: "available",
-        KeyStatus.LOCKED: "locked",
-        KeyStatus.UNKNOWN: "unknown",
-    }.get(lookup.status)
+    found_key = None
+    lookup = None
+    if state.status is VaultKeyStatus.UNLOCKED:
+        # Unlocked, so a silent read answers at once; the short bound only
+        # guards a hung backend.
+        lookup = resolve_vault_key(
+            compute_project_id(Path(cwd) if cwd is not None else Path.cwd()),
+            access=KeyAccess.BOUNDED,
+            timeout=2.0,
+        )
+        found_key = lookup.key if lookup.status is KeyStatus.FOUND else None
     age = vault.age() if exists else None
     max_age = resolve_max_age(
         getattr(getattr(app, "_config_sources", None), "vault_max_age", None)
@@ -1890,7 +1902,9 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
         path=path,
         exists=exists,
         entry_count=len(entries),
-        key_provider=lookup.provider_id if found_key is not None else None,
+        key_provider=lookup.provider_id
+        if lookup is not None and found_key is not None
+        else None,
         oldest_sync=vault.oldest_sync() if exists else None,
         age=age,
         max_age=max_age,

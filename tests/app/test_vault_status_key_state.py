@@ -94,42 +94,58 @@ def only(monkeypatch: pytest.MonkeyPatch) -> Callable[[_FakeKeyring], _FakeKeyri
     return install
 
 
+@pytest.fixture
+def with_vault(project: Path) -> Path:
+    """A project that has a vault file — the only case with a key state."""
+    from functualize._config.vault import SecretsVault
+    from functualize._config.vault_paths import vault_path_for_project
+
+    SecretsVault(vault_path_for_project(project)).put(
+        "deploy.api_token", "v", encryption_key=_KEY, provider="p", annotation="a"
+    )
+    return project
+
+
 class TestKeyState:
     def test_a_locked_keyring_is_reported_and_never_read(
-        self, project: Path, only: Any
+        self, with_vault: Path, only: Any
     ) -> None:
         fake = only(_ProbedKeyring(KeyAvailability.LOCKED))
-        report = vault_status(cwd=project)
+        report = vault_status(cwd=with_vault)
         assert report.key_state == "locked"
         assert report.key_provider is None
         assert fake.get_key_calls == 0
         assert fake.probe_calls == 1
 
     def test_an_unlocked_keyring_is_read_silently(
-        self, project: Path, only: Any
+        self, with_vault: Path, only: Any
     ) -> None:
         fake = only(_ProbedKeyring(KeyAvailability.UNLOCKED))
-        report = vault_status(cwd=project)
+        report = vault_status(cwd=with_vault)
         assert report.key_state == "available"
         assert report.key_provider == "keychain"
+        assert report.key_matches_store is True
         assert fake.get_key_calls == 1
 
     def test_a_backend_that_cannot_say_is_unknown(
-        self, project: Path, only: Any
+        self, with_vault: Path, only: Any
     ) -> None:
         fake = only(_FakeKeyring())
-        report = vault_status(cwd=project)
+        report = vault_status(cwd=with_vault)
         assert report.key_state == "unknown"
         assert report.key_provider is None
         assert fake.get_key_calls == 0
 
     def test_an_env_key_is_available(
-        self, project: Path, monkeypatch: pytest.MonkeyPatch
+        self, with_vault: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", _KEY.hex())
-        report = vault_status(cwd=project)
+        report = vault_status(cwd=with_vault)
         assert report.key_state == "available"
         assert report.key_provider == "env"
+
+    def test_no_vault_file_has_no_key_state(self, project: Path) -> None:
+        assert vault_status(cwd=project).key_state is None
 
 
 class _SyncApp:

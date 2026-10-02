@@ -443,22 +443,6 @@ class TestARunNeverPrompts:
         assert lookup.status is KeyStatus.UNVERIFIED
 
 
-class TestSilentAccessIsTheSameSilentRead:
-    """TRANSITIONAL(R5.1): SILENT is BOUNDED's silent read, never memoised."""
-
-    def test_it_reads_any_provider_because_get_key_never_prompts(self) -> None:
-        plain = _Provider("kms", key=_KEY)
-        lookup = _resolver([plain]).lookup(KeyAccess.SILENT)
-        assert lookup.status is KeyStatus.FOUND
-
-    def test_a_silent_failure_is_not_memoised(self) -> None:
-        locked = _Provider("keychain", raises=KeyringLockedError("locked"))
-        resolver = _resolver([locked])
-        resolver.lookup(KeyAccess.SILENT)
-        resolver.lookup(KeyAccess.BOUNDED)
-        assert locked.get_key_calls == 2
-
-
 class _AvailableKeychain(KeychainKeyProvider):
     """The shipped provider over a scripted adapter, available whatever the host has."""
 

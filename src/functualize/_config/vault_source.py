@@ -147,6 +147,11 @@ class VaultSource:
         """
 
     @property
+    def resolver(self) -> VaultKeyResolver:
+        """The resolver this source asks, so a status surface can share its cache."""
+        return self._key
+
+    @property
     def source_type(self) -> str:
         return "remote"
 

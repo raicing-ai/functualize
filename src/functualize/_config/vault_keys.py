@@ -252,6 +252,18 @@ class KeychainKeyProvider:
         """Whether a silent read would succeed — never prompts, bounded."""
         return self._keyring().state()
 
+    def adapter_name(self) -> str:
+        """The neutral name of the keyring adapter in use, for messages."""
+        return self._keyring().name
+
+    def key_stored(self) -> bool | None:
+        """Whether the vault key entry exists, asked without reading it.
+
+        None when the adapter cannot tell without reading the secret.
+        """
+        has_entry = getattr(self._keyring(), "has_entry", None)
+        return has_entry() if has_entry is not None else None
+
     def unlock(self) -> bool:
         """Ask the keyring to unlock (may prompt); True when a key is available after."""
         return self.unlock_key().key is not None
