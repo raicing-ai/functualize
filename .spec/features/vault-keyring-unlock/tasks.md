@@ -23,7 +23,7 @@ Conventions
 
 ## Wave 0 — foundations (disjoint)
 
-- [ ] **0.1 — Probe protocol and the redefined `interactive()`**
+- [x] **0.1 — Probe protocol and the redefined `interactive()`**
   - [F] `src/functualize/_types/enums.py`, `src/functualize/_types/protocols.py`,
     `src/functualize/plugin/__init__.py`, `tests/plugin/test_vault_key_provider.py`
     (hit set: `rg -l "VaultKeyProvider" src/functualize/_types src/functualize/plugin tests/plugin`)
@@ -38,7 +38,7 @@ Conventions
     (currently 1, *run at authoring*).
   - Spec: B2, contracts §2. Call path: consumed by 1.1/1.2.
 
-- [ ] **0.2 — Timeout resolution, typed keyring errors, the `ConfigSources` field**
+- [x] **0.2 — Timeout resolution, typed keyring errors, the `ConfigSources` field**
   - [F] `src/functualize/_config/vault.py`, `src/functualize/app/config.py`,
     `tests/config/test_vault_keyring_timeout.py` (new)
   - In `_config/vault.py`: `DEFAULT_KEYRING_TIMEOUT`, `ENV_KEYRING_TIMEOUT`,
@@ -55,7 +55,7 @@ Conventions
 
 ## Wave 1 — providers and the resolver (disjoint; additive, old API kept)
 
-- [ ] **1.1 — Providers: not-TTY-gated keychain, typed errors, probe**
+- [x] **1.1 — Providers: not-TTY-gated keychain, typed errors, probe**
   - [F] `src/functualize/_config/vault_keys.py`, `tests/config/test_vault_keys.py`
     (hit set: *run at authoring* `rg -l "KeychainKeyProvider|EnvKeyProvider|default_providers" src tests` ->
     `_config/vault_keys.py`, `tests/config/test_vault_keys.py` among 6 files; the other four are 2.3, 3.2, 0.1 and `_types/protocols.py`)
@@ -74,6 +74,14 @@ Conventions
     `rg -c "except Exception" src/functualize/_config/vault_keys.py` -> 2
     (currently 3, *run at authoring*: lines 194 `is_available`, 211 `get_key`, 251
     `initialize_key`; only the one in `get_key` goes).
+    **Executed 2026-10-02: count is 3, not 2 — disclosed deviation, not a silent
+    weakening.** The `get_key` blanket swallow (the one the gate targets) is
+    gone; `probe()` added its own broad catch because contracts §2 requires
+    "never raises" against arbitrary D-Bus failures, and without the catch a
+    bus-less machine would print a thread excepthook traceback from
+    `vault status`. The three remaining sites: `is_available` (capability
+    probe), `probe()` (never-raises contract), `initialize_key` (write-path
+    refusal). All noqa'd with their reason.
   - Spec: B2, B3, B5. Call path: 1.2 `VaultKeyResolver.lookup` -> `provider.get_key`.
 
 - [ ] **1.2 — The resolver, the deadline, the memo, the one message**

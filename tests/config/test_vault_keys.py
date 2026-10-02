@@ -1,15 +1,26 @@
-"""Key resolution puts non-interactive sources first, always.
+"""Key resolution: the terminal rule is for prompting, not for reading.
 
-The rule these tests exist for: an unattended run — CI, Lambda, `builtin
-parallel` — must never reach a provider that can prompt. Getting the order
-backwards does not fail loudly; it hangs.
+The rule these tests exist for splits in two. A provider that can only obtain
+the key by asking a person at a terminal is never consulted without one — an
+unattended run must not hang on a prompt. A provider that merely *may block*
+on a backend (the keyring showing its own unlock dialog) is read regardless of
+terminal and bounded by the resolver's deadline instead, and its failures are
+typed so the refusal can say what actually happened.
 """
 
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
-from functualize._config.vault import KEY_BYTES, VaultError
+from functualize._config.vault import (
+    KEY_BYTES,
+    KeyringLockedError,
+    KeyringUnavailableError,
+    VaultError,
+)
 from functualize._config.vault_keys import (
     ENV_VAR,
     EnvKeyProvider,
@@ -17,7 +28,8 @@ from functualize._config.vault_keys import (
     generate_key,
     resolve_vault_key,
 )
-from functualize.plugin import VaultKeyProvider
+from functualize._types.enums import KeyAvailability
+from functualize.plugin import VaultKeyProbe, VaultKeyProvider
 
 _HEX_A = "a" * (KEY_BYTES * 2)
 _HEX_B = "b" * (KEY_BYTES * 2)
@@ -156,23 +168,234 @@ class TestTheEnvProvider:
 
 
 class TestTheKeychainProvider:
-    def test_it_is_interactive(self) -> None:
-        assert KeychainKeyProvider().interactive() is True
+    def test_it_does_not_need_a_terminal(self) -> None:
+        """Reading may block on the backend; it needs no person at *this*
+        process's terminal. The resolver's deadline is the bound, so a pipe is
+        not a reason to skip the read.
 
-    def test_a_missing_keyring_reports_unavailable_rather_than_raising(
+        Rewritten from `test_it_is_interactive` (interactive() was True): the
+        TTY gate this feature removes was exactly that flag.
+        """
+        assert KeychainKeyProvider().interactive() is False
+
+    def test_a_missing_keyring_is_unavailable_and_refuses_with_its_own_reason(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A missing optional dep degrades, never crashes.
+        """A missing optional dep degrades, never crashes — and the refusal is
+        now typed, so the resolver can say *no keyring* instead of a false
+        "no key is available".
 
-        `keyring` is now a declared extra (`functualize[keychain]`) rather than
+        `keyring` is a declared extra (`functualize[keychain]`) rather than
         something present transitively by accident, but declaring it does not
-        make it installed: a base `pip install functualize` has no keyring, and
-        that must stay a reported state rather than an ImportError.
+        make it installed: a base `pip install functualize` has no keyring,
+        and that must stay a reported state.
         """
-        monkeypatch.setitem(__import__("sys").modules, "keyring", None)
+        monkeypatch.setitem(sys.modules, "keyring", None)
         provider = KeychainKeyProvider()
         assert provider.is_available() is False
-        assert provider.get_key("proj") is None
+        with pytest.raises(KeyringUnavailableError, match="functualize\\[keychain\\]"):
+            provider.get_key("proj")
+
+
+class _FakeKeyring:
+    """A keyring backend in a dict, so scope can be asserted on the real API.
+
+    Mocking `get_key` would assert nothing: the whole change is *which
+    (service, account) pair* the provider reads and writes, so the fake has to
+    be at the `keyring` module boundary where that pair is visible. Raises the
+    *real* `keyring.errors` exceptions so the provider's typed mapping is
+    exercised against the classes the installed library actually raises.
+    """
+
+    def __init__(self) -> None:
+        import keyring.errors as real_errors
+
+        self.store: dict[tuple[str, str], str] = {}
+        self.locked = False
+        self.error: Exception | None = None
+        self.errors = real_errors
+
+    def get_password(self, service: str, account: str) -> str | None:
+        if self.error is not None:
+            raise self.error
+        if self.locked:
+            raise self.errors.KeyringLocked("collection is locked")
+        return self.store.get((service, account))
+
+    def set_password(self, service: str, account: str, password: str) -> None:
+        if self.locked:
+            raise self.errors.KeyringLocked("collection is locked")
+        self.store[(service, account)] = password
+
+
+@pytest.fixture
+def fake_keyring(monkeypatch: pytest.MonkeyPatch) -> _FakeKeyring:
+    fake = _FakeKeyring()
+    monkeypatch.setitem(sys.modules, "keyring", fake)
+    monkeypatch.setitem(sys.modules, "keyring.errors", fake.errors)
+    return fake
+
+
+class TestKeychainFailureStatesAreTyped:
+    """Locked / no-backend / nothing-stored are three different answers, and
+    the refusal text must be able to say which one happened (the field report
+    this feature exists for was one false sentence covering all three).
+    """
+
+    def test_a_locked_keyring_raises_locked(self, fake_keyring: _FakeKeyring) -> None:
+        fake_keyring.locked = True
+        with pytest.raises(KeyringLockedError, match="locked"):
+            KeychainKeyProvider().get_key("proj")
+
+    def test_a_backendless_environment_raises_unavailable(
+        self, fake_keyring: _FakeKeyring
+    ) -> None:
+        fake_keyring.error = fake_keyring.errors.NoKeyringError("no backend")
+        with pytest.raises(KeyringUnavailableError):
+            KeychainKeyProvider().get_key("proj")
+
+    def test_a_failed_backend_init_raises_unavailable(
+        self, fake_keyring: _FakeKeyring
+    ) -> None:
+        fake_keyring.error = fake_keyring.errors.InitError("chainer failed")
+        with pytest.raises(KeyringUnavailableError):
+            KeychainKeyProvider().get_key("proj")
+
+    def test_a_raw_runtime_error_from_backend_init_raises_unavailable(
+        self, fake_keyring: _FakeKeyring
+    ) -> None:
+        """keyring raises bare RuntimeError when no backend could be chosen."""
+        fake_keyring.error = RuntimeError("No recommended backend was available")
+        with pytest.raises(KeyringUnavailableError):
+            KeychainKeyProvider().get_key("proj")
+
+    def test_a_live_backend_with_no_entry_returns_none(
+        self, fake_keyring: _FakeKeyring
+    ) -> None:
+        """None means 'a keyring answered; nothing is stored' — not locked,
+        not missing. The resolver turns it into NOT_STORED."""
+        assert KeychainKeyProvider().get_key("proj") is None
+
+    def test_the_old_api_still_reports_no_key_rather_than_raising(
+        self, fake_keyring: _FakeKeyring
+    ) -> None:
+        """TRANSITIONAL(4.1): the old resolve_vault_key keeps its
+        `KeyResolution | None` contract by swallowing the typed errors."""
+        fake_keyring.locked = True
+        assert (
+            resolve_vault_key(
+                "proj",
+                [EnvKeyProvider(), KeychainKeyProvider()],
+                allow_interactive=False,
+            )
+            is None
+        )
+
+
+class _FakeCollection:
+    def __init__(self, locked: bool) -> None:
+        self._locked = locked
+
+    def is_locked(self) -> bool:
+        return self._locked
+
+
+class _FakeSecretStorage(types.ModuleType):
+    """Stands in for `secretstorage` at the module boundary the probe imports.
+
+    The probe asks the default collection's Locked property — the same read
+    keyring's SecretService backend makes before calling unlock() — so the
+    fake has to sit where dbus_init/get_default_collection are visible.
+    """
+
+    def __init__(
+        self, collection: _FakeCollection | None, error: Exception | None = None
+    ):
+        super().__init__("secretstorage")
+        self._collection = collection
+        self._error = error
+
+    def dbus_init(self) -> object:
+        if self._error is not None:
+            raise self._error
+        return object()
+
+    def get_default_collection(self, bus: object) -> _FakeCollection | None:
+        return self._collection
+
+
+def _install_secretstorage(
+    monkeypatch: pytest.MonkeyPatch, fake: _FakeSecretStorage
+) -> None:
+    monkeypatch.setitem(sys.modules, "secretstorage", fake)
+
+
+class TestTheProbe:
+    """status/inspect ask 'would a read prompt?' and must never prompt."""
+
+    def test_an_unlocked_collection_probes_unlocked(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _install_secretstorage(
+            monkeypatch, _FakeSecretStorage(_FakeCollection(locked=False))
+        )
+        assert KeychainKeyProvider().probe() is KeyAvailability.UNLOCKED
+
+    def test_a_locked_collection_probes_locked(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _install_secretstorage(
+            monkeypatch, _FakeSecretStorage(_FakeCollection(locked=True))
+        )
+        assert KeychainKeyProvider().probe() is KeyAvailability.LOCKED
+
+    def test_a_missing_secretstorage_answers_unknown(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setitem(sys.modules, "secretstorage", None)
+        assert KeychainKeyProvider().probe() is KeyAvailability.UNKNOWN
+
+    def test_a_dead_dbus_answers_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_secretstorage(
+            monkeypatch,
+            _FakeSecretStorage(None, error=RuntimeError("no session bus")),
+        )
+        assert KeychainKeyProvider().probe() is KeyAvailability.UNKNOWN
+
+    def test_no_default_collection_answers_unknown(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _install_secretstorage(monkeypatch, _FakeSecretStorage(None))
+        assert KeychainKeyProvider().probe() is KeyAvailability.UNKNOWN
+
+    def test_the_shipped_provider_satisfies_the_probe_protocol(self) -> None:
+        assert isinstance(KeychainKeyProvider(), VaultKeyProbe)
+
+    def test_the_probe_does_not_read_the_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A probe is a question about prompting, not a read: it must leave
+        the keyring untouched — no get_password, no entry access."""
+
+        class _RecordingKeyring(_FakeKeyring):
+            def __init__(self) -> None:
+                super().__init__()
+                self.reads = 0
+
+            def get_password(self, service: str, account: str) -> str | None:
+                self.reads += 1
+                return super().get_password(service, account)
+
+        recording = _RecordingKeyring()
+        monkeypatch.setitem(sys.modules, "keyring", recording)
+        monkeypatch.setitem(sys.modules, "keyring.errors", recording.errors)
+        _install_secretstorage(
+            monkeypatch, _FakeSecretStorage(_FakeCollection(locked=True))
+        )
+
+        KeychainKeyProvider().probe()
+
+        assert recording.reads == 0
 
 
 class TestGenerateKey:
@@ -212,38 +435,6 @@ class TestKeyResolutionIsSafeToLog:
         assert got is not None
         assert _HEX_B not in repr(got)
         assert "bytes" in repr(got)
-
-
-class _FakeKeyring:
-    """A keyring backend in a dict, so scope can be asserted on the real API.
-
-    Mocking `get_key` would assert nothing: the whole change is *which
-    (service, account) pair* the provider reads and writes, so the fake has to
-    be at the `keyring` module boundary where that pair is visible.
-    """
-
-    def __init__(self) -> None:
-        self.store: dict[tuple[str, str], str] = {}
-        self.locked = False
-
-    def get_password(self, service: str, account: str) -> str | None:
-        if self.locked:
-            raise RuntimeError("keyring is locked")
-        return self.store.get((service, account))
-
-    def set_password(self, service: str, account: str, password: str) -> None:
-        if self.locked:
-            raise RuntimeError("keyring is locked")
-        self.store[(service, account)] = password
-
-
-@pytest.fixture
-def fake_keyring(monkeypatch: pytest.MonkeyPatch) -> _FakeKeyring:
-    import sys
-
-    fake = _FakeKeyring()
-    monkeypatch.setitem(sys.modules, "keyring", fake)
-    return fake
 
 
 class TestKeychainKeyScope:
