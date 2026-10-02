@@ -447,6 +447,53 @@ class _WindowsHarness:
         )
 
 
+# --------------------------------------------------------------------------
+# Anything else: a fake third-party `keyring` backend that may prompt.
+# --------------------------------------------------------------------------
+
+
+class FakeUnknownBackend:
+    """A `keyring` backend whose get_password prompts on a locked store."""
+
+    def __init__(self, world: World, secret: str, recorder: Recorder) -> None:
+        self.world = world
+        self.secret = secret
+        self.recorder = recorder
+
+    def get_password(self, service: str, username: str) -> str | None:
+        from keyring.errors import KeyringLocked
+
+        if self.world is World.HUNG:
+            time.sleep(HANG_SECONDS)
+        if self.world is World.LOCKED:
+            self.recorder.prompts += 1
+            if self.recorder.answer is not Answer.ACCEPT:
+                msg = "the person cancelled"
+                raise KeyringLocked(msg)
+            self.world = World.UNLOCKED
+        if self.world is World.EMPTY:
+            return None
+        self.recorder.secret_reads += 1
+        return self.secret
+
+
+class _GenericHarness:
+    name = "generic"
+    worlds = frozenset(World)
+    proves_silence = False
+    detects_missing_prompt = False
+
+    def build(self, world: World, secret: str, recorder: Recorder) -> KeyringAdapter:
+        from functualize._config.vault_keyring_generic import GenericAdapter
+
+        backend = (
+            None
+            if world is World.ABSENT
+            else FakeUnknownBackend(world, secret, recorder)
+        )
+        return GenericAdapter("functualize-vault", "vault-key", backend=backend)
+
+
 #: Every adapter the contract suite holds to the contract. An adapter task adds
 #: its harness here.
 HARNESSES: list[Harness] = [
@@ -454,4 +501,5 @@ HARNESSES: list[Harness] = [
     _SecretServiceHarness(),
     _MacHarness(),
     _WindowsHarness(),
+    _GenericHarness(),
 ]
