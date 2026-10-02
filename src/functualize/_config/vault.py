@@ -61,7 +61,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Final
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -74,10 +74,14 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 __all__ = [
+    "DEFAULT_KEYRING_TIMEOUT",
     "DEFAULT_MAX_AGE",
+    "ENV_KEYRING_TIMEOUT",
     "KEY_BYTES",
     "MAX_AGE_VAR",
     "InvalidDurationError",
+    "KeyringLockedError",
+    "KeyringUnavailableError",
     "SecretsVault",
     "VaultDecryptionError",
     "VaultEntry",
@@ -86,8 +90,10 @@ __all__ = [
     "VaultEntryUnreadableError",
     "VaultError",
     "VaultOriginConflictError",
+    "app_keyring_timeout",
     "format_duration",
     "parse_duration",
+    "resolve_keyring_timeout",
     "resolve_max_age",
     "vault_path_for_project",
 ]
@@ -107,6 +113,22 @@ DEFAULT_MAX_AGE = "24h"
 #: setting (``FUNCTUALIZE_<SECTION>_<KEY>``), so registering it in the catalog
 #: later adds a file path without renaming anything an operator already uses.
 MAX_AGE_VAR = "FUNCTUALIZE_VAULT_MAX_AGE"
+
+#: How long a run waits on the OS keyring before refusing, by default.
+#:
+#: The keyring is read **regardless of terminal**; this deadline is what
+#: stands where the old stdin/stdout TTY gate stood. A locked keyring may
+#: show its own unlock dialog inside the window — if it is unlocked in time
+#: the run proceeds, otherwise it is refused with a message that names the
+#: wait. functualize holds no timer of its own: when the keyring relocks,
+#: the next run finds it locked again.
+DEFAULT_KEYRING_TIMEOUT: Final = timedelta(seconds=30)
+
+#: Environment spelling of the keyring wait, derived the same way the settings
+#: store derives every ``FUNCTUALIZE_<SECTION>_<KEY>`` name, so registering
+#: ``vault.keyring_timeout`` in the catalog later renames nothing an operator
+#: already uses. Outranks any configured file value.
+ENV_KEYRING_TIMEOUT: Final = "FUNCTUALIZE_VAULT_KEYRING_TIMEOUT"
 
 #: Duration units, smallest first. Deliberately stops at weeks: months and
 #: years are not fixed-length, and a staleness threshold that silently means
@@ -185,6 +207,29 @@ class VaultDecryptionError(VaultError):
     plausible garbage. The message names the key provider in use, because "it
     did not decrypt" without saying which key was tried is the least useful
     thing this error could say.
+    """
+
+
+class KeyringLockedError(VaultError):
+    """The OS keyring exists but did not release the key.
+
+    Raised by the keychain provider when the backend reports the collection
+    is locked, or the unlock prompt was dismissed. Distinct from
+    :class:`KeyringUnavailableError` because the answers differ: a locked
+    keyring may become readable (unlock it, or wait out the deadline), where
+    a missing one cannot. Collapsing the two is what made the old refusal
+    text claim no key was available on a machine that had one.
+    """
+
+
+class KeyringUnavailableError(VaultError):
+    """No OS keyring can answer here at all.
+
+    The ``keyring`` extra is not installed, the library resolves to its fail
+    backend, there is no session bus, or backend initialization failed. The
+    honest next step is ``$FUNCTUALIZE_VAULT_KEY`` or installing
+    ``functualize[keychain]`` — not waiting, and never deleting a stored
+    entry that may be perfectly fine.
     """
 
 
@@ -371,6 +416,74 @@ def resolve_max_age(configured: str | None = None) -> timedelta:
         except InvalidDurationError as exc:
             logger.warning("Ignoring the vault max_age from %s: %s", origin, exc)
     return parse_duration(DEFAULT_MAX_AGE)
+
+
+def resolve_keyring_timeout(configured: str | None = None) -> float:
+    """The keyring wait in force, in seconds.
+
+    Precedence is ``$FUNCTUALIZE_VAULT_KEYRING_TIMEOUT`` > the configured
+    ``vault.keyring_timeout`` (from ``ConfigSources`` / the func settings
+    chain) > :data:`DEFAULT_KEYRING_TIMEOUT`, matching
+    :func:`resolve_max_age` and the settings store's documented
+    ``default < global < project < env`` order.
+
+    An unusable value is **warned about and skipped**, not raised, exactly as
+    ``resolve_max_age`` behaves: the wait governs a refusal message, and a
+    typo in it must not be more disruptive than the wait it governs. A bare
+    number is refused by the shared duration parser (``"30"`` reads as
+    seconds to whoever wrote it and as an instant timeout to whoever guesses);
+    a zero-or-negative wait is refused here, because "do not wait at all" and
+    "wait the default" are different decisions and the first one cannot be
+    written by accident through a parsed duration of ``0``.
+
+    Args:
+        configured: ``ConfigSources.vault_keyring_timeout``, or None when
+            unset. Read by the caller (the app layer) — this module never
+            imports the settings store.
+
+    Returns:
+        Seconds to wait on the keyring before refusing.
+    """
+    candidates = (
+        (os.environ.get(ENV_KEYRING_TIMEOUT), f"${ENV_KEYRING_TIMEOUT}"),
+        (configured, "the vault keyring_timeout setting"),
+    )
+    for text, origin in candidates:
+        if not text:
+            continue
+        try:
+            seconds = parse_duration(text).total_seconds()
+        except InvalidDurationError as exc:
+            logger.warning(
+                "Ignoring the vault keyring timeout from %s: %s", origin, exc
+            )
+            continue
+        if seconds <= 0:
+            logger.warning(
+                "Ignoring the vault keyring timeout from %s: %r is not a"
+                " positive wait; using the default.",
+                origin,
+                text,
+            )
+            continue
+        return seconds
+    return DEFAULT_KEYRING_TIMEOUT.total_seconds()
+
+
+def app_keyring_timeout(app: Any | None) -> float:
+    """The keyring wait configured on an app, resolved to seconds.
+
+    The single ``getattr(app._config_sources, "vault_keyring_timeout", None)``
+    chain, so the five-plus callers that need the wait do not each re-derive
+    it. Reaches for a private attribute on purpose — the same intimacy
+    ``vault_status`` and ``build_vault_source`` already carry for
+    ``vault_max_age``, collapsed to one site.
+
+    A library-mode app that never set the field gets env + default, exactly
+    like a ``func``-hosted run with no ``[vault]`` section.
+    """
+    sources = getattr(app, "_config_sources", None)
+    return resolve_keyring_timeout(getattr(sources, "vault_keyring_timeout", None))
 
 
 def _utcnow() -> datetime:
