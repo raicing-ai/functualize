@@ -755,7 +755,7 @@ Closed when: gates as `after:`, the doc test passes. Commit:
 
 ## Wave 6 — verification checkpoint
 
-### [ ] T10 — prove reachability, run every check, push the feature-bearing branch
+### [x] T10 — prove reachability, run every check, push the feature-bearing branch
 
 *Files:* none changed except `tasks.md` ticks (and fixes, each in its own commit, if a check fails).
 
