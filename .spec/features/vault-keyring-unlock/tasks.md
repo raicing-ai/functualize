@@ -238,7 +238,7 @@ Conventions
 
 ## Wave 3 — consumers, part 2 (disjoint; depend on wave 2)
 
-- [ ] **3.1 — Boot builds one lazy resolver and resolves nothing**
+- [x] **3.1 — Boot builds one lazy resolver and resolves nothing**
   - [F] `src/functualize/_app/boot.py`, `tests/app/test_remote_first.py`
     (hit set: `rg -n "resolve_vault_key|VaultSource\(" src/functualize/_app/boot.py` -> 1298/1303, 1313, 1317 (`build_vault_source`) and 1354/1364, 1370, 1372 (`_build_dormant_vault_source`) *run at authoring*; `tests/app/test_remote_first.py` has 11 constructor/kwarg hits)
   - Both builders construct `VaultKeyResolver(project_id, timeout=app_keyring_timeout(app))`
@@ -254,8 +254,23 @@ Conventions
     call, vault file present, `app` built and `--help`-equivalent run -> 0 calls);
     `rg -n "resolve_vault_key" src/functualize/_app/boot.py` -> 0 (currently 2).
   - Spec: B1, R-1, A2. Call path: `FunctualizeApp` boot -> `build_vault_source`.
+  - **Executed 2026-10-02.** Gate: `test_remote_first.py` 29 passed, including
+    the new `TestBootResolvesNothing::test_boot_never_touches_the_keyring`
+    (vault file present, every backend method raises, app built, chain built
+    and a job run -> 0 lookups, 0 backend calls). `rg -n "resolve_vault_key"
+    src/functualize/_app/boot.py` -> 0. Both builders go through one
+    `_lazy_vault_source`. Sabotage (a `resolver.lookup()` re-added at boot)
+    turned that test red; restored. **Disclosed scope addition (task 1.2's
+    resolver):** spec A12a requires that a run with `$FUNCTUALIZE_VAULT_KEY`
+    set never reads the wait setting, which a boot-time
+    `timeout=app_keyring_timeout(app)` would break (it parses — and warns
+    about — the setting at boot). So boot builds `VaultKeyResolver.for_app`,
+    which reads `app_keyring_timeout(app)` on first need, and BOUNDED access
+    asks `EnvKeyProvider` before the deadline. Three resolver tests pin it
+    (env set + bad setting -> no warning; `"1s"` bounds the keyring; a bad
+    setting warns once over five lookups).
 
-- [ ] **3.2 — The CLI: `vault unlock`, status, honest wrong-key text**
+- [x] **3.2 — The CLI: `vault unlock`, status, honest wrong-key text**
   - [F] `src/functualize/_cli/vault_cmd.py`, `tests/cli/test_vault_commands.py`
     (hit set: `rg -c "interactive|allow_interactive|resolve_vault_key" tests/cli/test_vault_commands.py` = 9 + 1 + 4 *run at authoring*)
   - Add `@vault_app.command("unlock")` (`--json`; D4 FOREGROUND via
@@ -270,8 +285,34 @@ Conventions
     wrong-key message ordering. `rg -n "func builtin vault remove" src/functualize/_cli/vault_cmd.py`
     each hit is preceded by the warning (manual read at execution).
   - Spec: B3, B4, B5, B6, A7, A8, A9. Call path: `func builtin vault unlock` -> this file.
+  - **Executed 2026-10-02.** Gate: `test_vault_commands.py` 108 passed (with
+    `test_command_inventory_parity.py`, 118). New: `TestUnlock` (A7: exit 0 +
+    provider; key hex absent from stdout, stderr and `--json`; exit 3 with
+    each of the three reasons; no deadline under a 1 s setting and a 1.5 s
+    backend), three A8 cases at the CLI, `TestTheDifferentKeyMessage`. The
+    TTY-rule tests were **rewritten** to the new rule (status's silent access,
+    not the terminal, keeps it off a prompting provider; the control proves
+    the forced terminal reaches it under bounded access). The put/remove
+    non-terminal refusal tests (A9) are unmodified and green. The one
+    `func builtin vault remove` hit in `vault_cmd.py` (status, different-key
+    block) follows the keep-the-secret fixes and carries the destroys/only-copy
+    warning (read at execution). Sabotage (unlock always refused; `key_state`
+    dropped from JSON) turned 5 tests red; restored. **Disclosed scope
+    additions:** (a) `_cli/builtins.py` declares the `unlock` subcommand — the
+    inventory-parity tests require every mounted subcommand to be declared;
+    (b) **`tests/conftest.py` gains an autouse `_isolate_os_keyring`** fixture
+    (`PYTHON_KEYRING_BACKEND=keyring.backends.fail.Keyring`, an unreachable
+    `DBUS_SESSION_BUS_ADDRESS`, and the fail backend forced if `keyring` is
+    already imported). Until now the TTY gate kept the suite off the OS
+    keyring by accident; with reads regardless of terminal, a test resolving a
+    key without the env var would read — or raise an unlock dialog for — the
+    real Secret Service of whoever runs the suite. Shared infrastructure, so
+    the tip tier applies (wave 6). (c) `describe_key_failure`'s no-keyring
+    text names `func builtin vault keygen` (an existing sync test asserts it).
+    Three tests that patched `vault_keys.default_providers` were re-pointed at
+    `vault_key_resolver.default_providers`, where the resolver looks it up.
 
-- [ ] **3.3 — All five doors carry the setting**
+- [x] **3.3 — All five doors carry the setting**
   - [F] `src/functualize/_cli/main.py`, `tests/cli/test_vault_timeout_door_parity.py` (new)
     (hit set *run at authoring*: `rg -c "ConfigSources\(" src/functualize/_cli/main.py` = 5, at lines 372, 602, 1280, 1404, 1773)
   - Replace each `ConfigSources(dotenv=cli_config.dotenv, dotenv_path=cli_config.dotenv_path)`
@@ -282,8 +323,17 @@ Conventions
     `_config_sources.vault_keyring_timeout == "7s"` — the pitfall §23 test
     ("three of four doors agreeing").
   - Spec: B2, A12a. Call path: every `func` invocation.
+  - **Executed 2026-10-02.** Gate: `rg -c "ConfigSources\(" src/functualize/_cli/main.py`
+    -> 0; `test_vault_timeout_door_parity.py` 5 passed (the `app` surface
+    legs skip: the test is about `func`'s doors). Sabotage, one door at a
+    time (each `config_sources()` site replaced by a `ConfigSources` without
+    the setting): sites 0..4 turned exactly `builtin`, `bare`, `group`, `job`
+    and `file` red respectively — every door is covered by its own case. The
+    first draft's `file` case ran `jobs/hello.py`, which routes through the
+    job door, and left the single-file site uncovered; caught by this
+    sabotage and fixed (`scripts/greet.py`).
 
-- [ ] **3.4 — Migrate the remaining direct `VaultSource` constructions**
+- [x] **3.4 — Migrate the remaining direct `VaultSource` constructions**
   - [F] `tests/config/test_vault_miss.py`, `tests/config/test_vault_staleness.py`,
     `tests/app/test_vault_paths.py`
     (hit set *run at authoring*: serena `find_referencing_symbols VaultSource` outside `_app/` ->
@@ -291,6 +341,8 @@ Conventions
   - `VaultSource(path, encryption_key=k, …)` -> `VaultSource(path, key=VaultKeyResolver.fixed(k, "test"), …)`;
     `encryption_key=None` -> a resolver whose lookup is NOT_STORED.
   - Gate: `uv run pytest tests/config/test_vault_miss.py tests/config/test_vault_staleness.py tests/app/test_vault_paths.py -q` green.
+  - **Executed 2026-10-02.** 132 passed. No `VaultSource(... encryption_key=...)`
+    remains in `src` or `tests` (`rg`). Test-only task: no production path.
 
 ## Wave 4 — close the transitional states; end-to-end
 
