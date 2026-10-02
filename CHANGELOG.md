@@ -35,8 +35,8 @@ suggests `vault remove`, `vault clear` or — for a typed-in entry —
 read through a small adapter per platform (Linux Secret Service, macOS
 Keychain, Windows Credential Manager); any other `keyring` backend is not read
 by a run, because it cannot be proven silent. Linux is verified on a real
-desktop; macOS and Windows are implemented but not yet confirmed on real
-systems. `VaultKeyProvider.get_key` must now never prompt, and
+desktop; macOS and Windows are checked in CI on real runners but not yet
+confirmed on a user's own machine. `VaultKeyProvider.get_key` must now never prompt, and
 `interactive()` means "needs a person at a terminal"; the keychain provider
 returns `False`. Recorded as an amendment to ADR-016 §5.
 

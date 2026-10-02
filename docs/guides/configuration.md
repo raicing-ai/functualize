@@ -666,9 +666,9 @@ default, or the value you pass as `ConfigSources(vault_keyring_timeout="10s")`.
 
 | Platform | Keyring | Status |
 |---|---|---|
-| Linux (and other desktops speaking the freedesktop Secret Service API) | the session keyring | verified on a real desktop |
-| macOS | the login keychain, read with user interaction disabled | implemented; not yet confirmed on a real Mac |
-| Windows | Credential Manager, which has no locked state | implemented; not yet confirmed on a real Windows machine |
+| Linux (and other desktops speaking the freedesktop Secret Service API) | the session keyring | verified on a real desktop, and checked in CI against a private gnome-keyring |
+| macOS | the login keychain, read with user interaction disabled | checked in CI on a real macOS runner (a locked keychain answers without a dialog); not yet confirmed on a user's Mac |
+| Windows | Credential Manager, which has no locked state | checked in CI on a real Windows runner; not yet confirmed on a user's machine |
 | any other `keyring` backend | — | not read by a run, because it cannot be proven silent; set `$FUNCTUALIZE_VAULT_KEY` |
 
 A provider that needs a person *at this terminal* — none ships — is still
