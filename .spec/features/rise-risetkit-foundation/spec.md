@@ -1,11 +1,22 @@
 # Rise / RiseKit foundation — specification
 
-Status: **Specify, revision 2.** The member's two corrections of 2026-10-02 are
-applied: development traceability (formerly "D-1") and providers outside
-RiseKit (formerly "D-3"). Neither is an approval of this set. **D-2, the
-boundary, is still open** (plan.md § *The decision for the member*). Nothing in
-this set authorizes Execute until D-2 is answered. T1 is records only and needs
-the member's word separately.
+Status: **Specify, revision 3.**
+
+- **Applied as corrections, not approvals.** The member's two corrections of
+  2026-10-02: development traceability (formerly "D-1") and providers outside
+  RiseKit (formerly "D-3").
+- **D-2 answered** by the member on 2026-10-02, confirming the split and C4's
+  minimal assessment rule. SM-3 was then closed by independent review.
+- **Incorporated in this revision.** The owner's nine inline comments on Shape
+  Intent 5407068 (§9).
+
+Three of those comments asked for research before any decision. They land as
+research with **provisional** recommendations (research.md § *Owner comments*),
+and are not accepted design. One of them shapes what every provider author must
+declare: the operation-effect vocabulary, **OS-1** (plan.md § *Next member
+decision*). Until OS-1 is answered, `OperationContract`'s effect field stays
+provisional, and **T2 does not freeze it**. T1 is records only and needs the
+member's word separately.
 
 Base: `origin/master` at `ef1939d`. Every count below was produced by the
 command printed beside it, on that base. The live product sources behind every
@@ -178,7 +189,11 @@ below makes one part of that falsifiable:
   copied (Decision 6).
 - **S12.** Traversal continues past failures, so every subject that can be
   observed is emitted. A subject reached twice is observed once. A relation
-  cycle is reported as an issue and does not recurse.
+  cycle is reported as an issue and does not recurse. The output order is
+  deterministic: ties break alphabetically, as everywhere else in Functualize.
+  *These are the behaviours. The mechanism that produces them is
+  **provisional**, pending the owner's review of research.md § R-1 (comment
+  11960322).*
 - **S13.** The process exit status follows the root record: 0 when it passes,
   non-zero when it fails. The exact non-zero taxonomy stays open.
 - **S14.** Each diagnose operation runs through `Invoke` by job name, so it
@@ -277,10 +292,18 @@ None of these reopens *whether* Rise and RiseKit are required.
 
 ## 8. Development traceability
 
-What authorizes each piece of this feature. Every source below was read live on
-2026-10-02 (research.md § *Live reads*). Confluence pages are in space `SD`;
-Jira tickets are in project `FUN`. A delivered element with no row here is a
-finding for T11.
+What authorizes each piece of this feature. Every source below was read live,
+most recently between 2026-10-02T06:06Z and 06:10Z for revision 3, and every version matched
+(research.md § *Live reads*). Confluence pages are in space `SD`; Jira tickets
+are in project `FUN`. A delivered element with no row here is a finding for T11.
+
+**Correction (revision 3).** Revision 2 recorded Shape Intent 5407068 as "v15,
+0 inline/footer comments". The version is still right: v15, with a body
+byte-identical to the revision-2 read. The comment count is no longer right. The
+owner added **nine inline comments** between 03:28:45Z and 04:16:22Z, after
+revision 2 was written. They are listed, with their disposition, in §9. The
+other three plan pages (4882456, 4882435, 4849705) carry no comments as of this
+read.
 
 | Element of this feature | Confluence authority (page id, version, decision) | Jira authority |
 |---|---|---|
@@ -302,3 +325,25 @@ finding for T11.
 | Forward compatibility: identities stay stable enough to attach evidence later (package id, contract identity, `diagnosis_id`) | 2.0 North Star 4849705 v5 (**Proposed**), *Proof-carrying Rise packages* — a constraint, not a commitment | none: 2.0 has no Jira commitment by its own planning consequence |
 | Where artifacts live: Jira holds claims, Confluence holds decisions (AC-9) | Decision 11370545 v4 (accepted 2026-10-01) | FUN-8 AC 4 |
 | Run 1 stays Rise-independent | Run 1 page 5046398 v1 (no Rise content) | FUN-5 |
+| Traversal mechanics of S12 are provisional, pending research | Shape Intent 5407068 v15, inline comment 11960322 | — |
+| The effect vocabulary on `OperationContract` is provisional, pending OS-1 | Shape Intent 5407068 v15, inline comments 11927557, 11927574 | — |
+| The author test harness is a separate RiseKit slice, not T7/T8 | Shape Intent 5407068 v15, inline comment 11960331 | — |
+| Tracked, not resolved here: provider-contract inspiration, deploy strategies, `rise-lock` location, ownership proof, DI reuse | Shape Intent 5407068 v15, inline comments 11862020, 11960340, 11927566, 11927583, 11927592 | — |
+
+## 9. The owner's inline comments on Shape Intent 5407068, and what this set does with them
+
+All nine are by the page owner, read live through `confluence_get_inline_comments`
+(page 5407068, count 9). They are questions and research directions; none of
+them amends the page's fifteen decisions, and the page version did not move.
+
+| Comment | The owner's ask (verbatim, abridged only where marked) | Disposition | Where |
+|---|---|---|---|
+| 11960322 | "Research / look into lightweight python graph packages, or existing graph implementations already available (maybe not yet public API) in functualize codebase. We should elaborate on this before making a decision." | **Researched; recommendation provisional.** S12's traversal is not owner-approved. | research.md § *R-1*; T4 |
+| 11862020 | "Some inspiration can be compared with by how terraform providers have to conform to their contract, or pulumi, or aspire, etc." | **Tracked.** A comparison note seeds stage 5; it changes nothing in this feature. | research.md § *Tracked* |
+| 11927557 | "… should we encourage / support dry-run type semantics (perhaps opt-in) to operations. Perhaps it should be easy to create operations that are diffable / dry-run …" | **Researched; recommendation provisional.** Plan/dry-run is not built here. | research.md § *R-2*; OS-1 |
+| 11960331 | "Risekit should have a feature that makes it easy for package creators / maintainers to test their implementation safely in an isolated environment. Perhaps like a docker or podman harness …" | **Researched; recommendation provisional.** It is a separate RiseKit slice. No host-level execution is authorized. | research.md § *R-3*; stage 5 item 10 |
+| 11960340 | "… deployment for cloudflare could use terraform, pulumi, or cloudflare cli directly." | **Tracked.** It maps onto operation strategies (Decision 8). Worker deploy stays deferred, and P-3 is unchanged. | plan.md stage 5 item 1 |
+| 11927566 | "Should rise-lock therefore also have a copy in xdg directory?" | **Tracked.** `rise-lock` stays deferred. | plan.md stage 5 item 3 |
+| 11927574 | "… should we provide markers for "destructive", or "mutating" / "side-effect" operations? … we'll need to elaborate and discuss this first." | **Researched; recommendation provisional.** It is the subject of OS-1. | research.md § *R-2*; OS-1 |
+| 11927583 | "How does rise know who the capabilty contract owner is? Via a github organization/repo url?" | **Tracked.** This is namespace-ownership proof, already deferred. | plan.md stage 5 item 7 |
+| 11927592 | "Can this use existing functualize DI implementation?" | **Tracked**, with one finding: `RiseCatalog` already rides DI. A typed consumer proxy needs a per-invocation factory, which the public port lacks. | research.md § *Tracked*; plan.md stage 5 item 6 |

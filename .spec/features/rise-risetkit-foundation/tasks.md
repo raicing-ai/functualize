@@ -2,8 +2,10 @@
 
 Execute against `spec.md`, `contracts.md` and `plan.md`. Wave ordering is
 binding: no task in wave N+1 starts while wave N holds an unchecked task.
-**D-2 (plan.md § *The decision for the member*) must be answered before T2
-runs.** T1 is records only and lands on the member's word.
+D-2 is answered (2026-10-02, split and C4 confirmed). **OS-1 (plan.md § *Next
+member decision*) must be answered before T2 freezes `OperationContract`.** T1
+is records only and lands on the member's word. Items marked *provisional*
+follow research recommendations the owner has not yet accepted (spec.md §9).
 
 ## Gates
 
@@ -13,7 +15,7 @@ runs.** T1 is records only and lands on the member's word.
 | G2 | `uv run pytest plugins/domains/functualize-rise/tests/test_orphan_behavior.py -q` | with rise loaded, no orphan warning for `rise`; with the plugin disabled, the warning appears and the job still runs (S2, S3) | lands with T6 |
 | G3 | `uv run pytest plugins/domains/functualize-rise/tests/test_handwritten_parity.py -q` | a RiseKit-free, hand-written fixture validates and diagnoses identically to its RiseKit-built twin (B2, AC-3) | lands with T5 |
 | G4 | T3's test selection | S7's eight findings asserted one by one; exit 0 when clean, non-zero on findings (S8) | lands with T3 |
-| G5 | T4's test selection | C6 keys and types per line; package record last; S11–S13 aggregation, cycle and exit status; S4 materialization | lands with T4 |
+| G5 | T4's test selection | C6 keys and types per line; package record last; S11–S13 aggregation, cycle and exit status; S4 materialization; **a diamond fixture observed once and a cycle fixture reported while every other subject is still emitted** (the two cases that separate R-1's options from a bare visited set) | lands with T4 |
 | G6 | T8's test selection | live tier skips without credentials and names the missing variable; `rise-test-` prefix only (C8) | lands with T8 |
 | G7 | `uv run pytest examples/ -q` | the example project is collected and green (AC-7) | lands with T10 |
 | G8 | `rg -n -i 'cloudflare' plugins/domains/functualize-risekit/` → no output; and `rg -n 'functualize_rise_cloudflare' plugins/domains/functualize-rise/ plugins/domains/functualize-risekit/ src/` → no output | B5, AC-10: no provider inside RiseKit; nothing below the provider names it | directories do not exist yet (`rg` exits 2). Run first in T7; re-run in T12 |
@@ -51,7 +53,9 @@ local full run.
       `functualize.plugins`, declaring `functualize_ext_namespaces = ("rise",)`
       and providing `RiseCatalog(host)` through `host.di.provide`. The schema
       types and the `CapabilityContract` / `OperationContract` / `FieldRule`
-      frozen types with the identity grammar (C3, C4). `contract_ref`
+      frozen types with the identity grammar (C3, C4). `OperationContract`'s
+      effect field takes the shape OS-1 chose. If OS-1 is still unanswered,
+      T2 does not start. `contract_ref`
       resolution (S6). The `[tool.uv.sources]` entry, the lock, and a
       `ci.yml` plugin-test step. No validate/diagnose behaviour yet.
       *Files:* `plugins/domains/functualize-rise/**`, `pyproject.toml`, `uv.lock`, `.github/workflows/ci.yml`
@@ -74,10 +78,15 @@ local full run.
 ## Wave 3 — diagnosing
 
 - [ ] **T4** The `rise-diagnose` job (S9–S14)
-      A post-order traversal with a visited set: per-subject records first, the
-      package record last. Required/optional aggregation, with
-      `required_dependency_failed` referencing the child by id. A cycle is
-      reported without recursion. One `diagnosis_id` per invocation. Each
+      Targets are observed before the subjects that relate to them; per-subject
+      records come first and the package record last. A diamond is observed
+      once. A cycle is reported as `relation_cycle` and the walk continues. Ties
+      break alphabetically. The mechanism is *provisional*: the recommendation
+      is an iterative three-state DFS (research.md § *R-1*, option A), with
+      stdlib `graphlib` as the fallback (option B). Use whichever the owner
+      accepts. A bare visited set is **not** sufficient, because it cannot
+      tell a diamond from a cycle. Required/optional aggregation, with
+      `required_dependency_failed` referencing the child by id. One `diagnosis_id` per invocation. Each
       observation runs through `Invoke` (B4, S14). NDJSON per C6, and exit
       status per S13. Measure and record S4's materialization cost.
       *Files:* `plugins/domains/functualize-rise/src/functualize_rise/diagnose.py`, `plugins/domains/functualize-rise/src/functualize_rise/jobs.py` (+ tests)
@@ -112,7 +121,10 @@ local full run.
       `@operation(<contract>, <op>, subject=…, relations=…)` derives `contract`
       and `contract_ref` from the symbol and emits exactly Rise's schema
       fields, nothing of its own (B3). The observation → record builder. **No
-      provider and no provider-domain name** (B5). Add the
+      provider and no provider-domain name** (B5). The author test harness the
+      owner asked for (comment 11960331) is **not** this task. It is stage-5
+      item 10 (research.md § *R-3*, provisional), and nothing here runs
+      containers or touches the host. Add the
       `[tool.uv.sources]` entry, the lock and the `ci.yml` step.
       *Files:* `plugins/domains/functualize-risekit/**`, `pyproject.toml`, `uv.lock`, `.github/workflows/ci.yml`
       *Gate:* a schema-equality test (helper-built metadata is structurally
