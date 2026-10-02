@@ -1,7 +1,7 @@
 # Plan — vault-keyring-unlock
 
 Spec: `spec.md` (confirmed 2026-10-02; **revisions R-1..R-3 below need re-confirmation**).
-Jira: FOSS-88 ← FOSS-31. Retrieval record: `research.md`.
+Tracked privately (story ← field report). Retrieval record: `research.md`.
 
 Tools used, by absolute worktree path: zvec-grep (prose, Specify and Plan),
 serena (`get_symbols_overview`, `find_referencing_symbols`; activated on the
@@ -50,7 +50,7 @@ direction). `||` = import-linter boundary.
 
 | Smell | Where | Evidence |
 |---|---|---|
-| **Primitive Obsession** — `None`/`bool` standing in for a status | `KeychainKeyProvider.get_key` (`except Exception: return None`), `resolve_vault_key -> KeyResolution \| None`, `allow_interactive: bool \| None` | locked, absent, no-backend and not-stored are four states with one value; this is why the refusal text is false (FOSS-31) |
+| **Primitive Obsession** — `None`/`bool` standing in for a status | `KeychainKeyProvider.get_key` (`except Exception: return None`), `resolve_vault_key -> KeyResolution \| None`, `allow_interactive: bool \| None` | locked, absent, no-backend and not-stored are four states with one value; this is why the refusal text is false (the field report) |
 | **Data Clumps** | `(encryption_key: bytes \| None, key_provider_id: str)` passed together through `VaultSource.__init__`, `SecretsVault.__init__`, `build_vault_source`, `_build_dormant_vault_source` | always travel as a pair |
 | **Duplicate Code** | the key-unavailable message and its exception names (`no vault key is available`, `key_unavailable`, `VaultKeyUnavailableError`, `VaultKeySourceError`) in `_app/boot.py` (1 hit), `app/utils.py` (6), `app/vault.py` (12), `_cli/vault_cmd.py` (7), `_config/vault_source.py` (1) — 27 hits in 5 files, plus 8 in two test files (`rg`, run while authoring) | the ticket's core complaint is one wrong sentence that exists in several shapes; the hits are identifiers *and* prose, so the count is an upper bound on copies of the sentence |
 | **Duplicate Code** + **Feature Envy** | `_cli/main.py` ×5: `ConfigSources(dotenv=cli_config.dotenv, dotenv_path=cli_config.dotenv_path)` (identical at 372, 602, 1280, 1404, 1773) | main.py reads `CliConfig`'s fields to build another object's arguments; adding a setting here is **Shotgun Surgery** (5 edits) |
@@ -272,7 +272,7 @@ module is ~200 lines; `vault_source.py` stays under 400).
 
 ## Alignment
 
-Preflight (Alignment Hub §1), run 2026-10-02 against Jira and Confluence.
+Preflight, run 2026-10-02 against the private tracker and knowledge base.
 
 **Areas:** `config` (vault, key resolution), `engine` (`_app/boot.py`), `cli`
 (`vault_cmd`, settings), `docs`.
@@ -286,29 +286,27 @@ Preflight (Alignment Hub §1), run 2026-10-02 against Jira and Confluence.
 - ADR-016 §6 — sync explicit, staleness warns and still runs: kept (the warning
   now fires on the first stored read).
 - Constitution *Forbidden Patterns* and *Quality Gates* — checked above.
-- `keep-behavior` issues: none exist (`project = FOSS AND labels = "keep-behavior"`
-  → 0).
-- Decision records labelled `decision` + `area-config`: none exist (CQL → 0);
-  the Confluence decisions read by title (`01 — Decisions Taken (D1–D7)`,
-  `03 — Decision Register`) concern the O'Reilly design review and do not bind
-  this area.
+- `keep-behavior` issues: none exist in the private tracker.
+- Decision records labelled `decision` + `area-config`: none exist; the other
+  decision pages read by title concern an unrelated design review and do not
+  bind this area.
 
-**Claims absorbed:** FOSS-31 (Accepted). **Linked, not absorbed:** FOSS-34 (still
+**Claims absorbed:** the field report (Accepted). **Linked, not absorbed:** the agent-routes report (still
 `Reported`; same root cause for the agent routes; triage it after merge).
-**Implementing issue:** FOSS-88.
+**Implementing issue:** the story.
 
-**Open items in `area-config` checked in code (labels are hints):** FOSS-30
+**Open items in `area-config` checked in code (labels are hints):** one item
 (`vault put` group paths) touches `app/vault.py` `resolve_canonical_path` —
 same file as task 2.3 (`app/vault.py`), different function, textual merge risk only.
-FOSS-32 (env vs vault ordering), FOSS-44 (`builtin env` source label),
-FOSS-50, FOSS-54 (a *win*, `Reported` not `Accepted`): no symbol overlap
+others (env vs vault ordering; the `builtin env` source label;
+two more, one a *win*, `Reported` not `Accepted`): no symbol overlap
 (`rg` for `resolve_canonical_path`, `source_type`, `_resolve_key`).
 
 **Conflict.** This feature **contradicts ADR-016 §5**: *"Ordering is part of the
 contract: non-interactive providers first, and interactive ones only when no key
 was found and a TTY exists."* The maintainer decided on 2026-10-02 to change it
-(recorded on FOSS-31). Per Hub §1.6: a **Decision record** (Confluence, under
-`30 — Decisions`, from the Decision Record template, labels `decision` +
+(recorded on the field report). A **decision record** (private knowledge base,
+from its decision template, labels `decision` +
 `area-config`, status Proposed) supersedes the clause, and ADR-016 gets an
 "Amended by" note in ADR-023's style. The ADR's *reason* — an unattended run must
 not hang on a prompt — is **kept**: the bounded wait is its replacement mechanism.
@@ -419,9 +417,9 @@ Middle Man (public wrappers).
 
 ## 6. Alignment (changes)
 
-- **Decision record 12222468** is updated to the new decision (it is still Proposed): the
+- **The decision record** is updated to the new decision (it is still Proposed): the
   mechanism changes from "bounded wait" to "no prompt from a run"; the reason stays.
-- **FOSS-34** (agent routes) is now served directly: unlock once, then agent runs read silently.
-- **FOSS-89** unchanged. **ADR-016 §5** remains contradicted deliberately; ADR-023 §1/§4 untouched.
+- **The agent-routes report** is now served directly: unlock once, then agent runs read silently.
+- **Per-key fresh fetch** (tracked separately) unchanged. **ADR-016 §5** remains contradicted deliberately; ADR-023 §1/§4 untouched.
 - The maintainer's decisions of 2026-10-02 are recorded: switch to this design; follow the
   CI tiering; the state is shown in the TUI and `vault status` only, `--help` untouched.

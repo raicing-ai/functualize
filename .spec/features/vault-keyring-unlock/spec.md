@@ -1,6 +1,6 @@
 # Spec — vault-keyring-unlock
 
-- Jira: [FOSS-88](https://raicing-ai.atlassian.net/browse/FOSS-88) (story) ← [FOSS-31](https://raicing-ai.atlassian.net/browse/FOSS-31) (field report, Accepted). Related, not absorbed: FOSS-34.
+- Tracked privately (story and field report; a related agent-routes report is linked, not absorbed).
 - Binding text: ADR-016 §5 (ordering clause — **contradicted here, to be superseded**), ADR-023 §1 and §4 (**preserved**).
 - Findings that shaped this: `research.md` (R1–R8).
 
@@ -188,8 +188,8 @@ Behavior only. Each is falsifiable; the plan phase assigns the command.
 - **A12 — documented.** ADR-016 carries an "Amended by" note; the
   `VaultKeyProvider` docstring, `vault_keys.py` module docstring, the key table
   in `docs/guides/configuration.md` (the "Interactive" column) and `CHANGELOG.md`
-  state the new rule; a Confluence Decision record (Proposed → Accepted) exists;
-  and the shipped behavior is described under *50 — Current Reference*.
+  state the new rule; the private decision record (Proposed → Accepted) exists;
+  and the shipped behavior is described in the private reference.
 
 ## Out of scope
 
@@ -331,7 +331,7 @@ New criteria:
 
 ## Out of scope (unchanged) and newly out of scope
 
-Unchanged: a key cache or timer in functualize; per-key fresh fetch (FOSS-89); the
+Unchanged: a key cache or timer in functualize; per-key fresh fetch (tracked separately); the
 file-path invocation defect. Newly: fixing gnome-keyring itself (we avoid its crash path and
 may file upstream evidence); the pre-existing Windows type errors in `shell.py` and
 `fresh_format.py`; the pre-existing order-dependent test

@@ -53,7 +53,7 @@ rg -n "vault_max_age" src -g '*.py'                             # 5 hits
 `max_age` reaches the vault two ways only: the `remote_first(max_age=...)` preset
 argument (→ `ConfigSources.vault_max_age`) and `$FUNCTUALIZE_VAULT_MAX_AGE`. An
 *ordinary* app (the dormant source) passes `max_age=None` and has no config-file
-route at all. The Jira comment on FOSS-31 and the story FOSS-88 said
+route at all. The tracker comment on the field report and the story said
 `[vault] keyring_timeout`; **that was wrong** and is corrected there.
 
 **Consequence.** `[vault]` has to be *created*. The existing way to add a
@@ -196,7 +196,7 @@ unlock prompt (Addendum 1, B2').
 A run that never raises a prompt needs the keyring to be unlocked **before** it starts.
 Unlocking is a human act (the desktop's keyring manager, or `func builtin vault unlock`).
 This is the "unlock once, elsewhere" story the maintainer described originally, and it is
-also what FOSS-34 asked for on the agent routes.
+also what the agent-routes report asked for.
 
 ## R12. Open: a no-dialog "unlocked elsewhere" step for CI
 

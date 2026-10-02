@@ -1,6 +1,6 @@
 # Tasks — vault-keyring-unlock
 
-Jira: FOSS-88. Plan: `plan.md` (decisions D1–D9, smells S-1..S-6). Spec: `spec.md` A1–A12a.
+Plan: `plan.md` (decisions D1–D9, smells S-1..S-6). Spec: `spec.md` A1–A12a.
 
 Conventions
 - **[F]** = files the task may touch = the hit set of the query named in the task.
@@ -437,8 +437,8 @@ Conventions
     show` renders only `[discovery]`, `[cli]`, `[aliases]`), so it is pinned
     by `tests/cli/test_cli_config_vault.py`, which parses exactly that table,
     rather than by a doc-verify step. **Deviation, for the maintainer:** the
-    ADR "Amended by" block does **not** embed the Confluence Decision record
-    URL — this repository is public and no ADR links an internal page; it
+    ADR "Amended by" block does **not** embed the private decision record's
+    address — this repository is public and no ADR links an internal page; it
     names the decision by feature and date instead. Add the link if you want
     it. Also touched (not in [F]): `examples/docs/scenarios/p-remote-vault.toml`'s
     `[source] lines`, moved to the vault-commands section's new range.
@@ -479,18 +479,18 @@ Conventions
 
 ## (retired) Wave 7 — knowledge and tracker close-out
 
-- (RETIRED — replaced by R8.3) **7.1 — Confluence and Jira**
+- (RETIRED — replaced by R8.3) **7.1 — Knowledge and tracker close-out**
   - [F] none in the repository.
-  - Decision record (page 12222468) -> Accepted (status, date, link to the PR); the
+  - Decision record -> Accepted (status, date, link to the PR); the
     shipped behavior promoted in the **existing draft** under *50 — Current
-    Reference* (page 12255236, "Vault key resolution — DRAFT"): follow its
+    Reference* (the existing draft): follow its
     *Promotion checklist* — move the Proposed rows into Current behavior, delete the
     "Today" rows they replace, set Status Accepted / Authority Current, drop the
     `draft` label and the word DRAFT, add the PR link and the live-check result
-    (A11) — do not write a second page; FOSS-88 and FOSS-31
+    (A11) — do not write a second page; the story and the field report
     commented with the commit/PR and the re-run falsifying check (A1 against old
-    and new code), then moved to Done; FOSS-34 commented that it is now triageable.
-  - Gate: the Reference page exists and cites the PR; both Jira issues show the
+    and new code), then moved to Done; the agent-routes report commented that it is now triageable.
+  - Gate: the Reference page exists and cites the PR; both tracker issues show the
     comment; the A1 repro output is pasted.
 
 ---
@@ -784,13 +784,13 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
 
 ## Wave 15 — knowledge and tracker close-out
 
-- [ ] **R8.3 — Confluence and Jira**
+- [ ] **R8.3 — Knowledge and tracker close-out**
   - [F] none in the repository.
-  - As the retired 7.1, plus: update the Decision record (page 12222468) and the draft
-    reference (page 12255236) to the final behavior *before* promoting; record the
-    macOS/Windows evidence level per platform; comment on FOSS-88, FOSS-31 and FOSS-34 with
+  - As the retired 7.1, plus: update the decision record and the draft
+    reference to the final behavior *before* promoting; record the
+    macOS/Windows evidence level per platform; comment on the story, the field report and the agent-routes report with
     the PR, the re-run falsifying check (A1 on old vs new code) and the live-check result.
-  - Gate: the Reference page cites the PR and the live-check result; the Jira comments exist.
+  - Gate: the Reference page cites the PR and the live-check result; the tracker comments exist.
 
 ---
 
