@@ -190,6 +190,50 @@ class TestSupersedeKeepsTheCandidates:
         consume_request(store, "wf-1", "approve", "req_2", NOW)
 
 
+class TestEvidenceRidesTheCandidate:
+    def test_a_candidate_with_evidence_stores_and_reads_it_back(
+        self, store: ScopeStore
+    ) -> None:
+        _open(store)
+        append_candidate(
+            store,
+            "wf-1",
+            "approve",
+            GateCandidate(
+                candidate_id="cand_ev",
+                request_id="req_1",
+                ordinal=0,
+                source="strategy:decision",
+                submitted_at=NOW,
+                evaluation=CandidateEvaluation(
+                    EvaluationOutcome.FAILED,
+                    detail="below threshold",
+                    evidence={"schema": "decision-evidence/1", "x": 1},
+                ),
+            ),
+        )
+
+        record = store.get_gate("wf-1", "approve") or {}
+        assert record["candidates"][0]["evidence"] == {
+            "schema": "decision-evidence/1",
+            "x": 1,
+        }
+        assert candidates_for(record)[0].evaluation.evidence == {
+            "schema": "decision-evidence/1",
+            "x": 1,
+        }
+
+    def test_a_candidate_without_evidence_stores_no_key(
+        self, store: ScopeStore
+    ) -> None:
+        _open(store)
+        append_candidate(store, "wf-1", "approve", _accepted("cand_plain"))
+
+        record = store.get_gate("wf-1", "approve") or {}
+        assert "evidence" not in record["candidates"][0]
+        assert candidates_for(record)[0].evaluation.evidence is None
+
+
 class TestConsumingTwiceIsANoOp:
     def test_the_second_consume_leaves_the_record_alone(
         self, store: ScopeStore

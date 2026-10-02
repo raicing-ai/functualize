@@ -210,19 +210,20 @@ def append_candidate(
                 _request_id(scope_id, gate_name, record), status
             )
         entries = list(record.get("candidates", []))
-        entries.append(
-            {
-                "candidate_id": candidate.candidate_id,
-                "request_id": _request_id(scope_id, gate_name, record),
-                "ordinal": candidate.ordinal,
-                "source": candidate.source,
-                "submitted_at": _iso(candidate.submitted_at),
-                "outcome": candidate.evaluation.outcome.value,
-                "detail": candidate.evaluation.detail,
-                "errors": [list(pair) for pair in candidate.evaluation.errors],
-                "payload": candidate.payload,
-            }
-        )
+        entry: dict[str, Any] = {
+            "candidate_id": candidate.candidate_id,
+            "request_id": _request_id(scope_id, gate_name, record),
+            "ordinal": candidate.ordinal,
+            "source": candidate.source,
+            "submitted_at": _iso(candidate.submitted_at),
+            "outcome": candidate.evaluation.outcome.value,
+            "detail": candidate.evaluation.detail,
+            "errors": [list(pair) for pair in candidate.evaluation.errors],
+            "payload": candidate.payload,
+        }
+        if candidate.evaluation.evidence is not None:
+            entry["evidence"] = dict(candidate.evaluation.evidence)
+        entries.append(entry)
         record["candidates"] = entries
         if candidate.evaluation.outcome is EvaluationOutcome.ACCEPTED:
             record["status"] = "accepted"
@@ -366,6 +367,7 @@ def candidates_for(record: dict[str, Any]) -> tuple[GateCandidate, ...]:
                     (str(field), str(message))
                     for field, message in entry.get("errors", [])
                 ),
+                evidence=entry.get("evidence"),
             ),
             payload=entry.get("payload"),
         )

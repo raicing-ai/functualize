@@ -1,7 +1,7 @@
 # Standalone Examples
 
-Jobs run with the `func` CLI, no project scaffolding required. Ten
-directories cover everything — each is self-contained, and nine ship a
+Jobs run with the `func` CLI, no project scaffolding required. Eleven
+directories cover everything — each is self-contained, and ten ship a
 step-by-step README checklist you can walk top to bottom (`substrate_failure/`
 carries its rationale in the test module's docstring instead).
 
@@ -17,6 +17,7 @@ carries its rationale in the test module's docstring instead).
 | [`deploy_tool/`](deploy_tool/) | **An app that is not `func`.** Its own command name, pyproject table, config file and `DEPLOY_TOOL_*` env prefix; a root flag generated from a setting's `cli_flag`; a `phase="early"` flag read pre-boot; and a bare invocation that opens the interactive shell (`inline_tui = false` to opt out) | The other three configure functualize itself — this one is a *different tool built on it*, which is the only way to show the settings identity and generated flags |
 | [`plugin_host/`](plugin_host/) | **Annotating a plugin against the port.** A plugin is handed the application at boot; this answers what it should call that thing in its own signature — `def __call__(self, app: PluginHost)` — and shows the surface a plugin may reach: `di`, `extensions`, `hooks`, `configuration`, `gates`, plus `execute`, `get_jobs`, `get_job`, `fresh_root`, `substrate`, `install_substrate` and `offer_substrate` | The port's members only mean something against a real boot, and the annotated signature *is* the lesson — it is the difference between a plugin that type-checks and one that names the concrete app |
 | [`substrate_failure/`](substrate_failure/) | **A storage backend that cannot open fails boot.** The shape a storage-plugin author writes — offers in `__call__`, opened when boot asks — and what `SubstrateInstallError` buys: boot refuses with a diagnostic instead of the run continuing on a substrate nobody chose, with the control case where the same plugin boots on a usable path | The refusal is a property of boot, not of the plugin: a unit test of the raise could not show that the `except` is *reachable* (the failure this error type exists for was logged one frame up and swallowed), nor that an unrelated `APP_READY` failure is still swallowed |
+| [`hermetic_router/`](hermetic_router/) | **A decision gate that routes, with a declared fallback.** Four routes (`deterministic`, `cheap_model`, `frontier_agent`, `human_review`), thresholds `accept_at=0.70`/`min_margin=0.10`, `fallback="human_review"` taken by the ordinary `resolve` rung, and `decision_record` reading each run back — proposal, distribution, rule digest, cost, and who took the gate. Runs with **no provider at all**: the fallback answers, the walk blocks for a person | The decision seam's reference workflow. It is the one place the whole ladder is visible end to end — evidence recorded, fallback taken, a person answering without being able to forge evidence — and it shows the router is hermetic: no model client, no network, no effecting step anywhere in it |
 
 ## How `func` works for standalone code
 

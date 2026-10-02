@@ -21,15 +21,18 @@ registers it as the ``decision`` strategy. A provider failure propagates as the
 from __future__ import annotations
 
 import json
+import time
 from typing import TYPE_CHECKING
 
+from functualize._gate.decision_evidence import build_decision_evidence
 from functualize._types.decision import ChoiceRequest
+from functualize._types.errors import DecisionUnavailableError
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from functualize._gate._context import GateContext
-    from functualize._types.decision import DecisionProvider
+    from functualize._types.decision import DecisionProvider, DecisionResult
 
 __all__ = [
     "DECISION_STRATEGY_NAME",
@@ -78,17 +81,47 @@ class DecisionGateResolver:
             else json.dumps(recorded, sort_keys=True, default=str)
         )
 
-        result = self._provider.choose(
-            ChoiceRequest(
-                state=state,
-                instructions=decision.instructions,
-                options=decision.options,
-                model=decision.model,
+        def record(
+            latency_seconds: float,
+            verdict: str,
+            *,
+            result: DecisionResult[str] | None = None,
+            error: DecisionUnavailableError | None = None,
+            probability: float | None = None,
+            margin: float | None = None,
+        ) -> None:
+            if ctx.evidence is not None:
+                ctx.evidence.record(
+                    build_decision_evidence(
+                        decision,
+                        state=state,
+                        latency_seconds=latency_seconds,
+                        result=result,
+                        error=error,
+                        probability=probability,
+                        margin=margin,
+                        verdict=verdict,
+                    )
+                )
+
+        started = time.monotonic()
+        try:
+            result = self._provider.choose(
+                ChoiceRequest(
+                    state=state,
+                    instructions=decision.instructions,
+                    options=decision.options,
+                    model=decision.model,
+                )
             )
-        )
+        except DecisionUnavailableError as exc:
+            record(time.monotonic() - started, "provider_failed", error=exc)
+            raise
+        latency_seconds = time.monotonic() - started
 
         distribution = result.distribution
         if distribution is None:
+            record(latency_seconds, "no_distribution", result=result)
             raise ValueError(
                 f"{result.provider}/{result.model} proposed {result.value!r} with "
                 f"no distribution; the gate's thresholds need one"
@@ -104,7 +137,21 @@ class DecisionGateResolver:
         margin = p - runner_up
 
         if p >= decision.accept_at and margin >= decision.min_margin:
+            record(
+                latency_seconds,
+                "accepted",
+                result=result,
+                probability=p,
+                margin=margin,
+            )
             return ctx.model_class(**{**ctx.resolved_fields, decision.field: value})
+        record(
+            latency_seconds,
+            "below_threshold",
+            result=result,
+            probability=p,
+            margin=margin,
+        )
         raise DecisionBelowThresholdError(
             f"{result.provider}/{result.model} proposed '{value}' at {p:.2f} "
             f"(margin {margin:.2f}); workflow requires >= "

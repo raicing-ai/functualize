@@ -120,6 +120,7 @@ from functualize._types.redaction import (
 from functualize._types.run_request import (
     RunRequest,
 )
+from functualize.app._decision_record import decision_record
 from functualize.app._run_view import (
     RUN_STATES,
     describe_run,
@@ -219,6 +220,7 @@ __all__ = [
     "resolve_advanceable",
     "resume_scope",
     "gate_draft",
+    "decision_record",
     "resolve_gate",
     "describe_run",
     "job_history",

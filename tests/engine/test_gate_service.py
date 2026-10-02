@@ -92,6 +92,42 @@ def _runged_registry(resolve_with: Any = None) -> GateRegistry:
     return registry
 
 
+class _Route(BaseModel):
+    route: Literal["a", "b"]
+
+
+def _route_gate(fallback: str | None) -> Gate:
+    decide = ChoiceDecision(
+        field="route",
+        instructions="Pick one.",
+        options={"a": "the first option", "b": "the second option"},
+        state=FromStep("intake"),
+        accept_at=0.70,
+        fallback=fallback,
+    )
+    return Gate(name="route", awaits=_Route, decide=decide)
+
+
+class TestAFallbackShortensTheLadder:
+    def test_with_a_fallback_the_ladder_is_decision_then_resolve(self) -> None:
+        """A declared fallback never blocks, whatever the prompt flag says."""
+        assert _gate_strategy_list(_route_gate("b"), prompt_gates=True) == [
+            "decision",
+            "resolve",
+        ]
+        assert _gate_strategy_list(_route_gate("b"), prompt_gates=False) == [
+            "decision",
+            "resolve",
+        ]
+
+    def test_without_a_fallback_the_ladder_is_unchanged(self) -> None:
+        assert _gate_strategy_list(_route_gate(None), prompt_gates=True) == [
+            "decision",
+            "prompt",
+            "resolve",
+        ]
+
+
 class TestTheLadderIsRecorded:
     def test_ladder_rungs_are_recorded(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

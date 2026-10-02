@@ -630,9 +630,10 @@ the behaviour is documented in `docs/guides/workflows.md` → *Decision gates*.
 
 Still open, and deliberately not part of this delivery:
 
-- **The rule is fenced, not yet recorded.** It joins the graph digest now;
-  storing it structurally on the gate request waits for the durable
-  request/evidence work above.
+- **The rule is fenced, not yet recorded on the request.** It joins the graph
+  digest, and since the hermetic router its digest rides in each decision
+  rung's evidence; storing it structurally on the gate request waits for the
+  durable request/evidence work above.
 - **Margin comparison is exact.** Probabilities arrive with two decimals, so a
   lead printed as `0.10` can fail `min_margin=0.10`. Rounding before comparing
   would change the rule and needs a maintainer decision.
@@ -640,8 +641,36 @@ Still open, and deliberately not part of this delivery:
   without `OPENCODE_API_KEY`.
 - **Release hygiene for the new plugin** — it is `0.1.0` while every other
   package shares one release version, ships no `LICENSE`/`NOTICE`, and is baked
-  into every standalone binary through `[all]`; eight new public names have no
-  `examples/` caller yet.
+  into every standalone binary through `[all]`. Of the eight new public names,
+  the hermetic router example now calls seven; `ChoiceRequest` still has no
+  `examples/` caller.
+
+**Hermetic router — delivered** on `sdd/hermetic-router`. A decision may
+declare `ChoiceDecision(fallback=...)`, one of its options, taken when no
+proposal is accepted: such a gate is walked `decision` → `resolve`, the
+registry seeds the decided field with the fallback and forces the decision
+rung, so a miss is answered by the existing `resolve` rung and the walk never
+blocks at the router. A default on the decided field is refused at import, and
+the fallback joins the graph digest. Every ladder rung gets its own write-once
+`RungEvidence` sink, and the decision rung records one `decision-evidence/1`
+mapping on its candidate (`CandidateEvaluation.evidence`; the builder is
+`_gate/decision_evidence.py`, apart from the rule module, which still never
+names `confidence`). The **provisional** `decision_record(store, scope_id,
+gate)` in `functualize.app.utils` reads a routed gate back as route,
+`decided_by`, reason and evidence. `examples/standalone/hermetic_router/` is
+the one reference workflow — one gate, four routes, a `human_review`
+fallback, no effecting step, no model client. No new node kind, walk outcome,
+evaluation outcome or strategy name was added; gates without a fallback keep
+the Phase 1 ladder and blocking, and gain evidence only. The decisions and the
+rejected alternatives are ADR-030's addendum.
+
+Still open after the hermetic router:
+
+- **Monetary cost** is not recorded — token usage only; pricing is Phase 3's.
+- **Evidence's SQL home.** Evidence is stored with the candidate inside the
+  gate record (`TRANSITIONAL(FUN-21)`); its `input_candidates.evidence` column
+  waits for FUN-18's tables and FUN-21's interaction/evidence slice.
+- **Margin comparison is still exact**, as above — unchanged by this work.
 
 ## Deferred
 
