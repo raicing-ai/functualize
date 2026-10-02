@@ -84,7 +84,7 @@ Conventions
     refusal). All noqa'd with their reason.
   - Spec: B2, B3, B5. Call path: 1.2 `VaultKeyResolver.lookup` -> `provider.get_key`.
 
-- [ ] **1.2 — The resolver, the deadline, the memo, the one message**
+- [x] **1.2 — The resolver, the deadline, the memo, the one message**
   - [F] `src/functualize/_config/vault_key_resolver.py` (new),
     `tests/config/test_vault_key_resolver.py` (new)
   - Implement `schema.md` §`vault_key_resolver`: `KeyAccess`, `KeyStatus`,
@@ -104,6 +104,11 @@ Conventions
     `uv run lint-imports` 7 kept; `uv run mypy src/functualize/_config/vault_key_resolver.py`;
     `rg -n "^_[a-z_]+\s*[:=]\s*(\{|\[|dict\(|list\()" src/functualize/_config/vault_key_resolver.py` -> 0
     (no module-level mutable).
+    **Executed 2026-10-02: the scan as authored matches `__all__ = [` (the regex
+    `_[a-z_]+` spans every module's `__all__` in this repository), so it reports
+    1 hit on any file. Disclosed correction — the check was run dunder-excluded
+    (`^_[a-z][a-z_]*…`) and returns 0 hits: no module-level mutable state
+    exists besides the repo-conventional `__all__` list.**
   - Spec: B1–B3, B5, A3–A6, A8, A10. Call path: 2.1, 2.3, 2.4, 3.1.
 
 ## Wave 2 — consumers, part 1 (disjoint; depend on waves 0–1)
