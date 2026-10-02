@@ -160,25 +160,30 @@ unattended Lambda run hangs on a keychain prompt.
 
 > **Amended by the vault-keyring-unlock decision (2026-10-02).** The reason
 > above stands — an unattended run must not hang on a prompt — and the
-> mechanism changes. "Interactive" conflated two things: a provider that needs
-> *a person at this process's terminal*, and one that merely *may block on a
-> backend*. The keychain is the second kind: a locked keyring raises its own
-> unlock dialog wherever the desktop shows it, never at this process's stdin.
-> Gating it on `isatty()` therefore also blocked the common case — a silent
-> read of a keyring the developer had already unlocked — for every piped run,
-> agent shell tool and stdio MCP job.
+> mechanism changes twice over. First, "interactive" conflated two things: a
+> provider that needs *a person at this process's terminal*, and one that is
+> backed by a keyring which may show its own dialog elsewhere on the desktop.
+> Gating the keychain on `isatty()` blocked the common case — a silent read of
+> a keyring the developer had already unlocked — for every piped run, agent
+> shell tool and stdio MCP job. Second, a run must not create an unlock prompt
+> at all: on gnome-keyring 50, a client that ends an active prompt from its own
+> side (a deadline followed by exit, Ctrl-C, an agent killing its child)
+> crashed the daemon and re-locked every keyring.
 >
 > Now: `$FUNCTUALIZE_VAULT_KEY` first, and when it holds a key nothing else is
-> touched. The keychain is read **regardless of terminal**, behind a deadline
-> (`[vault] keyring_timeout`, default `30s`, env
-> `FUNCTUALIZE_VAULT_KEYRING_TIMEOUT`), and the outcome is remembered for the
-> process, so a run waits at most once. The key is resolved **lazily** — only
-> when a run opens a stored entry — so a run that reads none never touches the
-> keyring. `interactive()` now means "needs a person at a terminal", and a
-> provider that says so is still consulted only on a real TTY, after every
-> provider that cannot prompt. `func builtin vault unlock` waits without a
-> deadline, for a person answering the dialog. functualize keeps no key cache
-> and no timer; the keyring decides how long it stays unlocked.
+> touched. The keychain is read **regardless of terminal** and **silently**:
+> an unlocked keyring answers, a locked one refuses the run at once. The only
+> thing that asks a keyring to unlock is `func builtin vault unlock`, run by a
+> person, which waits for the prompt's own outcome and never cancels it.
+> `VaultKeyProvider.get_key` must never prompt; unlocking is the separate
+> `VaultKeyUnlocker` capability. The key is resolved **lazily** — only when a
+> run opens a stored entry. `[vault] keyring_timeout` bounds only a keyring that
+> does not answer at all. The keyring is reached through one adapter per
+> platform, and a `keyring` backend not proven silent is not read by a run.
+> `interactive()` now means "needs a person at a terminal", and a provider that
+> says so is still consulted only on a real TTY, after every provider that
+> cannot prompt. functualize keeps no key cache and no timer; the keyring
+> decides how long it stays unlocked.
 
 With no key, the vault does not open. There is no plaintext fallback.
 

@@ -611,22 +611,42 @@ export it.
 
 Otherwise the OS keyring is read **whether or not stdout is a terminal** — a
 pipe, an agent's shell tool and a stdio MCP job read it exactly as a terminal
-does. Unlock your keyring once (your desktop session usually does it at login)
-and every run reads the key silently for as long as the keyring stays
-unlocked; the keyring's own policy decides how long that is. functualize keeps
-no copy of the key and runs no timer of its own.
+does — and it is read **silently**. Unlock your keyring once (your desktop
+session usually does it at login) and every run reads the key for as long as
+the keyring stays unlocked; the keyring's own policy decides how long that is.
+functualize keeps no copy of the key and runs no timer of its own.
 
 **The key is read only when it is needed.** A run asks for it the first time it
 opens a stored vault entry. A job whose config never reads a stored secret —
 and `func --help`, completions and `builtin info` — never touches the keyring
 at all, even in a project that has a vault.
 
-**A locked keyring is a bounded wait, not a hang.** A locked keyring may show
-its own unlock dialog. Answer it within the wait and the run proceeds;
-otherwise the run is refused, and the outcome is remembered for the rest of
-the process, so a run that reads ten secrets waits once, not ten times. Where
-no keyring can answer at all — no backend, no session bus — the refusal is
-immediate. The wait is a func setting:
+**A run never asks the keyring to unlock.** If the keyring is locked, a run that
+needs a stored secret is refused at once — no dialog, no wait. This is
+deliberate: a run that raised an unlock prompt and then went away (a timeout,
+Ctrl-C, an agent stopping its child process) can crash the keyring service on
+some desktops and lock every keyring you have. So unlock first, then run:
+
+```bash
+func builtin vault unlock
+```
+
+in a terminal. It is the only command that asks the keyring to unlock. It waits
+— with no deadline — for you to answer or cancel the keyring's own dialog, says
+whether the keyring was already unlocked or has just been unlocked, and never
+prints the key. Interrupt it once and it keeps waiting (answer or cancel the
+dialog instead); interrupt it twice to stop. Then rerun the job; nothing needs
+reconfiguring. **Before you start agents or scheduled jobs that need stored
+secrets, unlock the keyring** — they cannot answer a dialog, so they are
+refused while it is locked.
+
+`func builtin vault status` and the inline TUI's status bar show whether a run
+would get the key right now — `unlocked`, `locked`, `unknown` or `no keyring`
+— without ever opening the keyring. Python code asks the same question with
+`functualize.app.vault.vault_key_state()`.
+
+A keyring backend that does not answer at all is bounded by a func setting,
+so a dead service costs a known wait rather than a hang:
 
 ```toml
 # .functualize.toml (this project) or ~/.config/functualize/config.toml (you)
@@ -637,22 +657,19 @@ keyring_timeout = "30s"
 `$FUNCTUALIZE_VAULT_KEYRING_TIMEOUT` overrides both, with the usual precedence
 (default < global < nearest project < env). Durations are spelled as for
 `max_age` below; a bare number or `0s` is refused with a warning and the
-default is used. `vault put` and `vault sync` use the same wait — they also run
-from scripts.
+default is used. It never applies to a locked keyring — that is refused at
+once — only to one that does not answer. The setting reaches every app `func`
+builds; a `FunctualizeApp` you construct yourself gets the env var and the
+default, or the value you pass as `ConfigSources(vault_keyring_timeout="10s")`.
 
-**Refused because the keyring was locked?** Unlock it, or run
+**Platforms.** The keyring is read through a small adapter per platform:
 
-```bash
-func builtin vault unlock
-```
-
-in a terminal. It waits for you to answer the keyring's dialog — no deadline —
-names the provider that answered, and never prints the key. Then rerun the job;
-nothing needs reconfiguring.
-
-The setting reaches every app `func` builds. A `FunctualizeApp` you construct
-yourself gets the env var and the default, or the value you pass as
-`ConfigSources(vault_keyring_timeout="10s")`.
+| Platform | Keyring | Status |
+|---|---|---|
+| Linux (and other desktops speaking the freedesktop Secret Service API) | the session keyring | verified on a real desktop |
+| macOS | the login keychain, read with user interaction disabled | implemented; not yet confirmed on a real Mac |
+| Windows | Credential Manager, which has no locked state | implemented; not yet confirmed on a real Windows machine |
+| any other `keyring` backend | — | not read by a run, because it cannot be proven silent; set `$FUNCTUALIZE_VAULT_KEY` |
 
 A provider that needs a person *at this terminal* — none ships — is still
 skipped unless stdin and stdout are both terminals, and is asked only after
@@ -677,16 +694,18 @@ the vault HOLDS a value for this key  ->  the run refuses
 The second case is the one worth understanding. A stored value is the one you
 provisioned; continuing past it to an environment variable would hand the job a
 *different* secret while the run reported success. The refusal (exit code `3`)
-says which of four things happened, and the next step for each:
+says what happened, and the next step:
 
 | Outcome | What the refusal tells you to do |
 |---|---|
-| the keyring is locked, or did not answer within the wait | unlock it, or run `func builtin vault unlock`, or export `$FUNCTUALIZE_VAULT_KEY`; then retry |
+| the keyring is locked | unlock it with your system's keyring manager, or run `func builtin vault unlock`, or set `$FUNCTUALIZE_VAULT_KEY`; then retry |
+| the keyring did not answer within the `keyring_timeout` | check that it is running, or set `$FUNCTUALIZE_VAULT_KEY`; then retry |
 | no keyring is reachable here | export `$FUNCTUALIZE_VAULT_KEY`, or install `functualize[keychain]` |
+| this keyring backend cannot be read without a possible prompt | set `$FUNCTUALIZE_VAULT_KEY` for runs without a terminal |
 | a keyring answered and holds no vault key | `func builtin vault init`, or export `$FUNCTUALIZE_VAULT_KEY` |
 | a key was found and does not open this vault | supply the key it was written with |
 
-In the first two the key may well still exist, so the message never suggests
+In the first four the key may well still exist, so the message never suggests
 deleting anything. Only where the key really is gone does it list
 `func builtin vault remove <path>` and `func builtin vault clear` — last, and
 saying that they destroy the stored value, which for an entry typed in with
@@ -743,7 +762,7 @@ func builtin vault remove    # drop one entry, needs no key
 func builtin vault sync      # fetch every annotation, write the vault
 func builtin vault list      # names, origins, timestamps -- never values
 func builtin vault status    # key provider and key state, age, entry counts
-func builtin vault unlock    # unlock the OS keyring for the key -- never prints it
+func builtin vault unlock    # the one command that asks the keyring to unlock
 func builtin vault clear     # delete this project's vault, needs no key
 func builtin vault keygen    # print a fresh 32-byte key, hex-encoded
 ```
