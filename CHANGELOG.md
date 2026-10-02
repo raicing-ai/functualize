@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — hermetic router: a declared fallback and the decision as evidence
+
+A decision can now name the option its gate takes when no proposal is
+accepted: `ChoiceDecision(..., fallback="human_review")`. A gate with a
+fallback is walked `decision` → `resolve` and never blocks at the router — a
+weak proposal, a rate limit or a missing provider is answered by the existing
+`resolve` rung with the fallback, and the walk follows that branch. The
+fallback must be one of the options and must complete the answer alone; a
+default on the decided field is now refused at import, because it would
+bypass the decision. The fallback joins the graph digest. Gates without one
+behave as before.
+
+The decision rung now records its evidence beside its verdict: one
+`decision-evidence/1` mapping with the state's digest (never its text), the
+rule's digest and thresholds, the provider and model, the proposal and
+distribution, the provider's own confidence (still never read by the rule),
+the verdict, any failure, the latency and the token counts. Only the gate
+writes it; `gate_draft(...)` shows it as a candidate's `evidence`. The new,
+**provisional** `decision_record(store, scope_id, gate)` in
+`functualize.app.utils` reads one routed gate back as a single record —
+route, who took it (`decision`, `fallback` or `person`) and, when the
+fallback answered, why the decision did not. Two runs on the same input can
+still route differently; the record makes that visible rather than
+preventing it. Monetary cost is not recorded — only token usage.
+
+A reference workflow, `examples/standalone/hermetic_router/`, routes requests
+to four branches with a `human_review` fallback, and its tests run it with a
+fake provider and with none.
+
 ### Added — decision gates: a provider proposes, the workflow decides
 
 A workflow can declare `Gate(decide=ChoiceDecision(...))`: a decision provider

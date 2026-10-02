@@ -313,7 +313,8 @@ def support():
   never consulted. The strategy is registered by the `functualize-decision-jev`
   plugin (experimental; it needs `OPENCODE_API_KEY`); without it the gate
   records the rung `unavailable` and blocks.
-- **Anything short of acceptance blocks for a person.** A weak proposal, a
+- **Anything short of acceptance blocks for a person** — unless the decision
+  declares a fallback (below). A weak proposal, a
   rate limit or a provider error is a failed rung, never a retry or a wait; the
   gate falls through to `prompt` and `resolve` and blocks with a reason such as
   `decision: jev/jev-1.13-free proposed 'returns' at 0.54 (margin 0.08);
@@ -337,6 +338,82 @@ The ticket text reaches the provider as data (the request's `state`), never as
 part of its instructions, and an answer outside the declared options is
 refused rather than followed — so text in a ticket cannot open a branch the
 workflow did not declare.
+
+#### Fallback and the decision record
+
+A decision can name the option the gate takes when no proposal is accepted:
+
+```python
+from functualize.workflow import ChoiceDecision, FromStep
+
+ROUTER = ChoiceDecision(
+    field="route",
+    instructions="Choose how this request should be handled.",
+    options={
+        "deterministic": "a fixed rule or lookup answers it; no model needed",
+        "cheap_model": "a short, low-risk text task a small model can do",
+        "frontier_agent": "multi-step reasoning or tool use is required",
+        "human_review": "risky, ambiguous, or needs a person's judgement",
+    },
+    state=FromStep("intake"),
+    accept_at=0.70,
+    min_margin=0.10,
+    fallback="human_review",
+)
+```
+
+- **The fallback is declared on the decision, never as a field default.**
+  `ChoiceDecision(fallback=...)` must be one of the options, and it must
+  complete the answer by itself: every other field of `awaits` needs a
+  default. A default on the decided field is refused at import — it would
+  bypass the decision, because a fully defaulted answer completes the gate
+  before any strategy, the provider included, is asked.
+- **A gate with a fallback never blocks at the router.** Its ladder is
+  `decision` → `resolve` rather than `decision` → `prompt` → `resolve`: when
+  the decision rung fails for any reason — a weak proposal, a rate limit, no
+  provider installed — the existing `resolve` rung takes the fallback and the
+  walk follows that branch. If the fallback means "a person looks at it",
+  route its branch through a second `Gate`, as the reference workflow routes
+  `human_review` to a `review` gate. The fallback is part of the rule, so it
+  joins the graph digest.
+- **The decision rung records its evidence beside its verdict.** Whenever the
+  provider was asked, the rung's candidate carries one flat, JSON-safe mapping
+  — `schema`, `field`, `state` (the step, and the SHA-256 and length of the
+  text, never the text), `rule` (its digest, `accept_at`, `min_margin` and the
+  fallback), `provider`, `model`, `requested_model`, `proposal`,
+  `distribution`, `confidence` (recorded, never read by the rule),
+  `probability`, `margin`, `verdict`, `failure`, `latency_seconds`,
+  `input_tokens` and `output_tokens` — and `gate_draft(...)` shows it as the
+  candidate's `evidence`. Only the gate writes it: an `evidence` key inside a
+  submitted answer never becomes a candidate's evidence. A rung whose
+  provider is not installed is `unavailable` and records none.
+
+`decision_record(store, scope_id, gate)` (from `functualize.app.utils`,
+**provisional**) reads one routed gate back as a single record — who took it,
+on which route, and why the decision did not:
+
+```python
+from functualize.app.utils import ScopeStore, decision_record
+
+record = decision_record(ScopeStore(app.substrate), scope_id, "route")
+# {"gate": "route", "request_id": "...", "route": "human_review",
+#  "decided_by": "fallback", "fallback_used": True,
+#  "reason": "decision: ... proposed 'deterministic' at 0.55 ...",
+#  "evidence": {"schema": "decision-evidence/1", ...}}
+```
+
+`decided_by` is `"decision"`, `"fallback"`, `"person"`, or `None` while the
+gate is open; `reason` is the decision rung's own detail when the fallback
+took over. The record is a projection of what was recorded at the time —
+nothing is re-evaluated.
+
+Two runs on the same input can route differently: the provider is
+probabilistic. The records make that visible; they do not prevent it.
+
+The worked example is
+[`examples/standalone/hermetic_router/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/hermetic_router/):
+one gate, four routes, a `human_review` fallback, and tests that run it with a
+fake provider and with none.
 
 ---
 

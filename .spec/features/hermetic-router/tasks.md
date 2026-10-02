@@ -669,7 +669,7 @@ Closed when: gate holds, pytest passes, five checks clean. Commit:
 
 ## Wave 5 — the durable record
 
-### [ ] T9 — documentation and the durable half
+### [x] T9 — documentation and the durable half
 
 *Files:* `docs/guides/workflows.md`, `contributor/adr/030-decisions-are-candidates-not-authority.md`,
 `contributor/reference/runtime-persistence-data-model.md`,
