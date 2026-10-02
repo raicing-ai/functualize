@@ -159,12 +159,12 @@ def _seed_vault(**entries: str) -> Path:
 
 
 class _PretendTerminal:
-    """A stand-in for the `sys` module `resolve_vault_key` reads.
+    """A stand-in for the `sys` module the key resolver reads.
 
     It consults `sys.stdin.isatty() and sys.stdout.isatty()` to decide whether
-    an interactive key provider may be consulted at all, and under `CliRunner`
-    neither is a tty. Tests that need the *explicit* non-interactive argument
-    to be the thing doing the work substitute this.
+    a provider that needs a terminal may be consulted at all, and under
+    `CliRunner` neither is a tty. Tests that need the *access mode* to be the
+    thing doing the work substitute this.
     """
 
     class _Tty:
@@ -174,6 +174,58 @@ class _PretendTerminal:
 
     stdin = _Tty()
     stdout = _Tty()
+
+
+class _Keyring:
+    """A keyring-shaped key provider: needs no terminal, may probe, counts reads."""
+
+    def __init__(
+        self,
+        *,
+        key: bytes | None = None,
+        locked: bool = False,
+        available: bool = True,
+        delay: float = 0.0,
+        probe: Any = None,
+    ) -> None:
+        self._key = key
+        self._locked = locked
+        self._available = available
+        self._delay = delay
+        self._probe = probe
+        self.get_key_calls = 0
+        if probe is not None:
+            self.probe = lambda: self._probe
+
+    def identifier(self) -> str:
+        return "keychain"
+
+    def interactive(self) -> bool:
+        return False
+
+    def is_available(self) -> bool:
+        return self._available
+
+    def get_key(self, project_id: str) -> bytes | None:
+        import time
+
+        from functualize._config.vault import KeyringLockedError
+
+        self.get_key_calls += 1
+        if self._delay:
+            time.sleep(self._delay)
+        if self._locked:
+            msg = "locked"
+            raise KeyringLockedError(msg)
+        return self._key
+
+
+def _only_keyring(monkeypatch: pytest.MonkeyPatch, fake: _Keyring) -> _Keyring:
+    """Make `fake` the only provider the key resolver sees."""
+    monkeypatch.setattr(
+        "functualize._config.vault_key_resolver.default_providers", lambda: (fake,)
+    )
+    return fake
 
 
 def _backdate(path: Path, delta: timedelta) -> None:
@@ -211,7 +263,7 @@ class TestTheFamilyIsRegistered:
         assert declared.terminal_subcommands == ()
 
     def test_the_documented_names(self) -> None:
-        """Nine, and the five that were here before are all still among them.
+        """Ten, and the five that were here before are all still among them.
 
         Written as two assertions rather than one set so the compatibility
         claim is legible: this feature is additive, and no existing subcommand
@@ -231,6 +283,7 @@ class TestTheFamilyIsRegistered:
             "status",
             "clear",
             "keygen",
+            "unlock",
         }
 
 
@@ -438,11 +491,10 @@ class TestStatus:
 
         The terminal is **forced on** for this test, and that is the whole
         point: without it the test was vacuous. `CliRunner` supplies a stdin
-        that is not a tty, so `resolve_vault_key`'s own default already
-        declines to go interactive — and the test passed with
-        `allow_interactive=False` deleted. Sabotage caught it. Pretending to be
-        a terminal is what makes the explicit argument the only thing standing
-        between `status` and a prompt.
+        that is not a tty, so the resolver's terminal rule alone already
+        declines a provider that needs one. Pretending to be a terminal is what
+        makes `status`'s silent access the only thing standing between it and a
+        prompt.
         """
         monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
         calls: list[str] = []
@@ -462,10 +514,12 @@ class TestStatus:
                 return _KEY
 
         monkeypatch.setattr(
-            "functualize._config.vault_keys.default_providers",
+            "functualize._config.vault_key_resolver.default_providers",
             lambda: (_Prompting(),),
         )
-        monkeypatch.setattr("functualize._config.vault_keys.sys", _PretendTerminal())
+        monkeypatch.setattr(
+            "functualize._config.vault_key_resolver.sys", _PretendTerminal()
+        )
         _run(["status"])
         assert calls == []
 
@@ -493,14 +547,52 @@ class TestStatus:
                 return _KEY
 
         monkeypatch.setattr(
-            "functualize._config.vault_keys.default_providers",
+            "functualize._config.vault_key_resolver.default_providers",
             lambda: (_Prompting(),),
         )
-        monkeypatch.setattr("functualize._config.vault_keys.sys", _PretendTerminal())
-        from functualize._config.vault_keys import resolve_vault_key
+        monkeypatch.setattr(
+            "functualize._config.vault_key_resolver.sys", _PretendTerminal()
+        )
+        from functualize._config.vault_key_resolver import KeyStatus, resolve_vault_key
 
-        assert resolve_vault_key("project") is not None
+        assert resolve_vault_key("project").status is KeyStatus.FOUND
         assert calls == ["project"]
+
+    def test_a_locked_keyring_is_reported_and_never_opened(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A8 at the CLI: `locked`, said — the keyring is not asked for the key."""
+        from functualize.plugin import KeyAvailability
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        fake = _Keyring(probe=KeyAvailability.LOCKED)
+        _only_keyring(monkeypatch, fake)
+
+        assert "Key state:    locked" in _run(["status"]).output
+        assert json.loads(_run(["status", "--json"]).output)["key_state"] == "locked"
+        assert fake.get_key_calls == 0
+
+    def test_an_unlocked_keyring_is_read_silently(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from functualize.plugin import KeyAvailability
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _only_keyring(monkeypatch, _Keyring(probe=KeyAvailability.UNLOCKED, key=_KEY))
+
+        payload = json.loads(_run(["status", "--json"]).output)
+        assert payload["key_state"] == "available"
+        assert payload["key_provider"] == "keychain"
+
+    def test_a_backend_that_cannot_say_is_unknown(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        fake = _Keyring(key=_KEY)
+        _only_keyring(monkeypatch, fake)
+
+        assert "Key state:    unknown" in _run(["status"]).output
+        assert fake.get_key_calls == 0
 
 
 # ---------------------------------------------------------------------------
@@ -834,7 +926,7 @@ class TestSyncFailures:
         app = _app()
         monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
         monkeypatch.setattr(
-            "functualize._config.vault_keys.default_providers", lambda: ()
+            "functualize._config.vault_key_resolver.default_providers", lambda: ()
         )
         result = _run(["sync"], app=app)
 
@@ -1352,10 +1444,11 @@ class TestTheDeclaredReasonCodesAreReachable:
         assert result.exit_code == ExitCode.REFUSED
         assert json.loads(result.stdout)["reason"] == "provider_entry_conflict"
 
-    def test_key_unavailable_reaches_the_json_envelope(
+    def test_no_keyring_reaches_the_json_envelope(
         self, project: Path, local_app: FunctualizeApp, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`put` with no key available at all."""
+        """`put` with no key available at all — once `key_unavailable`, now the
+        outcome it actually was."""
         monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
         monkeypatch.setattr(
             "functualize._config.vault_keys.KeychainKeyProvider.is_available",
@@ -1369,7 +1462,7 @@ class TestTheDeclaredReasonCodesAreReachable:
         )
 
         assert result.exit_code == ExitCode.REFUSED
-        assert json.loads(result.stdout)["reason"] == "key_unavailable"
+        assert json.loads(result.stdout)["reason"] == "no_keyring"
 
     def test_every_code_the_cli_can_emit_is_declared(self) -> None:
         """The other direction, so the two cannot drift apart.
@@ -1403,7 +1496,9 @@ class TestTheDeclaredReasonCodesAreReachable:
             "empty_value",
             "entry_exists",
             "provider_entry_conflict",
-            "key_unavailable",
+            "key_locked",
+            "no_keyring",
+            "key_not_stored",
             "confirmation_required",
             "key_mismatch",
         }
@@ -1460,3 +1555,120 @@ class TestTheDeclaredReasonCodesAreReachable:
 
         assert payload["created"] is False
         assert payload["replaced"] is True
+
+
+# ---------------------------------------------------------------------------
+# unlock — the foreground door for a locked keyring (spec B4, A7)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("project")
+class TestUnlock:
+    def test_it_names_the_provider_and_exits_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _only_keyring(monkeypatch, _Keyring(key=_KEY))
+
+        result = _run(["unlock"])
+
+        assert result.exit_code == 0, result.output
+        assert "'keychain' provider" in result.stdout
+
+    def test_the_key_never_appears_in_any_rendering(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _only_keyring(monkeypatch, _Keyring(key=_KEY))
+
+        human = _run(["unlock"])
+        machine = _run(["unlock", "--json"])
+
+        for text in (human.stdout, human.stderr, machine.stdout, machine.stderr):
+            assert _KEY_HEX not in text
+            assert _KEY_HEX.upper() not in text
+        assert json.loads(machine.stdout) == {"ok": True, "provider": "keychain"}
+
+    @pytest.mark.parametrize(
+        ("fake", "reason", "says"),
+        [
+            (_Keyring(locked=True), "key_locked", "locked or did not answer"),
+            (_Keyring(available=False), "no_keyring", "no OS keyring is reachable"),
+            (_Keyring(key=None), "key_not_stored", "no vault key is stored"),
+        ],
+    )
+    def test_a_failure_exits_refused_with_its_reason(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        fake: _Keyring,
+        reason: str,
+        says: str,
+    ) -> None:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _only_keyring(monkeypatch, fake)
+
+        human = _run(["unlock"])
+        machine = _run(["unlock", "--json"])
+
+        assert human.exit_code == ExitCode.REFUSED
+        assert says in human.stderr
+        assert machine.exit_code == ExitCode.REFUSED
+        payload = json.loads(machine.stdout)
+        assert payload["ok"] is False
+        assert payload["reason"] == reason
+
+    def test_the_locked_refusal_offers_nothing_destructive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _only_keyring(monkeypatch, _Keyring(locked=True))
+
+        stderr = _run(["unlock"]).stderr
+
+        assert "vault remove" not in stderr
+        assert "vault clear" not in stderr
+        assert "vault sync" not in stderr
+
+    def test_it_applies_no_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A person is answering the keyring's dialog; the run-path wait is not
+        theirs to race."""
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEYRING_TIMEOUT", "1s")
+        _only_keyring(monkeypatch, _Keyring(key=_KEY, delay=1.5))
+
+        assert _run(["unlock"]).exit_code == 0
+
+
+@pytest.mark.usefixtures("project")
+class TestTheDifferentKeyMessage:
+    """B3 for `status`: the fixes that keep the secret first, the ones that
+    destroy it last and said to destroy it."""
+
+    def _rotated(self, monkeypatch: pytest.MonkeyPatch) -> str:
+        from functualize._config.vault import VaultOrigin
+
+        vault = SecretsVault(vault_location())
+        vault.put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+        vault.put(
+            "deploy.api_token", "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+        )
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", (b"\x99" * KEY_BYTES).hex())
+        return _run(["status"]).stderr
+
+    def test_remove_and_clear_come_last(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        text = self._rotated(monkeypatch)
+        assert text.index("FUNCTUALIZE_VAULT_KEY") < text.index("vault sync")
+        assert text.index("vault sync") < text.index("vault remove")
+
+    def test_they_are_said_to_destroy_the_only_copy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        text = self._rotated(monkeypatch)
+        assert "destroy" in text
+        assert "1 typed in by hand have no other copy" in text

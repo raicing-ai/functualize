@@ -233,6 +233,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             ("sync", "Fetch every declared annotation and store it"),
             ("list", "List what is stored — names and freshness, never values"),
             ("status", "Show the key provider in use, the age, and the count"),
+            ("unlock", "Unlock the OS keyring for the vault key — never prints it"),
             ("clear", "Delete this project's vault"),
             ("keygen", "Print a fresh vault key"),
         ),

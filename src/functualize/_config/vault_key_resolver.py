@@ -431,8 +431,8 @@ def describe_key_failure(
     if lookup.status is KeyStatus.NO_KEYRING:
         return (
             f"{prefix}no OS keyring is reachable here, so the stored vault key "
-            f"cannot be read. Export $FUNCTUALIZE_VAULT_KEY, or install "
-            f"`functualize[keychain]`."
+            f"cannot be read. Export $FUNCTUALIZE_VAULT_KEY (`func builtin "
+            f"vault keygen` prints one), or install `functualize[keychain]`."
         )
     if lookup.status is KeyStatus.NOT_STORED:
         only_copy = (
