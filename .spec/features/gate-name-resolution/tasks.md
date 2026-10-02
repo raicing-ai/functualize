@@ -256,7 +256,7 @@ the raw error escaping. Validation: `ruff check`/`ruff format` clean,
 
 ## Wave 2 — the resolver
 
-### [ ] T4 — `_canonical_gate`, `deposit_gate_input`, and the missing-node raise
+### [x] T4 — `_canonical_gate`, `deposit_gate_input`, and the missing-node raise
 
 *Files:* `src/functualize/app/_workflow_resume.py`, `tests/workflow/test_gate_name_resolution.py` (new)
 
@@ -315,6 +315,15 @@ rg -c 'raise GateNotFoundError' src/functualize/app/_workflow_resume.py
 now: `0` · after: `1` (in `_canonical_gate` only — the one raiser)
 
 Also green: `uv run pytest tests/workflow/test_gate_name_resolution.py tests/workflow/test_gate_payload_shape.py tests/workflow/test_gate_resolution_model.py -q --no-header`, and `uv run lint-imports`.
+
+**Done 2026-10-02.** Gates 2/1/1 hold; that pytest selection → 26 passed
+(12 new), `ruff`/`mypy src/`/`lint-imports` clean. Line drift: the errors
+import is still `:21` (now naming two errors); `deposit_gate_input` at `:98`
+(cited implicitly via the standing fixture); no cited line in this file
+moved. Production call path: `functualize.app.utils.deposit_gate_input` →
+the resolver. Reachability proved by sabotage after commit: passing the raw
+reference through (deleting the canonicalizing line) → both `TestDeposit`
+tests fail.
 
 ## Wave 3 — the answer entries
 
