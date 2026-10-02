@@ -774,6 +774,27 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### `perf_budget` reds carry their host load (2026-10-01, `fix/perf-budget-load-guard`)
+
+A serial `-m perf_budget` run on a shared 6-core host went red at 0.55–0.7×
+cores with no code cause (`boot.total` 614 ms against 500 ms, one run of
+three). The load guard in `tests/conftest.py` still skips only above
+`_MAX_LOAD_PER_CORE = 2.0`; every budget failure now carries the host load it
+ran at, and above `_CONTENDED_LOAD_PER_CORE = 0.5` says the load may explain
+it. The red stays a red.
+
+- **Why the skip did not move.** A serial pytest alone puts a 2-core CI runner
+  near 0.5×, so a lower skip would stop the budgets on CI, the only place they
+  are enforced.
+- **Worth knowing before tuning the 0.5× mark.** Busy-loop CPU load did not
+  reproduce the red: six serial runs at 0.56–0.74× (three before the change,
+  three after) passed all 11 budgets, and a forced red read `boot.total`
+  49 ms at 0.70×. The 614 ms red came from something the load average
+  under-reports here — I/O, memory pressure or hypervisor steal are candidates,
+  none measured — so the note is a pointer, not a diagnosis.
+- `perf_budget` is still not a local gate (`.agents/skills/test-tiers/SKILL.md`);
+  CI's `test-fast` job enforces it.
+
 ### Declared plugin directories (2026-09-19, `feat/plugin-host-protocol`)
 
 `[tool.functualize] plugins_directories` had been documented since `0.2.3` and
