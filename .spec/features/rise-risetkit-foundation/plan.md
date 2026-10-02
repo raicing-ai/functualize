@@ -1,8 +1,10 @@
 # Rise / RiseKit foundation — plan
 
-Status: **Plan, revision 2.** The architecture gate below is redrawn with the
-member's corrections of 2026-10-02 applied. The set waits on one answer, D-2,
-before Execute begins.
+Status: **Plan, revision 3.** D-2 is answered: the member confirmed the split
+and C4 on 2026-10-02. The owner's nine inline comments on Shape Intent 5407068
+are incorporated (spec.md §9). One member decision is prepared and not yet
+asked: **OS-1**, the operation-effect vocabulary (§ *Next member decision*). It
+gates T2's freezing of `OperationContract`, not T1.
 
 Base: `origin/master` at `ef1939d`, the state this plan was drawn against.
 research.md holds the retrieval evidence for every count quoted here, and the
@@ -20,9 +22,18 @@ them as approvals:
 | **D-1** asked whether Rise should read Jira/Confluence intent at runtime, and proposed "no" | "Jira or Confluence is NEVER required as part of Rise Runtime. The Fun-8 Scope was just to make sure the DEVELOPMENT of rise and risekit were aligned with what we have in confluence documentation and Jira tickets." | The question was the wrong one. The obligation is **development traceability**: spec.md §8 maps every element to the page, decision and ticket that authorize it; AC-9 and T11 check it. Nothing at runtime touches Jira or Confluence. |
 | **D-3** asked the member to confirm naming that put `functualize_risekit.cloudflare`, its contracts and its jobs **inside** RiseKit | "Risekit shouldn't contain packages for cloudflare etc, it should be used by other authors or package maintainers to create those cloudflare packages etc." | The Cloudflare contracts and jobs move to their own distribution, `functualize-rise-cloudflare`, authored with RiseKit (contracts.md C1). B5 makes this testable, and G8 gates it. Distribution naming follows the monorepo convention and is no longer a question. |
 
-## The decision for the member — D-2
+## D-2 — answered 2026-10-02
 
-### What is being decided
+**Answer, verbatim:** "I confirm the split and C4. However I want to
+investigate SM-3, why would rise\_contracts be in functualize as
+functualize.rise\_contracts? It shouldn't, the layer is not clean."
+
+The SM-3 concern was already resolved in revision 2, where the entry-point group
+was withdrawn in favour of `contract_ref`. An independent review then
+re-verified that resolution against the code. The text below is kept as the
+record of what was confirmed, and it is what ADR-031 transcribes in T1.
+
+### What was decided
 
 How the work divides between three things that do not yet exist in this
 repository, and which way they may depend on one another. The answer is
@@ -166,9 +177,80 @@ the split, and the corrections only narrowed RiseKit's rows.
 
 ### What proceeds regardless
 
-Nothing in Execute starts until you answer. The Confluence continuation queue
-is updated only after the answer, by the leader. T1 (records only) is
-releasable on your word, independently of D-2.
+*(As written when asked.)* Nothing in Execute starts until you answer. The
+Confluence continuation queue is updated only after the answer, by the leader.
+T1 (records only) is releasable on your word, independently of D-2.
+
+## Next member decision — OS-1: should operations declare their effects?
+
+Prepared for the leader to put to the member. The full research is
+research.md § *R-2*. Recommendation: **provisional**.
+
+**What the decision is.** Every *operation* in a capability contract (an
+operation is something done to a managed thing: `diagnose`, `provision`, later
+`deploy` or `delete`) can carry a label saying what running it does to the
+world. Revision 1 gave it one yes/no flag, `mutating`. The owner asked whether
+the labels should be richer ("destructive", "mutating", "side-effect"), and
+whether operations should be able to *preview* their changes (dry-run or plan,
+as Terraform and Pulumi do). The decision is which labels every provider author
+must declare from now on. It is about the contract, not about building
+previews.
+
+**The effect on the long-term plan.**
+
+- Consumed by **T2**, which freezes `OperationContract` (contracts.md C4).
+- Consumed by every contract a provider author writes: `cloudflare.d1@1` in T8,
+  and every outside package after it.
+- If labels are richer, T3's validate gains two findings: a `diagnose` that
+  claims an effect, and a `destroys` operation before Decision 11's identity
+  rule exists.
+- Plan/dry-run itself would become a later additive stage-5 slice in every
+  option except c.
+
+**The evidence.**
+
+> "However should we provide markers for "destructive", or "mutating" /
+> "side-effect" operations? … we'll need to elaborate and discuss this first."
+> — Shape Intent 5407068, comment 11927574
+>
+> `mutating: bool  # PROVISIONAL` — contracts.md C4 (T2 may not freeze it)
+
+The cost measurement lives in research.md § *R-2* (*Migration cost*). Changing a
+flag into a set later touches the Rise type, the RiseKit helper and every
+contract owner, and bumps the schema generation. Adding a plan later is purely
+additive.
+
+**Options.**
+
+| Option | Consequence |
+|---|---|
+| a. Keep `mutating: bool` | Nothing to do now. Revisiting it after outside providers exist is a breaking change for all of them. |
+| **b. An effect set now (`mutates`, `destroys`, `external`; empty = read-only); plan/dry-run deferred** | The expensive-to-change shape is settled while one in-tree provider is the only cost. Validate enforces "diagnose is read-only", and refuses `destroys` until Decision 11's identity rule lands. Previewing is a later, additive slice. |
+| c. Effect set **and** plan/dry-run now | The owner's dry-run idea arrives immediately, but the plan format is designed against one provider with one mutating operation. Review decision D4 says to hold that. It also adds a task to this feature. |
+| Do nothing | T2 cannot freeze `OperationContract`. T1 still lands, and T3–T12 wait behind T2. |
+
+**Recommendation: b.** It settles the one part that gets costlier with every
+published provider, and leaves the part that stays cheap (previewing) for when
+a second provider can shape it.
+
+**Scenario.** A provider author writes `cloudflare.d1@1`:
+
+```python
+D1 = contract("cloudflare.d1@1",
+    operations={"diagnose": op(effects=set()),           # read-only: validate checks it
+                "provision": op(effects={"mutates"})},   # changes the subject, in scope
+    ...)
+```
+
+A month later someone adds `delete` with `effects={"mutates", "destroys"}`.
+`func rise-validate` refuses it, with a finding that destructive operations need
+positive identity (Decision 11) and it has not shipped yet. The unsafe operation
+cannot land quietly. Under option a, the same `delete` declares `mutating=True`,
+looks exactly like `provision`, and validates clean.
+
+**What proceeds regardless.** T1 (records). The R-1 and R-3 research needs no
+member decision: they are recommendations the owner reviews on the page. Stage
+5 stays unpromoted either way.
 
 ## The architecture gate
 
@@ -408,13 +490,17 @@ queue items 4–7).
    execution). Two pieces: a Functualize Worker adapter plugin (generic), and a
    `deploy` operation added to `cloudflare.worker@1` in the provider package.
    Consumes: the Worker subject identity, the provider package, the
-   idempotent-provision pattern of `cloudflare.d1@1`, relation mechanics.
+   idempotent-provision pattern of `cloudflare.d1@1`, relation mechanics. The
+   owner's comment 11960340 makes the deploy mechanism selectable (`wrangler`,
+   Terraform, Pulumi). That makes this item depend on item 4's operation
+   strategies, or on shipping one strategy first and declaring the others.
 2. **The D1 runtime store** (queue item 5; FUN-22). A generic Functualize plugin.
    It consumes nothing from Rise, and appears here only for ordering: its
    database is provisioned through `cloudflare-d1-provision`, so the deploy path
    cannot bypass Rise (FUN-8 AC 6).
 3. **`rise-lock`** (Decision 7). Consumes: the contract identity grammar (C3),
-   the package's declared contracts and operations.
+   the package's declared contracts and operations. Open: whether a copy lives
+   under `$XDG_STATE_HOME` (comment 11927566).
 4. **Operation strategies and preference policy** (Decisions 8–10). Consumes:
    operations as ordinary jobs (B4), the aggregation rules (S11–S13).
 5. **Origin, binding and lifecycle authority, and `delete`** (Decision 11).
@@ -422,14 +508,31 @@ queue items 4–7).
 6. **Typed consumer proxy** (`Requires[...]`, Decision 15) and the **first
    common-vocabulary contract** in RiseKit. Consumes: `contract_ref` (the typed
    symbol it stands for), the RiseKit helper. Created only when a second
-   provider needs a shared contract (D4).
+   provider needs a shared contract (D4). Open (comment 11927592): resolving the
+   proxy per invocation through Functualize DI needs a factory registration
+   that `PluginHost` does not expose, or a boot-time lazy resolver
+   (research.md § *Tracked*).
 7. **Namespace-ownership proof** (Decision 12). Consumes: `contract_ref`, package
-   id.
+   id. Owner's question (comment 11927583): repository URL, attestation or
+   registry identity.
 8. **The no-import static analyzer, then LSP** (Decisions 4, 14, 15). Consumes:
    the declaration schema (C3), `contract_ref` as a static string.
 9. **Registry acquisition and proof-carrying packages** (Decision 13; 2.0 North
    Star 4849705, proposed). Generic Functualize machinery. Consumes: the package
    id, the contract identity, `diagnosis_id`.
+10. **RiseKit author test harness** (comment 11960331; research.md § *R-3*,
+    provisional). Two shipped tiers in `functualize_risekit.testing`: a
+    sandboxed `HOME`/`XDG_*` subprocess, and a container (docker/podman) harness
+    for host-scope isolation. Sequenced before the first host-mutating provider
+    (a `dev.mise@1`-style package), not before the Cloudflare one. Consumes:
+    `@operation`, the record builder, the effect vocabulary from OS-1 (the
+    harness can check that a read-only operation changed nothing).
+11. **Plan / dry-run for operations** (comment 11927557; research.md § *R-2*,
+    provisional; only if OS-1 picks a or b). An optional `plannable` flag and a
+    `plan` record kind. Additive. Consumes: OS-1's effect vocabulary, and item
+    1's first mutating remote operation, so that a second provider shapes the
+    plan format. Inspiration to verify: Terraform plan, Pulumi preview (comment
+    11862020).
 
 Stage 5 also inherits the open surface questions in contracts.md C1/C7 (the
 `func` spelling, `[all]` membership, the provider's directory).
