@@ -846,7 +846,7 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
 
 ## Wave 12 — CI and the manual tier
 
-- [ ] **R7.1 — Cross-platform keyring jobs (non-required at first)**
+- [x] **R7.1 — Cross-platform keyring jobs (non-required at first)**
   - [F] `.github/workflows/keyring-platforms.yml` (new), `.github/scripts/keyring_smoke.py` (new)
   - Matrix `ubuntu-latest`, `macos-latest`, `windows-latest`. **Tier 1** (all three):
     the adapter contract suite plus a real-OS smoke — macOS: create a temporary keychain
@@ -863,8 +863,23 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: the workflow passes on a branch push for all three runners (link the run); the
     tier-2 outcome per platform is written into `research.md` R12.
   - Spec: B9, A15-A17.
+  - **Executed 2026-10-02.** Gate: workflow `Keyring platforms` passed on all three
+    runners — https://github.com/raicing-ai/functualize/actions/runs/37019350426
+    (head `420d9dc`; jobs `keyring (linux|macos|windows)`: success). Tier 1 on real
+    OSes: Linux locked collection -> `locked` in 0.30 s with prompt objects `[]`
+    before and after; macOS locked keychain -> `locked` in 0.49 s with interaction
+    disabled (the R10 design holds on a real runner); Windows stored -> `found`,
+    deleted -> `not_stored`. Tier 2, written into `research.md` R12: **macOS
+    passed** (`security unlock-keychain -p`), **Linux dropped** (a second
+    `gnome-keyring-daemon --unlock` left the collection locked), Windows not
+    applicable. Not in the required-checks ruleset (maintainer's decision). The
+    Linux smoke refuses to run unless the workflow opts in
+    (`KEYRING_SMOKE_PRIVATE_BUS=1`) and the bus is not a `/run/user/` session bus —
+    tightened after it was found to accept a real session's bus. Follow-up outside
+    [F], disclosed: the guide's platform table and the changelog now say "checked
+    in CI" for macOS and Windows (R6.3 had held that back until this run).
 
-- [ ] **R7.2 — The manual tier: live check v2 and the sandbox harness**
+- [x] **R7.2 — The manual tier: live check v2 and the sandbox harness**
   - [F] `.spec/features/vault-keyring-unlock/live-check.sh`, `.spec/features/vault-keyring-unlock/live-check.md`,
     `.spec/features/vault-keyring-unlock/sandbox/run_sandbox.sh`,
     `.spec/features/vault-keyring-unlock/sandbox/interrupt_probe.py`,
@@ -883,6 +898,14 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: scripts pass `bash -n`; `live-check.md` states what each scenario proves and
     that abandon-style scenarios run only in the sandbox.
   - Spec: A11'.
+  - **Executed 2026-10-02.** Gate: `bash -n` passes for `live-check.sh` and
+    `sandbox/run_sandbox.sh`; the two sandbox Python scripts compile.
+    `live-check.md` states what each of the five scenarios proves, that every dialog
+    is ended inside the dialog, and that abandon-style scenarios run only in
+    `sandbox/`; it adds the macOS/Windows manual checklist. The setup no longer
+    calls `get_default_collection` (it creates a collection when absent); all
+    collection actions go through one `guard` helper that refuses the default
+    collection. The sandbox scripts are the maintainer's, unchanged.
 
 ## Wave 13 — checkpoint
 
