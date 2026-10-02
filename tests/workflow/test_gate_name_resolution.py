@@ -28,6 +28,7 @@ from functualize.app.utils import (
     answer_gate,
     deposit_gate_input,
     gate_draft,
+    list_scopes,
     resolve_gate,
     resume_scope,
 )
@@ -301,3 +302,24 @@ def test_resume_scope_with_an_unknown_gate_raises(
 ) -> None:
     with pytest.raises(GateNotFoundError):
         resume_scope(app, store, "rel-1", input={"approved": True}, gate="nope")
+
+
+class TestListScopes:
+    """The survey filter resolves the same way and never raises."""
+
+    def test_blocked_on_resolves_the_declared_spelling(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        rows = list_scopes(app, store, blocked_on="approve_refund")
+        assert [row["workflow_id"] for row in rows] == ["rel-1"]
+
+    def test_blocked_on_resolves_the_canonical_spelling(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        rows = list_scopes(app, store, blocked_on="approve-refund")
+        assert [row["workflow_id"] for row in rows] == ["rel-1"]
+
+    def test_blocked_on_unknown_returns_no_rows(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        assert list_scopes(app, store, blocked_on="nope") == []

@@ -397,7 +397,7 @@ spellings), scan → `test_gate_only_scan_resolves_every_spelling` (3 of 4),
 
 ## Wave 4 — the survey filter
 
-### [ ] T6 — `list_scopes(blocked_on=…)` resolves the same way, never raising
+### [x] T6 — `list_scopes(blocked_on=…)` resolves the same way, never raising
 
 *Files:* `src/functualize/app/_workflow_view.py`, `tests/workflow/test_gate_name_resolution.py`
 
@@ -425,6 +425,19 @@ now: `1` · after: `0`
 rg -c '_canonical_gate\(' src/functualize/app/_workflow_view.py
 ```
 now: `0` · after: `1`
+
+**Done 2026-10-02.** Gates 0/1 hold; `uv run pytest
+tests/workflow/test_gate_name_resolution.py` → 31 passed (3 new),
+`ruff`/`mypy src/` clean. Line drift: `list_scopes` at `:261` (cited
+`:318-321` for the predicate — the predicate itself sat at `:319`), the
+`pending_gates` import at `:31` (extended in place). **Net-zero was not
+achievable**: one resolving call cannot live inside `any(...)` — it raises on
+the first non-match — so the try/except sits in the private predicate
+`_awaits_gate` beside `list_scopes`, as this task's escape clause allows. The
+module is 578 lines (was 563; +12 helper, +1 import, −2 call site, ±0 after
+format). T9's re-measure should read 578, not 563. Reachability proved by
+sabotage after commit: restoring the equality predicate →
+`test_blocked_on_resolves_the_declared_spelling` fails.
 
 ## Wave 5 — surfaces, end to end
 
