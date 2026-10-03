@@ -952,7 +952,10 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - **Result 2026-10-03 (against `afaa5cb`):** scenarios 1-4 pass; scenario 5 passes on
     its main criterion (both runs refused with the neutral text, 0 dialogs) but its
     exit codes were not captured because of a `set -e` bug in the script (fixed); that
-    gap is covered by the automated test in R6.4. `Login Locked: UNCHANGED`, coredumps
+    gap is covered by the automated test in R6.4 — strictly, by
+    `test_two_parallel_piped_runs_both_refuse_at_once_without_a_prompt`, added after
+    this run because R6.4 had no parallel case (sabotage: a silent read that unlocks
+    turns it red). `Login Locked: UNCHANGED`, coredumps
     9 -> 9, daemon PID unchanged. Full output and a verdict table are in `live-check.md`.
 
 ## Wave 15 — knowledge and tracker close-out
