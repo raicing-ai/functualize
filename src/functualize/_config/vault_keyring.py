@@ -1,8 +1,8 @@
-"""The keyring port: three operations every platform adapter implements.
+"""The keyring port: four operations every platform adapter implements.
 
 The vault key lives in the OS keyring, and every platform's keyring behaves
 differently when it is locked. Some show a dialog on any read; one has no lock
-at all. What functualize needs from all of them is the same three answers, so
+at all. What functualize needs from all of them is the same four answers, so
 the platform code sits behind one small contract and nothing above this module
 knows which platform it is on:
 
@@ -15,6 +15,10 @@ knows which platform it is on:
 ``state()``
     Locked, unlocked or unknown, answered within about a second, never a
     prompt. For status surfaces.
+``store_silent(secret)``
+    Write the key into an unlocked keyring — **never a prompt** either: a
+    locked keyring answers LOCKED and nothing is written. ``func builtin vault
+    init`` stores through this, so creating a key cannot open a dialog.
 ``unlock()``
     The only operation that may prompt. ``func builtin vault unlock`` calls it
     because a person asked; it waits for the prompt's own outcome and never
@@ -106,6 +110,16 @@ class KeyringAdapter(Protocol):
 
     def state(self) -> KeyAvailability:
         """Whether a silent read would succeed. Never prompts; about 1 s at most."""
+        ...
+
+    def store_silent(self, secret: str) -> AdapterOutcome:
+        """Store ``secret`` without prompting.
+
+        FOUND when it is stored and a later :meth:`read_silent` finds it;
+        LOCKED when the keyring is locked (nothing written); NO_KEYRING when
+        there is no keyring to write to; UNVERIFIED when silence cannot be
+        proven for this backend (the generic adapter).
+        """
         ...
 
     def unlock(self) -> AdapterRead:

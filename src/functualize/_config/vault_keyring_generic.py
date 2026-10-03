@@ -7,6 +7,8 @@ not on the allowlist a run **does not read at all**:
 :meth:`GenericAdapter.read_silent` answers UNVERIFIED, which the refusal turns
 into "this keyring cannot be read without a possible prompt" with the two ways
 round it (``FUNCTUALIZE_VAULT_KEY``, or ``func builtin vault unlock``).
+:meth:`GenericAdapter.store_silent` refuses to write for the same reason: a key
+stored where no run can read it would only look like a working setup.
 
 :meth:`GenericAdapter.unlock` reads once through ``keyring`` in the
 foreground. The backend may prompt; that is acceptable there, because a person
@@ -51,6 +53,12 @@ class GenericAdapter:
     def state(self) -> KeyAvailability:
         """Unknown: there is no way to ask this backend without reading it."""
         return KeyAvailability.UNKNOWN
+
+    def store_silent(self, secret: str) -> AdapterOutcome:
+        """Refuse to write, for the reason a run refuses to read."""
+        if self._backend is None:
+            return AdapterOutcome.NO_KEYRING
+        return AdapterOutcome.UNVERIFIED
 
     def unlock(self) -> AdapterRead:
         """Read once in the foreground — the backend may prompt; a person is there."""

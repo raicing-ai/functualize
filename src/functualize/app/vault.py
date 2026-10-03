@@ -489,7 +489,11 @@ _NO_KEY_STORE_MESSAGE = (
 
 def _init_with(provider: Any, project_id: str) -> VaultInitReport:
     """Create or validate through one provider, reporting which happened."""
-    from functualize._config.vault import KeyringLockedError, KeyringUnavailableError
+    from functualize._config.vault import (
+        KeyringLockedError,
+        KeyringUnavailableError,
+        KeyringUnverifiedError,
+    )
     from functualize.plugin import VaultKeyInitializer
 
     identifier = provider.identifier()
@@ -497,8 +501,9 @@ def _init_with(provider: Any, project_id: str) -> VaultInitReport:
     try:
         existing = provider.get_key(project_id)
     except (KeyringLockedError, KeyringUnavailableError):
-        # Locked, or a backend a run may not read: not "no key". `init` is run
-        # by a person, so the initializer below reads in the foreground.
+        # Locked, or a backend a run may not read: not "no key". The
+        # initializer below says which, and never prompts either: only
+        # `vault unlock` asks a keyring to unlock (spec B4').
         existing = None
     if existing is not None:
         # Idempotent, and honest about it: nothing was written, so the report
@@ -525,7 +530,14 @@ def _init_with(provider: Any, project_id: str) -> VaultInitReport:
             f"{_NO_KEY_STORE_MESSAGE}",
         )
 
-    provider.initialize_key(project_id)
+    try:
+        provider.initialize_key(project_id)
+    except KeyringLockedError as exc:
+        raise VaultKeySourceError("key_locked", str(exc)) from exc
+    except KeyringUnverifiedError as exc:
+        raise VaultKeySourceError("key_unverified", str(exc)) from exc
+    except KeyringUnavailableError as exc:
+        raise VaultKeySourceError("no_keyring", str(exc)) from exc
     return VaultInitReport(key_provider=identifier, created=True)
 
 

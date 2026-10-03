@@ -1023,6 +1023,97 @@ class TestInitCommand:
         assert json.loads(result.stdout)["reason"] == "unknown_key_source"
 
 
+class _NeverUnlocks:
+    """A keyring adapter that fails the test the moment anything asks it to unlock."""
+
+    name = "test"
+
+    def __init__(self, *, locked: bool) -> None:
+        self.locked = locked
+        self.secret: str | None = None
+        self.unlock_calls = 0
+
+    def read_silent(self) -> Any:
+        from functualize._config.vault_keyring import AdapterOutcome, AdapterRead
+
+        if self.locked:
+            return AdapterRead(AdapterOutcome.LOCKED)
+        if self.secret is None:
+            return AdapterRead(AdapterOutcome.NOT_STORED)
+        return AdapterRead(AdapterOutcome.FOUND, secret=self.secret)
+
+    def state(self) -> Any:
+        from functualize._types.enums import KeyAvailability
+
+        return KeyAvailability.LOCKED if self.locked else KeyAvailability.UNLOCKED
+
+    def store_silent(self, secret: str) -> Any:
+        from functualize._config.vault_keyring import AdapterOutcome
+
+        if self.locked:
+            return AdapterOutcome.LOCKED
+        self.secret = secret
+        return AdapterOutcome.FOUND
+
+    def unlock(self) -> Any:
+        self.unlock_calls += 1
+        msg = "only `func builtin vault unlock` may ask a keyring to unlock"
+        raise AssertionError(msg)
+
+
+class TestInitNeverPrompts:
+    """Spec B4': `vault init` is not `vault unlock`. Through the real CLI, the
+    real `vault_init` and the real keychain provider, down to an adapter that
+    fails on any `unlock()` call."""
+
+    @pytest.fixture
+    def adapter(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> Callable[..., _NeverUnlocks]:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        monkeypatch.setattr(
+            "functualize._config.vault_keys.KeychainKeyProvider.is_available",
+            lambda self: True,
+        )
+
+        def _install(*, locked: bool) -> _NeverUnlocks:
+            chosen = _NeverUnlocks(locked=locked)
+            monkeypatch.setattr(
+                "functualize._config.vault_keyring.select_adapter",
+                lambda *args, **kwargs: chosen,
+            )
+            return chosen
+
+        return _install
+
+    def test_a_locked_keyring_is_refused_and_points_at_vault_unlock(
+        self, adapter: Callable[..., _NeverUnlocks]
+    ) -> None:
+        keyring = adapter(locked=True)
+
+        result = _run(["init", "--key-source", "keychain", "--json"])
+
+        assert keyring.unlock_calls == 0
+        assert result.exit_code == ExitCode.REFUSED
+        payload = json.loads(result.stdout)
+        assert payload["reason"] == "key_locked"
+        assert "func builtin vault unlock" in payload["message"]
+        assert keyring.secret is None
+
+    def test_an_unlocked_keyring_gets_a_key_without_a_prompt(
+        self, adapter: Callable[..., _NeverUnlocks]
+    ) -> None:
+        keyring = adapter(locked=False)
+
+        result = _run(["init", "--key-source", "keychain", "--json"])
+
+        assert keyring.unlock_calls == 0
+        assert result.exit_code == ExitCode.OK
+        assert json.loads(result.stdout)["created"] is True
+        assert keyring.secret is not None
+        assert keyring.secret not in result.stdout
+
+
 class TestPutCommand:
     def test_it_stores_from_stdin(
         self, project: Path, local_app: FunctualizeApp

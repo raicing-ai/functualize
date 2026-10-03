@@ -80,6 +80,17 @@ class WindowsCredentialAdapter:
             else KeyAvailability.UNKNOWN
         )
 
+    def store_silent(self, secret: str) -> AdapterOutcome:
+        """``CredWrite``: no lock model, so this never prompts either."""
+        backend = self._load()
+        if backend is None:
+            return AdapterOutcome.NO_KEYRING
+        try:
+            backend.set_password(self._service, self._account, secret)
+        except Exception:  # noqa: BLE001 - a failing Credential Manager is no keyring reachable
+            return AdapterOutcome.NO_KEYRING
+        return AdapterOutcome.FOUND
+
     def unlock(self) -> AdapterRead:
         """Nothing to unlock: read, and say there was nothing to do."""
         read = self.read_silent()

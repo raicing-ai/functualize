@@ -20,26 +20,27 @@ Two ship here.
     matches the mandate ``RemoteProvider`` already states: *"Credentials MUST be
     resolved from environment variables only."*
 
-``keychain`` — bounded, not terminal-gated
+``keychain`` — silent, not terminal-gated
     Reads from the OS keyring. Better on a developer machine, where the key
     never sits in a shell profile.
 
-Reading is not gated on a terminal
-----------------------------------
+Reading is not gated on a terminal, and never prompts
+-----------------------------------------------------
 
 The keyring is consulted **whether or not stdin and stdout are terminals**,
-behind a deadline the resolver owns: a developer who unlocked their keyring
-this morning gets their stored secret from a pipe, an agent's shell tool or a
-stdio MCP job exactly as from a terminal. A locked keyring may show its own
-unlock dialog inside the deadline window.
+and always **silently**: a developer who unlocked their keyring this morning
+gets their stored secret from a pipe, an agent's shell tool or a stdio MCP job
+exactly as from a terminal, and a locked keyring is refused at once with no
+dialog. Only ``func builtin vault unlock`` asks a keyring to unlock; even
+``vault init`` reads and writes silently.
 
 The terminal rule survives for *prompting*, not for *reading*: a provider
 whose :meth:`~functualize.plugin.VaultKeyProvider.interactive` is True — one
 that can only obtain the key by asking a person at a terminal — is still
 consulted only on a real TTY, so an unattended run cannot block forever on a
 prompt nobody can answer. :meth:`KeychainKeyProvider.interactive` is therefore
-``False``: reading it may block on a backend, but it needs no person, and the
-resolver's deadline — not a TTY check — is what bounds it.
+``False``: it needs no person, and the resolver's deadline bounds only a
+backend that does not answer at all.
 
 ``keyring`` is imported lazily and its absence is reported through
 ``is_available()`` rather than raised. It is an **optional extra**,
@@ -63,7 +64,7 @@ from __future__ import annotations
 import binascii
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NoReturn
 
 from functualize._config.vault import (
     KEY_BYTES,
@@ -292,56 +293,32 @@ class KeychainKeyProvider:
         every value already written under the old one — silently, since nothing
         in the store records which key wrote a row.
 
-        The read is :meth:`unlock_key`: ``vault init`` is run by a person, who
-        is there to answer the keyring's dialog if it is locked.
+        **Never prompts.** Both the read and the write are silent: a locked
+        keyring refuses at once and points at ``func builtin vault unlock``,
+        which stays the only command that asks a keyring to unlock (spec B4').
+        ``keyring.set_password`` is not used — on Linux it unlocks a locked
+        collection first, and creates a default one when none exists.
 
         Args:
             project_id: Ignored, as in :meth:`get_key`.
 
         Raises:
-            VaultError: If no keyring backend is available, or the keyring
-                stayed locked. `init` turns this into a refusal naming the
-                routes forward; it is not a crash, and it never falls back to
-                printing a key.
+            VaultError: If no keyring is available, the keyring is locked, or
+                it cannot be written without a possible prompt. `init` turns
+                this into a refusal naming the routes forward; it is not a
+                crash, and it never falls back to printing a key.
         """
-        existing = self.unlock_key(project_id)
-        if existing.key is not None:
-            return existing.key
-        if existing.outcome is AdapterOutcome.LOCKED:
-            msg = (
-                "The keyring is still locked, so a vault key cannot be stored. "
-                f"Unlock it and retry, or set ${ENV_VAR} instead."
-            )
-            raise KeyringLockedError(msg)
-        if existing.outcome is not AdapterOutcome.NOT_STORED:
-            msg = (
-                "No keyring is available, so a vault key cannot be stored. "
-                "Install it with `pip install 'functualize[keychain]'`, or set "
-                f"${ENV_VAR} instead — `func builtin vault keygen` prints one."
-            )
-            raise VaultError(msg)
-
-        try:
-            import keyring
-        except ImportError as exc:  # pragma: no cover - guarded by is_available
-            msg = (
-                "No keyring is available, so a vault key cannot be stored. "
-                "Install it with `pip install 'functualize[keychain]'`, or set "
-                f"${ENV_VAR} instead — `func builtin vault keygen` prints one."
-            )
-            raise VaultError(msg) from exc
-
-        created = generate_key()
-        try:
-            keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, created)
-        except Exception as exc:  # noqa: BLE001 - a locked backend is a refusal
-            msg = (
-                f"The keyring ({KEYCHAIN_SERVICE}) refused to store the "
-                f"vault key: {type(exc).__name__}. Unlock it and retry, or set "
-                f"${ENV_VAR} instead."
-            )
-            raise VaultError(msg) from exc
-        return _decode(created, source=_SOURCE)
+        adapter = self._keyring()
+        existing = adapter.read_silent()
+        if existing.outcome is AdapterOutcome.FOUND and existing.secret is not None:
+            return _decode(existing.secret, source=_SOURCE)
+        if existing.outcome is AdapterOutcome.NOT_STORED:
+            created = generate_key()
+            stored = adapter.store_silent(created)
+            if stored is AdapterOutcome.FOUND:
+                return _decode(created, source=_SOURCE)
+            _refuse_to_store(stored)
+        _refuse_to_store(existing.outcome)
 
     def _keyring(self) -> KeyringAdapter:
         if self._adapter is None:
@@ -362,6 +339,30 @@ class UnlockedKey:
     outcome: AdapterOutcome
     how: UnlockHow | None
     key: bytes | None = field(default=None, repr=False)
+
+
+def _refuse_to_store(outcome: AdapterOutcome) -> NoReturn:
+    """Why ``vault init`` cannot store a key, as the error it raises."""
+    if outcome is AdapterOutcome.LOCKED:
+        msg = (
+            "The keyring is locked, so a vault key cannot be stored. Unlock it "
+            "with your system's keyring manager, or run `func builtin vault "
+            f"unlock` in a terminal, then retry — or set ${ENV_VAR} instead."
+        )
+        raise KeyringLockedError(msg)
+    if outcome is AdapterOutcome.UNVERIFIED:
+        msg = (
+            "This keyring cannot be written without a possible prompt, and a "
+            f"run could not read it either. Set ${ENV_VAR} instead — "
+            "`func builtin vault keygen` prints one."
+        )
+        raise KeyringUnverifiedError(msg)
+    msg = (
+        "No keyring is available, so a vault key cannot be stored. "
+        "Install it with `pip install 'functualize[keychain]'`, or set "
+        f"${ENV_VAR} instead — `func builtin vault keygen` prints one."
+    )
+    raise KeyringUnavailableError(msg)
 
 
 def _key_from(read: AdapterRead) -> bytes | None:

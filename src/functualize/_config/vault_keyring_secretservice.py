@@ -17,6 +17,8 @@ re-lock every keyring. So this adapter reads the protocol directly:
 * :meth:`SecretServiceAdapter.unlock` is the only method that asks the service
   to unlock, and it waits — with no deadline — for the prompt's own outcome.
   It never cancels the prompt from this side.
+* :meth:`SecretServiceAdapter.store_silent` writes only into an unlocked
+  collection; ``vault init`` stores through it.
 * It never creates a collection: ``secretstorage.get_default_collection``
   creates one when none exists, which is itself a prompt.
 
@@ -45,6 +47,10 @@ _GNOME_KEYRING = "org.gnome.keyring"
 
 #: The bus name of the process that shows gnome-keyring's unlock dialog.
 _SYSTEM_PROMPTER = "org.gnome.keyring.SystemPrompter"
+
+#: The ``application`` attribute ``keyring`` writes, so an item stored here
+#: looks exactly like one ``keyring.set_password`` would have stored.
+_KEYRING_APPID = "Python keyring library"
 
 
 class BusNames(Protocol):
@@ -167,6 +173,45 @@ class SecretServiceAdapter:
             return any(True for _ in collection.search_items(dict(self._attributes())))
         except Exception:  # noqa: BLE001 - "cannot tell" is an answer here
             return None
+        finally:
+            _close(connection)
+
+    def store_silent(self, secret: str) -> AdapterOutcome:
+        """Store the secret in an unlocked collection; a locked one is LOCKED.
+
+        ``keyring.set_password`` is not used: it unlocks a locked collection
+        first, and creates a default one when none exists — both prompts.
+        """
+        ss = self._secretstorage()
+        if ss is None:
+            return AdapterOutcome.NO_KEYRING
+        try:
+            connection = ss.dbus_init()
+        except Exception:  # noqa: BLE001 - no service, no bus: no keyring here
+            return AdapterOutcome.NO_KEYRING
+        try:
+            try:
+                collection = self._collection(ss, connection)
+            except ss.exceptions.ItemNotFoundException:
+                # Nowhere to store without creating a collection, which prompts.
+                return AdapterOutcome.NO_KEYRING
+            if collection.is_locked():
+                return AdapterOutcome.LOCKED
+            attributes = {
+                **self._attributes(),
+                "application": getattr(self._backend, "appid", _KEYRING_APPID),
+            }
+            collection.create_item(
+                f"Password for '{self._account}' on '{self._service}'",
+                attributes,
+                secret.encode("utf-8"),
+                replace=True,
+            )
+            return AdapterOutcome.FOUND
+        except ss.exceptions.LockedException:
+            return AdapterOutcome.LOCKED
+        except Exception:  # noqa: BLE001 - a D-Bus failure mid-write is "no keyring reachable", never a prompt
+            return AdapterOutcome.NO_KEYRING
         finally:
             _close(connection)
 

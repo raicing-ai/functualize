@@ -375,7 +375,8 @@ class TestTheAdapterIsChosenForThisPlatform:
 
 
 class _StoreKeyring:
-    """`keyring` at the module boundary, for the write path `init` still uses."""
+    """`keyring` at the module boundary. `init` must not write through it any
+    more: its Secret Service backend unlocks a locked collection first."""
 
     def __init__(self) -> None:
         import keyring.errors as real_errors
@@ -383,18 +384,28 @@ class _StoreKeyring:
         self.store: dict[tuple[str, str], str] = {}
         self.locked = False
         self.errors = real_errors
+        self.set_password_calls = 0
 
     def set_password(self, service: str, account: str, password: str) -> None:
+        self.set_password_calls += 1
         if self.locked:
             raise self.errors.KeyringLocked("collection is locked")
         self.store[(service, account)] = password
 
 
 class _StoreAdapter:
-    """Reads the same store `_StoreKeyring` writes, as an unlocked keyring would."""
+    """One store, read and written as a silent adapter would; never unlocks."""
 
     def __init__(self, keyring_module: _StoreKeyring) -> None:
         self._keyring = keyring_module
+
+    def store_silent(self, secret: str) -> AdapterOutcome:
+        from functualize._config.vault_keys import KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE
+
+        if self._keyring.locked:
+            return AdapterOutcome.LOCKED
+        self._keyring.store[(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)] = secret
+        return AdapterOutcome.FOUND
 
     @property
     def name(self) -> str:
@@ -416,11 +427,8 @@ class _StoreAdapter:
         )
 
     def unlock(self) -> AdapterRead:
-        read = self.read_silent()
-        how = (
-            UnlockHow.CANCELLED if self._keyring.locked else UnlockHow.ALREADY_UNLOCKED
-        )
-        return AdapterRead(read.outcome, secret=read.secret, how=how)
+        msg = "only `func builtin vault unlock` may ask a keyring to unlock"
+        raise AssertionError(msg)
 
 
 @pytest.fixture
@@ -528,6 +536,54 @@ class TestKeychainInitialize:
         with pytest.raises(VaultError, match="keyring"):
             _store_provider(store_keyring).initialize_key("proj")
         assert store_keyring.store == {}
+
+    def test_a_locked_keyring_is_refused_without_a_prompt(
+        self, store_keyring: _StoreKeyring
+    ) -> None:
+        """Spec B4': only `vault unlock` asks a keyring to unlock. The adapter's
+        `unlock()` fails this test if `init` reaches it."""
+        from functualize._config.vault import KeyringLockedError
+
+        store_keyring.locked = True
+
+        with pytest.raises(KeyringLockedError, match="func builtin vault unlock"):
+            _store_provider(store_keyring).initialize_key("proj")
+
+    def test_it_never_writes_through_keyring_set_password(
+        self, store_keyring: _StoreKeyring
+    ) -> None:
+        """`keyring.set_password` unlocks a locked Secret Service collection
+        first, and creates a default one when none exists: both prompts."""
+        _store_provider(store_keyring).initialize_key("proj")
+
+        assert store_keyring.set_password_calls == 0
+
+    @pytest.mark.parametrize(
+        ("outcome", "error"),
+        [
+            (AdapterOutcome.UNVERIFIED, "KeyringUnverifiedError"),
+            (AdapterOutcome.NO_KEYRING, "KeyringUnavailableError"),
+        ],
+    )
+    def test_a_keyring_it_cannot_use_silently_is_a_typed_refusal(
+        self, outcome: AdapterOutcome, error: str
+    ) -> None:
+        import functualize._config.vault as vault_errors
+
+        class _Refusing:
+            name = "refusing"
+
+            def read_silent(self) -> AdapterRead:
+                return AdapterRead(outcome)
+
+            def store_silent(self, secret: str) -> AdapterOutcome:
+                raise AssertionError("nothing to store into")
+
+            def unlock(self) -> AdapterRead:
+                raise AssertionError("init must not unlock")
+
+        with pytest.raises(getattr(vault_errors, error)):
+            KeychainKeyProvider(adapter=_Refusing()).initialize_key("proj")  # type: ignore[arg-type]
 
     def test_it_satisfies_the_initializer_protocol(self) -> None:
         """T1.2 shipped the port unwired; this is the shipped implementor."""

@@ -4,7 +4,8 @@ One suite, parametrized over :data:`~tests.contracts._fake_platforms.HARNESSES`,
 so a new adapter is held to the same rules the day it is registered. The rule
 that matters most is the first: **a silent read never requests an unlock
 prompt**, in any world. A run reads silently; a prompt a run later abandons can
-crash the keyring daemon and re-lock every keyring the user has.
+crash the keyring daemon and re-lock every keyring the user has. Storing is
+held to the same rule, so ``unlock()`` is the only call that may prompt.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from tests.contracts._fake_platforms import (
 )
 
 _SECRET = "ab" * 32
+_OTHER = "cd" * 32
 
 #: Product names a user-facing name must not carry (spec A18).
 _PRODUCTS = ("gnome", "kwallet", "keychain", "credential manager", "secret service")
@@ -147,6 +149,51 @@ class TestStateAgreesAndNeverPrompts:
         assert time.monotonic() - started < 2.0
         assert state is KeyAvailability.UNKNOWN
         assert recorder.prompts == 0
+
+
+class TestStoringNeverPrompts:
+    """`vault init` stores through this, so creating a key cannot open a dialog."""
+
+    @pytest.mark.parametrize(
+        ("harness", "world"),
+        _cases(World.UNLOCKED, World.LOCKED, World.EMPTY, World.ABSENT),
+    )
+    def test_no_prompt_in_any_world(self, harness: Harness, world: World) -> None:
+        adapter, recorder = _build(harness, world)
+        adapter.store_silent(_OTHER)
+        assert recorder.prompts == 0
+
+    @pytest.mark.parametrize(("harness", "world"), _cases(World.EMPTY))
+    def test_a_stored_key_is_then_read_silently(
+        self, harness: Harness, world: World
+    ) -> None:
+        adapter, _ = _build(harness, world)
+        stored = adapter.store_silent(_OTHER)
+        if harness.proves_silence:
+            assert stored is AdapterOutcome.FOUND
+            read = adapter.read_silent()
+            assert read.outcome is AdapterOutcome.FOUND
+            assert read.secret == _OTHER
+        else:
+            assert stored is AdapterOutcome.UNVERIFIED
+
+    @pytest.mark.parametrize(("harness", "world"), _cases(World.LOCKED))
+    def test_a_locked_keyring_is_not_written(
+        self, harness: Harness, world: World
+    ) -> None:
+        adapter, _ = _build(harness, world)
+        expected = (
+            AdapterOutcome.LOCKED
+            if harness.proves_silence
+            else AdapterOutcome.UNVERIFIED
+        )
+        assert adapter.store_silent(_OTHER) is expected
+        assert adapter.read_silent().secret is None
+
+    @pytest.mark.parametrize(("harness", "world"), _cases(World.ABSENT))
+    def test_no_backend_is_no_keyring(self, harness: Harness, world: World) -> None:
+        adapter, _ = _build(harness, world)
+        assert adapter.store_silent(_OTHER) is AdapterOutcome.NO_KEYRING
 
 
 class TestUnlockIsTheOnlyPrompt:

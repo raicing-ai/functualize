@@ -21,7 +21,7 @@ from functualize._config.vault_keyring import AdapterOutcome, AdapterRead, Unloc
 from functualize._types.enums import KeyAvailability
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from functualize._config.vault_keyring import KeyringAdapter
 
@@ -123,6 +123,17 @@ class _InMemoryAdapter:
             return KeyAvailability.UNLOCKED
         return KeyAvailability.UNKNOWN
 
+    def store_silent(self, secret: str) -> AdapterOutcome:
+        if self._world is World.HUNG:
+            time.sleep(HANG_SECONDS)
+        if self._world is World.ABSENT:
+            return AdapterOutcome.NO_KEYRING
+        if self._world is World.LOCKED:
+            return AdapterOutcome.LOCKED
+        self._world = World.UNLOCKED
+        self._secret = secret
+        return AdapterOutcome.FOUND
+
     def unlock(self) -> AdapterRead:
         if self._world is World.LOCKED:
             self._recorder.prompts += 1
@@ -204,6 +215,8 @@ class FakeSecretService:
         self.collections = set(collections)
         self.created: list[str] = []
         self.opened: list[str] = []
+        self.stored: list[dict[str, str]] = []
+        """The attributes of every item written."""
         self.unlock_delay = 0.0
         """How long the person takes to answer the dialog."""
 
@@ -235,6 +248,20 @@ class _FakeCollection:
         if self._service.world is World.EMPTY or attributes != self._service.attributes:
             return
         yield _FakeItem(self._service)
+
+    def create_item(
+        self,
+        label: str,
+        attributes: dict[str, str],
+        secret: bytes,
+        replace: bool = False,
+    ) -> None:
+        """As `secretstorage` does: a locked collection raises, it never prompts."""
+        if self._service.world is World.LOCKED:
+            raise _LockedError("Collection is locked!")
+        self._service.stored.append(dict(attributes))
+        self._service.secret = secret.decode()
+        self._service.world = World.UNLOCKED
 
     def unlock(self) -> bool:
         """Returns whether the prompt was dismissed, as `secretstorage` does."""
@@ -334,14 +361,25 @@ class _SecretServiceHarness:
 
 
 class FakeSecurity:
-    """The Keychain as the Security framework reports it, with no Mac."""
+    """The Keychain as the Security framework reports it, with no Mac.
+
+    ``allowed`` is ``SecKeychainSetUserInteractionAllowed``: **one flag for
+    the whole process**, so two adapters sharing one ``FakeSecurity`` are two
+    adapters in one process. ``interactive=False`` is the per-call "fail
+    rather than show UI" query option, which a locked keychain honours whatever
+    the flag says.
+    """
 
     def __init__(self, world: World, secret: str, recorder: Recorder) -> None:
         self.world = world
         self.secret = secret
         self.recorder = recorder
         self.allowed = True
-        self.allowed_at_copy: list[bool] = []
+        self.copies: list[tuple[bool, bool]] = []
+        """``(interactive, allowed)`` as each read saw them."""
+
+        self.on_copy: Callable[[bool], None] | None = None
+        """Called as a read begins, with its ``interactive``; tests interleave here."""
 
     def interaction_allowed(self) -> bool:
         return self.allowed
@@ -349,8 +387,12 @@ class FakeSecurity:
     def set_interaction_allowed(self, allowed: bool) -> None:
         self.allowed = allowed
 
-    def copy_password(self, service: str, account: str) -> tuple[int, str | None]:
-        self.allowed_at_copy.append(self.allowed)
+    def copy_password(
+        self, service: str, account: str, *, interactive: bool
+    ) -> tuple[int, str | None]:
+        if self.on_copy is not None:
+            self.on_copy(interactive)
+        self.copies.append((interactive, self.allowed))
         if self.world is World.HUNG:
             time.sleep(HANG_SECONDS)
         if self.world is World.ABSENT:
@@ -358,7 +400,7 @@ class FakeSecurity:
         if self.world is World.EMPTY:
             return -25300, None
         if self.world is World.LOCKED:
-            if not self.allowed:
+            if not interactive or not self.allowed:
                 return -25308, None
             self.recorder.prompts += 1
             if self.recorder.answer is Answer.CANCEL:
@@ -366,6 +408,17 @@ class FakeSecurity:
             self.world = World.UNLOCKED
         self.recorder.secret_reads += 1
         return 0, self.secret
+
+    def add_password(self, service: str, account: str, secret: str) -> int:
+        if self.world is World.HUNG:
+            time.sleep(HANG_SECONDS)
+        if self.world is World.ABSENT:
+            return -25291
+        if self.world is World.LOCKED:
+            return -25308
+        self.secret = secret
+        self.world = World.UNLOCKED
+        return 0
 
     def default_keychain_unlocked(self) -> bool | None:
         if self.world is World.HUNG:
@@ -415,6 +468,10 @@ class FakeWinBackend:
             return None
         self.recorder.secret_reads += 1
         return self.secret
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        self.secret = password
+        self.world = World.UNLOCKED
 
 
 class FakeWinLoader:
