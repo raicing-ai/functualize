@@ -13,10 +13,13 @@ This example shows the two halves a caller cares about:
   the gates that scope actually has — a miss the caller cannot ignore, with
   everything needed to correct it.
 
-Run it from an empty directory:
+Run it from an empty directory, with both `uv` and the script pointed at your
+checkout of this repository by absolute path:
 
 ```console
-$ uv run --project <this repository> python examples/standalone/gate_refusal/gate_refusal.py
+$ repo=/path/to/functualize   # your checkout of this repository
+$ cd "$(mktemp -d)"
+$ uv run --project "$repo" python "$repo/examples/standalone/gate_refusal/gate_refusal.py"
 answered: approve-refund -> answered
 missed:   'nope' in 'rel-1' is not one of: approve-refund
 ```
