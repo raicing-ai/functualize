@@ -472,7 +472,11 @@ class _FakeSecLibrary:
 
 
 def mac_adapter(
-    world: World, secret: str, recorder: Recorder, *, keychain: FakeSecurity | None = None
+    world: World,
+    secret: str,
+    recorder: Recorder,
+    *,
+    keychain: FakeSecurity | None = None,
 ) -> tuple[KeyringAdapter, FakeSecurity]:
     """A macOS adapter over its real ctypes layer and a fake Security framework.
 
