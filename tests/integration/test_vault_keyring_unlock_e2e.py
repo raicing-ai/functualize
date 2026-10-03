@@ -269,6 +269,38 @@ class TestALockedKeyringRefusesAtOnce:
         assert "vault remove" not in result.stderr
 
 
+class TestParallelRunsOnALockedKeyring:
+    """Live check scenario 5, with the exit codes the live run could not print."""
+
+    def test_two_parallel_piped_runs_both_refuse_at_once_without_a_prompt(
+        self, project: Path, tmp_path: Path
+    ) -> None:
+        _provision(project, tmp_path, "deploy.api_token")
+
+        env = _env(tmp_path, FAKE_KEYRING_MODE="locked")
+        started = time.monotonic()
+        runs = [
+            subprocess.Popen(  # noqa: S603
+                [str(_func()), "deploy"],
+                cwd=project,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+            for _ in range(2)
+        ]
+        results = [run.communicate(timeout=120) for run in runs]
+        elapsed = time.monotonic() - started
+
+        assert [run.returncode for run in runs] == [ExitCode.REFUSED, ExitCode.REFUSED]
+        for _, stderr in results:
+            assert "keyring is locked" in stderr
+        # Both together cost about one process start-up, not a wait each.
+        assert elapsed < 10.0, elapsed
+        assert "unlock" not in _calls(tmp_path)
+
+
 class TestOneReadPerProcess:
     def test_a6_many_lookups_one_keyring_read(
         self, project: Path, tmp_path: Path
