@@ -774,6 +774,55 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### The vault key from an unlocked keyring, never a prompt from a run (2026-10-03, `sdd/vault-keyring-unlock`)
+
+**The decision worth keeping.** *A run never asks the keyring to unlock.* The
+key is read lazily — only when a run opens a stored vault entry — from
+`$FUNCTUALIZE_VAULT_KEY`, else from the OS keyring **silently, whether or not
+stdout is a terminal**: an unlocked keyring answers, a locked one refuses the
+run at once (exit 3) with no dialog and no wait. `func builtin vault unlock`,
+run by a person, is the only thing that asks a keyring to unlock, and it waits
+for the dialog's own outcome. Recorded in ADR-016 §5's "Amended by" note.
+
+**Rules that outlive the feature:**
+
+- **Never end an active unlock prompt from the client side.** On gnome-keyring
+  50, a client that abandoned a prompt — a deadline followed by exit, Ctrl-C,
+  SIGTERM/SIGKILL, an agent killing its child, `Prompt.Dismiss` — crashed the
+  daemon (`perform_next_unlock: assertion failed (!self->current)`), systemd
+  restarted it, and **every keyring came back locked**. Cancel *inside* the
+  dialog is safe. So no code path may create a prompt it might walk away from;
+  `vault unlock` holds on the first interrupt and stops only on a second.
+- **`keyring.get_password` is not a silent read.** On Linux its Secret Service
+  backend unlocks a locked collection first (a blocking prompt); on macOS it
+  reads with user interaction allowed. Reads go through a per-platform adapter
+  (`_config/vault_keyring*.py`): Secret Service via `secretstorage` (check
+  `Locked`, never `unlock()`, never create a collection), macOS with
+  interaction disabled (`-25308` -> locked), Windows Credential Manager (no
+  lock model). A `keyring` backend not proven silent is not read by a run.
+- **The TTY gate was a proxy.** "Needs a person at this terminal" and "may
+  block on a backend" are different; only the first is terminal-gated now.
+- **The test suite must fence the real keyring.** Once reads stopped being
+  gated on a TTY, any test resolving a key without the env var would have read
+  the developer's Secret Service; `tests/conftest.py::_isolate_os_keyring` is
+  that fence — keep it.
+
+**Evidence.** Live check on a real Arch/niri desktop (gnome-keyring 50.0):
+unlocked + piped silent; locked + piped refused in process start-up time with
+no dialog; `vault unlock` answered and cancelled both behave; parallel locked
+runs raise no dialog; `Login` lock state, coredump count and daemon PID
+unchanged. CI (`.github/workflows/keyring-platforms.yml`, not yet a required
+check): on real macOS a locked keychain answers `locked` in 0.49 s with no
+dialog; on Linux (private `dbus-run-session`) a locked collection is reported
+with no prompt object created; Windows reads and reports "nothing stored".
+
+**Open.** macOS and Windows are checked on CI runners, not yet confirmed on a
+user's own machine (manual checklist in the PR's `live-check.md`). A headless
+"unlocked elsewhere" step works on macOS (`security unlock-keychain -p`) and
+not on Linux (a second `gnome-keyring-daemon --unlock` left the collection
+locked). The `keyring_timeout` default (30 s) now only bounds a keyring that
+does not answer; 5-10 s may fit better.
+
 ### `perf_budget` reds carry their host load (2026-10-01, `fix/perf-budget-load-guard`)
 
 A serial `-m perf_budget` run on a shared 6-core host went red at 0.55–0.7×
