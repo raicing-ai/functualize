@@ -17,18 +17,34 @@ from types import MappingProxyType
 import pytest
 
 from functualize._types.decision import (
+    ChoiceDecision,
     ChoiceRequest,
     DecisionProvenance,
     DecisionProvider,
     DecisionResult,
+    decision_digest,
+    decision_shape,
 )
 from functualize._types.errors import DecisionFailure, DecisionUnavailableError
+from functualize._types.from_job import FromStep
 
 _OPTIONS = {"billing": "an invoice question", "returns": "send it back"}
 
 
 def _provenance() -> DecisionProvenance:
     return DecisionProvenance(requested_model="m-1", latency_seconds=0.25)
+
+
+def _decision(**overrides: object) -> ChoiceDecision:
+    arguments: dict[str, object] = {
+        "field": "route",
+        "instructions": "Route the ticket.",
+        "options": _OPTIONS,
+        "state": FromStep("intake"),
+        "accept_at": 0.70,
+    }
+    arguments.update(overrides)
+    return ChoiceDecision(**arguments)  # type: ignore[arg-type]
 
 
 class TestDecisionResult:
@@ -292,6 +308,42 @@ class TestDecisionUnavailableError:
         assert str(rebuilt) == str(error)
         assert rebuilt.kind is DecisionFailure.RATE_LIMITED
         assert rebuilt.retry_after == 5.0
+
+
+class TestChoiceDecisionFallback:
+    def test_a_fallback_outside_the_options_is_refused(self) -> None:
+        with pytest.raises(ValueError) as raised:
+            _decision(fallback="shipping")
+
+        message = str(raised.value)
+        assert "not one of the options" in message
+        assert "'billing'" in message and "'returns'" in message
+
+    def test_no_fallback_is_the_default(self) -> None:
+        assert _decision().fallback is None
+
+    def test_two_decisions_differing_only_in_fallback_digest_differently(self) -> None:
+        assert decision_digest(_decision(fallback="billing")) != decision_digest(
+            _decision(fallback="returns")
+        )
+
+    def test_a_digest_is_a_sha256_prefix_and_64_hex_digits(self) -> None:
+        digest = decision_digest(_decision(fallback="billing"))
+
+        assert digest.startswith("sha256:")
+        assert len(digest) == 71
+
+
+class TestDecisionShape:
+    def test_a_decision_without_a_fallback_projects_no_fallback_key(self) -> None:
+        shape = decision_shape(_decision())
+
+        assert "fallback" not in shape
+        assert shape["field"] == "route"
+        assert shape["state"] == "intake"
+
+    def test_a_declared_fallback_joins_the_shape(self) -> None:
+        assert decision_shape(_decision(fallback="billing"))["fallback"] == "billing"
 
 
 class TestDecisionProvider:

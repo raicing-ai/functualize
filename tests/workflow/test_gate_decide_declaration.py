@@ -32,6 +32,15 @@ class Route(BaseModel):
     note: str = ""
 
 
+class DefaultedRoute(BaseModel):
+    route: Literal["billing", "returns", "shipping"] = "billing"
+
+
+class RouteWithRequiredNote(BaseModel):
+    route: Literal["billing", "returns", "shipping"]
+    note: str
+
+
 class Team(StrEnum):
     BILLING = "billing"
     RETURNS = "returns"
@@ -173,6 +182,29 @@ class TestWhatIsRefused:
             ValueError, match="neither a Literal of strings nor a StrEnum"
         ):
             Gate(name="route", awaits=Loose, decide=_decision(field))
+
+    def test_a_decided_field_with_a_default_is_refused(self) -> None:
+        """A default would answer the gate without the decision ever running."""
+        with pytest.raises(ValueError, match=r"fallback="):
+            Gate(name="route", awaits=DefaultedRoute, decide=_decision())
+
+    def test_a_fallback_beside_another_required_field_is_refused(self) -> None:
+        with pytest.raises(ValueError) as raised:
+            Gate(
+                name="route",
+                awaits=RouteWithRequiredNote,
+                decide=_decision(fallback="billing"),
+            )
+
+        message = str(raised.value)
+        assert "note" in message
+        assert "must complete the answer" in message
+
+    def test_a_fallback_with_every_other_field_defaulted_is_accepted(self) -> None:
+        gate = Gate(name="route", awaits=Route, decide=_decision(fallback="billing"))
+
+        assert gate.decide is not None
+        assert gate.decide.fallback == "billing"
 
 
 def test_mutating_the_declared_options_after_construction_changes_nothing() -> None:

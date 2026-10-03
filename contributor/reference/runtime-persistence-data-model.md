@@ -296,7 +296,7 @@ current claim per aggregate, and every transition already conditions that row.
 | Table | Essential fields | Invariants |
 |---|---|---|
 | `input_requests` | id, scope_id, gate_key, generation, status, schema JSON, prompt JSON, created_at, resolved_at | PK `id`; partial unique (scope_id, gate_key, generation) `WHERE status = 'open'` — one OPEN request per gate per generation; the `status` column is `CHECK (status IN (…))` generated from §1.4 |
-| `input_candidates` | id, request_id, ordinal, source, outcome, detail, errors JSON, payload JSON, created_at | append only; evaluation recorded at submission |
+| `input_candidates` | id, request_id, ordinal, source, outcome, detail, errors JSON, payload JSON, evidence JSON, created_at | append only; evaluation recorded at submission; `evidence` is nullable — a strategy rung's own record (the decision rung's `decision-evidence/1`), written only by the gate and opaque to storage, hence JSON per §3 |
 | `outbox` | id, namespace, aggregate_type, aggregate_id, topic, payload JSON, idempotency_key, status, available_at, claimed_at, published_at, attempts, last_error | unique idempotency_key where present; index (status, available_at) |
 | `artifact_refs` | id, run_id, scope_id, step_key, kind, uri, digest, size, media_type, created_at | metadata only — bytes live in a workspace provider |
 

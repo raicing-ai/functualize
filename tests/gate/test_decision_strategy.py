@@ -64,6 +64,8 @@ class FakeProvider:
     distribution: Mapping[str, float] | None = None
     confidence: float | None = None
     error: Exception | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     asked: list[ChoiceRequest] = field(default_factory=list)
 
     @property
@@ -79,7 +81,10 @@ class FakeProvider:
             provider="fake",
             model="fake-1",
             provenance=DecisionProvenance(
-                requested_model="fake-1", latency_seconds=0.0
+                requested_model="fake-1",
+                latency_seconds=0.0,
+                input_tokens=self.input_tokens,
+                output_tokens=self.output_tokens,
             ),
             distribution=self.distribution,
             confidence=self.confidence,
@@ -260,6 +265,109 @@ class TestFailuresAreFailedRungs:
             EvaluationOutcome.FAILED,
             "gate has no decision declared",
         )
+
+
+class TestTheRungEvidence:
+    """What the decision rung records beside its verdict, read off the rung."""
+
+    def _evidence(self, provider: FakeProvider) -> Mapping[str, Any] | None:
+        outcome = _evaluate(provider)
+        return outcome.rungs[0][1].evidence
+
+    def test_an_accepted_proposal_records_an_accepted_verdict(self) -> None:
+        provider = FakeProvider(
+            "shipping", {"shipping": 0.80, "returns": 0.40, "billing": 0.10}
+        )
+
+        evidence = self._evidence(provider)
+
+        assert evidence is not None
+        assert evidence["verdict"] == "accepted"
+        assert evidence["proposal"] == "shipping"
+        assert evidence["distribution"] == {
+            "shipping": 0.80,
+            "returns": 0.40,
+            "billing": 0.10,
+        }
+        assert evidence["field"] == "route"
+        assert evidence["failure"] is None
+
+    def test_tokens_are_recorded_as_the_provenance_reported_them(self) -> None:
+        provider = FakeProvider(
+            "shipping", {"shipping": 0.9}, input_tokens=120, output_tokens=8
+        )
+
+        evidence = self._evidence(provider)
+
+        assert evidence is not None
+        assert evidence["input_tokens"] == 120
+        assert evidence["output_tokens"] == 8
+
+    def test_a_below_threshold_proposal_records_its_numbers(self) -> None:
+        provider = FakeProvider(
+            "returns", {"returns": 0.54, "shipping": 0.46, "billing": 0.00}
+        )
+
+        evidence = self._evidence(provider)
+
+        assert evidence is not None
+        assert evidence["verdict"] == "below_threshold"
+        assert evidence["probability"] == pytest.approx(0.54)
+        assert evidence["margin"] == pytest.approx(0.08)
+
+    def test_a_self_assessment_never_moves_the_verdict(self) -> None:
+        """AC-7: the provider's own scalar is recorded, never read."""
+        below = self._evidence(
+            FakeProvider("returns", {"returns": 0.54, "shipping": 0.46}, confidence=1.0)
+        )
+        above = self._evidence(
+            FakeProvider(
+                "shipping", {"shipping": 0.80, "returns": 0.40}, confidence=0.0
+            )
+        )
+
+        assert below is not None and above is not None
+        assert below["verdict"] == "below_threshold"
+        assert below["confidence"] == 1.0
+        assert above["verdict"] == "accepted"
+        assert above["confidence"] == 0.0
+
+    def test_a_rate_limited_provider_records_its_failure(self) -> None:
+        provider = FakeProvider(
+            error=DecisionUnavailableError(
+                kind=DecisionFailure.RATE_LIMITED,
+                provider="fake",
+                status=429,
+                retry_after=19014.0,
+                detail="Rate limit exceeded",
+            )
+        )
+
+        evidence = self._evidence(provider)
+
+        assert evidence is not None
+        assert evidence["verdict"] == "provider_failed"
+        assert evidence["failure"] == {
+            "kind": "rate_limited",
+            "status": 429,
+            "retry_after": 19014.0,
+        }
+        assert evidence["latency_seconds"] >= 0
+
+    def test_a_missing_distribution_records_no_distribution(self) -> None:
+        evidence = self._evidence(FakeProvider("shipping", None))
+
+        assert evidence is not None
+        assert evidence["verdict"] == "no_distribution"
+        assert evidence["distribution"] is None
+
+    def test_a_missing_state_step_records_nothing(self) -> None:
+        """The state check raises before any evidence can exist."""
+        outcome = _evaluate(
+            FakeProvider("shipping", {"shipping": 0.9}), workflow_context={"other": 1}
+        )
+
+        assert outcome.rungs[0][1].evidence is None
 
 
 class TestShape:

@@ -106,3 +106,56 @@ until it succeeds.
 | **A-2.** Policy registered at boot, keyed by the awaits model class (`DecisionGateResolver(provider, policies={Route: …})`) | No `Gate` change | The threshold moves from the workflow declaration to app wiring, so the workflow no longer owns it; a model class used by two gates makes the policy ambiguous | Workflow loses ownership of its rule |
 | **A-3.** Policy as a `ClassVar` on the awaits model | Workflow-owned; no `Gate` change | The resolver finds it by attribute name — an implicit convention the constitution forbids for ports — and it is invisible to `Gate`'s declaration checks | Implicit convention; unchecked |
 | **A-4 (chosen).** Provider-neutral seam in core, policy on the `Gate`, adapter in its own plugin | Policy declared and checked where the workflow is written; any provider plugs in | One field on `Gate`, one on `GateContext`, one keyword on `GateRegistry.evaluate`, one more branch in the walker's strategy list | — |
+
+## Addendum — fallback and evidence (2026-10)
+
+**Deciders**: maintainer (D-1, D-2, D-3, D-4, S-1, S-4), 2026-10-01.
+
+Point 4 sends every failed decision to a person. A router whose every miss
+blocks is not a router, so a workflow may now name the option a miss takes —
+and a router that decides is only auditable if each run records what it was
+shown, what it proposed and why it was or was not taken. Four questions,
+each answered as recommended:
+
+- **D-1 — the default route is declared on the decision.**
+  `ChoiceDecision(fallback=...)` names one of the options. A gate with a
+  fallback is walked `decision` → `resolve`, and the **existing `resolve`
+  rung** takes it: the registry seeds the decided field with the fallback and
+  forces the decision rung to run first, so the provider is still asked
+  exactly once. No node kind, walk outcome, request status, evaluation outcome
+  or strategy name is added — the gate remains the only thing that accepts an
+  answer. A default on the decided field is refused at import, because a
+  fully defaulted answer completes the gate before any strategy runs. The
+  fallback joins the decision's projection, so it is fenced by the graph
+  digest like the rest of the rule (point 6).
+- **D-2 — evidence lives on the rung's candidate.** `CandidateEvaluation`
+  gains an optional `evidence` mapping, written only by the gate through a
+  per-rung, write-once `RungEvidence` sink on `GateContext` (S-1: a mutable
+  collector on a frozen context, accepted). An answer surface cannot write it.
+  The decision rung records one flat `decision-evidence/1` mapping: the state's
+  step and SHA-256, the rule's digest and thresholds, provider and model, the
+  proposal, the distribution, the provider's `confidence` (recorded; the rule
+  module still never names it — point 3), the probability and margin read,
+  the verdict, any failure, the latency and the token counts. It is built in
+  its own module, `_gate/decision_evidence.py`, so the rule module can keep
+  that word out.
+- **D-3 — cost is token usage only.** Monetary cost needs a price table and is
+  later work.
+- **D-4 — one public, provisional reader.** `decision_record(store, scope_id,
+  gate)` in `functualize.app.utils` projects the recorded candidates into one
+  record — route, `decided_by` (`decision`, `fallback`, `person`), the reason
+  the decision missed, the evidence — re-evaluating nothing. It tells a
+  fallback from a decision by the candidate's `source` (S-4: mapping
+  `strategy:resolve` to "fallback" reads `source`, accepted).
+
+A gate without a fallback is unchanged: same ladder, same blocking, same
+reason — it now also records evidence on its decision rung.
+
+### Alternatives considered for the addendum
+
+| Alternative | Cons | Why rejected |
+|-------------|------|-------------|
+| **A.** Evidence on the **answer model** (an `evidence` field the resolver fills); the resolver applies the fallback | An answer surface can submit any `evidence`, so it is forgeable; answer and provenance mixed in one model — divergent change on every awaits model; an absent provider has no evidence | Forgeable |
+| **B.** Evidence in a **new evidence store/table**; the default route via a new `decision_fallback` strategy | Duplicates the durable candidate tables the runtime-persistence work owns — shotgun surgery when they land; a new strategy name breaks the pin that the strategy providers equal the valid strategies, and edges toward a new primitive | Duplicate storage; new primitive |
+| **C.** Evidence in a provider **Decorator** that logs `DecisionResult`s | The provider cannot see the scope, so its records are uncorrelated with runs; a side channel outside the run record | Uncorrelated side channel |
+| **D (chosen).** Evidence on the rung's `CandidateEvaluation`, through the per-rung sink; the fallback declared on `ChoiceDecision`, taken by the existing `resolve` rung | A mutable sink on a frozen context (S-1); evidence is an untyped JSON mapping | — |

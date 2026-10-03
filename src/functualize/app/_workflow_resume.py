@@ -32,21 +32,24 @@ def _resolution_view(
         scope_id, gate, record, lease.generation if lease else 0
     )
     candidates = gate_requests.candidates_for(record)
+    projected: list[dict[str, Any]] = []
+    for candidate in candidates:
+        entry = {
+            "candidate_id": candidate.candidate_id,
+            "ordinal": candidate.ordinal,
+            "source": candidate.source,
+            "submitted_at": candidate.submitted_at.isoformat(),
+            "outcome": candidate.evaluation.outcome.value,
+            "detail": candidate.evaluation.detail,
+            "errors": [list(pair) for pair in candidate.evaluation.errors],
+        }
+        if candidate.evaluation.evidence is not None:
+            entry["evidence"] = dict(candidate.evaluation.evidence)
+        projected.append(entry)
     return {
         "request_id": request.request_id,
         "request_status": request.status,
-        "candidates": [
-            {
-                "candidate_id": candidate.candidate_id,
-                "ordinal": candidate.ordinal,
-                "source": candidate.source,
-                "submitted_at": candidate.submitted_at.isoformat(),
-                "outcome": candidate.evaluation.outcome.value,
-                "detail": candidate.evaluation.detail,
-                "errors": [list(pair) for pair in candidate.evaluation.errors],
-            }
-            for candidate in candidates
-        ],
+        "candidates": projected,
     }
 
 

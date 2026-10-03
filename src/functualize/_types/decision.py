@@ -1,6 +1,7 @@
 """The decision vocabulary — a proposed choice, and the port that proposes it.
 
-Values and one Protocol, nothing else: a provider answers a ``ChoiceRequest``
+Values and one Protocol, plus the declaration's JSON projection and its digest
+— two pure functions — and nothing else: a provider answers a ``ChoiceRequest``
 with a ``DecisionResult`` carrying a **candidate**, never a verdict. Whether a
 candidate is acted on is the gate's declared rule, so the result has no
 ``accepted`` field and no boolean of any kind — a provider cannot say "yes" on
@@ -24,10 +25,12 @@ value.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Generic, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, runtime_checkable
 
 if TYPE_CHECKING:
     from functualize._types.from_job import FromStep
@@ -38,6 +41,8 @@ __all__ = [
     "DecisionProvenance",
     "DecisionProvider",
     "DecisionResult",
+    "decision_digest",
+    "decision_shape",
 ]
 
 T = TypeVar("T")
@@ -149,6 +154,11 @@ class ChoiceDecision:
     less blocks the gate for a person. Whether ``options`` match the awaited
     field is checked by the gate, which knows the field; this class checks its
     own ranges only.
+
+    ``fallback`` names the option taken when no proposal clears the
+    thresholds: the gate still completes, on the declared answer rather than a
+    proposed one. A default on the decided field itself is the same outcome
+    reached by accident, which is why the gate refuses it.
     """
 
     field: str  # the awaits field the decision fills
@@ -158,6 +168,7 @@ class ChoiceDecision:
     accept_at: float  # 0 < accept_at <= 1
     min_margin: float = 0.0  # 0 <= min_margin < 1
     model: str | None = None  # passed through to ChoiceRequest.model
+    fallback: str | None = None  # one of options; taken when no proposal is accepted
 
     def __post_init__(self) -> None:
         # The declaration that was checked is the one evaluated and digested:
@@ -168,6 +179,11 @@ class ChoiceDecision:
             "options",
             MappingProxyType({str(k): str(v) for k, v in self.options.items()}),
         )
+        if self.fallback is not None and self.fallback not in self.options:
+            raise ValueError(
+                f"ChoiceDecision fallback {self.fallback!r} is not one of the "
+                f"options {sorted(self.options)}"
+            )
         # Positive range tests, so NaN is refused too.
         if not 0.0 < self.accept_at <= 1.0:
             raise ValueError(
@@ -177,3 +193,39 @@ class ChoiceDecision:
             raise ValueError(
                 f"ChoiceDecision min_margin must lie in [0, 1), got {self.min_margin!r}"
             )
+
+
+def decision_shape(decide: ChoiceDecision) -> dict[str, Any]:
+    """A gate's declared decision as JSON-safe values, for the cached shape.
+
+    ``state`` is the step's *name* and ``options`` a plain dict, so the shape
+    round-trips through JSON and a warm boot reads it without importing the
+    module that declared the gate. The declared fallback joins the shape only
+    when there is one, so every digest recorded before it existed is
+    unchanged.
+    """
+    shape: dict[str, Any] = {
+        "field": decide.field,
+        "instructions": decide.instructions,
+        "options": {str(k): str(v) for k, v in decide.options.items()},
+        "state": decide.state.name,
+        "accept_at": float(decide.accept_at),
+        "min_margin": float(decide.min_margin),
+        "model": decide.model,
+    }
+    if decide.fallback is not None:
+        shape["fallback"] = decide.fallback
+    return shape
+
+
+def decision_digest(decide: ChoiceDecision) -> str:
+    """The declared rule as one stable digest.
+
+    Over the JSON projection with sorted keys, so two declarations a reader
+    would call identical always digest identical — the same contract the graph
+    digest gives the whole shape.
+    """
+    canonical = json.dumps(
+        decision_shape(decide), sort_keys=True, separators=(",", ":")
+    )
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()

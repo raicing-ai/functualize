@@ -84,6 +84,7 @@ class TestTheRuleIsInTheDigest:
             ),
             pytest.param({"instructions": "Pick a team."}, id="instructions"),
             pytest.param({"model": "jev-1.13"}, id="model"),
+            pytest.param({"fallback": "billing"}, id="fallback"),
         ],
     )
     def test_changing_the_rule_changes_the_digest(
@@ -96,6 +97,18 @@ class TestTheRuleIsInTheDigest:
 
     def test_the_same_rule_digests_the_same(self) -> None:
         assert graph_digest(_routed(_decision())) == graph_digest(_routed(_decision()))
+
+    def test_a_decision_without_a_fallback_digests_as_before(self) -> None:
+        """No ``fallback`` key joins the projection, so pre-existing digests hold."""
+        assert (
+            "fallback"
+            not in _routed(_decision()).shape().to_dict()["steps"][1]["decision"]
+        )
+
+    def test_a_declared_fallback_moves_the_digest(self) -> None:
+        assert graph_digest(_routed(_decision(fallback="billing"))) != graph_digest(
+            _routed(_decision())
+        )
 
     def test_a_gate_without_a_decision_projects_as_before(self) -> None:
         """Case 2: no `decision` key at all, so pre-existing digests hold."""
