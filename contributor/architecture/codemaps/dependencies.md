@@ -9,13 +9,11 @@ See `contributor/architecture/dependency-graph.md` for the authoritative, human-
                    /       \          NO LOGIC -- only dataclasses, enums, protocols
           _primitives/   _events/   <- Foundation + cross-cutting concern
                |            |
-         +-----+------------+----------+
-         |     |            |          |
-   _discovery/ _config/  _engine/ _plugins/   <- PEER LAYERS (never import each other at runtime)
-         |     |            |          |
-         +-----+------------+----------+
-                     |
-                   _gate/           <- Gate resolution (composed into FunctualizeApp)
+         +-----+-----+-----+-----+----------+
+         |     |     |     |     |          |
+   _discovery/ _config/ _gate/ _engine/ _plugins/   <- PEER LAYERS (never import each other at runtime)
+         |     |     |     |     |          |
+         +-----+-----+-----+-----+----------+
                      |
                    _app/            <- COMPOSITION ROOT (imports all, wires together)
                      |
@@ -24,7 +22,7 @@ See `contributor/architecture/dependency-graph.md` for the authoritative, human-
 
 Enforced in CI by `import-linter` (`uv run lint-imports`), seven contracts defined in `pyproject.toml` `[tool.importlinter]`:
 
-1. "Peer layers are independent" — independence contract over `_discovery`, `_config`, `_engine`, `_plugins`.
+1. "Peer layers are independent" — independence contract over `_discovery`, `_config`, `_gate`, `_engine`, `_plugins`.
 2. "Events depends on foundation only" — forbidden contract.
 3. "Primitives import nothing internal" — forbidden contract.
 4. "Types import nothing internal" — forbidden contract. This is what keeps `PluginHost` nameable by a plugin: `_types/host.py` imports stdlib and `_types` only, so annotating against the port never drags in the application.
@@ -43,7 +41,7 @@ and must not be — the plugin loader receives a resolved `list[str]` from the
 composition root rather than reaching across the peer boundary for it. That is
 the whole shape of the fix; an import edge here would undo it.
 
-**Verified compliant**: a grep across `_discovery/`, `_config/`, `_engine/`, `_plugins/` found exactly one cross-peer reference — `_engine/capabilities/runcontext.py:25` imports `functualize._config.job_config.JobConfigView`, but it's inside `TYPE_CHECKING` and therefore excluded by contract 1. No runtime peer-layer violation exists.
+**Verified compliant**: a grep across `_discovery/`, `_config/`, `_gate/`, `_engine/`, `_plugins/` found exactly three cross-peer references, all in `_engine/` and all inside `TYPE_CHECKING` — `_engine/capabilities/runcontext.py:25` imports `functualize._config.job_config.JobConfigView`, and `_engine/capabilities/invoke.py:26-27` imports `GateRegistry`/`GateStrategy` from `_gate` — so contract 1 excludes all three (`exclude_type_checking_imports = true`). No runtime peer-layer violation exists.
 
 ## Highest Fan-In Modules (measured)
 
