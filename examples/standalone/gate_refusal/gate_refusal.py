@@ -74,7 +74,8 @@ def answer_by_declared_name(
     app: FunctualizeApp, store: ScopeStore, scope_id: str
 ) -> dict[str, Any]:
     """Record the approval using the name the workflow declared it with."""
-    return answer_gate(app, store, scope_id, "approve_refund", {"approved": True})
+    payload = Approval(approved=True).model_dump()
+    return answer_gate(app, store, scope_id, "approve_refund", payload)
 
 
 def the_miss_a_caller_cannot_ignore(
