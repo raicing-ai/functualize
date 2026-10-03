@@ -395,6 +395,16 @@ ROUTER = ChoiceDecision(
   submitted answer never becomes a candidate's evidence. A rung whose
   provider is not installed is `unavailable` and records none.
 
+In `decision-evidence/1`, `verdict` is one of `accepted`,
+`below_threshold`, `no_distribution`, `uncovered_proposal`, or
+`provider_failed`. `uncovered_proposal` means the provider returned a
+distribution, but its proposed option is not a key in that mapping. The
+evidence keeps the returned `proposal` and `distribution`; `probability`
+and `margin` are `null` because the gate cannot read a probability for the
+proposal or compare it with another option, and `failure` is `null` because
+the provider answered without reporting an error. `no_distribution` instead
+has a `null` distribution; `provider_failed` carries an error in `failure`.
+
 `decision_record(store, scope_id, gate)` (from `functualize.app.utils`,
 **provisional**) reads one routed gate back as a single record — who took it,
 on which route, and why the decision did not:
