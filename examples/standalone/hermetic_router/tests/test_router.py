@@ -171,7 +171,12 @@ def test_a_clear_proposal_routes_the_request() -> None:
 
 
 def test_a_weak_proposal_falls_back_and_blocks_on_review() -> None:
-    """AC-3: 0.55 with a 0.35 lead misses 0.70; the fallback routes to a person."""
+    """AC-3: 0.55 with a 0.35 lead misses 0.70; the fallback routes to a person.
+
+    The recorded ladder is asserted, not just the outcome: a gate walked
+    with the wrong rungs (the no-fallback ladder) can end in this same
+    blocked place, and only the candidates tell those apart.
+    """
     routed = _routed(FakeProvider("deterministic", _WEAK_DISTRIBUTION))
 
     result = routed.run()
@@ -185,6 +190,15 @@ def test_a_weak_proposal_falls_back_and_blocks_on_review() -> None:
     assert record["fallback_used"] is True
     assert record["reason"] is not None
     assert "proposed 'deterministic' at 0.55" in record["reason"]
+    candidates = gate_draft(routed.app, routed.store(), routed.scope, "route")[
+        "resolution"
+    ]["candidates"]
+    assert [
+        (candidate["source"], candidate["outcome"]) for candidate in candidates
+    ] == [
+        ("strategy:decision", "failed"),
+        ("strategy:resolve", "accepted"),
+    ]
 
 
 def test_a_rate_limited_provider_falls_back_at_once() -> None:

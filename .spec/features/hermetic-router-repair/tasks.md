@@ -88,7 +88,7 @@ Closed when: gates as `after:`, the failing-then-passing sequence is
 recorded in the commit body, pytest passes, and the standing checks are
 clean. Commit: `fix(gate): record the evidence of an uncovered proposal`.
 
-### [ ] R2 — the weak-proposal test reaches the ladder it depends on
+### [x] R2 — the weak-proposal test reaches the ladder it depends on
 
 *Files:* `examples/standalone/hermetic_router/tests/test_router.py`
 
