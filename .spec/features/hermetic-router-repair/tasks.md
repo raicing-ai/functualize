@@ -133,11 +133,11 @@ Commit: `test(examples): make the weak-proposal test assert its ladder`.
 
 ## Wave 1 — the public record
 
-### [ ] R3 — PR #72's body matches its checkpoint
+### [x] R3 — PR #72's body matches its checkpoint
 
 *Files:* none in the repository — the merged PR #72's body on GitHub.
 
-Finding 3: PR #72's body line 25 claims "Each production path was broken
+Finding 3: PR #72's body line 25 claimed "Each production path was broken
 once and a test failed; the checkpoint commit lists each sabotage and the
 acceptance-criteria sweep." Its own checkpoint (`420b6b3`) records that
 the `gate_service.py` sabotage did **not** fail the named AC-3 test — two
@@ -151,6 +151,14 @@ Closed when: the live PR body carries the corrected sentence and nothing
 else in it changed. Evidence: the before/after sentence quoted in the
 tick commit body. Commit (repository-side tick only):
 `docs(spec): tick the pr body correction`.
+
+**Closed 2026-10-03 — found already corrected.** The live body no longer
+contains the inaccurate sentence; its correction paragraph and a matching
+*Risks* bullet describe exactly this repair (the recorded-rung assertion,
+the sabotage now failing on the extra prompt rung), and read true against
+this branch's commits. The correction could not be attributed to an actor
+from the readable PR timeline; no further edit is needed and none was
+made here.
 
 ## Wave 2 — clearing
 
