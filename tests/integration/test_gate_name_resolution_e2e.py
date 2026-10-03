@@ -11,6 +11,7 @@ matches nothing must fail loudly without a traceback anywhere.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from collections.abc import Generator
@@ -293,12 +294,33 @@ def scratch(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _child_env(scratch: Path) -> dict[str, str]:
+    """The environment for a `func` subprocess: its own home, all four roots.
+
+    Not hygiene — required. The autouse home fixture points `HOME` at a fixed
+    path shared by every checkout on the machine, and a subprocess inherits
+    it; `func` registers itself in `<config>/functualize/install.json` on
+    every run and that registry is append-only by design, so a child writing
+    there contaminates every future run. `_home` sits under the per-test
+    scratch, so nothing survives the test.
+    """
+    env = dict(os.environ)
+    home = scratch / "_home"
+    home.mkdir(exist_ok=True)
+    env["HOME"] = str(home)
+    env["XDG_CONFIG_HOME"] = str(home / ".config")
+    env["XDG_DATA_HOME"] = str(home / ".local" / "share")
+    env["XDG_CACHE_HOME"] = str(home / ".cache")
+    return env
+
+
 def _func(scratch: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["uv", "run", "--project", str(PROJECT_ROOT), "func", *args],
         capture_output=True,
         text=True,
         cwd=str(scratch),
+        env=_child_env(scratch),
         timeout=180,
     )
 

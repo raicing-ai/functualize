@@ -140,6 +140,21 @@ design (first raiser is T4; T9 proves reachability). Validation:
 extras and are identical on clean master), `lint-imports` 7 kept 0 broken,
 `uv run pytest tests/types/test_gate_not_found_error.py` → 7 passed.
 
+**Repaired 2026-10-03 (review finding 2, gate 1(d)).** The public export
+needed its user-shaped caller under `examples/`
+(`contributor/guides/adding-public-api.md` step 8): added
+`examples/standalone/gate_refusal/` — module, conftest, README and a
+collected test suite that drives the example's own functions against a real
+app and store. The task's file scope therefore now also covers
+`examples/standalone/gate_refusal/**`, and the gate below is added so the
+branch's own gate test enforces the caller's existence from here on.
+
+```bash
+rg -c 'GateNotFoundError' examples/standalone/gate_refusal/gate_refusal.py
+```
+now: `0` · after: `3` (the import, the catch arm, and the docstring that
+names what the example is for)
+
 ## Wave 1 — the surfaces learn to translate it (before anything raises it)
 
 ### [x] T2 — CLI: `_workflow_refusal()` and the fused `--wf-input` path
@@ -482,6 +497,16 @@ production seam they cover is a failing test by construction. One test
 iterated: the first version parsed `list --format json` without draining the
 resume output first (stdout pollution), fixed by draining the capture
 between calls. `ruff check`/`ruff format` clean.
+
+**Repaired 2026-10-03 (review finding 1, gate 1(d)).** The `func` subprocess
+in this file now runs with its own environment: a per-test `_home` under the
+scratch project, plus `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and
+`XDG_CACHE_HOME` all pointing under it, passed as `env=` — the shape
+`contributor/reference/testing-strategy.md` § *A test that spawns a `func`
+subprocess must give it its own HOME* prescribes, so the append-only install
+registry lands inside the per-test scratch instead of the fixed fake home
+every checkout shares. Re-validated: the file plus the new example suite →
+15 passed.
 
 ## Wave 6 — documentation
 
