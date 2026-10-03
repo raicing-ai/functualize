@@ -361,13 +361,15 @@ class _SecretServiceHarness:
 
 
 class FakeSecurity:
-    """The Keychain as the Security framework reports it, with no Mac.
+    """The Security framework as ``keyring``'s macOS ``api`` module exposes it.
 
-    ``allowed`` is ``SecKeychainSetUserInteractionAllowed``: **one flag for
-    the whole process**, so two adapters sharing one ``FakeSecurity`` are two
-    adapters in one process. ``interactive=False`` is the per-call "fail
-    rather than show UI" query option, which a locked keychain honours whatever
-    the flag says.
+    The adapter's **real** ctypes layer runs over this, so the code that sets,
+    guards and restores the interaction flag is the production code. ``allowed``
+    is ``SecKeychainSetUserInteractionAllowed`` — **one flag for the whole
+    process** — so two adapters built over one ``FakeSecurity`` are two
+    adapters in one process. A locked keychain read or written while it is True
+    shows a dialog (counted as a prompt); while it is False the call fails with
+    ``errSecInteractionNotAllowed``.
     """
 
     def __init__(self, world: World, secret: str, recorder: Recorder) -> None:
@@ -375,68 +377,119 @@ class FakeSecurity:
         self.secret = secret
         self.recorder = recorder
         self.allowed = True
-        self.copies: list[tuple[bool, bool]] = []
-        """``(interactive, allowed)`` as each read saw them."""
+        self.copies: list[bool] = []
+        """The flag as each read saw it."""
 
-        self.on_copy: Callable[[bool], None] | None = None
-        """Called as a read begins, with its ``interactive``; tests interleave here."""
+        self.on_copy: Callable[[], None] | None = None
+        """Called as a read begins, before it looks at the flag; tests interleave here."""
 
-    def interaction_allowed(self) -> bool:
-        return self.allowed
+        self.on_set: Callable[[bool], None] | None = None
+        """Called after the flag is set, with its new value."""
 
-    def set_interaction_allowed(self, allowed: bool) -> None:
-        self.allowed = allowed
+        self._sec = _FakeSecLibrary(self)
 
-    def copy_password(
-        self, service: str, account: str, *, interactive: bool
-    ) -> tuple[int, str | None]:
+    # -- the `api` module surface ---------------------------------------------
+
+    def k_(self, name: str) -> str:
+        return name
+
+    def create_query(self, **fields: Any) -> dict[str, Any]:
+        return fields
+
+    def SecItemCopyMatching(self, query: dict[str, Any], out: Any) -> int:  # noqa: N802 - mirrors the C name
         if self.on_copy is not None:
-            self.on_copy(interactive)
-        self.copies.append((interactive, self.allowed))
+            self.on_copy()
+        self.copies.append(self.allowed)
         if self.world is World.HUNG:
             time.sleep(HANG_SECONDS)
         if self.world is World.ABSENT:
-            return -25291, None  # errSecNotAvailable
+            return -25291  # errSecNotAvailable
         if self.world is World.EMPTY:
-            return -25300, None
+            return -25300
         if self.world is World.LOCKED:
-            if not interactive or not self.allowed:
-                return -25308, None
+            if not self.allowed:
+                return -25308
             self.recorder.prompts += 1
             if self.recorder.answer is Answer.CANCEL:
-                return -128, None
+                return -128
             self.world = World.UNLOCKED
         self.recorder.secret_reads += 1
-        return 0, self.secret
+        out._obj.value = 1
+        return 0
 
-    def add_password(self, service: str, account: str, secret: str) -> int:
+    def cfstr_to_str(self, data: Any) -> str:
+        return self.secret
+
+    def SecItemAdd(self, query: dict[str, Any], result: Any) -> int:  # noqa: N802 - mirrors the C name
         if self.world is World.HUNG:
             time.sleep(HANG_SECONDS)
         if self.world is World.ABSENT:
             return -25291
         if self.world is World.LOCKED:
-            return -25308
-        self.secret = secret
+            if not self.allowed:
+                return -25308
+            self.recorder.prompts += 1
+            return -128
+        self.secret = query["kSecValueData"]
         self.world = World.UNLOCKED
         return 0
 
-    def default_keychain_unlocked(self) -> bool | None:
-        if self.world is World.HUNG:
-            time.sleep(HANG_SECONDS)
-        if self.world is World.ABSENT:
-            return None
-        return self.world is not World.LOCKED
+
+class _FakeSecLibrary:
+    """``api._sec``: the four keychain calls the ctypes layer binds by name.
+
+    Plain functions, because the ctypes layer sets ``restype`` and ``argtypes``
+    on each, as it would on a real ``CDLL`` symbol.
+    """
+
+    def __init__(self, keychain: FakeSecurity) -> None:
+        def get_interaction(out: Any) -> int:
+            out._obj.value = 1 if keychain.allowed else 0
+            return 0
+
+        def set_interaction(allowed: int) -> int:
+            keychain.allowed = bool(allowed)
+            if keychain.on_set is not None:
+                keychain.on_set(bool(allowed))
+            return 0
+
+        def copy_default(out: Any) -> int:
+            if keychain.world is World.HUNG:
+                time.sleep(HANG_SECONDS)
+            if keychain.world is World.ABSENT:
+                return -25291
+            out._obj.value = 1
+            return 0
+
+        def get_status(keychain_ref: Any, out: Any) -> int:
+            out._obj.value = 0 if keychain.world is World.LOCKED else 1
+            return 0
+
+        self.SecKeychainGetUserInteractionAllowed = get_interaction
+        self.SecKeychainSetUserInteractionAllowed = set_interaction
+        self.SecKeychainCopyDefault = copy_default
+        self.SecKeychainGetStatus = get_status
 
 
 def mac_adapter(
-    world: World, secret: str, recorder: Recorder
+    world: World, secret: str, recorder: Recorder, *, keychain: FakeSecurity | None = None
 ) -> tuple[KeyringAdapter, FakeSecurity]:
-    from functualize._config.vault_keyring_macos import MacKeychainAdapter
+    """A macOS adapter over its real ctypes layer and a fake Security framework.
 
-    security = FakeSecurity(world, secret, recorder)
+    Pass ``keychain`` to build a second adapter in the same "process".
+    """
+    from functualize._config.vault_keyring_macos import (
+        MacKeychainAdapter,
+        _CtypesSecurity,
+    )
+
+    security = keychain or FakeSecurity(world, secret, recorder)
     return (
         MacKeychainAdapter(
-            "functualize-vault", "vault-key", security=security, state_bound=0.5
+            "functualize-vault",
+            "vault-key",
+            security=_CtypesSecurity(security),
+            state_bound=0.5,
         ),
         security,
     )

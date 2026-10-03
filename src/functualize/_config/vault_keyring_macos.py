@@ -3,25 +3,29 @@
 ``keyring``'s macOS backend reads with interaction allowed, so a locked keychain
 may raise a system dialog in the middle of a run — the prompt a run must never
 create. This adapter reads the same item (``kSecClassGenericPassword``, service
-and account) with interaction **disabled for that one call**, so a locked
-keychain answers ``errSecInteractionNotAllowed`` (``-25308``) instead of a
-dialog, which maps to LOCKED.
+and account) with interaction **disabled** around the read
+(``SecKeychainSetUserInteractionAllowed(false)``), so a locked keychain answers
+``errSecInteractionNotAllowed`` (``-25308``) instead of a dialog, which maps to
+LOCKED. Measured on a real macOS runner: a locked keychain answers ``locked``
+in under a second with no dialog.
 
-**Per call, not per process.** The query carries
-``kSecUseAuthenticationUI = kSecUseAuthenticationUIFail``. The older switch,
-``SecKeychainSetUserInteractionAllowed``, is one flag for the whole process: two
-adapters in one process — two apps, or a run beside a ``vault unlock`` — could
-interleave so that one turns interaction back on while the other is mid-read,
-and the "silent" read prompts. Only :meth:`MacKeychainAdapter.unlock`, which
-may prompt anyway, still sets that flag.
+**That flag is one per process, so its guard is too.** Two adapters in one
+process — two apps, or a run beside a ``vault unlock`` — each set and restore
+the flag around their own call. A lock held by one adapter instance did not
+stop another instance turning interaction back on while the first was
+mid-read, and the "silent" read prompted. The flag is therefore only ever
+switched under :data:`_INTERACTION_LOCK`, held by the real Security layer for
+the whole set-call-restore: a silent read waits a moment for it and answers
+LOCKED rather than read while an unlock dialog holds it.
 
-**Unverified on a real Mac.** The calls are the documented ones, but this has
-not been run against a real locked keychain here; the macOS CI smoke job and the
-manual checklist decide whether it holds. The ctypes layer is a thin seam
-(:class:`SecurityAPI`) so the outcome logic is tested everywhere with a fake.
+The per-call query option ``kSecUseAuthenticationUI =
+kSecUseAuthenticationUIFail`` was tried instead, and is **not** honoured by a
+locked file-based keychain: on a real runner such a read hung on a dialog.
 
-The Security framework is reached through ``keyring``'s own ctypes handle,
-imported lazily and only when the adapter is used — never on another platform.
+The ctypes layer is a thin seam (:class:`SecurityAPI`) so the outcome logic is
+tested everywhere with a fake. The Security framework is reached through
+``keyring``'s own ctypes handle, imported lazily and only when the adapter is
+used — never on another platform.
 """
 
 from __future__ import annotations
@@ -35,6 +39,7 @@ from functualize._types.enums import KeyAvailability
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from contextlib import AbstractContextManager
 
 __all__ = ["MacKeychainAdapter", "SecurityAPI"]
 
@@ -50,26 +55,36 @@ AUTH_FAILED = -25293
 #: The statuses that mean "locked, and not opened".
 _LOCKED_STATUSES = frozenset({INTERACTION_NOT_ALLOWED, USER_CANCELED, AUTH_FAILED})
 
+#: How long a silent call waits for the interaction flag. Longer than another
+#: silent call takes; an unlock dialog holding it means "locked, for now".
+_SILENT_WAIT_SECONDS = 2.0
+
+#: Guards ``SecKeychainSetUserInteractionAllowed``, which is **one flag for the
+#: whole process**. Process-wide because what it guards is: a lock per adapter
+#: or per Security layer let two of them interleave (see the module docstring).
+#: Held for a whole set-call-restore by :meth:`_CtypesSecurity.interaction`.
+_INTERACTION_LOCK = threading.Lock()
+
 
 class SecurityAPI(Protocol):
     """The Security-framework operations the adapter needs."""
 
-    def interaction_allowed(self) -> bool: ...
+    def interaction(
+        self, *, allowed: bool, wait: float | None
+    ) -> AbstractContextManager[bool]:
+        """Hold the process-wide interaction flag at ``allowed`` for one call.
 
-    def set_interaction_allowed(self, allowed: bool) -> None: ...
-
-    def copy_password(
-        self, service: str, account: str, *, interactive: bool
-    ) -> tuple[int, str | None]:
-        """``(OSStatus, secret)`` — the secret only when the status is 0.
-
-        ``interactive=False`` adds the per-call "fail rather than show UI"
-        option to the query; True leaves the query as ``keyring`` writes it.
+        Yields True once held, and restores the flag on exit. Yields False when
+        it could not be held within ``wait`` seconds (None: as long as it takes).
         """
         ...
 
+    def copy_password(self, service: str, account: str) -> tuple[int, str | None]:
+        """``(OSStatus, secret)`` — the secret only when the status is 0."""
+        ...
+
     def add_password(self, service: str, account: str, secret: str) -> int:
-        """Add the item with the per-call "fail rather than show UI" option."""
+        """Add the item; the ``OSStatus``."""
         ...
 
     def default_keychain_unlocked(self) -> bool | None:
@@ -85,9 +100,6 @@ class _CtypesSecurity:
 
         self._api = api
         self._ctypes = ctypes
-        # Resolved up front: a Security framework without it cannot read
-        # silently, and the adapter then reports no keychain instead.
-        self._ui_fail = api.k_("kSecUseAuthenticationUIFail")
         sec = api._sec
         self._get = sec.SecKeychainGetUserInteractionAllowed
         self._get.restype = ctypes.c_int32
@@ -102,28 +114,32 @@ class _CtypesSecurity:
         self._status.restype = ctypes.c_int32
         self._status.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32))
 
-    def interaction_allowed(self) -> bool:
-        flag = self._ctypes.c_ubyte(1)
-        self._get(self._ctypes.byref(flag))
-        return bool(flag.value)
+    @contextlib.contextmanager
+    def interaction(self, *, allowed: bool, wait: float | None) -> Iterator[bool]:
+        if not _INTERACTION_LOCK.acquire(timeout=-1 if wait is None else wait):
+            yield False
+            return
+        try:
+            flag = self._ctypes.c_ubyte(1)
+            self._get(self._ctypes.byref(flag))
+            previous = flag.value
+            self._set(1 if allowed else 0)
+            try:
+                yield True
+            finally:
+                self._set(previous)
+        finally:
+            _INTERACTION_LOCK.release()
 
-    def set_interaction_allowed(self, allowed: bool) -> None:
-        self._set(1 if allowed else 0)
-
-    def copy_password(
-        self, service: str, account: str, *, interactive: bool
-    ) -> tuple[int, str | None]:
+    def copy_password(self, service: str, account: str) -> tuple[int, str | None]:
         api = self._api
-        fields: dict[str, Any] = {
-            "kSecClass": api.k_("kSecClassGenericPassword"),
-            "kSecMatchLimit": api.k_("kSecMatchLimitOne"),
-            "kSecAttrService": service,
-            "kSecAttrAccount": account,
-            "kSecReturnData": True,
-        }
-        if not interactive:
-            fields["kSecUseAuthenticationUI"] = self._ui_fail
-        query = api.create_query(**fields)
+        query = api.create_query(
+            kSecClass=api.k_("kSecClassGenericPassword"),
+            kSecMatchLimit=api.k_("kSecMatchLimitOne"),
+            kSecAttrService=service,
+            kSecAttrAccount=account,
+            kSecReturnData=True,
+        )
         data = self._ctypes.c_void_p()
         status = int(api.SecItemCopyMatching(query, self._ctypes.byref(data)))
         if status != 0:
@@ -137,7 +153,6 @@ class _CtypesSecurity:
             kSecAttrService=service,
             kSecAttrAccount=account,
             kSecValueData=secret,
-            kSecUseAuthenticationUI=self._ui_fail,
         )
         return int(api.SecItemAdd(query, None))
 
@@ -172,21 +187,25 @@ class MacKeychainAdapter:
         return "macos"
 
     def read_silent(self) -> AdapterRead:
-        """Read with interaction disabled for this call: a locked keychain answers."""
+        """Read with interaction disabled: a locked keychain answers, never asks."""
         security = self._api()
         if security is None:
             return AdapterRead(AdapterOutcome.NO_KEYRING)
-        status, secret = security.copy_password(
-            self._service, self._account, interactive=False
-        )
+        with security.interaction(allowed=False, wait=_SILENT_WAIT_SECONDS) as held:
+            if not held:
+                return AdapterRead(AdapterOutcome.LOCKED)
+            status, secret = security.copy_password(self._service, self._account)
         return _outcome(status, secret)
 
     def store_silent(self, secret: str) -> AdapterOutcome:
-        """Add the item with interaction disabled for this call; locked is LOCKED."""
+        """Add the item with interaction disabled: a locked keychain is LOCKED."""
         security = self._api()
         if security is None:
             return AdapterOutcome.NO_KEYRING
-        status = security.add_password(self._service, self._account, secret)
+        with security.interaction(allowed=False, wait=_SILENT_WAIT_SECONDS) as held:
+            if not held:
+                return AdapterOutcome.LOCKED
+            status = security.add_password(self._service, self._account, secret)
         if status == 0:
             return AdapterOutcome.FOUND
         if status in _LOCKED_STATUSES:
@@ -226,10 +245,10 @@ class MacKeychainAdapter:
             return AdapterRead(before.outcome, secret=before.secret, how=how)
         security = self._api()
         assert security is not None
-        with self._interaction(security, allowed=True):
-            status, secret = security.copy_password(
-                self._service, self._account, interactive=True
-            )
+        # No deadline: a person is answering the dialog, and this call holds
+        # the flag until they do.
+        with security.interaction(allowed=True, wait=None):
+            status, secret = security.copy_password(self._service, self._account)
         if status == USER_CANCELED:
             return AdapterRead(AdapterOutcome.LOCKED, how=UnlockHow.CANCELLED)
         read = _outcome(status, secret)
@@ -241,22 +260,8 @@ class MacKeychainAdapter:
                 from keyring.backends.macOS import api
             except Exception:  # noqa: BLE001 - no Security framework: no keychain
                 return None
-            try:
-                self._security = _CtypesSecurity(api)
-            except Exception:  # noqa: BLE001 - cannot read silently: no keychain
-                return None
+            self._security = _CtypesSecurity(api)
         return self._security
-
-    @staticmethod
-    @contextlib.contextmanager
-    def _interaction(security: SecurityAPI, *, allowed: bool) -> Iterator[None]:
-        """Allow interaction for the one prompting read, and always put it back."""
-        previous = security.interaction_allowed()
-        security.set_interaction_allowed(allowed)
-        try:
-            yield
-        finally:
-            security.set_interaction_allowed(previous)
 
 
 def _outcome(status: int, secret: str | None) -> AdapterRead:
