@@ -11,6 +11,8 @@ Run by `.github/workflows/keyring-platforms.yml`, one platform per runner:
 answers LOCKED promptly. Every read runs in a child process under a hard
 timeout, because on a real desktop the failure mode is not an exception but a
 dialog: a read that hangs is a read that asked to unlock, and fails the job.
+The silent store `vault init` uses is held to the same rule: stored and read
+back when unlocked, LOCKED at once when locked.
 
 **Tier 2** — a spike: unlock the keyring *without* a dialog ("unlocked
 elsewhere") and check that a silent read then finds the key. Where no headless
@@ -25,6 +27,7 @@ for the duration (restored at exit), and on Linux it must run inside its own
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -36,6 +39,8 @@ from pathlib import Path
 
 SERVICE = "functualize-vault"
 ACCOUNT = "vault-key"
+#: Store probes write their own item, so they never collide with the read probe's.
+STORE_ACCOUNT = "vault-key-store-probe"
 KEY_HEX = "7e" * 32
 READ_TIMEOUT = 5.0
 
@@ -49,6 +54,21 @@ print(json.dumps({{
     "outcome": read.outcome.value,
     "secret_ok": read.secret == {key!r},
     "state": adapter.state().value,
+}}))
+"""
+
+#: What `vault init` does: a silent store, then a silent read of what it wrote.
+_STORE_PROBE = """
+import json, sys
+from functualize._config.vault_keyring import select_adapter
+adapter = select_adapter({service!r}, {account!r})
+stored = adapter.store_silent({key!r})
+read = adapter.read_silent()
+print(json.dumps({{
+    "adapter": adapter.name,
+    "stored": stored.value,
+    "read_after": read.outcome.value,
+    "secret_ok": read.secret == {key!r},
 }}))
 """
 
@@ -66,9 +86,19 @@ def _run(
     )
 
 
-def _probe(env: dict[str, str] | None = None) -> dict[str, object]:
+def _store_probe(env: dict[str, str] | None = None) -> dict[str, object]:
+    """Store through the real adapter in a child process, under the same timeout."""
+    return _probe(env, template=_STORE_PROBE, account=STORE_ACCOUNT)
+
+
+def _probe(
+    env: dict[str, str] | None = None,
+    *,
+    template: str = _PROBE,
+    account: str = ACCOUNT,
+) -> dict[str, object]:
     """Ask the real adapter in a child process; a hang is a failure, not a wait."""
-    code = _PROBE.format(service=SERVICE, account=ACCOUNT, key=KEY_HEX)
+    code = template.format(service=SERVICE, account=account, key=KEY_HEX)
     started = time.monotonic()
     try:
         done = subprocess.run(  # noqa: S603
@@ -156,10 +186,19 @@ def macos(smoke: Smoke) -> None:
             secret_ok=True,
             state="unlocked",
         )
+        smoke.expect(
+            "unlocked store",
+            _store_probe(),
+            adapter="macos",
+            stored="found",
+            read_after="found",
+            secret_ok=True,
+        )
         _run("security", "lock-keychain", keychain)
         smoke.expect(
             "locked read", _probe(), adapter="macos", outcome="locked", state="locked"
         )
+        smoke.expect("locked store", _store_probe(), adapter="macos", stored="locked")
         # Tier 2: unlocked elsewhere, with no dialog.
         _run("security", "unlock-keychain", "-p", password, keychain)
         after = _probe()
@@ -200,6 +239,18 @@ def windows(smoke: Smoke) -> None:
     finally:
         keyring.delete_password(SERVICE, ACCOUNT)
     smoke.expect("nothing stored", _probe(), adapter="windows", outcome="not_stored")
+    try:
+        smoke.expect(
+            "store",
+            _store_probe(),
+            adapter="windows",
+            stored="found",
+            read_after="found",
+            secret_ok=True,
+        )
+    finally:
+        with contextlib.suppress(Exception):
+            keyring.delete_password(SERVICE, STORE_ACCOUNT)
     smoke.tier2 = "not applicable: Credential Manager has no locked state"
 
 
@@ -267,15 +318,24 @@ def linux(smoke: Smoke) -> None:
         secret_ok=True,
         state="unlocked",
     )
+    smoke.expect(
+        "unlocked store",
+        _store_probe(env),
+        adapter="linux",
+        stored="found",
+        read_after="found",
+        secret_ok=True,
+    )
     collection.lock()
     before = _prompt_objects()
     smoke.expect(
         "locked read", _probe(env), adapter="linux", outcome="locked", state="locked"
     )
+    smoke.expect("locked store", _store_probe(env), adapter="linux", stored="locked")
     after = _prompt_objects()
     _say("prompt objects before/after:", before, after)
     if after != before:
-        smoke.failures.append(f"a silent read created prompt objects: {after}")
+        smoke.failures.append(f"a silent read or store created prompt objects: {after}")
     # Tier 2 spike: unlock without a dialog, through the running daemon.
     _run(
         "gnome-keyring-daemon",

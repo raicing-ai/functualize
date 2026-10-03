@@ -78,9 +78,7 @@ class TestTwoAdaptersInOneProcess:
     def test_a_silent_read_stays_silent_while_another_adapter_unlocks(self) -> None:
         recorder = Recorder(answer=Answer.ACCEPT)
         security = FakeSecurity(World.LOCKED, _SECRET, recorder)
-        reader = MacKeychainAdapter(
-            "functualize-vault", "vault-key", security=security
-        )
+        reader = MacKeychainAdapter("functualize-vault", "vault-key", security=security)
         unlocker = MacKeychainAdapter(
             "functualize-vault", "vault-key", security=security
         )
