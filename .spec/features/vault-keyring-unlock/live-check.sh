@@ -102,7 +102,15 @@ PY
 
 cleanup() {
   say "cleanup: delete the throwaway collection and the temp project"
-  guard delete || echo "delete failed; remove 'functualize-live-check' in Seahorse"
+  # Deleting a LOCKED collection raises a dialog nobody announced; if that were
+  # interrupted it would end a prompt from the client side (research R9). So only
+  # an unlocked throwaway is deleted here; a locked one is left and reported.
+  if [ "$(guard state 2>/dev/null | tail -1)" = "throwaway Locked = False" ]; then
+    guard delete || echo "delete failed; remove 'functualize-live-check' in your keyring manager"
+  else
+    echo "the throwaway collection is still LOCKED, so it was NOT deleted."
+    echo "Remove 'functualize-live-check' in your keyring manager (Passwords and Keys)."
+  fi
   rm -rf "$WORK"
   say "AFTER (read-only): Login Locked, coredump count"
   AFTER="$(LOGIN_LOCKED)"
@@ -202,8 +210,13 @@ ask "Did the second dialog appear and unlock normally after the cancel? (expecte
 say "5. two parallel piped jobs on a locked keyring: both refuse at once, ZERO dialogs"
 guard lock
 guard state   # must say True
-( cd "$PROJ" && "$FUNC" deploy | cat; echo "job A exit=${PIPESTATUS[0]}" ) &
-( cd "$PROJ" && "$FUNC" deploy | cat; echo "job B exit=${PIPESTATUS[0]}" ) &
+( set +e; cd "$PROJ" && "$FUNC" deploy | cat; echo "job A exit=${PIPESTATUS[0]}" ) &
+( set +e; cd "$PROJ" && "$FUNC" deploy | cat; echo "job B exit=${PIPESTATUS[0]}" ) &
 wait
 ask "How many unlock dialogs appeared? (expected: 0)"
+
+# --- finish --------------------------------------------------------------
+say "finish: unlock the throwaway ('vault unlock' will show ONE dialog: ANSWER it) so cleanup can delete it"
+( cd "$PROJ" && "$FUNC" builtin vault unlock ) || echo "vault unlock exit=$?"
+guard state   # must say False
 say "done"

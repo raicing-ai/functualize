@@ -940,7 +940,7 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
 
 ## Wave 14 — the live check with the maintainer (a human step)
 
-- [ ] **R8.2 — Run the live check, together**
+- [x] **R8.2 — Run the live check, together**
   - Run `live-check.sh` (R7.2) with the maintainer at the keyboard of the Arch/niri
     machine; paste the real output into `live-check.md`. **Stop and ask** before any step
     that is not in the script. Never touch `Login`; never run abandon-style scenarios on the
@@ -948,6 +948,12 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
   - Gate: output pasted; `Login Locked: UNCHANGED`; `coredumpctl` count unchanged;
     scenarios 1-5 each marked pass/fail with the evidence.
   - Spec: A11'.
+
+  - **Result 2026-10-03 (against `afaa5cb`):** scenarios 1-4 pass; scenario 5 passes on
+    its main criterion (both runs refused with the neutral text, 0 dialogs) but its
+    exit codes were not captured because of a `set -e` bug in the script (fixed); that
+    gap is covered by the automated test in R6.4. `Login Locked: UNCHANGED`, coredumps
+    9 -> 9, daemon PID unchanged. Full output and a verdict table are in `live-check.md`.
 
 ## Wave 15 — knowledge and tracker close-out
 
