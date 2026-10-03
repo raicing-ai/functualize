@@ -174,7 +174,9 @@ unattended Lambda run hangs on a keychain prompt.
 > touched. The keychain is read **regardless of terminal** and **silently**:
 > an unlocked keyring answers, a locked one refuses the run at once. The only
 > thing that asks a keyring to unlock is `func builtin vault unlock`, run by a
-> person, which waits for the prompt's own outcome and never cancels it.
+> person, which waits for the prompt's own outcome and never cancels it —
+> `vault init` included, which reads and stores silently and refuses a locked
+> keyring rather than unlocking it.
 > `VaultKeyProvider.get_key` must never prompt; unlocking is the separate
 > `VaultKeyUnlocker` capability. The key is resolved **lazily** — only when a
 > run opens a stored entry. `[vault] keyring_timeout` bounds only a keyring that

@@ -214,7 +214,10 @@ the generic adapter, which writes as little as it reads. `KeychainKeyProvider.in
 reads with `read_silent()` and writes with `store_silent()`; a locked keyring refuses
 `vault init` with the B3' locked text pointing at `func builtin vault unlock`.
 
-On macOS the silent read and the store carry the per-call
-`kSecUseAuthenticationUI = kSecUseAuthenticationUIFail` option instead of switching the
-process-wide `SecKeychainSetUserInteractionAllowed` flag, so two adapter instances in one
-process cannot interleave into a prompting read. `unlock()` alone still allows interaction.
+On macOS the silent read and the store switch the process-wide
+`SecKeychainSetUserInteractionAllowed` flag off, and every switch of that flag — silent or
+`unlock()` — happens under **one process-wide lock** held for the whole set-call-restore, so
+two adapter instances in one process cannot interleave into a prompting read. A silent call
+waits up to 2 s for the flag and answers LOCKED rather than read while an unlock dialog holds
+it. (The per-call `kSecUseAuthenticationUIFail` option was tried first and is not honoured by
+a locked file keychain: on a real runner such a read hung on a dialog.)

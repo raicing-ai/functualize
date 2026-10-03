@@ -631,7 +631,8 @@ some desktops and lock every keyring you have. So unlock first, then run:
 func builtin vault unlock
 ```
 
-in a terminal. It is the only command that asks the keyring to unlock. It waits
+in a terminal. It is the only command that asks the keyring to unlock — even
+`vault init` refuses a locked keyring and sends you here. It waits
 — with no deadline — for you to answer or cancel the keyring's own dialog, says
 whether the keyring was already unlocked or has just been unlocked, and never
 prints the key. Interrupt it once and it keeps waiting (answer or cancel the

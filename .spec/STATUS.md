@@ -782,7 +782,10 @@ key is read lazily — only when a run opens a stored vault entry — from
 stdout is a terminal**: an unlocked keyring answers, a locked one refuses the
 run at once (exit 3) with no dialog and no wait. `func builtin vault unlock`,
 run by a person, is the only thing that asks a keyring to unlock, and it waits
-for the dialog's own outcome. Recorded in ADR-016 §5's "Amended by" note.
+for the dialog's own outcome. `vault init` reads and stores silently too: on a
+locked keyring it refuses (`key_locked`) and points at `vault unlock` — the
+first review caught it unlocking and writing through `keyring.set_password`.
+Recorded in ADR-016 §5's "Amended by" note.
 
 **Rules that outlive the feature:**
 
@@ -800,6 +803,16 @@ for the dialog's own outcome. Recorded in ADR-016 §5's "Amended by" note.
   `Locked`, never `unlock()`, never create a collection), macOS with
   interaction disabled (`-25308` -> locked), Windows Credential Manager (no
   lock model). A `keyring` backend not proven silent is not read by a run.
+  Writes go through the same adapters (`store_silent`); `keyring.set_password`
+  is not silent either.
+- **macOS's interaction switch is one flag per process, so its guard is too.**
+  `SecKeychainSetUserInteractionAllowed` is the only thing that silences a
+  locked file keychain — the per-call `kSecUseAuthenticationUIFail` query
+  option is **not** honoured there (a CI read with it hung on a dialog). A
+  lock per adapter let a second adapter in the same process turn interaction
+  on mid-read; the flag is switched only under one process-wide lock in
+  `vault_keyring_macos.py`, a deliberate exception to the no-module-state rule
+  (the state it guards is the OS's, and process-wide by nature).
 - **The TTY gate was a proxy.** "Needs a person at this terminal" and "may
   block on a backend" are different; only the first is terminal-gated now.
 - **The test suite must fence the real keyring.** Once reads stopped being
@@ -812,9 +825,10 @@ unlocked + piped silent; locked + piped refused in process start-up time with
 no dialog; `vault unlock` answered and cancelled both behave; parallel locked
 runs raise no dialog; `Login` lock state, coredump count and daemon PID
 unchanged. CI (`.github/workflows/keyring-platforms.yml`, not yet a required
-check): on real macOS a locked keychain answers `locked` in 0.49 s with no
-dialog; on Linux (private `dbus-run-session`) a locked collection is reported
-with no prompt object created; Windows reads and reports "nothing stored".
+check): on real macOS a locked keychain answers `locked` in about 0.2 s with
+no dialog, for a read and for a store; on Linux (private `dbus-run-session`) a
+locked collection is reported, for a read and for a store, with no prompt
+object created; Windows reads, stores and reports "nothing stored".
 
 **Open.** macOS and Windows are checked on CI runners, not yet confirmed on a
 user's own machine (manual checklist in the PR's `live-check.md`). A headless

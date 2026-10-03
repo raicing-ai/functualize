@@ -254,10 +254,12 @@ Production call paths (reachability, one per behavior):
 
 ## Surviving smells
 
-Nothing on the Constitution's *Forbidden Patterns* list remains (no module-level
-singleton, no `Callable` port, no ABC port, no `_cli -> internals`, no peer-layer
-cross-import, no kernel-layer CLI import, no class near 500 LOC: the new resolver
-module is ~200 lines; `vault_source.py` stays under 400).
+Nothing on the Constitution's *Forbidden Patterns* list remains (no `Callable`
+port, no ABC port, no `_cli -> internals`, no peer-layer cross-import, no
+kernel-layer CLI import, no class near 500 LOC: the new resolver module is ~200
+lines; `vault_source.py` stays under 400) — **except S-7 below, a module-level
+lock added by the review fixes, which is put to the maintainer as a decision**
+rather than accepted here.
 
 | ID | Smell | Where | Why accepted | Review? |
 |---|---|---|---|---|
@@ -267,6 +269,7 @@ module is ~200 lines; `vault_source.py` stays under 400).
 | S-4 | **Speculative Generality** (small) | `_non_interactive_first` (`app/vault.py:416`) is order-neutral for the two shipped providers once the keychain is `interactive() == False` | still correct for third-party providers; deleting it is a public-behavior change for providers that return `True` | reviewed 2026-10-02: **keep accepted** |
 | S-5 | **Switch Statements** (mild) | `VaultKeyResolver.lookup` branches on `KeyAccess` (3 modes) | ~2 differing lines per mode; Strategy classes would cost more than they save (Rule of Three met in count, not in behavior) | no |
 | S-6 | **Middle Man** | `app/vault.py:vault_unlock` / `_resolve_key` forward to the resolver | required by the `_cli uses public API only` contract: the CLI cannot call `_config`, so a thin public function is the legal path (same as every sibling in that file) | no |
+| S-7 | **Global mutable state** — on the *Forbidden Patterns* list | `_config/vault_keyring_macos.py:_INTERACTION_LOCK`, a module-level `threading.Lock` | it guards `SecKeychainSetUserInteractionAllowed`, which the OS keeps **one per process**; the only thing that silences a locked file keychain (the per-call `kSecUseAuthenticationUIFail` option hung on a dialog on a real runner). A lock per adapter or per ctypes layer let two instances interleave into a prompting read — the review's finding 2, reproduced by `TestTwoAdaptersInOneProcess` (a per-instance lock turns it red). Testability holds: the tests drive the real lock. Precedent: `_primitives/run_store.py:_ID_LOCK` guards process-wide id state the same way | **yes — maintainer decision**: accept this exception, or name another mechanism |
 
 ---
 

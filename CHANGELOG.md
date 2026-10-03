@@ -40,7 +40,7 @@ confirmed on a user's own machine. `VaultKeyProvider.get_key` must now never pro
 `interactive()` means "needs a person at a terminal"; the keychain provider
 returns `False`. Recorded as an amendment to ADR-016 §5.
 
-Two behaviours move with it:
+Three behaviours move with it:
 
 - A config section holding a stored entry that cannot be opened now
   **refuses** at that entry. Listing a section needs no key any more, so the
@@ -49,6 +49,12 @@ Two behaviours move with it:
   printed at start-up. It is printed once, at the first declared-remote value
   that falls through — the first moment the key is needed — and an app whose
   values all come from env or files no longer prints it at all.
+- `func builtin vault init` no longer unlocks a locked keyring. It reads and
+  stores silently like everything else, and on a locked keyring it refuses
+  (exit `3`, `key_locked`) and points at `func builtin vault unlock`. A
+  `keyring` backend that cannot be used silently is refused too
+  (`key_unverified`) — a key stored where no run can read it would only look
+  like a working setup.
 
 ### Added — `func builtin vault unlock`, the vault key state, `[vault] keyring_timeout`
 
