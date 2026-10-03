@@ -958,7 +958,62 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
     turns it red). `Login Locked: UNCHANGED`, coredumps
     9 -> 9, daemon PID unchanged. Full output and a verdict table are in `live-check.md`.
 
-## Wave 15 — knowledge and tracker close-out
+## Wave 15 — review fixes (the first review, 2026-10-03: three blocking findings)
+
+The review of the whole PR found two prompt paths B4' forbids and a missing
+example gate. Fixed here, before a re-made deletion-only cleanup commit
+(`contracts.md` §11a).
+
+- [ ] **V1.1 — `vault init` never prompts: `store_silent` on the port**
+  - [F] `src/functualize/_config/vault_keyring.py`, `vault_keyring_secretservice.py`,
+    `vault_keyring_macos.py`, `vault_keyring_windows.py`, `vault_keyring_generic.py`,
+    `src/functualize/_config/vault_keys.py`, `tests/contracts/_fake_platforms.py`,
+    `tests/contracts/test_keyring_adapter_contract.py`, `tests/config/test_vault_keys.py`,
+    `tests/cli/test_vault_commands.py`
+    (hit set: `rg -n "unlock_key|initialize_key|set_password" src` — `initialize_key`
+    is the one caller of `unlock_key` outside the resolver's FOREGROUND path, and the one
+    `set_password`)
+  - `initialize_key` reads with `read_silent()`: FOUND -> return it; LOCKED -> refuse with
+    the locked text naming `func builtin vault unlock`; UNVERIFIED / NO_KEYRING -> refuse.
+    NOT_STORED -> `store_silent(generated)`; anything but FOUND refuses. No
+    `keyring.set_password` remains in `src/`.
+  - Gate: `uv run pytest tests/contracts tests/config/test_vault_keys.py tests/cli/test_vault_commands.py -q`;
+    the CLI test drives `func builtin vault init` over an adapter whose `unlock()` raises;
+    `rg -n "set_password|unlock_key" src/functualize/_config/vault_keys.py` shows no
+    call from `initialize_key`.
+  - Spec: B4' (the only prompt is `vault unlock`). Call path: `_cli/vault_cmd.py`
+    `vault_init_command` -> `app/vault.py` `vault_init` -> `_init_with` ->
+    `KeychainKeyProvider.initialize_key` -> adapter `read_silent` / `store_silent`.
+
+- [ ] **V1.2 — macOS reads are silent per call, not by a process-wide flag**
+  - [F] `src/functualize/_config/vault_keyring_macos.py`,
+    `tests/contracts/_fake_platforms.py`, `tests/config/test_vault_keyring_macos.py`,
+    `.github/scripts/keyring_smoke.py`
+  - `read_silent` and `store_silent` pass `kSecUseAuthenticationUIFail` in the query and
+    no longer touch `SecKeychainSetUserInteractionAllowed`; the per-instance lock goes.
+    The fake models the flag as one process-wide object shared by two adapter instances.
+  - Gate: `uv run pytest tests/config/test_vault_keyring_macos.py tests/contracts -q`
+    including a two-instance test (one instance unlocking while the other reads) that
+    fails on the old flag-switching read; `mypy --platform darwin` on the module;
+    the macOS CI smoke (tier 1 locked read, and the new store probes) — **CI-only**.
+  - Spec: B2', B9, A15, A17.
+
+- [ ] **V1.3 — The new public API has example callers**
+  - [F] `examples/` (new example), `contributor/reference/public-api-example-coverage.md`
+    if it lists symbols
+  - User-shaped, pytest-collected examples for `vault_key_state`, `VaultKeyState`,
+    `VaultKeyStatus`, `vault_unlock`, `UnlockAbandonedError` (`functualize.app.vault`)
+    and `VaultKeyProbe`, `VaultKeyUnlocker`, `KeyAvailability` (`functualize.plugin`).
+  - Gate: `uv run pytest examples/ -q`; `rg` over `examples/` finds each name.
+  - Rule: `contributor/guides/adding-public-api.md` step 8.
+
+- [ ] **V1.4 — Prose follows the fixed behavior; full gates**
+  - [F] `.spec/STATUS.md`, `contributor/adr/016-remote-source-activation.md`,
+    `CHANGELOG.md`, `docs/guides/configuration.md` (where they describe `vault init`
+    or the macOS read), the PR body
+  - Gate: as R8.1; dead-code delta over the dispatch base..new head.
+
+## Wave 16 — knowledge and tracker close-out
 
 - [ ] **R8.3 — Knowledge and tracker close-out**
   - [F] none in the repository.
@@ -1085,6 +1140,15 @@ dependency graph. Read `research.md` R9-R12 first: they are the evidence.
     },
     {
       "id": 15,
+      "tasks": [
+        "V1.1",
+        "V1.2",
+        "V1.3",
+        "V1.4"
+      ]
+    },
+    {
+      "id": 16,
       "tasks": [
         "R8.3"
       ]

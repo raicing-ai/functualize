@@ -197,3 +197,24 @@ class KeyringAdapter(Protocol):
 (generic adapter only: silence cannot be proven). The factory in
 `_config/vault_keyring.py` selects by `sys.platform` and the active `keyring` backend; the
 allowlist is the Secret Service family, macOS Keychain and Windows Credential Manager.
+
+### 11a. Review amendment (2026-10-03): storing never prompts either
+
+The first review found `vault init` reading through `unlock()` and writing through
+`keyring.set_password` (which unlocks a locked Secret Service collection first) — a second
+prompting path, against B4'. The port gains one operation:
+
+```python
+    def store_silent(self, secret: str) -> AdapterOutcome: ...   # never prompts
+```
+
+`FOUND` — stored, and a later `read_silent()` finds it; `LOCKED` — locked, nothing written,
+no prompt; `NO_KEYRING` — no keyring, or nowhere to store without one; `UNVERIFIED` —
+the generic adapter, which writes as little as it reads. `KeychainKeyProvider.initialize_key`
+reads with `read_silent()` and writes with `store_silent()`; a locked keyring refuses
+`vault init` with the B3' locked text pointing at `func builtin vault unlock`.
+
+On macOS the silent read and the store carry the per-call
+`kSecUseAuthenticationUI = kSecUseAuthenticationUIFail` option instead of switching the
+process-wide `SecKeychainSetUserInteractionAllowed` flag, so two adapter instances in one
+process cannot interleave into a prompting read. `unlock()` alone still allows interaction.
