@@ -964,7 +964,7 @@ The review of the whole PR found two prompt paths B4' forbids and a missing
 example gate. Fixed here, before a re-made deletion-only cleanup commit
 (`contracts.md` §11a).
 
-- [ ] **V1.1 — `vault init` never prompts: `store_silent` on the port**
+- [x] **V1.1 — `vault init` never prompts: `store_silent` on the port**
   - [F] `src/functualize/_config/vault_keyring.py`, `vault_keyring_secretservice.py`,
     `vault_keyring_macos.py`, `vault_keyring_windows.py`, `vault_keyring_generic.py`,
     `src/functualize/_config/vault_keys.py`, `tests/contracts/_fake_platforms.py`,
@@ -984,21 +984,39 @@ example gate. Fixed here, before a re-made deletion-only cleanup commit
   - Spec: B4' (the only prompt is `vault unlock`). Call path: `_cli/vault_cmd.py`
     `vault_init_command` -> `app/vault.py` `vault_init` -> `_init_with` ->
     `KeychainKeyProvider.initialize_key` -> adapter `read_silent` / `store_silent`.
+  - **Executed 2026-10-03.** Gate: 349 passed (contracts, `test_vault_keys.py`,
+    `test_vault_commands.py`, `test_vault_seam.py`); `rg -n "set_password" src` -> only the
+    Windows adapter's Credential Manager write (no lock model) and prose. `_init_with` maps
+    the typed refusals to `key_locked` / `key_unverified` / `no_keyring` (all three already
+    declared reasons). Sabotage (`initialize_key` reads through `adapter.unlock()`) turned
+    10 red, both CLI cases among them; restored. Also corrected `vault_keys.py`'s module
+    docstring, which still said a locked keyring "may show its own unlock dialog".
 
-- [ ] **V1.2 — macOS reads are silent per call, not by a process-wide flag**
+- [x] **V1.2 — macOS: one process-wide guard for the process-wide interaction flag**
   - [F] `src/functualize/_config/vault_keyring_macos.py`,
     `tests/contracts/_fake_platforms.py`, `tests/config/test_vault_keyring_macos.py`,
     `.github/scripts/keyring_smoke.py`
-  - `read_silent` and `store_silent` pass `kSecUseAuthenticationUIFail` in the query and
-    no longer touch `SecKeychainSetUserInteractionAllowed`; the per-instance lock goes.
-    The fake models the flag as one process-wide object shared by two adapter instances.
-  - Gate: `uv run pytest tests/config/test_vault_keyring_macos.py tests/contracts -q`
-    including a two-instance test (one instance unlocking while the other reads) that
-    fails on the old flag-switching read; `mypy --platform darwin` on the module;
-    the macOS CI smoke (tier 1 locked read, and the new store probes) — **CI-only**.
+  - **Revised during execution.** Planned: pass `kSecUseAuthenticationUIFail` per call and
+    stop touching `SecKeychainSetUserInteractionAllowed`. The macOS CI smoke refuted it: a
+    locked file keychain read with that option **hung on a dialog** (run 37095704840,
+    `locked read {"hung": true}`, `locked store {"hung": true}`). So the flag stays, and
+    every switch of it — silent or `unlock()` — happens under `_INTERACTION_LOCK`, one
+    module-level lock held for the whole set-call-restore by the real ctypes layer. A silent
+    call waits up to 2 s for it and answers LOCKED rather than read while an unlock dialog
+    holds it. That lock is on the *Forbidden Patterns* list: `plan.md` S-7, put to the
+    maintainer.
+  - The fake is now the Security framework itself, so every contract case runs the real
+    `_CtypesSecurity`; the two-instance test builds two adapters with their own ctypes
+    layers over one fake framework.
+  - Gate: `uv run pytest tests/config/test_vault_keyring_macos.py tests/contracts -q` ->
+    147 passed (with the platform-import tests); `mypy --platform darwin` clean; CI
+    `keyring (macos)` on `17753f3` (run 37096101619): locked read `locked` 0.21 s, locked
+    store `locked` 0.2 s, unlocked store found and read back — **CI-only evidence**.
+    Sabotage (a per-instance lock in place of `_INTERACTION_LOCK`) turned the two-instance
+    test red with the "silent" read returning FOUND — it prompted; restored.
   - Spec: B2', B9, A15, A17.
 
-- [ ] **V1.3 — The new public API has example callers**
+- [x] **V1.3 — The new public API has example callers**
   - [F] `examples/` (new example), `contributor/reference/public-api-example-coverage.md`
     if it lists symbols
   - User-shaped, pytest-collected examples for `vault_key_state`, `VaultKeyState`,
@@ -1006,12 +1024,28 @@ example gate. Fixed here, before a re-made deletion-only cleanup commit
     and `VaultKeyProbe`, `VaultKeyUnlocker`, `KeyAvailability` (`functualize.plugin`).
   - Gate: `uv run pytest examples/ -q`; `rg` over `examples/` finds each name.
   - Rule: `contributor/guides/adding-public-api.md` step 8.
+  - **Executed 2026-10-03.** `examples/standalone/secrets_lab/key_preflight.py` (a
+    pre-run check: `vault_key_state`, `VaultKeyState`, `VaultKeyStatus`, `vault_unlock`,
+    `UnlockAbandonedError`) and `password_manager_key.py` (a third-party provider:
+    `VaultKeyProvider`, `VaultKeyProbe`, `VaultKeyUnlocker`, `KeyAvailability`), each with
+    a pytest file; a lab `conftest.py` puts the lab root on `sys.path`, as `plugin_host`
+    does. Every name has 4-10 example references. `secrets_lab`: 21 passed, including the
+    lab's own "imports nothing private" test. No public hook wires a third-party provider
+    into the resolver yet, so that example is held to the protocols, not run through a
+    resolution — stated in its test.
 
-- [ ] **V1.4 — Prose follows the fixed behavior; full gates**
+- [x] **V1.4 — Prose follows the fixed behavior; full gates**
   - [F] `.spec/STATUS.md`, `contributor/adr/016-remote-source-activation.md`,
     `CHANGELOG.md`, `docs/guides/configuration.md` (where they describe `vault init`
     or the macOS read), the PR body
   - Gate: as R8.1; dead-code delta over the dispatch base..new head.
+  - **Executed 2026-10-03.** `ruff check`, `ruff format --check` (1586 files), `mypy src/`
+    (386 files), `lint-imports` 7 kept / 0 broken. Fast suite by chunk: 2853 + 5460 + 1993
+    + 1698 passed; `examples/` 246 passed. The guide gained one line above the vault
+    commands section, so `p-remote-vault.toml` moves to `756-811`. Dead-code delta
+    `f2e3117..a54e3e2`: `NEW_DEAD: 0  TESTS_ONLY: 0`; over the whole PR range unchanged
+    from the review (6 / 1, the same test helpers and the `VaultKeyResolver.fixed` seam).
+    PR body: rewritten before the cleanup push.
 
 ## Wave 16 — knowledge and tracker close-out
 
