@@ -139,6 +139,12 @@ each answered as recommended:
   the verdict, any failure, the latency and the token counts. It is built in
   its own module, `_gate/decision_evidence.py`, so the rule module can keep
   that word out.
+  The `decision-evidence/1` verdict set is `accepted`, `below_threshold`,
+  `no_distribution`, `uncovered_proposal`, and `provider_failed`. The fifth
+  value records a provider answer whose distribution omits its own proposal:
+  the proposal and distribution remain recorded, while `probability`,
+  `margin`, and `failure` are `null`. This is distinct from an absent
+  distribution or a provider error and keeps that failed rung auditable.
 - **D-3 — cost is token usage only.** Monetary cost needs a price table and is
   later work.
 - **D-4 — one public, provisional reader.** `decision_record(store, scope_id,
