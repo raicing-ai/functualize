@@ -314,7 +314,6 @@ __all__ = [
     "normalize_name",
     "normalize_segment",
     "resolve_name",
-    "declared_config_values",
     "generate_vault_key",
     "vault_clear",
     "vault_duration",
@@ -1750,12 +1749,10 @@ class VaultSyncReport:
     """What one ``func builtin vault sync`` did.
 
     Attributes:
-        synced: ``(config key, provider that answered)`` per stored value.
-        failed: ``(config key, reason)`` for annotations nothing could resolve.
-        unresolved: Annotation-shaped values naming a provider that is not
-            installed, straight from
-            :func:`~functualize._config.annotations.scan_annotations`.
-        scanned: How many config keys were examined.
+        synced: ``(encoded scoped identity, provider)`` per stored value.
+        failed: ``(encoded scoped identity, reason)`` per failed declaration.
+        unresolved: Declarations naming a provider that is not installed.
+        scanned: How many ``[[vault_secret]]`` blocks were examined.
         path: The vault written to.
     """
 
@@ -1767,7 +1764,7 @@ class VaultSyncReport:
 
     @property
     def ok(self) -> bool:
-        """Whether every declared annotation reached the vault."""
+        """Whether every declaration reached the vault."""
         return not self.failed and not self.unresolved
 
 
@@ -1896,47 +1893,8 @@ def vault_clear(cwd: str | Path | None = None) -> bool:
     return existed
 
 
-def declared_config_values(app: Any) -> dict[str, str]:
-    """Every config-file value, flattened to ``"section.key"``, unresolved.
-
-    The input :func:`~functualize._config.annotations.scan_annotations` wants:
-    located but not yet resolved, because after resolution an annotation has
-    already been consumed as a literal.
-
-    **Files only, deliberately.** An annotation set in an environment variable
-    would, once synced, be answered by the vault instead — the vault sits
-    *above* Env in the chain ``remote_first()`` builds — so re-exporting the
-    variable would silently stop changing anything. A file annotation has no
-    such surprise: the file is below Env either way.
-
-    Earlier-discovered files win, matching the merge the chain itself performs.
-    """
-    values: dict[str, str] = {}
-    chain = getattr(app, "_resolution_chain", None)
-    if chain is None:
-        return values
-
-    for source in getattr(chain, "sources", []):
-        if getattr(source, "source_type", None) != "file":
-            continue
-        for _path, config in getattr(source, "per_file_values", []):
-            _flatten_config_into(config, values)
-    return values
-
-
-def _flatten_config_into(config: Mapping[str, Any], into: dict[str, str]) -> None:
-    """Add ``section.key`` strings from one file, without overwriting."""
-    for name, value in config.items():
-        if isinstance(value, dict):
-            for key, inner in value.items():
-                if isinstance(inner, str):
-                    into.setdefault(f"{name}.{key}", inner)
-        elif isinstance(value, str):
-            into.setdefault(name, value)
-
-
 def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
-    """Fetch every declared annotation from its provider and store it.
+    """Fetch each explicit scoped declaration and store it.
 
     The only thing in this codebase that touches a remote configuration
     provider. A job run reads the vault and never the network (ADR-016), so
@@ -1958,14 +1916,48 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
             happened.
     """
     from functualize._config.annotations import scan_annotations
-    from functualize._config.vault import SecretsVault
+    from functualize._config.vault import SecretsVault, VaultOrigin
+    from functualize._config.vault_declarations import parse_vault_declarations
     from functualize._config.vault_keys import ENV_VAR, resolve_vault_key
     from functualize._primitives.locator import compute_project_id
+    from functualize.app.vault import resolve_vault_identity
 
     registry = app.config_registry
     registered = registry.list_remote_providers()
-    declared = declared_config_values(app)
-    scan = scan_annotations(declared, registered)
+    files = [
+        item
+        for source in getattr(app._resolution_chain, "sources", ())
+        if getattr(source, "source_type", None) == "file"
+        for item in source.per_file_values
+    ]
+    _reject_legacy_inline(app, files, registered)
+    declarations = parse_vault_declarations(files)
+    # Resolve every target and spot every duplicate before fetching anything.
+    # Canonical spelling can make two syntactically different targets collide.
+    canonical: dict[str, Any] = {}
+    for declaration in declarations:
+        identity = declaration.identity
+        try:
+            validated = resolve_vault_identity(
+                app,
+                **{identity.scope: identity.target},
+                field=identity.field,
+            )
+        except ValueError as exc:
+            from functualize._config.vault_declarations import VaultDeclarationError
+
+            raise VaultDeclarationError(f"{declaration.location}: {exc}") from exc
+        encoded = validated.encode()
+        if encoded in canonical:
+            from functualize._config.vault_declarations import VaultDeclarationError
+
+            raise VaultDeclarationError(
+                f"{declaration.location}: duplicate secret identity"
+            )
+        canonical[encoded] = declaration
+    scan = scan_annotations(
+        {key: declaration.source for key, declaration in canonical.items()}, registered
+    )
 
     path = vault_location(cwd)
     if not scan.annotations:
@@ -1973,7 +1965,7 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
             synced=(),
             failed=(),
             unresolved=tuple(scan.unresolved),
-            scanned=len(declared),
+            scanned=len(declarations),
             path=path,
         )
 
@@ -2013,8 +2005,18 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
 
     synced: list[tuple[str, str]] = []
     failed: list[tuple[str, str]] = []
+    direct_keys = {
+        entry.key
+        for entry in vault.list_entries()
+        if entry.origin is VaultOrigin.DIRECT
+    }
 
     for key, chain in scan.annotations.items():
+        if key in direct_keys:
+            failed.append(
+                (key, "direct entry already exists; remove it before syncing")
+            )
+            continue
         outcome = _fetch_first(chain, registered)
         if isinstance(outcome, str):
             failed.append((key, outcome))
@@ -2024,7 +2026,7 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
             key,
             value,
             encryption_key=resolution.key,
-            annotation=declared[key],
+            annotation=canonical[key].source,
             provider=provider_id,
             # Refreshing is what sync is *for*, so it says so rather than
             # leaning on a permissive default. A *direct* entry at this key is
@@ -2038,9 +2040,46 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
         synced=tuple(synced),
         failed=tuple(failed),
         unresolved=tuple(scan.unresolved),
-        scanned=len(declared),
+        scanned=len(declarations),
         path=path,
     )
+
+
+def _reject_legacy_inline(
+    app: Any,
+    files: list[tuple[str, Mapping[str, Any]]],
+    registered: Mapping[str, Any],
+) -> None:
+    """Reject an inline provider on a secret field even below an env winner."""
+    from functualize._config.annotations import scan_annotations
+    from functualize._config.vault_declarations import VaultDeclarationError
+    from functualize.app.vault import VaultPathError, resolve_vault_identity
+
+    def walk(path: str, section: str, values: Mapping[str, Any]) -> None:
+        for key, value in values.items():
+            if key == "vault_secret":
+                continue
+            if isinstance(value, dict):
+                child = f"{section}.{key}" if section else key
+                walk(path, child, value)
+            elif (
+                section
+                and isinstance(value, str)
+                and scan_annotations({key: value}, registered)
+            ):
+                for scope in ("group", "job"):
+                    try:
+                        resolve_vault_identity(app, **{scope: section}, field=key)
+                    except VaultPathError:
+                        continue
+                    raise VaultDeclarationError(
+                        f"{path}: secret field {section}.{key} uses legacy inline "
+                        "provider syntax; move it to [[vault_secret]] with group "
+                        "or job, field, and source"
+                    )
+
+    for path, config in files:
+        walk(path, "", config)
 
 
 def _fetch_first(
@@ -2068,7 +2107,10 @@ def _fetch_first(
         try:
             value = provider.fetch(annotation.reference)
         except Exception as exc:  # noqa: BLE001 - a provider may raise anything
-            reasons.append(f"{annotation.provider}: {type(exc).__name__}: {exc}")
+            # Provider exceptions can include credentials or response bodies.
+            # The class and provider identify the failed entry without echoing
+            # arbitrary provider-controlled text to a report or a log.
+            reasons.append(f"{annotation.provider}: {type(exc).__name__} during fetch")
             continue
         if value is None:
             reasons.append(f"{annotation.provider}: returned nothing")

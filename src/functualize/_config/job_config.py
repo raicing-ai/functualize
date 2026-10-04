@@ -69,6 +69,13 @@ class JobConfigView:
         self._scope = scope
         self._overrides: dict[str, Any] = {}
 
+    def reject_inline_provider(self, key: str) -> None:
+        """Check every parsed file before a stronger source can hide old syntax."""
+        for source in self._chain.sources:
+            reject = getattr(source, "reject_inline_provider", None)
+            if reject is not None:
+                reject(self._default_section_prefix, key)
+
     def get(
         self,
         key: str,
@@ -541,6 +548,8 @@ def resolve_job_config(
     """
     from pydantic import BaseModel
 
+    from functualize._types.redaction import is_secret_field
+
     if not (isinstance(config_class, type) and issubclass(config_class, BaseModel)):
         raise TypeError(f"Expected a Pydantic BaseModel subclass, got {config_class}")
 
@@ -548,6 +557,8 @@ def resolve_job_config(
 
     for field_name, field_info in config_class.model_fields.items():
         target_type = getattr(field_info, "annotation", None)
+        if is_secret_field(field_info):
+            config_view.reject_inline_provider(field_name)
 
         # 1. CLI value (if provided and not None)
         cli_val = cli_values.get(field_name)

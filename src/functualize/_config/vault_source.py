@@ -1,57 +1,10 @@
-"""The resolution-chain source backed by the local vault (ADR-016).
+"""The local vault source in the shared config resolution chain.
 
-Sits between ``CliSource`` and ``EnvSource`` in the chain ``remote_first()``
-produces, so a synced remote value outranks the environment and the config
-file, while an explicit CLI argument still wins.
-
-Reading is by **config key**, not by annotation. The vault row already records
-which annotation and which provider produced a value, so answering
-``database.password`` needs no re-parsing at read time — annotations matter
-when *syncing*, which is where they are consulted.
-
-This source is deliberately inert rather than fatal in two situations, because
-both are reachable from ``func --help``:
-
-* **No key available.** The vault cannot be opened, so it answers nothing.
-* **No vault file yet.** Nobody has run ``vault sync``.
-
-In both cases resolution continues to the next source, and the two are *not*
-treated alike when it comes to saying so: the first is announced once at boot,
-the second warns per declared key, because "run ``vault sync``" is advice only
-the second case can act on. That fall-through is
-made *visible* by :meth:`VaultSource.note_fallthrough`, which the chain calls
-on any source that answered nothing, naming the source that answered instead.
-Leaving it silent would rebuild the very defect this feature exists to remove.
-
-Which misses are worth a warning
---------------------------------
-
-Every source misses constantly — ``database.port`` is not in the vault and
-never will be. Warning on each would bury the one miss that matters, so the
-test is not "the vault did not hold it" but **"somebody declared it remote"**:
-the winning value, or one of the alternatives beneath it, is annotation-shaped
-for a *registered* provider. That fires exactly when a job is about to receive
-``aws-sm://prod/db`` where it expected a password.
-
-The cost of that precision is a blind spot, stated plainly: a key declared
-remote in a config file that an environment variable also supplies, where the
-config file was never discovered at all, has no annotation anywhere in the
-chain and so warns about nothing. Filling it needs the annotation map from a
-config pre-scan, which boot does not build yet.
-
-Staleness
----------
-
-Separately from any single key, the vault as a whole can be *old*. The first
-read of a run compares :meth:`SecretsVault.age` against the configured
-``max_age`` and warns once, then the run proceeds on what is stored. The check
-hangs off the first read rather than construction so that building a source
-without consulting it — ``func --help``, a completion — stays silent.
-
-Nothing but an annotation is ever rendered (ADR-008). An annotation names
-where a credential lives and carries no credential; every other value the
-chain hands this method could be the secret itself, so none of them reach the
-log.
+Stored scoped identities answer before environment and config file sources.
+On a miss, only identities declared by ``[[vault_secret]]`` warn. The source
+is bound to parsed file data after the chain is built and parses declarations
+lazily, so ordinary boot remains cheap. A warning names the winning source
+without logging its value or the provider reference.
 """
 
 from __future__ import annotations
@@ -59,16 +12,15 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from functualize._config.annotations import scan_annotations
 from functualize._config.vault import (
     SecretsVault,
     VaultEntryUnreadableError,
     format_duration,
 )
+from functualize._config.vault_declarations import parse_vault_declarations
 from functualize._primitives.vault_identity import VaultIdentity, VaultScope
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
     from datetime import timedelta
     from pathlib import Path
 
@@ -77,11 +29,6 @@ if TYPE_CHECKING:
 __all__ = ["VaultSource"]
 
 logger = logging.getLogger(__name__)
-
-#: Placeholder key used to reuse `scan_annotations` for a single value. The
-#: classifier is shared rather than reimplemented so "is this an annotation?"
-#: keeps exactly one answer, the same discipline ADR-008 applies to secrets.
-_PROBE = "_"
 
 
 class VaultSource:
@@ -93,7 +40,6 @@ class VaultSource:
         *,
         encryption_key: bytes | None,
         key_provider_id: str = "unknown",
-        providers: Iterable[str] = (),
         max_age: timedelta | None = None,
     ) -> None:
         """Initialise the source.
@@ -104,23 +50,20 @@ class VaultSource:
                 in which case the source answers nothing rather than raising.
             key_provider_id: Which provider supplied the key, so a decryption
                 failure can name it.
-            providers: Identifiers of the registered remote providers. Used
-                only to recognise an annotation when warning about a miss; a
-                scheme absent here is not an annotation, exactly as in
-                :func:`~functualize._config.annotations.scan_annotations`.
             max_age: How old the vault may be before the first read of the run
                 warns. None disables the staleness check entirely.
         """
         self._vault = SecretsVault(vault_path, key_provider_id=key_provider_id)
         self._key = encryption_key
         self._key_provider_id = key_provider_id
-        self._providers = frozenset(providers)
         self._max_age = max_age
         self._staleness_checked = False
         self._opens_asked = False
         self._opens: bool | None = None
         self._identities_seen: frozenset[VaultIdentity] | None = None
         self._warned: set[str] = set()
+        self._declaration_files: list[tuple[str, dict[str, Any]]] = []
+        self._declaration_identities: frozenset[VaultIdentity] | None = None
         self.misses: list[str] = []
         """Identities this source was asked for and did not hold, display-spelled.
 
@@ -376,9 +319,8 @@ class VaultSource:
         only moment "resolved from X instead" can be said truthfully.
 
         Fires at most once per identity per run, so a job reading one secret
-        ten times warns once, and stays silent unless an annotation is present
-        somewhere in the chain for that key. See the module docstring for why
-        those two conditions are the right ones.
+        ten times warns once, and stays silent unless a matching explicit
+        declaration appears in a discovered config file.
 
         Args:
             resolved: The winning value and its provenance, including the
@@ -403,43 +345,28 @@ class VaultSource:
         if identity is None or identity.encode() in self._warned:
             return
 
-        annotation = self._annotation_in(resolved)
-        if annotation is None:
+        if self._declaration_identities is None:
+            self._declaration_identities = frozenset(
+                item.identity
+                for item in parse_vault_declarations(self._declaration_files)
+            )
+        if identity not in self._declaration_identities:
             return
 
         self._warned.add(identity.encode())
         answered = f"{resolved.source_type} ({resolved.source_id})"
-        if annotation == resolved.value:
-            consequence = (
-                f"The job will receive the literal annotation string from "
-                f"{answered}, not the secret it names."
-            )
-        else:
-            consequence = f"It resolved from {answered} instead."
         logger.warning(
-            "Config key '%s' is declared remotely as '%s', but the vault holds "
-            "no synced value for it. %s Run `func builtin vault sync` to fill "
-            "the vault.",
+            "Config key '%s' has a [[vault_secret]] declaration, but the vault "
+            "holds no synced value for it. It resolved from %s instead. "
+            "Run `func builtin vault sync` to fill the vault.",
             self._display(identity),
-            annotation,
-            consequence,
+            answered,
         )
 
-    def _annotation_in(self, resolved: ResolvedValue) -> str | None:
-        """The first annotation among the winner and its alternatives, if any.
-
-        The winner is checked first because it is the value the job actually
-        receives, and therefore the one whose annotation describes what went
-        wrong most directly.
-        """
-        candidates = [resolved.value, *(value for _, _, value in resolved.alternatives)]
-        for candidate in candidates:
-            if not isinstance(candidate, str):
-                continue
-            scan = scan_annotations({_PROBE: candidate}, self._providers)
-            if _PROBE in scan.annotations:
-                return candidate
-        return None
+    def set_declaration_files(self, files: list[tuple[str, dict[str, Any]]]) -> None:
+        """Bind the parsed files after the chain is assembled, without fetching."""
+        self._declaration_files = files
+        self._declaration_identities = None
 
     def _entries(self) -> list[Any]:
         # Metadata only, so this never decrypts. It is still gated behind

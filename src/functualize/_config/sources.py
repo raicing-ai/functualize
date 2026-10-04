@@ -579,6 +579,7 @@ class FileSource:
         event_bus: EventBus | None = None,
         environment: str | None = None,
         require_slot: bool = False,
+        remote_providers: tuple[str, ...] = (),
     ) -> None:
         """Initialize the file source.
 
@@ -621,6 +622,7 @@ class FileSource:
         )
         self._event_bus = event_bus
         self._environment = environment
+        self._remote_providers = remote_providers
         self._discovered_paths: list[str] = []
         self._merged_config: dict[str, Any] = {}
         self._per_file_configs: list[tuple[str, dict[str, Any]]] = []
@@ -681,6 +683,34 @@ class FileSource:
             if isinstance(walked, dict):
                 return walked
         return None
+
+    def reject_inline_provider(self, section: str, key: str) -> None:
+        """Refuse a legacy provider URI in any file for a secret field.
+
+        Inspect per-file input, including a lower-priority file hidden by an
+        environment override. Ordinary URL values do not count as providers.
+        """
+        from functualize._config.annotations import scan_annotations
+
+        spellings = (section, section.replace("-", "_"), section.replace("_", "-"))
+        for path, config in self._per_file_configs:
+            for spelling in spellings:
+                data: Any = config.get(spelling)
+                if not isinstance(data, dict) and "." in spelling:
+                    data = config
+                    for part in spelling.split("."):
+                        data = data.get(part) if isinstance(data, dict) else None
+                if not isinstance(data, dict):
+                    continue
+                value = data.get(key)
+                if isinstance(value, str) and scan_annotations(
+                    {key: value}, self._remote_providers
+                ):
+                    raise ValueError(
+                        f"{path}: secret field {section}.{key} uses legacy inline "
+                        "provider syntax; move it to [[vault_secret]] with group "
+                        "or job, field, and source"
+                    )
 
     def get(
         self,

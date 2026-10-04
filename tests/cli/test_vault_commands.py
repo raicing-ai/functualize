@@ -32,7 +32,8 @@ from functualize._cli.builtins import (
 )
 from functualize._config.registry import ProviderRegistry
 from functualize._config.vault import KEY_BYTES, SecretsVault, VaultOrigin
-from functualize.app.core import FunctualizeApp
+from functualize.app import JobSources
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.app.presets import remote_first
 from functualize.app.utils import ExitCode, vault_location
 from functualize.app.vault import VaultIdentity
@@ -52,9 +53,33 @@ _CONSPICUOUS = "PLAINTEXT-91c40de2-must-never-be-printed"  # gitleaks:allow
 
 _CONFIG = """
 [report]
-password = "fake-sm://prod/db-password"
 username = "app"
 endpoint = "https://api.example.com"
+
+[[vault_secret]]
+job = "report"
+field = "password"
+source = "fake-sm://prod/db-password"
+"""
+
+_JOB = """
+from pydantic import BaseModel
+from functualize.job import GroupOptions
+from functualize.job.decorators import job
+from functualize.types import Secret
+
+class ReportOptions(GroupOptions, group="report"):
+    token: Secret[str] = Secret("fallback")
+
+class ReportConfig(BaseModel):
+    password: Secret[str] = Secret("fallback")
+    key: Secret[str] = Secret("fallback")
+    first: Secret[str] = Secret("fallback")
+    second: Secret[str] = Secret("fallback")
+
+@job
+def report(config: ReportConfig, options: ReportOptions) -> str:
+    return "ok"
 """
 
 
@@ -103,6 +128,8 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
     monkeypatch.delenv("FUNCTUALIZE_VAULT_MAX_AGE", raising=False)
     monkeypatch.chdir(root)
     (root / "config.dev.toml").write_text(_CONFIG)
+    (root / "jobs").mkdir(exist_ok=True)
+    (root / "jobs" / "report.py").write_text(_JOB)
     AppState.reset()
     yield root
     AppState.reset()
@@ -134,7 +161,11 @@ def _cli() -> click.Group:
 
 
 def _app() -> FunctualizeApp:
-    return FunctualizeApp("vaulttest", config_sources=remote_first())
+    return FunctualizeApp(
+        "vaulttest",
+        config_sources=remote_first(),
+        job_sources=JobSources(directories=[str(Path.cwd() / "jobs")], lazy=False),
+    )
 
 
 def _run(args: list[str], *, app: Any = None, stdin: str | None = None) -> Result:
@@ -560,6 +591,87 @@ class TestClear:
 
 @pytest.mark.usefixtures("project")
 class TestSync:
+    def test_group_and_job_blocks_store_distinct_scoped_entries(
+        self, project: Path, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        provider = register()[0]
+        (project / "config.dev.toml").write_text(
+            '[[vault_secret]]\ngroup = "report"\nfield = "token"\nsource = "fake-sm://group"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "password"\nsource = "fake-sm://job"\n'
+        )
+        result = _run(["sync", "--json"], app=_app())
+        assert result.exit_code == 0, result.output
+        assert provider.fetched == ["group", "job"]
+        payload = json.loads(result.output)
+        assert {(e["scope"], e["target"], e["field"]) for e in payload["synced"]} == {
+            ("group", "report", "token"),
+            ("job", "report", "password"),
+        }
+        assert {e.key for e in SecretsVault(vault_location()).list_entries()} == {
+            VaultIdentity("group", "report", "token").encode(),
+            VaultIdentity("job", "report", "password").encode(),
+        }
+
+    def test_duplicate_across_files_refuses_before_any_fetch(
+        self, project: Path, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        provider = register()[0]
+        block = (
+            '[[vault_secret]]\njob = "report"\nfield = "password"\n'
+            'source = "fake-sm://a"\n'
+        )
+        (project / "config.dev.toml").write_text(block)
+        (project / "config.base.toml").write_text(block)
+        result = _run(["sync"], app=_app())
+        assert result.exit_code == ExitCode.REFUSED
+        assert "duplicate" in result.output
+        assert provider.fetched == []
+
+    def test_invalid_target_refuses_before_any_fetch(
+        self, project: Path, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        provider = register()[0]
+        (project / "config.dev.toml").write_text(
+            '[[vault_secret]]\njob = "report"\nfield = "unknown"\n'
+            'source = "fake-sm://a"\n'
+        )
+        result = _run(["sync"], app=_app())
+        assert result.exit_code == ExitCode.REFUSED
+        assert "unknown" in result.output
+        assert provider.fetched == []
+
+    def test_inline_secret_below_environment_is_refused_without_fetch(
+        self,
+        project: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        register: Callable[..., list[_FakeProvider]],
+    ) -> None:
+        provider = register()[0]
+        monkeypatch.setenv("REPORT_PASSWORD", "environment-credential")
+        (project / "config.dev.toml").write_text(
+            '[report]\npassword = "fake-sm://old"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "key"\n'
+            'source = "fake-sm://new"\n'
+        )
+        result = _run(["sync"], app=_app())
+        assert result.exit_code == ExitCode.REFUSED
+        assert "[[vault_secret]]" in result.output
+        assert provider.fetched == []
+
+    def test_job_run_refuses_inline_secret_below_environment(
+        self,
+        project: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        register: Callable[..., list[_FakeProvider]],
+    ) -> None:
+        register()
+        monkeypatch.setenv("REPORT_PASSWORD", "environment-credential")
+        (project / "config.dev.toml").write_text(
+            '[report]\npassword = "fake-sm://old"\n'
+        )
+        with pytest.raises(ValueError, match=r"\[\[vault_secret\]\]"):
+            _app().execute(request_for("report"))
+
     def test_it_fetches_a_declared_annotation_and_stores_it(
         self, register: Callable[..., list[_FakeProvider]]
     ) -> None:
@@ -569,7 +681,9 @@ class TestSync:
         assert result.exit_code == 0
         assert providers[0].fetched == ["prod/db-password"]
         assert (
-            SecretsVault(vault_location()).get("report.password", encryption_key=_KEY)
+            SecretsVault(vault_location()).get(
+                VaultIdentity("job", "report", "password").encode(), encryption_key=_KEY
+            )
             == _CONSPICUOUS
         )
 
@@ -580,7 +694,7 @@ class TestSync:
         the AWS provider's `?profile=` and role ARNs possible."""
         providers = register()
         (project / "config.dev.toml").write_text(
-            '[report]\nkey = "fake-sm://p/db?role=arn:aws:iam::1:role/D&region=eu-west-1"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "key"\nsource = "fake-sm://p/db?role=arn:aws:iam::1:role/D&region=eu-west-1"\n'
         )
         _run(["sync"], app=_app())
         assert providers[0].fetched == [
@@ -595,14 +709,14 @@ class TestSync:
         register()
         _run(["sync"], app=_app())
         stored = {e.key for e in SecretsVault(vault_location()).list_entries()}
-        assert stored == {"report.password"}
+        assert stored == {VaultIdentity("job", "report", "password").encode()}
 
     def test_a_literal_is_not_synced(
         self, register: Callable[..., list[_FakeProvider]]
     ) -> None:
         register()
         _run(["sync"], app=_app())
-        assert "report.username" not in {
+        assert VaultIdentity("job", "report", "username").encode() not in {
             e.key for e in SecretsVault(vault_location()).list_entries()
         }
 
@@ -620,7 +734,7 @@ class TestSync:
         monkeypatch.setenv("FUNCTUALIZE_REPORT_TOKEN", "fake-sm://prod/token")
         _run(["sync"], app=_app())
         stored = {e.key for e in SecretsVault(vault_location()).list_entries()}
-        assert "report.token" not in stored
+        assert VaultIdentity("job", "report", "token").encode() not in stored
 
     def test_it_records_the_annotation_and_the_provider_that_answered(
         self, register: Callable[..., list[_FakeProvider]]
@@ -636,7 +750,7 @@ class TestSync:
     ) -> None:
         register()
         output = _run(["sync"], app=_app()).output
-        assert "report.password" in output
+        assert "job report password" in output
         assert "1 synced" in output
 
     def test_no_value_reaches_the_output(
@@ -653,7 +767,14 @@ class TestSync:
         result = _run(["sync", "--json"], app=_app())
         assert _CONSPICUOUS not in result.output
         payload = json.loads(result.output)
-        assert payload["synced"] == [{"key": "report.password", "provider": "fake-sm"}]
+        assert payload["synced"] == [
+            {
+                "scope": "job",
+                "target": "report",
+                "field": "password",
+                "provider": "fake-sm",
+            }
+        ]
         assert payload["ok"] is True
 
     def test_re_syncing_refreshes_the_timestamp(
@@ -733,19 +854,45 @@ class TestWhatSyncLeavesOnDisk:
         register()
         _run(["sync"], app=_app())
         assert (
-            SecretsVault(vault_location()).get("report.password", encryption_key=_KEY)
+            SecretsVault(vault_location()).get(
+                VaultIdentity("job", "report", "password").encode(), encryption_key=_KEY
+            )
             == _CONSPICUOUS
         )
 
 
 @pytest.mark.usefixtures("project")
 class TestSyncFailures:
+    def test_direct_entry_conflict_is_reported_without_fetch(
+        self, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        provider = register()[0]
+        identity = VaultIdentity("job", "report", "password")
+        SecretsVault(vault_location()).put(
+            identity.encode(),
+            "direct-value",
+            encryption_key=_KEY,
+            origin=VaultOrigin.DIRECT,
+        )
+        result = _run(["sync", "--json"], app=_app())
+        assert result.exit_code == ExitCode.REFUSED
+        assert json.loads(result.output)["failed"] == [
+            {
+                "scope": "job",
+                "target": "report",
+                "field": "password",
+                "reason": "direct entry already exists; remove it before syncing",
+            }
+        ]
+        assert provider.fetched == []
+        assert "direct-value" not in result.output
+
     def test_an_unregistered_provider_is_reported_and_fails_the_command(
         self, project: Path, register: Callable[..., list[_FakeProvider]]
     ) -> None:
         register()
         (project / "config.dev.toml").write_text(
-            '[report]\nkey = "nope-sm://somewhere"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "key"\nsource = "nope-sm://somewhere"\n'
         )
         result = _run(["sync"], app=_app())
         assert result.exit_code == ExitCode.REFUSED
@@ -757,7 +904,8 @@ class TestSyncFailures:
         register(_FakeProvider(raises=RuntimeError("access denied")))
         result = _run(["sync"], app=_app())
         assert result.exit_code == ExitCode.REFUSED
-        assert "access denied" in result.output
+        assert "RuntimeError during fetch" in result.output
+        assert "access denied" not in result.output
 
     def test_one_failure_does_not_abandon_the_others(
         self, project: Path, register: Callable[..., list[_FakeProvider]]
@@ -769,11 +917,11 @@ class TestSyncFailures:
             _FakeProvider("bad-sm", raises=RuntimeError("boom")),
         )
         (project / "config.dev.toml").write_text(
-            '[report]\nfirst = "bad-sm://a"\nsecond = "good-sm://b"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "first"\nsource = "bad-sm://a"\n[[vault_secret]]\njob = "report"\nfield = "second"\nsource = "good-sm://b"\n'
         )
         result = _run(["sync"], app=_app())
         stored = {e.key for e in SecretsVault(vault_location()).list_entries()}
-        assert stored == {"report.second"}
+        assert stored == {VaultIdentity("job", "report", "second").encode()}
         assert result.exit_code == ExitCode.REFUSED
 
     def test_a_provider_that_is_not_ready_says_why(
@@ -799,14 +947,16 @@ class TestSyncFailures:
             _FakeProvider("second-sm", value="from-second"),
         )
         (project / "config.dev.toml").write_text(
-            '[report]\nkey = "first-sm://a | second-sm://b"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "key"\nsource = "first-sm://a | second-sm://b"\n'
         )
         result = _run(["sync"], app=_app())
 
         assert result.exit_code == 0
         assert providers[1].fetched == ["b"]
         assert (
-            SecretsVault(vault_location()).get("report.key", encryption_key=_KEY)
+            SecretsVault(vault_location()).get(
+                VaultIdentity("job", "report", "key").encode(), encryption_key=_KEY
+            )
             == "from-second"
         )
 
@@ -820,11 +970,13 @@ class TestSyncFailures:
             _FakeProvider("second-sm", raises=RuntimeError("second-reason")),
         )
         (project / "config.dev.toml").write_text(
-            '[report]\nkey = "first-sm://a | second-sm://b"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "key"\nsource = "first-sm://a | second-sm://b"\n'
         )
         output = _run(["sync"], app=_app()).output
-        assert "first-reason" in output
-        assert "second-reason" in output
+        assert "first-sm: RuntimeError during fetch" in output
+        assert "second-sm: RuntimeError during fetch" in output
+        assert "first-reason" not in output
+        assert "second-reason" not in output
 
     def test_no_key_refuses_rather_than_pretending(
         self,
@@ -903,7 +1055,7 @@ def local_app(project: Path) -> FunctualizeApp:
     from functualize.app import JobSources
 
     jobs = project / "jobs"
-    jobs.mkdir()
+    jobs.mkdir(exist_ok=True)
     (jobs / "deploy.py").write_text(_LOCAL_JOB)
     return FunctualizeApp(
         "vaulttest", job_sources=JobSources(directories=[str(jobs)], lazy=False)

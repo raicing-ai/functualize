@@ -430,9 +430,7 @@ class TestHowOldIsTheVault:
 
 
 def _source(path: Path, *, max_age: timedelta | None, key: bytes | None = _KEY) -> Any:
-    return VaultSource(
-        path, encryption_key=key, providers=("fake-sm",), max_age=max_age
-    )
+    return VaultSource(path, encryption_key=key, max_age=max_age)
 
 
 class TestTheWarningOnTheRunPath:

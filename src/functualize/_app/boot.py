@@ -1314,17 +1314,12 @@ def build_vault_source(app: Any) -> Any:
             "remote values will fall back to local sources. Set "
             "$FUNCTUALIZE_VAULT_KEY (see `func builtin vault keygen`)."
         )
-        return VaultSource(
-            vault_path_for_project(), encryption_key=None, providers=registered
-        )
+        return VaultSource(vault_path_for_project(), encryption_key=None)
 
     return VaultSource(
         vault_path_for_project(),
         encryption_key=resolution.key,
         key_provider_id=resolution.provider_id,
-        # The identifiers, so a fall-through can tell an annotation naming an
-        # installed provider from an ordinary URL that merely looks like one.
-        providers=registered,
         # Resolved only on the path that can actually read: an unusable vault
         # never checks its age, so parsing the threshold there would risk
         # warning about a misspelled setting that was never going to be used.
@@ -1449,9 +1444,21 @@ def build_resolution_chain(
             # `config.toml` here would make that file count only when a
             # slotted sibling happened to anchor its directory.
             require_slot=True,
+            remote_providers=tuple(config_registry.list_remote_providers()),
         ),
         DefaultSource({}),
     ]
+    if remote_source is not None:
+        bind = getattr(remote_source, "set_declaration_files", None)
+        if bind is not None:
+            bind(
+                [
+                    item
+                    for source in sources
+                    if getattr(source, "source_type", None) == "file"
+                    for item in source.per_file_values
+                ]
+            )
     return ResolutionChain(sources)
 
 

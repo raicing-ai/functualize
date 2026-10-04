@@ -1,14 +1,7 @@
-"""V6 — a vault miss falls through, but never quietly (ADR-016).
+"""An unsynced explicit declaration warns about the lower source that won.
 
-The defect this feature exists to close is a job receiving a local value while
-its author believes they are reading a secret store. Task 3.1 closed the
-loudest form of that (a preset that silently *was* ``classic()``); this closes
-the per-key form: the vault is wired, the provider is installed, and one key
-was simply never synced.
-
-The value that then reaches the job is usually the annotation itself —
-``aws-sm://prod/db`` handed to a database driver as a password. That failure is
-noisy at the far end and mute at the near one, which is precisely backwards.
+The warning uses the scoped declaration map, including when environment wins
+over a config file, and never renders a secret or provider reference.
 """
 
 from __future__ import annotations
@@ -31,7 +24,6 @@ from functualize._config.vault_source import VaultSource
 from functualize._primitives.vault_identity import VaultIdentity
 
 _KEY = b"\x11" * KEY_BYTES
-_PROVIDERS = ("fake-sm", "fake-ssm")
 
 #: Long and distinctive on purpose. A short value like "s3cret" can pass a leak
 #: assertion by coincidence — it is a substring of nothing and a substring of
@@ -40,6 +32,7 @@ _PROVIDERS = ("fake-sm", "fake-ssm")
 _CONSPICUOUS = "PLAINTEXT-e7c41d9a-must-never-be-logged"  # gitleaks:allow
 
 _ANNOTATION = "fake-sm://prod/db-password"
+_FILE_FALLBACK = "file-fallback"
 
 
 class _StaticSource:
@@ -81,7 +74,25 @@ def synced_vault(tmp_path: Path) -> Path:
 
 
 def _source(vault_path: Path, *, key: bytes | None = _KEY) -> VaultSource:
-    return VaultSource(vault_path, encryption_key=key, providers=_PROVIDERS)
+    source = VaultSource(vault_path, encryption_key=key)
+    source.set_declaration_files(
+        [
+            (
+                "config.dev.toml",
+                {
+                    "vault_secret": [
+                        {"job": "database", "field": "password", "source": _ANNOTATION},
+                        {
+                            "job": "api",
+                            "field": "token",
+                            "source": "fake-ssm://prod/api-token",
+                        },
+                    ]
+                },
+            )
+        ]
+    )
+    return source
 
 
 def _chain(vault: VaultSource, below: _StaticSource) -> ResolutionChain:
@@ -95,25 +106,25 @@ class TestTheFallThroughStillHappens:
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(synced_vault), below)
         with caplog.at_level(logging.WARNING):
             resolved = chain.resolve("password", "database")
-        assert resolved.value == _ANNOTATION
+        assert resolved.value == _FILE_FALLBACK
         assert resolved.source_type == "file"
 
-    def test_a_warning_is_emitted_naming_the_annotation(
+    def test_a_warning_is_emitted_naming_the_declaration(
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             _chain(_source(synced_vault), below).resolve("password", "database")
         assert len(caplog.records) == 1
         message = caplog.records[0].getMessage()
-        assert _ANNOTATION in message
+        assert "[[vault_secret]]" in message
         assert "database.password" in message
 
     def test_the_warning_names_the_source_that_answered_instead(
@@ -121,7 +132,7 @@ class TestTheFallThroughStillHappens:
     ) -> None:
         """'It fell through' is not actionable; 'it fell through to X' is."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             _chain(_source(synced_vault), below).resolve("password", "database")
@@ -131,22 +142,22 @@ class TestTheFallThroughStillHappens:
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             _chain(_source(synced_vault), below).resolve("password", "database")
         assert "vault sync" in caplog.records[0].getMessage()
 
-    def test_it_says_the_job_gets_the_annotation_not_the_secret(
+    def test_it_says_the_job_gets_the_file_value_not_the_secret(
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The consequence is the part an operator acts on."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             _chain(_source(synced_vault), below).resolve("password", "database")
-        assert "literal annotation string" in caplog.records[0].getMessage()
+        assert "resolved from file" in caplog.records[0].getMessage()
 
 
 class TestOncePerKeyPerRun:
@@ -154,7 +165,7 @@ class TestOncePerKeyPerRun:
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(synced_vault), below)
         with caplog.at_level(logging.WARNING):
@@ -170,8 +181,8 @@ class TestOncePerKeyPerRun:
             "file",
             "config.dev.toml",
             {
-                "database.password": _ANNOTATION,
-                "api.token": "fake-ssm://prod/api-token",
+                "database.password": _FILE_FALLBACK,
+                "api.token": "api-fallback",
             },
         )
         chain = _chain(_source(synced_vault), below)
@@ -185,7 +196,7 @@ class TestOncePerKeyPerRun:
     ) -> None:
         """`resolve` and `introspect` walk one body, so they cannot diverge."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(synced_vault), below)
         with caplog.at_level(logging.WARNING):
@@ -202,30 +213,28 @@ class TestOncePerKeyPerRun:
         shared-ledger test green.
         """
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(synced_vault), below)
         with caplog.at_level(logging.WARNING):
             chain.introspect("password", "database")
         assert len(caplog.records) == 1
-        assert _ANNOTATION in caplog.records[0].getMessage()
+        assert "[[vault_secret]]" in caplog.records[0].getMessage()
 
 
 class TestNothingSecretIsRendered:
-    """ADR-008 — `is_secret_field` stays the only redaction opinion, and this
-    method sidesteps the question by rendering only annotations."""
+    """The warning renders identity and provenance, never a resolved value."""
 
     def test_a_secret_from_a_lower_source_never_reaches_the_log(
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """The annotation is in the file; an env var beats it with the secret.
+        """An env var wins below an unsynced vault declaration.
 
-        The key *is* declared remote, so this warns — and the warning must
-        name the annotation while saying nothing about the value that won.
+        The warning names the winning source without exposing its value.
         """
         env = _StaticSource("env", "environ", {"database.password": _CONSPICUOUS})
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = ResolutionChain([_source(synced_vault), env, below])  # type: ignore[list-item]
         with caplog.at_level(logging.WARNING):
@@ -234,7 +243,7 @@ class TestNothingSecretIsRendered:
         assert len(caplog.records) == 1
         message = caplog.records[0].getMessage()
         assert _CONSPICUOUS not in message
-        assert _ANNOTATION in message
+        assert "[[vault_secret]]" in message
         assert "env (environ)" in message
 
     def test_the_whole_log_record_is_clean_not_just_the_message(
@@ -248,7 +257,7 @@ class TestNothingSecretIsRendered:
         """
         env = _StaticSource("env", "environ", {"database.password": _CONSPICUOUS})
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = ResolutionChain([_source(synced_vault), env, below])  # type: ignore[list-item]
         with caplog.at_level(logging.WARNING):
@@ -300,12 +309,12 @@ class TestOnlyDeclaredKeysWarn:
         """With no key every lookup falls through. Boot already said so once;
         repeating it per key would drown the message rather than sharpen it."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(synced_vault, key=None), below)
         with caplog.at_level(logging.WARNING):
             resolved = chain.resolve("password", "database")
-        assert resolved.value == _ANNOTATION
+        assert resolved.value == _FILE_FALLBACK
         assert caplog.records == []
 
     def test_a_missing_key_everywhere_raises_rather_than_warning(
@@ -339,15 +348,15 @@ class TestTheFirstRunIsTheLoudestCase:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(tmp_path / "never-synced.db"), below)
         with caplog.at_level(logging.WARNING):
             resolved = chain.resolve("password", "database")
 
-        assert resolved.value == _ANNOTATION
+        assert resolved.value == _FILE_FALLBACK
         assert len(caplog.records) == 1
-        assert _ANNOTATION in caplog.records[0].getMessage()
+        assert "[[vault_secret]]" in caplog.records[0].getMessage()
 
     def test_the_warning_names_the_command_that_would_fix_it(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -355,7 +364,7 @@ class TestTheFirstRunIsTheLoudestCase:
         """The whole reason this case must not be silent: unlike a missing
         key, it has a one-command fix that the message can name."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             _chain(_source(tmp_path / "never-synced.db"), below).resolve(
@@ -369,7 +378,7 @@ class TestTheFirstRunIsTheLoudestCase:
         """The half that was right. Boot already warned; with no key every
         lookup falls through, so per-key warnings would drown it."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(tmp_path / "never-synced.db", key=None), below)
         with caplog.at_level(logging.WARNING):
@@ -416,7 +425,7 @@ class TestTheChainStaysGeneric:
         """
         env = _StaticSource("env", "environ", {"database.password": _CONSPICUOUS})
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             one = ResolutionChain([_source(synced_vault), env, below]).resolve(  # type: ignore[list-item]
@@ -426,7 +435,7 @@ class TestTheChainStaysGeneric:
                 "password", "database"
             )
         assert one == two
-        assert one.alternatives == [("file", "config.dev.toml", _ANNOTATION)]
+        assert one.alternatives == [("file", "config.dev.toml", _FILE_FALLBACK)]
 
 
 class TestFallthroughRecordsStillFeedDiagnostics:
@@ -439,7 +448,7 @@ class TestFallthroughRecordsStillFeedDiagnostics:
         below = _StaticSource(
             "file",
             "config.dev.toml",
-            {"database.port": 5432, "database.password": _ANNOTATION},
+            {"database.port": 5432, "database.password": _FILE_FALLBACK},
         )
         chain = _chain(source, below)
         with caplog.at_level(logging.WARNING):

@@ -361,7 +361,7 @@ def vault_clear_command(assume_yes: bool, json_out: bool) -> None:
 )
 @click.pass_context
 def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
-    """Fetch every declared annotation from its provider and store it.
+    """Fetch explicit scoped declarations from their providers and store them.
 
     The only command that contacts a remote configuration provider. A job
     run reads the vault and never the network (ADR-016), so the network
@@ -377,11 +377,31 @@ def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
         VaultKeyUnavailableError,
         vault_sync,
     )
-    from functualize.app.vault import VaultFormatError
+    from functualize.app.vault import VaultFormatError, VaultIdentity
+
+    def fields(key: str) -> dict[str, str]:
+        identity = VaultIdentity.decode(key)
+        return {
+            "scope": identity.scope,
+            "target": identity.target,
+            "field": identity.field,
+        }
+
+    def label(key: str) -> str:
+        identity = VaultIdentity.decode(key)
+        return f"{identity.scope} {identity.target} {identity.field}"
 
     app = _vault_app(ctx, "vault sync")
     try:
         report = vault_sync(app)
+    except ValueError as exc:
+        if json_out:
+            _vault_json(
+                {"ok": False, "reason": "invalid_declaration", "message": str(exc)}
+            )
+        else:
+            click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(ExitCode.REFUSED) from exc
     except VaultFormatError as exc:
         _refuse_legacy(exc, json_out=json_out)
     except VaultKeyMismatchError as exc:
@@ -411,12 +431,11 @@ def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
             {
                 "path": str(report.path),
                 "scanned": report.scanned,
-                "synced": [{"key": k, "provider": p} for k, p in report.synced],
-                "failed": [{"key": k, "reason": r} for k, r in report.failed],
+                "synced": [{**fields(k), "provider": p} for k, p in report.synced],
+                "failed": [{**fields(k), "reason": r} for k, r in report.failed],
                 "unresolved": [
                     {
-                        "key": u.key,
-                        "value": u.value,
+                        **fields(u.key),
                         "providers": list(u.providers),
                     }
                     for u in report.unresolved
@@ -426,19 +445,19 @@ def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
         )
     else:
         for key, provider in report.synced:
-            click.echo(f"  synced   {key}  ({provider})")
+            click.echo(f"  synced   {label(key)}  ({provider})")
         for key, reason in report.failed:
-            click.echo(f"  FAILED   {key}  — {reason}", err=True)
+            click.echo(f"  FAILED   {label(key)}  — {reason}", err=True)
         for item in report.unresolved:
             click.echo(
-                f"  MISSING  {item.key}  — no plugin registers "
+                f"  MISSING  {label(item.key)}  — no plugin registers "
                 f"{', '.join(item.providers)}",
                 err=True,
             )
         if not report.synced and not report.failed and not report.unresolved:
             click.echo(
-                f"Nothing declared remotely in {report.scanned} config "
-                f"values. Nothing to sync."
+                f"Nothing declared in {report.scanned} vault secret "
+                f"blocks. Nothing to sync."
             )
         else:
             click.echo("")
