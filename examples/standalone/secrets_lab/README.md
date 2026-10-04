@@ -192,12 +192,19 @@ The same lifecycle is a public API, so an application that embeds functualize
 does not shell out to `func`:
 
 ```python
-from functualize.app.vault import vault_init, vault_put, vault_inspect
+from functualize.app.vault import VaultIdentity, vault_init, vault_inspect, vault_put
+
+report_token = VaultIdentity("job", "report", "token")  # scope, target, field
 
 vault_init(key_source="env")
-vault_put(app, "report.token", token)
+vault_put(app, report_token, token)
 app.refresh()          # the chain is built at boot; this picks up the change
+vault_inspect(app, report_token)   # origin and readability, never the value
 ```
+
+The identity carries the same three things as `--job report --field token`. A
+group option is `VaultIdentity("group", "<group path>", "<option>")`, and it is
+a different entry from a job field with the same names.
 
 `tests/test_vault_lifecycle.py` is that code, and it asserts that this whole
 example imports nothing private — if the published API were incomplete for its

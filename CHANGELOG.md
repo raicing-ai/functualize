@@ -27,6 +27,16 @@ Custom configuration sources must accept the scoped `Source.get` contract;
 third-party implementations using the former two-argument method need an
 update.
 
+The public lifecycle functions in `functualize.app.vault` change the same way.
+`vault_put`, `vault_inspect` and `vault_remove` take a
+`VaultIdentity(scope, target, field)` where they took a dotted
+`"<job>.<field>"` string, so `vault_put(app, "report.token", value)` becomes
+`vault_put(app, VaultIdentity("job", "report", "token"), value)`. Import
+`VaultIdentity` from `functualize.app.vault`, or build a checked identity with
+`resolve_vault_identity(app, job=..., field=...)` (or `group=...`). Their
+reports carry the identity rather than a dotted path. A string argument is not
+accepted.
+
 This changes the vault format without migration. An old store is refused with
 the instruction to run `func builtin vault clear`; clear works without a key.
 Reprovision direct values and run `vault sync` for provider entries afterward.
