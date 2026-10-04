@@ -1982,7 +1982,7 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
     vault = SecretsVault(path, key_provider_id=resolution.provider_id)
 
     # Before writing anything. `sync` only ever writes, and only the keys that
-    # are *currently declared* as annotations -- so under a changed key it would
+    # are *currently declared* as scoped blocks -- so under a changed key it would
     # cheerfully add fresh rows beside ones it can no longer read, and report
     # ok: true. Every undeclared row and every direct entry would be stranded
     # under the old key, permanently, and under ADR-023 §1 each one becomes a

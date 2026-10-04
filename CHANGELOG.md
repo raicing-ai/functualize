@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — vault secrets have explicit group and job identities
+
+Vault entries now use `(scope, target, field)`: a group option and job config
+field with the same names are separate secrets. `put`, `inspect`, and `remove`
+require `--field` and exactly one of `--group` or `--job`. Their old positional
+form is removed. Only secret-marked group options and job config fields are
+eligible; ordinary function parameters remain invocation inputs.
+
+Provider sources are declared in `[[vault_secret]]` blocks with `group` or
+`job`, `field`, and `source`. Inline `provider://reference` values in secret
+config fields are rejected. `vault sync` checks declarations across files
+before fetching, reports each failed entry, and does not replace a direct
+entry with a provider value. Group and job secrets share the order runtime
+override → explicit CLI value → vault → environment → config file → default.
+Runs read the local vault without contacting providers.
+
+Custom configuration sources must accept the scoped `Source.get` contract;
+third-party implementations using the former two-argument method need an
+update.
+
+This changes the vault format without migration. An old store is refused with
+the instruction to run `func builtin vault clear`; clear works without a key.
+Reprovision direct values and run `vault sync` for provider entries afterward.
+JSON refusal reasons include `scope_required`, `unknown_group`, and
+`vault_format_unsupported`.
+
 ### Added — hermetic router: a declared fallback and the decision as evidence
 
 A decision can now name the option its gate takes when no proposal is

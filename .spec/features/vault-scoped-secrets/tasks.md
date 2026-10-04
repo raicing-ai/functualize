@@ -7,7 +7,7 @@ The executable steps, exact files, interfaces, tests, and commit points are in [
 - [x] T3 — Carry scope through the common resolution chain and establish vault-over-environment precedence.
 - [x] T4 — Parse and sync explicit `[[vault_secret]]` declarations; reject legacy inline provider syntax.
 - [x] T5 — Replace the positional vault CLI with scoped flags and metadata-only reports.
-- [ ] T6 — Prove end-to-end behavior, replace docs, and amend the durable ADRs.
+- [x] T6 — Prove end-to-end behavior, replace docs, and amend the durable ADRs.
 
 ## Task Dependency Graph
 
