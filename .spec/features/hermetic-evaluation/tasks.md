@@ -4,13 +4,11 @@ Authored 2026-10-04 against `e8e3b867` (`origin/master`). Twelve tasks in ten
 waves. Every `now:` below was produced by running its command on this branch at
 authoring time.
 
-**Execute is NOT yet authorised.** `spec.md` awaits the maintainer's
-confirmation, and `plan.md` → *Decisions* D-1…D-7 and the review-flagged smells
-S-1 and S-4 await answers. When they arrive, record them below (one line each)
-and only then start wave 0. A changed answer sends `spec.md`/`plan.md` back for
-revision, and the affected tasks are re-authored before any wave starts. In
-particular, **if D-1 picks the `examples/` location, every path below changes
-and the spec stops for a Shape intent page** — do not start.
+**Execute is authorised (maintainer, 2026-10-04).** `spec.md` is confirmed and
+D-1…D-7, S-1 and S-4 are answered — recorded below. Two human gates remain
+inside the graph: the maintainer approves the drafted corpus between T6 and
+T7, and T8 runs only on the maintainer's Codex and Jev logins. A changed answer
+sends `spec.md`/`plan.md` back for revision before the affected wave starts.
 
 **The implementation lands on this branch, in this pull request.** The spec is
 created, executed and completed within the same PR and removed before merging
@@ -63,17 +61,21 @@ every command from the repository root.
 - Wave ordering is binding: never start wave N+1 while wave N has an unchecked
   task.
 
-## Decisions recorded (fill in on approval)
+## Decisions recorded (maintainer, 2026-10-04)
 
-- spec confirmed: _pending_
-- D-1 (location): _pending_
-- D-2 (frontier binding): _pending_
-- D-3 (frontier distribution): _pending_
-- D-4 (labels): _pending_
-- D-5 (constants): _pending_
-- D-6 (publication): _pending_
-- D-7 (monetary cost): _pending_
-- S-1 (offline rule copy), S-4 (CLI JSON contract): _pending_
+- spec confirmed: yes.
+- D-1 (location): `tests/hermetic_eval/` — the paths below stand.
+- D-2 (frontier binding): **Codex**, `gpt-6-astra`, effort `medium`, through
+  `codex exec` on the maintainer's Codex login (T3). Cost is tokens, not
+  dollars.
+- D-3 (frontier distribution): verbalized probabilities, one structured call.
+- D-4 (labels): the implementer drafts (T6); the maintainer approves before T7.
+- D-5 (constants): as written in T1's `BOUNDARY`, `SEED`, `REPEATS`,
+  `TIME_BOX_HOURS`.
+- D-6 (publication): outside the repository and on the tracker, **plus** one
+  Confluence page in space `SD` under page `5144577` (T9).
+- D-7 (monetary cost): instrument only; no product change.
+- S-1 (offline rule copy), S-4 (CLI output contract): accepted.
 
 ## Wave 0 — foundation
 
@@ -228,11 +230,16 @@ Behaviour (B-15…B-19; S-3):
      over escalated rows by `decided_by == "fallback"` vs `"decision"`.
    - `latency(rows) -> dict` — `p50`, `p95` (nearest rank:
      `sorted[ceil(q·n) − 1]`), `max` over non-`None` `latency_seconds`.
-   - `cost(rows) -> dict` — `usd_total` = Σ `frontier["cost_usd"]` (`0.0` when
-     no row has a `frontier` block), `usd_per_cell` = total ÷ cells,
-     `input_tokens`/`output_tokens` sums (treat `None` as 0),
-     `usd_per_correct_route` = total ÷ rows with `route == expected` (`None`
-     when zero).
+   - `cost(rows) -> dict` — `input_tokens`/`output_tokens` = sums of the rows'
+     `input_tokens`/`output_tokens` (`None` counts 0);
+     `cached_input_tokens`/`reasoning_output_tokens` = sums over
+     `frontier["usage"]` (0 when no row has a `frontier` block);
+     `tokens_per_correct_route` = (input + output) ÷ rows with `route ==
+     expected` (`None` when zero); `usd_total` = `0.0` when no row has a
+     `frontier` block (the baseline costs nothing and the hermetic free tier
+     bills nothing), else `None` — the Codex frontier is a subscription that
+     reports no price, and none is invented (the report prints *subscription,
+     unpriced*).
    - `variance(rows) -> dict` — per scenario over its non-not-attempted rows:
      modal agreement (count of the most common route ÷ rows), flipped (more
      than one distinct route), `statistics.pstdev` of non-`None`
@@ -273,9 +280,13 @@ Behaviour (B-15…B-19; S-3):
      human_review, human_review]`, b = `[deterministic, cheap_model,
      human_review, deterministic]` on the same four keys → `rate` 0.75,
      `kappa` 0.6364.
-   - **Fixture D** (cost): two rows with `frontier.cost_usd` .01 and .02, one
-     correct → `usd_total` 0.03, `usd_per_cell` 0.015, `usd_per_correct_route`
-     0.03; rows without `frontier` → `usd_total` 0.0.
+   - **Fixture D** (cost): two frontier rows with `input_tokens` 300/500,
+     `output_tokens` 40/60 and `frontier.usage` `cached_input_tokens` 100/0,
+     `reasoning_output_tokens` 20/30, one routed correctly → `input_tokens`
+     800, `output_tokens` 100, `cached_input_tokens` 100,
+     `reasoning_output_tokens` 50, `tokens_per_correct_route` 900,
+     `usd_total is None`; two rows without `frontier`, tokens `None` →
+     `usd_total == 0.0`, `tokens_per_correct_route == 0.0` if one is correct.
    - A not-attempted row is excluded from `latency` and the confusions and
      counted wrong in `routed_accuracy`.
 
@@ -327,60 +338,111 @@ Behaviour (B-6, B-7; C-3, C-4, C-5):
    `JevDecisionProvider(JevConfig(model="jev-1.13-free", endpoint="https://opencode.ai/zen/v1/systemone"))`;
    `def hermetic_identity() -> dict[str, object]` →
    `{"comparator": "hermetic", "provider": "jev", "model": "jev-1.13-free", "endpoint": "https://opencode.ai/zen/v1/systemone", "plugin": "functualize-decision-jev", "plugin_version": importlib.metadata.version("functualize-decision-jev")}`.
-4. **Frontier** — `@dataclass class FrontierCall` (`cli_version: str | None`,
-   `model: str | None`, `model_mismatch: bool`, `cost_usd: float | None`,
-   `cost_basis: str | None`, `duration_ms: int | None`, `usage: dict | None`)
-   and `class FrontierRouter` exactly as C-3:
-   - `__init__(self, *, cwd: str, model: str = "claude-sonnet-5", effort: str = "medium", timeout_seconds: float = 120.0, run: Runner | None = None)`
-     where `Runner = Callable[[list[str], Mapping[str, str], str, float], tuple[int, str, str]]`;
-     the default runner wraps `subprocess.run(argv, env=env, cwd=cwd, capture_output=True, text=True, timeout=timeout)`
-     and returns `(returncode, stdout, stderr)`. `choose` wraps **whichever**
-     runner it holds and turns `subprocess.TimeoutExpired` into
-     `DecisionUnavailableError(kind=DecisionFailure.UNREACHABLE, provider="frontier", detail=f"timeout after {timeout}s")`.
-   - module constants `SYSTEM_PROMPT` and `PROMPT_TEMPLATE` with the exact
-     C-3 text (copied below), and `def build_schema(options) -> dict` building
-     the C-3 schema with options in declared order.
-     `SYSTEM_PROMPT = "You route requests. Answer only through the structured output: the option you choose and a probability for every option. Do not use tools."`
-     `PROMPT_TEMPLATE` renders `"{instructions}\n\nOptions:\n{option_lines}\n\nText to route:\n<<<\n{state}\n>>>\n\nChoose one option and give a probability for every option; the probabilities sum to 1."`
-     with `option_lines` = `"- {option}: {meaning}"` per option, newline-joined.
-   - `argv(prompt, schema_json)` returns exactly
-     `["claude", "-p", prompt, "--model", model, "--effort", effort, "--output-format", "json", "--json-schema", schema_json, "--tools", "", "--system-prompt", SYSTEM_PROMPT, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--max-turns", "2"]`;
-     env = `{**os.environ, "DISABLE_AUTOUPDATER": "1"}`.
-   - `choose(request)` runs once, appends one `FrontierCall` to `self.calls`,
-     and maps the result per the C-3 table: non-zero exit or `is_error` →
-     `REFUSED` (`status=api_error_status`, detail = first 300 chars of
-     `result` or stderr); non-JSON stdout, missing `structured_output`,
-     `choice` not an option, any probability outside `[0, 1]` → `MALFORMED`;
-     otherwise a `DecisionResult` with `value=choice`, `provider="frontier"`,
-     `model=<the single modelUsage key>`, `distribution=probabilities`,
-     `confidence=None`, provenance `requested_model=<configured model>`,
-     `latency_seconds` (monotonic around the runner), `input_tokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens`,
-     `output_tokens = output_tokens`. `model_mismatch` = the modelUsage key ≠
-     the configured model. `cli_version` is read **lazily, on the first
-     `choose`**, by running `["claude", "--version"]` through the same runner
-     (stdout stripped), and cached on the instance — constructing a
-     `FrontierRouter` never spawns a process.
-   - `identity()` → `{"comparator": "frontier", "model", "effort", "argv": <argv("PROMPT", "SCHEMA") with SYSTEM_PROMPT replaced by "SYSTEM">, "system_sha256", "prompt_template_sha256", "schema_builder": "v1", "env": {"DISABLE_AUTOUPDATER": "1"}}`.
-5. `tests/hermetic_eval/test_comparators.py` — offline; the frontier tests pass
-   a fake runner that records `(argv, env, cwd, timeout)` and returns canned
-   output. The canned success stdout is this JSON (measured shape, F-8):
-   `{"type":"result","subtype":"success","is_error":false,"api_error_status":null,"duration_ms":5828,"total_cost_usd":0.00884,"usage":{"input_tokens":2,"cache_creation_input_tokens":1149,"cache_read_input_tokens":0,"output_tokens":424},"modelUsage":{"claude-sonnet-5":{"costUSD":0.00884,"costBasis":"list"}},"structured_output":{"choice":"human_review","probabilities":{"deterministic":0.02,"cheap_model":0.03,"frontier_agent":0.3,"human_review":0.65}}}`.
-   Cases: the fake runner's recorded calls are `[["claude", "--version"], <C-3 argv>]` on the first `choose` and only the C-3 argv on the second; argv/env/cwd equal the C-3 lists exactly; success maps to value
-   `human_review`, distribution equal as a mapping, `input_tokens == 1151`,
-   `output_tokens == 424`, model `claude-sonnet-5`, `calls[-1].cost_usd == 0.00884`;
-   exit 1 → `REFUSED`; `is_error: true` → `REFUSED`; stdout `"not json"`,
-   missing `structured_output`, `choice: "other"`, a probability `1.2` → each
-   `MALFORMED`; a runner raising `subprocess.TimeoutExpired` → `UNREACHABLE`
-   (the test may import `subprocess.TimeoutExpired` only through
-   `comparators` — re-export it as `comparators.TimeoutExpired` so no test
-   module imports `subprocess`); a modelUsage key `claude-opus-5-5` →
-   `calls[-1].model_mismatch is True`. Deterministic: 100 calls on one state
-   are identical; `"Refund my order 8831"` → `human_review` one-hot;
-   `"What are your opening hours?"` → `deterministic`; `"hello there"` →
-   uniform 0.25; `identity()` is stable across instances. All three
-   comparators satisfy `isinstance(x, DecisionProvider)` (`hermetic()` only
-   when `functualize_decision_jev` imports — it does in CI, F-12; construct
-   it, never call `choose`).
+0. **Measure the Codex success shape first (live, one call; F-14).** Nothing
+   in the repository has seen a successful `codex exec` router answer. From
+   the repository root, in one foreground call:
+   ```bash
+   P=/tmp/hermetic-codex-probe && rm -rf "$P" && mkdir -p "$P/cwd" && uv run python -c 'import json,sys; o=["deterministic","cheap_model","frontier_agent","human_review"]; json.dump({"type":"object","properties":{"choice":{"type":"string","enum":o},"probabilities":{"type":"object","properties":{k:{"type":"number"} for k in o},"required":o,"additionalProperties":False}},"required":["choice","probabilities"],"additionalProperties":False}, open(sys.argv[1],"w"))' "$P/schema.json" && codex exec --json --output-schema "$P/schema.json" -o "$P/last.json" -m gpt-6-astra -c 'model_reasoning_effort="medium"' --ephemeral --skip-git-repo-check --ignore-user-config --ignore-rules -s read-only -C "$P/cwd" "$(cat <<'EOF'
+   You route requests. Answer only with the structured output: the option you choose and a probability for every option. Do not run commands.
+
+   Choose how this request should be handled.
+
+   Options:
+   - deterministic: a fixed rule or lookup answers it; no model needed
+   - cheap_model: a short, low-risk text task a small model can do
+   - frontier_agent: multi-step reasoning or tool use is required
+   - human_review: risky, ambiguous, or needs a person's judgement
+
+   Text to route:
+   <<<
+   Refund my order 8831 — the box arrived empty.
+   >>>
+
+   Choose one option and give a probability for every option; the probabilities sum to 1.
+   EOF
+   )" < /dev/null > "$P/events.jsonl" 2> "$P/stderr.txt"; echo "exit=$?"
+   ```
+   (strip the three-space indentation of the heredoc body when typing it).
+   - **If it is refused for the usage limit**, report the "try again at" time
+     on the tracker and stop T3 (finish the deterministic and hermetic parts,
+     leave T3 `[ ]`); resume after the window. Do not loop or sleep.
+   - On success, copy `events.jsonl` to
+     `tests/hermetic_eval/fixtures/codex_success.jsonl` and `last.json` to
+     `tests/hermetic_eval/fixtures/codex_success_last.json`, and write
+     `tests/hermetic_eval/fixtures/codex_usage_limit.jsonl` with exactly these
+     three lines (measured 2026-10-04T20:04:48Z):
+     `{"type":"thread.started","thread_id":"fixture"}` ·
+     `{"type":"error","message":"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 11:22 PM."}` ·
+     `{"type":"turn.failed","error":{"message":"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 11:22 PM."}}`.
+   - Read `codex_success.jsonl`: name the event and keys that carry token
+     usage (expected `turn.completed.usage.{input_tokens, cached_input_tokens,
+     output_tokens, reasoning_output_tokens}`) and whether any event names the
+     model. **If either differs from `contracts.md` C-3 / `schema.md` S-2,
+     correct those two files in this task's commit, and say so in the commit
+     body.**
+4. **Frontier (Codex)** — `@dataclass class FrontierCall` (`cli_version: str |
+   None`, `model: str | None` (the model the stream names, else `None`),
+   `model_mismatch: bool`, `usage: dict[str, int] | None`) and
+   `class FrontierRouter` exactly as C-3:
+   - `__init__(self, *, cwd: str, model: str = "gpt-6-astra", effort: str = "medium", timeout_seconds: float = 180.0, run: Runner | None = None, now: Callable[[], datetime] | None = None)`
+     where `Runner = Callable[[list[str], str, float], tuple[int, str, str]]`
+     (argv, cwd, timeout) and `now` defaults to
+     `lambda: datetime.now().astimezone()` (local zone). The default runner is
+     `subprocess.run(argv, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)`
+     → `(returncode, stdout, stderr)`. `choose` wraps **whichever** runner it
+     holds and turns `TimeoutExpired` into `DecisionUnavailableError(kind=DecisionFailure.UNREACHABLE, provider="frontier", detail=f"timeout after {timeout}s")`.
+     Re-export `TimeoutExpired = subprocess.TimeoutExpired` so tests never
+     import `subprocess`.
+   - Paths derive from `cwd`: `schema_path = Path(cwd).parent / "frontier-schema.json"`
+     (written on the first `choose` from `build_schema(request.options)`),
+     `last_path = Path(cwd).parent / "frontier-last.json"` (deleted before each
+     call). Constructing the router writes and spawns nothing.
+   - `PROMPT_TEMPLATE` (module constant) renders exactly:
+     `"You route requests. Answer only with the structured output: the option you choose and a probability for every option. Do not run commands.\n\n{instructions}\n\nOptions:\n{option_lines}\n\nText to route:\n<<<\n{state}\n>>>\n\nChoose one option and give a probability for every option; the probabilities sum to 1."`
+     with `option_lines` = `"- {option}: {meaning}"` per option in declared
+     order, newline-joined. `def build_schema(options) -> dict` builds the C-3
+     schema.
+   - `argv(prompt)` returns exactly
+     `["codex", "exec", "--json", "--output-schema", str(schema_path), "-o", str(last_path), "-m", model, "-c", f'model_reasoning_effort="{effort}"', "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-s", "read-only", "-C", cwd, prompt]`.
+   - `choose(request)` runs once, appends one `FrontierCall`, and maps per the
+     C-3 table: a `turn.failed`/`error` message containing `usage limit` →
+     `RATE_LIMITED` with `retry_after` = seconds from `now()` to the next
+     occurrence of `try again at (\d{1,2}):(\d{2}) ?([AP]M)` in `now()`'s zone
+     (`None` if it does not parse); any other `turn.failed`/`error` or a
+     non-zero exit → `REFUSED` (detail = first 300 chars of the message or
+     stderr); `last_path` missing or not JSON, `choice` not an option, a
+     probability outside `[0, 1]` → `MALFORMED`; otherwise a `DecisionResult`
+     (`value=choice`, `provider="frontier"`, `model=<named model or the
+     configured one>`, `distribution=probabilities`, `confidence=None`,
+     provenance `requested_model=<configured>`, `latency_seconds` monotonic
+     around the runner, `input_tokens`/`output_tokens` from the usage block
+     measured in step 0). `model_mismatch` is true only when the stream names a
+     model and it differs. `cli_version` = `codex --version` stdout, read
+     **lazily on the first `choose`** through the same runner and cached.
+   - `identity()` → `{"comparator": "frontier", "cli": "codex", "model", "effort", "argv": <argv with schema/last/cwd/prompt replaced by "SCHEMA_PATH"/"LAST_PATH"/"CWD"/"PROMPT">, "prompt_template_sha256", "schema_builder": "v1"}`.
+5. `tests/hermetic_eval/test_comparators.py` — offline; a fake runner records
+   `(argv, cwd, timeout)`, writes the canned `last_path` content when the case
+   needs one, and returns canned stdout read from `tests/hermetic_eval/fixtures/`.
+   Cases: recorded calls are `[["codex", "--version"], <C-3 argv>]` on the
+   first `choose` and only the C-3 argv on the second, argv exactly as above;
+   the success fixtures map to the `DecisionResult` the fixture implies
+   (value, distribution as a mapping, tokens as measured); the usage-limit
+   fixture with `now = 2026-10-04 22:04:48+02:00` → `RATE_LIMITED`,
+   `retry_after == 4632.0` (to 23:22 local); exit 1 with a different
+   `turn.failed` message → `REFUSED`; no `last_path`, `"not json"`,
+   `choice: "other"`, a probability `1.2` → each `MALFORMED`; a runner raising
+   `comparators.TimeoutExpired` → `UNREACHABLE`; if the success fixture names a
+   model, a copy naming another model → `calls[-1].model_mismatch is True`.
+   Deterministic: 100 calls on one state are identical; `"Refund my order
+   8831"` → `human_review` one-hot; `"What are your opening hours?"` →
+   `deterministic`; `"hello there"` → uniform 0.25; `identity()` is stable
+   across instances. All three comparators satisfy `isinstance(x,
+   DecisionProvider)` (`hermetic()` is constructed, never called).
+
+*Files added by step 0:* `tests/hermetic_eval/fixtures/codex_success.jsonl`,
+`tests/hermetic_eval/fixtures/codex_success_last.json`,
+`tests/hermetic_eval/fixtures/codex_usage_limit.jsonl`; and, only if step 0
+found a difference, `.spec/features/hermetic-evaluation/{contracts,schema}.md`.
 
 Gates:
 
@@ -441,8 +503,9 @@ Behaviour (B-17, B-20…B-22; C-9). Constants come from
    hermetic rows with `route_at(row, t, 0.10) == (r, True)`; `support`,
    `scenarios` (distinct), `unsafe` (qualifying with expected `human_review`
    and `r != "human_review"`), `accuracy` (share with `r == expected`);
-   `frontier_accuracy` = routed accuracy of non-not-attempted frontier rows
-   whose scenario is in the qualifying set (`None` if none). The first `t`
+   `frontier_accuracy` = routed accuracy of frontier rows with `status ==
+   "routed"` (non-failed — a frontier cell lost to its usage limit must not
+   lower the bar) whose scenario is in the qualifying set (`None` if none). The first `t`
    with `support >= min_support`, `scenarios >= min_distinct_scenarios`,
    `unsafe == 0`, `frontier_accuracy is not None` and `accuracy >=
    frontier_accuracy − max_accuracy_gap` makes `r` `"trusted"` with
@@ -518,7 +581,7 @@ Behaviour (B-5…B-14, B-23, B-24; C-6, C-7, C-8, S-1, S-2):
    `hermetic` → `(hermetic(), hermetic_identity())`, `frontier` →
    `(FrontierRouter(cwd=str(run_dir / "frontier-cwd")), its identity())`
    (the `Path` argument is the run directory). Flags per C-6: `--corpus`,
-   `--comparator`, `--run-dir`, `--budget-seconds` (default 420),
+   `--comparator`, `--run-dir`, `--budget-seconds` (default 360),
    `--corpus-root` (default `Path(__file__).parent / "corpus"`), `--freeze`.
    - `--freeze` → `corpus.write_lock(version_dir, {name: identity_sha256(identity) for each factory}, frozen_at=<now ISO>)`;
      exit 2 with the message if a lock exists. `def freeze(...)` holds this.
@@ -712,21 +775,26 @@ measurement). Commit: `test(hermetic): freeze the version 1 routing corpus`.
 *Files:* none in the repository. Output: three run directories under
 `~/.local/state/functualize-hermetic-eval/` (or `$XDG_STATE_HOME/…`).
 
-Preconditions, each a maintainer step (D-2): the frontier spend is approved;
-`claude` is logged in on the measuring host; for the hermetic comparator,
+Preconditions: the maintainer's Codex login is live on the measuring host
+(`codex login status` reports logged in — the frontier draws on that ChatGPT
+subscription's usage window, approved under D-2); avoid other Codex work on
+the same login while T8 runs (it shares the window, plan R-3); for the
+hermetic comparator,
 `export OPENCODE_API_KEY="$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.local/share/opencode/auth.json')))['opencode-go']['key'])")"`
 in the same shell call as the replay. Never print the key.
 
 1. Run each comparator in **foreground** calls, one invocation per tool call
-   (each ≤ 420 s budget plus one provider timeout), re-invoking with the same
+   (each ≤ 360 s budget plus one provider timeout of ≤ 180 s), re-invoking with the same
    `--run-dir` until it prints `run complete`:
    ```bash
    uv run python -m tests.hermetic_eval.replay --corpus v1 --comparator deterministic --run-dir "$HOME/.local/state/functualize-hermetic-eval/v1-deterministic"
    uv run python -m tests.hermetic_eval.replay --corpus v1 --comparator frontier --run-dir "$HOME/.local/state/functualize-hermetic-eval/v1-frontier"
    uv run python -m tests.hermetic_eval.replay --corpus v1 --comparator hermetic --run-dir "$HOME/.local/state/functualize-hermetic-eval/v1-hermetic"
    ```
-2. On `resume after <UTC>` (a spent free-tier window) stop the hermetic run,
-   report the time on the tracker, and resume in a later run after it. Never
+2. On `resume after <UTC>` (a spent Jev free-tier window, or a spent Codex
+   usage window) stop that comparator's run, report the time on the tracker,
+   and resume in a later run after it. `resume after unknown` means the
+   provider named no time: report it and retry in a later run. Never
    sleep or poll inside a run. On exit 3 (`invalid_model`) stop and report:
    the run is void.
 3. Do not re-run a completed comparator to "improve" its numbers; a second
@@ -747,12 +815,26 @@ invocation of each printed `run complete` — AC-12. No commit.
    ```
    The first exits 0 (4 = conformance failure: stop and report); the second
    exits 0.
-2. Deliver `benchmark.md`, `finding.md`, `boundary.json`, `metrics.json` and
-   the three `cells.jsonl` to the maintainer as tracker attachments, with the
-   computed verdict and the boundary in the comment. **Do not commit them and
-   do not publish them anywhere** (B-25, D-6).
+2. **Publish to Confluence (D-6, approved by the maintainer).** With the
+   Atlassian tools, create one page in space `SD` (Functualize), parent page
+   `5144577` (*Hermetic Evaluation + Cheap SDD*), title `Hermetic Evaluation —
+   Corpus v1 Results`. Body, in this order: a status line ("Computed verdict:
+   <verdict> — a recommendation; the disposition is the maintainer's"), the
+   corpus version and SHA-256, the three comparator identity digests and the
+   repository commit; then `finding.md`; then `benchmark.md`. Attach the four
+   report files and the three `cells.jsonl` (rename each to
+   `cells-<comparator>.jsonl`). Then **read the page back live** (page id,
+   version, attachment list): AC-17 needs the corpus SHA-256 in the body and
+   seven attachments. A failed Atlassian read or write follows the workspace
+   fail-closed rule — retry at least 3 times, then stop and report; never
+   claim the page exists without reading it back.
+3. Deliver the same seven files to the maintainer as tracker attachments, with
+   the computed verdict, the boundary and the Confluence page link in the
+   comment. **Do not commit them** (B-25).
 
-Closes when: both commands exit 0 and the delivery comment exists. No commit.
+Closes when: both commands exit 0, the Confluence page reads back with the
+corpus digest and seven attachments, and the delivery comment exists. No
+commit.
 
 ## Wave 7
 

@@ -61,46 +61,47 @@ Canonical identity JSON = `json.dumps(identity, sort_keys=True,
 separators=(",", ":"))`. The lock carries no tracker key, no person's name and
 no machine identity.
 
-## C-3 — the frontier comparator
+## C-3 — the frontier comparator (Codex, D-2)
 
 ```python
 class FrontierRouter:  # satisfies functualize.plugin.DecisionProvider
     name: str = "frontier"
-    def __init__(self, *, model: str = "claude-sonnet-5", effort: str = "medium",
-                 timeout_seconds: float = 120.0,
-                 run: Callable[[list[str], Mapping[str, str], str, float], Completed] = <subprocess runner>,
-                 cwd: str) -> None: ...
+    def __init__(self, *, cwd: str, model: str = "gpt-6-astra", effort: str = "medium",
+                 timeout_seconds: float = 180.0,
+                 run: Callable[[list[str], str, float], Completed] | None = None,
+                 now: Callable[[], datetime] | None = None) -> None: ...  # now: local-zone clock for retry_after
     def choose(self, request: ChoiceRequest) -> DecisionResult[str]: ...
     def identity(self) -> dict[str, object]: ...
     calls: list[FrontierCall]  # one per choose(), for the ledger's frontier block (schema.md S-2)
 ```
 
 `Completed` is `(returncode: int, stdout: str, stderr: str)`; the default
-runner is `subprocess.run(argv, env=env, cwd=cwd, capture_output=True,
-text=True, timeout=timeout)`, which is the **only** `subprocess` use in the
-package.
+runner is `subprocess.run(argv, cwd=cwd, stdin=subprocess.DEVNULL,
+capture_output=True, text=True, timeout=timeout)` — the **only** `subprocess`
+use in the package. Constructing a `FrontierRouter` spawns nothing.
 
-**argv**, exactly, in this order (`PROMPT`, `SCHEMA`, `SYSTEM` below):
+Paths, all inside the run directory: `cwd` = `<run-dir>/frontier-cwd` (empty),
+`SCHEMA_PATH` = `<run-dir>/frontier-schema.json` (written once, on the first
+`choose`), `LAST_PATH` = `<run-dir>/frontier-last.json` (overwritten by each
+call).
 
-```
-claude -p PROMPT --model claude-sonnet-5 --effort medium --output-format json
-  --json-schema SCHEMA --tools "" --system-prompt SYSTEM --setting-sources ""
-  --strict-mcp-config --disable-slash-commands --no-session-persistence
-  --max-turns 2
-```
-
-**environment**: the caller's environment plus `DISABLE_AUTOUPDATER=1`.
-**cwd**: an empty directory inside the run directory (`<run-dir>/frontier-cwd`).
-
-**SYSTEM** (exact):
+**argv**, exactly, in this order:
 
 ```
-You route requests. Answer only through the structured output: the option you choose and a probability for every option. Do not use tools.
+codex exec --json --output-schema SCHEMA_PATH -o LAST_PATH
+  -m gpt-6-astra -c model_reasoning_effort="medium"
+  --ephemeral --skip-git-repo-check --ignore-user-config --ignore-rules
+  -s read-only -C CWD PROMPT
 ```
 
-**PROMPT** — rendered from the `ChoiceRequest` only, options in declared order:
+(`-c` takes the TOML string `model_reasoning_effort="medium"` as one argv
+element.) Codex has no system-prompt flag, so the routing instruction is the
+first paragraph of **PROMPT**, rendered from the `ChoiceRequest` only, options
+in declared order:
 
 ```
+You route requests. Answer only with the structured output: the option you choose and a probability for every option. Do not run commands.
+
 {instructions}
 
 Options:
@@ -115,7 +116,7 @@ Text to route:
 Choose one option and give a probability for every option; the probabilities sum to 1.
 ```
 
-**SCHEMA** — built from `request.options`:
+**SCHEMA** — built from `request.options`, written to `SCHEMA_PATH`:
 
 ```json
 {"type": "object",
@@ -127,20 +128,31 @@ Choose one option and give a probability for every option; the probabilities sum
  "required": ["choice", "probabilities"], "additionalProperties": false}
 ```
 
-**Mapping a CLI result** (stdout is one JSON object):
+**What is measured and what is not (F-14).** The refusal path is measured: on a
+spent usage window, stdout is JSONL carrying
+`{"type":"error","message":"You've hit your usage limit. … try again at 11:22 PM."}`
+and `{"type":"turn.failed","error":{"message": <same>}}`, exit 1. The success
+path is **not yet measured**; from codex-cli's documented event stream it is
+expected to end in `{"type":"turn.completed","usage":{"input_tokens":…,"cached_input_tokens":…,"output_tokens":…,"reasoning_output_tokens":…}}`
+with the schema-shaped answer written to `LAST_PATH`. **T3 step 0 makes one
+live call, saves its stdout and `LAST_PATH` as test fixtures, and corrects this
+contract to what it saw before writing code.**
+
+**Mapping a call:**
 
 | condition | outcome |
 |---|---|
 | timeout | `DecisionUnavailableError(kind=UNREACHABLE, provider="frontier", detail="timeout after {t}s")` |
-| `returncode != 0` or `is_error` true | `kind=REFUSED`, `status=api_error_status`, `detail` = first 300 chars of `result`/stderr |
-| stdout not JSON, `structured_output` absent, `choice` not an option, a probability outside `[0, 1]` | `kind=MALFORMED`, `status=None` |
-| the single `modelUsage` key ≠ the configured model | returns normally, and the call's `FrontierCall.model_mismatch` is true — the replay records `invalid_model` and stops (spec B-7) |
-| otherwise | `DecisionResult(value=choice, provider="frontier", model=<modelUsage key>, distribution=probabilities, confidence=None, provenance=DecisionProvenance(requested_model=<configured>, latency_seconds=<monotonic around the call>, input_tokens=usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens, output_tokens=usage.output_tokens))` |
+| a `turn.failed`/`error` message containing `usage limit` | `kind=RATE_LIMITED`, `status=None`, `retry_after` = seconds from now until the next occurrence of the `try again at <h:mm AM/PM>` time in the host's local zone (`None` if absent or unparseable), `detail` = the message |
+| any other `turn.failed`/`error`, or `returncode != 0` | `kind=REFUSED`, `status=None`, `detail` = first 300 chars of the message or stderr |
+| `LAST_PATH` missing or not JSON, `choice` not an option, a probability outside `[0, 1]` | `kind=MALFORMED`, `status=None` |
+| the stream names an answering model ≠ the configured one | returns normally; `FrontierCall.model_mismatch` is true — the replay records `invalid_model` and stops (spec B-7) |
+| otherwise | `DecisionResult(value=choice, provider="frontier", model=<the named model, else the configured one>, distribution=probabilities, confidence=None, provenance=DecisionProvenance(requested_model=<configured>, latency_seconds=<monotonic around the call>, input_tokens=usage.input_tokens, output_tokens=usage.output_tokens))` |
 
-`identity()` returns `{"comparator": "frontier", "model", "effort", "argv":
-<argv with PROMPT/SCHEMA/SYSTEM as placeholders>, "system_sha256",
-"prompt_template_sha256", "schema_builder": "v1", "env": {"DISABLE_AUTOUPDATER":
-"1"}}` — no CLI version (recorded per cell instead, spec B-7).
+`identity()` returns `{"comparator": "frontier", "cli": "codex", "model",
+"effort", "argv": <argv with SCHEMA_PATH/LAST_PATH/CWD/PROMPT as
+placeholders>, "prompt_template_sha256", "schema_builder": "v1"}` — no CLI
+version (recorded per cell instead, spec B-7).
 
 ## C-4 — the hermetic comparator
 
@@ -182,7 +194,7 @@ uv run python -m tests.hermetic_eval.replay
     --corpus v1
     --comparator {hermetic,frontier,deterministic}
     [--run-dir PATH]            # default $XDG_STATE_HOME|~/.local/state /functualize-hermetic-eval/<run-id>
-    [--budget-seconds 420]
+    [--budget-seconds 360]
     [--corpus-root PATH]        # default tests/hermetic_eval/corpus; a test seam
 
 uv run python -m tests.hermetic_eval.replay --freeze --corpus v1 [--corpus-root PATH]
@@ -236,8 +248,9 @@ ledgers' SHA-256 and the runs' `started_at`, not the report's time.
 
 `benchmark.md` holds, per comparator: availability, routed accuracy, macro-F1,
 coverage, selective accuracy, ECE, Brier, escalation precision/recall,
-false-continue, unsafe-continue, false-stop, latency p50/p95, cost per run,
-frontier dollars per correct route, flip count; then the two confusion matrices
+false-continue, unsafe-continue, false-stop, latency p50/p95, cost per run
+(dollars where priced, else *subscription, unpriced*), tokens per correct
+route, flip count; then the two confusion matrices
 and the threshold table at `min_margin = 0.10`.
 
 ## C-9 — `boundary.json`

@@ -41,12 +41,14 @@ took the fallback); `routed` otherwise; `invalid_model` per spec B-7;
 ## S-2 — the frontier block
 
 ```json
-{"cli_version": "2.1.281 (Claude Code)", "model": "claude-sonnet-5", "model_mismatch": false,
- "cost_usd": 0.00884, "cost_basis": "list", "duration_ms": 5828,
- "usage": {"input_tokens": 2, "cache_creation_input_tokens": 1149, "cache_read_input_tokens": 0, "output_tokens": 424}}
+{"cli_version": "codex-cli 0.156.1", "model": null, "model_mismatch": false,
+ "usage": {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0}}
 ```
 
-`cli_version` is `claude --version`'s stdout, read once per invocation.
+`cli_version` is `codex --version`'s stdout, read once per `FrontierRouter`
+(lazily, on the first `choose`). `model` is the answering model when the
+stream names one, else `null`. The `usage` key names are the ones T3's probe
+measured (contracts C-3); the values above are placeholders.
 
 ## S-3 — `metrics.json`
 
@@ -62,7 +64,7 @@ took the fallback); `routed` otherwise; `invalid_model` per spec B-7;
         "calibration_confidence": same | null,
         "escalation": {coverage, selective_accuracy, precision, recall, by_cause: {fallback, proposal}},
         "latency": {p50, p95, max},
-        "cost": {usd_total, usd_per_cell, input_tokens, output_tokens, usd_per_correct_route},
+        "cost": {usd_total, input_tokens, output_tokens, cached_input_tokens, reasoning_output_tokens, tokens_per_correct_route},
         "variance": {mean_modal_agreement, flips, mean_probability_sd, flipped: [<scenario>]},
         "errors": {false_continue, unsafe_continue, false_stop: {fallback, proposal}}
       },
