@@ -28,7 +28,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from functualize.app._workflow_resume import pending_gates
+from functualize._types.errors import GateNotFoundError
+from functualize.app._workflow_resume import _canonical_gate, pending_gates
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -315,12 +316,26 @@ def list_scopes(
             continue
         if state is not None and derived_state(scope) != state:
             continue
-        if blocked_on is not None and not any(
-            name == blocked_on for name, _ in pending_gates(scope)
-        ):
+        if blocked_on is not None and not _awaits_gate(sid, scope, blocked_on):
             continue
         rows.append(_describe(app, store, sid, scope))
     return rows
+
+
+def _awaits_gate(sid: str, scope: dict[str, Any], blocked_on: str) -> bool:
+    """Whether a gate pending in this scope answers to that reference.
+
+    The survey twin of the addressed lookup: a reference that resolves to
+    nothing here means this scope does not match, never an error — the gate
+    may exist in another scope, or already be answered.
+    """
+    try:
+        _canonical_gate(
+            [name for name, _ in pending_gates(scope)], blocked_on, scope_id=sid
+        )
+    except GateNotFoundError:
+        return False
+    return True
 
 
 # ----------------------------------------------------------------------

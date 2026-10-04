@@ -228,6 +228,13 @@ answer for an open request; a second deposit returns
 `{"error": "gate_already_answered", ...}` and leaves the first answer intact.
 Invalid deposits are recorded as invalid candidates and leave the request open.
 
+A gate is addressed by its declared name or by its canonical form —
+`approve_refund` and `approve-refund` both reach the one gate — and
+`workflow list` prints the canonical form. Naming a gate the workflow does
+not have raises `GateNotFoundError` from the Python API; the CLI prints the
+error and exits 1, and MCP returns a `gate_not_found` result carrying the
+gates that do exist.
+
 ### Decision gates
 
 A gate can let a **decision provider** fill one field of its model with
