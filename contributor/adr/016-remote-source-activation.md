@@ -158,6 +158,35 @@ case a special case.
 interactive ones only when no key was found and a TTY exists. Reversed, an
 unattended Lambda run hangs on a keychain prompt.
 
+> **Amended by the vault-keyring-unlock decision (2026-10-02).** The reason
+> above stands — an unattended run must not hang on a prompt — and the
+> mechanism changes twice over. First, "interactive" conflated two things: a
+> provider that needs *a person at this process's terminal*, and one that is
+> backed by a keyring which may show its own dialog elsewhere on the desktop.
+> Gating the keychain on `isatty()` blocked the common case — a silent read of
+> a keyring the developer had already unlocked — for every piped run, agent
+> shell tool and stdio MCP job. Second, a run must not create an unlock prompt
+> at all: on gnome-keyring 50, a client that ends an active prompt from its own
+> side (a deadline followed by exit, Ctrl-C, an agent killing its child)
+> crashed the daemon and re-locked every keyring.
+>
+> Now: `$FUNCTUALIZE_VAULT_KEY` first, and when it holds a key nothing else is
+> touched. The keychain is read **regardless of terminal** and **silently**:
+> an unlocked keyring answers, a locked one refuses the run at once. The only
+> thing that asks a keyring to unlock is `func builtin vault unlock`, run by a
+> person, which waits for the prompt's own outcome and never cancels it —
+> `vault init` included, which reads and stores silently and refuses a locked
+> keyring rather than unlocking it.
+> `VaultKeyProvider.get_key` must never prompt; unlocking is the separate
+> `VaultKeyUnlocker` capability. The key is resolved **lazily** — only when a
+> run opens a stored entry. `[vault] keyring_timeout` bounds only a keyring that
+> does not answer at all. The keyring is reached through one adapter per
+> platform, and a `keyring` backend not proven silent is not read by a run.
+> `interactive()` now means "needs a person at a terminal", and a provider that
+> says so is still consulted only on a real TTY, after every provider that
+> cannot prompt. functualize keeps no key cache and no timer; the keyring
+> decides how long it stays unlocked.
+
 With no key, the vault does not open. There is no plaintext fallback.
 
 ### 6. Sync is explicit; staleness is loud

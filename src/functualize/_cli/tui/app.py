@@ -18,7 +18,11 @@ from textual.widgets import Input, RichLog, Static
 from functualize._cli.data.config_snapshot_store import ConfigSnapshotStore
 from functualize._cli.data.func_settings import FuncSettingsStore
 from functualize._cli.tui.bar import BarReadiness, SmartBar  # noqa: F401
-from functualize._cli.tui.bar_items import render_header_items, render_status_items
+from functualize._cli.tui.bar_items import (
+    render_header_items,
+    render_status_items,
+    render_vault_state,
+)
 from functualize._cli.tui.chain_resolution import (
     build_command_panels,
     build_group_field_defs,
@@ -236,6 +240,9 @@ class FunctualizeInlineTUI(App[int]):
     }
     """
 
+    #: How often the status bar asks whether the vault key is available.
+    VAULT_STATE_SECONDS = 10.0
+
     def __init__(self, func_app: FunctualizeApp) -> None:
         """Accept the booted FunctualizeApp for job discovery and execution."""
         super().__init__()
@@ -249,6 +256,7 @@ class FunctualizeInlineTUI(App[int]):
 
         # --- State machines ---
         self._focus_state = FocusState()
+        self._vault_state_text: str | None = None
         self._key_dispatcher = KeyDispatcher(self._focus_state, self)
 
         # --- Widgets (created once, yielded in compose) ---
@@ -413,8 +421,48 @@ class FunctualizeInlineTUI(App[int]):
         # the first frame.
         self._update_status_bar(self._focus_state.mode, self._focus_state.zone)
 
+        # The vault key state, polled off the UI thread: the probe may wait on
+        # a keyring backend, and a wait on the event loop would freeze input.
+        self._poll_vault_state()
+        self.set_interval(self.VAULT_STATE_SECONDS, self._poll_vault_state)
+
         # Initial focus: SmartBar in COMMAND mode
         self._smart_bar.focus()
+
+    def on_app_focus(self, event: Any) -> None:
+        """Re-check the vault state when the terminal regains focus.
+
+        The likeliest moment it changed: the user just unlocked the keyring
+        in another window.
+        """
+        self._poll_vault_state()
+
+    def _poll_vault_state(self) -> None:
+        """Ask for the vault key state in a thread worker (steering §2.5)."""
+        self.run_worker(
+            self._read_vault_state,
+            thread=True,
+            exclusive=True,
+            group="vault-state",
+            exit_on_error=False,
+        )
+
+    def _read_vault_state(self) -> None:
+        """Thread worker: probe, then hand the text back to the loop thread."""
+        from functualize.app.vault import vault_key_state
+
+        text = render_vault_state(vault_key_state(self._func_app))
+        try:
+            self.call_from_thread(self._show_vault_state, text)
+        except RuntimeError as exc:
+            # The app closed while the probe ran; there is nothing to update.
+            self.log.warning(f"vault state not shown: {exc}")
+
+    def _show_vault_state(self, text: str | None) -> None:
+        if text == self._vault_state_text:
+            return
+        self._vault_state_text = text
+        self._update_status_bar(self._focus_state.mode, self._focus_state.zone)
 
     def on_key(self, event: Any) -> None:
         """Sole key handling: delegate to KeyDispatcher."""
@@ -2482,6 +2530,8 @@ class FunctualizeInlineTUI(App[int]):
             env_str = self._environment_indicator()
             if env_str:
                 base = f"{base}  {env_str}"
+            if self._vault_state_text:
+                base = f"{base}  {self._vault_state_text}"
             plugin_text = render_status_items(self._plugin_instances(), self._func_app)
             status_bar.update(f"{base}  {plugin_text}" if plugin_text else base)
         except NoMatches:

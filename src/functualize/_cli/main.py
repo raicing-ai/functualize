@@ -295,7 +295,6 @@ def cli_app(
 
     from functualize._cli.config import resolve_cli_config
     from functualize.app import FunctualizeApp
-    from functualize.app.config import ConfigSources
     from functualize.app.utils import auto_discover
 
     # Build CLI flags dict for resolve_cli_config
@@ -369,10 +368,7 @@ def cli_app(
         name="functualize",
         job_sources=discovery_result.job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=ConfigSources(
-            dotenv=cli_config.dotenv,
-            dotenv_path=cli_config.dotenv_path,
-        ),
+        config_sources=cli_config.config_sources(),
         plugin_sources=PluginSources(disabled=_builtin_disabled)
         if _builtin_disabled
         else None,
@@ -553,7 +549,7 @@ def _handle_bare(
     """
     from functualize._cli.config import resolve_cli_config
     from functualize.app import FunctualizeApp
-    from functualize.app.config import ConfigSources, JobSources, PluginSources
+    from functualize.app.config import JobSources, PluginSources
 
     # Apply import_libs to sys.path before importing job modules
     _apply_import_libs(effective.get("import_libs", []))
@@ -599,10 +595,7 @@ def _handle_bare(
         name="functualize",
         job_sources=job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=ConfigSources(
-            dotenv=cli_config.dotenv,
-            dotenv_path=cli_config.dotenv_path,
-        ),
+        config_sources=cli_config.config_sources(),
         plugin_sources=PluginSources(disabled=_disabled_plugins)
         if _disabled_plugins
         else None,
@@ -1239,7 +1232,7 @@ def _handle_group(
     """
     from functualize._cli.config import resolve_cli_config
     from functualize.app import FunctualizeApp
-    from functualize.app.config import ConfigSources, JobSources, PluginSources
+    from functualize.app.config import JobSources, PluginSources
 
     # ── Boot app (same pattern as _handle_job) ───────────────────────────
     _apply_import_libs(effective.get("import_libs", []))
@@ -1277,10 +1270,7 @@ def _handle_group(
         name="functualize",
         job_sources=job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=ConfigSources(
-            dotenv=cli_config.dotenv,
-            dotenv_path=cli_config.dotenv_path,
-        ),
+        config_sources=cli_config.config_sources(),
         plugin_sources=PluginSources(disabled=_disabled_plugins)
         if _disabled_plugins
         else None,
@@ -1339,7 +1329,7 @@ def _handle_job(
     """
     from functualize._cli.config import resolve_cli_config
     from functualize.app import FunctualizeApp
-    from functualize.app.config import ConfigSources, PluginSources
+    from functualize.app.config import PluginSources
 
     # Extract user-configured aliases and determine the target job name.
     aliases = _extract_aliases(merged_config)
@@ -1401,10 +1391,7 @@ def _handle_job(
         name="functualize",
         job_sources=job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=ConfigSources(
-            dotenv=cli_config.dotenv,
-            dotenv_path=cli_config.dotenv_path,
-        ),
+        config_sources=cli_config.config_sources(),
         plugin_sources=PluginSources(disabled=_disabled_plugins)
         if _disabled_plugins
         else None,
@@ -1713,7 +1700,7 @@ def _handle_single_file(
 
     # Construct FunctualizeApp for execution context
     from functualize.app import FunctualizeApp
-    from functualize.app.config import ConfigSources, JobSources, PluginSources
+    from functualize.app.config import JobSources, PluginSources
     from functualize.app.utils import auto_discover
 
     cwd = Path.cwd()
@@ -1770,10 +1757,7 @@ def _handle_single_file(
         name="functualize",
         job_sources=single_file_sources,
         discovery_config=cli_config.discovery,
-        config_sources=ConfigSources(
-            dotenv=cli_config.dotenv,
-            dotenv_path=cli_config.dotenv_path,
-        ),
+        config_sources=cli_config.config_sources(),
         # The same rule as the directory filter above, applied to the other
         # door into the working directory. The job scan is not the only thing
         # that reaches it: the plugin loader falls back to

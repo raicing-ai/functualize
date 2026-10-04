@@ -37,6 +37,7 @@ from functualize._config.vault import (
     parse_duration,
     resolve_max_age,
 )
+from functualize._config.vault_key_resolver import VaultKeyResolver
 from functualize._config.vault_source import VaultSource
 from functualize.app.config import ConfigSources
 from functualize.app.core import FunctualizeApp, request_for
@@ -415,9 +416,32 @@ class TestHowOldIsTheVault:
 # --------------------------------------------------------------------------
 
 
+class _NothingStored:
+    """A live keyring holding no vault key: a lookup ends NOT_STORED."""
+
+    def identifier(self) -> str:
+        return "keychain"
+
+    def interactive(self) -> bool:
+        return False
+
+    def is_available(self) -> bool:
+        return True
+
+    def get_key(self, project_id: str) -> bytes | None:
+        return None
+
+
+def _resolver(key: bytes | None) -> VaultKeyResolver:
+    """A fixed key, or — for `None` — a keyring that answers "nothing stored"."""
+    if key is None:
+        return VaultKeyResolver("proj", providers=[_NothingStored()], timeout=5.0)
+    return VaultKeyResolver.fixed(key, "test")
+
+
 def _source(path: Path, *, max_age: timedelta | None, key: bytes | None = _KEY) -> Any:
     return VaultSource(
-        path, encryption_key=key, providers=("fake-sm",), max_age=max_age
+        path, key=_resolver(key), providers=("fake-sm",), max_age=max_age
     )
 
 

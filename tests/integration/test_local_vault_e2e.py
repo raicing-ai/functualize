@@ -203,11 +203,11 @@ class TestTheDormantDefault:
     ) -> None:
         """AC-5. A vault that holds *something else* must not interfere."""
         from functualize._config.vault import SecretsVault, VaultOrigin
-        from functualize._config.vault_keys import resolve_vault_key
+        from functualize._config.vault_key_resolver import resolve_vault_key
         from functualize._config.vault_paths import vault_path_for_project
 
         resolution = resolve_vault_key("ignored")
-        assert resolution is not None
+        assert resolution.key is not None
         SecretsVault(vault_path_for_project(project)).put(
             "other.thing",
             "irrelevant",
