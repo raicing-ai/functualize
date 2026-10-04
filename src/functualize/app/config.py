@@ -147,6 +147,22 @@ class ConfigSources:
     drift.
     """
 
+    vault_keyring_timeout: str | None = None
+    """How long a run may wait on the OS keyring, e.g. ``"30s"`` or ``"2m"``.
+
+    None means unconfigured, which resolves to a 30-second wait.
+    ``$FUNCTUALIZE_VAULT_KEYRING_TIMEOUT`` outranks this field. The same
+    duration spelling as ``vault_max_age``; a bare number is refused and a
+    warning is logged, falling back to the default.
+
+    Read lazily, only when a run is about to consult the keyring — a run
+    that resolves no key never reads it, and neither does boot.
+
+    **The literal default lives in** ``_config.vault.DEFAULT_KEYRING_TIMEOUT``,
+    not here, for the same cold-boot reason as ``vault_max_age`` above, and
+    ``tests/config/test_vault_keyring_timeout.py`` asserts the two agree.
+    """
+
 
 @dataclass(frozen=True)
 class PluginSources:

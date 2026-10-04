@@ -252,6 +252,13 @@ _BASE_SETTINGS: tuple[FuncSetting, ...] = (
         "Launch the interactive shell on a bare invocation at a TTY",
         default="true",
     ),
+    _spec(
+        "vault",
+        "keyring_timeout",
+        "str",
+        "How long a run waits on the OS keyring for the vault key (e.g. 30s, 2m)",
+        default="30s",
+    ),
     _spec("", "dotenv", "bool", "Load .env at startup", default="false"),
     _spec("", "dotenv_path", "str", "Explicit .env file path"),
     _spec("", "import_libs", "list", "Paths importable by job modules"),

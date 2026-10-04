@@ -316,6 +316,40 @@ def _isolate_home(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_os_keyring(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep the suite off the developer's real OS keyring and session bus.
+
+    The vault key is read from the OS keyring whether or not stdout is a
+    terminal, so any test that resolves a key without $FUNCTUALIZE_VAULT_KEY
+    would otherwise read the real Secret Service — or raise its unlock dialog
+    on the desktop of whoever runs the suite. Before that rule, the TTY gate
+    happened to keep every in-process test (and every piped subprocess) off
+    the keyring; nothing here did it on purpose.
+
+    `PYTHON_KEYRING_BACKEND` reaches in-process lookups and every subprocess
+    a test spawns; the unreachable bus address makes the Secret Service probe
+    answer "unknown" instead of asking the real one. A test that wants a
+    keyring installs its own fake (`sys.modules`, or the env var for a
+    subprocess), which overrides both.
+    """
+    monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.fail.Keyring")
+    monkeypatch.setenv(
+        "DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/functualize-test-bus"
+    )
+    keyring = sys.modules.get("keyring")
+    if keyring is None or not hasattr(keyring, "set_keyring"):
+        # Not imported yet: the first import reads the env var set above.
+        yield
+        return
+    from keyring.backends.fail import Keyring as FailKeyring
+
+    previous = keyring.get_keyring()
+    keyring.set_keyring(FailKeyring())
+    yield
+    keyring.set_keyring(previous)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_state_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
 ) -> None:

@@ -242,7 +242,7 @@ class TestCatalog:
         for setting in FUNC_SETTINGS:
             catalog_by_section.setdefault(setting.section, set()).add(setting.key)
 
-        for section in ("discovery", "cli", "tui"):
+        for section in ("discovery", "cli", "tui", "vault"):
             assert catalog_by_section[section] == set(_RECOGNIZED_KEYS[section]), (
                 f"[{section}] drifted between catalog and _RECOGNIZED_KEYS"
             )

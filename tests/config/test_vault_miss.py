@@ -27,6 +27,7 @@ from functualize._config.vault import (
     VaultEntryUnreadableError,
     VaultOrigin,
 )
+from functualize._config.vault_key_resolver import VaultKeyResolver
 from functualize._config.vault_source import VaultSource
 
 _KEY = b"\x11" * KEY_BYTES
@@ -77,8 +78,31 @@ def synced_vault(tmp_path: Path) -> Path:
     return path
 
 
+class _NothingStored:
+    """A live keyring holding no vault key: a lookup ends NOT_STORED."""
+
+    def identifier(self) -> str:
+        return "keychain"
+
+    def interactive(self) -> bool:
+        return False
+
+    def is_available(self) -> bool:
+        return True
+
+    def get_key(self, project_id: str) -> bytes | None:
+        return None
+
+
+def _resolver(key: bytes | None) -> VaultKeyResolver:
+    """A fixed key, or — for `None` — a keyring that answers "nothing stored"."""
+    if key is None:
+        return VaultKeyResolver("proj", providers=[_NothingStored()], timeout=5.0)
+    return VaultKeyResolver.fixed(key, "test")
+
+
 def _source(vault_path: Path, *, key: bytes | None = _KEY) -> VaultSource:
-    return VaultSource(vault_path, encryption_key=key, providers=_PROVIDERS)
+    return VaultSource(vault_path, key=_resolver(key), providers=_PROVIDERS)
 
 
 def _chain(vault: VaultSource, below: _StaticSource) -> ResolutionChain:
@@ -294,16 +318,24 @@ class TestOnlyDeclaredKeysWarn:
     def test_an_unusable_vault_warns_per_run_not_per_key(
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """With no key every lookup falls through. Boot already said so once;
-        repeating it per key would drown the message rather than sharpen it."""
+        """With no key every declared lookup falls through. It is said once,
+        at the first declared value that needed the key — boot resolves
+        nothing, so it can no longer say it — and never repeated per key,
+        which would drown the message rather than sharpen it."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file",
+            "config.dev.toml",
+            {"database.password": _ANNOTATION, "database.token": _ANNOTATION},
         )
         chain = _chain(_source(synced_vault, key=None), below)
         with caplog.at_level(logging.WARNING):
             resolved = chain.resolve("password", "database")
+            chain.resolve("token", "database")
         assert resolved.value == _ANNOTATION
-        assert caplog.records == []
+        assert len(caplog.records) == 1
+        message = caplog.records[0].getMessage()
+        assert "vault key is not available" in message
+        assert "func builtin vault init" in message
 
     def test_a_missing_key_everywhere_raises_rather_than_warning(
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
@@ -360,18 +392,21 @@ class TestTheFirstRunIsTheLoudestCase:
             )
         assert "vault sync" in caplog.records[0].getMessage()
 
-    def test_no_file_and_no_key_stays_silent(
+    def test_no_file_and_no_key_warns_once_about_the_key(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """The half that was right. Boot already warned; with no key every
-        lookup falls through, so per-key warnings would drown it."""
+        """No key outranks no file: `vault sync` could not help without one.
+        Said once — the warning boot used to print, moved to the first
+        declared value that needed the key — and not per key."""
         below = _StaticSource(
             "file", "config.dev.toml", {"database.password": _ANNOTATION}
         )
         chain = _chain(_source(tmp_path / "never-synced.db", key=None), below)
         with caplog.at_level(logging.WARNING):
             chain.resolve("password", "database")
-        assert caplog.records == []
+            chain.resolve("password", "database")
+        assert len(caplog.records) == 1
+        assert "vault key is not available" in caplog.records[0].getMessage()
 
     def test_an_unsynced_vault_is_still_silent_about_ordinary_keys(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture

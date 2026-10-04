@@ -9,19 +9,30 @@ which annotation and which provider produced a value, so answering
 ``database.password`` needs no re-parsing at read time — annotations matter
 when *syncing*, which is where they are consulted.
 
+The key is lazy
+---------------
+
+The source holds a resolver, not a key, and asks it only when a run is about
+to **open a stored entry**. Which entries are stored is clear-text metadata
+(ADR-023 §1), so ``has``, ``keys`` and "is this stored at all?" never need the
+key, and a run reading nothing the vault holds never touches the keyring.
+
 This source is deliberately inert rather than fatal in two situations, because
 both are reachable from ``func --help``:
 
-* **No key available.** The vault cannot be opened, so it answers nothing.
+* **No key available.** Nothing stored is consulted, so nothing is resolved;
+  a *stored* entry that cannot be opened refuses at the point of use.
 * **No vault file yet.** Nobody has run ``vault sync``.
 
-In both cases resolution continues to the next source, and the two are *not*
-treated alike when it comes to saying so: the first is announced once at boot,
-the second warns per declared key, because "run ``vault sync``" is advice only
-the second case can act on. That fall-through is
-made *visible* by :meth:`VaultSource.note_fallthrough`, which the chain calls
-on any source that answered nothing, naming the source that answered instead.
-Leaving it silent would rebuild the very defect this feature exists to remove.
+In both cases resolution of an unstored key continues to the next source, and
+the two are *not* treated alike when it comes to saying so: the first warns
+once per run, at the first declared-remote value that falls through — the
+first moment the key is actually needed — while the second warns per declared
+key, because "run ``vault sync``" is advice only the second case can act on.
+That fall-through is made *visible* by :meth:`VaultSource.note_fallthrough`,
+which the chain calls on any source that answered nothing, naming the source
+that answered instead. Leaving it silent would rebuild the very defect this
+feature exists to remove.
 
 Which misses are worth a warning
 --------------------------------
@@ -57,13 +68,20 @@ log.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from functualize._config.annotations import scan_annotations
 from functualize._config.vault import (
     SecretsVault,
     VaultEntryUnreadableError,
+    VaultOrigin,
     format_duration,
+)
+from functualize._config.vault_key_resolver import (
+    KeyLookup,
+    KeyStatus,
+    VaultKeyResolver,
+    describe_key_failure,
 )
 
 if TYPE_CHECKING:
@@ -72,6 +90,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from functualize._config.chain import ResolvedValue
+    from functualize._config.vault import VaultEntry
 
 __all__ = ["VaultSource"]
 
@@ -90,8 +109,7 @@ class VaultSource:
         self,
         vault_path: Path,
         *,
-        encryption_key: bytes | None,
-        key_provider_id: str = "unknown",
+        key: VaultKeyResolver,
         providers: Iterable[str] = (),
         max_age: timedelta | None = None,
     ) -> None:
@@ -99,10 +117,8 @@ class VaultSource:
 
         Args:
             vault_path: This project's vault file. It need not exist.
-            encryption_key: The key, or None when no provider supplied one —
-                in which case the source answers nothing rather than raising.
-            key_provider_id: Which provider supplied the key, so a decryption
-                failure can name it.
+            key: Resolves the vault key — consulted only when a stored entry
+                is about to be opened, never at construction.
             providers: Identifiers of the registered remote providers. Used
                 only to recognise an annotation when warning about a miss; a
                 scheme absent here is not an annotation, exactly as in
@@ -110,16 +126,18 @@ class VaultSource:
             max_age: How old the vault may be before the first read of the run
                 warns. None disables the staleness check entirely.
         """
-        self._vault = SecretsVault(vault_path, key_provider_id=key_provider_id)
-        self._key = encryption_key
-        self._key_provider_id = key_provider_id
+        # Metadata only until a lookup names the provider; see `_lookup`.
+        self._vault = SecretsVault(vault_path)
+        self._key = key
+        self._lookup_result: KeyLookup | None = None
         self._providers = frozenset(providers)
         self._max_age = max_age
         self._staleness_checked = False
         self._opens_asked = False
         self._opens: bool | None = None
-        self._keys_seen: frozenset[str] | None = None
+        self._entries_seen: dict[str, VaultEntry] | None = None
         self._warned: set[str] = set()
+        self._warned_no_key = False
         self.misses: list[str] = []
         """Fully-qualified keys this source was asked for and did not hold.
 
@@ -127,6 +145,11 @@ class VaultSource:
         it was asked. Distinct from ``_warned``: a miss is every unanswered
         key, a warning only the subset somebody declared remote.
         """
+
+    @property
+    def resolver(self) -> VaultKeyResolver:
+        """The resolver this source asks, so a status surface can share its cache."""
+        return self._key
 
     @property
     def source_type(self) -> str:
@@ -140,34 +163,53 @@ class VaultSource:
     def usable(self) -> bool:
         """Whether this source can answer anything at all.
 
-        Both halves matter, and for different reasons: with no key nothing
-        decrypts, and with no file there is nothing to read — opening a
-        non-existent SQLite path would *create* one.
+        The file decides, not the key: which entries are stored is clear-text
+        metadata, answerable on a machine that cannot decrypt anything. With
+        no file there is nothing to read — and opening a non-existent SQLite
+        path would *create* one.
         """
-        return self._key is not None and self._vault.path.exists()
+        return self._vault.path.exists()
 
     @property
     def opens(self) -> bool:
         """Whether a key is available, regardless of what is stored.
 
-        Deliberately distinct from :attr:`usable`. "This machine cannot open
+        **Resolves the key** (bounded), so it is asked only after the
+        annotation check in :meth:`note_fallthrough`. Deliberately distinct from :attr:`usable`. "This machine cannot open
         the vault" and "nobody has synced yet" are different situations with
         different fixes, and conflating them is what let the most common
         first-run case — a key exported, ``vault sync`` never run — fall
         through in silence. See :meth:`note_fallthrough`.
         """
-        return self._key is not None
+        return self._lookup().status is KeyStatus.FOUND
 
     def _qualified(self, key: str, section: str | None) -> str:
         return f"{section}.{key}" if section else key
+
+    def _lookup(self) -> KeyLookup:
+        """Resolve the key once per source, on first need."""
+        if self._lookup_result is None:
+            lookup = self._key.lookup()
+            if lookup.status is KeyStatus.FOUND:
+                # Rebuilt, not mutated: the provider id is only known after
+                # the lookup, and `SecretsVault` stamps it on every write and
+                # names it in a decryption failure. Construction is two
+                # attribute assignments and no I/O, and the instance holds no
+                # state between calls (plan S-3, reviewed).
+                self._vault = SecretsVault(
+                    self._vault.path,
+                    key_provider_id=lookup.provider_id or "unknown",
+                )
+            self._lookup_result = lookup
+        return self._lookup_result
 
     def get(self, key: str, section: str | None = None) -> Any | None:
         """Return a stored value, or None to defer to the next source.
 
         **Presence decides, not origin** (ADR-023 §1). An absent entry falls
-        through, exactly as before. An entry that *is* stored is the intended
-        value, so failing to open it refuses the run rather than quietly
-        selecting something weaker — the operator would otherwise get a
+        through without resolving the key. An entry that *is* stored is the
+        intended value, so failing to open it refuses the run rather than
+        quietly selecting something weaker — the operator would otherwise get a
         different secret than they provisioned, with the run reporting success.
 
         Raises:
@@ -175,20 +217,30 @@ class VaultSource:
                 usable key is available for it.
             VaultDecryptionError: A stored value will not authenticate.
         """
-        # No file at all: nothing was ever stored, so there is nothing this
-        # source could be hiding. Checked before anything else because it is
-        # the common case for every project that does not use the vault.
+        # No file: nothing was ever stored — the common case, checked first.
         if not self._vault.path.exists():
             return None
 
         qualified = self._qualified(key, section)
 
-        if self._key is None:
-            self._refuse_if_stored(
-                qualified,
-                "no vault key is available on this machine",
-            )
+        # Not stored: nothing to open, so nothing to resolve — the line that
+        # keeps a run reading no stored entry off the keyring.
+        entry = self._stored_entries().get(qualified)
+        if entry is None:
+            self.misses.append(qualified)
             return None
+
+        lookup = self._lookup()
+        if lookup.status is not KeyStatus.FOUND:
+            self._refuse(
+                qualified,
+                describe_key_failure(
+                    lookup,
+                    qualified=qualified,
+                    direct=entry.origin is VaultOrigin.DIRECT,
+                ),
+            )
+        assert lookup.key is not None
 
         self._warn_if_stale()
 
@@ -196,91 +248,109 @@ class VaultSource:
         # with?" without decrypting anybody's secret. `None` means the store
         # predates the check row, in which case the old behaviour stands and
         # `get` below is left to discover a wrong key the expensive way.
-        if self._opens_with_key() is False:
-            self._refuse_if_stored(
-                qualified,
-                f"the key supplied by the {self._key_provider_id!r} provider "
-                f"does not open this vault",
-            )
-            return None
+        if self._opens_with_key(lookup.key) is False:
+            self._refuse(qualified, self._wrong_key_text(qualified, entry, lookup))
 
         # VaultDecryptionError deliberately propagates. A vault that cannot be
         # read is a different situation from one that does not hold the key,
         # and collapsing them would hide a wrong-key configuration behind a
         # silent fall-through -- the defect this feature exists to remove.
-        value = self._vault.get(qualified, encryption_key=self._key)
+        value = self._vault.get(qualified, encryption_key=lookup.key)
         if value is None:
             self.misses.append(qualified)
             return None
         return value
 
-    def _opens_with_key(self) -> bool | None:
+    def _opens_with_key(self, key: bytes) -> bool | None:
         """Whether this key opens this store, asked once per run.
 
-        A separate `_opens_asked` flag rather than a sentinel value, because
-        `None` is already a real answer here — "this store has no check row, so
-        the question cannot be answered" — and overloading it with "not yet
-        asked" is how the two get confused.
+        A separate `_opens_asked` flag, because `None` is already a real
+        answer: "this store has no check row, so it cannot say".
         """
         if not self._opens_asked:
-            assert self._key is not None
-            self._opens = self._vault.opens_with(self._key)
+            self._opens = self._vault.opens_with(key)
             self._opens_asked = True
         return self._opens
 
-    def _stored_keys(self) -> frozenset[str]:
-        """Every key the store holds, read once and without the vault key.
+    def _stored_entries(self) -> dict[str, VaultEntry]:
+        """Every entry the store holds, by key, read once and without the key.
 
-        Metadata is stored in clear precisely so this is possible: the question
-        "is something stored here?" has to be answerable on a machine that
-        cannot decrypt anything, or the refusal below could not be raised at
-        all.
-
-        Read once per source. The source is built at boot and the chain is
+        Metadata is stored in clear precisely so "is something stored here?"
+        is answerable on a machine that cannot decrypt anything. Read once per
+        source. The source is built at boot and the chain is
         rebuilt on `refresh()`, so a `vault put` from a separate process is
         picked up by the next run — which is the only sequence that occurs.
         """
-        if self._keys_seen is None:
-            self._keys_seen = frozenset(e.key for e in self._entries())
-        return self._keys_seen
+        if self._entries_seen is None:
+            # Metadata only. Every caller checks the file exists first:
+            # listing a non-existent SQLite path would create it.
+            self._entries_seen = {e.key: e for e in self._vault.list_entries()}
+        return self._entries_seen
 
-    def _refuse_if_stored(self, qualified: str, because: str) -> None:
-        """Raise when this key names something the store actually holds.
-
-        Deliberately asked in this order: the store is only consulted on the
-        path that was about to fall through, so an ordinary resolution that
-        finds its value pays nothing for this.
-        """
-        if qualified not in self._stored_keys():
-            return
+    @staticmethod
+    def _refuse(qualified: str, because: str) -> NoReturn:
+        """Refuse a stored entry that cannot be opened (ADR-023 §1)."""
         msg = (
-            f"The vault holds a value for {qualified!r}, but {because}. "
+            f"{because}\n\n"
             f"Refusing rather than falling through to the environment or a "
-            f"config file: a stored value is the one you provisioned, and "
-            f"running on a different one would look like success.\n\n"
-            f"Fix it with one of:\n"
-            f"  func builtin vault sync                 refresh from upstream\n"
-            f"  func builtin vault remove {qualified}   drop this entry\n"
-            f"  func builtin vault clear                drop the whole store\n"
-            f"The last two need no key."
+            f"config file: the value stored for {qualified!r} is the one you "
+            f"provisioned, and running on a different one would look like "
+            f"success."
         )
         raise VaultEntryUnreadableError(msg)
 
+    @staticmethod
+    def _wrong_key_text(qualified: str, entry: VaultEntry, lookup: KeyLookup) -> str:
+        """A key that is not this store's. Recoveries that keep the secret come
+        first; ``sync`` only for a provider entry; ``remove``/``clear`` last,
+        with the warning that they destroy it (for a direct entry, the only copy).
+        """
+        direct = entry.origin is VaultOrigin.DIRECT
+        fixes = [
+            "  supply the key this vault was written with (export "
+            "$FUNCTUALIZE_VAULT_KEY, or restore it to the OS keyring)",
+        ]
+        if not direct:
+            fixes.append(
+                "  func builtin vault sync                 refetch it from upstream"
+            )
+        only_copy = (
+            ", and for this hand-typed entry that is the only copy" if direct else ""
+        )
+        return (
+            f"The vault holds a value for {qualified!r}, but the key supplied "
+            f"by the {lookup.provider_id!r} provider does not open this vault."
+            f"\n\nFix it with one of:\n"
+            + "\n".join(fixes)
+            + f"\nLast resort — these need no key, but each destroys stored "
+            f"values{only_copy}:\n"
+            f"  func builtin vault remove {qualified}   drop this entry\n"
+            f"  func builtin vault clear                drop the whole store"
+        )
+
     def has(self, key: str, section: str | None = None) -> bool:
-        """Whether the vault holds this key, without decrypting it."""
+        """Whether the vault holds this key — metadata only, never the key.
+
+        A stored entry this machine cannot open answers True and :meth:`get`
+        refuses it, so the two agree that the value is not silently absent.
+        """
         if not self.usable:
             return False
-        return self._qualified(key, section) in {e.key for e in self._entries()}
+        return self._qualified(key, section) in self._stored_entries()
 
     def keys(self, section: str) -> set[str]:
-        """Every key the vault holds for a section, without decrypting any."""
+        """Every key the vault holds for a section — metadata only.
+
+        So a section with a stored entry that cannot be opened refuses at that
+        entry (ADR-023 §1) rather than silently leaving it out.
+        """
         if not self.usable:
             return set()
         prefix = f"{section}."
         return {
-            entry.key[len(prefix) :]
-            for entry in self._entries()
-            if entry.key.startswith(prefix)
+            name[len(prefix) :]
+            for name in self._stored_entries()
+            if name.startswith(prefix)
         }
 
     def _warn_if_stale(self) -> None:
@@ -330,25 +400,35 @@ class VaultSource:
                 alternatives from lower-priority sources.
             section: The section the key was resolved in, if any.
         """
-        if not self.opens:
-            # No key: boot already warned once, and with no key *every* lookup
-            # falls through, so a per-key warning would drown that message
-            # rather than sharpen it.
-            #
-            # Gated on `opens` rather than `usable` on purpose. A vault file
-            # that does not exist yet is the opposite case: the key is there,
-            # nothing has been synced, and "run `vault sync`" is exactly the
-            # advice this warning gives. Silence there was a real defect —
-            # every test used a vault that existed, so nothing caught it until
-            # the documentation's own example was executed.
-            return
-
         qualified = self._qualified(resolved.key, section)
         if qualified in self._warned:
             return
 
+        # The annotation first, the key second. Asking `opens` resolves the
+        # key, and an ordinary value that falls through — `database.port` —
+        # must never be what touches the keyring.
         annotation = self._annotation_in(resolved)
         if annotation is None:
+            return
+
+        if not self.opens:
+            # No key: warned once per run, at the first declared value that
+            # needed it — never per key, which would drown the message. Gated on `opens` rather than `usable` on purpose. A vault file
+            # that does not exist yet is the opposite case: the key is there,
+            # nothing has been synced, and "run `vault sync`" is exactly the
+            # advice the per-key warning below gives. Silence there was a real
+            # defect — every test used a vault that existed, so nothing caught
+            # it until the documentation's own example was executed.
+            if not self._warned_no_key:
+                self._warned_no_key = True
+                logger.warning(
+                    "Config key '%s' is declared remotely as '%s', but the vault "
+                    "key is not available, so declared remote values fall back "
+                    "to local sources. %s",
+                    qualified,
+                    annotation,
+                    describe_key_failure(self._lookup()),
+                )
             return
 
         self._warned.add(qualified)
@@ -384,11 +464,3 @@ class VaultSource:
             if _PROBE in scan.annotations:
                 return candidate
         return None
-
-    def _entries(self) -> list[Any]:
-        # Metadata only, so this never decrypts. It is still gated behind
-        # `usable` by both callers: a source that answers `has() is True` and
-        # then yields None from `get()` breaks the chain's contract, so with no
-        # key this source must claim nothing rather than claim what it cannot
-        # deliver.
-        return self._vault.list_entries()

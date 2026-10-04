@@ -158,6 +158,13 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "ThemeProvider",
         "VaultKeyInitializer",
         "VaultKeyProvider",
+        # An optional key-provider capability: "would a read prompt?", asked
+        # without prompting, so `vault status` can say "locked" (ADR-016 §5,
+        # as amended).
+        "VaultKeyProbe",
+        "KeyAvailability",
+        # The one key-provider capability that may prompt: `vault unlock` only.
+        "VaultKeyUnlocker",
         # The agent step port (agent-step-port F6): one Protocol a plugin
         # implements, plus the capability flags it declares and the payload
         # types it is handed and returns.
