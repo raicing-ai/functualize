@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from functualize._types.descriptors import (
         CacheInfo,
         ConfigFileInfo,
+        GroupOptionsSpec,
         JobDescriptor,
         RegisteredJob,
     )
@@ -492,6 +493,12 @@ class FunctualizeApp:
         from functualize._app.impl import get_job
 
         return get_job(self, name)
+
+    def get_group_options_spec(self, group_path: str) -> GroupOptionsSpec | None:
+        """Return the group's declared options from discovery or runtime jobs."""
+        from functualize._app.impl import get_group_options_spec
+
+        return get_group_options_spec(self, group_path)
 
     def resolution_chain(self) -> ResolutionChain:
         """Return the config resolution chain [CLI → Env → Files → Defaults].

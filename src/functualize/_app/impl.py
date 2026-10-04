@@ -1587,6 +1587,34 @@ def get_job(app: Any, name: str) -> JobDescriptor | None:
     return descriptor
 
 
+def get_group_options_spec(app: Any, group_path: str) -> Any | None:
+    """Find a group declaration from the scan or a registered runtime job."""
+    import inspect
+
+    from functualize._discovery.group_options_extractor import (
+        extract_group_options_spec,
+    )
+    from functualize._primitives.group_options_detection import is_group_options_class
+    from functualize._types.annotations import resolved_hints
+    from functualize._types.naming import normalize_name
+
+    wanted = ".".join(normalize_name(part) or part for part in group_path.split("."))
+    spec = app._resolution_pipeline.get_group_options_spec(wanted)
+    if spec is not None:
+        return spec
+
+    for registered in app.job_registry._registered_jobs.values():
+        function = registered.function
+        hints = resolved_hints(function)
+        for name, parameter in inspect.signature(function).parameters.items():
+            annotation = hints.get(name, parameter.annotation)
+            if not is_group_options_class(annotation):
+                continue
+            if getattr(annotation, "__group_path__", None) == wanted:
+                return extract_group_options_spec(annotation)
+    return None
+
+
 def install_substrate(app: Any, substrate: Any) -> None:
     """Set the app's substrate, refusing once the engine already has one.
 

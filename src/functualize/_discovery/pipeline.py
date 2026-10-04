@@ -19,6 +19,7 @@ from functualize._types.discovery_report import DiscoveryFailure, job_name_colli
 
 if TYPE_CHECKING:
     from functualize._events import EventBus
+    from functualize._types.descriptors import GroupOptionsSpec
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,16 @@ class ResolutionPipeline:
                 f"Missing methods/attributes: {missing}"
             )
         self._app_transforms.append(transform)
+
+    def get_group_options_spec(self, group_path: str) -> GroupOptionsSpec | None:
+        """Look up a group's cached declaration through capable providers."""
+        for entry in self._providers:
+            getter = getattr(entry.provider, "get_group_options_spec", None)
+            if getter is not None:
+                spec = getter(group_path)
+                if spec is not None:
+                    return spec
+        return None
 
     @property
     def collisions(self) -> list[DiscoveryFailure]:

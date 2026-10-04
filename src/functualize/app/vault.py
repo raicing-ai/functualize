@@ -18,8 +18,8 @@ can be read as a unit.
 Why it must be here and not in ``_config``
 ------------------------------------------
 
-Deciding whether ``deploy.api_token`` is a real, eligible path needs the **job
-schema**; storing the value needs ``_config.vault``. Those live in different
+Deciding whether ``--job deploy --field api_token`` is a real, eligible identity
+needs the **job and group schema**; storing the value needs ``_config.vault``. Those live in different
 peer layers, and the import-linter contract *Peer layers are independent* means
 no module in ``_config`` may reach the schema. A public module may reach both,
 so this is where the two meet — and it reaches the schema *through the app
@@ -36,6 +36,7 @@ plaintext by being added carelessly.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -51,6 +52,7 @@ from functualize._config.vault import (
     VaultOrigin,
     VaultOriginConflictError,
 )
+from functualize._primitives.vault_identity import VaultIdentity
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -61,7 +63,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Readability",
-    "ResolvedVaultPath",
+    "VaultIdentity",
     "VaultInitReport",
     "VaultInspectionReport",
     "VaultMutationReport",
@@ -77,7 +79,7 @@ __all__ = [
     "vault_put",
     "vault_remove",
     "WinningSource",
-    "resolve_canonical_path",
+    "resolve_vault_identity",
 ]
 
 
@@ -108,40 +110,18 @@ class WinningSource(StrEnum):
 
 
 class VaultPathError(ValueError):
-    """A path does not name a field the vault could ever supply.
+    """An identity does not name a field the vault could ever supply.
 
     Carries a stable ``reason`` so a delivery surface can classify the failure
-    without parsing prose. The message is safe to print: it names the path and
-    what is wrong with it, never a candidate value.
+    without parsing prose. The message is safe to print: it names the scope,
+    target and field and what is wrong with them, never a candidate value.
+    ``path`` is a readable label for the identity, not a storage key.
     """
 
     def __init__(self, reason: str, message: str, *, path: str) -> None:
         super().__init__(message)
         self.reason = reason
         self.path = path
-
-
-@dataclass(frozen=True)
-class ResolvedVaultPath:
-    """A canonical path that has been checked against the live job schema."""
-
-    path: str
-    """The canonical spelling, echoed back so a caller sees what was accepted."""
-
-    job_name: str
-    field_name: str
-
-    @property
-    def config_key(self) -> str:
-        """The exact string the resolution chain is keyed on at run time.
-
-        This identity is the feature. A job's config section prefix is its full
-        dotted canonical name, so ``VaultSource`` is asked for
-        ``"{job_name}.{field_name}"`` — and if what ``put`` stores is not
-        byte-identical to that, the value is simply never found. It is a
-        property with a test rather than a comment for that reason.
-        """
-        return f"{self.job_name}.{self.field_name}"
 
 
 @dataclass(frozen=True)
@@ -163,7 +143,7 @@ class VaultInitReport:
 class VaultMutationReport:
     """The outcome of a write or a removal. Carries no value."""
 
-    path: str
+    identity: VaultIdentity
     origin: VaultOrigin | None
     created: bool = False
     replaced: bool = False
@@ -177,9 +157,9 @@ class VaultMutationReport:
 
 @dataclass(frozen=True)
 class VaultInspectionReport:
-    """Everything known about a path without holding its value."""
+    """Everything known about an identity without holding its value."""
 
-    path: str
+    identity: VaultIdentity
     eligible: bool
     exists: bool
     origin: VaultOrigin | None = None
@@ -194,38 +174,76 @@ class VaultInspectionReport:
     winning_source: WinningSource = WinningSource.MISSING
 
 
-def resolve_canonical_path(app: Any, path: str) -> ResolvedVaultPath:
-    """Check a path against the live job schema, before any input is read.
-
-    Args:
-        app: A booted :class:`~functualize.app.FunctualizeApp`.
-        path: ``<job path>.<field>``, e.g. ``infra.deploy.api_token``.
-
-    Returns:
-        The resolved path, whose :attr:`~ResolvedVaultPath.config_key` is what
-        the resolution chain will ask for at run time.
-
-    Raises:
-        VaultPathError: With a stable ``reason``. Every rejection happens here,
-            which is why callers can validate before prompting: a typo must not
-            cost you the secret you already typed.
-    """
-    job_part, _, field_part = path.rpartition(".")
-    if not job_part or not field_part:
+def resolve_vault_identity(
+    app: Any,
+    *,
+    group: str | None = None,
+    job: str | None = None,
+    field: str,
+) -> VaultIdentity:
+    """Validate exactly one declared scope and secret field before reading input."""
+    if (group is None) == (job is None):
+        raise VaultPathError(
+            "scope_required",
+            "Choose exactly one of --group or --job.",
+            path=_label(
+                "group" if group is not None else "job", group or job or "", field
+            ),
+        )
+    if not field:
         raise VaultPathError(
             "unknown_field",
-            f"{path!r} is not a vault path. Expected <job>.<field>, "
-            f"e.g. 'deploy.api_token'.",
-            path=path,
+            "A field name is required.",
+            path=_label("", group or job or "", ""),
         )
+    if group is not None:
+        label = _label("group", group, field)
+        spec = app.get_group_options_spec(group)
+        if spec is None:
+            raise VaultPathError(
+                "unknown_group",
+                f"No group options are declared for group {group!r}. "
+                f"Run `func builtin info jobs` to see what is available.",
+                path=label,
+            )
+        match = _match_field(list(spec.fields), field)
+        if match is None:
+            raise VaultPathError(
+                "unknown_field",
+                f"Group {spec.group!r} has no option {field!r}.",
+                path=label,
+            )
+        if not match.secret:
+            raise VaultPathError(
+                "field_not_secret",
+                f"Group {spec.group!r} option {match.name!r} is not secret. The "
+                f"vault stores only fields declared Secret[str] (or marked "
+                f"secret), so that a value can never be stored somewhere it "
+                f"would later be printed.",
+                path=label,
+            )
+        return VaultIdentity("group", spec.group, match.name)
 
-    descriptor = _resolve_job(app, job_part, path)
-    field = _resolve_field(descriptor, field_part, path)
-    return ResolvedVaultPath(
-        path=f"{_descriptor_name(descriptor)}.{field.name}",
-        job_name=_descriptor_name(descriptor),
-        field_name=field.name,
-    )
+    assert job is not None
+    label = _label("job", job, field)
+    descriptor = _resolve_job(app, job, label)
+    match = _resolve_field(descriptor, field, label)
+    return VaultIdentity("job", _descriptor_name(descriptor), match.name)
+
+
+def _label(scope: str, target: str, field: str) -> str:
+    """A readable identity for errors; never parsed and never a storage key."""
+    parts = [
+        f"--{scope} {target}" if scope else target,
+        f"--field {field}" if field else "",
+    ]
+    return " ".join(part for part in parts if part)
+
+
+def _revalidate(app: Any, identity: VaultIdentity) -> VaultIdentity:
+    """Check an identity a caller built, returning its canonical spelling."""
+    scope = {identity.scope: identity.target}
+    return resolve_vault_identity(app, **scope, field=identity.field)
 
 
 def _descriptor_name(descriptor: Any) -> str:
@@ -233,7 +251,7 @@ def _descriptor_name(descriptor: Any) -> str:
 
 
 def _resolve_job(app: Any, job_part: str, path: str) -> Any:
-    """Find the one job a path's leading segments name.
+    """Find the one job a ``--job`` target names.
 
     Uses the app's own lookup and then the repository's single naming policy,
     so ``build_wheel`` reaches the registered ``build-wheel`` exactly as it does
@@ -252,7 +270,7 @@ def _resolve_job(app: Any, job_part: str, path: str) -> Any:
     except Exception as exc:
         raise VaultPathError(
             "unknown_job",
-            f"No job named {job_part!r} (from path {path!r}). "
+            f"No job named {job_part!r}. "
             f"Run `func builtin info jobs` to see what is available.",
             path=path,
         ) from exc
@@ -261,7 +279,7 @@ def _resolve_job(app: Any, job_part: str, path: str) -> Any:
     if descriptor is None:  # pragma: no cover - resolve_name just found it
         raise VaultPathError(
             "unknown_job",
-            f"No job named {job_part!r} (from path {path!r}).",
+            f"No job named {job_part!r}.",
             path=path,
         )
     return descriptor
@@ -289,7 +307,8 @@ def _resolve_field(descriptor: Any, field_part: str, path: str) -> Any:
         if not getattr(match, "secret", False):
             raise VaultPathError(
                 "field_not_secret",
-                f"{path!r} is not a secret field. The vault stores only fields "
+                f"Job {_descriptor_name(descriptor)!r} config field "
+                f"{match.name!r} is not secret. The vault stores only fields "
                 f"declared Secret[str] (or marked secret), so that a value can "
                 f"never be stored somewhere it would later be printed.",
                 path=path,
@@ -302,20 +321,14 @@ def _resolve_field(descriptor: Any, field_part: str, path: str) -> Any:
     if stray is not None:
         raise VaultPathError(
             "field_not_config_model",
-            f"{path!r} names a job *parameter*, not a config field. Parameters "
+            f"Job {_descriptor_name(descriptor)!r} field {field_part!r} is a "
+            f"job *parameter*, not a config field. Parameters "
             f"are supplied per invocation and never read from the resolution "
             f"chain, so a value stored here could never reach the job. Move it "
             f"to the job's config model to make it vault-backed.",
             path=path,
         )
 
-    # No `nested_field_not_supported` branch. It was written, and it was
-    # unreachable: `rpartition` takes everything after the *last* dot, so
-    # `field_part` cannot contain one. A nested path like
-    # `deploy.config.token` parses as job `deploy.config` + field `token` and
-    # comes back as `unknown_job`, which is the truthful answer — there is no
-    # such job. Removed rather than left behind a `pragma: no cover`, which
-    # would have read as "tested elsewhere".
     raise VaultPathError(
         "unknown_field",
         f"{_descriptor_name(descriptor)!r} has no field {field_part!r}. "
@@ -511,48 +524,50 @@ def _resolve_key(cwd: str | Path | None = None) -> KeyResolution:
 
 def vault_put(
     app: Any,
-    path: str,
+    identity: VaultIdentity,
     value: str,
     *,
     replace: bool = False,
     cwd: str | Path | None = None,
 ) -> VaultMutationReport:
-    """Store one value against a canonical path.
+    """Store one value against a scoped identity.
 
     Args:
-        app: A booted app, for the job schema the path is checked against.
-        path: ``<job>.<field>``. Validated *before* anything else happens.
+        app: A booted app, for the schema the identity is checked against.
+        identity: The scope, target and field. Validated *before* anything
+            else happens.
         value: The plaintext. Never logged, never returned, never in a report.
         replace: Permit overwriting an existing direct entry.
         cwd: Project directory. Defaults to the working directory.
 
     Raises:
-        VaultPathError: The path names nothing the vault could supply.
+        VaultPathError: The identity names nothing the vault could supply.
         VaultKeySourceError: No key is available to encrypt with.
         VaultEntryExistsError: An entry exists and ``replace`` is False.
-        VaultOriginConflictError: A provider entry holds this path. Changing
+        VaultOriginConflictError: A provider entry holds this identity. Changing
             what wrote an entry is never a side effect of writing it.
 
-    The caller is expected to have validated the path with
-    :func:`resolve_canonical_path` before collecting ``value`` — a typo must
+    The caller is expected to have validated the identity with
+    :func:`resolve_vault_identity` before collecting ``value`` — a typo must
     not cost someone the secret they already typed. This re-validates anyway,
     because a public function cannot assume its caller did.
     """
-    resolved = resolve_canonical_path(app, path)
+    resolved = _revalidate(app, identity)
     resolution = _resolve_key(cwd)
     store = _open_store(cwd)
 
-    existed = any(e.key == resolved.config_key for e in store.list_entries())
+    key = resolved.encode()
+    existed = any(e.key == key for e in store.list_entries())
     store.put(
-        resolved.config_key,
+        key,
         value,
         encryption_key=resolution.key,
         origin=VaultOrigin.DIRECT,
         replace=replace,
     )
-    entry = next(e for e in store.list_entries() if e.key == resolved.config_key)
+    entry = next(e for e in store.list_entries() if e.key == key)
     return VaultMutationReport(
-        path=resolved.path,
+        identity=resolved,
         origin=entry.origin,
         created=not existed,
         replaced=existed,
@@ -561,14 +576,14 @@ def vault_put(
 
 
 def vault_remove(
-    app: Any, path: str, *, cwd: str | Path | None = None
+    app: Any, identity: VaultIdentity, *, cwd: str | Path | None = None
 ) -> VaultMutationReport:
     """Remove one entry of either origin. Needs no vault key.
 
     Args:
-        app: Used only to canonicalize ``path``. A path that does **not**
+        app: Used only to canonicalize ``identity``. One that does **not**
             resolve is still attempted literally — see below.
-        path: The canonical path, or the stored key itself.
+        identity: The scope, target and field of the entry.
         cwd: Project directory.
 
     Returns:
@@ -576,24 +591,22 @@ def vault_remove(
         was there, which is success: asking for something gone to be gone has
         been satisfied.
 
-    **An unresolvable path is not refused.** This is the recovery command, and
+    **An unresolvable identity is not refused.** This is the recovery command, and
     the entries most needing removal are the ones whose job has since been
     renamed or deleted — validating against the current schema would make the
-    orphans it exists to clear unreachable. A path that resolves is
+    orphans it exists to clear unreachable. An identity that resolves is
     canonicalized so flag spelling works; one that does not is used verbatim
     and simply matches nothing if it was a typo.
     """
-    try:
-        target = resolve_canonical_path(app, path).config_key
-    except VaultPathError:
-        target = path
-
+    with contextlib.suppress(VaultPathError):
+        identity = _revalidate(app, identity)
+    target = identity.encode()
     removed = _open_store(cwd).delete(target)
     if removed is None:
-        return VaultMutationReport(path=target, origin=None, removed=False)
+        return VaultMutationReport(identity=identity, origin=None, removed=False)
 
     return VaultMutationReport(
-        path=target,
+        identity=identity,
         origin=removed.origin,
         removed=True,
         updated_at=removed.updated_at,
@@ -606,34 +619,34 @@ def vault_remove(
 
 
 def vault_inspect(
-    app: Any, path: str, *, cwd: str | Path | None = None
+    app: Any, identity: VaultIdentity, *, cwd: str | Path | None = None
 ) -> VaultInspectionReport:
-    """Describe a path without holding its value.
+    """Describe an identity without holding its value.
 
     Answers eligibility, existence, provenance and readability. Readability
     comes from the store's key check value, so **no stored secret is decrypted
     to produce this report** — which is what makes the security claim about
     this command true rather than aspirational.
 
-    An ineligible path is reported as ``eligible=False`` rather than raised,
+    An ineligible identity is reported as ``eligible=False`` rather than raised,
     because "why can I not store this here?" is the question the command exists
     to answer.
     """
     from functualize._config.vault_keys import resolve_vault_key
 
     try:
-        resolved = resolve_canonical_path(app, path)
-        key = resolved.config_key
+        resolved = _revalidate(app, identity)
+        key = resolved.encode()
         eligible = True
-        display = resolved.path
+        display = resolved
     except VaultPathError:
-        key, eligible, display = path, False, path
+        key, eligible, display = identity.encode(), False, identity
 
     store = _open_store(cwd)
     entry = next((e for e in store.list_entries() if e.key == key), None)
     if entry is None:
         return VaultInspectionReport(
-            path=display,
+            identity=display,
             eligible=eligible,
             exists=False,
             readability=Readability.ABSENT,
@@ -654,7 +667,7 @@ def vault_inspect(
         )
 
     return VaultInspectionReport(
-        path=display,
+        identity=display,
         eligible=eligible,
         exists=True,
         origin=entry.origin,

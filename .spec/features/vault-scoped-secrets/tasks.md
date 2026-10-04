@@ -2,8 +2,8 @@
 
 The executable steps, exact files, interfaces, tests, and commit points are in [plan.md](plan.md). Complete each task's test cycle before marking it done.
 
-- [ ] T1 — Add the typed identity codec and refuse legacy stores without migration.
-- [ ] T2 — Validate scoped secret fields through the public app API, including cached and dynamic groups.
+- [x] T1 — Add the typed identity codec and refuse legacy stores without migration.
+- [x] T2 — Validate scoped secret fields through the public app API, including cached and dynamic groups.
 - [ ] T3 — Carry scope through the common resolution chain and establish vault-over-environment precedence.
 - [ ] T4 — Parse and sync explicit `[[vault_secret]]` declarations; reject legacy inline provider syntax.
 - [ ] T5 — Replace the positional vault CLI with scoped flags and metadata-only reports.
