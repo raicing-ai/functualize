@@ -89,7 +89,9 @@ def _provision(project: Path, value: str = _SECRET) -> None:
     """The user's two commands, through the real CLI."""
     assert _cli_run(["init", "--key-source", "env"]).exit_code == ExitCode.OK
     result = _cli_run(
-        ["put", "deploy.api_token", "--stdin"], app=_app(project), stdin=value
+        ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+        app=_app(project),
+        stdin=value,
     )
     assert result.exit_code == ExitCode.OK, result.output
 
@@ -177,7 +179,10 @@ class TestPrecedence:
         _provision(project)
         monkeypatch.setenv("DEPLOY_API_TOKEN", "from-environment")
 
-        removed = _cli_run(["remove", "deploy.api_token", "--yes"], app=_app(project))
+        removed = _cli_run(
+            ["remove", "--job", "deploy", "--field", "api_token", "--yes"],
+            app=_app(project),
+        )
         assert removed.exit_code == ExitCode.OK
 
         assert (
@@ -289,7 +294,10 @@ class TestTheRefusalReachesTheUserAsALine:
                 "builtin",
                 "vault",
                 "put",
-                "deploy.api_token",
+                "--job",
+                "deploy",
+                "--field",
+                "api_token",
                 "--stdin",
             ],
             cwd=project,

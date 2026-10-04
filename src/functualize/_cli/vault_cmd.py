@@ -16,7 +16,7 @@ here reaches the store through ``app.utils``, never ``_config``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 
 import click
 
@@ -85,7 +85,7 @@ def vault_keygen() -> None:
     help="Emit the entry list as JSON.",
 )
 def vault_list(json_out: bool) -> None:
-    """List what the vault holds — names and freshness, never values.
+    """List what the vault holds — scope, target, field and freshness, never values.
 
     Needs no key. `key`, `origin`, `annotation`, `provider` and the
     timestamps are stored in clear on purpose so this command works on a
@@ -98,8 +98,13 @@ def vault_list(json_out: bool) -> None:
     `entry.synced_at.isoformat()` — and would raise on the first direct entry.
     """
     from functualize.app.utils import vault_entries, vault_location
+    from functualize.app.vault import VaultFormatError
 
-    entries = vault_entries()
+    try:
+        entries = vault_entries()
+    except VaultFormatError as exc:
+        _refuse_legacy(exc, json_out=json_out)
+
     if json_out:
         _vault_json(
             {
@@ -107,6 +112,7 @@ def vault_list(json_out: bool) -> None:
                 "entries": [
                     {
                         "key": e.key,
+                        **_entry_identity(e.key),
                         "origin": str(e.origin),
                         "annotation": e.annotation,
                         "provider": e.provider,
@@ -123,8 +129,8 @@ def vault_list(json_out: bool) -> None:
     if not entries:
         click.echo(
             "The vault is empty. Store one with `func builtin vault put "
-            "<job>.<field>`, or fill it from a provider with "
-            "`func builtin vault sync`."
+            "--group <path> --field <name>` (or `--job <path>`), or fill it "
+            "from a provider with `func builtin vault sync`."
         )
         return
 
@@ -138,14 +144,36 @@ def vault_list(json_out: bool) -> None:
         stamp = entry.synced_at or entry.updated_at or entry.created_at
         return stamp.isoformat(timespec="seconds") if stamp else "-"
 
-    key_width = max(len(e.key) for e in entries)
-    origin_width = max(len(_origin_column(e)) for e in entries)
-    for entry in entries:
-        click.echo(
-            f"{entry.key:<{key_width}}  "
-            f"{_origin_column(entry):<{origin_width}}  "
-            f"{_when(entry)}  {entry.annotation or ''}".rstrip()
-        )
+    rows = [
+        (*_identity_columns(e.key), _origin_column(e), _when(e), e.annotation or "")
+        for e in entries
+    ]
+    widths = [max(len(row[i]) for row in rows) for i in range(4)]
+    for row in rows:
+        cells = [cell.ljust(width) for cell, width in zip(row[:4], widths, strict=True)]
+        click.echo("  ".join([*cells, row[4], row[5]]).rstrip())
+
+
+def _entry_identity(key: str) -> dict[str, str | None]:
+    """A stored key's scope, target and field, or nulls if it has none.
+
+    Every entry a scoped writer stores decodes. A row that does not is shown
+    under its raw key rather than guessed into a scope.
+    """
+    from functualize.app.vault import VaultIdentity
+
+    try:
+        identity = VaultIdentity.decode(key)
+    except ValueError:
+        return {"scope": None, "target": None, "field": None}
+    return {**_identity_fields(identity)}
+
+
+def _identity_columns(key: str) -> tuple[str, str, str]:
+    decoded = _entry_identity(key)
+    if decoded["scope"] is None:
+        return ("-", key, "-")
+    return (str(decoded["scope"]), str(decoded["target"]), str(decoded["field"]))
 
 
 @vault_app.command("status")
@@ -165,10 +193,14 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
     keychain prompt.
     """
     from functualize.app.utils import vault_status
+    from functualize.app.vault import VaultFormatError
 
     obj = ctx.find_root().obj
     app = obj.get("app") if isinstance(obj, dict) else None
-    report = vault_status(app)
+    try:
+        report = vault_status(app)
+    except VaultFormatError as exc:
+        _refuse_legacy(exc, json_out=json_out)
 
     if json_out:
         _vault_json(
@@ -220,8 +252,8 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
         )
         click.echo(
             "Refresh them with `func builtin vault sync`, or drop them with "
-            "`func builtin vault remove <path>` / `clear` — neither needs a "
-            "key.",
+            "`func builtin vault remove --group|--job <path> --field <name>` "
+            "/ `clear` — neither needs a key.",
             err=True,
         )
     if report.stale:
@@ -269,17 +301,34 @@ def vault_clear_command(assume_yes: bool, json_out: bool) -> None:
             click.echo(f"No vault to clear at {path}")
         return
 
-    from functualize.app.vault import VaultOrigin
+    from functualize.app.vault import VaultFormatError, VaultOrigin
 
-    entries = vault_entries()
-    direct = sum(1 for e in entries if e.origin is VaultOrigin.DIRECT)
-    synced = len(entries) - direct
+    # An old-format store cannot be listed — that is why it is being cleared —
+    # so its counts are unknown rather than zero.
+    direct: int | None
+    synced: int | None
+    try:
+        entries = vault_entries()
+    except VaultFormatError:
+        direct = synced = None
+    else:
+        direct = sum(1 for e in entries if e.origin is VaultOrigin.DIRECT)
+        synced = len(entries) - direct
 
     if not assume_yes:
-        click.echo(f"{path} holds {len(entries)} entries:")
-        click.echo(f"  {synced} synced   — a `vault sync` refills these")
-        if direct:
-            click.echo(f"  {direct} direct   — typed in here, with no upstream copy")
+        if direct is None or synced is None:
+            click.echo(
+                f"{path} uses the old format, from before scoped secrets; its "
+                f"entries cannot be listed or migrated."
+            )
+            click.echo("  Direct values in it have no upstream copy.")
+        else:
+            click.echo(f"{path} holds {direct + synced} entries:")
+            click.echo(f"  {synced} synced   — a `vault sync` refills these")
+            if direct:
+                click.echo(
+                    f"  {direct} direct   — typed in here, with no upstream copy"
+                )
         if not click.confirm("Delete all of them?", default=False):
             click.echo("Left alone.")
             return
@@ -295,6 +344,9 @@ def vault_clear_command(assume_yes: bool, json_out: bool) -> None:
                 "provider_entries": synced,
             }
         )
+        return
+    if direct is None:
+        click.echo(f"Cleared {path} (old format).")
         return
     click.echo(f"Cleared {path} ({direct} direct, {synced} synced).")
 
@@ -325,10 +377,13 @@ def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
         VaultKeyUnavailableError,
         vault_sync,
     )
+    from functualize.app.vault import VaultFormatError
 
     app = _vault_app(ctx, "vault sync")
     try:
         report = vault_sync(app)
+    except VaultFormatError as exc:
+        _refuse_legacy(exc, json_out=json_out)
     except VaultKeyMismatchError as exc:
         # Refused *before* writing, so the store is exactly as it was. The
         # orphan list is what makes this actionable rather than alarming.
@@ -401,7 +456,12 @@ def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
 # These four reach `functualize.app.vault`, the public seam, and hold no
 # opinion of their own about eligibility, key selection or provenance. A second
 # opinion here is how `func` and an embedding application come to disagree
-# about what a path means.
+# about what an identity means.
+#
+# An entry is named by a scope, a target and a field — never by one dotted
+# string. A dot belongs to the command path only, so `--job deploy.service
+# --field iam_key` and `--group deploy --field token` cannot be misread, and a
+# group and a job sharing a name stay two entries.
 
 
 def _fail(
@@ -410,8 +470,8 @@ def _fail(
     *,
     json_out: bool,
     code: ExitCode,
-    path: str | None = None,
-) -> None:
+    identity: Any = None,
+) -> NoReturn:
     """Emit one failure shape and exit.
 
     JSON mode returns an envelope with a stable `reason`, so a caller
@@ -421,23 +481,97 @@ def _fail(
     """
     if json_out:
         payload: dict[str, Any] = {"ok": False, "reason": reason, "message": message}
-        if path is not None:
-            payload["path"] = path
+        if identity is not None:
+            payload.update(_identity_fields(identity))
         _vault_json(payload)
     else:
         click.echo(f"Error: {message}", err=True)
     raise SystemExit(code)
 
 
+def _identity_fields(identity: Any) -> dict[str, str]:
+    """The decomposed identity a report carries. Callers never parse a key."""
+    return {
+        "scope": identity.scope,
+        "target": identity.target,
+        "field": identity.field,
+    }
+
+
+def _describe(identity: Any) -> str:
+    """One readable line naming an identity, in the flags that address it."""
+    return f"--{identity.scope} {identity.target} --field {identity.field}"
+
+
+def _refuse_legacy(exc: Exception, *, json_out: bool) -> NoReturn:
+    """The store predates scoped identities. Nothing was read or changed."""
+    _fail(
+        "vault_format_unsupported", str(exc), json_out=json_out, code=ExitCode.REFUSED
+    )
+
+
+def _scoped(command: Any) -> Any:
+    """Add the three flags every single-entry command shares."""
+    command = click.option(
+        "--field",
+        "field",
+        required=True,
+        metavar="NAME",
+        help="The secret field on that target, e.g. `api_token`.",
+    )(command)
+    command = click.option(
+        "--job",
+        "job",
+        default=None,
+        metavar="PATH",
+        help="A job's command path, e.g. `deploy.service`, for a config field.",
+    )(command)
+    return click.option(
+        "--group",
+        "group",
+        default=None,
+        metavar="PATH",
+        help="A command group's path, e.g. `deploy`, for a group option.",
+    )(command)
+
+
+def _identity(group: str | None, job: str | None, field: str, *, json_out: bool) -> Any:
+    """The identity as typed, refusing an absent or doubled scope.
+
+    `inspect` and `remove` use this rather than validating against the live
+    schema: `inspect` exists to explain an ineligible identity, and `remove`
+    must reach an orphan whose job or group has been deleted.
+    """
+    from functualize.app.vault import VaultIdentity
+
+    if (group is None) == (job is None):
+        _fail(
+            "scope_required",
+            "Choose exactly one of --group or --job.",
+            json_out=json_out,
+            code=ExitCode.USAGE,
+        )
+    scope, target = ("group", group) if group is not None else ("job", job)
+    try:
+        return VaultIdentity(scope, target or "", field)
+    except ValueError:
+        _fail(
+            "scope_required",
+            f"--{scope} and --field each need a non-empty value.",
+            json_out=json_out,
+            code=ExitCode.USAGE,
+        )
+
+
 def _read_secret(
-    *, use_stdin: bool, file: str | None, json_out: bool, path: str
+    *, use_stdin: bool, file: str | None, json_out: bool, identity: Any
 ) -> str:
     """Obtain the value, or refuse in a way that never hangs.
 
     The non-TTY refusal is the one that matters. Reading stdin implicitly when
-    it is not a terminal would make `func builtin vault put x.y` inside a
-    pipeline block forever on input nobody is sending, and an unattended run
-    that blocks is worse than one that fails.
+    it is not a terminal would make `func builtin vault put --job x --field y`
+    inside a pipeline block forever on input nobody is sending, and an
+    unattended run that blocks is worse than one that fails.
     """
     import sys
 
@@ -447,7 +581,7 @@ def _read_secret(
             "--stdin and --file cannot both be given.",
             json_out=json_out,
             code=ExitCode.USAGE,
-            path=path,
+            identity=identity,
         )
 
     if file:
@@ -462,7 +596,7 @@ def _read_secret(
                 f"binary values are out of scope.",
                 json_out=json_out,
                 code=ExitCode.USAGE,
-                path=path,
+                identity=identity,
             )
         except OSError as exc:
             _fail(
@@ -470,7 +604,7 @@ def _read_secret(
                 f"Could not read {file}: {exc.strerror}.",
                 json_out=json_out,
                 code=ExitCode.USAGE,
-                path=path,
+                identity=identity,
             )
     elif use_stdin:
         raw = sys.stdin.read()
@@ -493,7 +627,7 @@ def _read_secret(
             "that blocks on input nobody is sending never reports anything.",
             json_out=json_out,
             code=ExitCode.USAGE,
-            path=path,
+            identity=identity,
         )
 
     if not value:
@@ -502,7 +636,7 @@ def _read_secret(
             "An empty value is refused. Use `vault remove` to clear an entry.",
             json_out=json_out,
             code=ExitCode.USAGE,
-            path=path,
+            identity=identity,
         )
     return value
 
@@ -527,7 +661,6 @@ def vault_init_command(key_source: str | None, json_out: bool) -> None:
         report = vault_init(key_source=key_source)
     except VaultKeySourceError as exc:
         _fail(exc.reason, str(exc), json_out=json_out, code=ExitCode.REFUSED)
-        return
 
     if json_out:
         _vault_json(
@@ -552,7 +685,7 @@ def vault_init_command(key_source: str | None, json_out: bool) -> None:
 
 
 @vault_app.command("put")
-@click.argument("path")
+@_scoped
 @click.option("--stdin", "use_stdin", is_flag=True, default=False, help="Read stdin.")
 @click.option("--file", default=None, help="Read the value from a file.")
 @click.option("--replace", is_flag=True, default=False, help="Overwrite an entry.")
@@ -560,73 +693,86 @@ def vault_init_command(key_source: str | None, json_out: bool) -> None:
 @click.pass_context
 def vault_put_command(
     ctx: click.Context,
-    path: str,
+    group: str | None,
+    job: str | None,
+    field: str,
     use_stdin: bool,
     file: str | None,
     replace: bool,
     json_out: bool,
 ) -> None:
-    """Store one secret at PATH, e.g. `deploy.api_token`.
+    """Store one secret group option or job config field.
 
-    PATH is validated against the job schema **before** the value is read, so a
-    typo costs you nothing you have already typed.
+    \b
+      func builtin vault put --group deploy --field token
+      func builtin vault put --job deploy.service --field iam_key --stdin
+
+    The target and field are validated against the live schema **before** the
+    value is read, so a typo costs you nothing you have already typed.
     """
+    from functualize.app.utils import vault_entries
     from functualize.app.vault import (
         VaultEntryExistsError,
+        VaultFormatError,
         VaultKeySourceError,
         VaultOriginConflictError,
         VaultPathError,
-        resolve_canonical_path,
+        resolve_vault_identity,
         vault_put,
     )
 
     app = _vault_app(ctx, "vault put")
 
     try:
-        resolved = resolve_canonical_path(app, path)
+        identity = resolve_vault_identity(app, group=group, job=job, field=field)
     except VaultPathError as exc:
-        _fail(exc.reason, str(exc), json_out=json_out, code=ExitCode.USAGE, path=path)
-        return
+        _fail(exc.reason, str(exc), json_out=json_out, code=ExitCode.USAGE)
+
+    # Also before the value is read: a store this version cannot write would
+    # otherwise cost the operator a secret they had just typed.
+    try:
+        vault_entries()
+    except VaultFormatError as exc:
+        _refuse_legacy(exc, json_out=json_out)
 
     value = _read_secret(
-        use_stdin=use_stdin, file=file, json_out=json_out, path=resolved.path
+        use_stdin=use_stdin, file=file, json_out=json_out, identity=identity
     )
 
     try:
-        report = vault_put(app, resolved.path, value, replace=replace)
+        report = vault_put(app, identity, value, replace=replace)
     except VaultEntryExistsError as exc:
         _fail(
             "entry_exists",
             str(exc),
             json_out=json_out,
             code=ExitCode.REFUSED,
-            path=resolved.path,
+            identity=identity,
         )
-        return
     except VaultOriginConflictError as exc:
         _fail(
             "provider_entry_conflict",
             str(exc),
             json_out=json_out,
             code=ExitCode.REFUSED,
-            path=resolved.path,
+            identity=identity,
         )
-        return
     except VaultKeySourceError as exc:
         _fail(
             exc.reason,
             str(exc),
             json_out=json_out,
             code=ExitCode.REFUSED,
-            path=resolved.path,
+            identity=identity,
         )
-        return
+    except VaultFormatError as exc:
+        _refuse_legacy(exc, json_out=json_out)
 
     if json_out:
         _vault_json(
             {
                 "ok": True,
-                "path": report.path,
+                **_identity_fields(report.identity),
                 "origin": str(report.origin) if report.origin else None,
                 "created": report.created,
                 "replaced": report.replaced,
@@ -634,28 +780,42 @@ def vault_put_command(
             }
         )
         return
-    click.echo(f"Stored {report.path} ({'replaced' if report.replaced else 'new'}).")
+    state = "replaced" if report.replaced else "new"
+    click.echo(f"Stored {_describe(report.identity)} ({state}).")
 
 
 @vault_app.command("inspect")
-@click.argument("path")
+@_scoped
 @click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
 @click.pass_context
-def vault_inspect_command(ctx: click.Context, path: str, json_out: bool) -> None:
-    """Explain PATH: eligibility, provenance, freshness — never the value.
+def vault_inspect_command(
+    ctx: click.Context,
+    group: str | None,
+    job: str | None,
+    field: str,
+    json_out: bool,
+) -> None:
+    """Explain one entry: eligibility, provenance, freshness — never the value.
+
+    \b
+      func builtin vault inspect --group deploy --field token
 
     Readability comes from the store's key check value, so this reports whether
     a key opens the vault without decrypting anything stored in it.
     """
-    from functualize.app.vault import vault_inspect
+    from functualize.app.vault import VaultFormatError, vault_inspect
 
-    report = vault_inspect(_vault_app(ctx, "vault inspect"), path)
+    identity = _identity(group, job, field, json_out=json_out)
+    try:
+        report = vault_inspect(_vault_app(ctx, "vault inspect"), identity)
+    except VaultFormatError as exc:
+        _refuse_legacy(exc, json_out=json_out)
 
     if json_out:
         _vault_json(
             {
                 "ok": True,
-                "path": report.path,
+                **_identity_fields(report.identity),
                 "eligible": report.eligible,
                 "exists": report.exists,
                 "origin": str(report.origin) if report.origin else None,
@@ -672,7 +832,9 @@ def vault_inspect_command(ctx: click.Context, path: str, json_out: bool) -> None
         )
         return
 
-    click.echo(f"Path:       {report.path}")
+    click.echo(f"Scope:      {report.identity.scope}")
+    click.echo(f"Target:     {report.identity.target}")
+    click.echo(f"Field:      {report.identity.field}")
     click.echo(f"Eligible:   {'yes' if report.eligible else 'no'}")
     click.echo(f"Stored:     {'yes' if report.exists else 'no'}")
     if report.exists:
@@ -686,22 +848,32 @@ def vault_inspect_command(ctx: click.Context, path: str, json_out: bool) -> None
 
 
 @vault_app.command("remove")
-@click.argument("path")
+@_scoped
 @click.option("--yes", "assume_yes", is_flag=True, default=False, help="No prompt.")
 @click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
 @click.pass_context
 def vault_remove_command(
-    ctx: click.Context, path: str, assume_yes: bool, json_out: bool
+    ctx: click.Context,
+    group: str | None,
+    job: str | None,
+    field: str,
+    assume_yes: bool,
+    json_out: bool,
 ) -> None:
-    """Remove the entry at PATH. Needs no vault key.
+    """Remove one entry. Needs no vault key.
 
-    Works on a store this machine cannot open, which is the situation it exists
-    for. A direct value has no upstream copy, so removing one warns.
+    \b
+      func builtin vault remove --job deploy.service --field iam_key --yes
+
+    Works on a store this machine cannot open, and on an entry whose job or
+    group no longer exists, which are the situations it exists for. A direct
+    value has no upstream copy, so removing one warns.
     """
     import sys
 
-    from functualize.app.vault import vault_remove
+    from functualize.app.vault import VaultFormatError, vault_remove
 
+    identity = _identity(group, job, field, json_out=json_out)
     app = _vault_app(ctx, "vault remove")
 
     interactive = sys.stdin.isatty() and sys.stdout.isatty()
@@ -713,20 +885,22 @@ def vault_remove_command(
                 "Pass --yes.",
                 json_out=json_out,
                 code=ExitCode.REFUSED,
-                path=path,
+                identity=identity,
             )
-            return
-        if not click.confirm(f"Remove {path}?", default=False):
+        if not click.confirm(f"Remove {_describe(identity)}?", default=False):
             click.echo("Left alone.")
             return
 
-    report = vault_remove(app, path)
+    try:
+        report = vault_remove(app, identity)
+    except VaultFormatError as exc:
+        _refuse_legacy(exc, json_out=json_out)
 
     if json_out:
         _vault_json(
             {
                 "ok": True,
-                "path": report.path,
+                **_identity_fields(report.identity),
                 "origin": str(report.origin) if report.origin else None,
                 "removed": report.removed,
                 **({"warning": report.warning} if report.warning else {}),
@@ -735,8 +909,8 @@ def vault_remove_command(
         return
 
     if not report.removed:
-        click.echo(f"Nothing stored at {report.path}.")
+        click.echo(f"Nothing stored at {_describe(report.identity)}.")
         return
-    click.echo(f"Removed {report.path} ({report.origin}).")
+    click.echo(f"Removed {_describe(report.identity)} ({report.origin}).")
     if report.warning:
         click.echo(f"Warning: {report.warning}", err=True)

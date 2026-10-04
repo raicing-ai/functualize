@@ -49,6 +49,7 @@ from functualize._config.vault import (
     VaultEntryExistsError,
     VaultEntryUnreadableError,
     VaultError,
+    VaultFormatError,
     VaultOrigin,
     VaultOriginConflictError,
 )
@@ -70,6 +71,7 @@ __all__ = [
     "VaultEntryExistsError",
     "VaultEntryUnreadableError",
     "VaultError",
+    "VaultFormatError",
     "VaultOrigin",
     "VaultOriginConflictError",
     "VaultKeySourceError",

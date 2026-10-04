@@ -31,16 +31,19 @@ from functualize._cli.builtins import (
     register_builtin_commands,
 )
 from functualize._config.registry import ProviderRegistry
-from functualize._config.vault import KEY_BYTES, SecretsVault
+from functualize._config.vault import KEY_BYTES, SecretsVault, VaultOrigin
 from functualize.app.core import FunctualizeApp
 from functualize.app.presets import remote_first
 from functualize.app.utils import ExitCode, vault_location
+from functualize.app.vault import VaultIdentity
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
 _KEY = b"\x2b" * KEY_BYTES
 _KEY_HEX = _KEY.hex()
+_JOB_TOKEN = VaultIdentity("job", "deploy", "api_token")
+_GROUP_TOKEN = VaultIdentity("group", "deploy", "api_token")
 
 #: If this appears in any surface's output, a secret was rendered. Long and
 #: distinctive on purpose: a short value can satisfy a leak assertion by
@@ -870,9 +873,14 @@ class TestSyncFailures:
 _LOCAL_JOB = '''
 from pydantic import BaseModel, Field
 
-from functualize.job import RunContext
+from functualize.job import GroupOptions, RunContext
 from functualize.job.decorators import job
 from functualize.types import Secret
+
+
+class DeployOptions(GroupOptions, group="deploy"):
+    api_token: Secret[str] = Field(default="", description="Group credential")
+    region: str = Field(default="eu-west-1")
 
 
 class DeployConfig(BaseModel):
@@ -881,7 +889,9 @@ class DeployConfig(BaseModel):
 
 
 @job
-def deploy(config: DeployConfig, rc: RunContext) -> str:
+def deploy(
+    config: DeployConfig, options: DeployOptions, rc: RunContext
+) -> str:
     """Deploy something."""
     return "deployed"
 '''
@@ -933,14 +943,14 @@ class TestPutCommand:
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
         result = _run(
-            ["put", "deploy.api_token", "--stdin"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
 
         assert result.exit_code == ExitCode.OK
         entry = SecretsVault(vault_location()).list_entries()[0]
-        assert entry.key == "deploy.api_token"
+        assert entry.key == _JOB_TOKEN.encode()
         assert _CONSPICUOUS not in result.stdout
 
     def test_stdin_strips_exactly_one_trailing_newline(
@@ -949,13 +959,13 @@ class TestPutCommand:
         """`echo secret | ...` must not store a trailing newline, and a value
         that genuinely ends in one must not lose two."""
         _run(
-            ["put", "deploy.api_token", "--stdin"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
             app=local_app,
             stdin=_CONSPICUOUS + "\n\n",
         )
 
         stored = SecretsVault(vault_location()).get(
-            "deploy.api_token", encryption_key=_KEY
+            _JOB_TOKEN.encode(), encryption_key=_KEY
         )
         assert stored == _CONSPICUOUS + "\n"
 
@@ -964,7 +974,9 @@ class TestPutCommand:
     ) -> None:
         """The refusal that matters: reading stdin implicitly would make this
         block forever inside a pipeline nobody is feeding."""
-        result = _run(["put", "deploy.api_token", "--json"], app=local_app)
+        result = _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--json"], app=local_app
+        )
 
         assert result.exit_code == ExitCode.USAGE
         assert json.loads(result.stdout)["reason"] == "input_source_required"
@@ -973,7 +985,7 @@ class TestPutCommand:
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--json"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin", "--json"],
             app=local_app,
             stdin="",
         )
@@ -984,7 +996,7 @@ class TestPutCommand:
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
         result = _run(
-            ["put", "deploy.region", "--stdin", "--json"],
+            ["put", "--job", "deploy", "--field", "region", "--stdin", "--json"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
@@ -1009,7 +1021,16 @@ class TestPutCommand:
         not exist. Whichever error comes back names which step ran first.
         """
         result = _run(
-            ["put", "deploy.region", "--file", "/nonexistent/secret.txt", "--json"],
+            [
+                "put",
+                "--job",
+                "deploy",
+                "--field",
+                "region",
+                "--file",
+                "/nonexistent/secret.txt",
+                "--json",
+            ],
             app=local_app,
         )
 
@@ -1020,9 +1041,13 @@ class TestPutCommand:
     def test_a_second_write_needs_replace(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin="first")
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=local_app,
+            stdin="first",
+        )
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--json"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin", "--json"],
             app=local_app,
             stdin="second",
         )
@@ -1034,7 +1059,17 @@ class TestPutCommand:
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--file", "x", "--json"],
+            [
+                "put",
+                "--job",
+                "deploy",
+                "--field",
+                "api_token",
+                "--stdin",
+                "--file",
+                "x",
+                "--json",
+            ],
             app=local_app,
             stdin="v",
         )
@@ -1047,12 +1082,15 @@ class TestInspectCommand:
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
         _run(
-            ["put", "deploy.api_token", "--stdin"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
 
-        result = _run(["inspect", "deploy.api_token", "--json"], app=local_app)
+        result = _run(
+            ["inspect", "--job", "deploy", "--field", "api_token", "--json"],
+            app=local_app,
+        )
         payload = json.loads(result.stdout)
 
         assert payload["exists"] is True
@@ -1063,7 +1101,9 @@ class TestInspectCommand:
     def test_an_ineligible_path_is_explained(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        result = _run(["inspect", "deploy.region", "--json"], app=local_app)
+        result = _run(
+            ["inspect", "--job", "deploy", "--field", "region", "--json"], app=local_app
+        )
 
         assert json.loads(result.stdout)["eligible"] is False
 
@@ -1072,9 +1112,16 @@ class TestRemoveCommand:
     def test_it_removes_and_warns_for_a_direct_entry(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin=_CONSPICUOUS)
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
 
-        result = _run(["remove", "deploy.api_token", "--yes", "--json"], app=local_app)
+        result = _run(
+            ["remove", "--job", "deploy", "--field", "api_token", "--yes", "--json"],
+            app=local_app,
+        )
         payload = json.loads(result.stdout)
 
         assert payload["removed"] is True
@@ -1084,7 +1131,10 @@ class TestRemoveCommand:
     def test_a_missing_entry_is_success(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        result = _run(["remove", "deploy.api_token", "--yes", "--json"], app=local_app)
+        result = _run(
+            ["remove", "--job", "deploy", "--field", "api_token", "--yes", "--json"],
+            app=local_app,
+        )
 
         assert result.exit_code == ExitCode.OK
         assert json.loads(result.stdout)["removed"] is False
@@ -1092,9 +1142,16 @@ class TestRemoveCommand:
     def test_a_non_tty_requires_yes(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin=_CONSPICUOUS)
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
 
-        result = _run(["remove", "deploy.api_token", "--json"], app=local_app)
+        result = _run(
+            ["remove", "--job", "deploy", "--field", "api_token", "--json"],
+            app=local_app,
+        )
 
         assert result.exit_code == ExitCode.REFUSED
         assert json.loads(result.stdout)["reason"] == "confirmation_required"
@@ -1104,7 +1161,7 @@ class TestTheAppContextMessage:
     def test_it_names_the_command_that_needed_an_app(self, project: Path) -> None:
         """It used to say `vault sync` for every command here, so a `put` user
         was told to check something they had not run."""
-        result = _run(["put", "deploy.api_token"])
+        result = _run(["put", "--job", "deploy", "--field", "api_token"])
 
         assert result.exit_code == ExitCode.USAGE
         assert "vault put" in result.output
@@ -1132,7 +1189,7 @@ class TestOriginAwareListing:
             provider="fake-sm",
         )
         vault.put(
-            "deploy.api_token",
+            _JOB_TOKEN.encode(),
             _CONSPICUOUS,
             encryption_key=_KEY,
             origin=VaultOrigin.DIRECT,
@@ -1141,15 +1198,14 @@ class TestOriginAwareListing:
         result = _run(["list"])
 
         assert result.exit_code == ExitCode.OK
-        assert "deploy.api_token" in result.stdout
-        assert "direct" in result.stdout
+        assert re.search(r"job\s+deploy\s+api_token\s+direct", result.stdout)
         assert _CONSPICUOUS not in result.stdout
 
     def test_list_json_nulls_what_a_direct_entry_lacks(self, project: Path) -> None:
         from functualize._config.vault import VaultOrigin
 
         SecretsVault(vault_location()).put(
-            "deploy.api_token",
+            _JOB_TOKEN.encode(),
             _CONSPICUOUS,
             encryption_key=_KEY,
             origin=VaultOrigin.DIRECT,
@@ -1192,7 +1248,7 @@ class TestStatusCountsAndKeyState:
             provider="fake-sm",
         )
         vault.put(
-            "deploy.api_token", "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+            _JOB_TOKEN.encode(), "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
         )
 
         payload = json.loads(_run(["status", "--json"]).stdout)
@@ -1237,7 +1293,7 @@ class TestClearIsOriginAware:
             provider="fake-sm",
         )
         vault.put(
-            "deploy.api_token", "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+            _JOB_TOKEN.encode(), "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
         )
 
         result = CliRunner().invoke(
@@ -1336,7 +1392,7 @@ class TestTheDeclaredReasonCodesAreReachable:
         """`put` over a synced entry. The seam test covers the exception; this
         covers the code a caller actually branches on."""
         SecretsVault(vault_location()).put(
-            "deploy.api_token",
+            _JOB_TOKEN.encode(),
             "from-aws",
             encryption_key=_KEY,
             annotation="fake-sm://prod/token",
@@ -1344,7 +1400,16 @@ class TestTheDeclaredReasonCodesAreReachable:
         )
 
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--replace", "--json"],
+            [
+                "put",
+                "--job",
+                "deploy",
+                "--field",
+                "api_token",
+                "--stdin",
+                "--replace",
+                "--json",
+            ],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
@@ -1363,7 +1428,7 @@ class TestTheDeclaredReasonCodesAreReachable:
         )
 
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--json"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin", "--json"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
@@ -1393,6 +1458,8 @@ class TestTheDeclaredReasonCodesAreReachable:
             "unknown_key_source",
             "key_source_unavailable",
             "key_source_not_initializable",
+            "scope_required",
+            "unknown_group",
             "unknown_job",
             "unknown_field",
             "field_not_secret",
@@ -1406,6 +1473,7 @@ class TestTheDeclaredReasonCodesAreReachable:
             "key_unavailable",
             "confirmation_required",
             "key_mismatch",
+            "vault_format_unsupported",
         }
 
         assert emitted <= declared, f"emitted but undeclared: {emitted - declared}"
@@ -1420,7 +1488,7 @@ class TestTheDeclaredReasonCodesAreReachable:
         path was documented and unchecked.
         """
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--json"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin", "--json"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
@@ -1429,14 +1497,20 @@ class TestTheDeclaredReasonCodesAreReachable:
         assert result.exit_code == ExitCode.OK
         assert set(payload) == {
             "ok",
-            "path",
+            "scope",
+            "target",
+            "field",
             "origin",
             "created",
             "replaced",
             "updated_at",
         }
         assert payload["ok"] is True
-        assert payload["path"] == "deploy.api_token"
+        assert (payload["scope"], payload["target"], payload["field"]) == (
+            "job",
+            "deploy",
+            "api_token",
+        )
         assert payload["origin"] == "direct"
         assert payload["created"] is True
         assert payload["replaced"] is False
@@ -1448,11 +1522,24 @@ class TestTheDeclaredReasonCodesAreReachable:
     ) -> None:
         """`created` and `replaced` are the two halves of the same fact, and a
         caller distinguishing "new secret" from "rotated secret" reads them."""
-        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin="first")
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=local_app,
+            stdin="first",
+        )
 
         payload = json.loads(
             _run(
-                ["put", "deploy.api_token", "--stdin", "--replace", "--json"],
+                [
+                    "put",
+                    "--job",
+                    "deploy",
+                    "--field",
+                    "api_token",
+                    "--stdin",
+                    "--replace",
+                    "--json",
+                ],
                 app=local_app,
                 stdin="second",
             ).stdout
@@ -1460,3 +1547,283 @@ class TestTheDeclaredReasonCodesAreReachable:
 
         assert payload["created"] is False
         assert payload["replaced"] is True
+
+
+def _legacy_store() -> Path:
+    """A store stamped with the pre-scope schema version, holding one row."""
+    path = vault_location()
+    SecretsVault(path).put(
+        _JOB_TOKEN.encode(),
+        _CONSPICUOUS,
+        encryption_key=_KEY,
+        origin=VaultOrigin.DIRECT,
+    )
+    conn = sqlite3.connect(path)
+    with conn:
+        conn.execute("PRAGMA user_version = 1")
+    conn.close()
+    return path
+
+
+class TestScopedFlags:
+    """`put`, `inspect` and `remove` take a scope, a target and a field."""
+
+    @pytest.mark.parametrize("command", ["put", "inspect", "remove"])
+    def test_the_positional_form_is_gone(
+        self, project: Path, local_app: FunctualizeApp, command: str
+    ) -> None:
+        """Even beside valid flags, the old `<job>.<field>` argument is refused."""
+        extra = {"put": ["--stdin"], "inspect": [], "remove": ["--yes"]}[command]
+        result = _run(
+            [
+                command,
+                "deploy.api_token",
+                "--job",
+                "deploy",
+                "--field",
+                "api_token",
+                *extra,
+            ],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.USAGE
+        assert "unexpected extra argument" in result.output
+        assert not vault_location().exists()
+
+    @pytest.mark.parametrize("command", ["put", "inspect", "remove"])
+    def test_a_field_is_required(
+        self, project: Path, local_app: FunctualizeApp, command: str
+    ) -> None:
+        extra = ["--yes"] if command == "remove" else []
+        result = _run([command, "--job", "deploy", *extra], app=local_app)
+
+        assert result.exit_code == ExitCode.USAGE
+        assert "--field" in result.output
+
+    @pytest.mark.parametrize("command", ["put", "inspect", "remove"])
+    @pytest.mark.parametrize(
+        "scope",
+        [[], ["--group", "deploy", "--job", "deploy"]],
+        ids=["neither", "both"],
+    )
+    def test_exactly_one_scope_is_required(
+        self,
+        project: Path,
+        local_app: FunctualizeApp,
+        command: str,
+        scope: list[str],
+    ) -> None:
+        extra = {"put": ["--stdin"], "inspect": [], "remove": ["--yes"]}[command]
+        result = _run(
+            [command, *scope, "--field", "api_token", *extra, "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.USAGE
+        assert json.loads(result.stdout)["reason"] == "scope_required"
+        assert not vault_location().exists()
+
+    def test_a_group_secret_is_stored_under_its_own_scope(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        result = _run(
+            ["put", "--group", "deploy", "--field", "api-token", "--stdin", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+        payload = json.loads(result.stdout)
+
+        assert result.exit_code == ExitCode.OK
+        assert (payload["scope"], payload["target"], payload["field"]) == (
+            "group",
+            "deploy",
+            "api_token",
+        )
+        keys = [e.key for e in SecretsVault(vault_location()).list_entries()]
+        assert keys == [_GROUP_TOKEN.encode()]
+
+    def test_group_validation_precedes_reading_input(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """The non-secret group option fails before the missing file is read."""
+        result = _run(
+            [
+                "put",
+                "--group",
+                "deploy",
+                "--field",
+                "region",
+                "--file",
+                "/nonexistent/secret.txt",
+                "--json",
+            ],
+            app=local_app,
+        )
+
+        assert json.loads(result.stdout)["reason"] == "field_not_secret"
+
+    def test_an_unknown_group_is_refused_before_reading_input(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        result = _run(
+            ["put", "--group", "nope", "--field", "api_token", "--stdin", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.USAGE
+        assert json.loads(result.stdout)["reason"] == "unknown_group"
+        assert not vault_location().exists()
+
+    def test_group_and_job_entries_with_the_same_text_stay_distinct(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        group = ["--group", "deploy", "--field", "api_token"]
+        job = ["--job", "deploy", "--field", "api_token"]
+        _run(["put", *group, "--stdin"], app=local_app, stdin="group-value")
+        _run(["put", *job, "--stdin"], app=local_app, stdin=_CONSPICUOUS)
+
+        listed = json.loads(_run(["list", "--json"]).stdout)["entries"]
+        assert {(e["scope"], e["target"], e["field"]) for e in listed} == {
+            ("group", "deploy", "api_token"),
+            ("job", "deploy", "api_token"),
+        }
+
+        removed = _run(["remove", *group, "--yes", "--json"], app=local_app)
+        assert json.loads(removed.stdout)["scope"] == "group"
+
+        group_report = json.loads(
+            _run(["inspect", *group, "--json"], app=local_app).stdout
+        )
+        job_report = json.loads(_run(["inspect", *job, "--json"], app=local_app).stdout)
+        assert group_report["exists"] is False
+        assert job_report["exists"] is True
+        assert _CONSPICUOUS not in json.dumps([listed, group_report, job_report])
+
+    def test_list_renders_scope_target_and_field_as_columns(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        _run(
+            ["put", "--group", "deploy", "--field", "api_token", "--stdin"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        result = _run(["list"])
+
+        assert re.search(r"group\s+deploy\s+api_token\s+direct", result.stdout)
+        assert _CONSPICUOUS not in result.output
+
+    def test_an_orphan_from_a_deleted_job_can_still_be_removed(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        orphan = VaultIdentity("job", "deleted-job", "token")
+        SecretsVault(vault_location()).put(
+            orphan.encode(),
+            _CONSPICUOUS,
+            encryption_key=_KEY,
+            origin=VaultOrigin.DIRECT,
+        )
+
+        result = _run(
+            ["remove", "--job", "deleted-job", "--field", "token", "--yes", "--json"],
+            app=local_app,
+        )
+
+        assert json.loads(result.stdout)["removed"] is True
+
+    def test_help_shows_the_scoped_form(self) -> None:
+        for command in ("put", "inspect", "remove"):
+            text = _run([command, "--help"]).output
+            assert "--group" in text
+            assert "--job" in text
+            assert "--field" in text
+            assert "<job>.<field>" not in text
+            assert "deploy.api_token" not in text
+
+
+class TestALegacyStore:
+    """An old-format store is refused with the recovery command, never mutated."""
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin", "--json"],
+            ["inspect", "--job", "deploy", "--field", "api_token", "--json"],
+            ["remove", "--job", "deploy", "--field", "api_token", "--yes", "--json"],
+            ["list", "--json"],
+            ["status", "--json"],
+        ],
+        ids=["put", "inspect", "remove", "list", "status"],
+    )
+    def test_it_is_refused_with_the_clear_instruction(
+        self, project: Path, local_app: FunctualizeApp, args: list[str]
+    ) -> None:
+        path = _legacy_store()
+        before = path.read_bytes()
+
+        result = _run(args, app=local_app, stdin="new-value")
+        payload = json.loads(result.stdout)
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert payload["reason"] == "vault_format_unsupported"
+        assert "func builtin vault clear" in payload["message"]
+        assert _CONSPICUOUS not in result.output
+        assert path.read_bytes() == before
+
+    def test_put_refuses_before_the_value_is_read(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """Ordering, by which of two failures wins: an operator must not type a
+        secret only to learn the store cannot take it."""
+        _legacy_store()
+
+        result = _run(
+            [
+                "put",
+                "--job",
+                "deploy",
+                "--field",
+                "api_token",
+                "--file",
+                "/nonexistent/secret.txt",
+                "--json",
+            ],
+            app=local_app,
+        )
+
+        assert json.loads(result.stdout)["reason"] == "vault_format_unsupported"
+
+    def test_the_human_message_names_the_recovery_command(self, project: Path) -> None:
+        _legacy_store()
+
+        result = _run(["list"])
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert "func builtin vault clear" in result.output
+
+    def test_clear_removes_it_without_a_key(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = _legacy_store()
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+
+        result = _run(["clear", "--yes", "--json"])
+
+        assert result.exit_code == ExitCode.OK
+        assert json.loads(result.stdout)["cleared"] is True
+        assert not path.exists()
+
+    def test_clear_still_confirms_first(self, project: Path) -> None:
+        path = _legacy_store()
+
+        result = CliRunner().invoke(
+            _cli(), ["builtin", "vault", "clear"], obj={}, input="n\n"
+        )
+
+        assert "old format" in result.stdout
+        assert "Left alone" in result.stdout
+        assert path.exists()
