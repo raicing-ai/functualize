@@ -57,6 +57,7 @@ import logging
 import os
 import re
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -84,6 +85,7 @@ __all__ = [
     "VaultOrigin",
     "VaultEntryExistsError",
     "VaultEntryUnreadableError",
+    "VaultFormatError",
     "VaultError",
     "VaultOriginConflictError",
     "format_duration",
@@ -129,7 +131,7 @@ _NONCE_BYTES = 12
 
 #: Bumped when the table shapes below change. Stamped into ``PRAGMA
 #: user_version`` by :func:`_upgrade`, which is what makes the upgrade run once.
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 #: The one row of :data:`_SCHEMA`'s ``vault_meta`` table, encrypted under the
 #: vault key. Fixed and non-secret on purpose: this is a **known-plaintext
@@ -176,6 +178,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 class VaultError(Exception):
     """Base class for vault failures."""
+
+
+class VaultFormatError(VaultError):
+    """An existing vault uses an unsupported entry identity format."""
 
 
 class VaultDecryptionError(VaultError):
@@ -415,6 +421,21 @@ class SecretsVault:
         return self._path
 
     def _connect(self) -> sqlite3.Connection:
+        if self._path.exists():
+            # Inspect through a read-only handle before WAL mode, DDL or the
+            # upgrade path can modify a legacy store. Clear bypasses _connect.
+            with closing(
+                sqlite3.connect(self._path.resolve().as_uri() + "?mode=ro", uri=True)
+            ) as old:
+                version = old.execute("PRAGMA user_version").fetchone()[0]
+                has_schema = old.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1"
+                ).fetchone() is not None
+            if has_schema and version != _SCHEMA_VERSION:
+                raise VaultFormatError(
+                    "This vault uses the old identity format. Run "
+                    "`func builtin vault clear` before using scoped secrets."
+                )
         self._path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self._path)
         # WAL: `builtin parallel` runs several jobs at once, so concurrent
@@ -725,61 +746,7 @@ class SecretsVault:
 
 
 def _upgrade(conn: sqlite3.Connection) -> None:
-    """Bring an older store up to :data:`_SCHEMA_VERSION`, in place and once.
-
-    Runs after ``_SCHEMA``, which uses ``CREATE TABLE IF NOT EXISTS`` and so
-    adds the *missing* tables but cannot reshape an existing one. A store
-    written before origin tracking has ``annotation``, ``provider`` and
-    ``synced_at`` as ``NOT NULL``, and SQLite cannot drop a ``NOT NULL`` with
-    ``ALTER TABLE`` — so the table is rebuilt.
-
-    Idempotent twice over, deliberately. ``PRAGMA user_version`` is the fast
-    path, and the column check behind it is the honest one: a freshly created
-    store is already v1-shaped but still stamped 0, and rebuilding it would be
-    pointless work on every first connection. Trusting the version alone would
-    also mean a store whose stamp was lost could never be repaired.
-
-    Existing rows are carried across untouched — ``nonce`` and ``ciphertext``
-    are copied, never re-encrypted, because this function has no key and must
-    never need one. Migrated rows take ``origin = 'provider'``, which is not a
-    guess: before this version, ``sync`` was the only writer.
-    """
-    if conn.execute("PRAGMA user_version").fetchone()[0] >= _SCHEMA_VERSION:
-        return
-
-    columns = {row[1] for row in conn.execute("PRAGMA table_info(secrets)")}
-    if columns and "origin" not in columns:
-        # One transaction. A half-rebuilt store is worse than an old one: the
-        # values are only recoverable from here.
-        conn.execute("""
-            CREATE TABLE secrets_upgraded (
-                key          TEXT PRIMARY KEY,
-                origin       TEXT NOT NULL DEFAULT 'provider',
-                annotation   TEXT,
-                provider     TEXT,
-                nonce        BLOB NOT NULL,
-                ciphertext   BLOB NOT NULL,
-                created_at   TEXT,
-                updated_at   TEXT,
-                synced_at    TEXT,
-                key_provider TEXT
-            )
-        """)
-        # `synced_at` fills both timestamps: it is the only one a v0 row has,
-        # and it is truthful for each -- that *is* when the row was written.
-        conn.execute("""
-            INSERT INTO secrets_upgraded
-                (key, origin, annotation, provider, nonce, ciphertext,
-                 created_at, updated_at, synced_at, key_provider)
-            SELECT key, 'provider', annotation, provider, nonce, ciphertext,
-                   synced_at, synced_at, synced_at, NULL
-            FROM secrets
-        """)
-        conn.execute("DROP TABLE secrets")
-        conn.execute("ALTER TABLE secrets_upgraded RENAME TO secrets")
-
-    # Not parameterizable -- PRAGMA takes no placeholders. The value is our own
-    # module constant, never caller input.
+    """Stamp a newly created store; existing older stores are refused."""
     conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION:d}")
 
 
