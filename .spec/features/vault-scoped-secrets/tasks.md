@@ -2,6 +2,8 @@
 
 The executable steps, exact files, interfaces, tests, and commit points are in [plan.md](plan.md). Complete each task's test cycle before marking it done.
 
+The external surface these tasks deliver is declared in [contracts.md](contracts.md). It was written after all six tasks were checked, from the code as shipped, not as a plan the tasks followed. Its `Verification walk` section names the public-entry-point test for each declared item and lists the items that no such test covers yet. Those items are coverage gaps; none reopens a task.
+
 - [x] T1 — Add the typed identity codec and refuse legacy stores without migration.
 - [x] T2 — Validate scoped secret fields through the public app API, including cached and dynamic groups.
 - [x] T3 — Carry scope through the common resolution chain and establish vault-over-environment precedence.
