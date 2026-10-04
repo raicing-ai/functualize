@@ -228,6 +228,13 @@ answer for an open request; a second deposit returns
 `{"error": "gate_already_answered", ...}` and leaves the first answer intact.
 Invalid deposits are recorded as invalid candidates and leave the request open.
 
+A gate is addressed by its declared name or by its canonical form —
+`approve_refund` and `approve-refund` both reach the one gate — and
+`workflow list` prints the canonical form. Naming a gate the workflow does
+not have raises `GateNotFoundError` from the Python API; the CLI prints the
+error and exits 1, and MCP returns a `gate_not_found` result carrying the
+gates that do exist.
+
 ### Decision gates
 
 A gate can let a **decision provider** fill one field of its model with
@@ -387,6 +394,16 @@ ROUTER = ChoiceDecision(
   candidate's `evidence`. Only the gate writes it: an `evidence` key inside a
   submitted answer never becomes a candidate's evidence. A rung whose
   provider is not installed is `unavailable` and records none.
+
+In `decision-evidence/1`, `verdict` is one of `accepted`,
+`below_threshold`, `no_distribution`, `uncovered_proposal`, or
+`provider_failed`. `uncovered_proposal` means the provider returned a
+distribution, but its proposed option is not a key in that mapping. The
+evidence keeps the returned `proposal` and `distribution`; `probability`
+and `margin` are `null` because the gate cannot read a probability for the
+proposal or compare it with another option, and `failure` is `null` because
+the provider answered without reporting an error. `no_distribution` instead
+has a `null` distribution; `provider_failed` carries an error in `failure`.
 
 `decision_record(store, scope_id, gate)` (from `functualize.app.utils`,
 **provisional**) reads one routed gate back as a single record — who took it,

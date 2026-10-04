@@ -361,6 +361,24 @@ class TestTheRungEvidence:
         assert evidence["verdict"] == "no_distribution"
         assert evidence["distribution"] is None
 
+    def test_an_uncovered_proposal_records_its_evidence(self) -> None:
+        """C-3: the provider was called, so the rung is auditable whatever it
+        returned — a proposal its own distribution does not cover included."""
+        outcome = _evaluate(FakeProvider("returns", {"shipping": 0.9, "billing": 0.1}))
+
+        ((name, evaluation, _),) = outcome.rungs
+        assert name == "decision"
+        assert evaluation.outcome is EvaluationOutcome.FAILED
+        assert "does not cover" in evaluation.detail
+        evidence = evaluation.evidence
+        assert evidence is not None
+        assert evidence["verdict"] == "uncovered_proposal"
+        assert evidence["proposal"] == "returns"
+        assert evidence["distribution"] == {"shipping": 0.9, "billing": 0.1}
+        assert evidence["probability"] is None
+        assert evidence["margin"] is None
+        assert evidence["failure"] is None
+
     def test_a_missing_state_step_records_nothing(self) -> None:
         """The state check raises before any evidence can exist."""
         outcome = _evaluate(

@@ -148,6 +148,26 @@ recorded candidates across resume and reopen, without revalidating an earlier
 answer. `deposit_gate_input` now returns `gate_already_answered` for a request
 that has already accepted an answer instead of replacing that answer.
 
+### Fixed — a gate answers to the name it was declared with
+
+A gate declared `Gate(name="approve_refund", ...)` parks the walk under its
+canonical node name `approve-refund`, and the public answer path now resolves
+the reference the same way before it touches anything: `approve_refund`,
+`approveRefund` and `Approve_Refund` all reach the one gate, on every surface.
+Naming a gate the scope does not have now **raises** the new
+`GateNotFoundError` (carrying the scope, the reference and the gates that do
+exist) from `answer_gate`, `gate_draft`, `deposit_gate_input`,
+`resume_scope(gate=...)` and the scope-and-gate form of `resolve_gate` —
+previously a returned error dict, and from `gate_draft`/`deposit_gate_input`
+a misleading `gate_unresolvable` whose message was an `AttributeError` text.
+The survey paths keep their envelopes: the gate-only form of `resolve_gate`
+and `list_scopes(blocked_on=...)` return their existing "no workflow is
+waiting" and empty-row answers rather than raising. The CLI and MCP results
+are unchanged in code — the verbs still print an `Error:` line and exit 1,
+and the tools still return `gate_not_found`, now with the gate list — and
+result `gate` fields carry the canonical spelling (`approve-refund`), not
+what the caller typed.
+
 ### Fixed — a `perf_budget` red now says what load it ran at
 
 **Contributor-facing; no runtime behaviour changes.** `tests/conftest.py` skips the wall-clock

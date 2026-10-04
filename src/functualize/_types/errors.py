@@ -255,6 +255,20 @@ class AmbiguousJobError(Exception):
         )
 
 
+class GateNotFoundError(Exception):
+    """Raised when a scope is addressed and the gate reference matches none of its gates."""
+
+    def __init__(self, gate: str, *, scope_id: str, known: Sequence[str]) -> None:
+        self.gate = gate
+        self.scope_id = scope_id
+        self.known = tuple(sorted(known))
+        super().__init__(
+            f"Workflow '{scope_id}' has no gate '{gate}'. "
+            f"Gates: {', '.join(self.known) or 'none'}. "
+            "Run `func builtin workflow list` to see what is waiting."
+        )
+
+
 class ScopeStoreUnreadableError(Exception):
     """Raised when the workflow scope store exists but cannot be honoured.
 

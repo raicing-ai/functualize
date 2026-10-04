@@ -13,13 +13,17 @@ re-pointing the tool at these functions is behaviour-preserving.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from functualize._engine.recording import InputRecorder
 from functualize._gate._evaluation import evaluate_submission
 from functualize._primitives import gate_requests
-from functualize._types.errors import InputRequestNotOpenError
+from functualize._types.errors import GateNotFoundError, InputRequestNotOpenError
 from functualize._types.gate_resolution import EvaluationOutcome
+from functualize._types.naming import resolve_name
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def _resolution_view(
@@ -69,6 +73,22 @@ def pending_gates(scope: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+def _canonical_gate(known: Iterable[str], gate: str, *, scope_id: str) -> str:
+    """The canonical spelling of a gate reference, against the gates that exist.
+
+    The one resolver every public gate entry calls first: an exact match wins,
+    then the canonical form, so a reference spelled the way Python spells it
+    (`approve_refund`) reaches the gate declared under `approve-refund`. A
+    reference that matches nothing is a caller error the caller cannot
+    ignore: it raises, naming the workflow and the gates that do exist.
+    """
+    names = sorted(known)
+    try:
+        return resolve_name(gate, names)
+    except LookupError:
+        raise GateNotFoundError(gate, scope_id=scope_id, known=names) from None
+
+
 def _resolve_gate_model(
     app: Any, scope: dict[str, Any], gate: str
 ) -> tuple[Any, dict[str, Any] | None]:
@@ -84,6 +104,14 @@ def _resolve_gate_model(
         entry = app.execution_engine.materialize_job(workflow_name)
         declaration = entry.function.__functualize_workflow__
         node = declaration.node(gate)
+        if node is None:
+            return None, {
+                "error": "gate_unresolvable",
+                "message": (
+                    f"Workflow '{workflow_name}' no longer declares gate "
+                    f"'{gate}'; the run was parked under an older declaration."
+                ),
+            }
         return node.awaits, None
     except Exception as exc:
         return None, {
@@ -117,6 +145,7 @@ def deposit_gate_input(
     - ``{"error": "validation_error", "message", "gate"}`` if the input is invalid
     """
     scope = store.get_scope(scope_id) or {}
+    gate = _canonical_gate(scope.get("gates") or {}, gate, scope_id=scope_id)
     model, error = _resolve_gate_model(app, scope, gate)
     if error is not None:
         return error

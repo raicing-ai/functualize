@@ -103,6 +103,28 @@ def _refuse_unreadable_scopes(fn: Any) -> Any:
     return _wrapped
 
 
+def _refuse_unknown_gates(fn: Any) -> Any:
+    """Turn an unknown gate reference into an error envelope, not a traceback.
+
+    Applied to the three tools that take a gate name. An agent that names a
+    gate a workflow does not have gets the gates that do exist, so it can
+    retry with a correct name — the same information the CLI prints. Kept
+    separate from the unreadable-store guard so each decorator has one
+    reason to change.
+    """
+
+    @functools.wraps(fn)
+    async def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        from functualize.app.utils import GateNotFoundError
+
+        try:
+            return await fn(*args, **kwargs)
+        except GateNotFoundError as exc:
+            return {**_error("gate_not_found", str(exc)), "gates": list(exc.known)}
+
+    return _wrapped
+
+
 def _canonical(name: str) -> str:
     """A tool name in the canonical form jobs are registered under."""
     from functualize._types.naming import normalize_name
@@ -269,6 +291,7 @@ class WorkflowToolProvider:
     )
 
     @_refuse_unreadable_scopes
+    @_refuse_unknown_gates
     async def _answer_gate(
         self,
         values: dict[str, Any],
@@ -314,6 +337,7 @@ class WorkflowToolProvider:
     )
 
     @_refuse_unreadable_scopes
+    @_refuse_unknown_gates
     async def _get_gate_draft(
         self, workflow_id: str | None = None, gate: str | None = None
     ) -> dict[str, Any]:
@@ -333,6 +357,7 @@ class WorkflowToolProvider:
     )
 
     @_refuse_unreadable_scopes
+    @_refuse_unknown_gates
     async def _resume_workflow(
         self,
         workflow_id: str | None = None,

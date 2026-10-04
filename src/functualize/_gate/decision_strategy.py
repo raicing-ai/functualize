@@ -128,6 +128,10 @@ class DecisionGateResolver:
             )
         value = result.value
         if value not in distribution:
+            # The provider was called, so the rung stays auditable: the
+            # verdict names the shape it returned, and the rule never ran,
+            # so probability and margin are absent rather than invented.
+            record(latency_seconds, "uncovered_proposal", result=result)
             raise ValueError(
                 f"{result.provider}/{result.model} proposed {value!r}, which its "
                 f"distribution does not cover"

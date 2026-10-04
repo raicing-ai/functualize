@@ -672,6 +672,24 @@ Still open after the hermetic router:
   waits for FUN-18's tables and FUN-21's interaction/evidence slice.
 - **Margin comparison is still exact**, as above — unchanged by this work.
 
+### Gate-name resolution — delivered
+
+Gate references resolve once per public entry via `resolve_name` against the
+scope's gate keys, so a gate declared `approve_refund` answers to that
+spelling, `approveRefund`, `Approve_Refund` and the canonical
+`approve-refund` alike. An unknown gate in an addressed scope **raises**
+`GateNotFoundError` (D1, member 2026-10-01) and each surface translates it:
+the CLI prints the `Error:` line naming the gates that exist and exits 1,
+and the MCP gate tools return `gate_not_found` carrying that roster. Survey
+paths keep their envelopes — the gate-only form of `resolve_gate` and
+`list_scopes(blocked_on=...)` filter by the same resolution without ever
+raising. Result `gate` fields carry the canonical spelling, and a gate the
+declaration no longer carries reports declaration drift by name instead of
+an `AttributeError` text. `gate: str` and `deposit_gate_input` were kept by
+member decision. Delivered on `fix/gate-name-resolution`; the surface
+behaviour is documented in `docs/guides/workflows.md` → *Gate answering*,
+and `examples/standalone/gate_refusal/` is the reference caller.
+
 ## Deferred
 
 Specified work that is not being picked up yet, and what it is waiting on.
