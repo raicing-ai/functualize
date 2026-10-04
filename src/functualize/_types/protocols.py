@@ -39,7 +39,14 @@ from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, NewType, Protocol, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    NewType,
+    Protocol,
+    runtime_checkable,
+)
 
 from functualize._types.interactivity import (
     InputNotAvailable,
@@ -158,6 +165,13 @@ class Source(Protocol):
 
     Each source represents one origin of configuration values (CLI args,
     environment variables, remote providers, file-based config, defaults).
+
+    ``scope`` says whether the section names a **group** or a **job**. Most
+    sources ignore it — a file section or a default is spelled the same either
+    way — but the two sources whose *lookup spelling* depends on it (the
+    vault's storage identity, the environment's ``GROUP__FIELD`` form) read it.
+    Every implementation must accept it, so a scope-blind source is a
+    compile-time visible deviation rather than a silent one.
     """
 
     @property
@@ -170,27 +184,41 @@ class Source(Protocol):
         """Source identifier (e.g., file path, provider name, 'environ')."""
         ...
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
         """Retrieve a value for the given key.
 
         Args:
             key: The configuration key name.
             section: Optional section/namespace.
+            scope: Whether ``section`` names a group or a job.
 
         Returns:
             The value if found, None if not present in this source.
         """
         ...
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> bool:
         """Check if this source can provide a value for the key."""
         ...
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: Literal["group", "job"] = "job") -> set[str]:
         """Return all keys available for the given section.
 
         Args:
             section: The section/namespace to query.
+            scope: Whether ``section`` names a group or a job.
 
         Returns:
             Set of key names this source can provide for the section.

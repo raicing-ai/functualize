@@ -28,6 +28,7 @@ from functualize._config.vault import (
     VaultOrigin,
 )
 from functualize._config.vault_source import VaultSource
+from functualize._primitives.vault_identity import VaultIdentity
 
 _KEY = b"\x11" * KEY_BYTES
 _PROVIDERS = ("fake-sm", "fake-ssm")
@@ -52,13 +53,15 @@ class _StaticSource:
     def _qualified(self, key: str, section: str | None) -> str:
         return f"{section}.{key}" if section else key
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self, key: str, section: str | None = None, *, scope: str = "job"
+    ) -> Any | None:
         return self._values.get(self._qualified(key, section))
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(self, key: str, section: str | None = None, *, scope: str = "job") -> bool:
         return self._qualified(key, section) in self._values
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: str = "job") -> set[str]:
         prefix = f"{section}."
         return {k[len(prefix) :] for k in self._values if k.startswith(prefix)}
 
@@ -68,7 +71,7 @@ def synced_vault(tmp_path: Path) -> Path:
     """A vault that opens and holds one unrelated key, so it is `usable`."""
     path = tmp_path / "vault.db"
     SecretsVault(path).put(
-        "database.username",
+        VaultIdentity("job", "database", "username").encode(),
         "app",
         annotation="fake-sm://prod/db-username",
         provider="fake-sm",
@@ -515,7 +518,7 @@ class TestPresenceDecides:
             _source(synced_vault, key=None).get("username", "database")
 
         message = str(exc.value)
-        assert "vault remove database.username" in message
+        assert "vault remove --job database --field username" in message
         assert "vault clear" in message
         assert "need no key" in message
 
@@ -536,7 +539,7 @@ class TestPresenceDecides:
         """
         path = tmp_path / "vault.db"
         SecretsVault(path).put(
-            "database.username",
+            VaultIdentity("job", "database", "username").encode(),
             "app",
             annotation="fake-sm://prod/db-username",
             provider="fake-sm",
@@ -546,3 +549,118 @@ class TestPresenceDecides:
             conn.execute("DELETE FROM vault_meta")
 
         assert _source(path).get("username", "database") == "app"
+
+
+class TestScopedIdentity:
+    """A vault entry is addressed by ``(scope, target, field)`` — Task 3.
+
+    The storage key is the encoded :class:`VaultIdentity`, so the same target
+    and field text under two scopes are two entries, and a flat
+    ``section.field`` key is not any scoped entry at all.
+    """
+
+    def test_a_job_scoped_entry_answers_a_job_scoped_lookup(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put(
+            VaultIdentity("job", "deploy", "api_token").encode(),
+            "job-value",
+            encryption_key=_KEY,
+        )
+
+        assert _source(path).get("api_token", "deploy", scope="job") == "job-value"
+
+    def test_the_same_text_under_two_scopes_is_two_entries(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "vault.db"
+        vault = SecretsVault(path)
+        vault.put(
+            VaultIdentity("job", "deploy", "token").encode(),
+            "the-job-one",
+            encryption_key=_KEY,
+        )
+        vault.put(
+            VaultIdentity("group", "deploy", "token").encode(),
+            "the-group-one",
+            encryption_key=_KEY,
+        )
+        source = _source(path)
+
+        assert source.get("token", "deploy", scope="job") == "the-job-one"
+        assert source.get("token", "deploy", scope="group") == "the-group-one"
+
+    def test_a_flat_key_is_no_scoped_entry(self, tmp_path: Path) -> None:
+        """A pre-scope key never satisfies a scoped lookup, by either scope."""
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put("deploy.token", "flat", encryption_key=_KEY)
+        source = _source(path)
+
+        assert source.get("token", "deploy", scope="job") is None
+        assert source.get("token", "deploy", scope="group") is None
+
+    def test_keys_decode_per_scope(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.db"
+        vault = SecretsVault(path)
+        vault.put(
+            VaultIdentity("group", "deploy", "token").encode(),
+            "g",
+            encryption_key=_KEY,
+        )
+        vault.put(
+            VaultIdentity("job", "deploy", "token").encode(),
+            "j",
+            encryption_key=_KEY,
+        )
+        vault.put(
+            VaultIdentity("group", "deploy.web", "other").encode(),
+            "n",
+            encryption_key=_KEY,
+        )
+        source = _source(path)
+
+        assert source.keys("deploy", scope="group") == {"token"}
+        assert source.keys("deploy", scope="job") == {"token"}
+        assert source.keys("deploy.web", scope="group") == {"other"}
+
+    def test_has_is_scope_aware(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put(
+            VaultIdentity("group", "deploy", "token").encode(),
+            "g",
+            encryption_key=_KEY,
+        )
+        source = _source(path)
+
+        assert source.has("token", "deploy", scope="group") is True
+        assert source.has("token", "deploy", scope="job") is False
+
+    def test_the_refusal_names_the_scoped_remove_command(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put(
+            VaultIdentity("group", "deploy.web", "iam_key").encode(),
+            "g",
+            encryption_key=_KEY,
+        )
+
+        with pytest.raises(VaultEntryUnreadableError) as exc:
+            _source(path, key=None).get("iam_key", "deploy.web", scope="group")
+
+        message = str(exc.value)
+        assert "vault remove --group deploy.web --field iam_key" in message
+        assert "vault clear" in message
+        assert "need no key" in message
+
+    def test_a_sectionless_lookup_is_never_a_vault_hit(self, tmp_path: Path) -> None:
+        """No target means no identity, so the vault answers nothing rather
+        than guessing a scope for a key it cannot name."""
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put(
+            VaultIdentity("job", "general", "debug").encode(),
+            "g",
+            encryption_key=_KEY,
+        )
+        source = _source(path)
+
+        assert source.get("debug") is None

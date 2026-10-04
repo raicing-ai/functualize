@@ -17,6 +17,7 @@ from functualize._app.boot import build_resolution_chain, build_vault_source
 from functualize._config.registry import ProviderRegistry
 from functualize._config.vault import KEY_BYTES, SecretsVault
 from functualize._config.vault_source import VaultSource
+from functualize._primitives.vault_identity import VaultIdentity
 from functualize.app.presets import classic, env_only, remote_first, twelve_factor
 
 _KEY = b"\x07" * KEY_BYTES
@@ -118,7 +119,7 @@ class TestTheVaultSource:
         path = tmp_path / "vault.db"
         vault = SecretsVault(path)
         vault.put(
-            "database.password",
+            VaultIdentity("job", "database", "password").encode(),
             "s3cret",
             annotation="fake-sm://prod/db",
             provider="fake-sm",
@@ -318,7 +319,11 @@ class TestTheDormantSource:
         project = self._project(tmp_path)
         monkeypatch.chdir(project)
         SecretsVault(vault_path_for_project(project)).put(
-            "deploy.api_token", "v", encryption_key=_KEY, provider="p", annotation="a"
+            VaultIdentity("job", "deploy", "api_token").encode(),
+            "v",
+            encryption_key=_KEY,
+            provider="p",
+            annotation="a",
         )
 
         source = build_vault_source(_FakeApp(remote=False, providers=False))

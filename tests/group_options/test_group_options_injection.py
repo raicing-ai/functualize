@@ -320,3 +320,104 @@ class TestGroupOptionsParamScan:
 
         assert found["outer"].__group_path__ == "deploy"
         assert found["inner"].__group_path__ == "deploy.web"
+
+
+class TestGroupVaultPrecedence:
+    """Task 3 — the vault outranks the environment for group options too.
+
+    A group option used to resolve its environment variable *outside* the
+    chain (a direct ``os.environ`` read in ``resolve_job_config``), which put
+    it ahead of the vault no matter what the chain said. Scope threading puts
+    the group's ``SCOPE__FIELD`` spelling on ``EnvSource``, below the vault,
+    so one ladder serves both scopes.
+    """
+
+    def _provision(
+        self, entries: dict[tuple[str, str, str], str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Write scoped vault entries for the isolated project, with a key."""
+        from functualize._config.vault import SecretsVault, VaultOrigin
+        from functualize._config.vault_keys import (
+            ENV_VAR,
+            generate_key,
+            resolve_vault_key,
+        )
+        from functualize._config.vault_paths import vault_path_for_project
+        from functualize._primitives.vault_identity import VaultIdentity
+
+        monkeypatch.setenv(ENV_VAR, generate_key())
+        resolution = resolve_vault_key("group-options-test")
+        assert resolution is not None
+        vault = SecretsVault(vault_path_for_project())
+        for (scope, target, field), value in entries.items():
+            vault.put(
+                VaultIdentity(scope, target, field).encode(),
+                value,
+                encryption_key=resolution.key,
+                origin=VaultOrigin.DIRECT,
+            )
+
+    def test_a_vault_entry_outranks_the_group_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._provision({("group", "deploy", "env"): "from-vault"}, monkeypatch)
+        monkeypatch.setenv("DEPLOY__ENV", "from-env")
+
+        result = _execute(_app(_job_module(False)), "run")
+
+        assert result.return_value == "nginx/from-vault/False"
+
+    def test_without_a_vault_entry_the_group_environment_still_wins(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Removing the vault from the ladder restores the documented env
+        behavior — the fall-through half of the precedence rule."""
+        from functualize._config.vault_keys import ENV_VAR, generate_key
+
+        monkeypatch.setenv(ENV_VAR, generate_key())
+        monkeypatch.setenv("DEPLOY__ENV", "from-env")
+
+        result = _execute(_app(_job_module(False)), "run")
+
+        assert result.return_value == "nginx/from-env/False"
+
+    def test_a_mid_path_flag_still_outranks_the_vault(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """D-c unchanged: what the caller typed for this run beats storage."""
+        self._provision({("group", "deploy", "env"): "from-vault"}, monkeypatch)
+
+        result = _execute(
+            _app(_job_module(False)), "run", group_options={"env": "from-flag"}
+        )
+
+        assert result.return_value == "nginx/from-flag/False"
+
+    def test_a_nested_group_reads_its_own_identity_not_its_ancestors(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The declaring group's identity: ``deploy.web``'s override does not
+        answer for ``deploy``'s own option, and neither answers for the other."""
+        self._provision(
+            {
+                ("group", "deploy", "env"): "ancestor-value",
+                ("group", "deploy.web", "env"): "nested-value",
+            },
+            monkeypatch,
+        )
+
+        outer = _execute(_app(_job_module(False)), "run")
+        inner = _execute(_app(_job_module(False)), "nested")
+
+        assert outer.return_value == "nginx/ancestor-value/False"
+        assert inner.return_value == "nested-value/1"
+
+    def test_a_vault_entry_outranks_the_config_file_for_a_group(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._provision({("group", "deploy", "env"): "from-vault"}, monkeypatch)
+        (Path.cwd() / "config.base.toml").write_text('[deploy]\nenv = "fromfile"\n')
+
+        result = _execute(_app(_job_module(False)), "run")
+
+        assert result.return_value == "nginx/from-vault/False"

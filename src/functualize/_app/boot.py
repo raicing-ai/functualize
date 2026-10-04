@@ -30,7 +30,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterator, Mapping
@@ -402,11 +402,14 @@ def build_engine(
 
     app: Any = host
 
-    def _config_view_factory(*, section_prefix: str) -> Any:
+    def _config_view_factory(
+        *, section_prefix: str, scope: Literal["group", "job"] = "job"
+    ) -> Any:
         chain = getattr(app, "_resolution_chain", None) or ResolutionChain([])
         return JobConfigView(
             resolution_chain=chain,
             default_section_prefix=section_prefix,
+            scope=scope,
         )
 
     engine = JobExecutionEngine(

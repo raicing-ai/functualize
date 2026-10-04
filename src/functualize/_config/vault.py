@@ -428,9 +428,12 @@ class SecretsVault:
                 sqlite3.connect(self._path.resolve().as_uri() + "?mode=ro", uri=True)
             ) as old:
                 version = old.execute("PRAGMA user_version").fetchone()[0]
-                has_schema = old.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1"
-                ).fetchone() is not None
+                has_schema = (
+                    old.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1"
+                    ).fetchone()
+                    is not None
+                )
             if has_schema and version != _SCHEMA_VERSION:
                 raise VaultFormatError(
                     "This vault uses the old identity format. Run "

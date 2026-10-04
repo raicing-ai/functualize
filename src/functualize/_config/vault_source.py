@@ -65,6 +65,7 @@ from functualize._config.vault import (
     VaultEntryUnreadableError,
     format_duration,
 )
+from functualize._primitives.vault_identity import VaultIdentity, VaultScope
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -118,10 +119,10 @@ class VaultSource:
         self._staleness_checked = False
         self._opens_asked = False
         self._opens: bool | None = None
-        self._keys_seen: frozenset[str] | None = None
+        self._identities_seen: frozenset[VaultIdentity] | None = None
         self._warned: set[str] = set()
         self.misses: list[str] = []
-        """Fully-qualified keys this source was asked for and did not hold.
+        """Identities this source was asked for and did not hold, display-spelled.
 
         Recorded here rather than derived later because only this source knows
         it was asked. Distinct from ``_warned``: a miss is every unanswered
@@ -158,10 +159,43 @@ class VaultSource:
         """
         return self._key is not None
 
-    def _qualified(self, key: str, section: str | None) -> str:
-        return f"{section}.{key}" if section else key
+    @staticmethod
+    def _identity(
+        key: str, section: str | None, scope: VaultScope
+    ) -> VaultIdentity | None:
+        """The storage identity a lookup names, or None when it names none.
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+        Scope is the third component of identity, so ``(group, deploy,
+        token)`` and ``(job, deploy, token)`` are two entries — the vault key
+        encodes which. A sectionless lookup names no target and therefore no
+        identity; the vault answers nothing for it rather than guessing a
+        scope.
+        """
+        if section is None:
+            return None
+        return VaultIdentity(scope, section, key)
+
+    @staticmethod
+    def _display(identity: VaultIdentity) -> str:
+        """The human spelling of an identity: ``deploy.api_token`` for a job,
+        ``group deploy.api_token`` for a group. The scope prefix is what keeps
+        the two from reading as one entry in a warning or an error."""
+        prefix = "group " if identity.scope == "group" else ""
+        return f"{prefix}{identity.target}.{identity.field}"
+
+    @staticmethod
+    def _remove_command(identity: VaultIdentity) -> str:
+        """The exact command that drops this entry, no key needed."""
+        flag = "--group" if identity.scope == "group" else "--job"
+        return f"vault remove {flag} {identity.target} --field {identity.field}"
+
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: VaultScope = "job",
+    ) -> Any | None:
         """Return a stored value, or None to defer to the next source.
 
         **Presence decides, not origin** (ADR-023 §1). An absent entry falls
@@ -181,11 +215,13 @@ class VaultSource:
         if not self._vault.path.exists():
             return None
 
-        qualified = self._qualified(key, section)
+        identity = self._identity(key, section, scope)
+        if identity is None:
+            return None
 
         if self._key is None:
             self._refuse_if_stored(
-                qualified,
+                identity,
                 "no vault key is available on this machine",
             )
             return None
@@ -198,7 +234,7 @@ class VaultSource:
         # `get` below is left to discover a wrong key the expensive way.
         if self._opens_with_key() is False:
             self._refuse_if_stored(
-                qualified,
+                identity,
                 f"the key supplied by the {self._key_provider_id!r} provider "
                 f"does not open this vault",
             )
@@ -208,9 +244,9 @@ class VaultSource:
         # read is a different situation from one that does not hold the key,
         # and collapsing them would hide a wrong-key configuration behind a
         # silent fall-through -- the defect this feature exists to remove.
-        value = self._vault.get(qualified, encryption_key=self._key)
+        value = self._vault.get(identity.encode(), encryption_key=self._key)
         if value is None:
-            self.misses.append(qualified)
+            self.misses.append(self._display(identity))
             return None
         return value
 
@@ -228,59 +264,74 @@ class VaultSource:
             self._opens_asked = True
         return self._opens
 
-    def _stored_keys(self) -> frozenset[str]:
-        """Every key the store holds, read once and without the vault key.
+    def _stored_identities(self) -> frozenset[VaultIdentity]:
+        """Every identity the store holds, read once and without the vault key.
 
         Metadata is stored in clear precisely so this is possible: the question
         "is something stored here?" has to be answerable on a machine that
         cannot decrypt anything, or the refusal below could not be raised at
         all.
 
+        A key that does not decode — a flat ``section.field`` written before
+        identities were scoped, or by a test reaching past the codec — is
+        skipped rather than guessed at: it names no scoped identity, so no
+        scoped lookup is it.
+
         Read once per source. The source is built at boot and the chain is
         rebuilt on `refresh()`, so a `vault put` from a separate process is
         picked up by the next run — which is the only sequence that occurs.
         """
-        if self._keys_seen is None:
-            self._keys_seen = frozenset(e.key for e in self._entries())
-        return self._keys_seen
+        if self._identities_seen is None:
+            seen: set[VaultIdentity] = set()
+            for entry in self._entries():
+                try:
+                    seen.add(VaultIdentity.decode(entry.key))
+                except ValueError:
+                    continue
+            self._identities_seen = frozenset(seen)
+        return self._identities_seen
 
-    def _refuse_if_stored(self, qualified: str, because: str) -> None:
-        """Raise when this key names something the store actually holds.
+    def _refuse_if_stored(self, identity: VaultIdentity, because: str) -> None:
+        """Raise when this identity names something the store actually holds.
 
         Deliberately asked in this order: the store is only consulted on the
         path that was about to fall through, so an ordinary resolution that
         finds its value pays nothing for this.
         """
-        if qualified not in self._stored_keys():
+        if identity not in self._stored_identities():
             return
+        display = self._display(identity)
+        remove = self._remove_command(identity)
         msg = (
-            f"The vault holds a value for {qualified!r}, but {because}. "
+            f"The vault holds a value for {display!r}, but {because}. "
             f"Refusing rather than falling through to the environment or a "
             f"config file: a stored value is the one you provisioned, and "
             f"running on a different one would look like success.\n\n"
             f"Fix it with one of:\n"
             f"  func builtin vault sync                 refresh from upstream\n"
-            f"  func builtin vault remove {qualified}   drop this entry\n"
+            f"  func builtin {remove:<39}drop this entry\n"
             f"  func builtin vault clear                drop the whole store\n"
             f"The last two need no key."
         )
         raise VaultEntryUnreadableError(msg)
 
-    def has(self, key: str, section: str | None = None) -> bool:
-        """Whether the vault holds this key, without decrypting it."""
+    def has(
+        self, key: str, section: str | None = None, *, scope: VaultScope = "job"
+    ) -> bool:
+        """Whether the vault holds this identity, without decrypting it."""
         if not self.usable:
             return False
-        return self._qualified(key, section) in {e.key for e in self._entries()}
+        identity = self._identity(key, section, scope)
+        return identity is not None and identity in self._stored_identities()
 
-    def keys(self, section: str) -> set[str]:
-        """Every key the vault holds for a section, without decrypting any."""
+    def keys(self, section: str, *, scope: VaultScope = "job") -> set[str]:
+        """Every field the vault holds for one scope's section, undecrypted."""
         if not self.usable:
             return set()
-        prefix = f"{section}."
         return {
-            entry.key[len(prefix) :]
-            for entry in self._entries()
-            if entry.key.startswith(prefix)
+            identity.field
+            for identity in self._stored_identities()
+            if identity.scope == scope and identity.target == section
         }
 
     def _warn_if_stale(self) -> None:
@@ -312,7 +363,11 @@ class VaultSource:
         )
 
     def note_fallthrough(
-        self, resolved: ResolvedValue, section: str | None = None
+        self,
+        resolved: ResolvedValue,
+        section: str | None = None,
+        *,
+        scope: VaultScope = "job",
     ) -> None:
         """Warn that a key declared remote was answered by something else.
 
@@ -320,8 +375,8 @@ class VaultSource:
         source that returned None, after the winner is known — which is the
         only moment "resolved from X instead" can be said truthfully.
 
-        Fires at most once per key per run, so a job reading one secret ten
-        times warns once, and stays silent unless an annotation is present
+        Fires at most once per identity per run, so a job reading one secret
+        ten times warns once, and stays silent unless an annotation is present
         somewhere in the chain for that key. See the module docstring for why
         those two conditions are the right ones.
 
@@ -329,6 +384,7 @@ class VaultSource:
             resolved: The winning value and its provenance, including the
                 alternatives from lower-priority sources.
             section: The section the key was resolved in, if any.
+            scope: Whether that section names a group or a job.
         """
         if not self.opens:
             # No key: boot already warned once, and with no key *every* lookup
@@ -343,15 +399,15 @@ class VaultSource:
             # the documentation's own example was executed.
             return
 
-        qualified = self._qualified(resolved.key, section)
-        if qualified in self._warned:
+        identity = self._identity(resolved.key, section, scope)
+        if identity is None or identity.encode() in self._warned:
             return
 
         annotation = self._annotation_in(resolved)
         if annotation is None:
             return
 
-        self._warned.add(qualified)
+        self._warned.add(identity.encode())
         answered = f"{resolved.source_type} ({resolved.source_id})"
         if annotation == resolved.value:
             consequence = (
@@ -364,7 +420,7 @@ class VaultSource:
             "Config key '%s' is declared remotely as '%s', but the vault holds "
             "no synced value for it. %s Run `func builtin vault sync` to fill "
             "the vault.",
-            qualified,
+            self._display(identity),
             annotation,
             consequence,
         )

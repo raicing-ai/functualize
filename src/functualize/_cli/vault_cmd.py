@@ -16,7 +16,7 @@ here reaches the store through ``app.utils``, never ``_config``.
 
 from __future__ import annotations
 
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 
 import click
 
@@ -551,7 +551,11 @@ def _identity(group: str | None, job: str | None, field: str, *, json_out: bool)
             json_out=json_out,
             code=ExitCode.USAGE,
         )
-    scope, target = ("group", group) if group is not None else ("job", job)
+    scope: Literal["group", "job"]
+    if group is not None:
+        scope, target = "group", group
+    else:
+        scope, target = "job", job or ""
     try:
         return VaultIdentity(scope, target or "", field)
     except ValueError:

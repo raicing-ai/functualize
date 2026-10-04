@@ -137,7 +137,9 @@ class ResolutionPipeline:
         for entry in self._providers:
             getter = getattr(entry.provider, "get_group_options_spec", None)
             if getter is not None:
-                spec = getter(group_path)
+                # Annotated: a duck-typed getter answers `Any`, and returning
+                # it directly would make this signature a lie mypy checks.
+                spec: GroupOptionsSpec | None = getter(group_path)
                 if spec is not None:
                     return spec
         return None
