@@ -560,7 +560,7 @@ Commit: `test(hermetic): add the threshold sweep, boundary and verdict`.
 
 ## Wave 2
 
-### [ ] T5 — the replay command, the freeze, and the report command
+### [x] T5 — the replay command, the freeze, and the report command
 
 *Files (all new):* `tests/hermetic_eval/_router.py`,
 `tests/hermetic_eval/replay.py`, `tests/hermetic_eval/report.py`,
