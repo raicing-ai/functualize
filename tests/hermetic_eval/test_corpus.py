@@ -19,6 +19,11 @@ from tests.hermetic_eval.corpus import (
     Scenario,
 )
 
+#: The drafted corpus that ships with the instrument, found next to this test.
+V1_SCENARIOS = (
+    Path(corpus.__file__).resolve().parent / "corpus" / "v1" / "scenarios.jsonl"
+)
+
 
 def _line(
     scenario_id: str,
@@ -165,6 +170,15 @@ def test_check_v1_shape_rejects_a_wrong_strata_split() -> None:
     )
     with pytest.raises(CorpusError, match=r"^expected 6 clear deterministic scenarios"):
         corpus.check_v1_shape(scenarios)
+
+
+def test_v1_corpus_has_the_declared_shape() -> None:
+    """The drafted corpus is loadable, C-1-shaped, and in id order."""
+    scenarios = corpus.load_corpus(V1_SCENARIOS)
+    corpus.check_v1_shape(scenarios)
+    assert [scenario.id for scenario in scenarios] == [
+        f"s{index:02d}" for index in range(1, 41)
+    ]
 
 
 def test_write_lock_then_check_lock_round_trips(tmp_path: Path) -> None:
