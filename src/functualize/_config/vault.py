@@ -57,7 +57,7 @@ import logging
 import os
 import re
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -575,6 +575,27 @@ class SecretsVault:
         _upgrade(conn)
         return conn
 
+    @contextmanager
+    def _session(self) -> Iterator[sqlite3.Connection]:
+        """A connection that commits on success and always closes.
+
+        ``with self._connect()`` commits but never closes, so every caller
+        leaked its connection — and its un-checkpointed WAL — to the cyclic
+        garbage collector. A store could sit with pending WAL pages long
+        after the call returned, and the collector's later checkpoint
+        mutated the file at a moment no code was writing: a refused command
+        against a legacy store appeared to change the store on one Python
+        minor version and not another, because collection timing moved.
+        Closing here makes the post-call state deterministic — committed
+        and checkpointed before the caller sees control return.
+        """
+        conn = self._connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+
     def _audit(
         self,
         conn: sqlite3.Connection,
@@ -631,7 +652,7 @@ class SecretsVault:
         )
         now = _utcnow().isoformat()
         synced_at = now if origin is VaultOrigin.PROVIDER else None
-        with self._connect() as conn:
+        with self._session() as conn:
             existing = conn.execute(
                 "SELECT origin, created_at FROM secrets WHERE key = ?", (key,)
             ).fetchone()
@@ -698,7 +719,7 @@ class SecretsVault:
                 under this key.
         """
         _require_key(encryption_key)
-        with self._connect() as conn:
+        with self._session() as conn:
             row = conn.execute(
                 "SELECT nonce, ciphertext FROM secrets WHERE key = ?", (key,)
             ).fetchone()
@@ -767,7 +788,7 @@ class SecretsVault:
         readability while holding no plaintext at all (ADR-023 §2).
         """
         _require_key(encryption_key)
-        with self._connect() as conn:
+        with self._session() as conn:
             row = conn.execute(
                 "SELECT nonce, ciphertext FROM vault_meta WHERE id = 1"
             ).fetchone()
@@ -797,7 +818,7 @@ class SecretsVault:
         removed = entries.get(key)
         if removed is None:
             return None
-        with self._connect() as conn:
+        with self._session() as conn:
             conn.execute("DELETE FROM secrets WHERE key = ?", (key,))
             self._audit(conn, key, "remove", "ok", removed.provider)
         return removed
@@ -809,7 +830,7 @@ class SecretsVault:
         surfaces and the recovery ones: ``vault remove`` has to work on a store
         this machine cannot open, and it learns what is there from here.
         """
-        with self._connect() as conn:
+        with self._session() as conn:
             rows = conn.execute(
                 "SELECT key, origin, annotation, provider, created_at,"
                 " updated_at, synced_at, key_provider"
@@ -839,7 +860,7 @@ class SecretsVault:
         # SQLite's MIN ignores NULLs, which is exactly right now that direct
         # entries carry none: a value typed in by hand has never been synced,
         # so it cannot make the vault look stale (or look fresh).
-        with self._connect() as conn:
+        with self._session() as conn:
             row = conn.execute("SELECT MIN(synced_at) FROM secrets").fetchone()
         return _parse_ts(row[0]) if row and row[0] else None
 
@@ -861,7 +882,7 @@ class SecretsVault:
 
     def audit_records(self) -> Iterator[tuple[str, str, str | None, str, str]]:
         """Every audit row, oldest first. Values never appear here."""
-        with self._connect() as conn:
+        with self._session() as conn:
             yield from conn.execute(
                 "SELECT ts, key, provider, action, outcome FROM audit_log"
                 " ORDER BY rowid"

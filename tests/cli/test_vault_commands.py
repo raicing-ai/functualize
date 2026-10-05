@@ -668,10 +668,18 @@ class TestClear:
         """A `-wal` left behind holds the rows the main file was checkpointed
         from; deleting only `vault.db` leaves the secrets on disk."""
         path = _seed_vault(report__password="fake-sm://prod/db")
+        # A live or crashed writer is what leaves the sidecars behind now that
+        # the store closes its connections, so hold one open across the clear
+        # — the state under test has to exist before it can be asserted on.
+        writer = sqlite3.connect(path)
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("CREATE TABLE IF NOT EXISTS keepalive (x)")
+        writer.commit()
         sidecars = [path.with_name(path.name + s) for s in ("-wal", "-shm")]
         assert any(s.exists() for s in sidecars), "no sidecar to test against"
         _run(["clear", "--yes"])
         assert not any(s.exists() for s in sidecars)
+        writer.close()
 
     def test_no_vault_is_not_an_error(self) -> None:
         result = _run(["clear", "--yes"])
