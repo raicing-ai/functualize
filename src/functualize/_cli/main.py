@@ -763,34 +763,6 @@ def _diagnostic_scope(effective_args: list[str]) -> AbstractContextManager[None]
     return contextlib.nullcontext()
 
 
-# ─── Unknown command handling ────────────────────────────────────────────
-
-
-def _handle_unknown(args: list[str], job_names: set[str]) -> None:
-    """Print 'command not found' with fuzzy suggestions.
-
-    Does NOT boot FunctualizeApp — provides instant feedback for typos.
-
-    Args:
-        args: [unknown_command, ...remaining]. Only args[0] is used.
-        job_names: Set of valid job names for suggestion matching.
-    """
-    cmd = args[0] if args else ""
-
-    print(f"Error: Unknown command '{cmd}'.", file=sys.stderr)
-
-    from functualize.app.utils import suggest_similar_commands
-
-    suggestions = suggest_similar_commands(cmd, job_names)
-    if suggestions:
-        print("\nDid you mean:", file=sys.stderr)
-        for suggestion in suggestions:
-            print(f"  func {suggestion}", file=sys.stderr)
-        print(file=sys.stderr)
-
-    print("Run 'func' to see all available commands.", file=sys.stderr)
-
-
 # ─── Group handler ───────────────────────────────────────────────────────
 
 
