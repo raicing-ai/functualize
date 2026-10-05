@@ -28,6 +28,10 @@ if TYPE_CHECKING:
     from functualize_substrate_sqlite._transaction import BufferedTransaction
 
 
+#: Rows a test staged, beside the namespace the store itself owns.
+_STAGED_NAMESPACES = "SELECT count(*) FROM namespaces WHERE id != 'default'"
+
+
 def _config(tmp_path: Path, db: Path) -> RuntimeStoreConfig:
     return RuntimeStoreConfig(
         url=f"sqlite://{db}", scheme="sqlite", project_root=tmp_path
@@ -122,7 +126,7 @@ def test_a_raising_body_leaves_zero_rows(tmp_path: Path) -> None:
         raise RuntimeError("mid-transition")
 
     sqlite_store = cast("SqliteRuntimeStore", store)
-    assert sqlite_store.driver.query("SELECT count(*) FROM namespaces") == [(0,)]
+    assert sqlite_store.driver.query(_STAGED_NAMESPACES) == [(0,)]
 
 
 def test_a_clean_exit_applies_everything_as_one_batch(tmp_path: Path) -> None:
@@ -138,9 +142,9 @@ def test_a_clean_exit_applies_everything_as_one_batch(tmp_path: Path) -> None:
         buffered.stage("INSERT INTO namespaces VALUES ('a', 'one', 'now')")
         buffered.stage("INSERT INTO namespaces VALUES ('b', 'two', 'now')")
         # Staged, not sent: nothing is visible until the block exits.
-        assert store.driver.query("SELECT count(*) FROM namespaces") == [(0,)]
+        assert store.driver.query(_STAGED_NAMESPACES) == [(0,)]
 
-    assert store.driver.query("SELECT count(*) FROM namespaces") == [(2,)]
+    assert store.driver.query(_STAGED_NAMESPACES) == [(2,)]
 
 
 def test_a_failing_batch_applies_none_of_it(tmp_path: Path) -> None:
@@ -156,7 +160,7 @@ def test_a_failing_batch_applies_none_of_it(tmp_path: Path) -> None:
         buffered.stage("INSERT INTO namespaces VALUES ('a', 'one', 'now')")
         buffered.stage("INSERT INTO namespaces VALUES ('a', 'two', 'now')")
 
-    assert store.driver.query("SELECT count(*) FROM namespaces") == [(0,)]
+    assert store.driver.query(_STAGED_NAMESPACES) == [(0,)]
 
 
 def test_ports_not_yet_built_refuse_rather_than_answer(tmp_path: Path) -> None:
@@ -168,8 +172,6 @@ def test_ports_not_yet_built_refuse_rather_than_answer(tmp_path: Path) -> None:
 
     with pytest.raises(NotImplementedError, match="task 10"):
         store.workflows.resumable()
-    with pytest.raises(NotImplementedError, match="task 8"), store.transaction() as tx:
-        tx.workflows.claim  # noqa: B018 — the attribute read is the call that must refuse
 
 
 def test_close_releases_the_driver(tmp_path: Path) -> None:

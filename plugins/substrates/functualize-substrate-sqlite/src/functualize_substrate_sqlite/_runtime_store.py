@@ -10,12 +10,14 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 from functualize.plugin import StoreProfile
 from functualize_substrate_sqlite._transaction import (
     BufferedTransaction,
     NotYetImplemented,
+    iso,
 )
 
 if TYPE_CHECKING:
@@ -27,7 +29,14 @@ if TYPE_CHECKING:
     )
     from functualize_substrate_sqlite._driver import SqlDriver
 
-__all__ = ["SQLITE_PROFILE", "SqliteRuntimeStore"]
+__all__ = ["DEFAULT_NAMESPACE", "SQLITE_PROFILE", "SqliteRuntimeStore"]
+
+#: One database file holds one project, so its rows share one namespace. Two
+#: processes in two directories that point at the same file are the same
+#: project — the cross-process case the file exists for — and must not be
+#: split by where they were started. The table is there for a network store
+#: (FUN-22) that serves many projects from one database.
+DEFAULT_NAMESPACE = "default"
 
 #: `spec.md` §1, *The SQLite profile*. Each value is a promise this store keeps,
 #: under-declared and never over-declared.
@@ -55,8 +64,19 @@ class SqliteRuntimeStore:
 
     profile: StoreProfile = SQLITE_PROFILE
 
-    def __init__(self, driver: SqlDriver) -> None:
+    def __init__(self, driver: SqlDriver, namespace: str = DEFAULT_NAMESPACE) -> None:
         self._driver = driver
+        self._namespace = namespace
+        # Every runtime row references its namespace; the row is the store's.
+        driver.batch(
+            [
+                (
+                    "INSERT INTO namespaces (id, project_key, created_at) "
+                    "VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                    (namespace, namespace, iso(datetime.now(UTC))),
+                )
+            ]
+        )
         # TRANSITIONAL(wave 3, task 10): the readers bind here; until then each
         # refuses with NotImplementedError rather than answering "nothing".
         self.runs = cast("RunReader", NotYetImplemented("runs", "task 10"))
@@ -72,8 +92,8 @@ class SqliteRuntimeStore:
     @contextmanager
     def transaction(self) -> Iterator[RuntimeTransaction]:
         """One transition: staged by the writers, one batch on a clean exit."""
-        tx = BufferedTransaction()
-        yield cast("RuntimeTransaction", tx)
+        tx = BufferedTransaction(self._driver, self._namespace)
+        yield tx
         tx.commit(self._driver)
 
     def close(self) -> None:
