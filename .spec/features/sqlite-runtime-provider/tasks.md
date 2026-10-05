@@ -41,7 +41,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 
 ## Wave 0 — the selection seam, reachable through the built-in documents factory
 
-- [ ] **1** Factory vocabulary
+- [x] **1** Factory vocabulary
       *Files:* `src/functualize/_types/persistence.py`, `src/functualize/_types/errors.py`,
       `tests/types/test_runtime_store_port.py`
       *Do:* add `RuntimeStoreConfig`, `PreparedStore`, `RuntimeStoreFactory` (contracts §2) and
@@ -50,7 +50,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       factory as `RuntimeStoreFactory`; `isinstance` refuses an object missing `prepare`.
       *Call path:* task 3, same wave — `_app/store_selection.py` builds a `RuntimeStoreConfig` and calls
       `factory.prepare` (closes together with 2 and 3).
-- [ ] **2** Host registration
+- [x] **2** Host registration
       *Files:* `src/functualize/_types/host.py`, `src/functualize/_app/impl.py`,
       `src/functualize/app/core.py`
       *Do:* `register_runtime_store_factory` (contracts §3) storing into
@@ -62,7 +62,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       green; `tests/types/test_plugin_host_port.py` green.
       *Call path:* `boot_standard` / `boot_static` → `app.register_runtime_store_factory(DocumentRuntimeStoreFactory(app))`
       (task 3, same wave); plugins join it in wave 1 (task 15). Closes together with 1 and 3.
-- [ ] **3** Store selection at step 6.5
+- [x] **3** Store selection at step 6.5
       *Depends on:* 1, 2; D-3 for the guard.
       *Files:* `src/functualize/_app/store_selection.py` (new), `src/functualize/_app/boot.py`,
       `tests/app/test_store_selection.py`
@@ -81,12 +81,25 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Sabotage:* (i) replace the delegate with today's body → the `stub:` test fails on both paths;
       (ii) drop boot's documents-factory registration → the unset/`documents:` tests fail on both
       paths. (ii) is task 2's proof; (i) closes 1 and 3. Tick 1, 2, 3 together.
-- [ ] **4** Public surface
+      *Done (`46704c8a`, 2026-10-05):* sabotage (i) — the delegate replaced by the pre-change
+      body — failed 12 of 22 selection tests, every `stub:`, unknown-scheme, duplicate-claim
+      and D-3 case, on `[static]` and `[standard]`; (ii) — boot's documents-factory
+      registration dropped — failed 14 of 22, every unset and `documents:` case, on both
+      paths. Restored by `git checkout`; 22/22 again. Also touched, beyond the listed files:
+      `tests/types/fixtures/runtime_store_factory_conformance.py` (task 1's mypy gate, the
+      pattern of the port's own fixture), `tests/types/test_plugin_host_port.py` (member pin
+      12 → 13), `tests/test_facade_loc_limits.py` (budget 305 → 307, measured and recorded),
+      `tests/core/test_store_capability_refusal.py` (its stand-in app now carries the
+      registry boot builds).
+- [x] **4** Public surface
       *Depends on:* 1.
       *Files:* `src/functualize/plugin/__init__.py`, `tests/test_public_api_surface.py`
       *Gate:* the surface test lists exactly contracts §4's additions for the answered D-2 option.
       *Call path:* none of its own — re-exports carry no executable path; the surface test is the gate.
       First importers: task 15 (wave 1) and task 12 (wave 4), which use only `functualize.plugin`.
+      *Done (`46704c8a`):* 35 names of `_types/persistence.py.__all__` plus
+      `IllegalTransition`, `RuntimeStoreCapabilityError`, `RuntimeStoreSelectionError`;
+      `tests/test_public_api_surface.py` pins exactly those 38. The suite row is tasks 12–13.
 
 ## Wave 1 — the SQLite store opens, reachable through the plugin
 
