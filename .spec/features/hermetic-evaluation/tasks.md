@@ -303,7 +303,7 @@ passes, the gate reads 9, the standing checks are clean. Commit:
 
 ## Wave 1
 
-### [ ] T3 — the three comparators
+### [x] T3 — the three comparators
 
 *Files (all new):* `tests/hermetic_eval/comparators.py`,
 `tests/hermetic_eval/test_comparators.py`

@@ -128,15 +128,19 @@ Choose one option and give a probability for every option; the probabilities sum
  "required": ["choice", "probabilities"], "additionalProperties": false}
 ```
 
-**What is measured and what is not (F-14).** The refusal path is measured: on a
-spent usage window, stdout is JSONL carrying
+**What is measured (F-14).** The refusal path is measured: on a spent usage
+window, stdout is JSONL carrying
 `{"type":"error","message":"You've hit your usage limit. … try again at 11:22 PM."}`
 and `{"type":"turn.failed","error":{"message": <same>}}`, exit 1. The success
-path is **not yet measured**; from codex-cli's documented event stream it is
-expected to end in `{"type":"turn.completed","usage":{"input_tokens":…,"cached_input_tokens":…,"output_tokens":…,"reasoning_output_tokens":…}}`
-with the schema-shaped answer written to `LAST_PATH`. **T3 step 0 makes one
-live call, saves its stdout and `LAST_PATH` as test fixtures, and corrects this
-contract to what it saw before writing code.**
+path was measured on 2026-10-04 with `codex-cli 0.156.1`: the stream ends in
+`{"type":"turn.completed","usage":{…}}` whose keys are `input_tokens`,
+`cached_input_tokens`, `cache_write_input_tokens`, `output_tokens` and
+`reasoning_output_tokens`; the schema-shaped answer is written to `LAST_PATH`
+and also appears in the stream as `item.completed.item.text`; **no event names
+the answering model**, so `FrontierCall.model` is `null` for this CLI. That
+call's stdout and `LAST_PATH` are the fixtures
+`tests/hermetic_eval/fixtures/codex_success.jsonl` and
+`codex_success_last.json`.
 
 **Mapping a call:**
 

@@ -42,13 +42,15 @@ took the fallback); `routed` otherwise; `invalid_model` per spec B-7;
 
 ```json
 {"cli_version": "codex-cli 0.156.1", "model": null, "model_mismatch": false,
- "usage": {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0}}
+ "usage": {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0,
+   "reasoning_output_tokens": 0, "cache_write_input_tokens": 0}}
 ```
 
 `cli_version` is `codex --version`'s stdout, read once per `FrontierRouter`
 (lazily, on the first `choose`). `model` is the answering model when the
-stream names one, else `null`. The `usage` key names are the ones T3's probe
-measured (contracts C-3); the values above are placeholders.
+stream names one, else `null` (the measured stream names none). The `usage`
+key names are the ones T3's probe measured (contracts C-3); the values above
+are placeholders.
 
 ## S-3 — `metrics.json`
 
