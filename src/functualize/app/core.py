@@ -686,13 +686,9 @@ class FunctualizeApp:
         Tolerant of an already-empty stack and of a mismatched argument so a
         ``finally``-guaranteed unwind never raises over the original error.
         """
-        stack = getattr(self, "_surface_stack", None)
-        if not stack:
-            return
-        if surface is None or stack[-1] is surface:
-            stack.pop()
-        elif surface in stack:
-            stack.remove(surface)
+        from functualize._app.impl import pop_surface
+
+        pop_surface(self, surface)
 
     # ─── Decorator Shortcuts ─────────────────────────────────────────────
 

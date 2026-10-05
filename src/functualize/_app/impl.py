@@ -173,6 +173,21 @@ def build_cached_provider(
     )
 
 
+def pop_surface(app: Any, surface: Any = None) -> None:
+    """Pop the top surface (or ``surface`` if given) off the app's stack.
+
+    Tolerant of an already-empty stack and of a mismatched argument so a
+    ``finally``-guaranteed unwind never raises over the original error.
+    """
+    stack = getattr(app, "_surface_stack", None)
+    if not stack:
+        return
+    if surface is None or stack[-1] is surface:
+        stack.pop()
+    elif surface in stack:
+        stack.remove(surface)
+
+
 def shutdown_plugins(plugin_loader: Any, app: Any) -> None:
     """Invoke on_shutdown(app) on all PluginWithShutdown plugins.
 
