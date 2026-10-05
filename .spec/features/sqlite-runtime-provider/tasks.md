@@ -7,10 +7,19 @@ production files plus its tests, and fits one context window.
 **Reachability precedes `[x]`:** name the production call path and prove it by breaking the call
 and watching a test fail. **Commit before sabotaging.**
 
-**Decision gates.** Wave 0 does not start until D-1 and D-2 are answered on MCH-149
-(`spec.md` §7). Task 3's unselected-data guard needs D-3. If an answer differs from the
-recommendation, the Plan phase revises `plan.md` and this file first — never the executor
-mid-wave.
+**Decisions answered** (maintainer, MCH-149, 2026-10-05 10:16:48Z): **D-1 a, D-2 a, D-3 refuse**
+— all as recommended, so the tasks below carry the recommended shape.
+
+**Every wave is reachability-closed** (revised 2026-10-05 after the first execute run returned
+`WORKFLOW_AMBIGUOUS`). The previous graph put close-together pairs in different waves — task 1
+(wave 0) closed with task 3 (wave 1), tasks 5 and 6 (wave 2) with task 7 (wave 3) — and task 2's
+call path was task 15, four waves later. Under the binding wave rule a pair split across waves can
+never be ticked: wave N cannot clear until its pair partner in N+1 proves reachability, and N+1
+cannot start until N clears. Now each task's production call path is in **its own wave or an earlier
+one**, and every close-together pair sits in one wave, built in `depends_on` order and ticked
+together on the last member's sabotage proof. The rule itself, *reachability precedes `[x]`*, the
+19 tasks, the decision gates and every acceptance gate are unchanged. The check that holds this,
+run at authoring time, is at the foot of this file.
 
 PLUGIN below means
 `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/`, and
@@ -30,7 +39,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 | 0.2 relational retention statement | task 11 |
 | 0.3 retention caller | task 11 (caller = `prepare()`, option (a)) |
 
-## Wave 0 — the framework seam (needs D-1, D-2)
+## Wave 0 — the selection seam, reachable through the built-in documents factory
 
 - [ ] **1** Factory vocabulary
       *Files:* `src/functualize/_types/persistence.py`, `src/functualize/_types/errors.py`,
@@ -39,39 +48,47 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       `RuntimeStoreSelectionError` (contracts §5). No logic.
       *Gate:* `uv run lint-imports` green (types import nothing internal); mypy accepts a minimal
       factory as `RuntimeStoreFactory`; `isinstance` refuses an object missing `prepare`.
-      *Call path:* task 3 (closes together).
+      *Call path:* task 3, same wave — `_app/store_selection.py` builds a `RuntimeStoreConfig` and calls
+      `factory.prepare` (closes together with 2 and 3).
 - [ ] **2** Host registration
       *Files:* `src/functualize/_types/host.py`, `src/functualize/_app/impl.py`,
       `src/functualize/app/core.py`
       *Do:* `register_runtime_store_factory` (contracts §3) storing into
       `app._runtime_store_factories`; refused once a store is selected, as `offer_substrate` is.
+      Boot itself is its first production caller: task 3 registers the built-in documents factory
+      **through this host method**, on both boot paths, before plugins load.
       *Gate:* registration after selection raises `SubstrateInstallError`-style refusal; two factories
       for one scheme are both kept (the refusal is task 3's); `tests/test_facade_loc_limits.py`
       green; `tests/types/test_plugin_host_port.py` green.
-      *Call path:* task 15 (the plugin) → task 3 (selection reads it).
-
-## Wave 1 — selection, end to end on the document store
-
+      *Call path:* `boot_standard` / `boot_static` → `app.register_runtime_store_factory(DocumentRuntimeStoreFactory(app))`
+      (task 3, same wave); plugins join it in wave 1 (task 15). Closes together with 1 and 3.
 - [ ] **3** Store selection at step 6.5
       *Depends on:* 1, 2; D-3 for the guard.
       *Files:* `src/functualize/_app/store_selection.py` (new), `src/functualize/_app/boot.py`,
       `tests/app/test_store_selection.py`
-      *Do:* resolve `runtime_store.url`; unset → (D-3 guard: any factory's `unselected_data()` →
-      `RuntimeStoreSelectionError`) → `DocumentRuntimeStore`; set → registry lookup (unknown scheme
-      or two claimants → refuse) → `prepare()` **uncaught** → `check_required_capabilities`. Keep
-      `_select_runtime_store(app) -> tuple[RuntimeStore, StoreSubstrate]` as the one call both boot
-      paths make; its body delegates.
-      *Gate:* with a stub factory: unset → documents; `stub:` → stub store and its substrate; unknown
+      *Do:* `DocumentRuntimeStoreFactory(app)` (scheme `documents`, `DOCUMENT_PROFILE`; `prepare` =
+      today's body: `_resolve_substrate_claim`, override or `substrate_for_project`,
+      `DocumentRuntimeStore`), registered by boot through task 2's host method before plugins load.
+      Resolve `runtime_store.url`; **unset is read as `documents:`** after the D-3 guard (any other
+      factory's `unselected_data()` → `RuntimeStoreSelectionError`); then one path for every
+      scheme: registry lookup (unknown scheme or two claimants → refuse) → `prepare()` **uncaught**
+      → `check_required_capabilities`. Keep `_select_runtime_store(app) -> tuple[RuntimeStore,
+      StoreSubstrate]` as the one call both boot paths make; its body delegates.
+      *Gate:* unset → documents through the registered documents factory; `documents:` → the same;
+      with a stub factory: `stub:` → stub store and its substrate; unknown
       scheme → refusal naming the key and the registered schemes; `prepare` raising → boot raises;
       on `boot_standard` **and** `boot_static`.
-      *Sabotage:* replace the delegate with today's body → the `stub:` test fails on both paths.
+      *Sabotage:* (i) replace the delegate with today's body → the `stub:` test fails on both paths;
+      (ii) drop boot's documents-factory registration → the unset/`documents:` tests fail on both
+      paths. (ii) is task 2's proof; (i) closes 1 and 3. Tick 1, 2, 3 together.
 - [ ] **4** Public surface
-      *Depends on:* 1, D-2.
+      *Depends on:* 1.
       *Files:* `src/functualize/plugin/__init__.py`, `tests/test_public_api_surface.py`
       *Gate:* the surface test lists exactly contracts §4's additions for the answered D-2 option.
-      *Call path:* task 15 imports only from `functualize.plugin`.
+      *Call path:* none of its own — re-exports carry no executable path; the surface test is the gate.
+      First importers: task 15 (wave 1) and task 12 (wave 4), which use only `functualize.plugin`.
 
-## Wave 2 — plugin foundations
+## Wave 1 — the SQLite store opens, reachable through the plugin
 
 - [ ] **5** Driver
       *Files:* `PLUGIN/_driver.py`, `PLUGIN_TESTS/test_driver.py`
@@ -82,7 +99,8 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Gate:* foreign key violation refused; `:memory:` gets no WAL; a held write lock past the
       timeout raises `SqliteBusyError`, not `sqlite3.OperationalError`; a failing statement rolls the
       whole batch back; `close()` leaves no open connection (thread test).
-      *Call path:* task 7.
+      *Call path:* task 15 → task 3 → task 7's `prepare` → this driver, same wave (closes
+      together with 6, 7, 15).
 - [ ] **6** Migration runner and revision `0001` (was 0.1)
       *Files:* `PLUGIN/_migrations.py`, `PLUGIN/_schema/0001_runtime_schema.sql`,
       `PLUGIN_TESTS/test_migrations.py`
@@ -93,14 +111,13 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       second run is a no-op; an edited `0001` → `MigrationRefused`; a ledger ahead of the shipped
       set → refused; a gap → refused; every table and index of §2 exists (`sqlite_master`); each
       status `CHECK` list equals its machine's state set in `_types/lifecycle.py`. Runs against
-      `LocalSqliteDriver` **and** `BatchOnlySqliteDriver` (after task 14's `query`, or a local
-      equivalent until then).
-      *Call path:* task 7 (closes together).
-
-## Wave 3 — the store opens
-
+      `LocalSqliteDriver`; the same runner over `BatchOnlySqliteDriver` is proven by task 14 (AC-5),
+      in wave 4 — not a gate of this task, so nothing here waits on a later wave.
+      *Call path:* task 15 → task 3 → task 7's `prepare` → `migrate`, same wave (closes together
+      with 5, 7, 15).
 - [ ] **7** Store facade, profile, buffered transaction, factory
       *Depends on:* 3, 5, 6.
+      *Call path:* task 15, same wave — the plugin registers this factory, selection calls `prepare`.
       *Files:* `PLUGIN/_runtime_store.py`, `PLUGIN/_transaction.py`, `PLUGIN/_factory.py`
       *Do:* `SQLITE_PROFILE` (`spec.md` §1 table); `SqliteRuntimeStore(driver)` with `transaction()`
       returning `_BufferedTransaction` (writers append statements; `__exit__` → one
@@ -110,26 +127,10 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Gate:* `prepare` on an empty path → version 1; a doctored checksum → `MigrationRefused` out of
       `prepare`; legacy runtime keys present → `LegacyImportRequired` naming
       `functualize-sqlite-import`; a raising writer inside `with store.transaction()` leaves zero
-      rows. Ticks task 6 too, on the sabotage below.
-      *Sabotage:* remove the `migrate()` call from `prepare` → the version-1 test fails.
+      rows.
+      *Sabotage:* remove the `migrate()` call from `prepare` → the version-1 test **through boot with
+      `sqlite:`** (task 15's harness) fails.
       *No class over 500 lines; the facade ≤150.*
-
-## Wave 4 — writers, and the plugin switches over
-
-- [ ] **8** Workflow writers
-      *Files:* `PLUGIN/_workflow_sql.py`, `PLUGIN_TESTS/test_workflow_sql.py`
-      *Do:* `claim` (data model §5's conditional update; zero rows → `Conflict` value),
-      `complete_step`, `suspend`, `resume`, `cancel`, `write_state` — every scope mutation carries
-      the held generation in its predicate (I-3); every status move checked against FUN-18's table
-      (`IllegalTransition`). Claim is the one writer that commits on the spot (as
-      `ClaimWorkflow`'s docstring says) — one batch of one statement, then a read.
-      *Gate:* stale generation → zero rows, live value survives; `completed` → `running` refused;
-      `rg -n "resume" PLUGIN/_workflow_sql.py` shows no conditional on it (05 §3).
-- [ ] **9** Run, input, event and effect writers
-      *Files:* `PLUGIN/_run_sql.py`, `PLUGIN_TESTS/test_run_sql.py`
-      *Gate:* attempt `(run_id, attempt_no)` unique; `run_events`/`scope_events` `seq` strictly
-      increasing per owner; one OPEN input request per gate per generation; an `outbox` row commits
-      only with its transition.
 - [ ] **15** The plugin registers instead of offering
       *Depends on:* 2, 3, 7.
       *Files:* `PLUGIN/_plugin.py`, `PLUGIN/__init__.py`, `PLUGIN_TESTS/test_plugin_selection.py`
@@ -141,13 +142,38 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       `runtime_store.url = "sqlite:"` → `SqliteRuntimeStore`; `prepare` sabotaged (unwritable
       path; doctored checksum) → boot fails on `func` cold, `func` warm and `boot_static`, never on
       documents. `tests/plugins/test_substrate_choice_is_not_hook_order.py` stays green.
-      *Sabotage:* restore the `offer_substrate` call → the "nothing configured → filesystem" test
-      fails.
+      *Sabotage:* (i) restore the `offer_substrate` call → the "nothing configured → filesystem" test
+      fails; (ii) drop the `register_runtime_store_factory` call → the `sqlite:` boot test fails with
+      an unknown-scheme refusal. (ii) is the reachability proof for 5, 6, 7 and 15 — tick all four
+      together.
 
-## Wave 5 — readers and retention
+## Wave 2 — writers
+
+- [ ] **8** Workflow writers
+      *Files:* `PLUGIN/_workflow_sql.py`, `PLUGIN_TESTS/test_workflow_sql.py`
+      *Call path:* the selected store's `transaction().workflows` (wave 1) → `_BufferedTransaction` → here.
+      *Sabotage:* unbind the workflow writer from `_BufferedTransaction` → a boot-selected `sqlite:`
+      claim test fails.
+      *Do:* `claim` (data model §5's conditional update; zero rows → `Conflict` value),
+      `complete_step`, `suspend`, `resume`, `cancel`, `write_state` — every scope mutation carries
+      the held generation in its predicate (I-3); every status move checked against FUN-18's table
+      (`IllegalTransition`). Claim is the one writer that commits on the spot (as
+      `ClaimWorkflow`'s docstring says) — one batch of one statement, then a read.
+      *Gate:* stale generation → zero rows, live value survives; `completed` → `running` refused;
+      `rg -n "resume" PLUGIN/_workflow_sql.py` shows no conditional on it (05 §3).
+- [ ] **9** Run, input, event and effect writers
+      *Files:* `PLUGIN/_run_sql.py`, `PLUGIN_TESTS/test_run_sql.py`
+      *Call path / sabotage:* as task 8, through `transaction().runs`, `.inputs`, `.events`, `.effects`.
+      *Gate:* attempt `(run_id, attempt_no)` unique; `run_events`/`scope_events` `seq` strictly
+      increasing per owner; one OPEN input request per gate per generation; an `outbox` row commits
+      only with its transition.
+
+## Wave 3 — readers and retention
 
 - [ ] **10** Readers
       *Files:* `PLUGIN/_readers.py`, `PLUGIN_TESTS/test_readers.py`
+      *Call path:* the selected store's `runs` / `workflows` / `inputs` attributes (wave 1), read by the
+      engine; sabotage = bind a reader stub on the facade → the boot-selected read test fails.
       *Do:* `RunReader`, `WorkflowReader`, `InputReader` as SQL over the §2 tables; indexes used for
       `recent`, `resumable` (`EXPLAIN QUERY PLAN` names the index).
       *Gate:* S-6 raw-SQL test — a status count answered by `SELECT … GROUP BY status` with no JSON
@@ -162,16 +188,18 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Call path:* `prepare()` after `migrate()`.
       *Sabotage:* remove the call from `prepare` → the over-filled-store test fails.
 
-## Wave 6 — the conformance suite (AC-1, AC-2, AC-5)
+## Wave 4 — the conformance suite (AC-1, AC-2, AC-5)
 
 - [ ] **12** BASELINE tier
-      *Depends on:* 4 (D-2), 7–10.
+      *Depends on:* 4, 7–10.
       *Files:* `src/functualize/testing/conformance/__init__.py`,
       `src/functualize/testing/conformance/baseline.py`, `tests/conformance/test_baseline.py`
-      (D-2 = b: the first two move to `tests/conformance/`)
       *Do:* 08's list — run tree and recent history; workflow transition and replay determinism;
       state batch and rollback; corrupt-data policy; event sequence monotonicity; close/reopen
       durability. Takes `make_store: Callable[[Path], RuntimeStore]`; imports only public names.
+      *Call path:* this is a shipped test library (D-2 a), so its consumer *is* a test suite — its
+      production surface is the public import `functualize.testing.conformance`, proven by
+      `tests/conformance/` importing nothing private.
       *Gate (AC-2 first half):* green for `DocumentRuntimeStore` **and** `SqliteRuntimeStore`.
 - [ ] **13** Capability tiers
       *Depends on:* 12.
@@ -193,10 +221,11 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Gate (AC-5, E-6):* green; then make `_BufferedTransaction` issue one statement through a
       driver transaction → `NoInteractiveTransactionError` turns it red.
 
-## Wave 7 — legacy import (AC-3, AC-4)
+## Wave 5 — legacy import (AC-3, AC-4)
 
 - [ ] **16** The importer
       *Depends on:* 7–9, 13.
+      *Call path:* task 17, same wave — the console script (closes together with 17).
       *Files:* `PLUGIN/_legacy_import.py`, `PLUGIN_TESTS/test_legacy_import.py`
       *Do:* the shape's seven steps — exclusive migration lock; snapshot + backup of the database
       file; import runtime keys into the schema in **one** unit, each legacy run as one attempt
@@ -218,9 +247,9 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       runs while boot would refuse with `LegacyImportRequired`, and after it boot with
       `sqlite:` succeeds.
       *Call path:* the console-script entry point; sabotage = remove `[project.scripts]` → the
-      subprocess test fails.
+      subprocess test fails. That proof ticks 16 and 17 together.
 
-## Wave 8 — honest docs and naming (S-7), release note
+## Wave 6 — honest docs and naming (S-7), release note
 
 - [ ] **18** Docs, naming, markers
       *Files:* `PLUGIN/substrate.py` (docstring only), `plugins/substrates/functualize-substrate-sqlite/README.md`,
@@ -232,7 +261,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       boot-refusal behaviour change and the removed `db_path` key (shape Q-3); the TRANSITIONAL
       marker no longer says FUN-19 removes the store.
 
-## Wave 9 — pre-merge (not implementation)
+## Wave 7 — pre-merge (not implementation)
 
 - [ ] **19** Clear the branch for merge
       *Files:* `.spec/STATUS.md` or `contributor/adr/031-*.md` (the factory registry and
@@ -246,21 +275,21 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 
 ## Task Dependency Graph
 
-Close-together pairs are ticked together, on the second task's sabotage proof.
+Each wave is reachability-closed: every task's call path and every close-together partner is in
+the same wave or an earlier one, and `depends_on` never points to a later wave. A close-together
+group is built in `depends_on` order and ticked together on its last member's sabotage proof.
 
 ```json
 {
   "waves": [
-    {"id": 0, "tasks": ["1", "2"]},
-    {"id": 1, "tasks": ["3", "4"]},
-    {"id": 2, "tasks": ["5", "6"]},
-    {"id": 3, "tasks": ["7"]},
-    {"id": 4, "tasks": ["8", "9", "15"]},
-    {"id": 5, "tasks": ["10", "11"]},
-    {"id": 6, "tasks": ["12", "13", "14"]},
-    {"id": 7, "tasks": ["16", "17"]},
-    {"id": 8, "tasks": ["18"]},
-    {"id": 9, "tasks": ["19"]}
+    {"id": 0, "tasks": ["1", "2", "3", "4"]},
+    {"id": 1, "tasks": ["5", "6", "7", "15"]},
+    {"id": 2, "tasks": ["8", "9"]},
+    {"id": 3, "tasks": ["10", "11"]},
+    {"id": 4, "tasks": ["12", "13", "14"]},
+    {"id": 5, "tasks": ["16", "17"]},
+    {"id": 6, "tasks": ["18"]},
+    {"id": 7, "tasks": ["19"]}
   ],
   "depends_on": {
     "1": [],
@@ -270,9 +299,9 @@ Close-together pairs are ticked together, on the second task's sabotage proof.
     "5": [],
     "6": [],
     "7": ["3", "5", "6"],
+    "15": ["2", "3", "7"],
     "8": ["7"],
     "9": ["7"],
-    "15": ["2", "3", "7"],
     "10": ["8", "9"],
     "11": ["7", "8", "9"],
     "12": ["4", "7", "8", "9", "10"],
@@ -283,7 +312,28 @@ Close-together pairs are ticked together, on the second task's sabotage proof.
     "18": ["15", "17"],
     "19": ["18"]
   },
-  "close_together": [["1", "3"], ["6", "7"], ["5", "7"]],
-  "decision_gates": {"D-1": ["1", "2", "3", "4"], "D-2": ["4", "12", "13"], "D-3": ["3", "15"]}
+  "call_path": {
+    "1": "3", "2": "3", "3": "3", "4": null,
+    "5": "15", "6": "15", "7": "15", "15": "15",
+    "8": "15", "9": "15", "10": "15", "11": "7",
+    "12": null, "13": null, "14": null,
+    "16": "17", "17": "17", "18": null, "19": null
+  },
+  "close_together": [["1", "2", "3"], ["5", "6", "7", "15"], ["16", "17"]],
+  "decision_gates": {"D-1": ["1", "2", "3", "4"], "D-2": ["4", "12", "13"], "D-3": ["3", "15"]},
+  "decisions_answered": {"D-1": "a", "D-2": "a", "D-3": "refuse", "at": "2026-10-05T10:16:48Z"}
 }
+```
+
+Consistency check, run at authoring time against the block above (any non-empty list fails):
+
+```python
+import json, re
+g = json.loads(re.search(r"```json\n(.*?)\n```", open("tasks.md").read().rpartition("## Task " + "Dependency Graph")[2], re.S).group(1))
+wave = {t: w["id"] for w in g["waves"] for t in w["tasks"]}
+assert sorted(wave, key=int) == [str(i) for i in range(1, 20)]
+late_deps   = [(t, d) for t, ds in g["depends_on"].items() for d in ds if wave[d] > wave[t]]
+split_pairs = [p for p in g["close_together"] if len({wave[t] for t in p}) > 1]
+late_paths  = [(t, c) for t, c in g["call_path"].items() if c and wave[c] > wave[t]]
+print(late_deps, split_pairs, late_paths)   # -> [] [] []
 ```

@@ -1,7 +1,8 @@
 # FUN-19 — Plan
 
-**Status:** architecture gate **satisfied** (2026-10-05, at `e8e3b867`). The AFTER below is the
-recommendation; three decisions (`spec.md` §7) must be answered before tasks 1–4 and 12 start.
+**Status:** architecture gate **satisfied** (2026-10-05, at `e8e3b867`). Decisions answered
+2026-10-05 10:16:48Z — **D-1 a, D-2 a, D-3 refuse** — so the AFTER below is the plan as approved.
+`tasks.md` re-waved the same day so every wave is reachability-closed (see *Decisions taken*).
 
 ## Alignment
 
@@ -161,8 +162,10 @@ runtime store can ever be built.
  _app/        _app/impl.py, app/core.py   register_runtime_store_factory → app._runtime_store_factories
               _app/store_selection.py  (new, ≤200)  ◄── boot.py:_select_runtime_store delegates
                 resolve runtime_store.url → RuntimeStoreConfig
-                unset → [D-3: any factory.unselected_data()? → refuse] → DocumentRuntimeStore
-                set   → factories[scheme] or refuse → prepare() UNCAUGHT → check capabilities
+                DocumentRuntimeStoreFactory(app) — registered by boot through the same host
+                  method plugins use, before plugins load (scheme "documents")
+                unset → [D-3: any factory.unselected_data()? → refuse] → read as "documents:"
+                every scheme → factories[scheme] or refuse → prepare() UNCAUGHT → check capabilities
               _app/boot.py  _select_runtime_store body → store_selection.select(app) (both paths)
  _engine/     unchanged — still sees only the RuntimeStore protocol
  tests/       tests/conformance/  runs the suite for DocumentRuntimeStore + SqliteRuntimeStore
@@ -217,6 +220,15 @@ Reported to MCH-149 as findings, not reconciled quietly.
 ## Decisions taken within the shape's delegated latitude
 
 Recorded so the maintainer can overrule them; none changes behaviour or scope.
+
+- **The document store is selected through the registry too** (added 2026-10-05 with the
+  re-wave). Boot registers a built-in `DocumentRuntimeStoreFactory` through
+  `register_runtime_store_factory` before plugins load, and an unset key reads as `documents:`.
+  Two reasons: it removes the "unset" special case from selection (one path for every scheme),
+  and it gives the registration method and the factory protocol a production caller in wave 0, so
+  tasks 1–3 prove reachability without waiting for the SQLite plugin. Behaviour is unchanged: unset
+  still means documents (S-2), and a plugin that also claims `documents` is refused like any
+  other duplicate scheme.
 
 - Config key `runtime_store.url`; schemes `sqlite`, `documents` (shape: *"Key name, scheme name,
   alias"*).

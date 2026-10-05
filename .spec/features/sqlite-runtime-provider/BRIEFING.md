@@ -14,7 +14,7 @@ that is expected.** This file gets you to the point where you can start.
 | **Runs in parallel with** | none |
 | **Base** | rebased 2026-10-05 onto `origin/master` @ `e8e3b867` (was `8c06198`) |
 | **Shape** | SD/12583004, `Authority: Approved` — `plan.md` → `## Alignment` |
-| **Phase** | Plan complete; Execute waits on decisions D-1…D-3 (`spec.md` §7) |
+| **Phase** | Plan complete; decisions D-1 a, D-2 a, D-3 refuse answered 2026-10-05; Execute starts at `tasks.md` wave 0 (8 waves, each reachability-closed) |
 
 ## The one-line goal
 

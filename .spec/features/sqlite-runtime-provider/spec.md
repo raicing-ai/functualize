@@ -1,7 +1,7 @@
 # FUN-19 — The SQLite runtime provider, legacy migration, and the tiered conformance suite
 
-**Status:** specified against the approved shape; **three decisions open** (§7). Do not execute
-the waves those decisions gate until they are answered (`tasks.md` names which).
+**Status:** specified against the approved shape; decisions answered 2026-10-05 10:16:48Z —
+**D-1 a, D-2 a, D-3 refuse** (§7). Ready to execute from `tasks.md` wave 0.
 
 **Shape authority:** SD/12583004 *"Shape Intent — Store Substrate and Relational SQLite Runtime
 Provider"*, v1, `Authority: Approved` (read live 2026-10-05). Surfaces S-1 … S-8, obligations
@@ -126,7 +126,7 @@ replayed the branch's three commits without conflict). Every `path:line` in this
 re-read at that commit. The research tree's citations are at `8d450ad`/`93ecd18` and are **not**
 re-verified wholesale — `plan.md` → *Findings* lists the ones that proved stale.
 
-## 7. Decisions open — put to the maintainer on MCH-149
+## 7. Decisions — answered by the maintainer on MCH-149 (2026-10-05 10:16:48Z: D-1 a, D-2 a, D-3 refuse)
 
 | # | Decision | Recommendation | Gates |
 |---|---|---|---|

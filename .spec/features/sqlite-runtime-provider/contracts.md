@@ -1,7 +1,7 @@
 # FUN-19 — Contracts
 
-**Status:** specified. Items marked **(D-n)** change if the maintainer answers decision D-n
-(`spec.md` §7) against the recommendation.
+**Status:** specified. Items marked **(D-n)** follow the maintainer's answers (`spec.md` §7:
+D-1 a, D-2 a, D-3 refuse), so each takes its recommended form.
 
 An interface that changes without appearing here is the defect this file exists to prevent.
 
@@ -60,7 +60,10 @@ module stays logic-free (ADR-026's condition).
 def register_runtime_store_factory(self, factory: RuntimeStoreFactory) -> None: ...
 ```
 
-- Called from a plugin's registration `__call__` (boot step 4), on both boot paths.
+- Called by boot itself first, on both paths, before plugins load:
+  `app.register_runtime_store_factory(DocumentRuntimeStoreFactory(app))` (scheme `documents`,
+  defined in `_app/store_selection.py`). An unset `runtime_store.url` reads as `documents:`.
+- Then from a plugin's registration `__call__` (boot step 4), on both boot paths.
 - Two factories for one scheme → `RuntimeStoreSelectionError` at step 6.5 naming both plugins
   (same "two claims refuse; neither wins" rule as `_resolve_substrate_claim`, `boot.py:268-303`).
 - After step 6.5 → refused, as `install_substrate` / `offer_substrate` already are.
