@@ -143,7 +143,9 @@ convention drift.
 ### Neutral
 
 - Two CLI parsers remain (click and pre-boot) — inherent to pre-boot; they share a vocabulary, not
-  a syntax. The `--perf-report` lookahead stays deliberately `func`-only.
+  a syntax. `--perf-report` stays deliberately `func`-only. *(Superseded: the lookahead
+  this row used to cite was withdrawn — every pre-boot flag is boolean or value-required;
+  the two-parser decision stands.)*
 - `app/utils.py`'s corridor (2,021 LOC) is untouched by this ADR; recorded as the next
   surface-boundary question, with the group-options cache fingerprint gap as its open wound.
 
