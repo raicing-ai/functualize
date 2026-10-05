@@ -103,7 +103,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 
 ## Wave 1 — the SQLite store opens, reachable through the plugin
 
-- [ ] **5** Driver
+- [x] **5** Driver
       *Files:* `PLUGIN/_driver.py`, `PLUGIN_TESTS/test_driver.py`
       *Do:* `SqlDriver` Protocol `{batch, query, close}`; `LocalSqliteDriver`: one connection per
       thread, all closed by `close()`; `PRAGMA foreign_keys=ON` per connection; WAL only for a file;
@@ -114,7 +114,12 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       whole batch back; `close()` leaves no open connection (thread test).
       *Call path:* task 15 → task 3 → task 7's `prepare` → this driver, same wave (closes
       together with 6, 7, 15).
-- [ ] **6** Migration runner and revision `0001` (was 0.1)
+      *Done (`4b0a6241`, 2026-10-05):* every gate case in `test_driver.py` (FK refusal, WAL vs
+      `:memory:`, held write lock → `SqliteBusyError` with `retryable is True` and not an
+      `OperationalError`, whole-batch rollback, per-statement rowcounts, `close()` bringing 4
+      threads' connections to 0, unopenable path failing at construction). Reachability is the
+      group's sabotage (ii), under task 15.
+- [x] **6** Migration runner and revision `0001` (was 0.1)
       *Files:* `PLUGIN/_migrations.py`, `PLUGIN/_schema/0001_runtime_schema.sql`,
       `PLUGIN_TESTS/test_migrations.py`
       *Do:* `Migration(version, name, sql)`, checksum `sha256(sql)`; `migrate(driver, migrations) -> int`
@@ -128,7 +133,12 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       in wave 4 — not a gate of this task, so nothing here waits on a later wave.
       *Call path:* task 15 → task 3 → task 7's `prepare` → `migrate`, same wave (closes together
       with 5, 7, 15).
-- [ ] **7** Store facade, profile, buffered transaction, factory
+      *Done (`4b0a6241`, 2026-10-05):* `test_migrations.py` covers every gate case, including the
+      parametrized `CHECK`-list equality against `SCOPE`, `RUN`, `ATTEMPT` and `INPUT_REQUEST`, the
+      no-ledger-with-runtime-tables refusal, a legacy `documents`-only database migrating, a failing
+      revision leaving neither schema nor ledger, append-only triggers and scope-delete cascading
+      the `artifact_refs` reference only.
+- [x] **7** Store facade, profile, buffered transaction, factory
       *Depends on:* 3, 5, 6.
       *Call path:* task 15, same wave — the plugin registers this factory, selection calls `prepare`.
       *Files:* `PLUGIN/_runtime_store.py`, `PLUGIN/_transaction.py`, `PLUGIN/_factory.py`
@@ -144,7 +154,13 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Sabotage:* remove the `migrate()` call from `prepare` → the version-1 test **through boot with
       `sqlite:`** (task 15's harness) fails.
       *No class over 500 lines; the facade ≤150.*
-- [ ] **15** The plugin registers instead of offering
+      *Done (`4b0a6241`, 2026-10-05):* the facade is 80 lines; `prepare` closes the driver on every
+      failure path. Hand-over item 1 checked: the factory returns a `SQLiteSubstrate` on the same
+      file, never `None` (pinned by test). Sabotage — `migrate()` removed from `prepare` — failed 6
+      of 19 selection tests: `test_sqlite_configured_selects_the_sqlite_store_migrated` and
+      `test_a_doctored_checksum_aborts_boot_never_falling_back`, each on `boot_static`, `func`-cold
+      and `func`-warm. Restored by `git checkout`; 81/81 again.
+- [x] **15** The plugin registers instead of offering
       *Depends on:* 2, 3, 7.
       *Files:* `PLUGIN/_plugin.py`, `PLUGIN/__init__.py`, `PLUGIN_TESTS/test_plugin_selection.py`
       *Do:* `__call__` → `register_runtime_store_factory(SqliteRuntimeStoreFactory())`; delete the
@@ -159,6 +175,30 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       fails; (ii) drop the `register_runtime_store_factory` call → the `sqlite:` boot test fails with
       an unknown-scheme refusal. (ii) is the reachability proof for 5, 6, 7 and 15 — tick all four
       together.
+      *Done (`4b0a6241`, 2026-10-05):* E-1 green on `boot_static`, `func`-cold and `func`-warm —
+      including the real `func` entry refusing a doctored schema on cold and warm boot; the D-3
+      refusal names `functualize-sqlite-import` and the remedy line; `unselected_data` also reports
+      a relational `state.db`, and explicit `documents:` still starts fresh beside legacy SQLite
+      data. `test_substrate_choice_is_not_hook_order.py` green (updated: storage is chosen by
+      configuration, so every boot there writes `sqlite:`). Sabotage (i) — `offer_substrate`
+      restored — failed 7 of 19 (every unconfigured-→-documents case on all three paths, plus the
+      no-offer pin); (ii) — the registration dropped — failed 13 of 19, the `sqlite:` boot with
+      `RuntimeStoreSelectionError: … names the scheme 'sqlite', which no registered runtime store
+      serves (registered: documents)`. Both restored by `git checkout`; 81/81 again. (ii) is the
+      proof that ticks 5, 6, 7 and 15 together.
+      *Also touched, beyond the listed files* (installed-means-selected pins that had to become
+      selected-means-selected): `PLUGIN_TESTS/test_sqlite_substrate.py`,
+      `tests/_cli/test_shell_mode.py`, `tests/core/test_app_ready_and_shutdown.py` (its
+      construction-failure escape now raises `OSError` out of `prepare`, not `SubstrateInstallError`
+      out of a chooser), `tests/plugins/test_substrate_offer.py`,
+      `tests/spec/test_a_substrate_plugin_loads_through_its_entry_point.py` (gains the cold/warm
+      `func` refusal test),
+      `tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py`, and
+      `tests/integration/test_substrate_durability.py`, which is `xfail(strict=True)` marked
+      `TRANSITIONAL(sqlite-runtime-provider waves 2-3, tasks 8-10)` — its two workers select
+      `sqlite:` now, and the selected store refuses every writer with `NotImplementedError` until
+      the writer waves bind them, so the marker errors the moment that passes and must be removed
+      with the re-pointed assertion then.
 
 ## Wave 2 — writers
 
