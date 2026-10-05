@@ -373,6 +373,53 @@ the transitional state disclosed in `STATE.md` and in the PR body, not disguised
 
 ---
 
+## Wave 5
+
+### T6.1 — Dead-code neighbourhood cleared `[x]`
+
+**Goal.** The `dead_code_delta` run over this branch reported five pre-existing
+NEIGHBOURHOOD findings in changed files. Remove the two that are dead, and put
+the branch's head in a state where the other three are not findings at all.
+
+- `src/functualize/_cli/main.py`: delete `_handle_unknown` and its section
+  banner. Nothing in production dispatches to it — `Mode.UNKNOWN` routes into
+  `_handle_job`, which prints the unknown-command error, the fuzzy suggestions
+  and the guidance inline (`main.py`, the `mode is Mode.UNKNOWN` arm) — and
+  vulture reports it at 60% with zero references outside tests.
+- `tests/cli/test_handlers.py`: drop the `TestHandleUnknown` class and the
+  `_handle_unknown` import; the `_fuzzy_suggest`, `_handle_bare` and property
+  classes stay. `tests/cli/test_unknown_handler_properties.py`: drop Property 6
+  (`TestUnknownCommandErrorOutput`), the import, the now-unused stderr-capture
+  imports and the possibly-empty job-name strategy; Properties 7–8 pin
+  `suggest_similar_commands`, which is alive (production callers in
+  `_cli/main.py` and `app/adapters/cli.py`) and stay.
+- `contributor/architecture/codemaps/entry-points.md`: the direct-dispatch line
+  no longer names `_handle_unknown()`; `UNKNOWN` dispatches into
+  `_handle_job()`, which prints the error.
+- `tests/_cli/test_dispatch_preservation.py`: delete `_safe_value_for_flag`
+  (zero callers) and the two definitions that existed only to feed it —
+  `_SAFE_VALUES` and `_arbitrary_value`. The live strategies
+  (`_VALID_LOG_LEVELS`, `_discovery_depth_value`) and every `@given` stay.
+- The three `pytestmark = surfaces("func")` findings
+  (`tests/_cli/test_perf_report_integration.py`,
+  `tests/cli/test_early_parse_integration.py`,
+  `tests/cli/test_version_flag_position.py`) are **not dead**: `pytestmark` is
+  the module-level marker pytest itself reads, and the `surfaces("func")`
+  marker is consumed by the `cli_run` fixture (`tests/conftest.py`,
+  `get_closest_marker("surfaces")`) to keep pre-boot tests off the app surface.
+  Removing one would run those tests on a surface where the behaviour under
+  test does not exist. They are false positives of the scan, and the scan's own
+  config mechanism clears them: the script reads `[tool.vulture]` from the head
+  commit, master's `ignore_names` already carries `"pytestmark"` (`48fb089`),
+  and this branch now carries that table via the master merge.
+
+**Gate.** `uv run python .github/scripts/dead_code_delta.py <origin/master> HEAD`
+→ `NEW_DEAD: 0  TESTS_ONLY: 0` and an empty neighbourhood, over both the merge
+range and the full feature range from `4cd37f7`; the step tier over the diff
+stays green.
+
+---
+
 ## Task Dependency Graph
 
 ```json
@@ -382,7 +429,8 @@ the transitional state disclosed in `STATE.md` and in the PR body, not disguised
     { "id": 1, "tasks": ["2.1", "2.2"] },
     { "id": 2, "tasks": ["3.1", "3.2", "3.3", "3.4", "3.5"] },
     { "id": 3, "tasks": ["4.1", "4.2", "4.3"] },
-    { "id": 4, "tasks": ["5.1"] }
+    { "id": 4, "tasks": ["5.1"] },
+    { "id": 5, "tasks": ["6.1"] }
   ]
 }
 ```
@@ -400,3 +448,5 @@ the transitional state disclosed in `STATE.md` and in the PR body, not disguised
 - **Wave 3 after Wave 2.** Documentation describes delivered behaviour; writing it before
   the tests agree with the code would let prose lead.
 - **Wave 4 alone.** A checkpoint depends on all prior work, so it owns its wave.
+- **5 after 4.** The dead-code sweep reads the finished tree; a delta over a
+  moving tree says nothing about what the branch leaves behind.
