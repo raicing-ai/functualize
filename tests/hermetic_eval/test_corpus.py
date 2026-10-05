@@ -9,6 +9,12 @@ from pathlib import Path
 import pytest
 
 from tests.hermetic_eval import corpus
+from tests.hermetic_eval.comparators import (
+    DeterministicBaseline,
+    FrontierRouter,
+    hermetic_identity,
+    identity_sha256,
+)
 from tests.hermetic_eval.corpus import (
     BOUNDARY,
     REPEATS,
@@ -179,6 +185,21 @@ def test_v1_corpus_has_the_declared_shape() -> None:
     assert [scenario.id for scenario in scenarios] == [
         f"s{index:02d}" for index in range(1, 41)
     ]
+
+
+def test_v1_lock_matches_corpus_and_comparators() -> None:
+    """The frozen v1 lock still matches the scenario file and all three comparators."""
+    lock = corpus.check_lock(
+        V1_SCENARIOS.parent,
+        {
+            "deterministic": identity_sha256(DeterministicBaseline().identity()),
+            "frontier": identity_sha256(FrontierRouter(cwd=".").identity()),
+            "hermetic": identity_sha256(hermetic_identity()),
+        },
+    )
+    assert lock.count == 40
+    assert lock.repeats == 5
+    assert lock.seed == 20261004
 
 
 def test_write_lock_then_check_lock_round_trips(tmp_path: Path) -> None:

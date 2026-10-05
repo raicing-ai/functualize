@@ -76,6 +76,13 @@ every command from the repository root.
   Confluence page in space `SD` under page `5144577` (T9).
 - D-7 (monetary cost): instrument only; no product change.
 - S-1 (offline rule copy), S-4 (CLI output contract): accepted.
+- D-4 approval (maintainer, 2026-10-05T15:45:43Z, tracker comment
+  `01a10cbe-09e4`): *"Ok approve lets follow your recommendation 2"* — corpus
+  v1 approved with the two recommended edits (`s12` drops its fairness
+  question; `s17` becomes a status-page lookup) and the rubric's override
+  wording aligned with *How labels are assigned*. Approved and frozen digest:
+  `scenarios.jsonl` sha256
+  `466245291d9b94428a4984f216e57f654d946764522cbef6fc09ab694cf21872`.
 
 ## Wave 0 — foundation
 
@@ -698,7 +705,7 @@ report commands`.
 
 ## Wave 3
 
-### [ ] T6 — corpus v1 (drafted, not frozen)
+### [x] T6 — corpus v1 (drafted, not frozen)
 
 *Files:* `tests/hermetic_eval/corpus/v1/scenarios.jsonl` (new),
 `tests/hermetic_eval/test_corpus.py` (extend). **Do not edit
@@ -739,7 +746,7 @@ passes and the maintainer has approved the corpus. Commit:
 
 ## Wave 4
 
-### [ ] T7 — freeze corpus v1
+### [x] T7 — freeze corpus v1
 
 *Files:* `tests/hermetic_eval/corpus/v1/corpus.lock.json` (new, written by
 the command), `tests/hermetic_eval/test_corpus.py` (extend)
