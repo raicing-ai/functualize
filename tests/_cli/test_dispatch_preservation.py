@@ -5,11 +5,11 @@ condition does NOT hold. They MUST PASS on unfixed code and serve as
 regression guards after the fix is applied.
 
 Non-buggy inputs include:
-- Always-consumes-value flags (--log-level, --config-directory, etc.) followed
-  by their value and then a positional
+- Value-required flags (--log-level, --config-directory, etc.) followed by
+  their value and then a positional
 - Boolean flags (--no-dotenv) with a positional
 - Equals-style flags (--perf-report=text, --emit-format=json) with a positional
-- Explicit valid values for optional-value flags (--perf-report text)
+- Explicit valid values for selection-table flags (--perf-report text)
 
 **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13**
 """
@@ -417,7 +417,7 @@ class TestPreservationEqualsStyleSyntax:
         """--perf-report text job_name → perf_report="text", first_positional_index=2.
 
         When an explicit valid format value ("text" or "json") follows --perf-report,
-        it IS consumed as the flag's value. This behavior must be preserved.
+        it is consumed as the flag's value. This behavior must be preserved.
 
         **Validates: Requirements 3.1, 3.2**
         """
