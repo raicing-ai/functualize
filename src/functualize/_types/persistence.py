@@ -38,7 +38,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from functualize._types.gate_resolution import GateCandidate
+    from functualize._types.protocols import StoreSubstrate
 
 __all__ = [
     "StoreProfile",
@@ -78,6 +81,10 @@ __all__ = [
     # The store and its transaction
     "RuntimeStore",
     "RuntimeTransaction",
+    # Selection
+    "RuntimeStoreConfig",
+    "PreparedStore",
+    "RuntimeStoreFactory",
 ]
 
 
@@ -774,3 +781,63 @@ class RuntimeTransaction(Protocol):
     inputs: InputWriter
     events: EventWriter
     effects: EffectWriter
+
+
+# ------------------------------------------------------------------
+# Selection — how boot step 6.5 obtains the one store.
+#
+# A backend registers a factory under a URL scheme
+# (``PluginHost.register_runtime_store_factory``); boot resolves
+# ``runtime_store.url``, looks the scheme up and calls ``prepare`` uncaught.
+# Boot registers the built-in ``documents`` factory itself, so every store,
+# the default included, arrives by the same door. No logic lives here.
+# ------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RuntimeStoreConfig:
+    """What boot resolved for the store: the URL and where the project lives."""
+
+    #: The configured URL; ``"documents:"`` when nothing is configured.
+    url: str
+    #: The part before ``":"`` — the registry key.
+    scheme: str
+    #: ``app.fresh_root``, so a relative path cannot follow a later chdir.
+    project_root: Path
+    #: The setting a refusal names, so its reader knows what to change.
+    config_key: str = "runtime_store.url"
+
+
+@dataclass(frozen=True)
+class PreparedStore:
+    """What a factory hands boot: the store, and the substrate for derived data."""
+
+    store: RuntimeStore
+    #: Where ``fresh`` and ``shell-history`` live when this store is selected;
+    #: ``None`` means the project's default substrate. Lets one SQLite file
+    #: carry both.
+    substrate: StoreSubstrate | None
+
+
+@runtime_checkable
+class RuntimeStoreFactory(Protocol):
+    """A backend boot can select by URL scheme.
+
+    ``profile`` is declared before :meth:`prepare` runs, so a refusal on a
+    missing capability needs no I/O.
+    """
+
+    scheme: str
+    profile: StoreProfile
+
+    def prepare(self, config: RuntimeStoreConfig) -> PreparedStore:
+        """Open, migrate, health-check. Raise to abort boot; never degrade."""
+        ...
+
+    def unselected_data(self, project_root: Path) -> str | None:
+        """A sentence naming runtime data this backend holds, or ``None``.
+
+        Asked only when nothing is configured: a backend that holds data the
+        default store would not see refuses boot rather than strand it.
+        """
+        ...

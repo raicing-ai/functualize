@@ -43,8 +43,9 @@ if TYPE_CHECKING:
 
 FIXTURE = Path(__file__).parent / "fixtures" / "plugin_host_conformance.py"
 
-#: The twelve members: `contracts.md` §1's eleven, in that document's order,
-#: then §2.1's `offer_substrate` (FUN-17/T12).
+#: The thirteen members: `contracts.md` §1's eleven, in that document's order,
+#: then §2.1's `offer_substrate` (FUN-17/T12), then the runtime store
+#: registration every backend selected by `runtime_store.url` arrives through.
 PORT_MEMBERS = {
     "di",
     "extensions",
@@ -57,6 +58,7 @@ PORT_MEMBERS = {
     "substrate",
     "install_substrate",
     "offer_substrate",
+    "register_runtime_store_factory",
     "fresh_root",
 }
 
@@ -122,7 +124,7 @@ class TestTheShippedAppSatisfiesThePort:
 
 
 class TestThePortsShapeIsPinned:
-    def test_the_port_has_exactly_its_twelve_members(self) -> None:
+    def test_the_port_has_exactly_its_thirteen_members(self) -> None:
         assert _members(PluginHost) == PORT_MEMBERS
 
     def test_the_excluded_members_stay_excluded(self) -> None:

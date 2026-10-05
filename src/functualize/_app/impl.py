@@ -1657,6 +1657,25 @@ def offer_substrate(app: Any, offer: Any) -> None:
     app._substrate_claims.append((_claimant(app, offer), offer))
 
 
+def register_runtime_store_factory(app: Any, factory: Any) -> None:
+    """Record a selectable runtime store for boot step 6.5.
+
+    Every registration is kept with its claimant; step 6.5
+    (``_app/store_selection.select_runtime_store``) refuses a scheme claimed
+    twice, naming both, by the rule :func:`offer_substrate`'s claims follow.
+    The list is created here rather than in ``FunctualizeApp.__init__``: the
+    facade has a line budget, and this function is its only writer.
+    """
+    if _store_is_selected(app):
+        raise SubstrateInstallError(
+            "boot already selected this app's runtime store; a factory "
+            "registered now could never be chosen. Register it from the "
+            "plugin's registration call, which runs before boot selects."
+        )
+    factories = app.__dict__.setdefault("_runtime_store_factories", [])
+    factories.append((_claimant(app, factory), factory))
+
+
 def _store_is_selected(app: Any) -> bool:
     """True once boot step 6.5 has built the engine with its substrate."""
     engine = getattr(app, "_execution_engine", None)
