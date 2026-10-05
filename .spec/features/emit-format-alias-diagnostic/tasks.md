@@ -17,7 +17,7 @@ gate's hit set is the point: an executor who does exactly what `[F]` says must l
 
 ## Wave 0
 
-### T1.1 — One arity in the grammar and in the pre-boot parser `[ ]`
+### T1.1 — One arity in the grammar and in the pre-boot parser `[x]`
 
 **Goal.** Delete the optional-value vocabulary from the grammar and from its two pre-boot
 consumers, and make "a flag that takes a value requires one" the single rule in
@@ -98,7 +98,7 @@ three `__all__`s turns any smaller split red at import, because `_cli/dispatch.p
 
 ## Wave 1
 
-### T2.1 — The grammar's own tests follow the collapsed table `[ ]`
+### T2.1 — The grammar's own tests follow the collapsed table `[x]`
 
 **Goal.** Repoint the three tests that read the tables at the one-table-with-valid-sets
 shape, and invert the lookahead assertion.
@@ -127,7 +127,7 @@ hit set **130 ids** (84 + 3 + 43 at authoring). All green.
 **Invariants.** The consumer-count test's number is produced by its own command, not
 adjusted to fit.
 
-### T2.2 — The app's own surface requires its argument `[ ]`
+### T2.2 — The app's own surface requires its argument `[x]`
 
 **Goal.** Stop supplying a default to a present-but-bare `--emit-format` on the `app`
 adapter, so Click's own arity rule answers.
@@ -155,7 +155,7 @@ hit set **16 ids** at authoring, plus the added case(s); all green on both surfa
 
 ## Wave 2
 
-### T3.1 — The arity parity instrument `[ ]`
+### T3.1 — The arity parity instrument `[x]`
 
 **Goal.** Add the AC8 test and the AC6 version-position cases.
 
@@ -183,7 +183,7 @@ the observed number). All green.
 "must come before the group name" message is unchanged); `func greet --emit-format json`
 is still `No such option`.
 
-### T3.2 — The discoverability file pins the new sentence `[ ]`
+### T3.2 — The discoverability file pins the new sentence `[x]`
 
 **Goal.** `tests/cli/test_emit_format_discoverability.py` stops pinning the console
 sentence the six `--help` rows were added beside.
@@ -202,7 +202,7 @@ sentence the six `--help` rows were added beside.
 **Gate.** `uv run pytest -q -p no:randomly tests/cli/test_emit_format_discoverability.py`
 — hit set **18 ids** (9 names × 2 surfaces). All green.
 
-### T3.3 — The early-parse and global-options files follow the new routing and exits `[ ]`
+### T3.3 — The early-parse and global-options files follow the new routing and exits `[x]`
 
 **Goal.** Two integration files pin argvs and exit codes the change moves: the lookahead
 routing in the early-parse file, and the two invalid-value exits Q1 unifies.
@@ -227,7 +227,7 @@ routing in the early-parse file, and the two invalid-value exits Q1 unifies.
 **Gate.** `uv run pytest -q -p no:randomly tests/cli/test_early_parse_integration.py
 tests/cli/test_global_options.py` — hit set **37 ids** (16 + 21 at authoring). All green.
 
-### T3.4 — The perf-report integration file, and the bug-condition file it replaces `[ ]`
+### T3.4 — The perf-report integration file, and the bug-condition file it replaces `[x]`
 
 **Goal.** `--perf-report` has one arity, so the bug-condition instrument for the old one
 goes and the integration cases move.
@@ -245,7 +245,7 @@ goes and the integration cases move.
 **Gate.** `uv run pytest -q -p no:randomly tests/_cli/test_perf_report_integration.py` —
 hit set **12 ids**; `rg -n "test_dispatch_bug_condition" tests/ .github/` → no matches.
 
-### T3.5 — The rename, characterization and preservation files `[ ]`
+### T3.5 — The rename, characterization and preservation files `[x]`
 
 **Goal.** The three remaining files that mention the old arity.
 
@@ -272,7 +272,7 @@ hit set **60 ids** (11 + 27 + 22 at authoring). All green.
 
 ## Wave 3
 
-### T4.1 — The live account of the four tables, and the parity docs `[ ]`
+### T4.1 — The live account of the four tables, and the parity docs `[x]`
 
 **Goal.**
 - `docs/api/types.md`: `GLOBAL_OPTIONS_OPTIONAL_VALUE`'s row (`:157`) goes; the paragraph
@@ -294,7 +294,7 @@ hit set **60 ids** (11 + 27 + 22 at authoring). All green.
 matches are in `.spec/features/emit-format-alias-diagnostic/` (the artifacts) and
 `CHANGELOG.md`'s released entry, which are history and stay.
 
-### T4.2 — The run-model and ADR claims `[ ]`
+### T4.2 — The run-model and ADR claims `[x]`
 
 **Goal.**
 - `contributor/architecture/run-model/06-outcome-authority.md:136,142-144` and
@@ -311,7 +311,7 @@ matches are in `.spec/features/emit-format-alias-diagnostic/` (the artifacts) an
 **Gate.** `rg -n "optional-value|optional value" contributor/architecture/run-model/
 contributor/adr/` → no matches.
 
-### T4.3 — The encapsulation audit, and the changelog entry `[ ]`
+### T4.3 — The encapsulation audit, and the changelog entry `[x]`
 
 **Goal.**
 - `contributor/architecture/audit-engine-encapsulation.md:169` — the flat claim that the
@@ -333,7 +333,7 @@ contributor/adr/` → no matches.
 
 ## Wave 4
 
-### T5.1 — Checkpoint `[verify-e2e:TARGETED]` `[ ]`
+### T5.1 — Checkpoint `[verify-e2e:TARGETED]` `[x]`
 
 **Goal.** Prove the whole change against the code as it stands, not against the task
 descriptions.
