@@ -11,8 +11,8 @@ that wants a smaller horizon constructs a policy rather than editing a constant.
 the rings are applied where they are already written (`scope_format._trim`,
 `run_format._trim`, and the per-record event rings in the two stores). The
 relational statement that deletes rows on a schedule is
-`sqlite-runtime-provider`'s (`schema.md` §5, D3 = B); it consumes this same
-value.
+`sqlite-runtime-provider`'s (data-model reference §6, D3 = B); it consumes
+this same value.
 
 **Which fields a document trim reads, and which it cannot.** `max_records` and
 `evictable_only` are read by `scope_format._trim`; `run_format._trim` reads

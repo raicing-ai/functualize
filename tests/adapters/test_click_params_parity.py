@@ -18,9 +18,8 @@ half, because a boolean set ``true`` in a config file could not otherwise be
 overridden from the command line — the config ladder promises CLI > env > file
 and for booleans it was three-quarters true.
 
-That is a decision, not drift: recorded in
-``.spec/features/boolean-flag-negation/spec.md`` as D3 and taken by the
-maintainer before the work began. ``flag`` and ``http`` are unchanged; they are
+That is a decision, not drift: recorded as D3 of the boolean-flag-negation
+package and taken by the maintainer before the work began. ``flag`` and ``http`` are unchanged; they are
 plain signature bools, which always had the pair, and the asymmetry between
 them and the three above is precisely what the feature removed.
 """

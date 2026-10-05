@@ -8,7 +8,7 @@ command comes out, and nothing else happens — no clock reads, no
 conditionals, no state between calls.
 
 Which moments carry a generation and which take one is the command layer's
-own split (``_types/persistence.py``, contracts.md §1.2): ``claimed`` and
+own split, declared on the commands in ``_types/persistence.py``: ``claimed`` and
 ``resumed`` are acquisitions, so they carry owner and lease instead of a
 held generation; ``step_completed`` and ``suspended`` mutate a scope the
 walk holds, so they carry the generation the walk holds — passed through,
@@ -27,10 +27,11 @@ The recorder holds no transaction, for the same lifetime reason as
 walker issues what these methods return inside
 ``store.transaction()`` — wiring that arrives with T11, not here.
 
-Mapping sources: ``contracts.md`` §1.2 fixes the command shapes and
-``tasks.md`` T10 names the four moments. Nothing constructs these values
-anywhere in the tree yet, so the mapping is derived from the contract, not
-copied from a call site.
+Mapping sources: the command shapes are the port's own
+(``_types/persistence.py``), and the four moments are the walk's own — taking
+the scope, finishing a step, stopping at a gate, resuming. Nothing constructs
+these values anywhere in the tree yet, so the mapping is derived from the
+contract, not copied from a call site.
 """
 
 from __future__ import annotations
