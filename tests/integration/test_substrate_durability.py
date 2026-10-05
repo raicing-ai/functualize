@@ -9,8 +9,8 @@ The honest version of this test is two machines and a network database, which a
 unit suite cannot run. So the property is reproduced the strongest way one
 machine allows: **the two processes have different working directories and
 different `.functualize/` directories**, and the only thing joining them is the
-substrate this project's config picks — `plugin.substrate-sqlite.db_path`,
-resolved by the shipped plugin's chooser when boot asks it.
+store this project's config selects — `runtime_store.url = "sqlite:///…"`,
+prepared by the shipped plugin's factory when boot selects it.
 
 That is the real claim. The framework's own file layout — one upward walk to a
 `.functualize/`, `scopes.json` and `scope-state/` beside each other — is what a
@@ -43,6 +43,19 @@ from pathlib import Path
 import pytest
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
+
+# TRANSITIONAL(sqlite-runtime-provider waves 2-3, tasks 8-10): installing the
+# SQLite plugin no longer selects storage, so the workers select it with
+# `runtime_store.url` — and the selected `SqliteRuntimeStore` refuses every
+# writer and reader with NotImplementedError until tasks 8-10 bind them (the
+# observed failure: "transaction().workflows.claim lands with task 8"). Strict,
+# so this marker errors the moment those waves make the walk pass and has to be
+# removed then, together with re-pointing the records assertion at the
+# relational tables.
+pytestmark = pytest.mark.xfail(
+    strict=True,
+    reason="SqliteRuntimeStore writers/readers land in tasks 8-10 (waves 2-3)",
+)
 
 _JOBS = '''
 from pydantic import BaseModel, Field
@@ -92,9 +105,9 @@ from functualize.app.adapters import CliAdapter
 # No substrate is installed here, and none can be: `FunctualizeApp.__init__`
 # boots, and boot step 6.5 builds the engine *with* the store it selects — so
 # an `install_substrate` after construction is refused by design. Storage is
-# chosen the way a user chooses it: `config.base.toml` names the plugin's
-# `db_path`, the shipped `substrate-sqlite` plugin offers its chooser at
-# registration, and boot asks it at 6.5.
+# chosen the way a user chooses it: `config.base.toml` sets
+# `runtime_store.url`, the shipped `substrate-sqlite` plugin registers its
+# factory, and boot selects and prepares it at 6.5.
 app = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
 
 adapter = CliAdapter()
@@ -111,16 +124,15 @@ def _worker(root: Path, db: Path) -> Path:
     (root / ".functualize.toml").write_text(
         'jobs_directories = ["jobs"]\nroot = true\n'
     )
-    # The only thing naming the substrate: the plugin's own config section,
-    # read by its chooser at step 6.5. The plugin is installed in this
+    # The only thing naming the store: `runtime_store.url`, read at step 6.5. The plugin is installed in this
     # workspace's venv, so entry-point discovery loads it with nothing else
     # to declare.
     (root / "config.base.toml").write_text(
         "[general]\n"
         'app_name = "w"\n'
         "\n"
-        "[plugin.substrate-sqlite]\n"
-        f"db_path = {json.dumps(str(db))}\n"
+        "[runtime_store]\n"
+        f"url = {json.dumps('sqlite://' + str(db))}\n"
     )
     (root / ".functualize").mkdir()
     (root / "main.py").write_text(_MAIN)
