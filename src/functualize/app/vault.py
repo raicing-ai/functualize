@@ -37,6 +37,9 @@ plaintext by being added carelessly.
 from __future__ import annotations
 
 import contextlib
+import logging
+import signal
+import threading
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -60,7 +63,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from functualize._config.vault import SecretsVault
-    from functualize._config.vault_keys import KeyResolution
+    from functualize._config.vault_key_resolver import KeyLookup, VaultKeyResolver
 
 __all__ = [
     "Readability",
@@ -75,14 +78,47 @@ __all__ = [
     "VaultOrigin",
     "VaultOriginConflictError",
     "VaultKeySourceError",
+    "VaultKeyState",
+    "VaultKeyStatus",
+    "UnlockAbandonedError",
     "VaultPathError",
     "vault_init",
     "vault_inspect",
+    "vault_key_state",
     "vault_put",
     "vault_remove",
+    "vault_unlock",
     "WinningSource",
     "resolve_vault_identity",
 ]
+
+
+logger = logging.getLogger(__name__)
+
+
+class VaultKeyStatus(StrEnum):
+    """Whether a run would get the vault key right now (contracts §9)."""
+
+    UNLOCKED = "unlocked"
+    LOCKED = "locked"
+    UNKNOWN = "unknown"
+    """The keyring cannot say, or the probe hit its time cap."""
+
+    NO_KEYRING = "no_keyring"
+    NOT_APPLICABLE = "not_applicable"
+    """This project has no vault file, so there is nothing to open."""
+
+
+@dataclass(frozen=True, slots=True)
+class VaultKeyState:
+    """The answer of :func:`vault_key_state`. Never carries the key."""
+
+    status: VaultKeyStatus
+    source: str | None = None
+    """``"env"``, the keyring adapter's name, or None."""
+
+    key_stored: bool | None = None
+    """On an unlocked keyring: is the vault key entry there? None if unknown."""
 
 
 class Readability(StrEnum):
@@ -364,9 +400,14 @@ class VaultKeySourceError(RuntimeError):
     only the one that happens to be unavailable.
     """
 
+    #: ``key_unavailable`` was once the reason for every keyless state. It is
+    #: kept as a spelling a caller may still pass, and means ``no_keyring`` —
+    #: the one of the three outcomes it can honestly still describe.
+    _LEGACY_REASONS: dict[str, str] = {"key_unavailable": "no_keyring"}  # noqa: RUF012
+
     def __init__(self, reason: str, message: str) -> None:
         super().__init__(message)
-        self.reason = reason
+        self.reason = self._LEGACY_REASONS.get(reason, reason)
 
 
 def vault_init(
@@ -463,11 +504,23 @@ _NO_KEY_STORE_MESSAGE = (
 
 def _init_with(provider: Any, project_id: str) -> VaultInitReport:
     """Create or validate through one provider, reporting which happened."""
+    from functualize._config.vault import (
+        KeyringLockedError,
+        KeyringUnavailableError,
+        KeyringUnverifiedError,
+    )
     from functualize.plugin import VaultKeyInitializer
 
     identifier = provider.identifier()
 
-    if provider.get_key(project_id) is not None:
+    try:
+        existing = provider.get_key(project_id)
+    except (KeyringLockedError, KeyringUnavailableError):
+        # Locked, or a backend a run may not read: not "no key". The
+        # initializer below says which, and never prompts either: only
+        # `vault unlock` asks a keyring to unlock (spec B4').
+        existing = None
+    if existing is not None:
         # Idempotent, and honest about it: nothing was written, so the report
         # must not say "created". `--key-source env` always lands here, which
         # is what makes it a pure preflight.
@@ -492,7 +545,14 @@ def _init_with(provider: Any, project_id: str) -> VaultInitReport:
             f"{_NO_KEY_STORE_MESSAGE}",
         )
 
-    provider.initialize_key(project_id)
+    try:
+        provider.initialize_key(project_id)
+    except KeyringLockedError as exc:
+        raise VaultKeySourceError("key_locked", str(exc)) from exc
+    except KeyringUnverifiedError as exc:
+        raise VaultKeySourceError("key_unverified", str(exc)) from exc
+    except KeyringUnavailableError as exc:
+        raise VaultKeySourceError("no_keyring", str(exc)) from exc
     return VaultInitReport(key_provider=identifier, created=True)
 
 
@@ -510,18 +570,228 @@ def _open_store(cwd: str | Path | None = None) -> SecretsVault:
     return SecretsVault(vault_path_for_project(cwd))
 
 
-def _resolve_key(cwd: str | Path | None = None) -> KeyResolution:
-    """The vault key, or a refusal that names how to supply one."""
-    from functualize._config.vault_keys import resolve_vault_key
+def _key_failure(lookup: KeyLookup, *, timeout: float | None) -> VaultKeySourceError:
+    """The refusal for a lookup that found no key — the one message (spec B3)."""
+    from functualize._config.vault_key_resolver import KeyStatus, describe_key_failure
 
-    resolution = resolve_vault_key(_project_id(cwd))
-    if resolution is None:
-        raise VaultKeySourceError(
-            "key_unavailable",
-            "No vault key is available, so nothing can be encrypted or read.\n\n"
-            + _NO_KEY_STORE_MESSAGE,
+    reasons = {
+        KeyStatus.LOCKED: "key_locked",
+        KeyStatus.NO_KEYRING: "no_keyring",
+        KeyStatus.NOT_STORED: "key_not_stored",
+        KeyStatus.UNVERIFIED: "key_unverified",
+    }
+    return VaultKeySourceError(
+        reasons.get(lookup.status, "no_keyring"),
+        describe_key_failure(lookup, timeout=timeout if lookup.timed_out else None),
+    )
+
+
+def _resolve_key(app: Any = None, cwd: str | Path | None = None) -> KeyLookup:
+    """The vault key, behind the configured deadline, or a refusal saying why.
+
+    Bounded like a job run (``vault put`` also runs from scripts, where an
+    unbounded wait is the hang this exists to remove); only
+    :func:`vault_unlock` waits without a limit.
+    """
+    from functualize._config.vault import app_keyring_timeout
+    from functualize._config.vault_key_resolver import (
+        KeyAccess,
+        KeyStatus,
+        resolve_vault_key,
+    )
+
+    timeout = app_keyring_timeout(app)
+    lookup = resolve_vault_key(
+        _project_id(cwd), access=KeyAccess.BOUNDED, timeout=timeout
+    )
+    if lookup.status is not KeyStatus.FOUND:
+        raise _key_failure(lookup, timeout=timeout)
+    return lookup
+
+
+class UnlockAbandonedError(VaultKeySourceError):
+    """``vault_unlock`` was interrupted twice while the unlock prompt was open.
+
+    The keyring's prompt is left to the keyring daemon. Ending an active
+    prompt from the client side can make some keyring daemons misbehave until
+    they restart, which is why the first interrupt only warns.
+    """
+
+
+#: The guidance logged on the first interrupt while the prompt is open.
+_WAITING_NOTICE = (
+    "Waiting for the keyring's unlock prompt — answer or cancel it there. "
+    "Interrupt again to stop waiting; the keyring may then misbehave until "
+    "it is restarted."
+)
+
+
+def vault_unlock(app: Any = None, cwd: str | Path | None = None) -> KeyLookup:
+    """Ask the keyring to unlock, and wait — with no deadline — for its outcome.
+
+    The one operation that may show the keyring's own unlock dialog. Run by a
+    person, it waits for the dialog to be answered or cancelled there, and
+    never cancels it from this side: ending an active prompt from the client
+    can crash some keyring daemons. functualize unlocks nothing of its own and
+    keeps nothing — the keyring decides how long it stays unlocked, and every
+    later run reads it silently while it does.
+
+    **Interrupts.** While the prompt is open, the first SIGINT or SIGTERM logs
+    a warning and keeps waiting; a second raises
+    :class:`UnlockAbandonedError`. The previous signal handlers are restored
+    either way. Off the main thread no handlers are installed.
+
+    Args:
+        app: Accepted for symmetry with the sibling functions; the wait has no
+            deadline, so no timeout setting is read.
+        cwd: Where to resolve the project from.
+
+    Returns:
+        The outcome, naming the provider that answered and, in
+        ``unlock_how``, whether the keyring was already unlocked, unlocked now,
+        or had nothing to unlock. **The key itself is stripped** — this
+        function never returns, prints or logs it.
+
+    Raises:
+        VaultKeySourceError: No key could be had. ``reason`` is ``cancelled``
+            (cancelled in the dialog), ``no_prompt`` (no dialog appeared),
+            ``key_locked``, ``no_keyring`` or ``key_not_stored``.
+        UnlockAbandonedError: Interrupted twice while the prompt was open.
+    """
+    from functualize._config.vault_key_resolver import KeyLookup, KeyStatus
+
+    lookup = _wait_for_unlock(_project_id(cwd))
+    if lookup.status is not KeyStatus.FOUND:
+        raise _unlock_failure(lookup)
+    return KeyLookup(
+        KeyStatus.FOUND,
+        provider_id=lookup.provider_id,
+        waited=lookup.waited,
+        unlock_how=lookup.unlock_how,
+    )
+
+
+def _wait_for_unlock(project_id: str) -> KeyLookup:
+    """Run the foreground lookup, holding on the first interrupt."""
+    from functualize._config.vault_key_resolver import KeyAccess, resolve_vault_key
+
+    done = threading.Event()
+    result: list[KeyLookup] = []
+    error: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            result.append(resolve_vault_key(project_id, access=KeyAccess.FOREGROUND))
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller
+            error.append(exc)
+        finally:
+            done.set()
+
+    interrupts = 0
+
+    def on_signal(signum: int, frame: object) -> None:
+        nonlocal interrupts
+        interrupts += 1
+        if interrupts == 1:
+            logger.warning(_WAITING_NOTICE)
+
+    previous: dict[int, Any] = {}
+    if threading.current_thread() is threading.main_thread():
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous[signum] = signal.signal(signum, on_signal)
+    worker = threading.Thread(target=run, daemon=True, name="functualize-vault-unlock")
+    worker.start()
+    try:
+        while not done.wait(0.1):
+            if interrupts >= 2:
+                raise UnlockAbandonedError(
+                    "unlock_abandoned",
+                    "Stopped waiting for the keyring's unlock prompt. If the "
+                    "keyring misbehaves now (no dialog, or everything locked "
+                    "again), restart it by logging out and back in.",
+                )
+    finally:
+        for restored, handler in previous.items():
+            signal.signal(restored, handler)
+    if error:
+        raise error[0]
+    return result[0]
+
+
+def _unlock_failure(lookup: KeyLookup) -> VaultKeySourceError:
+    """The refusal for a ``vault unlock`` that ended without a key."""
+    from functualize._config.vault_keyring import UnlockHow
+
+    if lookup.unlock_how is UnlockHow.CANCELLED:
+        return VaultKeySourceError(
+            "cancelled",
+            "The unlock was cancelled in the keyring's dialog. Run "
+            "`func builtin vault unlock` again when you are ready.",
         )
-    return resolution
+    if lookup.unlock_how is UnlockHow.NO_PROMPT:
+        return VaultKeySourceError(
+            "no_prompt",
+            "The keyring was asked to unlock, but no unlock dialog appeared. "
+            "Its service may need a restart (log out and back in), or set "
+            "`FUNCTUALIZE_VAULT_KEY` instead.",
+        )
+    return _key_failure(lookup, timeout=None)
+
+
+#: How long a diagnostic (`inspect`, `status`) waits on a hung keyring.
+_DIAGNOSTIC_READ_SECONDS = 2.0
+
+
+def vault_key_state(app: Any = None, cwd: str | Path | None = None) -> VaultKeyState:
+    """Whether a run would get the vault key now — never prompting (spec B8).
+
+    Never prompts, never unlocks, never reads the secret, never raises (a
+    failure is ``UNKNOWN``), and answers within about 250 ms. With
+    ``$FUNCTUALIZE_VAULT_KEY`` set it answers ``UNLOCKED`` from ``"env"``
+    without touching a keyring. The answer is cached for a couple of seconds
+    on the app's own key resolver, so a surface that polls it — the TUI status
+    bar — costs one probe per window.
+
+    Args:
+        app: The app whose vault this is, when there is one; its resolver's
+            cache is used. Without it a fresh resolver answers, uncached.
+        cwd: Where to resolve the project from.
+    """
+    try:
+        from functualize._config.vault_paths import vault_path_for_project
+
+        if not vault_path_for_project(cwd).exists():
+            return VaultKeyState(VaultKeyStatus.NOT_APPLICABLE)
+        state = _resolver_for(app, cwd).key_state()
+    except Exception:  # noqa: BLE001 - a state probe never raises
+        return VaultKeyState(VaultKeyStatus.UNKNOWN)
+    if not state.reachable:
+        return VaultKeyState(VaultKeyStatus.NO_KEYRING)
+    return VaultKeyState(
+        VaultKeyStatus(state.availability.value),
+        source=state.source,
+        key_stored=state.key_stored,
+    )
+
+
+def _resolver_for(app: Any, cwd: str | Path | None) -> VaultKeyResolver:
+    """The app's own key resolver when it has a vault source, else a fresh one."""
+    from functualize._config.vault_key_resolver import VaultKeyResolver
+
+    chain = getattr(app, "_resolution_chain", None)
+    for source in getattr(chain, "sources", None) or ():
+        resolver = getattr(source, "resolver", None)
+        if isinstance(resolver, VaultKeyResolver):
+            return resolver
+    return VaultKeyResolver(_project_id(cwd))
+
+
+def _found_key(lookup: KeyLookup) -> bytes:
+    """The key of a FOUND lookup — narrowed once rather than asserted per site."""
+    if lookup.key is None:
+        msg = "a FOUND key lookup carried no key"
+        raise VaultKeySourceError("no_keyring", msg)
+    return lookup.key
 
 
 def vault_put(
@@ -555,7 +825,7 @@ def vault_put(
     because a public function cannot assume its caller did.
     """
     resolved = _revalidate(app, identity)
-    resolution = _resolve_key(cwd)
+    resolution = _resolve_key(app, cwd)
     store = _open_store(cwd)
 
     key = resolved.encode()
@@ -563,7 +833,7 @@ def vault_put(
     store.put(
         key,
         value,
-        encryption_key=resolution.key,
+        encryption_key=_found_key(resolution),
         origin=VaultOrigin.DIRECT,
         replace=replace,
     )
@@ -634,7 +904,11 @@ def vault_inspect(
     because "why can I not store this here?" is the question the command exists
     to answer.
     """
-    from functualize._config.vault_keys import resolve_vault_key
+    from functualize._config.vault_key_resolver import (
+        KeyAccess,
+        KeyStatus,
+        resolve_vault_key,
+    )
 
     try:
         resolved = _revalidate(app, identity)
@@ -655,11 +929,16 @@ def vault_inspect(
             winning_source=WinningSource.MISSING,
         )
 
-    resolution = resolve_vault_key(_project_id(cwd))
-    if resolution is None:
+    # A silent read: inspect never raises a dialog, and a locked keyring
+    # reads as KEY_UNAVAILABLE at once. The short bound only guards a hung
+    # backend, so a diagnostic never waits long.
+    lookup = resolve_vault_key(
+        _project_id(cwd), access=KeyAccess.BOUNDED, timeout=_DIAGNOSTIC_READ_SECONDS
+    )
+    if lookup.status is not KeyStatus.FOUND:
         readability = Readability.KEY_UNAVAILABLE
     else:
-        opens = store.opens_with(resolution.key)
+        opens = store.opens_with(_found_key(lookup))
         # `None` means the store predates the check row. Reporting that as
         # readable would be a guess; reporting it as wrong would libel every
         # vault written before this feature. Unknown is neither, so it maps to

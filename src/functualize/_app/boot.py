@@ -1281,7 +1281,7 @@ def build_vault_source(app: Any) -> Any:
             ADR-016 exists to close; refusing is the whole point.
     """
     if not getattr(app._config_sources, "remote", False):
-        return _build_dormant_vault_source()
+        return _build_dormant_vault_source(app)
 
     registered = app.config_registry.list_remote_providers()
     if not registered:
@@ -1298,36 +1298,34 @@ def build_vault_source(app: Any) -> Any:
         raise RuntimeError(msg)
 
     from functualize._config.vault import resolve_max_age, vault_path_for_project
-    from functualize._config.vault_keys import resolve_vault_key
-    from functualize._config.vault_source import VaultSource
-    from functualize._primitives.locator import compute_project_id
 
-    project_id = compute_project_id(Path.cwd())
-    resolution = resolve_vault_key(project_id)
-    if resolution is None:
-        # Inert, not fatal: this path is reachable from `func --help`, and a
-        # missing key must not make the tool unusable. One warning here rather
-        # than one per key: with no key *every* lookup falls through, so the
-        # per-key warning would drown this message instead of sharpening it.
-        logger.warning(
-            "remote_first() is active but no vault key is available. Declared "
-            "remote values will fall back to local sources. Set "
-            "$FUNCTUALIZE_VAULT_KEY (see `func builtin vault keygen`)."
-        )
-        return VaultSource(vault_path_for_project(), encryption_key=None)
-
-    return VaultSource(
+    return _lazy_vault_source(
+        app,
         vault_path_for_project(),
-        encryption_key=resolution.key,
-        key_provider_id=resolution.provider_id,
-        # Resolved only on the path that can actually read: an unusable vault
-        # never checks its age, so parsing the threshold there would risk
-        # warning about a misspelled setting that was never going to be used.
         max_age=resolve_max_age(getattr(app._config_sources, "vault_max_age", None)),
     )
 
 
-def _build_dormant_vault_source() -> Any:
+def _lazy_vault_source(app: Any, path: Path, *, max_age: Any = None) -> Any:
+    """One ``VaultSource`` per app over a key that is resolved on first need.
+
+    **Nothing is resolved here.** Boot builds the resolver and hands it over;
+    the key is asked for only when a run is about to open a stored entry, so
+    ``func --help``, completions and every job that reads no stored secret
+    never touch the OS keyring and never wait on it. The resolver is the
+    app's, not the module's: its memo is what makes many lookups in one run
+    cost one wait. A missing key is no longer warned about here either — the
+    source says it once, at the first declared-remote value that needed it.
+    """
+    from functualize._config.vault_key_resolver import VaultKeyResolver
+    from functualize._config.vault_source import VaultSource
+    from functualize._primitives.locator import compute_project_id
+
+    resolver = VaultKeyResolver.for_app(compute_project_id(Path.cwd()), app)
+    return VaultSource(path, key=resolver, max_age=max_age)
+
+
+def _build_dormant_vault_source(app: Any) -> Any:
     """A vault source for an ordinary app that has a vault, else None.
 
     "Dormant" because it is built only when there is something to read and
@@ -1350,29 +1348,13 @@ def _build_dormant_vault_source() -> Any:
     if not path.exists():
         return None
 
-    from functualize._config.vault_keys import resolve_vault_key
-    from functualize._config.vault_source import VaultSource
-    from functualize._primitives.locator import compute_project_id
-
-    # Interactive providers are consulted here only on a TTY, as everywhere
-    # else. On a workstation whose key lives in the OS keyring this can raise
-    # an unlock prompt on an ordinary run -- accepted, because the file only
-    # exists if someone deliberately put something in it, and refusing to read
-    # your own vault to avoid asking you to unlock it would be the worse trade.
-    resolution = resolve_vault_key(compute_project_id(Path.cwd()))
-    if resolution is None:
-        # Not fatal, and deliberately not warned about here. With no key, a
-        # *stored* entry now refuses at the point of use with a message naming
-        # the recovery (ADR-023 §1), and a boot-time warning would fire for
-        # every project that has a vault, including the ones about to resolve
-        # every value from somewhere else entirely.
-        return VaultSource(path, encryption_key=None)
-
-    return VaultSource(
-        path,
-        encryption_key=resolution.key,
-        key_provider_id=resolution.provider_id,
-    )
+    # The key is not resolved here. A run that reads a stored entry asks the
+    # keyring then — regardless of terminal, behind the keyring wait — and a
+    # run that reads none never asks it, so having a vault no longer costs an
+    # ordinary job an unlock prompt. With no key, a *stored* entry refuses at
+    # the point of use with a message naming why and the next step
+    # (ADR-023 §1); nothing is warned about at boot.
+    return _lazy_vault_source(app, path)
 
 
 def build_resolution_chain(

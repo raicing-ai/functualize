@@ -337,11 +337,8 @@ class TestGroupVaultPrecedence:
     ) -> None:
         """Write scoped vault entries for the isolated project, with a key."""
         from functualize._config.vault import SecretsVault, VaultOrigin
-        from functualize._config.vault_keys import (
-            ENV_VAR,
-            generate_key,
-            resolve_vault_key,
-        )
+        from functualize._config.vault_key_resolver import resolve_vault_key
+        from functualize._config.vault_keys import ENV_VAR, generate_key
         from functualize._config.vault_paths import vault_path_for_project
         from functualize._primitives.vault_identity import VaultIdentity
 

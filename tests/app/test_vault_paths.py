@@ -64,6 +64,53 @@ def test_same_target_and_field_are_distinct_by_scope(app: FunctualizeApp) -> Non
     assert group.encode() != job.encode()
 
 
+class TestTheIdentityThatMakesTheFeatureWork:
+    def test_the_storage_key_is_what_the_chain_asks_for(
+        self, app: FunctualizeApp
+    ) -> None:
+        """`put` and the run must agree on one string, exactly.
+
+        A job's config section prefix is its full dotted canonical name, and
+        `VaultSource._identity` encodes ``(scope, section, key)``. If this
+        drifts, nothing raises — the entry is stored under a name nothing
+        ever looks up, and the job silently falls through to a weaker source.
+        """
+        from functualize._config.vault_key_resolver import VaultKeyResolver
+        from functualize._config.vault_source import VaultSource
+
+        resolved = resolve_vault_identity(app, job="deploy", field="api_token")
+
+        # Cross-checked against the function the chain actually calls, not
+        # against a string rebuilt here. Asserting the encoding against a
+        # literal would only restate how `encode` is written; it would stay
+        # green if VaultSource started building identities some other way,
+        # which is exactly the drift that would break the feature silently.
+        source = VaultSource(
+            Path("unused.db"), key=VaultKeyResolver.fixed(b"\x00" * 32, "test")
+        )
+        assert (
+            resolved.encode()
+            == source._identity(
+                resolved.field, resolved.target, resolved.scope
+            ).encode()
+        )
+
+    def test_the_identity_target_really_is_the_job_name(
+        self, app: FunctualizeApp
+    ) -> None:
+        """The other half of the identity, and the half that lives elsewhere.
+
+        The storage key is only correct because a job's config view is built
+        with `default_section_prefix=rc.name`. That happens in the composition
+        root, so this asserts the link rather than assuming it.
+        """
+        resolved = resolve_vault_identity(app, job="deploy", field="api_token")
+        descriptor = app.get_job("deploy")
+
+        assert descriptor is not None
+        assert resolved.target == str(descriptor.name)
+
+
 def test_nested_job_path_is_target_not_field(app: FunctualizeApp) -> None:
     app.register_dynamic_job("deploy.service", lambda: None, config_class=None)
     with pytest.raises(VaultPathError) as exc:

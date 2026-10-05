@@ -1,0 +1,86 @@
+name: Keyring platforms
+
+# The vault keyring adapters on the three platforms they claim, on throwaway
+# keyrings only. Not a required check: the maintainer decides when it becomes
+# one. Tier 1 (the adapter contract suite, and a real-OS check that a silent
+# read of a locked keyring answers LOCKED without a dialog) must pass; tier 2
+# (a headless "unlocked elsewhere") is a reported spike.
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "src/functualize/_config/vault_key*.py"
+      - "src/functualize/_config/vault_keyring*.py"
+      - "tests/contracts/**"
+      - "tests/config/test_vault_keyring_*.py"
+      - "tests/config/test_keyring_platform_imports.py"
+      - ".github/workflows/keyring-platforms.yml"
+      - ".github/scripts/keyring_smoke.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keyring:
+    name: keyring (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-latest
+          - platform: macos
+            runner: macos-latest
+          - platform: windows
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Adapter contract suite (tier 1, fakes)
+        run: >-
+          uv run pytest -q --no-header -p no:cacheprovider
+          tests/contracts
+          tests/config/test_vault_keyring_secretservice.py
+          tests/config/test_vault_keyring_macos.py
+          tests/config/test_vault_keyring_windows.py
+          tests/config/test_vault_keyring_generic.py
+          tests/config/test_keyring_platform_imports.py
+
+      - name: Per-platform typing
+        if: matrix.platform == 'linux'
+        run: |
+          uv run mypy --platform darwin src/functualize/_config/
+          uv run mypy --platform win32 --follow-imports=silent src/functualize/_config/vault_key*.py
+
+      - name: Install a private Secret Service
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gnome-keyring dbus
+
+      - name: Real-OS smoke (Linux, private D-Bus session)
+        if: matrix.platform == 'linux'
+        env:
+          KEYRING_SMOKE_PRIVATE_BUS: "1"
+        run: dbus-run-session -- uv run python .github/scripts/keyring_smoke.py linux
+
+      - name: Real-OS smoke (macOS, throwaway keychain)
+        if: matrix.platform == 'macos'
+        run: uv run python .github/scripts/keyring_smoke.py macos
+
+      - name: Real-OS smoke (Windows, Credential Manager)
+        if: matrix.platform == 'windows'
+        run: uv run python .github/scripts/keyring_smoke.py windows

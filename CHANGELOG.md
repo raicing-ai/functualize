@@ -43,6 +43,83 @@ Reprovision direct values and run `vault sync` for provider entries afterward.
 JSON refusal reasons include `scope_required`, `unknown_group`, and
 `vault_format_unsupported`.
 
+
+### Changed — the vault key is read from an unlocked keyring with or without a terminal
+
+A run that needed a stored vault secret used to get it in a terminal and be
+refused the moment stdout was piped, captured by an agent's shell tool, or
+served over stdio MCP — with a message that said no key existed and offered to
+delete the entry. The OS keyring was consulted only when stdin and stdout were
+both terminals, which also blocked a silent read of a keyring the developer
+had already unlocked.
+
+Now `$FUNCTUALIZE_VAULT_KEY` still wins when set and nothing else is touched;
+otherwise the keyring is read **regardless of terminal**, and always
+**silently**: an unlocked keyring answers, a locked one is refused at once —
+**a run never raises an unlock prompt and never waits on one**. (A run that
+raised a prompt and then went away — a timeout, Ctrl-C, an agent stopping its
+child — can crash the keyring service on some desktops and lock every keyring
+the user has.) Unlock first, with the desktop's keyring manager or
+`func builtin vault unlock`. The key is resolved **lazily**: only a run that
+opens a stored vault entry asks for it, so an unrelated job, `--help` and
+completions never touch the keyring, even in a project with a vault; and a run
+asks the keyring at most once. A refusal (exit `3`) now says which of
+*locked*, *did not answer*, *no keyring*, *cannot be read without a possible
+prompt*, *nothing stored* or *wrong key* happened and gives the next step, in
+words that name no keyring product; where the key may still exist it never
+suggests `vault remove`, `vault clear` or — for a typed-in entry —
+`vault sync`. `vault put` and `vault sync` read the same way. The keyring is
+read through a small adapter per platform (Linux Secret Service, macOS
+Keychain, Windows Credential Manager); any other `keyring` backend is not read
+by a run, because it cannot be proven silent. Linux is verified on a real
+desktop; macOS and Windows are checked in CI on real runners but not yet
+confirmed on a user's own machine. `VaultKeyProvider.get_key` must now never prompt, and
+`interactive()` means "needs a person at a terminal"; the keychain provider
+returns `False`. Recorded as an amendment to ADR-016 §5.
+
+Three behaviours move with it:
+
+- A config section holding a stored entry that cannot be opened now
+  **refuses** at that entry. Listing a section needs no key any more, so the
+  entry is no longer silently left out of the section.
+- The `remote_first()` warning that no vault key is available is no longer
+  printed at start-up. It is printed once, at the first declared-remote value
+  that falls through — the first moment the key is needed — and an app whose
+  values all come from env or files no longer prints it at all.
+- `func builtin vault init` no longer unlocks a locked keyring. It reads and
+  stores silently like everything else, and on a locked keyring it refuses
+  (exit `3`, `key_locked`) and points at `func builtin vault unlock`. A
+  `keyring` backend that cannot be used silently is refused too
+  (`key_unverified`) — a key stored where no run can read it would only look
+  like a working setup.
+
+### Added — `func builtin vault unlock`, the vault key state, `[vault] keyring_timeout`
+
+- `func builtin vault unlock [--json]` is the one command that asks the
+  keyring to unlock. It waits, with no deadline, for the keyring's own dialog
+  to be answered or cancelled, and says whether the keyring was already
+  unlocked, has just been unlocked, or has nothing to unlock on this platform
+  (exit `0`); or why it ended without a key — `cancelled`, `no_prompt`,
+  `key_locked`, `no_keyring`, `key_not_stored` (exit `3`). The first interrupt
+  while the dialog is open only warns; a second stops waiting. It never prints
+  the key. The reasons are carried by `VaultKeySourceError.reason` (whose old
+  `key_unavailable` spelling now means `no_keyring`) and the new
+  `VaultKeyUnavailableError.reason`; a second interrupt raises
+  `UnlockAbandonedError`.
+- `functualize.app.vault.vault_key_state()` says whether a run would get the
+  key now — unlocked, locked, unknown, no keyring, or not applicable — without
+  prompting, unlocking or reading the secret, within about 250 ms.
+  `func builtin vault status` prints it as `Key state:` and adds `key_state` to
+  `--json`, and the inline TUI shows it on the status bar.
+- `[vault] keyring_timeout` in `.functualize.toml` or the global config, or
+  `$FUNCTUALIZE_VAULT_KEYRING_TIMEOUT`, bounds a keyring that does not answer at
+  all (default `30s`); it never applies to a locked one. An invalid value warns
+  once and the default is used. A `FunctualizeApp` built outside `func` can
+  pass `ConfigSources(vault_keyring_timeout=...)`.
+- `functualize.plugin` exports `VaultKeyProbe`, `KeyAvailability` and
+  `VaultKeyUnlocker`, for a key provider that can say whether a read would
+  prompt, or be asked to unlock.
+
 ### Added — hermetic router: a declared fallback and the decision as evidence
 
 A decision can now name the option its gate takes when no proposal is

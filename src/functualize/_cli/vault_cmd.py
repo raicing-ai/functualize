@@ -189,8 +189,9 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
     """Show the key provider in use, the vault's age, and what it holds.
 
     Answers even when the app cannot boot — that is when it is worth
-    asking. The key is resolved non-interactively, so this never raises a
-    keychain prompt.
+    asking. The key is resolved silently, so this never raises a keychain
+    prompt and never waits on one: a locked keyring is reported as
+    ``locked``, not opened.
     """
     from functualize.app.utils import vault_status
     from functualize.app.vault import VaultFormatError
@@ -221,6 +222,7 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
                 "direct_entries": report.direct_entries,
                 "provider_entries": report.provider_entries,
                 "key_matches_store": report.key_matches_store,
+                "key_state": report.key_state,
             }
         )
         return
@@ -234,6 +236,7 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
         f"({report.direct_entries} direct, {report.provider_entries} synced)"
     )
     click.echo(f"Key provider: {report.key_provider or '(none available)'}")
+    click.echo(f"Key state:    {report.key_state or '(no vault)'}")
     if report.age is not None:
         marker = "  ← stale" if report.stale else ""
         click.echo(f"Last synced:  {vault_duration(report.age)} ago{marker}")
@@ -250,10 +253,29 @@ def vault_status_command(ctx: click.Context, json_out: bool) -> None:
             "cannot be read.",
             err=True,
         )
+        # The recoveries that keep the secrets come first. `remove`/`clear`
+        # come last, with what they cost: they destroy the entry, and a direct
+        # one has no upstream copy for `sync` to restore.
         click.echo(
-            "Refresh them with `func builtin vault sync`, or drop them with "
-            "`func builtin vault remove --group|--job <path> --field <name>` "
-            "/ `clear` — neither needs a key.",
+            "Supply the key it was written with — export "
+            "$FUNCTUALIZE_VAULT_KEY, or restore it to the OS keyring.",
+            err=True,
+        )
+        if report.provider_entries:
+            click.echo(
+                "Entries a provider wrote can be refetched with "
+                "`func builtin vault sync`.",
+                err=True,
+            )
+        only_copy = (
+            f"; the {report.direct_entries} typed in by hand have no other copy"
+            if report.direct_entries
+            else ""
+        )
+        click.echo(
+            "Last resort: `func builtin vault remove --group|--job <path> "
+            "--field <name>` / `clear` need no key, but they destroy the "
+            f"stored values{only_copy}.",
             err=True,
         )
     if report.stale:
@@ -421,7 +443,7 @@ def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
         raise SystemExit(ExitCode.REFUSED) from exc
     except VaultKeyUnavailableError as exc:
         if json_out:
-            _vault_json({"ok": False, "reason": "key_unavailable", "message": str(exc)})
+            _vault_json({"ok": False, "reason": exc.reason, "message": str(exc)})
         else:
             click.echo(f"Error: {exc}", err=True)
         raise SystemExit(ExitCode.REFUSED) from exc
@@ -705,6 +727,69 @@ def vault_init_command(key_source: str | None, json_out: bool) -> None:
     else:
         click.echo(f"A vault key is already available from {report.key_provider!r}.")
         click.echo("Nothing was written.")
+
+
+@vault_app.command("unlock")
+@click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
+@click.pass_context
+def vault_unlock_command(ctx: click.Context, json_out: bool) -> None:
+    """Unlock the keyring for the vault key, waiting as long as it takes.
+
+    For a run that was refused because the keyring is locked: run this in a
+    terminal, answer the keyring's own unlock dialog, and every later run —
+    piped, from an agent, over stdio MCP — reads the key silently for as long
+    as the keyring stays unlocked. The keyring decides how long that is;
+    functualize keeps no copy and runs no timer.
+
+    This is the only command that asks the keyring to unlock. It waits for the
+    dialog to be answered or cancelled there; interrupt once and it keeps
+    waiting, interrupt twice to stop. Never prints the key.
+    """
+    from functualize.app.vault import (
+        UnlockAbandonedError,
+        VaultKeySourceError,
+        vault_unlock,
+    )
+
+    obj = ctx.find_root().obj
+    app = obj.get("app") if isinstance(obj, dict) else None
+    try:
+        lookup = vault_unlock(app)
+    except UnlockAbandonedError as exc:
+        _fail(exc.reason, str(exc), json_out=json_out, code=ExitCode.REFUSED)
+        return
+    except VaultKeySourceError as exc:
+        _fail(exc.reason, str(exc), json_out=json_out, code=ExitCode.REFUSED)
+        return
+
+    # `unlock_how` is an internal enum; its value is the documented reason.
+    how = getattr(lookup.unlock_how, "value", None)
+    from_env = lookup.provider_id == "env"
+    reason = (
+        "already_unlocked" if from_env or how in (None, "already_unlocked") else how
+    )
+    if json_out:
+        _vault_json({"ok": True, "reason": reason, "provider": lookup.provider_id})
+        return
+    if from_env:
+        click.echo(
+            "The vault key is available from $FUNCTUALIZE_VAULT_KEY; there is "
+            "nothing to unlock."
+        )
+    elif reason == "unlocked":
+        click.echo(
+            "Unlocked. The vault key is available from the system keyring, and "
+            "runs read it silently while the keyring stays unlocked."
+        )
+    elif reason == "nothing_to_unlock":
+        click.echo(
+            "Nothing to unlock: this system's keyring has no locked state. The "
+            "vault key is available from it."
+        )
+    else:
+        click.echo(
+            "The keyring is already unlocked; the vault key is available from it."
+        )
 
 
 @vault_app.command("put")

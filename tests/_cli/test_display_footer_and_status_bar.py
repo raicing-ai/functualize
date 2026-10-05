@@ -259,6 +259,8 @@ class TestUpdateStatusBar:
         )
         # No plugin bar items — status text stays base-only
         stub._plugin_instances = MagicMock(return_value=[])
+        # No vault in this project, so no vault item on the bar.
+        stub._vault_state_text = None
 
         # Mock query_one to return a Static-like object
         status_mock = MagicMock()

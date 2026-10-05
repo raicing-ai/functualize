@@ -29,6 +29,7 @@ from functualize.plugin.protocols import (
 
 if TYPE_CHECKING:
     from functualize.app.core import FunctualizeApp
+    from functualize.app.vault import VaultKeyState
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,27 @@ def _render_bar(
     if not items:
         return None
     return _SEPARATOR.join(text for _, text in items)
+
+
+#: The status-bar text per vault key state. No entry renders nothing: a
+#: project with no vault (``not_applicable``) shows no vault item at all.
+_VAULT_STATE_TEXT: dict[str, str] = {
+    "unlocked": "[dim]vault[/dim] unlocked",
+    "locked": "[$warning]vault locked[/] [dim]func builtin vault unlock[/dim]",
+    "unknown": "[dim]vault ?[/dim]",
+    "no_keyring": "[dim]vault: no keyring[/dim]",
+}
+
+
+def render_vault_state(state: VaultKeyState | None) -> str | None:
+    """The status-bar item for the vault key state, or None to show nothing.
+
+    Locked names the one command that fixes it, because a locked keyring is
+    exactly when a job about to run would be refused.
+    """
+    if state is None:
+        return None
+    return _VAULT_STATE_TEXT.get(state.status.value)
 
 
 def render_header_items(plugins: list[Any], app: FunctualizeApp) -> str | None:

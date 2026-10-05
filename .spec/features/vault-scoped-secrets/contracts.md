@@ -210,6 +210,14 @@ is not silently ignored.
 
 ## 6. Deliberately unchanged
 
+- The keyring-unlock surface — `vault_unlock`, `vault_key_state`,
+  `func builtin vault unlock`, the `[vault] keyring_timeout` setting, the
+  platform keyring adapters and the lazy, silent, at-most-once key resolution
+  — is unchanged *by this feature*. It landed on `master` independently and the
+  merge reconciled the two: scoped identities decide *which entry* a lookup
+  names, the keyring decides *how the key that opens it is read*, and the
+  refusal texts carry the scoped `vault remove` spelling on top of the
+  keyring-aware recovery ordering.
 - `vault_init` and `func builtin vault init`, `keygen`, `status`'s fields other
   than its legacy-store refusal, and `clear` (still keyless and still confirmed).
 - Key handling, providers, freshness, origin rules and missing-versus-unreadable
