@@ -17,11 +17,11 @@ import pytest
 from functualize.app import FunctualizeApp, JobSources
 from functualize.app.vault import (
     UnlockAbandonedError,
+    VaultIdentity,
     VaultKeySourceError,
     VaultKeyState,
     VaultKeyStatus,
     vault_key_state,
-    VaultIdentity,
     vault_put,
     vault_unlock,
 )
