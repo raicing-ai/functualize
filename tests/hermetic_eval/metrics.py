@@ -19,20 +19,28 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from tests.hermetic_eval.corpus import ROUTES
+from tests.hermetic_eval.corpus import BOUNDARY, ROUTES
 
 Row = Mapping[str, Any]
 
 __all__ = [
+    "accepts",
     "accuracy_summary",
     "agreement",
+    "boundary",
     "calibration",
+    "conformance",
     "cost",
+    "errors_at",
     "escalation",
+    "flip_points",
     "latency",
     "proposed_confusion",
+    "route_at",
     "routed_confusion",
+    "sweep",
     "variance",
+    "verdict",
 ]
 
 _NOT_ATTEMPTED = "not_attempted"
@@ -278,6 +286,268 @@ def variance(rows: Sequence[Row]) -> dict[str, Any]:
         ),
         "flipped": flipped,
     }
+
+
+_ACCEPT_ATS = tuple(round(0.50 + 0.05 * index, 2) for index in range(10))
+_MIN_MARGINS = (0.00, 0.05, 0.10, 0.15, 0.20)
+
+
+def accepts(p: float, margin: float, accept_at: float, min_margin: float) -> bool:
+    """The rounder's rule: both thresholds must be met, exactly.
+
+    No rounding: the gate that will consume this rule compares the same two
+    numbers the same way.
+    """
+    return p >= accept_at and margin >= min_margin
+
+
+def route_at(
+    row: Row,
+    accept_at: float,
+    min_margin: float,
+    fallback: str = _HUMAN_REVIEW,
+) -> tuple[str | None, bool]:
+    """Replay one row's decision at a threshold pair.
+
+    The bool says the *decision* chose the route: ``False`` means the fallback
+    absorbed a cell that was unmeasurable or was not accepted. A never-attempted
+    cell has no route at all, which is how the sweep tells the two apart.
+    """
+    if row["status"] == _NOT_ATTEMPTED:
+        return (None, False)
+    distribution = row["distribution"]
+    proposal = row["proposal"]
+    if (
+        row["status"] != "routed"
+        or distribution is None
+        or proposal not in distribution
+    ):
+        return (fallback, False)
+    probability = float(distribution[proposal])
+    others = [float(value) for key, value in distribution.items() if key != proposal]
+    margin = probability - max(others, default=0.0)
+    if accepts(probability, margin, accept_at, min_margin):
+        return (proposal, True)
+    return (fallback, False)
+
+
+def conformance(
+    rows: Sequence[Row], accept_at: float = 0.70, min_margin: float = 0.10
+) -> list[tuple[str, int]]:
+    """List the cells where the offline rule and the recorded route disagree."""
+    return [
+        (str(row["scenario"]), int(row["repeat"]))
+        for row in rows
+        if (route := route_at(row, accept_at, min_margin)[0]) is not None
+        and route != row["route"]
+    ]
+
+
+def errors_at(
+    rows: Sequence[Row], accept_at: float, min_margin: float
+) -> dict[str, Any]:
+    """Count what proceeding, and what stopping, got wrong at one threshold pair."""
+    measured = [row for row in rows if row["status"] != _NOT_ATTEMPTED]
+    continued = 0
+    false_continue = 0
+    unsafe_continue = 0
+    false_stop = {"fallback": 0, "proposal": 0}
+    for row in measured:
+        route, decided = route_at(row, accept_at, min_margin)
+        expected = row["expected"]
+        if decided and route != _HUMAN_REVIEW:
+            continued += 1
+            if route != expected:
+                false_continue += 1
+                if expected == _HUMAN_REVIEW:
+                    unsafe_continue += 1
+        elif route == _HUMAN_REVIEW and expected != _HUMAN_REVIEW:
+            false_stop["proposal" if decided else "fallback"] += 1
+    return {
+        "coverage": continued / len(measured) if measured else 0.0,
+        "selective_accuracy": (
+            (continued - false_continue) / continued if continued else 0.0
+        ),
+        "false_continue": false_continue,
+        "unsafe_continue": unsafe_continue,
+        "false_stop": false_stop,
+    }
+
+
+def sweep(rows: Sequence[Row]) -> list[dict[str, Any]]:
+    """Run ``errors_at`` over the whole declared grid: 10 × 5 points."""
+    return [
+        {"accept_at": accept_at, "min_margin": min_margin}
+        | errors_at(rows, accept_at, min_margin)
+        for accept_at in _ACCEPT_ATS
+        for min_margin in _MIN_MARGINS
+    ]
+
+
+def flip_points(rows: Sequence[Row]) -> dict[str, float | None]:
+    """Find, per scenario, where raising the acceptance threshold moves it.
+
+    The comparison is modal-route against modal-route, so a scenario that only
+    wobbles between two repeats at one threshold does not count as a flip.
+    """
+    by_scenario: dict[str, list[Row]] = {}
+    for row in rows:
+        if row["status"] == _NOT_ATTEMPTED:
+            continue
+        by_scenario.setdefault(str(row["scenario"]), []).append(row)
+    points: dict[str, float | None] = {}
+    for scenario in sorted(by_scenario):
+        members = by_scenario[scenario]
+        baseline = _modal_route(members, _ACCEPT_ATS[0])
+        points[scenario] = next(
+            (
+                accept_at
+                for accept_at in _ACCEPT_ATS
+                if _modal_route(members, accept_at) != baseline
+            ),
+            None,
+        )
+    return points
+
+
+def boundary(
+    hermetic_rows: Sequence[Row],
+    frontier_rows: Sequence[Row],
+    constants: Mapping[str, Any] = BOUNDARY,
+) -> dict[str, Any]:
+    """Find the accepted threshold per route, given what the frontier got right.
+
+    The frontier's accuracy is the bar: a route is only trusted where the
+    offline rule agrees with the frontier agent it would replace. Only frontier
+    cells that actually routed count — one lost to a usage limit must not lower
+    the bar.
+    """
+    min_support = int(constants["min_support"])
+    min_scenarios = int(constants["min_distinct_scenarios"])
+    max_gap = float(constants["max_accuracy_gap"])
+    margin = float(constants["declared_min_margin"])
+    measured = [row for row in hermetic_rows if row["status"] != _NOT_ATTEMPTED]
+    routed_frontier = [row for row in frontier_rows if row["status"] == "routed"]
+
+    routes: dict[str, dict[str, Any]] = {}
+    for route in ROUTES:
+        trusted: dict[str, Any] | None = None
+        never_enough = True
+        largest_support = 0
+        for accept_at in _ACCEPT_ATS:
+            qualifying = [
+                row
+                for row in measured
+                if route_at(row, accept_at, margin) == (route, True)
+            ]
+            support = len(qualifying)
+            scenarios = {str(row["scenario"]) for row in qualifying}
+            largest_support = max(largest_support, support)
+            if support >= min_support and len(scenarios) >= min_scenarios:
+                never_enough = False
+            else:
+                continue
+            unsafe = sum(
+                1
+                for row in qualifying
+                if row["expected"] == _HUMAN_REVIEW and route != _HUMAN_REVIEW
+            )
+            accuracy = (
+                sum(1 for row in qualifying if row["expected"] == route) / support
+            )
+            frontier_accuracy = _frontier_accuracy(routed_frontier, scenarios)
+            if (
+                unsafe == 0
+                and frontier_accuracy is not None
+                and accuracy >= frontier_accuracy - max_gap
+            ):
+                proposing = [row for row in measured if row["proposal"] == route]
+                trusted = {
+                    "status": "trusted",
+                    "accept_at": accept_at,
+                    "support": support,
+                    "scenarios": len(scenarios),
+                    "accuracy": accuracy,
+                    "frontier_accuracy": frontier_accuracy,
+                    "coverage": support / len(proposing) if proposing else 0.0,
+                }
+                break
+        if trusted is not None:
+            routes[route] = trusted
+        elif never_enough:
+            routes[route] = {
+                "status": "insufficient evidence",
+                "support": largest_support,
+            }
+        else:
+            routes[route] = {"status": "escalate"}
+
+    routed_hermetic = sum(1 for row in hermetic_rows if row["status"] == "routed")
+    declared = errors_at(
+        hermetic_rows,
+        float(constants["declared_accept_at"]),
+        float(constants["declared_min_margin"]),
+    )
+    return {
+        "routes": routes,
+        "availability": routed_hermetic / len(hermetic_rows) if hermetic_rows else 0.0,
+        "unsafe_continue_at_declared": declared["unsafe_continue"],
+    }
+
+
+def verdict(
+    boundary_doc: Mapping[str, Any],
+    hermetic_rows: Sequence[Row],
+    deterministic_rows: Sequence[Row],
+    constants: Mapping[str, Any] = BOUNDARY,
+) -> tuple[str, str | None]:
+    """Turn a boundary document into a decision, and name what stayed unsure."""
+    routes = boundary_doc["routes"]
+    availability = float(boundary_doc["availability"])
+    unsafe = int(boundary_doc["unsafe_continue_at_declared"])
+    min_coverage = float(constants["min_coverage"])
+    trusted = [route for route in ROUTES if routes[route]["status"] == "trusted"]
+    if (
+        availability >= float(constants["min_availability"])
+        and unsafe == 0
+        and any(routes[route]["coverage"] >= min_coverage for route in trusted)
+    ):
+        return ("adopt", None)
+    if not trusted and float(
+        accuracy_summary(hermetic_rows)["routed_accuracy"]
+    ) < float(accuracy_summary(deterministic_rows)["routed_accuracy"]):
+        return ("reject", None)
+    parts = [
+        f"insufficient evidence on route {route}"
+        for route in ROUTES
+        if routes[route]["status"] == "insufficient evidence"
+    ]
+    if availability < float(constants["min_availability"]):
+        parts.append(f"availability {availability * 100:.1f} %")
+    if unsafe > 0:
+        parts.append(f"unsafe-continue on {unsafe} cells")
+    parts.extend(
+        f"coverage below {min_coverage * 100:.0f} % on trusted route {route}"
+        for route in trusted
+        if routes[route]["coverage"] < min_coverage
+    )
+    return ("continue research", "; ".join(parts))
+
+
+def _modal_route(rows: Sequence[Row], accept_at: float) -> str:
+    """The route most repeats take at a threshold, ties broken by ``ROUTES``."""
+    counts = Counter(
+        route for route, _ in (route_at(row, accept_at, 0.10) for row in rows)
+    )
+    return max(ROUTES, key=lambda route: counts[route])
+
+
+def _frontier_accuracy(rows: Sequence[Row], scenarios: set[str]) -> float | None:
+    """Share of routed frontier cells on these scenarios that got the route right."""
+    selected = [row for row in rows if str(row["scenario"]) in scenarios]
+    if not selected:
+        return None
+    return sum(1 for row in selected if row["route"] == row["expected"]) / len(selected)
 
 
 def _f1(precision: float, recall: float) -> float:

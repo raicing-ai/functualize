@@ -465,7 +465,7 @@ Closes when: `uv run pytest tests/hermetic_eval/test_comparators.py -q > /tmp/fu
 passes, the gates read their `after:` values, the standing checks are clean.
 Commit: `test(hermetic): add the hermetic, frontier and baseline comparators`.
 
-### [ ] T4 — the decision rule offline, the sweep, the two errors, the boundary and the verdict
+### [x] T4 — the decision rule offline, the sweep, the two errors, the boundary and the verdict
 
 *Files:* `tests/hermetic_eval/metrics.py` (extend), `tests/hermetic_eval/test_metrics.py` (extend)
 

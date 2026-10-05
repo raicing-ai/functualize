@@ -267,3 +267,206 @@ def test_variance_is_zero_on_a_deterministic_ledger() -> None:
     summary = metrics.variance(rows)
     assert summary["flips"] == 0
     assert summary["mean_probability_sd"] == pytest.approx(0.0, abs=1e-4)
+
+
+_ADOPT_DISTRIBUTION = {"deterministic": 0.85, "cheap_model": 0.15}
+
+
+def _proposed_cell(
+    scenario: str,
+    repeat: int,
+    *,
+    expected: str = "deterministic",
+    proposal: str = "deterministic",
+    probability: float = 0.85,
+    status: str = "routed",
+) -> dict[str, Any]:
+    """One cell that proposes ``deterministic`` at 0.85, correct by default."""
+    distribution = (
+        {proposal: probability, "cheap_model": round(1.0 - probability, 4)}
+        if status == "routed"
+        else None
+    )
+    return _row(
+        scenario=scenario,
+        repeat=repeat,
+        expected=expected,
+        status=status,
+        route=proposal if status == "routed" else "human_review",
+        decided_by="decision" if status == "routed" else "fallback",
+        proposal=proposal if status == "routed" else None,
+        distribution=distribution,
+        probability=probability if status == "routed" else None,
+        margin=0.70 if status == "routed" else None,
+    )
+
+
+def _grid(scenarios: int, repeats: int, **kwargs: Any) -> list[dict[str, Any]]:
+    return [
+        _proposed_cell(f"s{index}", repeat, **kwargs)
+        for index in range(1, scenarios + 1)
+        for repeat in range(1, repeats + 1)
+    ]
+
+
+def _frontier_twin(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The same keys, answered by the frontier agent, all routed."""
+    return [
+        _row(
+            scenario=row["scenario"],
+            repeat=row["repeat"],
+            expected=row["expected"],
+            status="routed",
+            route=row["expected"],
+            decided_by="decision",
+            proposal=row["expected"],
+            distribution={row["expected"]: 0.9},
+            probability=0.9,
+            margin=0.8,
+        )
+        for row in rows
+    ]
+
+
+def test_conformance_is_empty_for_the_reference_ledger() -> None:
+    assert metrics.conformance(_fixture_a()) == []
+
+
+def test_conformance_names_a_cell_whose_route_moved() -> None:
+    rows = _fixture_a()
+    rows[3] = rows[3] | {"route": "human_review", "decided_by": "fallback"}
+    assert metrics.conformance(rows) == [("s4", 1)]
+
+
+def test_conformance_ignores_a_never_attempted_cell() -> None:
+    rows = _fixture_a() + [_row(scenario="s7", status="not_attempted", route=None)]
+    assert metrics.conformance(rows) == []
+
+
+def test_errors_at_the_declared_point() -> None:
+    errors = metrics.errors_at(_fixture_a(), 0.70, 0.10)
+    assert errors["coverage"] == pytest.approx(0.6667, abs=1e-4)
+    assert errors["false_continue"] == 2
+    assert errors["unsafe_continue"] == 1
+    assert errors["false_stop"] == {"fallback": 1, "proposal": 0}
+    assert errors["selective_accuracy"] == 0.5
+
+
+def test_errors_at_a_stricter_point() -> None:
+    errors = metrics.errors_at(_fixture_a(), 0.75, 0.10)
+    assert errors["coverage"] == pytest.approx(0.5, abs=1e-4)
+    assert errors["false_continue"] == 1
+    assert errors["unsafe_continue"] == 0
+    assert errors["false_stop"] == {"fallback": 1, "proposal": 0}
+
+
+def test_accepts_compares_both_thresholds_exactly() -> None:
+    assert metrics.accepts(0.70, 0.10, 0.70, 0.10)
+    assert not metrics.accepts(0.6999999, 0.10, 0.70, 0.10)
+    assert not metrics.accepts(0.70, 0.0999999, 0.70, 0.10)
+
+
+def test_route_at_reports_the_fallback_separately_from_the_decision() -> None:
+    assert metrics.route_at(_fixture_a()[0], 0.70, 0.10) == ("deterministic", True)
+    assert metrics.route_at(_fixture_a()[4], 0.70, 0.10) == ("human_review", False)
+    assert metrics.route_at(_fixture_a()[5], 0.70, 0.10) == ("human_review", False)
+    assert metrics.route_at(_fixture_a()[0], 0.95, 0.10) == ("human_review", False)
+    never = _row(scenario="s8", status="not_attempted", route=None)
+    assert metrics.route_at(never, 0.70, 0.10) == (None, False)
+    fallback = metrics.route_at(_fixture_a()[0], 0.95, 0.10, fallback="cheap_model")
+    assert fallback == ("cheap_model", False)
+
+
+def test_sweep_covers_the_declared_grid() -> None:
+    points = metrics.sweep(_fixture_a())
+    assert len(points) == 50
+    assert [(p["accept_at"], p["min_margin"]) for p in points[:5]] == [
+        (0.50, 0.00),
+        (0.50, 0.05),
+        (0.50, 0.10),
+        (0.50, 0.15),
+        (0.50, 0.20),
+    ]
+    assert (points[-1]["accept_at"], points[-1]["min_margin"]) == (0.95, 0.20)
+    assert [p["accept_at"] for p in points[::5]] == [
+        round(0.50 + 0.05 * index, 2) for index in range(10)
+    ]
+    assert set(points[0]) == {
+        "accept_at",
+        "min_margin",
+        "coverage",
+        "selective_accuracy",
+        "false_continue",
+        "unsafe_continue",
+        "false_stop",
+    }
+
+
+def test_flip_points_are_where_the_threshold_crosses_a_proposal() -> None:
+    assert metrics.flip_points(_fixture_a()) == {
+        "s1": 0.95,
+        "s2": 0.80,
+        "s3": 0.85,
+        "s4": 0.75,
+        "s5": 0.65,
+        "s6": None,
+    }
+
+
+def test_boundary_trusts_a_route_the_frontier_also_gets_right() -> None:
+    hermetic = _grid(4, 3)
+    document = metrics.boundary(hermetic, _frontier_twin(hermetic))
+    assert document["availability"] == 1.0
+    assert document["unsafe_continue_at_declared"] == 0
+    assert document["routes"]["deterministic"] == {
+        "status": "trusted",
+        "accept_at": 0.50,
+        "support": 12,
+        "scenarios": 4,
+        "accuracy": 1.0,
+        "frontier_accuracy": 1.0,
+        "coverage": 1.0,
+    }
+    assert metrics.verdict(document, hermetic, _frontier_twin(hermetic)) == (
+        "adopt",
+        None,
+    )
+
+
+def test_boundary_reports_insufficient_evidence_below_the_floors() -> None:
+    nine = _grid(3, 3)
+    assert metrics.boundary(nine, [])["routes"]["deterministic"] == {
+        "status": "insufficient evidence",
+        "support": 9,
+    }
+    twelve = _grid(3, 4)
+    assert metrics.boundary(twelve, [])["routes"]["deterministic"] == {
+        "status": "insufficient evidence",
+        "support": 12,
+    }
+
+
+def test_boundary_escalates_when_the_offline_rule_is_wrong() -> None:
+    hermetic = _grid(4, 3, expected="cheap_model")
+    document = metrics.boundary(hermetic, _frontier_twin(_grid(4, 3)))
+    assert document["routes"]["deterministic"] == {"status": "escalate"}
+    assert metrics.verdict(document, hermetic, _frontier_twin(_grid(4, 3))) == (
+        "reject",
+        None,
+    )
+
+
+def test_verdict_continues_when_availability_is_below_the_floor() -> None:
+    hermetic = _grid(4, 3) + [
+        _proposed_cell("s5", 1, status="failed"),
+        _proposed_cell("s5", 2, status="failed"),
+    ]
+    document = metrics.boundary(hermetic, _frontier_twin(_grid(4, 3)))
+    assert document["availability"] == pytest.approx(0.8571, abs=1e-4)
+    assert document["routes"]["deterministic"]["status"] == "trusted"
+    verdict, uncertainty = metrics.verdict(
+        document, hermetic, _frontier_twin(_grid(4, 3))
+    )
+    assert verdict == "continue research"
+    assert uncertainty is not None
+    assert "availability 85.7 %" in uncertainty
