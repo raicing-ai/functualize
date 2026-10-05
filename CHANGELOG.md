@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the secret scan no longer fails a pull request for another branch's finding
+
+The `gitleaks` job checked out every branch at full depth and then ran
+`gitleaks detect --source /repo` with no commit range, so it walked all of
+them. One fixture on one feature branch therefore failed every open pull
+request: the reported commit was not in that pull request's diff, and nothing
+the pull request could do would make the check pass.
+
+A pull request is now scanned as the range it adds — `merge-base(base,
+head)..head`, the two-dot form of the three-dot range `git diff` uses — so a
+finding the pull request itself introduces still fails it. A push to `master`
+and the weekly schedule keep the full-history scan they always had. The range
+is resolved in its own step and the job fails if it cannot be, because
+`gitleaks` reports a range `git` cannot resolve as a **clean scan of zero
+commits** and exits `0`; silently covering nothing is worse than either
+scanned outcome.
+
 ### Changed — the vault key is read from an unlocked keyring with or without a terminal
 
 A run that needed a stored vault secret used to get it in a terminal and be
