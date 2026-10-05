@@ -12,7 +12,9 @@ that is expected.** This file gets you to the point where you can start.
 | **Wave** | 3 of 7 |
 | **Blocks** | FUN-20, FUN-21, FUN-22, FUN-23 |
 | **Runs in parallel with** | none |
-| **Base** | `docs/runtime-persistence-research`, itself off `origin/master` @ `8c06198` |
+| **Base** | rebased 2026-10-05 onto `origin/master` @ `e8e3b867` (was `8c06198`) |
+| **Shape** | SD/12583004, `Authority: Approved` — `plan.md` → `## Alignment` |
+| **Phase** | Plan complete; Execute waits on decisions D-1…D-3 (`spec.md` §7) |
 
 ## The one-line goal
 
@@ -28,9 +30,10 @@ The research is **already on this branch** at
 `contributor/architecture/research/`. It was written for someone who has never seen this
 codebase. Budget an hour.
 
-1. 06-data-model.md §4 — the transaction catalogue
-2. 08-delivery-and-tests.md — the tiered capability suites
-3. plugins/functualize-state-sqlite/src/functualize_state_sqlite/substrate.py — 225 lines that are most of the work already
+1. `runtime-persistence-engine-owned/06-data-model.md` §4 — the transaction catalogue
+2. `runtime-persistence-engine-owned/08-delivery-and-tests.md` — the tiered capability suites
+3. plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/substrate.py — 225 lines; it stays and keeps serving `fresh` and `shell-history`
+4. `contributor/reference/runtime-persistence-data-model.md` — the frozen schema, fencing and migration contract this ticket implements
 
 If you have never seen this repository at all, start with
 `contributor/architecture/research/runtime-persistence-engine-owned/01-orientation.md` —

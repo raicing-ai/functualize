@@ -1,163 +1,289 @@
 # FUN-19 — Tasks
 
-Pre-loaded scaffold. **Refine against the code before executing.** Each task should be
-1–3 files and completable in one context window.
+Refined 2026-10-05 against `e8e3b867` and the approved shape SD/12583004. Each task is 1–3
+production files plus its tests, and fits one context window.
 
-Wave ordering is binding: never start a task in wave N+1 while wave N has unchecked tasks.
+**Wave ordering is binding:** never start a task in wave N+1 while wave N has unchecked tasks.
+**Reachability precedes `[x]`:** name the production call path and prove it by breaking the call
+and watching a test fail. **Commit before sabotaging.**
 
-- [ ] **1.1** SqliteRuntimeStore: connection lifecycle and close(), which the current substrate lacks
-      *Files:* `src/functualize/_primitives/sqlite_store.py`
-- [ ] **1.2** Schema creation and migration runner wiring
-      *Files:* `src/functualize/_primitives/sqlite_store.py`
-      *Depends on:* 1.1, 0.1. Calls 0.1's `migrate()` when the store opens (boot step 6.5, before
-      any job runs — `contributor/reference/runtime-persistence-data-model.md` §7); this wiring is
-      0.1's production call path, so the two close together (below).
-- [ ] **2.1** The buffering transaction: accumulate commands, commit once
-      *Files:* `src/functualize/_primitives/sqlite_store.py`
-- [ ] **2.2** The writers, with the generation predicate in the WHERE clause
-      *Files:* `src/functualize/_primitives/sqlite_store.py`
-- [ ] **3.1** The question-shaped readers
-      *Files:* `src/functualize/_primitives/sqlite_store.py`
-- [ ] **4.1** The baseline conformance tier
-      *Files:* `tests/conformance/test_baseline.py`
-- [ ] **4.2** Capability tiers gated on profile fields
-      *Files:* `tests/conformance/test_capabilities.py`
-- [ ] **5.1** Offline legacy migration with backup, verification and refusal
-      *Files:* `src/functualize/_primitives/migrate_legacy.py`
-- [ ] **6.1** Run BatchOnlySqliteDriver against the store; prove the transaction buffers
-      *Files:* `tests/conformance/`
+**Decision gates.** Wave 0 does not start until D-1 and D-2 are answered on MCH-149
+(`spec.md` §7). Task 3's unselected-data guard needs D-3. If an answer differs from the
+recommendation, the Plan phase revises `plan.md` and this file first — never the executor
+mid-wave.
 
-## Received from `runtime-schema-migrations` (2026-09-26)
+PLUGIN below means
+`plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/`, and
+PLUGIN_TESTS means `plugins/substrates/functualize-substrate-sqlite/tests/`.
 
-The maintainer decided (D3 = B on the runtime-schema wave) that the migration runner and the
-relational retention statement are built here, next to the store and the wiring that make them
-reachable, instead of in the schema wave where nothing could call them. Their contract is frozen
-there: `.spec/features/runtime-schema-migrations/schema.md` §2 (tables), §4 (migration contract)
-and §5 (retention) on `feat/runtime-schema-migrations`; after that branch merges, the durable copy
-is `contributor/reference/runtime-persistence-data-model.md` §2, §6, §7. Both tasks also consume
-that wave's vocabulary (`_types/lifecycle.py` machines, `_types/retention.py` `RetentionPolicy`),
-so this branch rebases onto `master` after the schema wave merges and before 0.1 starts.
+## Received from `runtime-schema-migrations` (2026-09-26) — where those tasks went
 
-**Close-together pairs.** *Reachability precedes `[x]`*: 0.1 has no production caller until 1.2
-wires it, and 0.2 has none until 0.3 does. Each pair sits in one wave, is built in the order
-given, and both boxes are ticked on the second task's sabotage proof — never the first alone.
+The maintainer decided (D3 = B) that the migration runner and the relational retention statement
+are built here, next to the store that makes them reachable. Their contract is frozen in
+`contributor/reference/runtime-persistence-data-model.md` §2 (tables), §6 (retention) and §7
+(migrations) — on `master` since #61. The received file paths under `src/functualize/_primitives/`
+are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the gates are unchanged.
 
-- [ ] **0.1** Migration runner and revision `0001` (was runtime-schema 5.1)
-      *Depends on:* the schema wave merged (lifecycle machines for the `CHECK (status IN …)` lists).
-      *Files:* `src/functualize/_primitives/migrations/__init__.py` (`Migration`,
-      `MigrationTarget` Protocol, `MigrationRefused`), `src/functualize/_primitives/migrations/runner.py`
-      (`migrate(target, migrations) -> int`), `src/functualize/_primitives/migrations/0001_runtime_schema.sql`,
-      `tests/primitives/test_migrations.py`
-      *Gate:* against stdlib `sqlite3`: empty database → version 1 with one `schema_migrations`
-      row; a second run is a no-op; an edited `0001` (checksum mismatch) → `MigrationRefused`; a
-      ledger ahead of the shipped set → refused; a gap → refused; every table and index in
-      `schema.md` §2 exists (`sqlite_master`); each status `CHECK` list equals its machine's state
-      set. The runner depends on the `MigrationTarget` Protocol, not on `sqlite3`, so a
-      batch-only substrate (no `BEGIN`) can implement it.
-      *Call path:* 1.2 (store open → `migrate`).
-- [ ] **0.2** Relational retention statement (was runtime-schema 5.2)
-      *Depends on:* 0.1; the schema wave's `RetentionPolicy`.
-      *Files:* `src/functualize/_primitives/migrations/retention.py`, `tests/primitives/test_migrations.py`
-      *Gate:* on a version-1 database holding 600 evictable and 10 `blocked` scopes (plus runs),
-      applying `DEFAULT_RETENTION` leaves 500 evictable + 10 blocked, cascades their steps, state,
-      branches, input requests and events, never touches a `running`/`blocked` scope, and never
-      deletes an artifact blob (reference rows only).
-      *Call path:* 0.3.
-- [ ] **0.3** Retention caller — new; nothing in either package planned one
-      *Depends on:* 0.2, 1.2.
-      *Files:* decided by this package's architecture gate; the hit set of the chosen call path
-      plus a test. Candidates, both outside any step write: (a) the store's open path, after
-      `migrate()`, bounded by the policy; (b) the existing maintenance verb
-      (`purge_scopes`, `app/_workflow_control.py`) routed through the store.
-      *Gate:* a production path runs 0.2's statement; sabotage (remove the call) makes a test that
-      over-fills the store fail; a step write never runs it.
+| Received | Now |
+|---|---|
+| 0.1 migration runner + revision `0001` | task 6 (closes with task 7) |
+| 0.2 relational retention statement | task 11 |
+| 0.3 retention caller | task 11 (caller = `prepare()`, option (a)) |
+
+## Wave 0 — the framework seam (needs D-1, D-2)
+
+- [ ] **1** Factory vocabulary
+      *Files:* `src/functualize/_types/persistence.py`, `src/functualize/_types/errors.py`,
+      `tests/types/test_runtime_store_port.py`
+      *Do:* add `RuntimeStoreConfig`, `PreparedStore`, `RuntimeStoreFactory` (contracts §2) and
+      `RuntimeStoreSelectionError` (contracts §5). No logic.
+      *Gate:* `uv run lint-imports` green (types import nothing internal); mypy accepts a minimal
+      factory as `RuntimeStoreFactory`; `isinstance` refuses an object missing `prepare`.
+      *Call path:* task 3 (closes together).
+- [ ] **2** Host registration
+      *Files:* `src/functualize/_types/host.py`, `src/functualize/_app/impl.py`,
+      `src/functualize/app/core.py`
+      *Do:* `register_runtime_store_factory` (contracts §3) storing into
+      `app._runtime_store_factories`; refused once a store is selected, as `offer_substrate` is.
+      *Gate:* registration after selection raises `SubstrateInstallError`-style refusal; two factories
+      for one scheme are both kept (the refusal is task 3's); `tests/test_facade_loc_limits.py`
+      green; `tests/types/test_plugin_host_port.py` green.
+      *Call path:* task 15 (the plugin) → task 3 (selection reads it).
+
+## Wave 1 — selection, end to end on the document store
+
+- [ ] **3** Store selection at step 6.5
+      *Depends on:* 1, 2; D-3 for the guard.
+      *Files:* `src/functualize/_app/store_selection.py` (new), `src/functualize/_app/boot.py`,
+      `tests/app/test_store_selection.py`
+      *Do:* resolve `runtime_store.url`; unset → (D-3 guard: any factory's `unselected_data()` →
+      `RuntimeStoreSelectionError`) → `DocumentRuntimeStore`; set → registry lookup (unknown scheme
+      or two claimants → refuse) → `prepare()` **uncaught** → `check_required_capabilities`. Keep
+      `_select_runtime_store(app) -> tuple[RuntimeStore, StoreSubstrate]` as the one call both boot
+      paths make; its body delegates.
+      *Gate:* with a stub factory: unset → documents; `stub:` → stub store and its substrate; unknown
+      scheme → refusal naming the key and the registered schemes; `prepare` raising → boot raises;
+      on `boot_standard` **and** `boot_static`.
+      *Sabotage:* replace the delegate with today's body → the `stub:` test fails on both paths.
+- [ ] **4** Public surface
+      *Depends on:* 1, D-2.
+      *Files:* `src/functualize/plugin/__init__.py`, `tests/test_public_api_surface.py`
+      *Gate:* the surface test lists exactly contracts §4's additions for the answered D-2 option.
+      *Call path:* task 15 imports only from `functualize.plugin`.
+
+## Wave 2 — plugin foundations
+
+- [ ] **5** Driver
+      *Files:* `PLUGIN/_driver.py`, `PLUGIN_TESTS/test_driver.py`
+      *Do:* `SqlDriver` Protocol `{batch, query, close}`; `LocalSqliteDriver`: one connection per
+      thread, all closed by `close()`; `PRAGMA foreign_keys=ON` per connection; WAL only for a file;
+      busy timeout → `SqliteBusyError(retryable=True)`; `batch` = `BEGIN IMMEDIATE … COMMIT`, all or
+      nothing (I-5).
+      *Gate:* foreign key violation refused; `:memory:` gets no WAL; a held write lock past the
+      timeout raises `SqliteBusyError`, not `sqlite3.OperationalError`; a failing statement rolls the
+      whole batch back; `close()` leaves no open connection (thread test).
+      *Call path:* task 7.
+- [ ] **6** Migration runner and revision `0001` (was 0.1)
+      *Files:* `PLUGIN/_migrations.py`, `PLUGIN/_schema/0001_runtime_schema.sql`,
+      `PLUGIN_TESTS/test_migrations.py`
+      *Do:* `Migration(version, name, sql)`, checksum `sha256(sql)`; `migrate(driver, migrations) -> int`
+      applying each revision and its `schema_migrations` row in **one batch**; `MigrationRefused`.
+      DDL = data model §2 plus `runtime_cutover` (contracts §7).
+      *Gate (received, unchanged):* empty database → version 1 with one `schema_migrations` row; a
+      second run is a no-op; an edited `0001` → `MigrationRefused`; a ledger ahead of the shipped
+      set → refused; a gap → refused; every table and index of §2 exists (`sqlite_master`); each
+      status `CHECK` list equals its machine's state set in `_types/lifecycle.py`. Runs against
+      `LocalSqliteDriver` **and** `BatchOnlySqliteDriver` (after task 14's `query`, or a local
+      equivalent until then).
+      *Call path:* task 7 (closes together).
+
+## Wave 3 — the store opens
+
+- [ ] **7** Store facade, profile, buffered transaction, factory
+      *Depends on:* 3, 5, 6.
+      *Files:* `PLUGIN/_runtime_store.py`, `PLUGIN/_transaction.py`, `PLUGIN/_factory.py`
+      *Do:* `SQLITE_PROFILE` (`spec.md` §1 table); `SqliteRuntimeStore(driver)` with `transaction()`
+      returning `_BufferedTransaction` (writers append statements; `__exit__` → one
+      `driver.batch`; nothing on error); `SqliteRuntimeStoreFactory.prepare`: driver → `migrate`
+      → legacy guard (`LegacyImportRequired` when `documents` holds runtime keys and no
+      `runtime_cutover` row) → store; `PreparedStore.substrate` = `SQLiteSubstrate` on the same file.
+      *Gate:* `prepare` on an empty path → version 1; a doctored checksum → `MigrationRefused` out of
+      `prepare`; legacy runtime keys present → `LegacyImportRequired` naming
+      `functualize-sqlite-import`; a raising writer inside `with store.transaction()` leaves zero
+      rows. Ticks task 6 too, on the sabotage below.
+      *Sabotage:* remove the `migrate()` call from `prepare` → the version-1 test fails.
+      *No class over 500 lines; the facade ≤150.*
+
+## Wave 4 — writers, and the plugin switches over
+
+- [ ] **8** Workflow writers
+      *Files:* `PLUGIN/_workflow_sql.py`, `PLUGIN_TESTS/test_workflow_sql.py`
+      *Do:* `claim` (data model §5's conditional update; zero rows → `Conflict` value),
+      `complete_step`, `suspend`, `resume`, `cancel`, `write_state` — every scope mutation carries
+      the held generation in its predicate (I-3); every status move checked against FUN-18's table
+      (`IllegalTransition`). Claim is the one writer that commits on the spot (as
+      `ClaimWorkflow`'s docstring says) — one batch of one statement, then a read.
+      *Gate:* stale generation → zero rows, live value survives; `completed` → `running` refused;
+      `rg -n "resume" PLUGIN/_workflow_sql.py` shows no conditional on it (05 §3).
+- [ ] **9** Run, input, event and effect writers
+      *Files:* `PLUGIN/_run_sql.py`, `PLUGIN_TESTS/test_run_sql.py`
+      *Gate:* attempt `(run_id, attempt_no)` unique; `run_events`/`scope_events` `seq` strictly
+      increasing per owner; one OPEN input request per gate per generation; an `outbox` row commits
+      only with its transition.
+- [ ] **15** The plugin registers instead of offering
+      *Depends on:* 2, 3, 7.
+      *Files:* `PLUGIN/_plugin.py`, `PLUGIN/__init__.py`, `PLUGIN_TESTS/test_plugin_selection.py`
+      *Do:* `__call__` → `register_runtime_store_factory(SqliteRuntimeStoreFactory())`; delete the
+      `offer_substrate` call, `_choose_substrate`, `_configured_path` and
+      `plugin.substrate-sqlite.db_path` (no shim); `unselected_data` reports a `state.db` holding
+      runtime keys (D-3).
+      *Gate (E-1):* plugin installed + nothing configured → documents store, filesystem substrate;
+      `runtime_store.url = "sqlite:"` → `SqliteRuntimeStore`; `prepare` sabotaged (unwritable
+      path; doctored checksum) → boot fails on `func` cold, `func` warm and `boot_static`, never on
+      documents. `tests/plugins/test_substrate_choice_is_not_hook_order.py` stays green.
+      *Sabotage:* restore the `offer_substrate` call → the "nothing configured → filesystem" test
+      fails.
+
+## Wave 5 — readers and retention
+
+- [ ] **10** Readers
+      *Files:* `PLUGIN/_readers.py`, `PLUGIN_TESTS/test_readers.py`
+      *Do:* `RunReader`, `WorkflowReader`, `InputReader` as SQL over the §2 tables; indexes used for
+      `recent`, `resumable` (`EXPLAIN QUERY PLAN` names the index).
+      *Gate:* S-6 raw-SQL test — a status count answered by `SELECT … GROUP BY status` with no JSON
+      function.
+- [ ] **11** Relational retention and its caller (was 0.2 + 0.3)
+      *Depends on:* 7, 8, 9.
+      *Files:* `PLUGIN/_retention.py`, `PLUGIN/_factory.py`, `PLUGIN_TESTS/test_retention.py`
+      *Gate (received, unchanged):* a version-1 database with 600 evictable and 10 `blocked` scopes
+      (plus runs), after `DEFAULT_RETENTION`, holds 500 evictable + 10 blocked; steps, state,
+      branches, input requests and events cascade; no `running`/`blocked` scope is touched; no
+      artifact blob is deleted (reference rows only). A step write never runs it.
+      *Call path:* `prepare()` after `migrate()`.
+      *Sabotage:* remove the call from `prepare` → the over-filled-store test fails.
+
+## Wave 6 — the conformance suite (AC-1, AC-2, AC-5)
+
+- [ ] **12** BASELINE tier
+      *Depends on:* 4 (D-2), 7–10.
+      *Files:* `src/functualize/testing/conformance/__init__.py`,
+      `src/functualize/testing/conformance/baseline.py`, `tests/conformance/test_baseline.py`
+      (D-2 = b: the first two move to `tests/conformance/`)
+      *Do:* 08's list — run tree and recent history; workflow transition and replay determinism;
+      state batch and rollback; corrupt-data policy; event sequence monotonicity; close/reopen
+      durability. Takes `make_store: Callable[[Path], RuntimeStore]`; imports only public names.
+      *Gate (AC-2 first half):* green for `DocumentRuntimeStore` **and** `SqliteRuntimeStore`.
+- [ ] **13** Capability tiers
+      *Depends on:* 12.
+      *Files:* `src/functualize/testing/conformance/capabilities.py`,
+      `tests/conformance/test_capabilities.py`
+      *Do:* `cross_aggregate_atomicity` → fault between every statement of each transition (E-3);
+      `fencing == "cross-process"` → two OS processes, stale writer refused (E-2);
+      `durable_outbox` → intent committed with its transition, surviving a kill before and after
+      commit (recording only — the dispatcher is FUN-21's); `versioned_migrations` → every supported
+      historical schema (empty; legacy `documents`-only) and a failed revision (I-9).
+      *Gate (AC-1, AC-2 second half):* SQLite runs and passes all four; the document store runs none
+      of them, and the skip is driven by its profile, not a list — asserted by declaring a stub
+      profile `True` and watching the tier run.
+- [ ] **14** AC-5 in Tier A
+      *Depends on:* 12.
+      *Files:* `tests/substrate_probe/fakes.py`, `tests/substrate_probe/tier_a.py`
+      *Do:* add read-only `BatchOnlySqliteDriver.query(sql, params) -> list[tuple]`; drop nothing
+      from its refusal. In `tier_a.py`, run BASELINE against `SqliteRuntimeStore(BatchOnlySqliteDriver())`.
+      *Gate (AC-5, E-6):* green; then make `_BufferedTransaction` issue one statement through a
+      driver transaction → `NoInteractiveTransactionError` turns it red.
+
+## Wave 7 — legacy import (AC-3, AC-4)
+
+- [ ] **16** The importer
+      *Depends on:* 7–9, 13.
+      *Files:* `PLUGIN/_legacy_import.py`, `PLUGIN_TESTS/test_legacy_import.py`
+      *Do:* the shape's seven steps — exclusive migration lock; snapshot + backup of the database
+      file; import runtime keys into the schema in **one** unit, each legacy run as one attempt
+      (`attempt_no = 1`, shape M-1); verify counts, identities, terminal/live status, state keys,
+      sequence order, payload digests; write `runtime_cutover` in the import's unit; reopen
+      through the read ports and verify semantically; keep the backup. Illegal record (FUN-18
+      table, B4 symptom) → refuse the whole import and list it (AC-4). Report states that the
+      500-record cap may already have evicted terminal records. `fresh` and `shell-history` keys
+      stay in `documents`.
+      *Gate (E-4, E-5, AC-3, AC-4):* legal fixture imports and verifies; a fixture with one
+      `completed` scope holding a live lease is refused, listed, and the source file's digest is
+      unchanged; killing at each of the seven steps either resumes or rolls back, and afterwards
+      exactly one of {legacy authoritative, cutover marker present} holds; a second run is a no-op.
+- [ ] **17** The command
+      *Depends on:* 16.
+      *Files:* `PLUGIN/_import_cli.py`, `plugins/substrates/functualize-substrate-sqlite/pyproject.toml`,
+      `PLUGIN_TESTS/test_import_cli.py`
+      *Gate:* `functualize-sqlite-import --dry-run` changes nothing; exit codes per contracts §6; it
+      runs while boot would refuse with `LegacyImportRequired`, and after it boot with
+      `sqlite:` succeeds.
+      *Call path:* the console-script entry point; sabotage = remove `[project.scripts]` → the
+      subprocess test fails.
+
+## Wave 8 — honest docs and naming (S-7), release note
+
+- [ ] **18** Docs, naming, markers
+      *Files:* `PLUGIN/substrate.py` (docstring only), `plugins/substrates/functualize-substrate-sqlite/README.md`,
+      `CHANGELOG.md`; plus `contributor/architecture/codemaps/modules.md`, `data-flow.md`,
+      `src/functualize/_primitives/document_store.py` (marker comment only), and the package
+      description in its `pyproject.toml`
+      *Gate:* `rg -n "different machines" plugins/ docs/` → nothing; a test asserts
+      `SQLiteSubstratePlugin.version` equals the package version; the CHANGELOG entry states the
+      boot-refusal behaviour change and the removed `db_path` key (shape Q-3); the TRANSITIONAL
+      marker no longer says FUN-19 removes the store.
+
+## Wave 9 — pre-merge (not implementation)
+
+- [ ] **19** Clear the branch for merge
+      *Files:* `.spec/STATUS.md` or `contributor/adr/031-*.md` (the factory registry and
+      selection key are an ADR-027 follow-through — an ADR if the maintainer wants one),
+      `contributor/reference/runtime-persistence-data-model.md` (tenses: §2 and §7 become landed),
+      then `git rm -r contributor/architecture/research/` and, as the deletion-only **last**
+      commit, `git rm -r .spec/features/sqlite-runtime-provider`.
+      *Gate:* `research-artifacts-cleared` and `spec-artifacts-cleared` green; two pushes per
+      `.claude/rules/spec-workflow.md` → *Version control lifecycle*; PR title and body carry no
+      tracker key (`.spec/CONSTITUTION.md` → *Forbidden Patterns*).
 
 ## Task Dependency Graph
 
-The received tasks shift the scaffold's graph by one wave: 1.2 now waits for 1.1 (the runner
-needs a connection) and 2.1 onward move down one. Only the received tasks and 1.2 carry explicit
-dependency sets; the rest of the scaffold's edges are still the wave chain it was pre-loaded with
-and are refined by this package's own Plan phase.
+Close-together pairs are ticked together, on the second task's sabotage proof.
 
 ```json
 {
   "waves": [
-    {
-      "id": 0,
-      "tasks": [
-        "1.1"
-      ]
-    },
-    {
-      "id": 1,
-      "tasks": [
-        "0.1",
-        "1.2"
-      ]
-    },
-    {
-      "id": 2,
-      "tasks": [
-        "0.2",
-        "0.3",
-        "2.1"
-      ]
-    },
-    {
-      "id": 3,
-      "tasks": [
-        "2.2"
-      ]
-    },
-    {
-      "id": 4,
-      "tasks": [
-        "3.1"
-      ]
-    },
-    {
-      "id": 5,
-      "tasks": [
-        "4.1",
-        "4.2"
-      ]
-    },
-    {
-      "id": 6,
-      "tasks": [
-        "5.1"
-      ]
-    },
-    {
-      "id": 7,
-      "tasks": [
-        "6.1"
-      ]
-    }
+    {"id": 0, "tasks": ["1", "2"]},
+    {"id": 1, "tasks": ["3", "4"]},
+    {"id": 2, "tasks": ["5", "6"]},
+    {"id": 3, "tasks": ["7"]},
+    {"id": 4, "tasks": ["8", "9", "15"]},
+    {"id": 5, "tasks": ["10", "11"]},
+    {"id": 6, "tasks": ["12", "13", "14"]},
+    {"id": 7, "tasks": ["16", "17"]},
+    {"id": 8, "tasks": ["18"]},
+    {"id": 9, "tasks": ["19"]}
   ],
   "depends_on": {
-    "0.1": [],
-    "1.2": [
-      "1.1",
-      "0.1"
-    ],
-    "0.2": [
-      "0.1"
-    ],
-    "0.3": [
-      "0.2",
-      "1.2"
-    ]
+    "1": [],
+    "2": [],
+    "3": ["1", "2"],
+    "4": ["1"],
+    "5": [],
+    "6": [],
+    "7": ["3", "5", "6"],
+    "8": ["7"],
+    "9": ["7"],
+    "15": ["2", "3", "7"],
+    "10": ["8", "9"],
+    "11": ["7", "8", "9"],
+    "12": ["4", "7", "8", "9", "10"],
+    "13": ["12"],
+    "14": ["12"],
+    "16": ["7", "8", "9", "13"],
+    "17": ["16"],
+    "18": ["15", "17"],
+    "19": ["18"]
   },
-  "close_together": [
-    [
-      "0.1",
-      "1.2"
-    ],
-    [
-      "0.2",
-      "0.3"
-    ]
-  ]
+  "close_together": [["1", "3"], ["6", "7"], ["5", "7"]],
+  "decision_gates": {"D-1": ["1", "2", "3", "4"], "D-2": ["4", "12", "13"], "D-3": ["3", "15"]}
 }
 ```
