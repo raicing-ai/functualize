@@ -79,7 +79,7 @@ every command from the repository root.
 
 ## Wave 0 — foundation
 
-### [ ] T1 — the corpus loader, the lock, the cell order and the labelling rubric
+### [x] T1 — the corpus loader, the lock, the cell order and the labelling rubric
 
 *Files (all new):* `tests/hermetic_eval/__init__.py`,
 `tests/hermetic_eval/corpus.py`, `tests/hermetic_eval/corpus/v1/LABELING.md`,
