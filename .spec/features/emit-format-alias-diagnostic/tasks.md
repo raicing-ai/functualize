@@ -46,11 +46,13 @@ consumers, and make "a flag that takes a value requires one" the single rule in
   value_required_takes_next(arg, nxt) else 1` and delete the lookahead branch beside it;
   in `_extract_global_options` replace the ALWAYS missing-value `break` with
   `print(missing_value_message(arg), file=sys.stderr); raise SystemExit(ExitCode.USAGE)`
-  and delete its lookahead branch; change the two `_assign_option` invalid-value exits
-  (`--emit-format`, `--perf-report`) from `1` to `ExitCode.USAGE`; delete
+  and delete its lookahead branch; change **all four** `_assign_option`-family
+  invalid-value exits from the literal `1` to `ExitCode.USAGE` — `--emit-format` (`:554`)
+  and `--perf-report` (`:547`), plus the two the first draft left alone, `--log-level`'s
+  validation (`:389`) and `--discovery-depth`'s non-integer parse (`:523`) — so that after
+  this task `_cli/dispatch.py` contains no `SystemExit(1)`; delete
   `refused_optional_value` and its callers; correct the `invalid_value_message` docstring,
   which currently describes optional values. Leave the `--flag=value` path, the
-  `--discovery-depth` non-int exit `1`, the `--log-level` invalid-value exit `1`, the
   positional break, `GLOBAL_BOOL_FLAGS` and `is_known_global_flag` untouched.
 - `_cli/main.py`: delete the `refused_optional_value` consumer block
   (`_handle_unknown_command:1478-1500`) and its local import; replace the version scan
@@ -68,13 +70,18 @@ consumers, and make "a flag that takes a value requires one" the single rule in
 **no matches** (0 at authoring); plus `uv run python -c "import functualize.types,
 functualize._cli.main, functualize._cli.dispatch"` → exit 0. Hit set = the two files the
 first command's pattern lives in, both listed above, plus the import graph of the second.
+Second command, for the Q1 half: `rg -n "SystemExit\(1\)" src/functualize/_cli/dispatch.py`
+→ **no matches** (4 at authoring, at `:389`, `:523`, `:547`, `:554`).
 
 **Invariants.**
 - No module is added and no `_types → _cli` edge is created; `lint-imports` stays 7/7.
 - `GLOBAL_OPTIONS_WITH_VALUE` and `GLOBAL_OPTIONS_ALWAYS_VALUE` have identical members
   after this task; `is_known_global_flag`'s answer for `--version` does not change.
 - `--emit-format=json` (equals form) and every `=`-style path consume exactly as before.
-- `--discovery-depth abc` and `--log-level bogus` still exit 1 (Q1).
+- Every invalid value among the 16 value-required flags exits 2 through
+  `ExitCode.USAGE` — including `--discovery-depth abc` and `--log-level bogus`, which exit
+  2 after this task (Q1, answered 2026-10-05). Command-position errors keep their existing
+  codes (`func shortcut` 1, `func bogus` 1).
 
 **Call path / reachability.** `main.py::_run_cli` → `dispatch.detect_mode` (routing) and
 `main.py` → `dispatch._extract_global_options` (option values) are the production paths; the
@@ -195,22 +202,30 @@ sentence the six `--help` rows were added beside.
 **Gate.** `uv run pytest -q -p no:randomly tests/cli/test_emit_format_discoverability.py`
 — hit set **18 ids** (9 names × 2 surfaces). All green.
 
-### T3.3 — The early-parse integration file follows the new routing `[ ]`
+### T3.3 — The early-parse and global-options files follow the new routing and exits `[ ]`
 
-**Goal.** `tests/cli/test_early_parse_integration.py` pins three argvs the lookahead used
-to route to a job, one of which now exits 2.
+**Goal.** Two integration files pin argvs and exit codes the change moves: the lookahead
+routing in the early-parse file, and the two invalid-value exits Q1 unifies.
 
-- `test_perf_report_followed_by_job_name_routes_to_job` (`:35-50`), its `--emit-format`
-  twin (`:52-69`) and `test_multiple_flags_with_job` (`:76-95`) become missing-value usage
-  errors, keeping the routing half that still holds.
-- `test_invalid_perf_format` (`:157`) goes 1 → 2.
-- `test_invalid_discovery_depth` (`:137`) **stays 1**.
-- The module docstring (`:8`) no longer attributes the routing to a lookahead.
+- `tests/cli/test_early_parse_integration.py`:
+  - `test_perf_report_followed_by_job_name_routes_to_job` (`:35-50`), its `--emit-format`
+    twin (`:52-69`) and `test_multiple_flags_with_job` (`:76-95`) become missing-value usage
+    errors, keeping the routing half that still holds.
+  - `test_invalid_perf_format` (`:157`) goes 1 → 2.
+  - `test_invalid_discovery_depth` (`:137`) also goes **1 → 2** (Q1: the non-integer
+    `--discovery-depth` value is now `ExitCode.USAGE`).
+  - The module docstring (`:8`) no longer attributes the routing to a lookahead.
+- `tests/cli/test_global_options.py`:
+  - `test_invalid_log_level_raises_system_exit` (`:38`) asserts `exc_info.value.code == 1`;
+    that becomes `2` (Q1: the invalid `--log-level` value is now `ExitCode.USAGE`).
+  - The neighbouring message case (`:40-48`) and every other case in the file
+    (`:16-32`, `:91+`) are unchanged — only the code moves.
 
-**Files (1).** `tests/cli/test_early_parse_integration.py`.
+**Files (2).** `tests/cli/test_early_parse_integration.py`,
+`tests/cli/test_global_options.py`.
 
-**Gate.** `uv run pytest -q -p no:randomly tests/cli/test_early_parse_integration.py` —
-hit set **16 ids**. All green.
+**Gate.** `uv run pytest -q -p no:randomly tests/cli/test_early_parse_integration.py
+tests/cli/test_global_options.py` — hit set **37 ids** (16 + 21 at authoring). All green.
 
 ### T3.4 — The perf-report integration file, and the bug-condition file it replaces `[ ]`
 
@@ -303,9 +318,11 @@ contributor/adr/` → no matches.
   grammar holds "optional values"; `:367` and `:370` sit inside §3.5's *proposal* and stay
   as written (they describe a proposed state, not today's).
 - `CHANGELOG.md`: a `## [Unreleased]` entry — the removed lookahead, the missing-value
-  sentence and its two shapes, the exit code for the two flags, the `--help` row, the
-  app-surface arity, and the deliberately unchanged exit 1 for `--log-level` /
-  `--discovery-depth`. The released entry at `:174-197` is history and is not rewritten.
+  sentence and its two shapes, the app-surface arity, the `--help` row, and **one exit
+  code for a wrong value across the whole value-required table**: `--emit-format` and
+  `--perf-report` keep exit 2, and `--log-level` / `--discovery-depth` move from 1 to 2
+  (Q1, 2026-10-05) — an intentional breaking change for any script that tested for `1`
+  there, so it is named rather than glossed. The released entry at `:174-197` is history and is not rewritten.
 
 **Files (2).** `contributor/architecture/audit-engine-encapsulation.md`, `CHANGELOG.md`.
 
@@ -333,7 +350,11 @@ descriptions.
    `.venv/bin/func --emit-format` → exit 2 with the selection sentence;
    `.venv/bin/func --emit-format bogus greet` → exit 2, no `Unknown command`;
    `.venv/bin/func --emit-format json greet` → exit 0; `.venv/bin/func --help` shows
-   `--emit-format TEXT`; `.venv/bin/func --emit-format --version` → exit 2, no version.
+   `--emit-format TEXT`; `.venv/bin/func --emit-format --version` → exit 2, no version;
+   `.venv/bin/func --log-level BOGUS greet` → exit 2 (was 1);
+   `.venv/bin/func --discovery-depth abc greet` → exit 2 (was 1); and
+   `.venv/bin/func bogus` → still exit 1, so the unify did not swallow command-position
+   errors.
 5. Walk `contracts.md` §3 and §4 as the behaviour table it is: each row observed, or the
    row rewritten with the reason.
 6. Sabotage for reachability: with the tree committed, break

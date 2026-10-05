@@ -189,7 +189,7 @@ re-derivation rather than sitting beside one.
 
 No contract is added, weakened or bypassed; no new module is created. `_types`
 gains nothing to import, so the AFTER cannot introduce an `_types → _cli` edge.
-Verification: `uv run lint-imports` must report 7/7 kept (task T7.1).
+Verification: `uv run lint-imports` must report 7/7 kept (the T5.1 checkpoint).
 
 ### 4.2 AFTER vs `.spec/CONSTITUTION.md` → *Forbidden Patterns*
 
@@ -268,11 +268,14 @@ in `_dispatch_group`, and `func infra --version` must keep its current message.
 | `invalid_value_message(F, v)` | unchanged text: `Error: {F} must be one of {a, b, c}, got '{v}'.` — docstring rewritten, since its second caller is gone |
 
 Values are `sorted()` and joined `", "` in both, as today.
-Exit codes: missing value **2**; invalid value for a flag in
-`OPTIONAL_VALUE_VALID_SET` **2** (`ExitCode.USAGE`, not the literal `2`);
-command-position errors unchanged (`func shortcut` 1, `func bogus` 1).
-**Unchanged, deliberately**: `--log-level BOGUS` and `--discovery-depth abc`
-keep their exit 1. See §7 Q1.
+Exit codes: a missing value **2**, and an invalid value **2 for every
+value-required flag** (`ExitCode.USAGE`, never the literal `2`). That includes
+the two sites the first draft left alone: `--log-level`'s validation
+(`:380-389`) and `--discovery-depth`'s integer parse (`:518-523`) move from 1
+to 2 by the member's Q1 answer of 2026-10-05, which reads spec §Confirmed
+decisions' "use exit 2 for both missing and wrong values" across the whole
+table rather than only its two selection-table members. Command-position
+errors are unchanged (`func shortcut` 1, `func bogus` 1).
 
 ### A4 — The help row (AC7, contracts §5)
 
@@ -316,7 +319,7 @@ Counts are `rg`/`grep` hit counts from this checkout; the per-task `[F]` lists i
 | File | Change |
 |---|---|
 | `src/functualize/_types/flag_grammar.py` | `+2` members into `GLOBAL_OPTIONS_ALWAYS_VALUE`; delete `GLOBAL_OPTIONS_OPTIONAL_VALUE` (`:68-73`) and its `__all__` entry (`:31`); `GLOBAL_OPTIONS_WITH_VALUE` becomes an alias of the 16-member table; `# TRANSITIONAL(...)` on `OPTIONAL_VALUE_VALID_SET`; module docstring `:1-18` rewritten (the "lookahead deliberately stays" paragraph is now false) |
-| `src/functualize/_cli/dispatch.py` | import block `:35` (−OPTIONAL, +`ExitCode`); `detect_mode` ALWAYS branch + lookahead branch `:154-167`; `_extract_global_options` missing-value branch `:347-352` + lookahead `:354-368`; `_assign_option` exits `:547`,`:554` → `ExitCode.USAGE`; `invalid_value_message` docstring `:558-570`; delete `refused_optional_value` `:572-611`; add `is_reserved_pre_boot_token`, `value_required_takes_next`, `missing_value_message`, `version_requested` |
+| `src/functualize/_cli/dispatch.py` | import block `:35` (−OPTIONAL, +`ExitCode`); `detect_mode` ALWAYS branch + lookahead branch `:154-167`; `_extract_global_options` missing-value branch `:347-352` + lookahead `:354-368`; `_assign_option` exits `:547`,`:554` → `ExitCode.USAGE`; `--log-level` validation `:380-389` and `--discovery-depth` parse `:518-523` exit `1` → `ExitCode.USAGE` (Q1); `invalid_value_message` docstring `:558-570`; delete `refused_optional_value` `:572-611`; add `is_reserved_pre_boot_token`, `value_required_takes_next`, `missing_value_message`, `version_requested` |
 | `src/functualize/_cli/main.py` | help rows `:78-96`; delete the `refused_optional_value` block `:1478-1500` (and its local import `:1484-1487`); `--version` scan `:2024-2056` → `version_requested` (+ drop the OPTIONAL import) |
 | `src/functualize/app/utils.py` | drop `GLOBAL_OPTIONS_OPTIONAL_VALUE` from the import `:88` and from `__all__` `:303` |
 | `src/functualize/types/__init__.py` | drop it from the import `:35` and `__all__` `:87` |
@@ -344,7 +347,7 @@ Counts are `rg`/`grep` hit counts from this checkout; the per-task `[F]` lists i
 | `tests/types/test_flag_grammar_consumer_count.py` | `_PATTERN` drops `GLOBAL_OPTIONS_OPTIONAL_VALUE` `:69`; `EXPECTED_CONSUMERS` recount |
 | `tests/test_public_api_surface.py` | drop `"GLOBAL_OPTIONS_OPTIONAL_VALUE"` `:207-210` |
 | `tests/cli/test_app_surface_output_format.py` | docstring `:1-11`; imports `OPTIONAL_VALUE_VALID_SET` (kept) — assert the app's bare-flag error now |
-| `tests/skills/test_api_claims.py` | `:22`, `:285-300` — the claims table reads the tables |
+| `tests/skills/test_api_claims.py` | **no change owed** — it reads `OPTIONAL_VALUE_VALID_SET` (`:22`, `:288`), which the change keeps verbatim in name and shape, and its corpus is `SKILLS_ROOT`, which this change does not touch |
 
 **(c) Keep working, add coverage**:
 
@@ -352,7 +355,7 @@ Counts are `rg`/`grep` hit counts from this checkout; the per-task `[F]` lists i
 |---|---|
 | `tests/cli/test_version_flag_position.py` | add the arity cases AC8 needs (`:30,:36,:42,:68` unchanged) |
 | `tests/_cli/test_dispatch_preservation.py` | **not a delete site** — imports `OPTIONAL_VALUE_VALID_SET` `:28`, uses `:333,:354,:374`, all `=`-style; its table-set membership must keep passing |
-| `tests/cli/test_global_options.py` | `:35,:43` assert *that* `--log-level BOGUS` exits, not *with what*; unchanged whether or not Q1 is taken |
+| `tests/cli/test_global_options.py` | the `--log-level BOGUS` pin `:38` asserts `exc_info.value.code == 1` — that is the exit Q1 moves, so **this file does need the flip**, to 2 (its `:40-48` message assertions are unchanged) |
 | new `tests/_cli/test_pre_boot_arity_parity.py` | the AC8 parity test, named after the rule it enforces |
 
 **Verified unaffected**: `tests/perf/test_cli_perf_report.py`,
@@ -384,10 +387,10 @@ must return only lines that state the rule is gone or superseded.
 |---|---|---|
 | R1 | The `--version` scan and `detect_mode` could disagree on the malformed input `[F, "--version"]`. They do not need identical advancement (the version scan must *stop*), but they must agree on the invariant in A2. | The parity test asserts the invariant directly, for all 16 members, plus the `--version`-specific case. |
 | R2 | `builtins.py:781` also calls `_extract_global_options` with the *full* `sys.argv` (`… builtin cache rebuild`). The new missing-value `SystemExit(2)` could fire where it previously did not. | It fires only when a value-required flag ends the argv or is followed by a known global flag — already a usage error on the `func` path. Covered by an explicit case in the parity test. |
-| R3 | `func --emit-format --help`: under the rule, `--help` is a known global flag, so this becomes exit 2 missing-value instead of printing help. Behaviour change not enumerated in contracts §3's examples. | Deliberate and consistent with B2; pinned by a test so it is a decision rather than an accident. Raised as §8 Q2. |
+| R3 | `func --emit-format --help`: under the rule, `--help` is a known global flag, so this becomes exit 2 missing-value instead of printing help. Behaviour change not enumerated in contracts §3's examples. | Deliberate and consistent with B2; pinned by a test so it is a decision rather than an accident. Answered: Q2 agreed (§9). |
 | R4 | Deleting a public name (`GLOBAL_OPTIONS_OPTIONAL_VALUE`) breaks any out-of-tree importer. | Pre-release, `CONSTITUTION.md:99` forbids compatibility shims; the name is transitional by the spec's own words. `tests/test_public_api_surface.py` is the repo's own list and gets updated. |
 | R5 | `expect`ed message text drifts between `missing_value_message` and `invalid_value_message`. | Both read `OPTIONAL_VALUE_VALID_SET` and use the same `sorted(...)`/`", "` join; a single unit test asserts both sentences against the table. |
-| R6 | 15 assertion sites across 6 files plus 5 grammar-reading files: a mechanical wave that lands half-done leaves the suite red in a way that looks like a source bug. | `tasks.md` wave 3 is one file per task with the file's own test as the gate; the whole-suite run is T7.2. |
+| R6 | 15 assertion sites across 6 files plus 5 grammar-reading files: a mechanical wave that lands half-done leaves the suite red in a way that looks like a source bug. | `tasks.md`'s test work is one coherent file set per task with that set's own test as the gate; the whole-suite run is the T5.1 checkpoint in wave 4. |
 
 ## 8. Surviving smells
 
@@ -401,8 +404,8 @@ Required section. Catalogue names are the refactoring skill's.
    something like `GLOBAL_OPTION_ACCEPTED_VALUES`, which the follow-up owns.
    Marked `# TRANSITIONAL(emit-format-alias-diagnostic)` in code so the next
    reader finds the reason rather than the smell.
-   **Needs maintainer review: yes** — the member is being asked to accept a
-   knowingly-misleading public name as a shipped state (Q3).
+   **Needs maintainer review: no — answered.** Q3 was put to the member and
+   agreed: the misleading name ships, with the rename owned by the follow-up.
 2. **Duplicated Code / Divergent Change — the global-prefix arity walk, three
    copies** (`_cli/dispatch.py::detect_mode`, `_cli/dispatch.py::_extract_global_options`,
    `_cli/dispatch.py::version_requested`). After this change all three call the
@@ -420,29 +423,51 @@ Required section. Catalogue names are the refactoring skill's.
    move pre-boot work behind a dispatch table for no measured gain.
    **Accepted as-is; needs maintainer review: no** (recorded so a reviewer sees
    the choice, per the required-section discipline).
-4. **Inconsistent invalid-value exit codes — `_cli/dispatch.py`.** After this
-   change a bad `--emit-format` value exits 2 while a bad `--log-level` value
-   (`:385-389`) and a bad `--discovery-depth` value (`:523`) exit 1. The
-   inconsistency pre-dates this change (all three were 1); this change makes it
-   *visible*. contracts §3's table enumerates only the two selection-table
-   flags, and spec §Blast radius does not mention the other two, so the plan
-   leaves them alone rather than widening scope silently.
-   **Needs maintainer review: yes** — Q1 below.
+4. **Inconsistent invalid-value exit codes — `_cli/dispatch.py`.** *Resolved by
+   the member, 2026-10-05.* After the first draft a bad `--emit-format` value
+   exited 2 while a bad `--log-level` value (`:385-389`) and a bad
+   `--discovery-depth` value (`:523`) exited 1 — an inconsistency that
+   pre-dated this change and that the change made *visible*. Q1 asked whether to
+   unify them; the answer was to move both to 2 in this change, so the AFTER has
+   one exit code for a wrong value across the whole value-required table, and the
+   two tests that pinned 1 (`tests/cli/test_global_options.py:38`,
+   `tests/cli/test_early_parse_integration.py:137`) flip with it.
+   **Needs maintainer review: no — answered.**
 
 Nothing in this section is on `.spec/CONSTITUTION.md`'s *Forbidden Patterns*
 list; those were removed in the AFTER, per §4.2.
 
-## 9. Questions put to the member at the gate
+## 9. Answers received at the gate
 
-- **Q1.** Facet 4 above: leave `--log-level BOGUS` / `--discovery-depth abc` at
-  exit 1, or unify them to 2 under "use exit 2 for both missing and wrong
-  values" (spec §Confirmed decisions)? Default in this plan: **leave at 1**
-  (minimal, matches the ACs and the Blast-radius enumeration).
-- **Q2.** Facet R3: `func --emit-format --help` becomes exit 2 missing-value
-  rather than rendering help. Confirm that is intended (it follows from B2's
-  "a following known global flag means the value is missing").
-- **Q3.** Facet 1: accept the knowingly-misleading `OPTIONAL_VALUE_VALID_SET`
-  name as a shipped state, with the rename owned by the separate follow-up.
+The member answered all three on 2026-10-05 (MCH-108 comment
+`01a10b25-a74e-708b-b34d-51d8c90cc8f8`): *"Q1: Move them to exit 2 as the same
+change; Q2: Yes agree; Q3: Yes agree."*
 
-Approval of this plan and its task list (`.spec/features/emit-format-alias-diagnostic/tasks.md`)
-is the Plan gate; Execute does not begin until it is given.
+- **Q1 — answered: unify to 2.** `--log-level`'s invalid-value exit
+  (`:380-389`) and `--discovery-depth`'s non-integer exit (`:523`) become
+  `ExitCode.USAGE`. Their two pinning assertions flip with them; nothing else in
+  the pre-boot parser keeps exit 1 for a wrong value. Recorded in §A3 and in
+  smell 4.
+- **Q2 — agreed.** `func --emit-format --help` exits 2 with the missing-value
+  sentence; `--help` is a known global flag and therefore not consumable as a
+  value. Pinned by a test so the consequence is a decision.
+- **Q3 — agreed.** `OPTIONAL_VALUE_VALID_SET` ships under its now-misleading
+  name, marked `# TRANSITIONAL(emit-format-alias-diagnostic)`; the rename is the
+  separate follow-up.
+
+The Plan gate is therefore answered, and this plan and its task list are the
+approved basis for Execute.
+
+## 10. Corrections folded in during this revision
+
+Three statements in the first draft did not survive re-reading and are fixed
+here, so the plan and `tasks.md` agree:
+
+- `tests/skills/test_api_claims.py` was listed as owing a change; it reads only
+  `OPTIONAL_VALUE_VALID_SET` (kept verbatim) against a `SKILLS_ROOT` corpus, so
+  **no change is owed**.
+- `tests/cli/test_global_options.py` was listed as unchanged "whether or not Q1
+  is taken"; its `:38` pin on `code == 1` is exactly what Q1 moves.
+- Risk R6 cited "T7.2" and "wave 3" for the whole-suite run, and §4.1 cited
+  "task T7.1" for the import-linter check; the task list's checkpoint is T5.1 in
+  wave 4, and that is where both live.

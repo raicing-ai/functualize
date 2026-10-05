@@ -68,10 +68,16 @@ comma-and-space separated. The first stderr line is:
 | `func --emit-format=` | `Error: --emit-format must be one of {auto, json, ndjson, none, raw}, got ''.` | 2 |
 | `func --perf-report shortcut` | `Error: --perf-report must be one of {json, text}, got 'shortcut'.` | 2 |
 | `func --emit-format -x greet` | `Error: --emit-format must be one of {auto, json, ndjson, none, raw}, got '-x'.` | 2 |
+| `func --log-level BOGUS greet` | `Error: --log-level must be one of CRITICAL, DEBUG, ERROR, INFO, WARNING, got 'BOGUS'.` | 2 |
+| `func --discovery-depth abc greet` | `Error: --discovery-depth must be a valid integer, got 'abc'.` | 2 |
 
 The missing-value rule applies to every member of
 `GLOBAL_OPTIONS_ALWAYS_VALUE`, including the members that already required a
-value. Value-position errors mention neither aliases nor jobs.
+value. Value-position errors mention neither aliases nor jobs. The last two rows
+are the same rule read across the whole table: an invalid value is a usage error
+for **every** value-required flag, so `--log-level` and `--discovery-depth` —
+which validated their values and exited 1 before this change, and were outside
+its first draft — now exit 2 like the rest (member decision of 2026-10-05).
 
 ## 4. Command position and app entry point
 
@@ -96,8 +102,9 @@ deliberately puts `shortcut` in value position instead.
 `func --help` renders `--emit-format TEXT` and names its accepted values and
 absent-flag default in prose. The old `[auto|json|ndjson|none|raw]` bracket,
 which advertises an optional value, is removed. Documentation and the changelog
-describe the new arity, exit 2 for both argument errors, and the known-global-
-flag missing-value case. Existing global-flag detection remains documented;
+describe the new arity, exit 2 for both argument errors and for an invalid value
+on any value-required flag, and the known-global-flag missing-value case.
+Existing global-flag detection remains documented;
 the separate public-name cleanup is identified as transitional. ADR-020's
 neutral statement that the `--perf-report` lookahead is deliberately `func`-only
 is marked superseded by this rule; its decision to keep the pre-boot and Click

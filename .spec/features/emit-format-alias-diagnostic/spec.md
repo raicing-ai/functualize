@@ -243,3 +243,16 @@ detector while removing the optional-value lookahead; treat a following known
 global flag as a missing value; use exit 2 for both missing and wrong values;
 require a value on the app's own `--emit-format` surface and accept that an
 alias in value position is invalid; and defer the public grammar rename.
+
+On 2026-10-05 the member answered the three questions the plan put at the gate,
+and the third of the choices above was read to its full extent: *"Q1: Move them
+to exit 2 as the same change; Q2: Yes agree; Q3: Yes agree."* So "exit 2 for
+both missing and wrong values" applies to **every** value-required pre-boot
+flag, not only the two selection-table flags — the invalid `--log-level` value
+and the non-integer `--discovery-depth` value, both exit 1 today, move to exit 2
+in this change; `func --emit-format --help` is a missing-value usage error
+rather than a help render, because `--help` is a known global flag and so not
+consumable as a value; and `OPTIONAL_VALUE_VALID_SET` ships under its
+transitional, now-misleading name, with the rename owned by the follow-up. The
+scope, acceptance criteria and blast radius above are otherwise unchanged, and
+no acceptance criterion is amended by this note.
