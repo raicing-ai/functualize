@@ -10,6 +10,9 @@ import pytest
 from functualize._config.vault import SecretsVault, VaultError
 from functualize._primitives.vault_identity import VaultIdentity
 
+#: The wrong key a refusal is probed with — 32 valid bytes that open nothing.
+_WRONG_KEY = b"\x01" * 32
+
 
 def test_group_and_job_with_same_target_and_field_have_distinct_keys() -> None:
     group = VaultIdentity("group", "deploy", "token")
@@ -78,9 +81,9 @@ def test_v1_store_refuses_without_changing_bytes(
         if operation == "list":
             vault.list_entries()
         elif operation == "get":
-            vault.get(key, encryption_key=b"\x01" * 32)
+            vault.get(key, encryption_key=_WRONG_KEY)
         elif operation == "put":
-            vault.put(key, "example", encryption_key=b"\x01" * 32)
+            vault.put(key, "example", encryption_key=_WRONG_KEY)
         else:
             vault.delete(key)
 
