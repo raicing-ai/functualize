@@ -1,8 +1,9 @@
 # Routing corpus v1 — labelling rubric
 
 Every scenario in `scenarios.jsonl` carries one label from the four routes, and
-one clause below decides it. The clauses are applied in the order they are
-written: a clause that matches overrides every clause after it.
+one clause below decides it. The two override clauses are applied first: §5
+and §6 override §1–§4, and §5 overrides §6. Otherwise the clause among §1–§4
+that fits the request decides it.
 
 ## §1 deterministic — a fixed rule or lookup answers it; no model needed
 
