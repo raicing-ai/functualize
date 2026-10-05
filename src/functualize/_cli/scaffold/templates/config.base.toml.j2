@@ -3,11 +3,12 @@
 # Values here can be overridden by environment-specific files (config.{env}.toml)
 # and by environment variables using the convention: SECTION_KEY (uppercased).
 #
-# Remote provider annotations use the "provider://reference" syntax.
-# Examples:
-#   api_key = "vault://secrets/my-app/api-key"
-#   db_password = "aws-sm://prod/db-password"
-#   token = "vault://secrets/token | aws-sm://fallback/token"
+# For a secret-marked job config field, declare its provider source separately:
+# [[vault_secret]]
+# job = "sample"
+# field = "api_key"
+# source = "aws-sm://prod/sample-api-key"
+# Run `func builtin vault sync` to fetch it into the local encrypted vault.
 
 [general]
 # General application settings
@@ -24,8 +25,6 @@ retry_count = 0
 # Configuration for the sample job (matches JOB_GROUP = "sample")
 target = "default-target"
 dry_run = false
-# Example: fetch a secret from a remote provider
-# api_key = "vault://secrets/{{ project_name }}/sample-api-key"
 
 # [children]
 # Hierarchical child projects — each key becomes a CLI namespace.

@@ -5,7 +5,7 @@ Tests correctness properties defined in the Unified Config Access design documen
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from hypothesis import given
 from hypothesis import strategies as st
@@ -29,6 +29,7 @@ class FakeSource:
         self._data = data
         self._source_type = source_type
         self._source_id = source_id
+        self.seen_scopes: list[Literal["group", "job"]] = []
 
     @property
     def source_type(self) -> str:
@@ -38,7 +39,14 @@ class FakeSource:
     def source_id(self) -> str:
         return self._source_id
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
+        self.seen_scopes.append(scope)
         if section is not None:
             lookup = f"{section}.{key}"
             if lookup in self._data:
@@ -47,6 +55,15 @@ class FakeSource:
 
     def has(self, key: str, section: str | None = None) -> bool:
         return self.get(key, section) is not None
+
+
+def test_custom_source_receives_group_and_job_scope() -> None:
+    source = FakeSource({"deploy.token": "configured"})
+    chain = ResolutionChain([source])
+
+    assert JobConfigView(chain, "deploy", scope="group").get("token") == "configured"
+    assert JobConfigView(chain, "deploy", scope="job").get("token") == "configured"
+    assert source.seen_scopes == ["group", "job"]
 
 
 # --- Strategies ---
@@ -103,7 +120,13 @@ class AlwaysMissingSource:
     def source_id(self) -> str:
         return self._source_id
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
         return None
 
     def has(self, key: str, section: str | None = None) -> bool:

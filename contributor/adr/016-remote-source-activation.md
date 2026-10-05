@@ -6,6 +6,15 @@
 `.spec/features/remote-source-activation/` and are cleared at merge, as that workflow
 requires; recover them from the pull request ref if needed.
 
+**Amended 2026-10-04 — scoped vault declarations.** The activation and offline
+read decision stands. Provider references now live only in explicit
+`[[vault_secret]]` blocks with exactly one `group` or `job` target, a secret
+`field`, and a `source`. The vault key is an encoded `(scope, target, field)`
+identity. Inline provider references in secret config fields are refused with
+replacement guidance. The old flat identity format is not migrated; the
+operator clears the local store and reprovisions it. Historical observations
+below describe the original implementation, not the current declaration syntax.
+
 ## Context
 
 Functualize ships a complete remote configuration layer that resolves nothing.
@@ -206,12 +215,13 @@ someone rotates on Tuesday — otherwise surfaces as an authentication error fro
 
 ### 7. A vault miss falls through, loudly
 
-When a declared annotation has no vault entry, resolution continues to the next
-source — and warns, every run, naming the key, the annotation it was declared
-as, **which source actually answered**, and the command that fixes it.
+When a scoped `[[vault_secret]]` declaration has no vault entry, resolution
+continues to the next source — and warns, every run, naming the identity,
+**which source actually answered**, and the command that fixes it. The warning
+does not print the provider reference or the value that won.
 
-Hard-failing was considered and rejected: it makes a first run after adding an
-annotation impossible, and it removes the escape hatch that lets someone work
+Hard-failing was considered and rejected: it makes a first run after adding a
+declaration impossible, and it removes the escape hatch that lets someone work
 while a provider is down.
 
 The distinction that matters: **falling through is fine, falling through
@@ -225,7 +235,7 @@ ADR-008. This feature adds no second opinion; ADR-008's own docstring explains
 why two would be a leak.
 
 > **Amended by [ADR-023](023-local-vault-access.md) §1.** What is written above
-> is about a **miss** — a declared annotation with nothing stored for it — and
+> is about a **miss** — a declared identity with nothing stored for it — and
 > stands unchanged: an absent entry still falls through, and still warns.
 >
 > ADR-023 separates out a case this section did not: an entry that **is** stored
@@ -234,16 +244,22 @@ why two would be a leak.
 > different secret than the operator intended — the substitution this ADR exists
 > to prevent, arriving through the one door it left open.
 
-### 8. Annotations make config files discoverable without making them leak
+### 8. Scoped declarations make secret locations explicit
 
 ADR-008 recorded that a config file *"gives no sign that a job needs a
 credential"*, and noted the good property underneath: a config file has no
 vocabulary for naming a secret's location, so it cannot leak one.
 
-The annotation syntax resolves that tension rather than trading it away. An
-annotation names a credential's **location**; it never carries its **value**.
-`parse_annotation` gains its first production caller, and ADR-008's Problem 1
-is discharged.
+`[[vault_secret]]` resolves that tension without overloading an ordinary
+config field. Its `source` names a credential's **location**, never its
+**value**; its scope and field identify the only secret-marked config target
+that may receive it. `vault sync` parses every discovered file separately,
+validates and deduplicates identities before fetching, and records partial
+provider failures without printing fetched values. Group and job values use
+the same ladder: runtime override, explicit CLI value, vault, environment,
+config file, model default. Ordinary function parameters are invocation
+inputs, not vault targets. `parse_annotation` remains the provider source
+parser, while ordinary config values are no longer scanned as declarations.
 
 ## Consequences
 

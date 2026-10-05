@@ -59,10 +59,12 @@ class FakeSource:
     def source_id(self) -> str:
         return self._source_id
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self, key: str, section: str | None = None, *, scope: str = "job"
+    ) -> Any | None:
         return self._data.get((section, key))
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(self, key: str, section: str | None = None, *, scope: str = "job") -> bool:
         return (section, key) in self._data
 
 
@@ -85,7 +87,9 @@ class TestCreateJobCommandConstructsJobConfigView:
         mock_app.middleware.has_middleware.return_value = False
 
         # Build a config_view_factory that creates JobConfigView from the chain
-        def _config_view_factory(*, section_prefix: str = "") -> JobConfigView:
+        def _config_view_factory(
+            *, section_prefix: str = "", scope: str = "job"
+        ) -> JobConfigView:
             return JobConfigView(
                 resolution_chain=chain, default_section_prefix=section_prefix
             )
@@ -221,7 +225,9 @@ class TestResolutionChainSharedInstance:
         mock_app.event_bus.has_subscribers = False
         mock_app.middleware.has_middleware.return_value = False
 
-        def _config_view_factory(section_prefix: str = "") -> JobConfigView:
+        def _config_view_factory(
+            section_prefix: str = "", *, scope: str = "job"
+        ) -> JobConfigView:
             return JobConfigView(
                 resolution_chain=chain, default_section_prefix=section_prefix
             )
@@ -311,7 +317,9 @@ class TestEndToEndJobExecution:
         mock_app.event_bus.has_subscribers = False
         mock_app.middleware.has_middleware.return_value = False
 
-        def _config_view_factory(section_prefix: str = "") -> JobConfigView:
+        def _config_view_factory(
+            section_prefix: str = "", *, scope: str = "job"
+        ) -> JobConfigView:
             return JobConfigView(
                 resolution_chain=chain, default_section_prefix=section_prefix
             )
