@@ -1,349 +1,528 @@
 # Rise / RiseKit foundation — specification
 
-Status: **Specify, revision 3.**
+Status: **Specify, revision 4. Awaiting the owner's confirmation.** Plan has not
+started. `plan.md` and `tasks.md` from revision 3 are withdrawn: the
+canon they were planned against has been superseded, and `/agentic-plan` needs a
+confirmed spec first.
 
-- **Applied as corrections, not approvals.** The member's two corrections of
-  2026-10-02: development traceability (formerly "D-1") and providers outside
-  RiseKit (formerly "D-3").
-- **D-2 answered** by the member on 2026-10-02, confirming the split and C4's
-  minimal assessment rule. SM-3 was then closed by independent review.
-- **Incorporated in this revision.** The owner's nine inline comments on Shape
-  Intent 5407068 (§9).
-
-Three of those comments asked for research before any decision. They land as
-research with **provisional** recommendations (research.md § *Owner comments*),
-and are not accepted design. One of them shapes what every provider author must
-declare: the operation-effect vocabulary, **OS-1** (plan.md § *Next member
-decision*). Until OS-1 is answered, `OperationContract`'s effect field stays
-provisional, and **T2 does not freeze it**. T1 is records only and needs the
-member's word separately.
-
-Base: `origin/master` at `ef1939d`. Every count below was produced by the
-command printed beside it, on that base. The live product sources behind every
-responsibility are listed in §8 with page ids and versions.
+- **Canon.** Shape Intent SD/5407068 **v18**, `Authority: Approved`. The owner
+  approved it in inline comment 12648493 (2026-10-05 08:08:47 UTC), and the
+  approval covers Decisions 1–27 plus the owner decisions of 5 October.
+  Revisions 1–3 were written against v15, which had Decisions 1–15. Where v15-era
+  text disagreed with v18, v18 controls (§7).
+- **Re-read live for this revision** (2026-10-05, after 10:20Z). SD/5407068 v18,
+  updated 2026-10-05 09:27:54 UTC: the content hash matched the earlier read on
+  the same day, and the page has 10 inline comments. SD/12779576 **v2**, updated
+  2026-10-04 17:29:54 UTC. Jira FUN-8, updated 2026-10-05 09:52:11 UTC.
+- **Base.** `origin/master` at `e8e3b86`. Every count and negative below was
+  produced by the command printed beside it, on that base.
+- `research.md` is kept unchanged from revision 3. Its evidence does not depend
+  on the canon version. The exception is R-2's provisional recommendation, which
+  Decision 16 has overtaken (§9).
 
 ## 1. Problem
 
-Rise and RiseKit are accepted prerequisites of the 1.0 journey (FUN-3 delivery
-principles; Initiative page 4882456 v11, "Rise and RiseKit are **accepted
-prerequisites for the 1.0 North Star**"). The later packaging slice, the cloud
-path and the release proof must go through them rather than around them.
-Nothing in the repository carries either name today:
+Rise and RiseKit are accepted prerequisites of the 1.0 journey (FUN-8, *Accepted
+premise*). The later packaging slice, the cloud path and the 1.0 release proof
+must go through them rather than around them. Nothing in the repository carries
+either name today:
 
 ```
-git grep -i -c risekit origin/master | wc -l      # 0
-git grep -E -l '\bRise\b' origin/master | wc -l   # 0
+git grep -i -l risekit origin/master | wc -l       # 0
+git grep -E -l '\bRise\b' origin/master | wc -l    # 0
 ```
 
-The model exists only in the product design space, as a canonical shape intent
-(page 5407068, v15) with fifteen decisions. The repository has no account of
-where the line between Rise and RiseKit runs, which side owns each piece, or how
-either one relates to the Functualize layers the constitution fixes. Without
-that line, the first Cloudflare package would set the boundary by accident,
-wherever its code happened to land.
+The repository already contains the *practice* that Rise turns into a
+convention. `docs/guides/subjects.md` teaches subject classes
+(substrate, actions, target) and stops at a deliberate edge:
 
-This feature does two things. It **draws the line** and records it as a
-decision. Then it **builds the smallest machinery on each side** that makes the
-line testable, using a real Cloudflare D1 + Worker package as the forcing case.
-That Cloudflare package is authored **with** RiseKit, by an author standing
-outside RiseKit.
+> functualize ships **no concrete substrates, actions, or targets** … Concrete
+> sets belong to a **vocabulary layer** — a package that supplies substrate base
+> classes, action Protocols, validation, and tooling on top of this practice.
+> (`docs/guides/subjects.md`, *What this guide does not define*)
 
-## 2. Vocabulary (defined here, because the repository has none)
+This feature builds that vocabulary layer, which the approved canon names Rise
+and RiseKit. It does three things:
 
-| Term | Meaning in this feature |
-|---|---|
-| **Functualize** | The runtime: jobs, plugins, discovery, `Invoke`, config, secrets, stores. It knows nothing about Rise. |
-| **Rise** | The convention, plus the **judge** that checks a package against it. It owns the declaration schema, the capability-contract format, the diagnosis record envelope, the conformance rules, and the `validate` and `diagnose` operations. |
-| **RiseKit** | The **author's toolkit**. Typed authoring helpers that make a conformant package the easy one to write, and, later, the *common* capability vocabulary (contracts such as `javascript.npm@1` that several providers implement). It contains **no provider package**: no Cloudflare, no npm, nothing that manages a real resource. |
-| **Provider package** | A Rise Package, in its own distribution, written by a package author **using** RiseKit. It defines the contracts of the namespace it owns, implements their operations as jobs, or both. The forcing case's provider package is `functualize-rise-cloudflare`, which owns the `cloudflare` namespace. |
-| **Rise Package** | A logical compatibility boundary: a set of Functualize-discovered jobs that share one package id. It is *not* necessarily a Python distribution (shape intent, Decision 14). |
-| **Rise capability contract** | A namespaced, versioned promise such as `cloudflare.d1@1`. It names its subject kind, its operations, and the observation fields its diagnosis must carry. Its **namespace owner** owns its meaning (Decision 12). **Never call it just "capability" in code or docs**: in Functualize, "capability" already means a DI-injectable such as `Log` or `Invoke` (`rg -c -i '\bcapabilit' src/functualize` sums to **592**). |
-| **Subject** | A durable or externally meaningful thing that a package manages, such as one D1 database or one Worker script. |
-| **Operation** | Something done *to* a subject (`provision`, `diagnose`). Every operation is an ordinary Functualize job. |
-| **Relation** | A typed edge from one subject to another, marked `required` or `optional`. |
-| **Diagnosis record** | One JSON object on one line: the universal envelope plus a typed `observation` payload. |
+1. It draws the boundary between Functualize, Rise, RiseKit and provider
+   packages, and records that boundary as a decision.
+2. It defines the declaration model: typed subjects, contracts, environment
+   trees, operations and realizations.
+3. It builds the smallest machinery that makes the model executable:
+   `validate`, `diagnose` and `up` over a scope. That machinery is proven on a
+   Cloudflare D1 + Worker provider package written with RiseKit by an author
+   standing outside RiseKit.
 
-## 3. The boundary (the decision this feature exists to make — D-2)
+## 2. Vocabulary
 
-**Rise judges; RiseKit authors; Functualize runs.** Package authors build on
-RiseKit; nobody builds inside it. Dependencies point one way only:
+| Term | Meaning in this feature | Canon |
+|---|---|---|
+| **Functualize** | The runtime: jobs, plugins, discovery, `Invoke`, configuration, secrets, Gates, stores. It knows nothing about Rise. | D13 |
+| **Rise** | "A convention and working ecosystem layered on Functualize for building compatible operational packages." It defines the declaration model, the identities, the operation roles, the diagnosis envelope, and the semantics of `validate`, `diagnose` and `up`. | D1 |
+| **RiseKit** | "The reference toolkit and reusable package ecosystem implementing the Rise convention." In this feature it is a distribution of typed authoring building blocks. It holds no provider package (B5). | D1 |
+| **Provider package** | A Rise Package in its own distribution. It defines contracts in a namespace it owns, implements them, or both. | D1, D12 |
+| **Rise Package** | A logical compatibility boundary over Functualize-discovered components. It is not necessarily one Python distribution. | D14 |
+| **Subject** | A durable or externally meaningful thing that is managed. In code it is a typed Python class. An *instance* is identified by immutable, typed, serializable configuration. | D2, D16, D17 |
+| **Contract** | An abstract subject class carrying a namespaced, versioned identity (`ns.name@major`). It defines operation signatures and a realization type. The word is always **contract** or **Rise contract**, never bare "capability": in Functualize, a *capability* is an injected parameter such as `Log` or `Invoke` (`docs/guides/subjects.md`, note *Actions, not capabilities*). | D12, D18 |
+| **Operation** | A method on a subject class. Each one is an ordinary Functualize job with one canonical job identity at class level. | D16, D23 |
+| **Role** | The effect class Rise infers from an operation's name: `read-only`, `convergent`, `mutating` or `destructive`. | D16 |
+| **Environment** | The value returned by an ordinary job annotated `-> Environment`. It is a lazily evaluated tree of subjects and nested scopes. | D22 |
+| **Address** | A subject's address is its environment's job address joined to its local id. A **scope** selects an address subtree. | D22 |
+| **Ref** | A typed configuration field that links one subject to another (`Ref[T]`, `Ref["address"]`). | D21, D22 |
+| **Realization** | The Rise-visible result an `up` produces, recorded through a persistence port. | D18, D27 |
+| **Diagnosis record** | One NDJSON line: the universal envelope plus a typed `observation`. | D3, D5 |
+
+## 3. The boundary
+
+**Functualize runs; Rise defines and judges; RiseKit makes the conformant path
+the easy one; provider packages implement.** Dependencies point one way:
 
 ```
 functualize (public API)  ◄──  rise  ◄──  risekit  ◄──  provider packages
-                                                       (functualize-rise-cloudflare, …)
+                                 ▲                       (functualize-rise-cloudflare, …)
+                                 └──── a hand-written provider may depend on rise alone
 ```
 
-Each layer may know the layer below it and never the one above. Each rule
-below makes one part of that falsifiable:
-
 - **B1 — Functualize knows nothing of Rise.** No module under `src/functualize/`
-  imports any of the three packages. Every seam Rise needs already exists in
-  core and is public (plan.md § *Seams*), so the foundation adds **no** core
-  change.
-- **B2 — Rise does not need RiseKit.** A package written by hand, importing
-  nothing from RiseKit, validates and diagnoses exactly like one built with
-  RiseKit. Rise never imports RiseKit. Without this property Rise is not a
-  convention; it is RiseKit's internal format.
-- **B3 — RiseKit invents no semantics.** Everything RiseKit emits (metadata,
-  contract values, diagnosis records) is something Rise defines and validates.
-  A RiseKit-built package that Rise rejects is a RiseKit defect.
-- **B4 — Execution stays Functualize-native.** Rise runs an operation by calling
-  `Invoke` with the operation's job name. It never calls provider code directly
-  (Decision 15).
-- **B5 — RiseKit carries no provider.** No provider package lives inside the
-  RiseKit distribution, and RiseKit names no provider domain. A provider
-  package depends on RiseKit; RiseKit never depends on a provider. This is the
-  member's correction of 2026-10-02 made testable: "Risekit shouldn't contain
-  packages for cloudflare etc, it should be used by other authors or package
-  maintainers to create those cloudflare packages."
-- **B6 — Rise adds no discovery.** Rise finds packages, jobs and contracts only
-  through what Functualize already discovered: jobs and their metadata via the
-  host's job lookup, and contracts by following the static reference that each
-  job's own metadata carries. It registers no entry-point group of its own
-  (Decision 14: "Rise introduces no parallel runtime loader").
+  imports Rise, RiseKit or a provider package, and this feature's own diff
+  leaves `src/functualize/` untouched. The Functualize-side prerequisites in §6
+  are owned by separate tickets. They are generic Functualize features that do
+  not name Rise (D13: "Functualize must remain fully usable without Rise").
+- **B2 — Rise does not need RiseKit.** A provider that subclasses Rise's own
+  base types and imports nothing from RiseKit validates, diagnoses and runs `up`
+  exactly like one built with RiseKit. Rise never imports RiseKit.
+- **B3 — RiseKit invents no semantics.** Everything RiseKit produces (substrate
+  bases, observation models, contract-test helpers) is defined and validated by
+  Rise. A RiseKit-built provider that Rise rejects is a RiseKit defect.
+- **B4 — Execution stays Functualize-native.** Rise performs an operation by
+  calling `Invoke` with the operation's canonical job and the subject address.
+  It never calls provider code directly (D15, D23).
+- **B5 — The RiseKit distribution carries no provider.** RiseKit names no
+  provider domain, and no provider package depends the other way. Reference
+  packages that conform to RiseKit are separate distributions in RiseKit's
+  ecosystem. This is the member's correction of 2026-10-02, read against D1
+  (§7, PC-2).
+- **B6 — Rise adds no discovery and no loader.** Rise sees subject classes,
+  operations and environment jobs only through Functualize discovery. That
+  includes the generic class-discovery path (§6, P-1). Rise registers no
+  entry-point group and binds no job itself (D14: "Rise does not add a separate
+  runtime job/plugin loader").
 
-### Which side each named piece enters from
+### Which side each piece enters from
 
-| Piece | Enters from | Notes |
+| Piece | Enters from | Canon |
 |---|---|---|
-| Declaration schema (package id, contract identity + reference, subject, operation, relation + criticality) | **Rise** | |
-| Capability-contract *format* (the `CapabilityContract` value type) | **Rise** | |
-| How a contract is found: follow the job's static `contract_ref`, check its identity | **Rise** | B6; no registry, no entry-point group |
-| `validate`: does a declaration conform to the contracts it claims? | **Rise** | RiseKit makes passing easy; it never decides pass or fail |
-| `diagnose`: traversal, per-record status, required/optional aggregation, cycle/duplicate handling, NDJSON stream, exit status | **Rise** | |
-| Diagnosis envelope (`rise`, `record`, `id`, `contract`, `status`, `observation`, `issues`, `requires`, `diagnosis_id`, `observed_at`) | **Rise** | |
-| Typed observation models and the observation → record builder | **RiseKit** | provider code fills in only what it alone knows |
-| `@operation` authoring decorator, contract-declaration helper | **RiseKit** | emit Rise's metadata and Rise's contract type; add nothing of their own |
-| Common capability vocabulary (contracts several providers implement) | **RiseKit** | **none shipped in this feature**: no second provider needs one yet |
-| Contract *instances* `cloudflare.d1@1`, `cloudflare.worker@1` | **Provider package** `functualize-rise-cloudflare`, as owner of the `cloudflare` namespace | Decision 12: the namespace owner owns the meaning |
-| D1 `provision` / `diagnose` and Worker `diagnose` jobs | **Provider package** `functualize-rise-cloudflare` | authored with RiseKit |
-| The D1 *runtime store* (persisting runs in D1) | **Functualize plugin**, the network-provider slice (FUN-22) | not Rise: Functualize must persist without Rise (Decision 13) |
-| Running a Functualize operation *inside* a Worker | **Functualize adapter plugin**, cloud-execution slice | not Rise. Deploying it is a future operation of the provider package |
-| Cloudflare credentials | **Functualize** config / secrets | the provider's jobs read them as ordinary job parameters |
-| `rise-lock`, operation strategies, preference policy, origin/binding/authority, typed consumer proxy (`Requires[...]`) | Rise semantics, RiseKit authoring | **deferred**; plan.md § *Stage 5 consumption list* |
-| No-import static analyzer, LSP | **Rise** | **deferred** |
-| Registry, distribution, provenance, trust | **Functualize** (generic) | out of scope by Decision 13 |
-| Jira and Confluence | **Neither**, at runtime | they authorize the *development* of all three packages (§8); no Rise, RiseKit or provider code reads them |
+| `Subject` base, contract declaration (abstract subject + identity), `Ref`, `Environment`, `Realization` and `Observation` bases | **Rise** | D16–D18, D21, D22, D27 |
+| Role inference from operation names; generated `rise:op:*`, `rise:implements:*` and `effect:*` job metadata | **Rise** | D16 |
+| Descriptor generation from the Python declaration (JSON, on demand, cached) | **Rise** | D14, D18 |
+| `validate`, `diagnose`, `up`; traversal, aggregation, NDJSON, exit status | **Rise** | D3, D5, D6, D27 |
+| Candidate selection for `up` (this feature: exactly one candidate, or refuse) | **Rise** | D7, D9, D19 |
+| Realization record and persistence port, plus a local backend | **Rise** | D7, D27 |
+| Standard substrate base classes and their typed observation models (this feature: *remote resource* only) | **RiseKit** | D3, D27 |
+| Contract-test helper that runs `validate` and the contract's checks against a provider's candidates | **RiseKit** | D19 |
+| `cloudflare.d1@1`, `cloudflare.worker@1` contracts and their implementations | **Provider package** `functualize-rise-cloudflare` | D12, D26 |
+| Class discovery, Gates, `Setting()`, configuration resolution, vault, `ExitCode` | **Functualize** | D13, D16, D20, D24, D27 |
+| Jira and Confluence | **Neither, at runtime.** They authorize *development* (§8) | member correction 2026-10-02 |
 
 ## 4. Behaviour
 
-### 4.1 Declaring
+### 4.1 Declaring subjects and contracts
 
-- **S1.** A job takes part in Rise by carrying Rise metadata through the
-  existing plugin-extension seam: `__functualize_ext_rise__`, merged by
-  discovery into `JobDescriptor.metadata["plugins"]["rise"]`. The metadata names
-  the package id, the contract identity (`<namespace>.<name>@<major>`), the
-  contract reference (`<module>:<attribute>`, see C3), the subject id, the
-  operation name, and the subject's relations.
-- **S2.** A job without Rise metadata behaves exactly as it does today. A job
-  with Rise metadata still behaves as an ordinary job when Rise is not
-  installed: boot gives the existing orphan warning, the job is not refused, and
-  it still runs.
-- **S3.** The Rise plugin owns the `rise` namespace, so a booted app with Rise
-  installed produces **no** orphaned-metadata warning for Rise metadata.
-- **S4.** Rise reads package membership only through the host's job lookup
-  (`PluginHost.get_jobs` / `get_job`). A job published under the
-  `functualize.jobs` entry point enumerates **without** metadata until it is
-  materialized (`app/commands.py:158-182`), so `rise-validate` and
-  `rise-diagnose` materialize every entry-point job by name before reading its
-  Rise metadata. That imports each job-publishing distribution once per command,
-  never at boot. Directory-discovered jobs keep reading their metadata from the
-  discovery cache, which preserves the warm-boot zero-import guarantee.
+- **S1.** A subject is a class deriving from Rise's `Subject`. Its fields are
+  typed configuration and immutable once constructed. Construction performs no
+  operational I/O. Two instances with equal configuration are the same subject
+  configuration (D17).
+- **S2.** A **contract** is an abstract `Subject` subclass that declares a
+  namespaced identity (`<namespace>.<name>@<major>`), its abstract operations
+  with their signatures, and a realization type (D18). A concrete subclass
+  *implements* that contract. A concrete subject with no contract ancestor is a
+  local subject, with identity `local:<name>` (D16, D27). A local subject needs
+  no published contract id.
+- **S3.** An operation is a method of a concrete subject class. Rise infers its
+  **role** from its name:
+  - `validate` and `diagnose` are read-only;
+  - `up` and `update` are convergent;
+  - `start` and `stop` are mutating;
+  - `down` is destructive;
+  - any other name is mutating unless explicitly declared otherwise.
 
-### 4.2 Validating
+  From that typed declaration Rise generates the metadata `rise:op:<verb>`,
+  `rise:implements:<ns.name@major>/<verb>` and `effect:<role>` on the
+  operation's canonical Functualize job (D16). The author writes no
+  Rise-specific decorator and no hand-maintained tag. When an author needs a
+  Functualize feature (guards, caching, timeout), they use Functualize's
+  existing `@job` metadata.
+- **S4.** Each operation has **one canonical job identity at class level** (D23).
+  Invoking it supplies the subject by address. The subject instance is built
+  from configuration resolved for that address (S6). There is one job per
+  operation, never one per instance.
+- **S5.** A descriptor is generated on demand from the declaration. It is a
+  JSON document carrying the contract identity, operations, roles, signatures,
+  realization type, configuration schema and `Ref` fields. Rise caches it
+  locally. It is never a committed hand-maintained file (D18). The descriptor and
+  the runtime metadata of S3 are **semantically equal**: both come from the same
+  declaration (D14). Freezing descriptors into built distributions and attaching
+  them for publication is deferred (§6).
 
-- **S5.** `func rise-validate --package <id>` checks every declaration of the
-  package against the contract each one claims, and reports one line per
-  finding. It mutates nothing and runs no operation.
-- **S6.** Contract resolution: Rise imports the module named by `contract_ref`
-  and reads the attribute. It must be a Rise `CapabilityContract` whose
-  `identity` equals the declared `contract`. Only declaration modules are
-  imported; no operation runs.
-- **S7.** It refuses, with a named finding each:
-  1. a contract reference that does not resolve;
-  2. a reference that resolves to something other than a `CapabilityContract`,
-     or to one whose identity differs from the declared contract;
-  3. an operation the contract does not define;
-  4. a required contract operation that has no implementing job;
-  5. two jobs claiming the same (subject, operation);
-  6. a relation that targets an undeclared subject;
-  7. a relation without criticality;
-  8. Rise metadata that is not JSON-serializable or fails the schema.
-- **S8.** Exit status is 0 when there are no findings and non-zero otherwise.
+### 4.2 Configuration and secrets
 
-### 4.3 Diagnosing
+- **S6.** A subject's fields resolve through Functualize configuration (D17).
+  The active configuration environment is Functualize's existing selector: the
+  first valid value among `FUNCTUALIZE_ENV`, `ENVIRONMENT` and `ENV`, otherwise
+  `DEV` (`src/functualize/_app/environment.py:18-24`). That value picks the
+  matching `config.<env>.toml` overlay over `config.base.toml`. Rise adds **no**
+  `--env` flag and no selector of its own. Scope and configuration environment
+  are independent (D25).
+- **S7.** A secret-marked subject field is configuration, never an invocation
+  parameter (D17). It resolves under the **approved vault contract SD/12779576
+  v2**: runtime override → explicit command-line value → vault → environment →
+  config file → default. A stored but unreadable vault entry does not fall
+  through. A run never contacts a remote secret provider.
 
-- **S9.** `func rise-diagnose --package <id> [--subject <id>]` writes one NDJSON
-  record per diagnosed subject to stdout, then one root record for the package.
-  Each record is complete on its own line. A failed observation is a record with
-  `status: "fail"` and structured `issues`; it is never a traceback in the
-  stream.
-- **S10.** `status` is `pass` or `fail`, derived from the contract's assessment
-  of the typed observation (Decision 5). It is never taken from a free-form
-  provider judgement. `observation.state` is domain-specific and the contract
-  defines it.
-- **S11.** A subject fails if its own assessment fails **or** any `required`
-  relation target fails. An `optional` target's failure is still emitted, but
-  does not fail the parent. The parent carries a `required_dependency_failed`
-  issue that references the child record by id; the child's detail is not
-  copied (Decision 6).
-- **S12.** Traversal continues past failures, so every subject that can be
-  observed is emitted. A subject reached twice is observed once. A relation
-  cycle is reported as an issue and does not recurse. The output order is
-  deterministic: ties break alphabetically, as everywhere else in Functualize.
-  *These are the behaviours. The mechanism that produces them is
-  **provisional**, pending the owner's review of research.md § R-1 (comment
-  11960322).*
-- **S13.** The process exit status follows the root record: 0 when it passes,
-  non-zero when it fails. The exact non-zero taxonomy stays open.
-- **S14.** Each diagnose operation runs through `Invoke` by job name, so it
-  carries normal child-run ancestry, events and timeouts.
+  This feature does **not** assume the subject-address-as-vault-group rule
+  (A1) or environment-qualified vault entries (A2). Both wait for the
+  SD/12779576 amendment (MCH-148). How a subject's secret field maps to a v2
+  vault identity until then is open decision **OD-1** (§10).
+- **S8.** A secret value never appears in a diagnosis record, a descriptor, a
+  realization, a validation finding, or a Gate payload. A realization's
+  configuration fingerprint excludes the plaintext of secret fields. It records
+  only which secret fields were set and from which source class (vault,
+  environment, file, explicit).
 
-### 4.4 The forcing case — a Cloudflare provider package, authored with RiseKit
+### 4.3 Environments, addresses and scope
 
-- **S15.** `functualize-rise-cloudflare` is a separate distribution. It depends
-  on `functualize-risekit` (and through it `functualize-rise`) and on the
-  Functualize public API, and on nothing else of this repository. It owns the
-  `cloudflare` namespace and defines both of its contracts with RiseKit's
-  declaration helper.
-- **S16.** `cloudflare.d1@1`: subject *D1 database*, identified by
-  (account id, database name). Operations: `diagnose` (observe presence, uuid
-  and state) and `provision` (diagnose first; create only if absent; re-running
-  against an existing database changes nothing and reports that). There is no
-  `delete` in this feature: destructive operations need the positive-identity
-  rule (Decision 11), which is deferred.
-- **S17.** `cloudflare.worker@1`: subject *Worker script*, identified by
-  (account id, script name). Operation: `diagnose`. It can declare a
-  `binds → <d1 subject>` relation, `required` by default. `deploy` is **not** in
-  this feature (§6).
-- **S18.** Credentials arrive as ordinary job parameters resolved by Functualize
-  config and secrets (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, the same
-  names the D1 probe already uses). Nothing in Rise, RiseKit or the provider
-  package reads the environment directly.
-- **S19.** A repository-local Rise package (an example project) declares
-  `worker.production` with relation `binds → d1.production` (`required`).
-  Against a fake transport, `rise-diagnose` emits three records: d1, worker and
-  root. When the database is absent, the worker and the root both fail, the d1
-  record's issue says why, and the exit status is non-zero. After `provision`,
-  the same diagnosis passes, provided the Worker exists.
+- **S9.** Any ordinary Functualize job whose return annotation is `Environment`
+  declares an environment. It needs no `@environment` decorator and no tag
+  (D22). Its job address names the environment.
+- **S10.** Rise evaluates an environment job **lazily and without operational
+  side effects**. It is called only when a command's scope reaches it. The
+  result is a tree of subject instances and nested named scopes. Ordinary Python
+  functions provide reuse and parameterized composition. In this feature an
+  environment job's parameters are **fixed values only**. `Setting()` values and
+  author-exposed flags (D24) wait for prerequisite P-3.
+- **S11.** A subject's **address** is the environment's job address followed by
+  its scope path and local id, dot-joined. Within one environment tree an
+  address is unique; a duplicate is a validation finding. `Ref["address"]`
+  links an existing subject by address, and `Ref[T]` links it by type within the
+  tree. An unresolvable or ambiguous `Ref` is a validation finding.
+- **S12.** A `Ref` is either an **ordering** edge, the default, or an
+  **informational** relation. An ordering edge has a criticality, `required`
+  (the default) or `optional`. Ordering edges must form an acyclic graph; a
+  cycle is a validation finding. Informational relations are references only.
+  They never order work and never aggregate status (D27, D6).
+- **S13.** `--scope <address>` selects that address's subtree. Without
+  `--scope`, the command acts on **the author-declared root**, which the author
+  names in Functualize configuration (D25, D27). Rise has no privileged hosting
+  root, no `[rise] hosting` key, and no `protected_by`. If no root is declared,
+  Rise uses the one environment job when there is exactly one. With none, or
+  with several, Rise refuses with `USAGE` and lists the environment addresses it
+  found. It never picks one.
+
+### 4.4 Validating
+
+- **S14.** `func rise validate [--scope <address>]` checks every subject in scope
+  and every contract they claim. It reports one finding per line and changes
+  nothing. It imports declaration modules and evaluates environment jobs (S10).
+  It runs no operation.
+- **S15.** It reports, each as a named finding:
+  1. a contract identity that violates the grammar (C4);
+  2. a concrete subject missing an operation its contract declares abstract;
+  3. an operation whose signature differs from the contract's;
+  4. an `up` whose declared return type is not the contract's realization type;
+  5. a configuration field that is mutable or not serializable;
+  6. a secret-marked field declared as an invocation parameter rather than
+     configuration;
+  7. a duplicate address;
+  8. an unresolvable or ambiguous `Ref`;
+  9. an ordering cycle;
+  10. a `Ref` without a resolvable criticality;
+  11. a generated descriptor that disagrees with the runtime metadata (S5).
+- **S16.** Exit status: `OK` when there are no findings, non-zero otherwise.
+  The mapping onto `ExitCode` is in C10.
+
+### 4.5 Diagnosing
+
+- **S17.** `func rise diagnose [--scope <address>]` writes one NDJSON record per
+  diagnosed subject to stdout. Each record is complete on its own line. The last
+  record is a **root record** for the scope. A failed observation is a record
+  with `status: "fail"` and structured `issues`; it is never a traceback in the
+  stream (D5).
+- **S18.** `status` is `pass` or `fail`. It is **derived** from the contract's
+  assessment of the typed observation, never taken from a free-form provider
+  judgement. `observation.state` is domain-specific and defined by the contract
+  (D5). The minimal assessment rule confirmed by the member on 2026-10-02 is
+  kept: a contract names its legal states and its passing states, plus its
+  required observation fields.
+- **S19.** Traversal follows ordering edges and treats informational relations
+  as references. It observes **each subject address once per diagnosis**
+  (memoized). A subject fails if its own assessment fails **or** a `required`
+  ordering target fails. An `optional` target's failure is emitted but does not
+  fail the parent. The parent carries a `required_dependency_failed` issue that
+  references the child record by id; the child's detail is not copied (D6, D27).
+- **S20.** Traversal continues past failures wherever observation is still safe,
+  so every observable subject is emitted (D6). The order of records is
+  deterministic: dependencies before dependents, with ties broken
+  alphabetically by address.
+- **S21.** Each `diagnose` operation runs through `Invoke` as its canonical job
+  with the subject address (B4). It therefore carries normal child-run ancestry,
+  events and timeouts.
+- **S22.** Exit status follows the root record: `OK` when it passes, non-zero
+  when it fails (D6, D27; mapping in C10).
+
+### 4.6 Bringing up
+
+- **S23.** `func rise up [--scope <address>]` brings every subject in scope up,
+  in ordering-edge order (dependencies first). For each subject it runs the
+  `up` operation through `Invoke` (B4). `up` is **convergent**: it diagnoses
+  first and acts only on the difference. Running it again against a converged
+  subject changes nothing and says so.
+- **S24.** **Candidates.** This feature implements the generic candidate step
+  (D19) in its smallest form. The concrete classes implementing a contract that
+  are visible to discovery are its candidates. Then:
+  - with exactly one candidate, that candidate is selected;
+  - with none, Rise refuses;
+  - with more than one, Rise **refuses** (`REFUSED`) and lists the candidates
+    with their explanation, rather than guessing (D7, D9, D10).
+
+  Policy, remembered binding, strategies and the Gate-backed choice are
+  deferred (§6).
+- **S25.** A required dependency that fails its diagnosis after its own `up`
+  stops the dependents' `up`. Those dependents are reported as not attempted,
+  and the exit status is non-zero. Independent branches of the tree continue.
+- **S26.** A successful `up` returns an instance of the contract's realization
+  type. Rise records a **base realization** through the realization persistence
+  port. Its fields are: subject address, contract, candidate, resolved identity,
+  configuration fingerprint (S8), isolation, time and dependency chain (D27).
+  Records are append-only; a later `up` appends and never rewrites (D7, D10).
+  This feature ships the port and a **local** backend. How a remote subject's
+  realization is recorded before a shared backend exists is open decision
+  **OD-2** (§10).
+- **S27.** This feature performs **no destructive operation**. `down` and every
+  other destructive role are out of scope, because they need the positive
+  identity evidence and lifecycle authority of D11. Rise refuses to run an
+  operation whose role is `destructive`.
+
+### 4.7 The forcing case — a Cloudflare provider package, written with RiseKit
+
+- **S28.** `functualize-rise-cloudflare` is its own distribution. It depends on
+  `functualize-risekit`, through it on `functualize-rise`, and on Functualize's
+  public API. It depends on nothing else in this repository. It owns the
+  `cloudflare` namespace (D12).
+- **S29.** `cloudflare.d1@1` declares a *D1 database* subject, identified by
+  (account id, database name). It derives from RiseKit's remote-resource
+  substrate. Its operations are:
+  - `diagnose`: observe presence, uuid and state;
+  - `up`: diagnose, create only when absent, and return a realization that
+    carries the database uuid.
+
+  It has no `down` (S27).
+- **S30.** `cloudflare.worker@1` declares a *Worker script* subject, identified
+  by (account id, script name). Its only operation is `diagnose`. It carries a
+  `Ref` to the D1 subject it binds to, `required` by default. Deploying a
+  Worker is **not** in this feature (§6).
+- **S31.** The Cloudflare API token is a secret-marked configuration field on
+  the subject (S7). Nothing in Rise, RiseKit or the provider reads the process
+  environment directly; Functualize resolves the value.
+- **S32.** An example project declares an environment job `cloudflare_dev()`
+  returning an `Environment` that holds `d1.main` and `worker.api`.
+  `worker.api` has a `Ref` to `d1.main` (`required`). Against a fake transport:
+  - with the database absent, `func rise diagnose` emits three records (d1,
+    worker, root). The worker and the root fail, the d1 record says why, and the
+    exit status is non-zero;
+  - after `func rise up --scope cloudflare_dev.d1.main`, the same diagnosis
+    passes, provided the Worker exists;
+  - a second `up` changes nothing.
+
+  A live tier runs the same steps against a real account when credentials exist,
+  and skips otherwise (C12).
 
 ## 5. Acceptance criteria
 
 | # | Criterion | How it is shown | Authorized by (§8) |
 |---|---|---|---|
-| AC-1 | Rise and RiseKit have separate one-sentence responsibility statements and a defined boundary | §3 here, ADR-031, the `.spec/ARCHITECTURE.md` section | FUN-8 AC 1; Decision 1 |
-| AC-2 | B1 holds: no core import of any of the three packages, and no core change | gate G1 (tasks.md), `git diff --stat origin/master -- src/functualize` empty | Decision 13 |
-| AC-3 | B2 holds: a hand-written, RiseKit-free fixture package validates and diagnoses | T5's test; gate G3 | Decisions 1, 12 |
-| AC-4 | B3 holds: every RiseKit-built package in the tree passes `rise-validate` | T7, T8 and T9 tests | Decisions 3, 4 |
-| AC-5 | The smallest executable Rise path: validate plus recursive diagnose with aggregation, through `func` | T3 and T4 end-to-end tests | FUN-8 AC 2; Decisions 3, 5, 6 |
-| AC-6 | The smallest usable RiseKit path: a provider package outside RiseKit, built with it, whose D1 contract is provisioned idempotently and diagnosed, offline against a fake transport and live when credentials exist | T8 offline tests plus a live tier that skips without credentials | FUN-8 AC 3; North Star step 6 |
-| AC-7 | The Worker → D1 required relation fails the parent when D1 is absent and passes after provision | T10 example (pytest-collected) | Decision 6; North Star step 6 |
-| AC-8 | The stage-5 consumption list is stated in one place, in order | plan.md § *Stage 5 consumption list* | FUN-8 AC 5; Initiative queue items 4–7 |
-| AC-9 | Development traceability: every delivered package, public name and acceptance criterion traces to a §8 row naming its authorizing Confluence page/decision and Jira ticket; no runtime code reads Jira or Confluence | T11's traceability check; gate G10 | FUN-8 AC 4; Decision page 11370545 |
-| AC-10 | B5 holds: RiseKit carries no provider, and the provider package is its own distribution depending on RiseKit | gate G8 | member correction 2026-10-02; Decision 12 |
-| AC-11 | B6 holds: no new entry-point group; the repository's declared-group reader test stays green | gate G9 | Decision 14 |
+| AC-1 | Rise and RiseKit each have a one-sentence responsibility statement and a defined boundary | §3; an ADR; a section in `.spec/ARCHITECTURE.md` | FUN-8 AC 1; D1 |
+| AC-2 | B1: no core import of Rise, RiseKit or a provider, and no `src/functualize/` change in this feature's diff | `git diff --stat origin/master -- src/functualize` is empty | D13 |
+| AC-3 | B2: a hand-written provider with no RiseKit import validates, diagnoses and runs `up` | fixture package test | D1, D12 |
+| AC-4 | B3: every RiseKit-built provider in the tree passes `rise validate` | provider tests | D3, D4 |
+| AC-5 | Declaration model: role inference and generated metadata match S3; the descriptor equals the runtime metadata (S5) | unit tests over contract fixtures | D14, D16, D18 |
+| AC-6 | Environment jobs, addresses, `Ref`, scope selection and unscoped-root rules behave as S9–S13; `FUNCTUALIZE_ENV` changes configuration and never the scope | end-to-end tests through `func` | D22, D25 |
+| AC-7 | `rise validate` reports each finding of S15 and exits per C10 | one fixture per finding | D3, D4 |
+| AC-8 | `rise diagnose`: NDJSON envelope, derived binary status, required/optional aggregation, single observation per address, referential parents, deterministic order, exit status | end-to-end tests | D3, D5, D6, D27 |
+| AC-9 | `rise up`: dependency order, convergent and idempotent, through `Invoke` with the canonical job, a base realization appended through the port, refusal on several candidates | end-to-end tests | D15, D19, D23, D27 |
+| AC-10 | Forcing case S32: offline against a fake transport, and live when credentials exist | provider tests plus a skipping live tier | FUN-8 AC 2–3; D26 |
+| AC-11 | B5: the RiseKit distribution carries no provider, and the provider is its own distribution | dependency/manifest check | member correction 2026-10-02; D1, D12 |
+| AC-12 | B6: no new entry-point group, no Rise-side job binding; the declared-group reader test stays green | `tests/spec/test_every_declared_group_has_a_reader.py`; a source check | D14 |
+| AC-13 | S8: no secret byte in records, descriptors, realizations, findings or Gate payloads | a canary-secret test across all four commands' outputs | D17, D20; SD/12779576 v2 |
+| AC-14 | Development traceability: every delivered package, public name and criterion traces to a §8 row; no runtime code reads Jira or Confluence | traceability check | FUN-8 AC 4 |
 
-## 6. Out of scope (owned elsewhere, in the order stage 5 consumes them)
+## 6. Dependencies and out of scope
 
-Deploying a Functualize operation into a Worker. The D1 runtime store.
-`rise-lock`. Operation strategies and preference policy. Origin, binding and
-lifecycle authority, and `delete`. The typed consumer proxy. Namespace-ownership
-proof. The first common-vocabulary contract. The no-import static analyzer.
-Registry acquisition. The full ordered list, and what each item consumes from
-this feature, is in plan.md § *Stage 5 consumption list*.
+### Functualize prerequisites (owned by separate tickets, not this feature)
 
-## 7. Premise changes and corrections
+These are generic Functualize features. This feature specifies only what it
+**requires** of them (contracts.md § C11). It does not build them, and it does
+not work around them with a Rise-side substitute, since B6 forbids that.
+
+| # | Prerequisite | Needed by | Verified absent on `e8e3b86` |
+|---|---|---|---|
+| P-1 | Generic class discovery: one canonical job per subject-class method, invoked with a subject address | S3, S4, S21, S23, so **every executable path** | `rg -n 'isclass\|getmembers' src/functualize/_discovery src/functualize/_app` → 0 hits; `docs/guides/subjects.md`: "Directory discovery ignores classes entirely" |
+| P-2 | Lazy child-route hook (generated per-instance CLI routes) | instance routes, deferred (D23) | `rg -n -i 'lazy.?(child\|route\|group)\|child_routes' src/functualize` → 0 hits |
+| P-3 | The `Setting()` marker on job parameters | environment parameter tiers (D24); S10 is fixed-values-only until it lands | `Setting` at `src/functualize/_types/settings.py:35` is the *app-settings* declaration, not a parameter marker |
+| P-4 | Value-source provenance in run records (invoked route vs canonical job) | D23 route recording | `rg -n -i 'invoked_route\|value_source' src/functualize/_types src/functualize/_engine` → 0 hits |
+| P-5 | Gate resolution started from an ordinary job | candidate choice through a Gate (D20) | Gates are workflow nodes (`src/functualize/_types/workflow.py:286`) |
+| P-6 | Person-required mechanism | a Gate that waits for a person to fix a credential (D20) | — |
+| P-7 | The scoped vault of SD/12779576 v2, open as PR #83 (`feat(vault): resolve scoped group and job secrets`) | S7 | PR #83 OPEN on 2026-10-05; master's guide still documents `vault put deploy.api_token` (`docs/guides/configuration.md:464-491`) |
+
+**P-1 gates FUN-8's executable proof.** Until class discovery lands, the only
+work that can proceed is work that needs no operation dispatch: the declaration
+types, the descriptor, environment evaluation, validation, and the diagnosis
+envelope and traversal over observations. Ordering waves around that is
+Plan's job.
+
+### Deferred to stage 5 (consumed in the order the Confluence continuation queue sets)
+
+- Candidate policy, remembered binding, strategies, and the Gate-backed choice
+  (D7–D10, D19, D20).
+- `rise-lock` as a full binding history, and the shared/remote realization
+  backend (D7, D26, D27).
+- Origin, binding, lifecycle authority, adoption, and `down` (D11).
+- Generated instance routes (D23), environment parameter tiers (D24), and
+  executing through a `Ref[Host]` (D21).
+- Worker deployment, secret delivery and D1 migration (D26). The Python Workers
+  spike is MCH-147, run by the owner.
+- Package-level and capability-level diagnosis records (D3). This feature emits
+  subject records and a scope root.
+- The no-import static analyzer and LSP (D4, D15).
+- The registry, distribution freezing, provenance and trust (D13, D14).
+- Namespace-ownership proof (D12).
+- The first common-vocabulary contract.
+- The isolated author test harness (research.md § R-3).
+- Plan/dry-run semantics (comment 11927557).
+- The remaining standard substrates (D27).
+
+## 7. Premise changes and corrections (revision 4)
 
 None of these reopens *whether* Rise and RiseKit are required.
 
-- **Withdrawn — former P-1 ("Rise is not a delivery-intent pipeline").** The
-  previous revision framed FUN-8's line about "Confluence/Jira intent …
-  flow[ing] through the machinery" as a runtime question, and put it to the
-  member. **The member corrected the framing** on 2026-10-02: "Jira or
-  Confluence is NEVER required as part of Rise Runtime. The Fun-8 Scope was just
-  to make sure the DEVELOPMENT of rise and risekit were aligned with what we
-  have in confluence documentation and Jira tickets." It is therefore not a
-  premise change at all. It is a development-traceability obligation, met by §8
-  and checked by AC-9.
-- **Withdrawn — former D-3 (naming that placed Cloudflare inside RiseKit).**
-  The previous revision put the Cloudflare contracts and provider jobs in
-  `functualize_risekit.cloudflare` and made RiseKit "namespace owner of
-  `cloudflare`". **The member corrected this** on 2026-10-02 (quoted under B5).
-  Canon agrees: Decision 1 says RiseKit provides "implementation machinery,
-  authoring support, reusable building blocks, and reference packages that
-  conform to it". This set reads "reference packages" as packages that conform,
-  living outside the toolkit distribution. Decision 12 gives contract meaning to
-  "an authorized namespace owner", which need not be RiseKit. The provider now
-  lives in its own distribution (S15, C1).
-- **P-2. "The Cloudflare Worker + D1 capability" is two contracts and two
-  Functualize plugins, not one Rise thing.** The *namespace owner*, here the
-  provider package, owns the provisioning, diagnosis and (later) deployment
-  contracts. Rise judges them, and RiseKit is the toolkit they are written
-  with. Run persistence in D1 and execution inside a Worker are generic
-  Functualize plugins. The repository wins on this point: Decision 13 says
-  Functualize must be usable without Rise; the constitution's completed
-  invariant extracts delivery adapters to monorepo plugin packages; and FUN-22's
-  own criterion keeps the D1 store a plugin ("The provider is a PLUGIN").
-- **P-3. The forcing case is diagnosed and provisioned, not deployed.**
-  Deploying a Functualize operation needs a Worker runtime adapter, and none
-  exists. FUN-8's criterion that the Worker + D1 slice "has an explicit
-  dependency on working Rise/RiseKit machinery" is met by stage-5 ordering, not
-  by this feature.
+- **PC-1. The subjects guide contradicts the canon in two places.** The guide is
+  prior art, so the conflict is stated here rather than overridden silently.
+  `docs/guides/subjects.md` (*Rules the declaration must follow*, rule 3)
+  says: "Constructors are inert. No-argument, no side effects, one instance per
+  process". It also says, under *A subject class, bound*: "Configuration arrives
+  per invocation, not at construction". v18 says otherwise:
+  - D17: "A subject's `self` identifies its instance through immutable, typed,
+    serializable configuration";
+  - D22: an environment tree holds many instances;
+  - D16: methods are found through generic class discovery, where the guide
+    says "Directory discovery ignores classes entirely".
+
+  The approved canon controls. The guide's "no operational I/O at construction"
+  survives as S1. Revising the guide belongs with P-1. The guide's *vocabulary
+  layer* paragraph agrees with this feature.
+- **PC-2. B5 is kept, read against D1.** D1 says RiseKit provides "implementation
+  machinery, authoring support, reusable building blocks, and reference
+  packages that conform to it", and calls RiseKit a "reusable package
+  ecosystem". The member's correction of 2026-10-02 reads: "Risekit shouldn't
+  contain packages for cloudflare etc, it should be used by other authors or
+  package maintainers to create those cloudflare packages". The two are
+  consistent if reference packages are separate distributions within RiseKit's
+  ecosystem and the toolkit distribution holds none. This set reads it that way.
+  It is open question **OQ-1** only if the owner reads D1 differently.
+- **PC-3. OS-1 is closed by D16.** Revision 3 asked the owner whether operations
+  should declare effects (comments 11927557, 11927574). D16 answers that roles
+  are inferred from verb names and that `effect:*` metadata is generated. The
+  `mutating: bool` placeholder and the plan/dry-run question are withdrawn; the
+  latter is deferred.
+- **PC-4. Withdrawn: the `@operation` decorator and `__functualize_ext_rise__`
+  job metadata** (revision 3, contracts C3). D16 says "Rise does not introduce
+  another required decorator or a second hand-maintained tag declaration." Rise
+  metadata is now generated from the typed declaration (S3).
+- **PC-5. Withdrawn: the `CapabilityContract` dataclass and `contract_ref`
+  strings** (revision 3, C4). A contract is now an abstract subject class (D18),
+  and its string identity lives in the generated descriptor (S5).
+- **PC-6. Withdrawn: credentials as ordinary job parameters** (revision 3, S18).
+  D17 makes them secret-marked configuration (S7, S31).
+- **PC-7. Commands change shape.** `func rise-validate --package <id>` becomes
+  `func rise validate [--scope <address>]`, and likewise for `diagnose`; `up` is
+  added (D23, D25). Diagnosis is scoped by address, not by package (§6).
+- **PC-8. "Provision" is now `up`.** In revision 3, D1 had a `provision`
+  operation. Under D16, `up` is the convergent verb that does the same job.
+- **Kept from revision 3:** the D1 + Worker forcing case; the provider package
+  living outside RiseKit; Jira/Confluence as development traceability, never a
+  runtime input; D1 run persistence as a Functualize plugin rather than Rise
+  (FUN-22); the minimal assessment rule; NDJSON with derived binary status.
 
 ## 8. Development traceability
 
-What authorizes each piece of this feature. Every source below was read live,
-most recently between 2026-10-02T06:06Z and 06:10Z for revision 3, and every version matched
-(research.md § *Live reads*). Confluence pages are in space `SD`; Jira tickets
-are in project `FUN`. A delivered element with no row here is a finding for T11.
+Every source below was read live on 2026-10-05 for this revision. Revision 3's
+sources and versions are in `research.md` § *Live reads*.
 
-**Correction (revision 3).** Revision 2 recorded Shape Intent 5407068 as "v15,
-0 inline/footer comments". The version is still right: v15, with a body
-byte-identical to the revision-2 read. The comment count is no longer right. The
-owner added **nine inline comments** between 03:28:45Z and 04:16:22Z, after
-revision 2 was written. They are listed, with their disposition, in §9. The
-other three plan pages (4882456, 4882435, 4849705) carry no comments as of this
-read.
-
-| Element of this feature | Confluence authority (page id, version, decision) | Jira authority |
+| Element of this feature | Confluence authority | Jira / tracker authority |
 |---|---|---|
-| Rise and RiseKit are required; build their machinery | 1.0 North Star 4882435 v6 (step 6, "Acquire cloud deployment as reusable operational knowledge"); Initiative 4882456 v11 (Scope; slice 6) | FUN-3 (delivery principle 3); FUN-8 (Outcome, Accepted premise) |
-| Rise = convention + judge; RiseKit = authoring toolkit (§3, AC-1) | Shape Intent 5407068 v15, Decision 1 | FUN-8 Scope 1, AC 1 |
-| Provider packages outside RiseKit (B5, S15, AC-10) | Shape Intent 5407068 v15, Decisions 1 and 12 | FUN-8 Scope 7 ("delivered **through** the accepted Rise/RiseKit model"); member correction on MCH-88, 2026-10-02 |
-| Functualize knows nothing of Rise (B1, AC-2) | Shape Intent 5407068 v15, Decision 13 | FUN-3 delivery principle 3 |
-| No parallel discovery; metadata over native discovery (B6, S1, S4, AC-11) | Shape Intent 5407068 v15, Decision 14 | — |
-| Execution through `Invoke` (B4, S14) | Shape Intent 5407068 v15, Decision 15 | — |
-| `validate` / `diagnose` as universal contracts (S5–S14) | Shape Intent 5407068 v15, Decisions 3 and 4 | FUN-8 AC 2 |
-| Binary derived `status`, domain `state` (S10, C4) | Shape Intent 5407068 v15, Decision 5 | — |
-| Required / optional aggregation (S11) | Shape Intent 5407068 v15, Decision 6 | — |
-| Namespaced, owner-held contracts (C3, C4) | Shape Intent 5407068 v15, Decision 12 | — |
-| No `delete`, no destructive operation (S16) | Shape Intent 5407068 v15, Decision 11 (deferred) | — |
-| D1, not "R1" | Review decision D7, page 9273345 v1 | FUN-8 footnote; FUN-22 |
-| D1 run persistence is a Functualize plugin, not Rise (P-2) | Runtime Persistence — Engine-Owned Design 6389761 | FUN-22 AC 2; FUN-16 |
-| Hold generalisations no second package needs (C4's minimal rule; no common vocabulary yet) | Review decision D4, page 9273345 v1 | — |
-| Stage-5 consumption order (plan.md) | Initiative 4882456 v11, continuation queue items 4–7 and ticket-creation policy | FUN-3 (Continuation planning) |
-| Forward compatibility: identities stay stable enough to attach evidence later (package id, contract identity, `diagnosis_id`) | 2.0 North Star 4849705 v5 (**Proposed**), *Proof-carrying Rise packages* — a constraint, not a commitment | none: 2.0 has no Jira commitment by its own planning consequence |
-| Where artifacts live: Jira holds claims, Confluence holds decisions (AC-9) | Decision 11370545 v4 (accepted 2026-10-01) | FUN-8 AC 4 |
-| Run 1 stays Rise-independent | Run 1 page 5046398 v1 (no Rise content) | FUN-5 |
-| Traversal mechanics of S12 are provisional, pending research | Shape Intent 5407068 v15, inline comment 11960322 | — |
-| The effect vocabulary on `OperationContract` is provisional, pending OS-1 | Shape Intent 5407068 v15, inline comments 11927557, 11927574 | — |
-| The author test harness is a separate RiseKit slice, not T7/T8 | Shape Intent 5407068 v15, inline comment 11960331 | — |
-| Tracked, not resolved here: provider-contract inspiration, deploy strategies, `rise-lock` location, ownership proof, DI reuse | Shape Intent 5407068 v15, inline comments 11862020, 11960340, 11927566, 11927583, 11927592 | — |
+| Rise and RiseKit are required; build their machinery | SD/5407068 v18 (Canonical status) | FUN-8 (Outcome, Accepted premise); FUN-3 |
+| Boundary B1–B6 | SD/5407068 v18, D1, D13, D14, D15 | FUN-8 Scope 1, AC 1 |
+| Provider packages outside the RiseKit distribution (B5) | SD/5407068 v18, D1, D12 | member correction on MCH-88, 2026-10-02 |
+| Subject as typed config; contract as abstract class; derived descriptors | SD/5407068 v18, D16, D17, D18 | — |
+| Roles and generated metadata (S3) | SD/5407068 v18, D16 | — |
+| Environment, addresses, `Ref`, scope, unscoped root (S9–S13) | SD/5407068 v18, D21, D22, D25 | — |
+| `validate` / `diagnose` semantics (S14–S22) | SD/5407068 v18, D3, D4, D5, D6, D27 | FUN-8 AC 2 |
+| `up`, single-candidate selection, refusal (S23–S25) | SD/5407068 v18, D7, D9, D10, D19 | FUN-8 AC 2–3 |
+| Realization record and port (S26) | SD/5407068 v18, D7, D18, D27 | — |
+| No destructive operation (S27) | SD/5407068 v18, D11 | — |
+| Configuration environment unchanged (S6) | SD/5407068 v18, D25 | — |
+| Secret resolution (S7, S8) | SD/12779576 v2 (Authority: Approved); SD/5407068 v18, D17, D20; owner decisions A1 = b, A2 = a | MCH-148 (amendment pending) |
+| Forcing case D1 + Worker (S28–S32) | SD/5407068 v18, D26 | FUN-8 Scope 7; FUN-22 (D1, not "R1") |
+| Python Workers spike is not this feature | SD/5407068 v18, owner decision A3 = a | MCH-147 |
+| Functualize prerequisites P-1 to P-6 are owned elsewhere | SD/5407068 v18, *Superseded alternatives and remaining boundaries* | MCH-151 description, Scope |
 
-## 9. The owner's inline comments on Shape Intent 5407068, and what this set does with them
+## 9. The owner's inline comments on SD/5407068
 
-All nine are by the page owner, read live through `confluence_get_inline_comments`
-(page 5407068, count 9). They are questions and research directions; none of
-them amends the page's fifteen decisions, and the page version did not move.
+There are ten, read live (`confluence_get_inline_comments`, page 5407068,
+count 10).
 
-| Comment | The owner's ask (verbatim, abridged only where marked) | Disposition | Where |
-|---|---|---|---|
-| 11960322 | "Research / look into lightweight python graph packages, or existing graph implementations already available (maybe not yet public API) in functualize codebase. We should elaborate on this before making a decision." | **Researched; recommendation provisional.** S12's traversal is not owner-approved. | research.md § *R-1*; T4 |
-| 11862020 | "Some inspiration can be compared with by how terraform providers have to conform to their contract, or pulumi, or aspire, etc." | **Tracked.** A comparison note seeds stage 5; it changes nothing in this feature. | research.md § *Tracked* |
-| 11927557 | "… should we encourage / support dry-run type semantics (perhaps opt-in) to operations. Perhaps it should be easy to create operations that are diffable / dry-run …" | **Researched; recommendation provisional.** Plan/dry-run is not built here. | research.md § *R-2*; OS-1 |
-| 11960331 | "Risekit should have a feature that makes it easy for package creators / maintainers to test their implementation safely in an isolated environment. Perhaps like a docker or podman harness …" | **Researched; recommendation provisional.** It is a separate RiseKit slice. No host-level execution is authorized. | research.md § *R-3*; stage 5 item 10 |
-| 11960340 | "… deployment for cloudflare could use terraform, pulumi, or cloudflare cli directly." | **Tracked.** It maps onto operation strategies (Decision 8). Worker deploy stays deferred, and P-3 is unchanged. | plan.md stage 5 item 1 |
-| 11927566 | "Should rise-lock therefore also have a copy in xdg directory?" | **Tracked.** `rise-lock` stays deferred. | plan.md stage 5 item 3 |
-| 11927574 | "… should we provide markers for "destructive", or "mutating" / "side-effect" operations? … we'll need to elaborate and discuss this first." | **Researched; recommendation provisional.** It is the subject of OS-1. | research.md § *R-2*; OS-1 |
-| 11927583 | "How does rise know who the capabilty contract owner is? Via a github organization/repo url?" | **Tracked.** This is namespace-ownership proof, already deferred. | plan.md stage 5 item 7 |
-| 11927592 | "Can this use existing functualize DI implementation?" | **Tracked**, with one finding: `RiseCatalog` already rides DI. A typed consumer proxy needs a per-invocation factory, which the public port lacks. | research.md § *Tracked*; plan.md stage 5 item 6 |
+| Comment | Disposition in revision 4 |
+|---|---|
+| 11960322 (graph packages / existing implementations) | **R-1 stands.** Traversal behaviour is S19–S20. The mechanism is Plan's, with research.md § R-1 as input. |
+| 11862020 (Terraform / Pulumi / Aspire inspiration) | Tracked; stage 5. |
+| 11927557 (plan / dry-run) | Deferred (§6). D16's roles are the substrate a later plan feature would use. |
+| 11960331 (isolated author harness) | **R-3 stands**; separate RiseKit slice (§6). |
+| 11960340 (Cloudflare deploy via Terraform / Pulumi / CLI) | Maps to strategies (D8, D19); deferred with Worker deployment. |
+| 11927566 (`rise-lock` copy in XDG) | Folded into OD-2 and the realization backend (S26). |
+| 11927574 (destructive / mutating markers) | **Closed by D16** (PC-3). research.md § R-2's recommendation is superseded; its seam analysis still holds. |
+| 11927583 (who owns a contract namespace) | Deferred: namespace-ownership proof (§6). |
+| 11927592 (reuse Functualize DI) | Satisfied by B4 and S21: operations run as Functualize jobs through `Invoke`, so DI is Functualize's. |
+| 12648493 ("Approved") | The approval this revision is written against. |
+
+## 10. Open decisions for the owner (put at confirmation)
+
+- **OD-1 — Which v2 vault identity a subject's secret field uses before the
+  amendment.** Under SD/12779576 v2 a vault entry is `--group <command-path>` or
+  `--job <command-path>`, plus `--field`. A subject's operations share one
+  canonical class-level job (S4), so a job-scoped entry is shared by **every
+  instance** of that class. In the forcing case, the token for `d1.main` and the
+  token for a second account's D1 would collide.
+  - *(a)* Use the canonical job scope now, and document per-instance secrets as
+    unavailable until MCH-148 lands.
+  - *(b)* Hold every secret-bearing subject until the amendment.
+  - *(c)* Take secret fields from environment and config only, no vault, until
+    the amendment.
+
+  **Recommended: (a).** It follows the approved v2 contract exactly, it is
+  sufficient for one Cloudflare account, and the amendment later adds
+  per-address entries without changing a field declaration.
+- **OD-2 — Where `up` records a remote subject's realization before a shared
+  backend exists.** D26 says "Remote realizations need a shared lock backend
+  rather than a laptop-only file."
+  - *(a)* Record to the local backend, marked `shared: false`. Treat diagnosis
+    as the truth (S19), and allow no destructive operation (S27), so a stale
+    local record cannot cause harm.
+  - *(b)* Record nothing for remote subjects until the shared backend lands.
+
+  **Recommended: (a).** The port is the same either way. Diagnosis already
+  reconciles reality, and without `down` nothing acts on a stale record.
+- **OQ-1 — The B5 reading (PC-2).** Confirm only if you read D1's "reference
+  packages" as living *inside* the RiseKit distribution.
+- **OQ-2 — The spelling of an explicit role override** for a verb outside
+  S3's list. D16 allows it ("unless explicitly declared otherwise") but gives no
+  syntax. The proposal is a declaration on the contract's abstract method, never
+  a hand-written tag. Plan settles it unless you object.
