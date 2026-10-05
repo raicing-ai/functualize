@@ -39,8 +39,16 @@ from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, NewType, Protocol, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    NewType,
+    Protocol,
+    runtime_checkable,
+)
 
+from functualize._types.enums import KeyAvailability
 from functualize._types.interactivity import (
     InputNotAvailable,
     PromptChoice,
@@ -158,6 +166,13 @@ class Source(Protocol):
 
     Each source represents one origin of configuration values (CLI args,
     environment variables, remote providers, file-based config, defaults).
+
+    ``scope`` says whether the section names a **group** or a **job**. Most
+    sources ignore it — a file section or a default is spelled the same either
+    way — but the two sources whose *lookup spelling* depends on it (the
+    vault's storage identity, the environment's ``GROUP__FIELD`` form) read it.
+    Every implementation must accept it, so a scope-blind source is a
+    compile-time visible deviation rather than a silent one.
     """
 
     @property
@@ -170,27 +185,41 @@ class Source(Protocol):
         """Source identifier (e.g., file path, provider name, 'environ')."""
         ...
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
         """Retrieve a value for the given key.
 
         Args:
             key: The configuration key name.
             section: Optional section/namespace.
+            scope: Whether ``section`` names a group or a job.
 
         Returns:
             The value if found, None if not present in this source.
         """
         ...
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> bool:
         """Check if this source can provide a value for the key."""
         ...
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: Literal["group", "job"] = "job") -> set[str]:
         """Return all keys available for the given section.
 
         Args:
             section: The section/namespace to query.
+            scope: Whether ``section`` names a group or a job.
 
         Returns:
             Set of key names this source can provide for the section.
@@ -307,13 +336,23 @@ class VaultKeyProvider(Protocol):
     a cloud KMS, a password manager or a hosted control plane are all the same
     shape (ADR-016).
 
-    Two implementations ship: an environment-variable provider
-    (non-interactive) and an OS keychain provider (interactive).
+    Two implementations ship: an environment-variable provider and an OS
+    keychain provider.
 
-    **Resolution order is part of the contract.** Non-interactive providers are
-    consulted first, and interactive ones only when no key was found *and* a
-    TTY is present. Reversed, an unattended run — CI, Lambda, a container —
-    would block forever on a prompt nobody can answer.
+    **Reading the key is not gated on a terminal, and never prompts.** A run
+    that needs the key consults providers whether or not stdin and stdout are
+    TTYs, so :meth:`get_key` must answer silently: return the key, return
+    None, or raise a typed locked/unavailable error — promptly, and without
+    ever asking a keyring to unlock. A run must never create an unlock prompt,
+    because a prompt the client later abandons (a deadline, Ctrl-C, an agent
+    killing its child) can crash the keyring daemon and re-lock every keyring
+    the user has. Unlocking is a separate, explicit capability:
+    :class:`VaultKeyUnlocker`.
+
+    The terminal rule survives only for providers that need a person *at this
+    terminal*: a provider whose :meth:`interactive` is True is still consulted
+    only on a real TTY, so an unattended run cannot block forever on a prompt
+    nobody can answer.
     """
 
     def identifier(self) -> str:
@@ -321,9 +360,13 @@ class VaultKeyProvider(Protocol):
         ...
 
     def interactive(self) -> bool:
-        """Whether obtaining the key may prompt, block, or require a TTY.
+        """Whether obtaining the key **requires a person at a terminal**.
 
-        A provider returning True is never consulted on an unattended run.
+        True means the provider can only work through a prompt a pipe cannot
+        answer; such a provider is consulted only on a real TTY. A provider
+        backed by an OS keyring returns False: its :meth:`get_key` reads
+        silently, and unlocking it is :class:`VaultKeyUnlocker`'s job, done
+        only when a person asks for it.
         """
         ...
 
@@ -346,6 +389,11 @@ class VaultKeyProvider(Protocol):
             Exactly 32 bytes, or None when this provider has no key to offer.
             Returning None is normal and lets resolution continue; it is not an
             error.
+
+        **Must not prompt, and must return promptly.** A locked backend is
+        reported by raising a typed locked error (or returning None), never
+        by asking it to unlock: the caller may be a pipe, an agent or a cron
+        job, and nobody there can answer a dialog.
         """
         ...
 
@@ -379,20 +427,73 @@ class VaultKeyInitializer(VaultKeyProvider, Protocol):
     def initialize_key(self, project_id: str) -> bytes:
         """Return the existing key, or create, persist, and return one.
 
-        Args:
-            project_id: Carried for providers that scope per project. Both
-                shipped implementations ignore it; see the class docstring.
+            Args:
+                project_id: Carried for providers that scope per project. Both
+                    shipped implementations ignore it; see the class docstring.
 
-        Returns:
-            Exactly ``KEY_BYTES`` bytes. Idempotent: a second call returns what
-            the first one persisted, never a fresh key — a provider that
-            generated a new key each time would silently strand every value
-            already written under the old one.
+            Returns:
+                Exactly ``KEY_BYTES`` bytes. Idempotent: a second call returns what
+                the first one persisted, never a fresh key — a provider that
+                generated a new key each time would silently strand every value
+                already written under the old one.
 
         The key is never logged, printed or returned through any report. `init`
         reports *which provider* holds it, never the key itself; `keygen` is the
         one command that puts a key on screen, and it is explicitly the
         operator's to place.
+        """
+        ...
+
+
+@runtime_checkable
+class VaultKeyProbe(VaultKeyProvider, Protocol):
+    """A key provider that can say whether it would prompt, without prompting.
+
+    Separate from :class:`VaultKeyProvider` rather than a method added to it,
+    exactly as :class:`VaultKeyInitializer` is: widening that protocol would
+    retroactively invalidate every structural implementation that satisfies
+    it today. A provider opts in by having the method; nothing registers,
+    and nothing inherits.
+
+    ``vault status`` and ``vault inspect`` look for this capability. They must
+    never raise a dialog and never wait on one, so they ask ``probe()`` first
+    and read the key only when the answer is
+    :attr:`~functualize._types.enums.KeyAvailability.UNLOCKED`.
+    """
+
+    def probe(self) -> KeyAvailability:
+        """Report whether this provider can answer without prompting.
+
+        Never prompts, never blocks beyond a short fixed bound, never raises:
+        a backend that cannot answer the question returns ``UNKNOWN`` rather
+        than failing the surface that asked.
+        """
+        ...
+
+
+@runtime_checkable
+class VaultKeyUnlocker(VaultKeyProvider, Protocol):
+    """A key provider that can ask its backend to unlock — the one call that may prompt.
+
+    Separate from :class:`VaultKeyProvider` for the same reason
+    :class:`VaultKeyInitializer` and :class:`VaultKeyProbe` are: widening that
+    protocol would invalidate every read-only implementation. A provider opts
+    in by having the method.
+
+    ``func builtin vault unlock`` is the only caller. It runs because a person
+    asked for it, so it may show the keyring's own unlock dialog and waits,
+    with no deadline, for the dialog's own outcome. An implementation must
+    never cancel an active prompt from its side: ending a prompt from the
+    client can crash the keyring daemon.
+    """
+
+    def unlock(self) -> bool:
+        """Ask the backend to unlock, waiting for the prompt's own outcome.
+
+        Returns:
+            True when a key is available afterwards (already unlocked, or
+            unlocked now); False when the person cancelled or no key could be
+            reached.
         """
         ...
 
@@ -947,6 +1048,10 @@ __all__ = [
     "StoreSubstrate",
     "VaultKeyInitializer",
     "VaultKeyProvider",
+    "VaultKeyProbe",
+    "VaultKeyUnlocker",
+    # The probe port's answer vocabulary
+    "KeyAvailability",
     # Agent step port payload vocabulary
     "AgentCapability",
     "AgentStepContext",

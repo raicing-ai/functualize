@@ -40,7 +40,7 @@ see the other:
 | Where | What it decides | What it cannot see |
 |---|---|---|
 | `.claude/hooks/spec_gate.py`, write time | Denies an `Edit`, `Write` or `NotebookEdit` to a gated path when the worktree holds no wave graph | Every other harness, and every shell write (§ *The shell boundary* below) |
-| `contract-diff-carries-task-graph` — `.github/scripts/verify_spec_task_graph.py`, pull request | Refuses a PR whose range touches a gated path and carries no `.spec/features/*/tasks.md` with a parseable graph. The graph may have been added anywhere in the range, because the two-push sequence clears it again before merge | Whether the pull request is on the required list, until that context is registered in the ruleset |
+| `contract-diff-carries-task-graph` — `.github/scripts/verify_spec_task_graph.py`, pull request | Refuses a PR whose range touches a gated path and carries no `.spec/features/*/tasks.md` with a parseable graph. Any commit of the range may hold the graph, because the two-push sequence clears it again before merge; only commits count, never the checkout it runs in | Whether the pull request is on the required list, until that context is registered in the ruleset |
 
 The second reads `is_gated` and `has_wave_graph` from the hook rather than
 restating them, so one contract keeps one definition and "parseable graph" means
@@ -77,10 +77,13 @@ which is fragile and easy to fool. The gate stops ad-hoc tool editing; it does
 not claim to control arbitrary shell commands.
 
 What the shell boundary cannot do is hide the *change*. The pull-request check
-reads the branch's range, not the worktree and not the tool that wrote it, so a
-gated blob that arrived by `sed -i` is refused at the merge unless the range
-carries the task graph. Bypassing the editor hook is still possible; bypassing
-the contract is not.
+reads the commits of the branch's range — not the worktree, not an untracked or
+uncommitted file, and not the tool that wrote it — so a gated blob that arrived
+by `sed -i` fails that check on the pull request unless a commit of the range
+carries the task graph. The failure is reported, not yet enforced: the context
+is not required in the `master` ruleset, so a red run does not block the merge
+until it is registered there. Bypassing the editor hook is still possible;
+bypassing the contract is visible on every pull request.
 
 ## Version control lifecycle
 

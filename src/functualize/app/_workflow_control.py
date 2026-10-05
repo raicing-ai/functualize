@@ -282,6 +282,7 @@ def resume_scope(
     gate: str | None = None,
     retry_epilogue: bool = False,
     surface: RunSurface = "app.execute",
+    source: str = "api",
 ) -> dict[str, Any]:
     """Advance a workflow scope to its next durable boundary.
 
@@ -326,7 +327,7 @@ def resume_scope(
                     pending_gates=pending,
                 )
             gate = pending[0]
-        answered = answer_gate(app, store, scope_id, gate, input)
+        answered = answer_gate(app, store, scope_id, gate, input, source=source)
         if "error" in answered:
             return answered
         if answered.get("status") != "answered":

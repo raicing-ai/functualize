@@ -24,7 +24,7 @@ Runnable code for every step of the [README Quick Start](../README.md#quick-star
 
 ### [standalone/](standalone/)
 
-Feature reference, no project setup needed — eight self-contained directories,
+Feature reference, no project setup needed — eleven self-contained directories,
 each README a step-by-step verification checklist:
 
 - **showcase/** — the all-in-one project: CLI modes A/B/C, the full inline TUI
@@ -45,6 +45,9 @@ each README a step-by-step verification checklist:
   that is skipped instead
 - **deploy_tool/** — an app that is *not* `func`: its own command name, config
   table, `DEPLOY_TOOL_*` env prefix and generated root flags
+- **hermetic_router/** — a decision gate that routes requests over four
+  branches with declared thresholds and a fallback, read back per run with
+  `decision_record`; runs with no provider installed
 
 ### [project/](project/)
 

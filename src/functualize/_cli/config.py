@@ -19,11 +19,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from functualize.app.config import DiscoveryConfig
+from functualize.app.config import ConfigSources, DiscoveryConfig
 from functualize.app.utils import resolve_user_config_dir
 
 # Recognized top-level sections in the global config
-_RECOGNIZED_SECTIONS = frozenset({"discovery", "cli", "aliases", "tui"})
+_RECOGNIZED_SECTIONS = frozenset({"discovery", "cli", "aliases", "tui", "vault"})
 
 # Recognized top-level keys (non-section values) in the global config
 _RECOGNIZED_TOP_LEVEL_KEYS = frozenset(
@@ -62,6 +62,9 @@ _RECOGNIZED_KEYS: dict[str, frozenset[str]] = {
             "theme",
         }
     ),
+    # The OS keyring wait for the vault key. Read here, carried to the app as
+    # data in `ConfigSources`, so `_config`/`_app` never import this layer.
+    "vault": frozenset({"keyring_timeout"}),
     # [aliases] section has free-form string keys — no validation
 }
 
@@ -249,6 +252,22 @@ class CliConfig:
     )
     import_libs: tuple[str, ...] = ()
     anchor: Path | None = None  # Directory containing the nearest config file
+    # `[vault] keyring_timeout`, unparsed: the app layer parses it, and only
+    # when it is about to consult the keyring.
+    vault_keyring_timeout: str | None = None
+
+    def config_sources(self) -> ConfigSources:
+        """The `ConfigSources` every `func` door hands its app.
+
+        One construction rather than one per door, so a setting added here
+        reaches every entry point at once — four doors agreeing and a fifth
+        not is a defect this repository has already shipped.
+        """
+        return ConfigSources(
+            dotenv=self.dotenv,
+            dotenv_path=self.dotenv_path,
+            vault_keyring_timeout=self.vault_keyring_timeout,
+        )
 
 
 def _parse_bool_env(value: str) -> bool | None:
@@ -698,6 +717,22 @@ def resolve_cli_config(
                 f"falling back to 0"
             )
 
+    # --- Resolve [vault] keyring_timeout ---
+    # Carried as text. A bad value is warned about where it is parsed
+    # (`resolve_keyring_timeout`), which happens only when the keyring is
+    # actually consulted — a run with $FUNCTUALIZE_VAULT_KEY never reads it.
+    keyring_timeout_raw = _get_value(
+        "keyring_timeout",
+        flags,
+        env_overrides,
+        project_config,
+        global_config,
+        section="vault",
+    )
+    vault_keyring_timeout = (
+        None if keyring_timeout_raw is None else str(keyring_timeout_raw)
+    )
+
     # --- Resolve import_libs ---
     import_libs = _resolve_import_libs(
         flags, env_overrides, project_config, global_config, anchor
@@ -713,6 +748,7 @@ def resolve_cli_config(
         scan_depth=scan_depth,
         import_libs=import_libs,
         anchor=anchor,
+        vault_keyring_timeout=vault_keyring_timeout,
     )
 
 

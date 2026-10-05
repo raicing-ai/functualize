@@ -16,10 +16,36 @@ import pytest
 from functualize._app.boot import build_resolution_chain, build_vault_source
 from functualize._config.registry import ProviderRegistry
 from functualize._config.vault import KEY_BYTES, SecretsVault
+from functualize._config.vault_key_resolver import KeyAccess, VaultKeyResolver
 from functualize._config.vault_source import VaultSource
+from functualize._primitives.vault_identity import VaultIdentity
 from functualize.app.presets import classic, env_only, remote_first, twelve_factor
 
 _KEY = b"\x07" * KEY_BYTES
+
+
+def _fixed(key: bytes = _KEY) -> VaultKeyResolver:
+    return VaultKeyResolver.fixed(key, "test")
+
+
+class _NothingStored:
+    """A live keyring that holds no vault key: lookups end NOT_STORED."""
+
+    def identifier(self) -> str:
+        return "keychain"
+
+    def interactive(self) -> bool:
+        return False
+
+    def is_available(self) -> bool:
+        return True
+
+    def get_key(self, project_id: str) -> bytes | None:
+        return None
+
+
+def _no_key() -> VaultKeyResolver:
+    return VaultKeyResolver("proj", providers=[_NothingStored()], timeout=5.0)
 
 
 class _FakeRemoteProvider:
@@ -103,7 +129,7 @@ class TestChainComposition:
 
     def test_the_vault_slots_between_cli_and_env(self, tmp_path: Path) -> None:
         """A synced secret outranks env and file; an explicit CLI arg wins."""
-        source = VaultSource(tmp_path / "v.db", encryption_key=_KEY)
+        source = VaultSource(tmp_path / "v.db", key=_fixed())
         assert self._chain(source, tmp_path) == [
             "cli",
             "remote",
@@ -118,7 +144,7 @@ class TestTheVaultSource:
         path = tmp_path / "vault.db"
         vault = SecretsVault(path)
         vault.put(
-            "database.password",
+            VaultIdentity("job", "database", "password").encode(),
             "s3cret",
             annotation="fake-sm://prod/db",
             provider="fake-sm",
@@ -127,12 +153,12 @@ class TestTheVaultSource:
         return path
 
     def test_a_synced_value_resolves(self, tmp_path: Path) -> None:
-        source = VaultSource(self._vault(tmp_path), encryption_key=_KEY)
+        source = VaultSource(self._vault(tmp_path), key=_fixed())
         assert source.get("password", "database") == "s3cret"
 
     def test_a_miss_returns_none_and_is_recorded(self, tmp_path: Path) -> None:
         """Recorded so task 3.2 can warn; returning None defers to the chain."""
-        source = VaultSource(self._vault(tmp_path), encryption_key=_KEY)
+        source = VaultSource(self._vault(tmp_path), key=_fixed())
         assert source.get("absent", "database") is None
         assert "database.absent" in source.misses
 
@@ -141,21 +167,22 @@ class TestTheVaultSource:
     ) -> None:
         """Still safe from `func --help`; no longer silent about a stored value.
 
-        **Updated for ADR-023 §1.** The inertness that mattered is intact:
-        `usable`, `has` and `keys` answer without opening anything, so the
-        paths reachable from `--help` and completion stay quiet.
+        **Updated for ADR-023 §1.** `get` for a key the store actually holds
+        refuses: returning None let the chain hand the job whatever the
+        environment happened to carry — a different secret than the one
+        provisioned, with the run reporting success.
 
-        What changed is `get` for a key the store actually holds. It used to
-        return None, which let the chain hand the job whatever the environment
-        happened to carry — a different secret than the one provisioned, with
-        the run reporting success.
+        **Updated for the lazy key.** `usable`, `has` and `keys` now answer
+        from the clear-text metadata whether or not a key is available — which
+        entries are stored needs no key — so a section holding a stored entry
+        reaches `get` and refuses there instead of silently omitting it.
         """
         from functualize._config.vault import VaultEntryUnreadableError
 
-        source = VaultSource(self._vault(tmp_path), encryption_key=None)
-        assert source.usable is False
-        assert source.has("password", "database") is False
-        assert source.keys("database") == set()
+        source = VaultSource(self._vault(tmp_path), key=_no_key())
+        assert source.usable is True
+        assert source.has("password", "database") is True
+        assert source.keys("database") == {"password"}
         assert source.get("absent", "database") is None
 
         with pytest.raises(VaultEntryUnreadableError):
@@ -163,20 +190,20 @@ class TestTheVaultSource:
 
     def test_a_missing_vault_file_is_inert(self, tmp_path: Path) -> None:
         """Nobody has run `vault sync` yet."""
-        source = VaultSource(tmp_path / "never-synced.db", encryption_key=_KEY)
+        source = VaultSource(tmp_path / "never-synced.db", key=_fixed())
         assert source.usable is False
         assert source.get("password", "database") is None
 
     def test_has_and_get_agree(self, tmp_path: Path) -> None:
         """A source claiming a key it cannot deliver breaks the chain."""
-        source = VaultSource(self._vault(tmp_path), encryption_key=_KEY)
+        source = VaultSource(self._vault(tmp_path), key=_fixed())
         for key in ("password", "absent"):
             assert source.has(key, "database") is (
                 source.get(key, "database") is not None
             )
 
     def test_keys_lists_a_section_without_decrypting(self, tmp_path: Path) -> None:
-        source = VaultSource(self._vault(tmp_path), encryption_key=_KEY)
+        source = VaultSource(self._vault(tmp_path), key=_fixed())
         assert source.keys("database") == {"password"}
         assert source.keys("other") == set()
 
@@ -193,7 +220,7 @@ class TestTheVaultSource:
             VaultError,
         )
 
-        source = VaultSource(self._vault(tmp_path), encryption_key=b"\x09" * KEY_BYTES)
+        source = VaultSource(self._vault(tmp_path), key=_fixed(b"\x09" * KEY_BYTES))
         with pytest.raises(VaultError) as exc:
             source.get("password", "database")
 
@@ -207,7 +234,7 @@ class TestTheVaultSource:
     def test_it_satisfies_the_source_protocol(self, tmp_path: Path) -> None:
         from functualize._types.protocols import Source
 
-        assert isinstance(VaultSource(tmp_path / "v.db", encryption_key=_KEY), Source)
+        assert isinstance(VaultSource(tmp_path / "v.db", key=_fixed()), Source)
 
 
 class TestOneChainBuilder:
@@ -318,7 +345,11 @@ class TestTheDormantSource:
         project = self._project(tmp_path)
         monkeypatch.chdir(project)
         SecretsVault(vault_path_for_project(project)).put(
-            "deploy.api_token", "v", encryption_key=_KEY, provider="p", annotation="a"
+            VaultIdentity("job", "deploy", "api_token").encode(),
+            "v",
+            encryption_key=_KEY,
+            provider="p",
+            annotation="a",
         )
 
         source = build_vault_source(_FakeApp(remote=False, providers=False))
@@ -405,3 +436,81 @@ class TestTheColdBootGate:
         assert not any(m.startswith("cryptography") for m in imported)
         assert internal, "expected at least one internal import"
         assert all(m.startswith("functualize._primitives") for m in internal), internal
+
+
+class TestBootResolvesNothing:
+    """B1 / A2 — building an app over a project with a vault asks no keyring.
+
+    The field report's run needed no secret and still went to the keyring,
+    because boot resolved the key eagerly. Boot now builds a resolver and
+    hands it to the source; nothing asks it until a stored entry is opened.
+    """
+
+    def test_boot_never_touches_the_keyring(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from functualize._config.vault_paths import vault_path_for_project
+        from functualize.app import FunctualizeApp, JobSources
+        from functualize.app.core import request_for
+        from functualize.job import RunStatus
+
+        (tmp_path / ".functualize").mkdir()
+        jobs = tmp_path / "jobs"
+        jobs.mkdir()
+        (jobs / "hello.py").write_text("def hello() -> str:\n    return 'hi'\n")
+        monkeypatch.chdir(tmp_path)
+        SecretsVault(vault_path_for_project(tmp_path)).put(
+            "deploy.api_token", "v", encryption_key=_KEY, provider="p", annotation="a"
+        )
+
+        backend_calls: list[str] = []
+
+        class _Exploding:
+            """A keyring that fails the test on any call at all."""
+
+            def _touched(self, name: str) -> None:
+                backend_calls.append(name)
+                msg = f"the keyring was touched ({name})"
+                raise AssertionError(msg)
+
+            def identifier(self) -> str:
+                self._touched("identifier")
+                return "keychain"
+
+            def interactive(self) -> bool:
+                self._touched("interactive")
+                return False
+
+            def is_available(self) -> bool:
+                self._touched("is_available")
+                return True
+
+            def get_key(self, project_id: str) -> bytes | None:
+                self._touched("get_key")
+                return None
+
+        monkeypatch.setattr(
+            "functualize._config.vault_key_resolver.default_providers",
+            lambda: (_Exploding(),),
+        )
+        lookups: list[KeyAccess] = []
+        original = VaultKeyResolver.lookup
+
+        def counting(
+            self: VaultKeyResolver, access: KeyAccess = KeyAccess.BOUNDED
+        ) -> Any:
+            lookups.append(access)
+            return original(self, access)
+
+        monkeypatch.setattr(VaultKeyResolver, "lookup", counting)
+
+        app = FunctualizeApp(
+            "bootlab", job_sources=JobSources(directories=[str(jobs)], lazy=False)
+        )
+        sources = [s.source_id for s in app.resolution_chain().sources]
+        result = app.execute(request_for("hello"))
+
+        assert "vault" in sources
+        assert result.status is RunStatus.SUCCESS
+        assert lookups == []
+        assert backend_calls == []

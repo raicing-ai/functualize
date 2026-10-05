@@ -233,6 +233,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             ("sync", "Fetch every declared annotation and store it"),
             ("list", "List what is stored — names and freshness, never values"),
             ("status", "Show the key provider in use, the age, and the count"),
+            ("unlock", "Unlock the OS keyring for the vault key — never prints it"),
             ("clear", "Delete this project's vault"),
             ("keygen", "Print a fresh vault key"),
         ),
@@ -1091,9 +1092,9 @@ def register_builtin_commands(cli_group: Any) -> None:
 
     # --- Workflow sub-group (D2b: MCP↔CLI parity over the state store) ---
     # These mirror the MCP workflow tools. `list`/`state`/`cancel` read the
-    # state store directly (public, no boot); `resume` deposits gate input
-    # through the SAME lifted `deposit_gate_input` the MCP `resume_gate` tool
-    # calls, so there is one notion of "accept input for a gate".
+    # state store directly (public, no boot); `resume` answers gate input
+    # through the same lifted `resume_scope` path as the MCP tool, so there
+    # is one notion of "accept input for a gate".
     #
     # `--format` is domain-aware and command-owned: `list`/`state` know their
     # items are workflow scopes, so `json` emits structured scope objects — a
@@ -1143,14 +1144,21 @@ def register_builtin_commands(cli_group: Any) -> None:
 
     @contextlib.contextmanager
     def _workflow_refusal() -> Any:
-        """Exit 2 rather than a traceback when the scope store cannot be read."""
-        from functualize.app.utils import ScopeStoreUnreadableError
+        """Exit rather than a traceback on the two refusals that raise.
+
+        An unreadable scope store exits 2; an unknown gate reference exits 1 —
+        the code `gate_not_found` already maps to.
+        """
+        from functualize.app.utils import GateNotFoundError, ScopeStoreUnreadableError
 
         try:
             yield
         except ScopeStoreUnreadableError as exc:
             click.echo(f"Error: {exc}", err=True)
             raise SystemExit(ExitCode.USAGE) from exc
+        except GateNotFoundError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            raise SystemExit(1) from exc
 
     def _render_walk_event(event: dict[str, Any]) -> str:
         """One walk event as a line.
@@ -1463,6 +1471,7 @@ def register_builtin_commands(cli_group: Any) -> None:
                     clear=clear,
                     commit=commit,
                     reopen=reopen,
+                    source="cli",
                 )
 
         if fmt == "json":
@@ -1558,6 +1567,7 @@ def register_builtin_commands(cli_group: Any) -> None:
                 input=payload,
                 gate=gate,
                 retry_epilogue=retry_epilogue,
+                source="cli",
                 # This door is `func builtin workflow resume`. It was labelled
                 # `app.execute` by `guarded_execute`'s hardcoded constant, so a
                 # CLI resume and a programmatic one were the same run as far as

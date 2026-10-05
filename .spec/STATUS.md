@@ -590,6 +590,106 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### Gate resolution requests — behavior delivered, durable evidence open
+
+AC-1 and AC-2 are delivered on `feat/gate-resolution-model`: a gate request has
+a minted `request_id` stable across resume, and candidates carry their ordinal,
+source, and evaluation recorded at submission. The read projection returns
+those verdicts without recomputing them. The storage location is
+**`TRANSITIONAL(FUN-21)`**: the document backend still stores requests and
+candidates inside each gate record in `scopes.json`.
+
+**AC-3 remains open**, pending FUN-18's tables and legal transitions, FUN-19's
+durable provider, and FUN-21's interaction/evidence slice and answer-surface
+migration. Interaction evidence is not yet durable and readable independently
+of the scope document. The **FUN-4 issue must not close** until AC-3 is
+delivered, even if this parallel branch merges first.
+
+The maintainer approved D-1 through D-5 as Option A:
+
+| Decision | Recorded answer |
+|----------|-----------------|
+| D-1 | Merge the parallel request/candidate behavior once green while AC-3 and the FUN-4 issue remain open. |
+| D-2 | This branch owns the input recorder, walker request/candidate wiring, and deposit behavior. FUN-21 retains the outbox, evidence by reference and digest, redelivery, durable implementation, and migration of answer surfaces to the selected `RuntimeStore`; refine its task list at that work's premise rebase. |
+| D-3 | Keep `ScopeStore.deposit_gate_payload` for existing test callers, with no production caller; it is a declared surviving smell, not the new answer path. |
+| D-4 | The durable `InputRequest` transition table must allow `accepted → cancelled` when reopen supersedes a request. |
+| D-5 | Record invalid submissions as candidates rather than discarding them. |
+
+The enduring transition-ownership decision is [ADR-029](../contributor/adr/029-gate-resolution-is-recorded-not-recomputed.md), under ADR-025's engine/storage boundary.
+
+### Decision gates — delivered, provider experimental
+
+`Gate(decide=ChoiceDecision(...))` is delivered on `sdd/decision-provider-seam`:
+a provider-neutral `DecisionProvider` seam in core, the `decision` gate strategy
+(`DecisionGateResolver`) applying the workflow's `accept_at`/`min_margin` to the
+proposal's distribution, the rule in the graph digest, and a first provider,
+the **experimental** `functualize-decision-jev` plugin (needs
+`OPENCODE_API_KEY`). The public names are **provisional**. The decision and its
+rejected alternatives are [ADR-030](../contributor/adr/030-decisions-are-candidates-not-authority.md);
+the behaviour is documented in `docs/guides/workflows.md` → *Decision gates*.
+
+Still open, and deliberately not part of this delivery:
+
+- **The rule is fenced, not yet recorded on the request.** It joins the graph
+  digest, and since the hermetic router its digest rides in each decision
+  rung's evidence; storing it structurally on the gate request waits for the
+  durable request/evidence work above.
+- **Margin comparison is exact.** Probabilities arrive with two decimals, so a
+  lead printed as `0.10` can fail `min_margin=0.10`. Rounding before comparing
+  would change the rule and needs a maintainer decision.
+- **The live provider test has not run against the service** in CI; it skips
+  without `OPENCODE_API_KEY`.
+- **Release hygiene for the new plugin** — it is `0.1.0` while every other
+  package shares one release version, ships no `LICENSE`/`NOTICE`, and is baked
+  into every standalone binary through `[all]`. Of the eight new public names,
+  the hermetic router example now calls seven; `ChoiceRequest` still has no
+  `examples/` caller.
+
+**Hermetic router — delivered** on `sdd/hermetic-router`. A decision may
+declare `ChoiceDecision(fallback=...)`, one of its options, taken when no
+proposal is accepted: such a gate is walked `decision` → `resolve`, the
+registry seeds the decided field with the fallback and forces the decision
+rung, so a miss is answered by the existing `resolve` rung and the walk never
+blocks at the router. A default on the decided field is refused at import, and
+the fallback joins the graph digest. Every ladder rung gets its own write-once
+`RungEvidence` sink, and the decision rung records one `decision-evidence/1`
+mapping on its candidate (`CandidateEvaluation.evidence`; the builder is
+`_gate/decision_evidence.py`, apart from the rule module, which still never
+names `confidence`). The **provisional** `decision_record(store, scope_id,
+gate)` in `functualize.app.utils` reads a routed gate back as route,
+`decided_by`, reason and evidence. `examples/standalone/hermetic_router/` is
+the one reference workflow — one gate, four routes, a `human_review`
+fallback, no effecting step, no model client. No new node kind, walk outcome,
+evaluation outcome or strategy name was added; gates without a fallback keep
+the Phase 1 ladder and blocking, and gain evidence only. The decisions and the
+rejected alternatives are ADR-030's addendum.
+
+Still open after the hermetic router:
+
+- **Monetary cost** is not recorded — token usage only; pricing is Phase 3's.
+- **Evidence's SQL home.** Evidence is stored with the candidate inside the
+  gate record (`TRANSITIONAL(FUN-21)`); its `input_candidates.evidence` column
+  waits for FUN-18's tables and FUN-21's interaction/evidence slice.
+- **Margin comparison is still exact**, as above — unchanged by this work.
+
+### Gate-name resolution — delivered
+
+Gate references resolve once per public entry via `resolve_name` against the
+scope's gate keys, so a gate declared `approve_refund` answers to that
+spelling, `approveRefund`, `Approve_Refund` and the canonical
+`approve-refund` alike. An unknown gate in an addressed scope **raises**
+`GateNotFoundError` (D1, member 2026-10-01) and each surface translates it:
+the CLI prints the `Error:` line naming the gates that exist and exits 1,
+and the MCP gate tools return `gate_not_found` carrying that roster. Survey
+paths keep their envelopes — the gate-only form of `resolve_gate` and
+`list_scopes(blocked_on=...)` filter by the same resolution without ever
+raising. Result `gate` fields carry the canonical spelling, and a gate the
+declaration no longer carries reports declaration drift by name instead of
+an `AttributeError` text. `gate: str` and `deposit_gate_input` were kept by
+member decision. Delivered on `fix/gate-name-resolution`; the surface
+behaviour is documented in `docs/guides/workflows.md` → *Gate answering*,
+and `examples/standalone/gate_refusal/` is the reference caller.
+
 ## Deferred
 
 Specified work that is not being picked up yet, and what it is waiting on.
@@ -691,6 +791,90 @@ validated and read by nothing — the worst of the three states, because a user
 who wrote it got neither an error nor an expansion.
 
 ## Completed
+
+### The vault key from an unlocked keyring, never a prompt from a run (2026-10-03, `sdd/vault-keyring-unlock`)
+
+**The decision worth keeping.** *A run never asks the keyring to unlock.* The
+key is read lazily — only when a run opens a stored vault entry — from
+`$FUNCTUALIZE_VAULT_KEY`, else from the OS keyring **silently, whether or not
+stdout is a terminal**: an unlocked keyring answers, a locked one refuses the
+run at once (exit 3) with no dialog and no wait. `func builtin vault unlock`,
+run by a person, is the only thing that asks a keyring to unlock, and it waits
+for the dialog's own outcome. `vault init` reads and stores silently too: on a
+locked keyring it refuses (`key_locked`) and points at `vault unlock` — the
+first review caught it unlocking and writing through `keyring.set_password`.
+Recorded in ADR-016 §5's "Amended by" note.
+
+**Rules that outlive the feature:**
+
+- **Never end an active unlock prompt from the client side.** On gnome-keyring
+  50, a client that abandoned a prompt — a deadline followed by exit, Ctrl-C,
+  SIGTERM/SIGKILL, an agent killing its child, `Prompt.Dismiss` — crashed the
+  daemon (`perform_next_unlock: assertion failed (!self->current)`), systemd
+  restarted it, and **every keyring came back locked**. Cancel *inside* the
+  dialog is safe. So no code path may create a prompt it might walk away from;
+  `vault unlock` holds on the first interrupt and stops only on a second.
+- **`keyring.get_password` is not a silent read.** On Linux its Secret Service
+  backend unlocks a locked collection first (a blocking prompt); on macOS it
+  reads with user interaction allowed. Reads go through a per-platform adapter
+  (`_config/vault_keyring*.py`): Secret Service via `secretstorage` (check
+  `Locked`, never `unlock()`, never create a collection), macOS with
+  interaction disabled (`-25308` -> locked), Windows Credential Manager (no
+  lock model). A `keyring` backend not proven silent is not read by a run.
+  Writes go through the same adapters (`store_silent`); `keyring.set_password`
+  is not silent either.
+- **macOS's interaction switch is one flag per process, so its guard is too.**
+  `SecKeychainSetUserInteractionAllowed` is the only thing that silences a
+  locked file keychain — the per-call `kSecUseAuthenticationUIFail` query
+  option is **not** honoured there (a CI read with it hung on a dialog). A
+  lock per adapter let a second adapter in the same process turn interaction
+  on mid-read; the flag is switched only under one process-wide lock in
+  `vault_keyring_macos.py`, a deliberate exception to the no-module-state rule
+  (the state it guards is the OS's, and process-wide by nature).
+- **The TTY gate was a proxy.** "Needs a person at this terminal" and "may
+  block on a backend" are different; only the first is terminal-gated now.
+- **The test suite must fence the real keyring.** Once reads stopped being
+  gated on a TTY, any test resolving a key without the env var would have read
+  the developer's Secret Service; `tests/conftest.py::_isolate_os_keyring` is
+  that fence — keep it.
+
+**Evidence.** Live check on a real Arch/niri desktop (gnome-keyring 50.0):
+unlocked + piped silent; locked + piped refused in process start-up time with
+no dialog; `vault unlock` answered and cancelled both behave; parallel locked
+runs raise no dialog; `Login` lock state, coredump count and daemon PID
+unchanged. CI (`.github/workflows/keyring-platforms.yml`, not yet a required
+check): on real macOS a locked keychain answers `locked` in about 0.2 s with
+no dialog, for a read and for a store; on Linux (private `dbus-run-session`) a
+locked collection is reported, for a read and for a store, with no prompt
+object created; Windows reads, stores and reports "nothing stored".
+
+**Open.** macOS and Windows are checked on CI runners, not yet confirmed on a
+user's own machine (manual checklist in the PR's `live-check.md`). A headless
+"unlocked elsewhere" step works on macOS (`security unlock-keychain -p`) and
+not on Linux (a second `gnome-keyring-daemon --unlock` left the collection
+locked). The `keyring_timeout` default (30 s) now only bounds a keyring that
+does not answer; 5-10 s may fit better.
+
+### `perf_budget` reds carry their host load (2026-10-01, `fix/perf-budget-load-guard`)
+
+A serial `-m perf_budget` run on a shared 6-core host went red at 0.55–0.7×
+cores with no code cause (`boot.total` 614 ms against 500 ms, one run of
+three). The load guard in `tests/conftest.py` still skips only above
+`_MAX_LOAD_PER_CORE = 2.0`; every budget failure now carries the host load it
+ran at, and above `_CONTENDED_LOAD_PER_CORE = 0.5` says the load may explain
+it. The red stays a red.
+
+- **Why the skip did not move.** A serial pytest alone puts a 2-core CI runner
+  near 0.5×, so a lower skip would stop the budgets on CI, the only place they
+  are enforced.
+- **Worth knowing before tuning the 0.5× mark.** Busy-loop CPU load did not
+  reproduce the red: six serial runs at 0.56–0.74× (three before the change,
+  three after) passed all 11 budgets, and a forced red read `boot.total`
+  49 ms at 0.70×. The 614 ms red came from something the load average
+  under-reports here — I/O, memory pressure or hypervisor steal are candidates,
+  none measured — so the note is a pointer, not a diagnosis.
+- `perf_budget` is still not a local gate (`.agents/skills/test-tiers/SKILL.md`);
+  CI's `test-fast` job enforces it.
 
 ### Declared plugin directories (2026-09-19, `feat/plugin-host-protocol`)
 

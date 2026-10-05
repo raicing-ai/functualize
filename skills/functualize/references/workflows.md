@@ -103,14 +103,17 @@ Gate resolution lives in `_gate/`. A paused workflow persists as a scope.
 
 ### Strategies
 
-`Gate(strategy=...)` names who answers the gate. Only four bare names are
+`Gate(strategy=...)` names who answers the gate. Only five bare names are
 valid — `"resolve"` (config chain), `"prompt"` (interactive surface),
 `"ai_inbound"` (an LLM fills the model), `"ai_outbound"` (an external agent
-deposits it). Preset names are **not** accepted here; presets are reachable
-only through `rc.invoke(..., gate_strategy=...)` and `app.gates.resolve_gate`.
+deposits it), and `"decision"` (a decision provider fills one field, then the
+workflow's `accept_at` and `min_margin` decide whether to accept it). Preset
+names are **not** accepted here; presets are reachable only through
+`rc.invoke(..., gate_strategy=...)` and `app.gates.resolve_gate`.
 
-Two are only registered when a plugin is installed: `ai_inbound` by
-`functualize-ai`, `ai_outbound` by `functualize-mcp`.
+Three are only registered when a plugin is installed: `ai_inbound` by
+`functualize-ai`, `ai_outbound` by `functualize-mcp`, and `decision` by
+`functualize-decision-jev`.
 
 **Blocking is the fallback.** A gate that cannot be resolved blocks, and the
 walk is resumable — that includes `strategy=None`, `strategy="ai_outbound"`

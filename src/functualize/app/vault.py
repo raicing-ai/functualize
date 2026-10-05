@@ -18,8 +18,8 @@ can be read as a unit.
 Why it must be here and not in ``_config``
 ------------------------------------------
 
-Deciding whether ``deploy.api_token`` is a real, eligible path needs the **job
-schema**; storing the value needs ``_config.vault``. Those live in different
+Deciding whether ``--job deploy --field api_token`` is a real, eligible identity
+needs the **job and group schema**; storing the value needs ``_config.vault``. Those live in different
 peer layers, and the import-linter contract *Peer layers are independent* means
 no module in ``_config`` may reach the schema. A public module may reach both,
 so this is where the two meet — and it reaches the schema *through the app
@@ -36,6 +36,10 @@ plaintext by being added carelessly.
 
 from __future__ import annotations
 
+import contextlib
+import logging
+import signal
+import threading
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -48,37 +52,73 @@ from functualize._config.vault import (
     VaultEntryExistsError,
     VaultEntryUnreadableError,
     VaultError,
+    VaultFormatError,
     VaultOrigin,
     VaultOriginConflictError,
 )
+from functualize._primitives.vault_identity import VaultIdentity
 
 if TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
 
     from functualize._config.vault import SecretsVault
-    from functualize._config.vault_keys import KeyResolution
+    from functualize._config.vault_key_resolver import KeyLookup, VaultKeyResolver
 
 __all__ = [
     "Readability",
-    "ResolvedVaultPath",
+    "VaultIdentity",
     "VaultInitReport",
     "VaultInspectionReport",
     "VaultMutationReport",
     "VaultEntryExistsError",
     "VaultEntryUnreadableError",
     "VaultError",
+    "VaultFormatError",
     "VaultOrigin",
     "VaultOriginConflictError",
     "VaultKeySourceError",
+    "VaultKeyState",
+    "VaultKeyStatus",
+    "UnlockAbandonedError",
     "VaultPathError",
     "vault_init",
     "vault_inspect",
+    "vault_key_state",
     "vault_put",
     "vault_remove",
+    "vault_unlock",
     "WinningSource",
-    "resolve_canonical_path",
+    "resolve_vault_identity",
 ]
+
+
+logger = logging.getLogger(__name__)
+
+
+class VaultKeyStatus(StrEnum):
+    """Whether a run would get the vault key right now (contracts §9)."""
+
+    UNLOCKED = "unlocked"
+    LOCKED = "locked"
+    UNKNOWN = "unknown"
+    """The keyring cannot say, or the probe hit its time cap."""
+
+    NO_KEYRING = "no_keyring"
+    NOT_APPLICABLE = "not_applicable"
+    """This project has no vault file, so there is nothing to open."""
+
+
+@dataclass(frozen=True, slots=True)
+class VaultKeyState:
+    """The answer of :func:`vault_key_state`. Never carries the key."""
+
+    status: VaultKeyStatus
+    source: str | None = None
+    """``"env"``, the keyring adapter's name, or None."""
+
+    key_stored: bool | None = None
+    """On an unlocked keyring: is the vault key entry there? None if unknown."""
 
 
 class Readability(StrEnum):
@@ -108,40 +148,18 @@ class WinningSource(StrEnum):
 
 
 class VaultPathError(ValueError):
-    """A path does not name a field the vault could ever supply.
+    """An identity does not name a field the vault could ever supply.
 
     Carries a stable ``reason`` so a delivery surface can classify the failure
-    without parsing prose. The message is safe to print: it names the path and
-    what is wrong with it, never a candidate value.
+    without parsing prose. The message is safe to print: it names the scope,
+    target and field and what is wrong with them, never a candidate value.
+    ``path`` is a readable label for the identity, not a storage key.
     """
 
     def __init__(self, reason: str, message: str, *, path: str) -> None:
         super().__init__(message)
         self.reason = reason
         self.path = path
-
-
-@dataclass(frozen=True)
-class ResolvedVaultPath:
-    """A canonical path that has been checked against the live job schema."""
-
-    path: str
-    """The canonical spelling, echoed back so a caller sees what was accepted."""
-
-    job_name: str
-    field_name: str
-
-    @property
-    def config_key(self) -> str:
-        """The exact string the resolution chain is keyed on at run time.
-
-        This identity is the feature. A job's config section prefix is its full
-        dotted canonical name, so ``VaultSource`` is asked for
-        ``"{job_name}.{field_name}"`` — and if what ``put`` stores is not
-        byte-identical to that, the value is simply never found. It is a
-        property with a test rather than a comment for that reason.
-        """
-        return f"{self.job_name}.{self.field_name}"
 
 
 @dataclass(frozen=True)
@@ -163,7 +181,7 @@ class VaultInitReport:
 class VaultMutationReport:
     """The outcome of a write or a removal. Carries no value."""
 
-    path: str
+    identity: VaultIdentity
     origin: VaultOrigin | None
     created: bool = False
     replaced: bool = False
@@ -177,9 +195,9 @@ class VaultMutationReport:
 
 @dataclass(frozen=True)
 class VaultInspectionReport:
-    """Everything known about a path without holding its value."""
+    """Everything known about an identity without holding its value."""
 
-    path: str
+    identity: VaultIdentity
     eligible: bool
     exists: bool
     origin: VaultOrigin | None = None
@@ -194,38 +212,76 @@ class VaultInspectionReport:
     winning_source: WinningSource = WinningSource.MISSING
 
 
-def resolve_canonical_path(app: Any, path: str) -> ResolvedVaultPath:
-    """Check a path against the live job schema, before any input is read.
-
-    Args:
-        app: A booted :class:`~functualize.app.FunctualizeApp`.
-        path: ``<job path>.<field>``, e.g. ``infra.deploy.api_token``.
-
-    Returns:
-        The resolved path, whose :attr:`~ResolvedVaultPath.config_key` is what
-        the resolution chain will ask for at run time.
-
-    Raises:
-        VaultPathError: With a stable ``reason``. Every rejection happens here,
-            which is why callers can validate before prompting: a typo must not
-            cost you the secret you already typed.
-    """
-    job_part, _, field_part = path.rpartition(".")
-    if not job_part or not field_part:
+def resolve_vault_identity(
+    app: Any,
+    *,
+    group: str | None = None,
+    job: str | None = None,
+    field: str,
+) -> VaultIdentity:
+    """Validate exactly one declared scope and secret field before reading input."""
+    if (group is None) == (job is None):
+        raise VaultPathError(
+            "scope_required",
+            "Choose exactly one of --group or --job.",
+            path=_label(
+                "group" if group is not None else "job", group or job or "", field
+            ),
+        )
+    if not field:
         raise VaultPathError(
             "unknown_field",
-            f"{path!r} is not a vault path. Expected <job>.<field>, "
-            f"e.g. 'deploy.api_token'.",
-            path=path,
+            "A field name is required.",
+            path=_label("", group or job or "", ""),
         )
+    if group is not None:
+        label = _label("group", group, field)
+        spec = app.get_group_options_spec(group)
+        if spec is None:
+            raise VaultPathError(
+                "unknown_group",
+                f"No group options are declared for group {group!r}. "
+                f"Run `func builtin info jobs` to see what is available.",
+                path=label,
+            )
+        match = _match_field(list(spec.fields), field)
+        if match is None:
+            raise VaultPathError(
+                "unknown_field",
+                f"Group {spec.group!r} has no option {field!r}.",
+                path=label,
+            )
+        if not match.secret:
+            raise VaultPathError(
+                "field_not_secret",
+                f"Group {spec.group!r} option {match.name!r} is not secret. The "
+                f"vault stores only fields declared Secret[str] (or marked "
+                f"secret), so that a value can never be stored somewhere it "
+                f"would later be printed.",
+                path=label,
+            )
+        return VaultIdentity("group", spec.group, match.name)
 
-    descriptor = _resolve_job(app, job_part, path)
-    field = _resolve_field(descriptor, field_part, path)
-    return ResolvedVaultPath(
-        path=f"{_descriptor_name(descriptor)}.{field.name}",
-        job_name=_descriptor_name(descriptor),
-        field_name=field.name,
-    )
+    assert job is not None
+    label = _label("job", job, field)
+    descriptor = _resolve_job(app, job, label)
+    match = _resolve_field(descriptor, field, label)
+    return VaultIdentity("job", _descriptor_name(descriptor), match.name)
+
+
+def _label(scope: str, target: str, field: str) -> str:
+    """A readable identity for errors; never parsed and never a storage key."""
+    parts = [
+        f"--{scope} {target}" if scope else target,
+        f"--field {field}" if field else "",
+    ]
+    return " ".join(part for part in parts if part)
+
+
+def _revalidate(app: Any, identity: VaultIdentity) -> VaultIdentity:
+    """Check an identity a caller built, returning its canonical spelling."""
+    scope = {identity.scope: identity.target}
+    return resolve_vault_identity(app, **scope, field=identity.field)
 
 
 def _descriptor_name(descriptor: Any) -> str:
@@ -233,7 +289,7 @@ def _descriptor_name(descriptor: Any) -> str:
 
 
 def _resolve_job(app: Any, job_part: str, path: str) -> Any:
-    """Find the one job a path's leading segments name.
+    """Find the one job a ``--job`` target names.
 
     Uses the app's own lookup and then the repository's single naming policy,
     so ``build_wheel`` reaches the registered ``build-wheel`` exactly as it does
@@ -252,7 +308,7 @@ def _resolve_job(app: Any, job_part: str, path: str) -> Any:
     except Exception as exc:
         raise VaultPathError(
             "unknown_job",
-            f"No job named {job_part!r} (from path {path!r}). "
+            f"No job named {job_part!r}. "
             f"Run `func builtin info jobs` to see what is available.",
             path=path,
         ) from exc
@@ -261,7 +317,7 @@ def _resolve_job(app: Any, job_part: str, path: str) -> Any:
     if descriptor is None:  # pragma: no cover - resolve_name just found it
         raise VaultPathError(
             "unknown_job",
-            f"No job named {job_part!r} (from path {path!r}).",
+            f"No job named {job_part!r}.",
             path=path,
         )
     return descriptor
@@ -289,7 +345,8 @@ def _resolve_field(descriptor: Any, field_part: str, path: str) -> Any:
         if not getattr(match, "secret", False):
             raise VaultPathError(
                 "field_not_secret",
-                f"{path!r} is not a secret field. The vault stores only fields "
+                f"Job {_descriptor_name(descriptor)!r} config field "
+                f"{match.name!r} is not secret. The vault stores only fields "
                 f"declared Secret[str] (or marked secret), so that a value can "
                 f"never be stored somewhere it would later be printed.",
                 path=path,
@@ -302,20 +359,14 @@ def _resolve_field(descriptor: Any, field_part: str, path: str) -> Any:
     if stray is not None:
         raise VaultPathError(
             "field_not_config_model",
-            f"{path!r} names a job *parameter*, not a config field. Parameters "
+            f"Job {_descriptor_name(descriptor)!r} field {field_part!r} is a "
+            f"job *parameter*, not a config field. Parameters "
             f"are supplied per invocation and never read from the resolution "
             f"chain, so a value stored here could never reach the job. Move it "
             f"to the job's config model to make it vault-backed.",
             path=path,
         )
 
-    # No `nested_field_not_supported` branch. It was written, and it was
-    # unreachable: `rpartition` takes everything after the *last* dot, so
-    # `field_part` cannot contain one. A nested path like
-    # `deploy.config.token` parses as job `deploy.config` + field `token` and
-    # comes back as `unknown_job`, which is the truthful answer — there is no
-    # such job. Removed rather than left behind a `pragma: no cover`, which
-    # would have read as "tested elsewhere".
     raise VaultPathError(
         "unknown_field",
         f"{_descriptor_name(descriptor)!r} has no field {field_part!r}. "
@@ -349,9 +400,14 @@ class VaultKeySourceError(RuntimeError):
     only the one that happens to be unavailable.
     """
 
+    #: ``key_unavailable`` was once the reason for every keyless state. It is
+    #: kept as a spelling a caller may still pass, and means ``no_keyring`` —
+    #: the one of the three outcomes it can honestly still describe.
+    _LEGACY_REASONS: dict[str, str] = {"key_unavailable": "no_keyring"}  # noqa: RUF012
+
     def __init__(self, reason: str, message: str) -> None:
         super().__init__(message)
-        self.reason = reason
+        self.reason = self._LEGACY_REASONS.get(reason, reason)
 
 
 def vault_init(
@@ -448,11 +504,23 @@ _NO_KEY_STORE_MESSAGE = (
 
 def _init_with(provider: Any, project_id: str) -> VaultInitReport:
     """Create or validate through one provider, reporting which happened."""
+    from functualize._config.vault import (
+        KeyringLockedError,
+        KeyringUnavailableError,
+        KeyringUnverifiedError,
+    )
     from functualize.plugin import VaultKeyInitializer
 
     identifier = provider.identifier()
 
-    if provider.get_key(project_id) is not None:
+    try:
+        existing = provider.get_key(project_id)
+    except (KeyringLockedError, KeyringUnavailableError):
+        # Locked, or a backend a run may not read: not "no key". The
+        # initializer below says which, and never prompts either: only
+        # `vault unlock` asks a keyring to unlock (spec B4').
+        existing = None
+    if existing is not None:
         # Idempotent, and honest about it: nothing was written, so the report
         # must not say "created". `--key-source env` always lands here, which
         # is what makes it a pure preflight.
@@ -477,7 +545,14 @@ def _init_with(provider: Any, project_id: str) -> VaultInitReport:
             f"{_NO_KEY_STORE_MESSAGE}",
         )
 
-    provider.initialize_key(project_id)
+    try:
+        provider.initialize_key(project_id)
+    except KeyringLockedError as exc:
+        raise VaultKeySourceError("key_locked", str(exc)) from exc
+    except KeyringUnverifiedError as exc:
+        raise VaultKeySourceError("key_unverified", str(exc)) from exc
+    except KeyringUnavailableError as exc:
+        raise VaultKeySourceError("no_keyring", str(exc)) from exc
     return VaultInitReport(key_provider=identifier, created=True)
 
 
@@ -495,64 +570,276 @@ def _open_store(cwd: str | Path | None = None) -> SecretsVault:
     return SecretsVault(vault_path_for_project(cwd))
 
 
-def _resolve_key(cwd: str | Path | None = None) -> KeyResolution:
-    """The vault key, or a refusal that names how to supply one."""
-    from functualize._config.vault_keys import resolve_vault_key
+def _key_failure(lookup: KeyLookup, *, timeout: float | None) -> VaultKeySourceError:
+    """The refusal for a lookup that found no key — the one message (spec B3)."""
+    from functualize._config.vault_key_resolver import KeyStatus, describe_key_failure
 
-    resolution = resolve_vault_key(_project_id(cwd))
-    if resolution is None:
-        raise VaultKeySourceError(
-            "key_unavailable",
-            "No vault key is available, so nothing can be encrypted or read.\n\n"
-            + _NO_KEY_STORE_MESSAGE,
+    reasons = {
+        KeyStatus.LOCKED: "key_locked",
+        KeyStatus.NO_KEYRING: "no_keyring",
+        KeyStatus.NOT_STORED: "key_not_stored",
+        KeyStatus.UNVERIFIED: "key_unverified",
+    }
+    return VaultKeySourceError(
+        reasons.get(lookup.status, "no_keyring"),
+        describe_key_failure(lookup, timeout=timeout if lookup.timed_out else None),
+    )
+
+
+def _resolve_key(app: Any = None, cwd: str | Path | None = None) -> KeyLookup:
+    """The vault key, behind the configured deadline, or a refusal saying why.
+
+    Bounded like a job run (``vault put`` also runs from scripts, where an
+    unbounded wait is the hang this exists to remove); only
+    :func:`vault_unlock` waits without a limit.
+    """
+    from functualize._config.vault import app_keyring_timeout
+    from functualize._config.vault_key_resolver import (
+        KeyAccess,
+        KeyStatus,
+        resolve_vault_key,
+    )
+
+    timeout = app_keyring_timeout(app)
+    lookup = resolve_vault_key(
+        _project_id(cwd), access=KeyAccess.BOUNDED, timeout=timeout
+    )
+    if lookup.status is not KeyStatus.FOUND:
+        raise _key_failure(lookup, timeout=timeout)
+    return lookup
+
+
+class UnlockAbandonedError(VaultKeySourceError):
+    """``vault_unlock`` was interrupted twice while the unlock prompt was open.
+
+    The keyring's prompt is left to the keyring daemon. Ending an active
+    prompt from the client side can make some keyring daemons misbehave until
+    they restart, which is why the first interrupt only warns.
+    """
+
+
+#: The guidance logged on the first interrupt while the prompt is open.
+_WAITING_NOTICE = (
+    "Waiting for the keyring's unlock prompt — answer or cancel it there. "
+    "Interrupt again to stop waiting; the keyring may then misbehave until "
+    "it is restarted."
+)
+
+
+def vault_unlock(app: Any = None, cwd: str | Path | None = None) -> KeyLookup:
+    """Ask the keyring to unlock, and wait — with no deadline — for its outcome.
+
+    The one operation that may show the keyring's own unlock dialog. Run by a
+    person, it waits for the dialog to be answered or cancelled there, and
+    never cancels it from this side: ending an active prompt from the client
+    can crash some keyring daemons. functualize unlocks nothing of its own and
+    keeps nothing — the keyring decides how long it stays unlocked, and every
+    later run reads it silently while it does.
+
+    **Interrupts.** While the prompt is open, the first SIGINT or SIGTERM logs
+    a warning and keeps waiting; a second raises
+    :class:`UnlockAbandonedError`. The previous signal handlers are restored
+    either way. Off the main thread no handlers are installed.
+
+    Args:
+        app: Accepted for symmetry with the sibling functions; the wait has no
+            deadline, so no timeout setting is read.
+        cwd: Where to resolve the project from.
+
+    Returns:
+        The outcome, naming the provider that answered and, in
+        ``unlock_how``, whether the keyring was already unlocked, unlocked now,
+        or had nothing to unlock. **The key itself is stripped** — this
+        function never returns, prints or logs it.
+
+    Raises:
+        VaultKeySourceError: No key could be had. ``reason`` is ``cancelled``
+            (cancelled in the dialog), ``no_prompt`` (no dialog appeared),
+            ``key_locked``, ``no_keyring`` or ``key_not_stored``.
+        UnlockAbandonedError: Interrupted twice while the prompt was open.
+    """
+    from functualize._config.vault_key_resolver import KeyLookup, KeyStatus
+
+    lookup = _wait_for_unlock(_project_id(cwd))
+    if lookup.status is not KeyStatus.FOUND:
+        raise _unlock_failure(lookup)
+    return KeyLookup(
+        KeyStatus.FOUND,
+        provider_id=lookup.provider_id,
+        waited=lookup.waited,
+        unlock_how=lookup.unlock_how,
+    )
+
+
+def _wait_for_unlock(project_id: str) -> KeyLookup:
+    """Run the foreground lookup, holding on the first interrupt."""
+    from functualize._config.vault_key_resolver import KeyAccess, resolve_vault_key
+
+    done = threading.Event()
+    result: list[KeyLookup] = []
+    error: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            result.append(resolve_vault_key(project_id, access=KeyAccess.FOREGROUND))
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller
+            error.append(exc)
+        finally:
+            done.set()
+
+    interrupts = 0
+
+    def on_signal(signum: int, frame: object) -> None:
+        nonlocal interrupts
+        interrupts += 1
+        if interrupts == 1:
+            logger.warning(_WAITING_NOTICE)
+
+    previous: dict[int, Any] = {}
+    if threading.current_thread() is threading.main_thread():
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous[signum] = signal.signal(signum, on_signal)
+    worker = threading.Thread(target=run, daemon=True, name="functualize-vault-unlock")
+    worker.start()
+    try:
+        while not done.wait(0.1):
+            if interrupts >= 2:
+                raise UnlockAbandonedError(
+                    "unlock_abandoned",
+                    "Stopped waiting for the keyring's unlock prompt. If the "
+                    "keyring misbehaves now (no dialog, or everything locked "
+                    "again), restart it by logging out and back in.",
+                )
+    finally:
+        for restored, handler in previous.items():
+            signal.signal(restored, handler)
+    if error:
+        raise error[0]
+    return result[0]
+
+
+def _unlock_failure(lookup: KeyLookup) -> VaultKeySourceError:
+    """The refusal for a ``vault unlock`` that ended without a key."""
+    from functualize._config.vault_keyring import UnlockHow
+
+    if lookup.unlock_how is UnlockHow.CANCELLED:
+        return VaultKeySourceError(
+            "cancelled",
+            "The unlock was cancelled in the keyring's dialog. Run "
+            "`func builtin vault unlock` again when you are ready.",
         )
-    return resolution
+    if lookup.unlock_how is UnlockHow.NO_PROMPT:
+        return VaultKeySourceError(
+            "no_prompt",
+            "The keyring was asked to unlock, but no unlock dialog appeared. "
+            "Its service may need a restart (log out and back in), or set "
+            "`FUNCTUALIZE_VAULT_KEY` instead.",
+        )
+    return _key_failure(lookup, timeout=None)
+
+
+#: How long a diagnostic (`inspect`, `status`) waits on a hung keyring.
+_DIAGNOSTIC_READ_SECONDS = 2.0
+
+
+def vault_key_state(app: Any = None, cwd: str | Path | None = None) -> VaultKeyState:
+    """Whether a run would get the vault key now — never prompting (spec B8).
+
+    Never prompts, never unlocks, never reads the secret, never raises (a
+    failure is ``UNKNOWN``), and answers within about 250 ms. With
+    ``$FUNCTUALIZE_VAULT_KEY`` set it answers ``UNLOCKED`` from ``"env"``
+    without touching a keyring. The answer is cached for a couple of seconds
+    on the app's own key resolver, so a surface that polls it — the TUI status
+    bar — costs one probe per window.
+
+    Args:
+        app: The app whose vault this is, when there is one; its resolver's
+            cache is used. Without it a fresh resolver answers, uncached.
+        cwd: Where to resolve the project from.
+    """
+    try:
+        from functualize._config.vault_paths import vault_path_for_project
+
+        if not vault_path_for_project(cwd).exists():
+            return VaultKeyState(VaultKeyStatus.NOT_APPLICABLE)
+        state = _resolver_for(app, cwd).key_state()
+    except Exception:  # noqa: BLE001 - a state probe never raises
+        return VaultKeyState(VaultKeyStatus.UNKNOWN)
+    if not state.reachable:
+        return VaultKeyState(VaultKeyStatus.NO_KEYRING)
+    return VaultKeyState(
+        VaultKeyStatus(state.availability.value),
+        source=state.source,
+        key_stored=state.key_stored,
+    )
+
+
+def _resolver_for(app: Any, cwd: str | Path | None) -> VaultKeyResolver:
+    """The app's own key resolver when it has a vault source, else a fresh one."""
+    from functualize._config.vault_key_resolver import VaultKeyResolver
+
+    chain = getattr(app, "_resolution_chain", None)
+    for source in getattr(chain, "sources", None) or ():
+        resolver = getattr(source, "resolver", None)
+        if isinstance(resolver, VaultKeyResolver):
+            return resolver
+    return VaultKeyResolver(_project_id(cwd))
+
+
+def _found_key(lookup: KeyLookup) -> bytes:
+    """The key of a FOUND lookup — narrowed once rather than asserted per site."""
+    if lookup.key is None:
+        msg = "a FOUND key lookup carried no key"
+        raise VaultKeySourceError("no_keyring", msg)
+    return lookup.key
 
 
 def vault_put(
     app: Any,
-    path: str,
+    identity: VaultIdentity,
     value: str,
     *,
     replace: bool = False,
     cwd: str | Path | None = None,
 ) -> VaultMutationReport:
-    """Store one value against a canonical path.
+    """Store one value against a scoped identity.
 
     Args:
-        app: A booted app, for the job schema the path is checked against.
-        path: ``<job>.<field>``. Validated *before* anything else happens.
+        app: A booted app, for the schema the identity is checked against.
+        identity: The scope, target and field. Validated *before* anything
+            else happens.
         value: The plaintext. Never logged, never returned, never in a report.
         replace: Permit overwriting an existing direct entry.
         cwd: Project directory. Defaults to the working directory.
 
     Raises:
-        VaultPathError: The path names nothing the vault could supply.
+        VaultPathError: The identity names nothing the vault could supply.
         VaultKeySourceError: No key is available to encrypt with.
         VaultEntryExistsError: An entry exists and ``replace`` is False.
-        VaultOriginConflictError: A provider entry holds this path. Changing
+        VaultOriginConflictError: A provider entry holds this identity. Changing
             what wrote an entry is never a side effect of writing it.
 
-    The caller is expected to have validated the path with
-    :func:`resolve_canonical_path` before collecting ``value`` — a typo must
+    The caller is expected to have validated the identity with
+    :func:`resolve_vault_identity` before collecting ``value`` — a typo must
     not cost someone the secret they already typed. This re-validates anyway,
     because a public function cannot assume its caller did.
     """
-    resolved = resolve_canonical_path(app, path)
-    resolution = _resolve_key(cwd)
+    resolved = _revalidate(app, identity)
+    resolution = _resolve_key(app, cwd)
     store = _open_store(cwd)
 
-    existed = any(e.key == resolved.config_key for e in store.list_entries())
+    key = resolved.encode()
+    existed = any(e.key == key for e in store.list_entries())
     store.put(
-        resolved.config_key,
+        key,
         value,
-        encryption_key=resolution.key,
+        encryption_key=_found_key(resolution),
         origin=VaultOrigin.DIRECT,
         replace=replace,
     )
-    entry = next(e for e in store.list_entries() if e.key == resolved.config_key)
+    entry = next(e for e in store.list_entries() if e.key == key)
     return VaultMutationReport(
-        path=resolved.path,
+        identity=resolved,
         origin=entry.origin,
         created=not existed,
         replaced=existed,
@@ -561,14 +848,14 @@ def vault_put(
 
 
 def vault_remove(
-    app: Any, path: str, *, cwd: str | Path | None = None
+    app: Any, identity: VaultIdentity, *, cwd: str | Path | None = None
 ) -> VaultMutationReport:
     """Remove one entry of either origin. Needs no vault key.
 
     Args:
-        app: Used only to canonicalize ``path``. A path that does **not**
+        app: Used only to canonicalize ``identity``. One that does **not**
             resolve is still attempted literally — see below.
-        path: The canonical path, or the stored key itself.
+        identity: The scope, target and field of the entry.
         cwd: Project directory.
 
     Returns:
@@ -576,24 +863,22 @@ def vault_remove(
         was there, which is success: asking for something gone to be gone has
         been satisfied.
 
-    **An unresolvable path is not refused.** This is the recovery command, and
+    **An unresolvable identity is not refused.** This is the recovery command, and
     the entries most needing removal are the ones whose job has since been
     renamed or deleted — validating against the current schema would make the
-    orphans it exists to clear unreachable. A path that resolves is
+    orphans it exists to clear unreachable. An identity that resolves is
     canonicalized so flag spelling works; one that does not is used verbatim
     and simply matches nothing if it was a typo.
     """
-    try:
-        target = resolve_canonical_path(app, path).config_key
-    except VaultPathError:
-        target = path
-
+    with contextlib.suppress(VaultPathError):
+        identity = _revalidate(app, identity)
+    target = identity.encode()
     removed = _open_store(cwd).delete(target)
     if removed is None:
-        return VaultMutationReport(path=target, origin=None, removed=False)
+        return VaultMutationReport(identity=identity, origin=None, removed=False)
 
     return VaultMutationReport(
-        path=target,
+        identity=identity,
         origin=removed.origin,
         removed=True,
         updated_at=removed.updated_at,
@@ -606,45 +891,54 @@ def vault_remove(
 
 
 def vault_inspect(
-    app: Any, path: str, *, cwd: str | Path | None = None
+    app: Any, identity: VaultIdentity, *, cwd: str | Path | None = None
 ) -> VaultInspectionReport:
-    """Describe a path without holding its value.
+    """Describe an identity without holding its value.
 
     Answers eligibility, existence, provenance and readability. Readability
     comes from the store's key check value, so **no stored secret is decrypted
     to produce this report** — which is what makes the security claim about
     this command true rather than aspirational.
 
-    An ineligible path is reported as ``eligible=False`` rather than raised,
+    An ineligible identity is reported as ``eligible=False`` rather than raised,
     because "why can I not store this here?" is the question the command exists
     to answer.
     """
-    from functualize._config.vault_keys import resolve_vault_key
+    from functualize._config.vault_key_resolver import (
+        KeyAccess,
+        KeyStatus,
+        resolve_vault_key,
+    )
 
     try:
-        resolved = resolve_canonical_path(app, path)
-        key = resolved.config_key
+        resolved = _revalidate(app, identity)
+        key = resolved.encode()
         eligible = True
-        display = resolved.path
+        display = resolved
     except VaultPathError:
-        key, eligible, display = path, False, path
+        key, eligible, display = identity.encode(), False, identity
 
     store = _open_store(cwd)
     entry = next((e for e in store.list_entries() if e.key == key), None)
     if entry is None:
         return VaultInspectionReport(
-            path=display,
+            identity=display,
             eligible=eligible,
             exists=False,
             readability=Readability.ABSENT,
             winning_source=WinningSource.MISSING,
         )
 
-    resolution = resolve_vault_key(_project_id(cwd))
-    if resolution is None:
+    # A silent read: inspect never raises a dialog, and a locked keyring
+    # reads as KEY_UNAVAILABLE at once. The short bound only guards a hung
+    # backend, so a diagnostic never waits long.
+    lookup = resolve_vault_key(
+        _project_id(cwd), access=KeyAccess.BOUNDED, timeout=_DIAGNOSTIC_READ_SECONDS
+    )
+    if lookup.status is not KeyStatus.FOUND:
         readability = Readability.KEY_UNAVAILABLE
     else:
-        opens = store.opens_with(resolution.key)
+        opens = store.opens_with(_found_key(lookup))
         # `None` means the store predates the check row. Reporting that as
         # readable would be a guess; reporting it as wrong would libel every
         # vault written before this feature. Unknown is neither, so it maps to
@@ -654,7 +948,7 @@ def vault_inspect(
         )
 
     return VaultInspectionReport(
-        path=display,
+        identity=display,
         eligible=eligible,
         exists=True,
         origin=entry.origin,

@@ -137,3 +137,23 @@ class JobPhase(Enum):
     VALIDATION = "validation"
     EXECUTION = "execution"
     TEARDOWN = "teardown"
+
+
+class KeyAvailability(Enum):
+    """Whether a key provider can answer **without prompting a person**.
+
+    Asked by :class:`~functualize.plugin.VaultKeyProbe`, which exists so
+    diagnostic surfaces (``vault status``, ``vault inspect``) can report the
+    key's state without ever raising an unlock dialog. The three values map
+    exactly to the states those surfaces print: ``available`` / ``locked`` /
+    ``unknown``.
+    """
+
+    UNLOCKED = "unlocked"
+    """A read will not prompt — asking for the key is safe to do silently."""
+
+    LOCKED = "locked"
+    """A read may prompt or block — report it, do not attempt the read."""
+
+    UNKNOWN = "unknown"
+    """The backend cannot say (no probe support, no Secret Service, non-Linux)."""

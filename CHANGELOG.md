@@ -45,6 +45,266 @@ emit` gets Click's `Error: Option '--emit-format' requires an argument.`
 values in the description instead of the `[auto|json|ndjson|none|raw]`
 bracket that advertised an optional value. `OPTIONAL_VALUE_VALID_SET` keeps
 its transitional name; the rename is a separate follow-up.
+### Changed — vault secrets have explicit group and job identities
+
+Vault entries now use `(scope, target, field)`: a group option and job config
+field with the same names are separate secrets. `put`, `inspect`, and `remove`
+require `--field` and exactly one of `--group` or `--job`. Their old positional
+form is removed. Only secret-marked group options and job config fields are
+eligible; ordinary function parameters remain invocation inputs.
+
+Provider sources are declared in `[[vault_secret]]` blocks with `group` or
+`job`, `field`, and `source`. Inline `provider://reference` values in secret
+config fields are rejected. `vault sync` checks declarations across files
+before fetching, reports each failed entry, and does not replace a direct
+entry with a provider value. Group and job secrets share the order runtime
+override → explicit CLI value → vault → environment → config file → default.
+Runs read the local vault without contacting providers.
+
+Custom configuration sources must accept the scoped `Source.get` contract;
+third-party implementations using the former two-argument method need an
+update.
+
+The public lifecycle functions in `functualize.app.vault` change the same way.
+`vault_put`, `vault_inspect` and `vault_remove` take a
+`VaultIdentity(scope, target, field)` where they took a dotted
+`"<job>.<field>"` string, so `vault_put(app, "report.token", value)` becomes
+`vault_put(app, VaultIdentity("job", "report", "token"), value)`. Import
+`VaultIdentity` from `functualize.app.vault`, or build a checked identity with
+`resolve_vault_identity(app, job=..., field=...)` (or `group=...`). Their
+reports carry the identity rather than a dotted path. A string argument is not
+accepted.
+
+This changes the vault format without migration. An old store is refused with
+the instruction to run `func builtin vault clear`; clear works without a key.
+Reprovision direct values and run `vault sync` for provider entries afterward.
+JSON refusal reasons include `scope_required`, `unknown_group`, and
+`vault_format_unsupported`.
+
+### Fixed — the secret scan no longer fails a pull request for another branch's finding
+
+The `gitleaks` job checked out every branch at full depth and then ran
+`gitleaks detect --source /repo` with no commit range, so it walked all of
+them. One fixture on one feature branch therefore failed every open pull
+request: the reported commit was not in that pull request's diff, and nothing
+the pull request could do would make the check pass.
+
+A pull request is now scanned as the range it adds — `merge-base(base,
+head)..head`, the two-dot form of the three-dot range `git diff` uses — so a
+finding the pull request itself introduces still fails it. A push to `master`
+and the weekly schedule keep the full-history scan they always had. The range
+is resolved in its own step and the job fails if it cannot be, because
+`gitleaks` reports a range `git` cannot resolve as a **clean scan of zero
+commits** and exits `0`; silently covering nothing is worse than either
+scanned outcome.
+
+### Changed — the vault key is read from an unlocked keyring with or without a terminal
+
+A run that needed a stored vault secret used to get it in a terminal and be
+refused the moment stdout was piped, captured by an agent's shell tool, or
+served over stdio MCP — with a message that said no key existed and offered to
+delete the entry. The OS keyring was consulted only when stdin and stdout were
+both terminals, which also blocked a silent read of a keyring the developer
+had already unlocked.
+
+Now `$FUNCTUALIZE_VAULT_KEY` still wins when set and nothing else is touched;
+otherwise the keyring is read **regardless of terminal**, and always
+**silently**: an unlocked keyring answers, a locked one is refused at once —
+**a run never raises an unlock prompt and never waits on one**. (A run that
+raised a prompt and then went away — a timeout, Ctrl-C, an agent stopping its
+child — can crash the keyring service on some desktops and lock every keyring
+the user has.) Unlock first, with the desktop's keyring manager or
+`func builtin vault unlock`. The key is resolved **lazily**: only a run that
+opens a stored vault entry asks for it, so an unrelated job, `--help` and
+completions never touch the keyring, even in a project with a vault; and a run
+asks the keyring at most once. A refusal (exit `3`) now says which of
+*locked*, *did not answer*, *no keyring*, *cannot be read without a possible
+prompt*, *nothing stored* or *wrong key* happened and gives the next step, in
+words that name no keyring product; where the key may still exist it never
+suggests `vault remove`, `vault clear` or — for a typed-in entry —
+`vault sync`. `vault put` and `vault sync` read the same way. The keyring is
+read through a small adapter per platform (Linux Secret Service, macOS
+Keychain, Windows Credential Manager); any other `keyring` backend is not read
+by a run, because it cannot be proven silent. Linux is verified on a real
+desktop; macOS and Windows are checked in CI on real runners but not yet
+confirmed on a user's own machine. `VaultKeyProvider.get_key` must now never prompt, and
+`interactive()` means "needs a person at a terminal"; the keychain provider
+returns `False`. Recorded as an amendment to ADR-016 §5.
+
+Three behaviours move with it:
+
+- A config section holding a stored entry that cannot be opened now
+  **refuses** at that entry. Listing a section needs no key any more, so the
+  entry is no longer silently left out of the section.
+- The `remote_first()` warning that no vault key is available is no longer
+  printed at start-up. It is printed once, at the first declared-remote value
+  that falls through — the first moment the key is needed — and an app whose
+  values all come from env or files no longer prints it at all.
+- `func builtin vault init` no longer unlocks a locked keyring. It reads and
+  stores silently like everything else, and on a locked keyring it refuses
+  (exit `3`, `key_locked`) and points at `func builtin vault unlock`. A
+  `keyring` backend that cannot be used silently is refused too
+  (`key_unverified`) — a key stored where no run can read it would only look
+  like a working setup.
+
+### Added — `func builtin vault unlock`, the vault key state, `[vault] keyring_timeout`
+
+- `func builtin vault unlock [--json]` is the one command that asks the
+  keyring to unlock. It waits, with no deadline, for the keyring's own dialog
+  to be answered or cancelled, and says whether the keyring was already
+  unlocked, has just been unlocked, or has nothing to unlock on this platform
+  (exit `0`); or why it ended without a key — `cancelled`, `no_prompt`,
+  `key_locked`, `no_keyring`, `key_not_stored` (exit `3`). The first interrupt
+  while the dialog is open only warns; a second stops waiting. It never prints
+  the key. The reasons are carried by `VaultKeySourceError.reason` (whose old
+  `key_unavailable` spelling now means `no_keyring`) and the new
+  `VaultKeyUnavailableError.reason`; a second interrupt raises
+  `UnlockAbandonedError`.
+- `functualize.app.vault.vault_key_state()` says whether a run would get the
+  key now — unlocked, locked, unknown, no keyring, or not applicable — without
+  prompting, unlocking or reading the secret, within about 250 ms.
+  `func builtin vault status` prints it as `Key state:` and adds `key_state` to
+  `--json`, and the inline TUI shows it on the status bar.
+- `[vault] keyring_timeout` in `.functualize.toml` or the global config, or
+  `$FUNCTUALIZE_VAULT_KEYRING_TIMEOUT`, bounds a keyring that does not answer at
+  all (default `30s`); it never applies to a locked one. An invalid value warns
+  once and the default is used. A `FunctualizeApp` built outside `func` can
+  pass `ConfigSources(vault_keyring_timeout=...)`.
+- `functualize.plugin` exports `VaultKeyProbe`, `KeyAvailability` and
+  `VaultKeyUnlocker`, for a key provider that can say whether a read would
+  prompt, or be asked to unlock.
+
+### Added — hermetic router: a declared fallback and the decision as evidence
+
+A decision can now name the option its gate takes when no proposal is
+accepted: `ChoiceDecision(..., fallback="human_review")`. A gate with a
+fallback is walked `decision` → `resolve` and never blocks at the router — a
+weak proposal, a rate limit or a missing provider is answered by the existing
+`resolve` rung with the fallback, and the walk follows that branch. The
+fallback must be one of the options and must complete the answer alone; a
+default on the decided field is now refused at import, because it would
+bypass the decision. The fallback joins the graph digest. Gates without one
+behave as before.
+
+The decision rung now records its evidence beside its verdict: one
+`decision-evidence/1` mapping with the state's digest (never its text), the
+rule's digest and thresholds, the provider and model, the proposal and
+distribution, the provider's own confidence (still never read by the rule),
+the verdict, any failure, the latency and the token counts. Only the gate
+writes it; `gate_draft(...)` shows it as a candidate's `evidence`. The new,
+**provisional** `decision_record(store, scope_id, gate)` in
+`functualize.app.utils` reads one routed gate back as a single record —
+route, who took it (`decision`, `fallback` or `person`) and, when the
+fallback answered, why the decision did not. Two runs on the same input can
+still route differently; the record makes that visible rather than
+preventing it. Monetary cost is not recorded — only token usage.
+
+A reference workflow, `examples/standalone/hermetic_router/`, routes requests
+to four branches with a `human_review` fallback, and its tests run it with a
+fake provider and with none.
+
+### Added — decision gates: a provider proposes, the workflow decides
+
+A workflow can declare `Gate(decide=ChoiceDecision(...))`: a decision provider
+proposes one of the options the workflow lists for one field, reading the
+recorded result of a step the workflow names, and the workflow's own
+`accept_at` and `min_margin` decide whether the proposal is taken. The
+provider's confidence score is recorded and never consulted. Anything short of
+acceptance — a weak proposal, a rate limit, a provider error — blocks the gate
+for a person with the proposal and the thresholds in `blocked_reason`, and never
+retries or waits. Which options need a person is the workflow's choice, made by
+routing those branches through a second gate; an option routed straight to an
+effecting step runs on the provider's answer alone. The declaration is checked
+at import (the field must be a `Literal` or `StrEnum` whose values equal the
+options), and the rule is part of the graph digest, so a parked walk refuses to
+resume under a changed rule.
+
+The strategy is `decision`, the fifth name `Gate(strategy=...)` accepts, and a
+decision gate is walked as `decision` → `prompt` → `resolve`. Walked gates now
+receive the walk's step results in `GateContext.workflow_context`. The
+provider vocabulary (`DecisionProvider`, `ChoiceRequest`, `DecisionResult`,
+`DecisionProvenance`, `DecisionFailure`, `DecisionUnavailableError`) and
+`DecisionGateResolver` are exported from `functualize.plugin`, and
+`ChoiceDecision` from `functualize.workflow`, all **provisional**. The first
+provider is a new, experimental plugin, `functualize-decision-jev`, which needs
+`OPENCODE_API_KEY` and reads `[jev]` (`model`, `endpoint`, `timeout_seconds`).
+Core never imports it.
+
+### Added — gate answers retain their recorded resolution
+
+Workflow gate drafts and answers now include a payload-free `resolution` view
+with the request identity and each candidate's source, order, outcome and
+evaluation detail. Strategy attempts and submitted answers remain readable as
+recorded candidates across resume and reopen, without revalidating an earlier
+answer. `deposit_gate_input` now returns `gate_already_answered` for a request
+that has already accepted an answer instead of replacing that answer.
+
+### Fixed — a gate answers to the name it was declared with
+
+A gate declared `Gate(name="approve_refund", ...)` parks the walk under its
+canonical node name `approve-refund`, and the public answer path now resolves
+the reference the same way before it touches anything: `approve_refund`,
+`approveRefund` and `Approve_Refund` all reach the one gate, on every surface.
+Naming a gate the scope does not have now **raises** the new
+`GateNotFoundError` (carrying the scope, the reference and the gates that do
+exist) from `answer_gate`, `gate_draft`, `deposit_gate_input`,
+`resume_scope(gate=...)` and the scope-and-gate form of `resolve_gate` —
+previously a returned error dict, and from `gate_draft`/`deposit_gate_input`
+a misleading `gate_unresolvable` whose message was an `AttributeError` text.
+The survey paths keep their envelopes: the gate-only form of `resolve_gate`
+and `list_scopes(blocked_on=...)` return their existing "no workflow is
+waiting" and empty-row answers rather than raising. The CLI and MCP results
+are unchanged in code — the verbs still print an `Error:` line and exit 1,
+and the tools still return `gate_not_found`, now with the gate list — and
+result `gate` fields carry the canonical spelling (`approve-refund`), not
+what the caller typed.
+
+### Fixed — a `perf_budget` red now says what load it ran at
+
+**Contributor-facing; no runtime behaviour changes.** `tests/conftest.py` skips the wall-clock
+budgets only above 2.0 runnable processes per core, and below that a shared host still turned
+them red with no code cause: a serial `-m perf_budget` run at 0.55–0.7× of 6 cores read
+`boot.total` 614 ms against its 500 ms budget in one run of three, and passed on the idle host.
+Nothing in the red said so, so every reader had to guess, and a red people have learned to
+guess about is one they learn to discount.
+
+The skip did not move. A serial pytest alone puts a 2-core CI runner near 0.5×, so skipping
+there would stop the budgets in the one place they are enforced. Instead every `perf_budget`
+failure carries the host's 1/5/15-minute load, core count and per-core ratio, read when the
+assertion fails, as a `perf_budget host load` section and again in a summary section that
+`--tb=line` and `--tb=no` still print. Above 0.5× the note says the load may explain the red and
+to re-run it serially on an idle host; at or below it, that load does not explain it. The red
+stays a red either way, and an idle run still asserts every budget: `11 passed`.
+
+### Fixed — the task-graph check read the checkout, not the range
+
+**Contributor-facing; no runtime behaviour changes.** `contract-diff-carries-task-graph`
+(`.github/scripts/verify_spec_task_graph.py`) is meant to answer one question about a pull
+request's range: did any of its commits carry a `.spec/features/<name>/tasks.md` with a parseable
+`## Task Dependency Graph`? Before looking at the range it surveyed the *working tree*, so a
+committed `src/functualize/**` change with no graph was refused, and the same base/head invocation
+passed — `OK: the branch tip carries …` — once an **untracked** `.spec/features/*/tasks.md` sat in
+the checkout. CI's checkout is normally clean, which kept this from biting there, but a check whose
+answer depends on files outside the range it names is not checking the range.
+
+Every answer now comes from commit objects. The graph is looked for in the tree of each commit of
+`merge-base(base, head)..head`, the head commit included, so an untracked, staged or locally edited
+`tasks.md` counts for nothing and a checkout that no longer holds the head's graph refuses nothing.
+Three neighbouring holes closed with it: a `tasks.md` whose graph arrived in a later edit (rather
+than in the commit that added the file) now counts, matching the write-time gate; only
+`.spec/features/<name>/tasks.md` is the artifact — `subtasks.md` or a `tasks.md` one directory
+deeper, which the hook never accepted, no longer satisfy the check; and the gated-path test is asked
+of the committed path against an empty directory, so a local symlink can no longer resolve a changed
+`src/functualize/**` path out of the gate. A `git` that cannot be started now refuses with *could
+not run git …; nothing was checked* instead of a traceback. The changed paths are read NUL-delimited
+and without rename detection (`git diff --name-only -z --no-renames`): git's default output quotes a
+name holding a non-ASCII byte, a quote, a tab or a newline, so a committed `src/functualize/café.py`
+with no graph arrived as `"src/functualize/caf\303\251.py"` and passed as *no contract-bearing path
+changed*, and a `git mv` out of `src/functualize/` was listed by its destination only. Both now
+refuse, and a name that is not valid UTF-8 is gated and printed escaped rather than dropped.
+`.claude/rules/spec-workflow.md` no longer says such a diff "is refused at the merge": the check
+reports the failure on the pull request, and it blocks the merge only once the context is registered
+as required in the `master` ruleset.
 
 ### Fixed — the Jev probe's sentences claimed more than its assertions
 

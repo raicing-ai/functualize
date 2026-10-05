@@ -17,7 +17,7 @@ import logging
 import os
 import sys
 import types
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from io import StringIO
 from pathlib import Path
 
@@ -138,25 +138,108 @@ def _timing_instrumentation(config: pytest.Config) -> list[str]:
 #: asserting. The failure this prevents is the one that gets a perf test muted.
 _MAX_LOAD_PER_CORE = 2.0
 
+#: Above this many runnable processes per core a budget red is still a red, but
+#: it is reported as one the load may explain. A serial `-m perf_budget` run on
+#: a shared 6-core host went red in 1 of 3 runs at load 3.3-4.1 (0.55-0.7x):
+#: `boot.total` 614ms against its 500ms budget, on a commit that touched no
+#: boot code, and the same run passed on the idle host.
+#:
+#: This is a label, not a second skip threshold. Skipping at 0.5x would stop
+#: asserting on a 2-core CI runner, where a serial pytest alone sits near it,
+#: and remove the one place the budgets are enforced; `_MAX_LOAD_PER_CORE`
+#: stays the only load that skips.
+_CONTENDED_LOAD_PER_CORE = 0.5
 
-def _oversubscription() -> float | None:
-    """Runnable processes per core, when that is high enough to matter.
 
-    ``getloadavg`` is POSIX-only and ``cpu_count`` can return ``None``; either
-    absence means "no reason to think the machine is busy", which leaves the
-    budgets enforced. Erring that way keeps the guard from silently disabling
-    the whole file on a platform where it cannot measure.
+def _host_load() -> tuple[float, float, float, int] | None:
+    """The 1, 5 and 15-minute load averages and the core count, if readable.
+
+    ``getloadavg`` is POSIX-only and ``cpu_count`` can return ``None``.
     """
     getloadavg = getattr(os, "getloadavg", None)
     cores = os.cpu_count()
     if getloadavg is None or not cores:
         return None
     try:
-        one_minute = getloadavg()[0]
+        one, five, fifteen = getloadavg()
     except OSError:  # pragma: no cover - documented on some platforms
         return None
-    ratio = one_minute / cores
+    return one, five, fifteen, cores
+
+
+def _oversubscription() -> float | None:
+    """Runnable processes per core, when that is high enough to matter.
+
+    A load that cannot be read means "no reason to think the machine is busy",
+    which leaves the budgets enforced. Erring that way keeps the guard from
+    silently disabling the whole file on a platform where it cannot measure.
+    """
+    sample = _host_load()
+    if sample is None:
+        return None
+    one, _, _, cores = sample
+    ratio = one / cores
     return ratio if ratio > _MAX_LOAD_PER_CORE else None
+
+
+def _budget_red_load_note() -> str:
+    """The host load beside a failed budget, so the red says what it ran on.
+
+    Read when the assertion fails, not at collection: the 1-minute average then
+    covers the boot the budget measured, where a collection-time reading can be
+    a minute stale.
+    """
+    sample = _host_load()
+    if sample is None:
+        return (
+            "host load: not readable on this platform, so load cannot be ruled "
+            "out as the cause of this red"
+        )
+    one, five, fifteen, cores = sample
+    ratio = one / cores
+    reading = (
+        f"host load {one:.2f} / {five:.2f} / {fifteen:.2f} (1 / 5 / 15 min) "
+        f"on {cores} cores = {ratio:.2f}x per core"
+    )
+    if ratio > _CONTENDED_LOAD_PER_CORE:
+        return (
+            f"{reading}; above {_CONTENDED_LOAD_PER_CORE}x, where a budget has "
+            "gone red with no code cause. Re-run it serially on an idle host "
+            "before reading it as a regression; CI's test-fast job enforces it "
+            "on a quiet runner"
+        )
+    return f"{reading}; at or below {_CONTENDED_LOAD_PER_CORE}x, so load does not explain it"
+
+
+_PERF_BUDGET_REDS = pytest.StashKey[list[tuple[str, str]]]()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    # A budget that fails stays failed — the load is attached, never used to
+    # turn the red into a skip. Only the call phase is a budget verdict: a
+    # setup error (a boot that raised) is not a timing.
+    report = yield
+    if report.when == "call" and report.failed and "perf_budget" in item.keywords:
+        note = _budget_red_load_note()
+        report.sections.append(("perf_budget host load", note))
+        item.config.stash.setdefault(_PERF_BUDGET_REDS, []).append(
+            (report.nodeid, note)
+        )
+    return report
+
+
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
+    # Repeated here because `--tb=line` and `--tb=no` print no report sections,
+    # and a budget red without its load is the one that gets discounted.
+    reds = terminalreporter.config.stash.get(_PERF_BUDGET_REDS, [])
+    if not reds:
+        return
+    terminalreporter.section("perf_budget reds and the host load they ran at")
+    for nodeid, note in reds:
+        terminalreporter.write_line(f"{nodeid}: {note}")
 
 
 def pytest_collection_modifyitems(
@@ -230,6 +313,40 @@ def _isolate_home(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in list(os.environ):
         if key.startswith(("FUNCTUALIZE_", "XDG_")):
             monkeypatch.delenv(key, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_os_keyring(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep the suite off the developer's real OS keyring and session bus.
+
+    The vault key is read from the OS keyring whether or not stdout is a
+    terminal, so any test that resolves a key without $FUNCTUALIZE_VAULT_KEY
+    would otherwise read the real Secret Service — or raise its unlock dialog
+    on the desktop of whoever runs the suite. Before that rule, the TTY gate
+    happened to keep every in-process test (and every piped subprocess) off
+    the keyring; nothing here did it on purpose.
+
+    `PYTHON_KEYRING_BACKEND` reaches in-process lookups and every subprocess
+    a test spawns; the unreachable bus address makes the Secret Service probe
+    answer "unknown" instead of asking the real one. A test that wants a
+    keyring installs its own fake (`sys.modules`, or the env var for a
+    subprocess), which overrides both.
+    """
+    monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.fail.Keyring")
+    monkeypatch.setenv(
+        "DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/functualize-test-bus"
+    )
+    keyring = sys.modules.get("keyring")
+    if keyring is None or not hasattr(keyring, "set_keyring"):
+        # Not imported yet: the first import reads the env var set above.
+        yield
+        return
+    from keyring.backends.fail import Keyring as FailKeyring
+
+    previous = keyring.get_keyring()
+    keyring.set_keyring(FailKeyring())
+    yield
+    keyring.set_keyring(previous)
 
 
 @pytest.fixture(autouse=True)

@@ -31,16 +31,20 @@ from functualize._cli.builtins import (
     register_builtin_commands,
 )
 from functualize._config.registry import ProviderRegistry
-from functualize._config.vault import KEY_BYTES, SecretsVault
-from functualize.app.core import FunctualizeApp
+from functualize._config.vault import KEY_BYTES, SecretsVault, VaultOrigin
+from functualize.app import JobSources
+from functualize.app.core import FunctualizeApp, request_for
 from functualize.app.presets import remote_first
 from functualize.app.utils import ExitCode, vault_location
+from functualize.app.vault import VaultIdentity
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
 _KEY = b"\x2b" * KEY_BYTES
 _KEY_HEX = _KEY.hex()
+_JOB_TOKEN = VaultIdentity("job", "deploy", "api_token")
+_GROUP_TOKEN = VaultIdentity("group", "deploy", "api_token")
 
 #: If this appears in any surface's output, a secret was rendered. Long and
 #: distinctive on purpose: a short value can satisfy a leak assertion by
@@ -49,9 +53,33 @@ _CONSPICUOUS = "PLAINTEXT-91c40de2-must-never-be-printed"  # gitleaks:allow
 
 _CONFIG = """
 [report]
-password = "fake-sm://prod/db-password"
 username = "app"
 endpoint = "https://api.example.com"
+
+[[vault_secret]]
+job = "report"
+field = "password"
+source = "fake-sm://prod/db-password"
+"""
+
+_JOB = """
+from pydantic import BaseModel
+from functualize.job import GroupOptions
+from functualize.job.decorators import job
+from functualize.types import Secret
+
+class ReportOptions(GroupOptions, group="report"):
+    token: Secret[str] = Secret("fallback")
+
+class ReportConfig(BaseModel):
+    password: Secret[str] = Secret("fallback")
+    key: Secret[str] = Secret("fallback")
+    first: Secret[str] = Secret("fallback")
+    second: Secret[str] = Secret("fallback")
+
+@job
+def report(config: ReportConfig, options: ReportOptions) -> str:
+    return "ok"
 """
 
 
@@ -100,6 +128,8 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
     monkeypatch.delenv("FUNCTUALIZE_VAULT_MAX_AGE", raising=False)
     monkeypatch.chdir(root)
     (root / "config.dev.toml").write_text(_CONFIG)
+    (root / "jobs").mkdir(exist_ok=True)
+    (root / "jobs" / "report.py").write_text(_JOB)
     AppState.reset()
     yield root
     AppState.reset()
@@ -131,7 +161,11 @@ def _cli() -> click.Group:
 
 
 def _app() -> FunctualizeApp:
-    return FunctualizeApp("vaulttest", config_sources=remote_first())
+    return FunctualizeApp(
+        "vaulttest",
+        config_sources=remote_first(),
+        job_sources=JobSources(directories=[str(Path.cwd() / "jobs")], lazy=False),
+    )
 
 
 def _run(args: list[str], *, app: Any = None, stdin: str | None = None) -> Result:
@@ -159,12 +193,12 @@ def _seed_vault(**entries: str) -> Path:
 
 
 class _PretendTerminal:
-    """A stand-in for the `sys` module `resolve_vault_key` reads.
+    """A stand-in for the `sys` module the key resolver reads.
 
     It consults `sys.stdin.isatty() and sys.stdout.isatty()` to decide whether
-    an interactive key provider may be consulted at all, and under `CliRunner`
-    neither is a tty. Tests that need the *explicit* non-interactive argument
-    to be the thing doing the work substitute this.
+    a provider that needs a terminal may be consulted at all, and under
+    `CliRunner` neither is a tty. Tests that need the *access mode* to be the
+    thing doing the work substitute this.
     """
 
     class _Tty:
@@ -174,6 +208,58 @@ class _PretendTerminal:
 
     stdin = _Tty()
     stdout = _Tty()
+
+
+class _Keyring:
+    """A keyring-shaped key provider: needs no terminal, may probe, counts reads."""
+
+    def __init__(
+        self,
+        *,
+        key: bytes | None = None,
+        locked: bool = False,
+        available: bool = True,
+        delay: float = 0.0,
+        probe: Any = None,
+    ) -> None:
+        self._key = key
+        self._locked = locked
+        self._available = available
+        self._delay = delay
+        self._probe = probe
+        self.get_key_calls = 0
+        if probe is not None:
+            self.probe = lambda: self._probe
+
+    def identifier(self) -> str:
+        return "keychain"
+
+    def interactive(self) -> bool:
+        return False
+
+    def is_available(self) -> bool:
+        return self._available
+
+    def get_key(self, project_id: str) -> bytes | None:
+        import time
+
+        from functualize._config.vault import KeyringLockedError
+
+        self.get_key_calls += 1
+        if self._delay:
+            time.sleep(self._delay)
+        if self._locked:
+            msg = "locked"
+            raise KeyringLockedError(msg)
+        return self._key
+
+
+def _only_keyring(monkeypatch: pytest.MonkeyPatch, fake: _Keyring) -> _Keyring:
+    """Make `fake` the only provider the key resolver sees."""
+    monkeypatch.setattr(
+        "functualize._config.vault_key_resolver.default_providers", lambda: (fake,)
+    )
+    return fake
 
 
 def _backdate(path: Path, delta: timedelta) -> None:
@@ -211,7 +297,7 @@ class TestTheFamilyIsRegistered:
         assert declared.terminal_subcommands == ()
 
     def test_the_documented_names(self) -> None:
-        """Nine, and the five that were here before are all still among them.
+        """Ten, and the five that were here before are all still among them.
 
         Written as two assertions rather than one set so the compatibility
         claim is legible: this feature is additive, and no existing subcommand
@@ -231,6 +317,7 @@ class TestTheFamilyIsRegistered:
             "status",
             "clear",
             "keygen",
+            "unlock",
         }
 
 
@@ -438,11 +525,10 @@ class TestStatus:
 
         The terminal is **forced on** for this test, and that is the whole
         point: without it the test was vacuous. `CliRunner` supplies a stdin
-        that is not a tty, so `resolve_vault_key`'s own default already
-        declines to go interactive — and the test passed with
-        `allow_interactive=False` deleted. Sabotage caught it. Pretending to be
-        a terminal is what makes the explicit argument the only thing standing
-        between `status` and a prompt.
+        that is not a tty, so the resolver's terminal rule alone already
+        declines a provider that needs one. Pretending to be a terminal is what
+        makes `status`'s silent access the only thing standing between it and a
+        prompt.
         """
         monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
         calls: list[str] = []
@@ -462,10 +548,12 @@ class TestStatus:
                 return _KEY
 
         monkeypatch.setattr(
-            "functualize._config.vault_keys.default_providers",
+            "functualize._config.vault_key_resolver.default_providers",
             lambda: (_Prompting(),),
         )
-        monkeypatch.setattr("functualize._config.vault_keys.sys", _PretendTerminal())
+        monkeypatch.setattr(
+            "functualize._config.vault_key_resolver.sys", _PretendTerminal()
+        )
         _run(["status"])
         assert calls == []
 
@@ -493,14 +581,55 @@ class TestStatus:
                 return _KEY
 
         monkeypatch.setattr(
-            "functualize._config.vault_keys.default_providers",
+            "functualize._config.vault_key_resolver.default_providers",
             lambda: (_Prompting(),),
         )
-        monkeypatch.setattr("functualize._config.vault_keys.sys", _PretendTerminal())
-        from functualize._config.vault_keys import resolve_vault_key
+        monkeypatch.setattr(
+            "functualize._config.vault_key_resolver.sys", _PretendTerminal()
+        )
+        from functualize._config.vault_key_resolver import KeyStatus, resolve_vault_key
 
-        assert resolve_vault_key("project") is not None
+        assert resolve_vault_key("project").status is KeyStatus.FOUND
         assert calls == ["project"]
+
+    def test_a_locked_keyring_is_reported_and_never_opened(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A8 at the CLI: `locked`, said — the keyring is not asked for the key."""
+        from functualize.plugin import KeyAvailability
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _seed_vault(report__password="fake-sm://prod/db")
+        fake = _Keyring(probe=KeyAvailability.LOCKED)
+        _only_keyring(monkeypatch, fake)
+
+        assert "Key state:    locked" in _run(["status"]).output
+        assert json.loads(_run(["status", "--json"]).output)["key_state"] == "locked"
+        assert fake.get_key_calls == 0
+
+    def test_an_unlocked_keyring_is_read_silently(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from functualize.plugin import KeyAvailability
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _seed_vault(report__password="fake-sm://prod/db")
+        _only_keyring(monkeypatch, _Keyring(probe=KeyAvailability.UNLOCKED, key=_KEY))
+
+        payload = json.loads(_run(["status", "--json"]).output)
+        assert payload["key_state"] == "available"
+        assert payload["key_provider"] == "keychain"
+
+    def test_a_backend_that_cannot_say_is_unknown(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _seed_vault(report__password="fake-sm://prod/db")
+        fake = _Keyring(key=_KEY)
+        _only_keyring(monkeypatch, fake)
+
+        assert "Key state:    unknown" in _run(["status"]).output
+        assert fake.get_key_calls == 0
 
 
 # ---------------------------------------------------------------------------
@@ -539,10 +668,18 @@ class TestClear:
         """A `-wal` left behind holds the rows the main file was checkpointed
         from; deleting only `vault.db` leaves the secrets on disk."""
         path = _seed_vault(report__password="fake-sm://prod/db")
+        # A live or crashed writer is what leaves the sidecars behind now that
+        # the store closes its connections, so hold one open across the clear
+        # — the state under test has to exist before it can be asserted on.
+        writer = sqlite3.connect(path)
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("CREATE TABLE IF NOT EXISTS keepalive (x)")
+        writer.commit()
         sidecars = [path.with_name(path.name + s) for s in ("-wal", "-shm")]
         assert any(s.exists() for s in sidecars), "no sidecar to test against"
         _run(["clear", "--yes"])
         assert not any(s.exists() for s in sidecars)
+        writer.close()
 
     def test_no_vault_is_not_an_error(self) -> None:
         result = _run(["clear", "--yes"])
@@ -557,6 +694,87 @@ class TestClear:
 
 @pytest.mark.usefixtures("project")
 class TestSync:
+    def test_group_and_job_blocks_store_distinct_scoped_entries(
+        self, project: Path, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        provider = register()[0]
+        (project / "config.dev.toml").write_text(
+            '[[vault_secret]]\ngroup = "report"\nfield = "token"\nsource = "fake-sm://group"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "password"\nsource = "fake-sm://job"\n'
+        )
+        result = _run(["sync", "--json"], app=_app())
+        assert result.exit_code == 0, result.output
+        assert provider.fetched == ["group", "job"]
+        payload = json.loads(result.output)
+        assert {(e["scope"], e["target"], e["field"]) for e in payload["synced"]} == {
+            ("group", "report", "token"),
+            ("job", "report", "password"),
+        }
+        assert {e.key for e in SecretsVault(vault_location()).list_entries()} == {
+            VaultIdentity("group", "report", "token").encode(),
+            VaultIdentity("job", "report", "password").encode(),
+        }
+
+    def test_duplicate_across_files_refuses_before_any_fetch(
+        self, project: Path, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        provider = register()[0]
+        block = (
+            '[[vault_secret]]\njob = "report"\nfield = "password"\n'
+            'source = "fake-sm://a"\n'
+        )
+        (project / "config.dev.toml").write_text(block)
+        (project / "config.base.toml").write_text(block)
+        result = _run(["sync"], app=_app())
+        assert result.exit_code == ExitCode.REFUSED
+        assert "duplicate" in result.output
+        assert provider.fetched == []
+
+    def test_invalid_target_refuses_before_any_fetch(
+        self, project: Path, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        provider = register()[0]
+        (project / "config.dev.toml").write_text(
+            '[[vault_secret]]\njob = "report"\nfield = "unknown"\n'
+            'source = "fake-sm://a"\n'
+        )
+        result = _run(["sync"], app=_app())
+        assert result.exit_code == ExitCode.REFUSED
+        assert "unknown" in result.output
+        assert provider.fetched == []
+
+    def test_inline_secret_below_environment_is_refused_without_fetch(
+        self,
+        project: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        register: Callable[..., list[_FakeProvider]],
+    ) -> None:
+        provider = register()[0]
+        monkeypatch.setenv("REPORT_PASSWORD", "environment-credential")
+        (project / "config.dev.toml").write_text(
+            '[report]\npassword = "fake-sm://old"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "key"\n'
+            'source = "fake-sm://new"\n'
+        )
+        result = _run(["sync"], app=_app())
+        assert result.exit_code == ExitCode.REFUSED
+        assert "[[vault_secret]]" in result.output
+        assert provider.fetched == []
+
+    def test_job_run_refuses_inline_secret_below_environment(
+        self,
+        project: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        register: Callable[..., list[_FakeProvider]],
+    ) -> None:
+        register()
+        monkeypatch.setenv("REPORT_PASSWORD", "environment-credential")
+        (project / "config.dev.toml").write_text(
+            '[report]\npassword = "fake-sm://old"\n'
+        )
+        with pytest.raises(ValueError, match=r"\[\[vault_secret\]\]"):
+            _app().execute(request_for("report"))
+
     def test_it_fetches_a_declared_annotation_and_stores_it(
         self, register: Callable[..., list[_FakeProvider]]
     ) -> None:
@@ -566,7 +784,9 @@ class TestSync:
         assert result.exit_code == 0
         assert providers[0].fetched == ["prod/db-password"]
         assert (
-            SecretsVault(vault_location()).get("report.password", encryption_key=_KEY)
+            SecretsVault(vault_location()).get(
+                VaultIdentity("job", "report", "password").encode(), encryption_key=_KEY
+            )
             == _CONSPICUOUS
         )
 
@@ -577,7 +797,7 @@ class TestSync:
         the AWS provider's `?profile=` and role ARNs possible."""
         providers = register()
         (project / "config.dev.toml").write_text(
-            '[report]\nkey = "fake-sm://p/db?role=arn:aws:iam::1:role/D&region=eu-west-1"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "key"\nsource = "fake-sm://p/db?role=arn:aws:iam::1:role/D&region=eu-west-1"\n'
         )
         _run(["sync"], app=_app())
         assert providers[0].fetched == [
@@ -592,14 +812,14 @@ class TestSync:
         register()
         _run(["sync"], app=_app())
         stored = {e.key for e in SecretsVault(vault_location()).list_entries()}
-        assert stored == {"report.password"}
+        assert stored == {VaultIdentity("job", "report", "password").encode()}
 
     def test_a_literal_is_not_synced(
         self, register: Callable[..., list[_FakeProvider]]
     ) -> None:
         register()
         _run(["sync"], app=_app())
-        assert "report.username" not in {
+        assert VaultIdentity("job", "report", "username").encode() not in {
             e.key for e in SecretsVault(vault_location()).list_entries()
         }
 
@@ -617,7 +837,7 @@ class TestSync:
         monkeypatch.setenv("FUNCTUALIZE_REPORT_TOKEN", "fake-sm://prod/token")
         _run(["sync"], app=_app())
         stored = {e.key for e in SecretsVault(vault_location()).list_entries()}
-        assert "report.token" not in stored
+        assert VaultIdentity("job", "report", "token").encode() not in stored
 
     def test_it_records_the_annotation_and_the_provider_that_answered(
         self, register: Callable[..., list[_FakeProvider]]
@@ -633,7 +853,7 @@ class TestSync:
     ) -> None:
         register()
         output = _run(["sync"], app=_app()).output
-        assert "report.password" in output
+        assert "job report password" in output
         assert "1 synced" in output
 
     def test_no_value_reaches_the_output(
@@ -650,7 +870,14 @@ class TestSync:
         result = _run(["sync", "--json"], app=_app())
         assert _CONSPICUOUS not in result.output
         payload = json.loads(result.output)
-        assert payload["synced"] == [{"key": "report.password", "provider": "fake-sm"}]
+        assert payload["synced"] == [
+            {
+                "scope": "job",
+                "target": "report",
+                "field": "password",
+                "provider": "fake-sm",
+            }
+        ]
         assert payload["ok"] is True
 
     def test_re_syncing_refreshes_the_timestamp(
@@ -730,19 +957,45 @@ class TestWhatSyncLeavesOnDisk:
         register()
         _run(["sync"], app=_app())
         assert (
-            SecretsVault(vault_location()).get("report.password", encryption_key=_KEY)
+            SecretsVault(vault_location()).get(
+                VaultIdentity("job", "report", "password").encode(), encryption_key=_KEY
+            )
             == _CONSPICUOUS
         )
 
 
 @pytest.mark.usefixtures("project")
 class TestSyncFailures:
+    def test_direct_entry_conflict_is_reported_without_fetch(
+        self, register: Callable[..., list[_FakeProvider]]
+    ) -> None:
+        provider = register()[0]
+        identity = VaultIdentity("job", "report", "password")
+        SecretsVault(vault_location()).put(
+            identity.encode(),
+            "direct-value",
+            encryption_key=_KEY,
+            origin=VaultOrigin.DIRECT,
+        )
+        result = _run(["sync", "--json"], app=_app())
+        assert result.exit_code == ExitCode.REFUSED
+        assert json.loads(result.output)["failed"] == [
+            {
+                "scope": "job",
+                "target": "report",
+                "field": "password",
+                "reason": "direct entry already exists; remove it before syncing",
+            }
+        ]
+        assert provider.fetched == []
+        assert "direct-value" not in result.output
+
     def test_an_unregistered_provider_is_reported_and_fails_the_command(
         self, project: Path, register: Callable[..., list[_FakeProvider]]
     ) -> None:
         register()
         (project / "config.dev.toml").write_text(
-            '[report]\nkey = "nope-sm://somewhere"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "key"\nsource = "nope-sm://somewhere"\n'
         )
         result = _run(["sync"], app=_app())
         assert result.exit_code == ExitCode.REFUSED
@@ -754,7 +1007,8 @@ class TestSyncFailures:
         register(_FakeProvider(raises=RuntimeError("access denied")))
         result = _run(["sync"], app=_app())
         assert result.exit_code == ExitCode.REFUSED
-        assert "access denied" in result.output
+        assert "RuntimeError during fetch" in result.output
+        assert "access denied" not in result.output
 
     def test_one_failure_does_not_abandon_the_others(
         self, project: Path, register: Callable[..., list[_FakeProvider]]
@@ -766,11 +1020,11 @@ class TestSyncFailures:
             _FakeProvider("bad-sm", raises=RuntimeError("boom")),
         )
         (project / "config.dev.toml").write_text(
-            '[report]\nfirst = "bad-sm://a"\nsecond = "good-sm://b"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "first"\nsource = "bad-sm://a"\n[[vault_secret]]\njob = "report"\nfield = "second"\nsource = "good-sm://b"\n'
         )
         result = _run(["sync"], app=_app())
         stored = {e.key for e in SecretsVault(vault_location()).list_entries()}
-        assert stored == {"report.second"}
+        assert stored == {VaultIdentity("job", "report", "second").encode()}
         assert result.exit_code == ExitCode.REFUSED
 
     def test_a_provider_that_is_not_ready_says_why(
@@ -796,14 +1050,16 @@ class TestSyncFailures:
             _FakeProvider("second-sm", value="from-second"),
         )
         (project / "config.dev.toml").write_text(
-            '[report]\nkey = "first-sm://a | second-sm://b"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "key"\nsource = "first-sm://a | second-sm://b"\n'
         )
         result = _run(["sync"], app=_app())
 
         assert result.exit_code == 0
         assert providers[1].fetched == ["b"]
         assert (
-            SecretsVault(vault_location()).get("report.key", encryption_key=_KEY)
+            SecretsVault(vault_location()).get(
+                VaultIdentity("job", "report", "key").encode(), encryption_key=_KEY
+            )
             == "from-second"
         )
 
@@ -817,11 +1073,13 @@ class TestSyncFailures:
             _FakeProvider("second-sm", raises=RuntimeError("second-reason")),
         )
         (project / "config.dev.toml").write_text(
-            '[report]\nkey = "first-sm://a | second-sm://b"\n'
+            '[[vault_secret]]\njob = "report"\nfield = "key"\nsource = "first-sm://a | second-sm://b"\n'
         )
         output = _run(["sync"], app=_app()).output
-        assert "first-reason" in output
-        assert "second-reason" in output
+        assert "first-sm: RuntimeError during fetch" in output
+        assert "second-sm: RuntimeError during fetch" in output
+        assert "first-reason" not in output
+        assert "second-reason" not in output
 
     def test_no_key_refuses_rather_than_pretending(
         self,
@@ -834,7 +1092,7 @@ class TestSyncFailures:
         app = _app()
         monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
         monkeypatch.setattr(
-            "functualize._config.vault_keys.default_providers", lambda: ()
+            "functualize._config.vault_key_resolver.default_providers", lambda: ()
         )
         result = _run(["sync"], app=app)
 
@@ -870,9 +1128,14 @@ class TestSyncFailures:
 _LOCAL_JOB = '''
 from pydantic import BaseModel, Field
 
-from functualize.job import RunContext
+from functualize.job import GroupOptions, RunContext
 from functualize.job.decorators import job
 from functualize.types import Secret
+
+
+class DeployOptions(GroupOptions, group="deploy"):
+    api_token: Secret[str] = Field(default="", description="Group credential")
+    region: str = Field(default="eu-west-1")
 
 
 class DeployConfig(BaseModel):
@@ -881,7 +1144,9 @@ class DeployConfig(BaseModel):
 
 
 @job
-def deploy(config: DeployConfig, rc: RunContext) -> str:
+def deploy(
+    config: DeployConfig, options: DeployOptions, rc: RunContext
+) -> str:
     """Deploy something."""
     return "deployed"
 '''
@@ -893,7 +1158,7 @@ def local_app(project: Path) -> FunctualizeApp:
     from functualize.app import JobSources
 
     jobs = project / "jobs"
-    jobs.mkdir()
+    jobs.mkdir(exist_ok=True)
     (jobs / "deploy.py").write_text(_LOCAL_JOB)
     return FunctualizeApp(
         "vaulttest", job_sources=JobSources(directories=[str(jobs)], lazy=False)
@@ -928,19 +1193,110 @@ class TestInitCommand:
         assert json.loads(result.stdout)["reason"] == "unknown_key_source"
 
 
+class _NeverUnlocks:
+    """A keyring adapter that fails the test the moment anything asks it to unlock."""
+
+    name = "test"
+
+    def __init__(self, *, locked: bool) -> None:
+        self.locked = locked
+        self.secret: str | None = None
+        self.unlock_calls = 0
+
+    def read_silent(self) -> Any:
+        from functualize._config.vault_keyring import AdapterOutcome, AdapterRead
+
+        if self.locked:
+            return AdapterRead(AdapterOutcome.LOCKED)
+        if self.secret is None:
+            return AdapterRead(AdapterOutcome.NOT_STORED)
+        return AdapterRead(AdapterOutcome.FOUND, secret=self.secret)
+
+    def state(self) -> Any:
+        from functualize._types.enums import KeyAvailability
+
+        return KeyAvailability.LOCKED if self.locked else KeyAvailability.UNLOCKED
+
+    def store_silent(self, secret: str) -> Any:
+        from functualize._config.vault_keyring import AdapterOutcome
+
+        if self.locked:
+            return AdapterOutcome.LOCKED
+        self.secret = secret
+        return AdapterOutcome.FOUND
+
+    def unlock(self) -> Any:
+        self.unlock_calls += 1
+        msg = "only `func builtin vault unlock` may ask a keyring to unlock"
+        raise AssertionError(msg)
+
+
+class TestInitNeverPrompts:
+    """Spec B4': `vault init` is not `vault unlock`. Through the real CLI, the
+    real `vault_init` and the real keychain provider, down to an adapter that
+    fails on any `unlock()` call."""
+
+    @pytest.fixture
+    def adapter(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> Callable[..., _NeverUnlocks]:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        monkeypatch.setattr(
+            "functualize._config.vault_keys.KeychainKeyProvider.is_available",
+            lambda self: True,
+        )
+
+        def _install(*, locked: bool) -> _NeverUnlocks:
+            chosen = _NeverUnlocks(locked=locked)
+            monkeypatch.setattr(
+                "functualize._config.vault_keyring.select_adapter",
+                lambda *args, **kwargs: chosen,
+            )
+            return chosen
+
+        return _install
+
+    def test_a_locked_keyring_is_refused_and_points_at_vault_unlock(
+        self, adapter: Callable[..., _NeverUnlocks]
+    ) -> None:
+        keyring = adapter(locked=True)
+
+        result = _run(["init", "--key-source", "keychain", "--json"])
+
+        assert keyring.unlock_calls == 0
+        assert result.exit_code == ExitCode.REFUSED
+        payload = json.loads(result.stdout)
+        assert payload["reason"] == "key_locked"
+        assert "func builtin vault unlock" in payload["message"]
+        assert keyring.secret is None
+
+    def test_an_unlocked_keyring_gets_a_key_without_a_prompt(
+        self, adapter: Callable[..., _NeverUnlocks]
+    ) -> None:
+        keyring = adapter(locked=False)
+
+        result = _run(["init", "--key-source", "keychain", "--json"])
+
+        assert keyring.unlock_calls == 0
+        assert result.exit_code == ExitCode.OK
+        assert json.loads(result.stdout)["created"] is True
+        assert keyring.secret is not None
+        assert keyring.secret not in result.stdout
+
+
 class TestPutCommand:
     def test_it_stores_from_stdin(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
         result = _run(
-            ["put", "deploy.api_token", "--stdin"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
 
         assert result.exit_code == ExitCode.OK
         entry = SecretsVault(vault_location()).list_entries()[0]
-        assert entry.key == "deploy.api_token"
+        assert entry.key == _JOB_TOKEN.encode()
         assert _CONSPICUOUS not in result.stdout
 
     def test_stdin_strips_exactly_one_trailing_newline(
@@ -949,13 +1305,13 @@ class TestPutCommand:
         """`echo secret | ...` must not store a trailing newline, and a value
         that genuinely ends in one must not lose two."""
         _run(
-            ["put", "deploy.api_token", "--stdin"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
             app=local_app,
             stdin=_CONSPICUOUS + "\n\n",
         )
 
         stored = SecretsVault(vault_location()).get(
-            "deploy.api_token", encryption_key=_KEY
+            _JOB_TOKEN.encode(), encryption_key=_KEY
         )
         assert stored == _CONSPICUOUS + "\n"
 
@@ -964,7 +1320,9 @@ class TestPutCommand:
     ) -> None:
         """The refusal that matters: reading stdin implicitly would make this
         block forever inside a pipeline nobody is feeding."""
-        result = _run(["put", "deploy.api_token", "--json"], app=local_app)
+        result = _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--json"], app=local_app
+        )
 
         assert result.exit_code == ExitCode.USAGE
         assert json.loads(result.stdout)["reason"] == "input_source_required"
@@ -973,7 +1331,7 @@ class TestPutCommand:
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--json"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin", "--json"],
             app=local_app,
             stdin="",
         )
@@ -984,7 +1342,7 @@ class TestPutCommand:
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
         result = _run(
-            ["put", "deploy.region", "--stdin", "--json"],
+            ["put", "--job", "deploy", "--field", "region", "--stdin", "--json"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
@@ -1009,7 +1367,16 @@ class TestPutCommand:
         not exist. Whichever error comes back names which step ran first.
         """
         result = _run(
-            ["put", "deploy.region", "--file", "/nonexistent/secret.txt", "--json"],
+            [
+                "put",
+                "--job",
+                "deploy",
+                "--field",
+                "region",
+                "--file",
+                "/nonexistent/secret.txt",
+                "--json",
+            ],
             app=local_app,
         )
 
@@ -1020,9 +1387,13 @@ class TestPutCommand:
     def test_a_second_write_needs_replace(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin="first")
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=local_app,
+            stdin="first",
+        )
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--json"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin", "--json"],
             app=local_app,
             stdin="second",
         )
@@ -1034,7 +1405,17 @@ class TestPutCommand:
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--file", "x", "--json"],
+            [
+                "put",
+                "--job",
+                "deploy",
+                "--field",
+                "api_token",
+                "--stdin",
+                "--file",
+                "x",
+                "--json",
+            ],
             app=local_app,
             stdin="v",
         )
@@ -1047,12 +1428,15 @@ class TestInspectCommand:
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
         _run(
-            ["put", "deploy.api_token", "--stdin"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
 
-        result = _run(["inspect", "deploy.api_token", "--json"], app=local_app)
+        result = _run(
+            ["inspect", "--job", "deploy", "--field", "api_token", "--json"],
+            app=local_app,
+        )
         payload = json.loads(result.stdout)
 
         assert payload["exists"] is True
@@ -1063,7 +1447,9 @@ class TestInspectCommand:
     def test_an_ineligible_path_is_explained(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        result = _run(["inspect", "deploy.region", "--json"], app=local_app)
+        result = _run(
+            ["inspect", "--job", "deploy", "--field", "region", "--json"], app=local_app
+        )
 
         assert json.loads(result.stdout)["eligible"] is False
 
@@ -1072,9 +1458,16 @@ class TestRemoveCommand:
     def test_it_removes_and_warns_for_a_direct_entry(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin=_CONSPICUOUS)
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
 
-        result = _run(["remove", "deploy.api_token", "--yes", "--json"], app=local_app)
+        result = _run(
+            ["remove", "--job", "deploy", "--field", "api_token", "--yes", "--json"],
+            app=local_app,
+        )
         payload = json.loads(result.stdout)
 
         assert payload["removed"] is True
@@ -1084,7 +1477,10 @@ class TestRemoveCommand:
     def test_a_missing_entry_is_success(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        result = _run(["remove", "deploy.api_token", "--yes", "--json"], app=local_app)
+        result = _run(
+            ["remove", "--job", "deploy", "--field", "api_token", "--yes", "--json"],
+            app=local_app,
+        )
 
         assert result.exit_code == ExitCode.OK
         assert json.loads(result.stdout)["removed"] is False
@@ -1092,9 +1488,16 @@ class TestRemoveCommand:
     def test_a_non_tty_requires_yes(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin=_CONSPICUOUS)
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
 
-        result = _run(["remove", "deploy.api_token", "--json"], app=local_app)
+        result = _run(
+            ["remove", "--job", "deploy", "--field", "api_token", "--json"],
+            app=local_app,
+        )
 
         assert result.exit_code == ExitCode.REFUSED
         assert json.loads(result.stdout)["reason"] == "confirmation_required"
@@ -1104,7 +1507,7 @@ class TestTheAppContextMessage:
     def test_it_names_the_command_that_needed_an_app(self, project: Path) -> None:
         """It used to say `vault sync` for every command here, so a `put` user
         was told to check something they had not run."""
-        result = _run(["put", "deploy.api_token"])
+        result = _run(["put", "--job", "deploy", "--field", "api_token"])
 
         assert result.exit_code == ExitCode.USAGE
         assert "vault put" in result.output
@@ -1132,7 +1535,7 @@ class TestOriginAwareListing:
             provider="fake-sm",
         )
         vault.put(
-            "deploy.api_token",
+            _JOB_TOKEN.encode(),
             _CONSPICUOUS,
             encryption_key=_KEY,
             origin=VaultOrigin.DIRECT,
@@ -1141,15 +1544,14 @@ class TestOriginAwareListing:
         result = _run(["list"])
 
         assert result.exit_code == ExitCode.OK
-        assert "deploy.api_token" in result.stdout
-        assert "direct" in result.stdout
+        assert re.search(r"job\s+deploy\s+api_token\s+direct", result.stdout)
         assert _CONSPICUOUS not in result.stdout
 
     def test_list_json_nulls_what_a_direct_entry_lacks(self, project: Path) -> None:
         from functualize._config.vault import VaultOrigin
 
         SecretsVault(vault_location()).put(
-            "deploy.api_token",
+            _JOB_TOKEN.encode(),
             _CONSPICUOUS,
             encryption_key=_KEY,
             origin=VaultOrigin.DIRECT,
@@ -1192,7 +1594,7 @@ class TestStatusCountsAndKeyState:
             provider="fake-sm",
         )
         vault.put(
-            "deploy.api_token", "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+            _JOB_TOKEN.encode(), "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
         )
 
         payload = json.loads(_run(["status", "--json"]).stdout)
@@ -1237,7 +1639,7 @@ class TestClearIsOriginAware:
             provider="fake-sm",
         )
         vault.put(
-            "deploy.api_token", "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+            _JOB_TOKEN.encode(), "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
         )
 
         result = CliRunner().invoke(
@@ -1336,7 +1738,7 @@ class TestTheDeclaredReasonCodesAreReachable:
         """`put` over a synced entry. The seam test covers the exception; this
         covers the code a caller actually branches on."""
         SecretsVault(vault_location()).put(
-            "deploy.api_token",
+            _JOB_TOKEN.encode(),
             "from-aws",
             encryption_key=_KEY,
             annotation="fake-sm://prod/token",
@@ -1344,7 +1746,16 @@ class TestTheDeclaredReasonCodesAreReachable:
         )
 
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--replace", "--json"],
+            [
+                "put",
+                "--job",
+                "deploy",
+                "--field",
+                "api_token",
+                "--stdin",
+                "--replace",
+                "--json",
+            ],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
@@ -1352,10 +1763,11 @@ class TestTheDeclaredReasonCodesAreReachable:
         assert result.exit_code == ExitCode.REFUSED
         assert json.loads(result.stdout)["reason"] == "provider_entry_conflict"
 
-    def test_key_unavailable_reaches_the_json_envelope(
+    def test_no_keyring_reaches_the_json_envelope(
         self, project: Path, local_app: FunctualizeApp, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`put` with no key available at all."""
+        """`put` with no key available at all — once `key_unavailable`, now the
+        outcome it actually was."""
         monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
         monkeypatch.setattr(
             "functualize._config.vault_keys.KeychainKeyProvider.is_available",
@@ -1363,13 +1775,13 @@ class TestTheDeclaredReasonCodesAreReachable:
         )
 
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--json"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin", "--json"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
 
         assert result.exit_code == ExitCode.REFUSED
-        assert json.loads(result.stdout)["reason"] == "key_unavailable"
+        assert json.loads(result.stdout)["reason"] == "no_keyring"
 
     def test_every_code_the_cli_can_emit_is_declared(self) -> None:
         """The other direction, so the two cannot drift apart.
@@ -1393,6 +1805,8 @@ class TestTheDeclaredReasonCodesAreReachable:
             "unknown_key_source",
             "key_source_unavailable",
             "key_source_not_initializable",
+            "scope_required",
+            "unknown_group",
             "unknown_job",
             "unknown_field",
             "field_not_secret",
@@ -1403,9 +1817,16 @@ class TestTheDeclaredReasonCodesAreReachable:
             "empty_value",
             "entry_exists",
             "provider_entry_conflict",
-            "key_unavailable",
+            "key_locked",
+            "no_keyring",
+            "key_not_stored",
+            "key_unverified",
+            "cancelled",
+            "no_prompt",
+            "unlock_abandoned",
             "confirmation_required",
             "key_mismatch",
+            "vault_format_unsupported",
         }
 
         assert emitted <= declared, f"emitted but undeclared: {emitted - declared}"
@@ -1420,7 +1841,7 @@ class TestTheDeclaredReasonCodesAreReachable:
         path was documented and unchecked.
         """
         result = _run(
-            ["put", "deploy.api_token", "--stdin", "--json"],
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin", "--json"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
@@ -1429,14 +1850,20 @@ class TestTheDeclaredReasonCodesAreReachable:
         assert result.exit_code == ExitCode.OK
         assert set(payload) == {
             "ok",
-            "path",
+            "scope",
+            "target",
+            "field",
             "origin",
             "created",
             "replaced",
             "updated_at",
         }
         assert payload["ok"] is True
-        assert payload["path"] == "deploy.api_token"
+        assert (payload["scope"], payload["target"], payload["field"]) == (
+            "job",
+            "deploy",
+            "api_token",
+        )
         assert payload["origin"] == "direct"
         assert payload["created"] is True
         assert payload["replaced"] is False
@@ -1448,11 +1875,24 @@ class TestTheDeclaredReasonCodesAreReachable:
     ) -> None:
         """`created` and `replaced` are the two halves of the same fact, and a
         caller distinguishing "new secret" from "rotated secret" reads them."""
-        _run(["put", "deploy.api_token", "--stdin"], app=local_app, stdin="first")
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=local_app,
+            stdin="first",
+        )
 
         payload = json.loads(
             _run(
-                ["put", "deploy.api_token", "--stdin", "--replace", "--json"],
+                [
+                    "put",
+                    "--job",
+                    "deploy",
+                    "--field",
+                    "api_token",
+                    "--stdin",
+                    "--replace",
+                    "--json",
+                ],
                 app=local_app,
                 stdin="second",
             ).stdout
@@ -1460,3 +1900,527 @@ class TestTheDeclaredReasonCodesAreReachable:
 
         assert payload["created"] is False
         assert payload["replaced"] is True
+
+
+def _legacy_store() -> Path:
+    """A store stamped with the pre-scope schema version, holding one row."""
+    path = vault_location()
+    SecretsVault(path).put(
+        _JOB_TOKEN.encode(),
+        _CONSPICUOUS,
+        encryption_key=_KEY,
+        origin=VaultOrigin.DIRECT,
+    )
+    conn = sqlite3.connect(path)
+    with conn:
+        conn.execute("PRAGMA user_version = 1")
+    conn.close()
+    return path
+
+
+class TestScopedFlags:
+    """`put`, `inspect` and `remove` take a scope, a target and a field."""
+
+    @pytest.mark.parametrize("command", ["put", "inspect", "remove"])
+    def test_the_positional_form_is_gone(
+        self, project: Path, local_app: FunctualizeApp, command: str
+    ) -> None:
+        """Even beside valid flags, the old `<job>.<field>` argument is refused."""
+        extra = {"put": ["--stdin"], "inspect": [], "remove": ["--yes"]}[command]
+        result = _run(
+            [
+                command,
+                "deploy.api_token",
+                "--job",
+                "deploy",
+                "--field",
+                "api_token",
+                *extra,
+            ],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.USAGE
+        assert "unexpected extra argument" in result.output
+        assert not vault_location().exists()
+
+    @pytest.mark.parametrize("command", ["put", "inspect", "remove"])
+    def test_a_field_is_required(
+        self, project: Path, local_app: FunctualizeApp, command: str
+    ) -> None:
+        extra = ["--yes"] if command == "remove" else []
+        result = _run([command, "--job", "deploy", *extra], app=local_app)
+
+        assert result.exit_code == ExitCode.USAGE
+        assert "--field" in result.output
+
+    @pytest.mark.parametrize("command", ["put", "inspect", "remove"])
+    @pytest.mark.parametrize(
+        "scope",
+        [[], ["--group", "deploy", "--job", "deploy"]],
+        ids=["neither", "both"],
+    )
+    def test_exactly_one_scope_is_required(
+        self,
+        project: Path,
+        local_app: FunctualizeApp,
+        command: str,
+        scope: list[str],
+    ) -> None:
+        extra = {"put": ["--stdin"], "inspect": [], "remove": ["--yes"]}[command]
+        result = _run(
+            [command, *scope, "--field", "api_token", *extra, "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.USAGE
+        assert json.loads(result.stdout)["reason"] == "scope_required"
+        assert not vault_location().exists()
+
+    def test_a_group_secret_is_stored_under_its_own_scope(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        result = _run(
+            ["put", "--group", "deploy", "--field", "api-token", "--stdin", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+        payload = json.loads(result.stdout)
+
+        assert result.exit_code == ExitCode.OK
+        assert (payload["scope"], payload["target"], payload["field"]) == (
+            "group",
+            "deploy",
+            "api_token",
+        )
+        keys = [e.key for e in SecretsVault(vault_location()).list_entries()]
+        assert keys == [_GROUP_TOKEN.encode()]
+
+    def test_group_validation_precedes_reading_input(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """The non-secret group option fails before the missing file is read."""
+        result = _run(
+            [
+                "put",
+                "--group",
+                "deploy",
+                "--field",
+                "region",
+                "--file",
+                "/nonexistent/secret.txt",
+                "--json",
+            ],
+            app=local_app,
+        )
+
+        assert json.loads(result.stdout)["reason"] == "field_not_secret"
+
+    def test_an_unknown_group_is_refused_before_reading_input(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        result = _run(
+            ["put", "--group", "nope", "--field", "api_token", "--stdin", "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.USAGE
+        assert json.loads(result.stdout)["reason"] == "unknown_group"
+        assert not vault_location().exists()
+
+    def test_group_and_job_entries_with_the_same_text_stay_distinct(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        group = ["--group", "deploy", "--field", "api_token"]
+        job = ["--job", "deploy", "--field", "api_token"]
+        _run(["put", *group, "--stdin"], app=local_app, stdin="group-value")
+        _run(["put", *job, "--stdin"], app=local_app, stdin=_CONSPICUOUS)
+
+        listed = json.loads(_run(["list", "--json"]).stdout)["entries"]
+        assert {(e["scope"], e["target"], e["field"]) for e in listed} == {
+            ("group", "deploy", "api_token"),
+            ("job", "deploy", "api_token"),
+        }
+
+        removed = _run(["remove", *group, "--yes", "--json"], app=local_app)
+        assert json.loads(removed.stdout)["scope"] == "group"
+
+        group_report = json.loads(
+            _run(["inspect", *group, "--json"], app=local_app).stdout
+        )
+        job_report = json.loads(_run(["inspect", *job, "--json"], app=local_app).stdout)
+        assert group_report["exists"] is False
+        assert job_report["exists"] is True
+        assert _CONSPICUOUS not in json.dumps([listed, group_report, job_report])
+
+    def test_list_renders_scope_target_and_field_as_columns(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        _run(
+            ["put", "--group", "deploy", "--field", "api_token", "--stdin"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        result = _run(["list"])
+
+        assert re.search(r"group\s+deploy\s+api_token\s+direct", result.stdout)
+        assert _CONSPICUOUS not in result.output
+
+    def test_an_orphan_from_a_deleted_job_can_still_be_removed(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        orphan = VaultIdentity("job", "deleted-job", "token")
+        SecretsVault(vault_location()).put(
+            orphan.encode(),
+            _CONSPICUOUS,
+            encryption_key=_KEY,
+            origin=VaultOrigin.DIRECT,
+        )
+
+        result = _run(
+            ["remove", "--job", "deleted-job", "--field", "token", "--yes", "--json"],
+            app=local_app,
+        )
+
+        assert json.loads(result.stdout)["removed"] is True
+
+    def test_help_shows_the_scoped_form(self) -> None:
+        for command in ("put", "inspect", "remove"):
+            text = _run([command, "--help"]).output
+            assert "--group" in text
+            assert "--job" in text
+            assert "--field" in text
+            assert "<job>.<field>" not in text
+            assert "deploy.api_token" not in text
+
+
+class TestALegacyStore:
+    """An old-format store is refused with the recovery command, never mutated."""
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin", "--json"],
+            ["inspect", "--job", "deploy", "--field", "api_token", "--json"],
+            ["remove", "--job", "deploy", "--field", "api_token", "--yes", "--json"],
+            ["list", "--json"],
+            ["status", "--json"],
+        ],
+        ids=["put", "inspect", "remove", "list", "status"],
+    )
+    def test_it_is_refused_with_the_clear_instruction(
+        self, project: Path, local_app: FunctualizeApp, args: list[str]
+    ) -> None:
+        path = _legacy_store()
+        before = path.read_bytes()
+
+        result = _run(args, app=local_app, stdin="new-value")
+        payload = json.loads(result.stdout)
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert payload["reason"] == "vault_format_unsupported"
+        assert "func builtin vault clear" in payload["message"]
+        assert _CONSPICUOUS not in result.output
+        assert path.read_bytes() == before
+
+    def test_put_refuses_before_the_value_is_read(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        """Ordering, by which of two failures wins: an operator must not type a
+        secret only to learn the store cannot take it."""
+        _legacy_store()
+
+        result = _run(
+            [
+                "put",
+                "--job",
+                "deploy",
+                "--field",
+                "api_token",
+                "--file",
+                "/nonexistent/secret.txt",
+                "--json",
+            ],
+            app=local_app,
+        )
+
+        assert json.loads(result.stdout)["reason"] == "vault_format_unsupported"
+
+    def test_the_human_message_names_the_recovery_command(self, project: Path) -> None:
+        _legacy_store()
+
+        result = _run(["list"])
+
+        assert result.exit_code == ExitCode.REFUSED
+        assert "func builtin vault clear" in result.output
+
+    def test_clear_removes_it_without_a_key(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = _legacy_store()
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+
+        result = _run(["clear", "--yes", "--json"])
+
+        assert result.exit_code == ExitCode.OK
+        assert json.loads(result.stdout)["cleared"] is True
+        assert not path.exists()
+
+    def test_clear_still_confirms_first(self, project: Path) -> None:
+        path = _legacy_store()
+
+        result = CliRunner().invoke(
+            _cli(), ["builtin", "vault", "clear"], obj={}, input="n\n"
+        )
+
+        assert "old format" in result.stdout
+        assert "Left alone" in result.stdout
+        assert path.exists()
+
+
+# ---------------------------------------------------------------------------
+# unlock — the foreground door for a locked keyring (spec B4, A7)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("project")
+class TestUnlock:
+    def test_it_names_the_provider_and_exits_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _only_keyring(monkeypatch, _Keyring(key=_KEY))
+
+        result = _run(["unlock"])
+
+        assert result.exit_code == 0, result.output
+        assert "already unlocked" in result.stdout
+
+    def test_the_key_never_appears_in_any_rendering(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _only_keyring(monkeypatch, _Keyring(key=_KEY))
+
+        human = _run(["unlock"])
+        machine = _run(["unlock", "--json"])
+
+        for text in (human.stdout, human.stderr, machine.stdout, machine.stderr):
+            assert _KEY_HEX not in text
+            assert _KEY_HEX.upper() not in text
+        assert json.loads(machine.stdout) == {
+            "ok": True,
+            "reason": "already_unlocked",
+            "provider": "keychain",
+        }
+
+    @pytest.mark.parametrize(
+        ("fake", "reason", "says"),
+        [
+            (_Keyring(locked=True), "key_locked", "keyring is locked"),
+            (_Keyring(available=False), "no_keyring", "no OS keyring is reachable"),
+            (_Keyring(key=None), "key_not_stored", "no vault key is stored"),
+        ],
+    )
+    def test_a_failure_exits_refused_with_its_reason(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        fake: _Keyring,
+        reason: str,
+        says: str,
+    ) -> None:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _only_keyring(monkeypatch, fake)
+
+        human = _run(["unlock"])
+        machine = _run(["unlock", "--json"])
+
+        assert human.exit_code == ExitCode.REFUSED
+        assert says in human.stderr
+        assert machine.exit_code == ExitCode.REFUSED
+        payload = json.loads(machine.stdout)
+        assert payload["ok"] is False
+        assert payload["reason"] == reason
+
+    def test_the_locked_refusal_offers_nothing_destructive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _only_keyring(monkeypatch, _Keyring(locked=True))
+
+        stderr = _run(["unlock"]).stderr
+
+        assert "vault remove" not in stderr
+        assert "vault clear" not in stderr
+        assert "vault sync" not in stderr
+
+    def test_it_applies_no_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A person is answering the keyring's dialog; the run-path wait is not
+        theirs to race."""
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEYRING_TIMEOUT", "1s")
+        _only_keyring(monkeypatch, _Keyring(key=_KEY, delay=1.5))
+
+        assert _run(["unlock"]).exit_code == 0
+
+
+@pytest.mark.usefixtures("project")
+class TestTheDifferentKeyMessage:
+    """B3 for `status`: the fixes that keep the secret first, the ones that
+    destroy it last and said to destroy it."""
+
+    def _rotated(self, monkeypatch: pytest.MonkeyPatch) -> str:
+        from functualize._config.vault import VaultOrigin
+
+        vault = SecretsVault(vault_location())
+        vault.put(
+            "report.password",
+            "v",
+            encryption_key=_KEY,
+            annotation="fake-sm://x",
+            provider="fake-sm",
+        )
+        vault.put(
+            "deploy.api_token", "v", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+        )
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", (b"\x99" * KEY_BYTES).hex())
+        return _run(["status"]).stderr
+
+    def test_remove_and_clear_come_last(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        text = self._rotated(monkeypatch)
+        assert text.index("FUNCTUALIZE_VAULT_KEY") < text.index("vault sync")
+        assert text.index("vault sync") < text.index("vault remove")
+
+    def test_they_are_said_to_destroy_the_only_copy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        text = self._rotated(monkeypatch)
+        assert "destroy" in text
+        assert "1 typed in by hand have no other copy" in text
+
+
+def _scripted_keychain(monkeypatch: pytest.MonkeyPatch, unlocked: Any) -> None:
+    """The shipped keychain provider, locked, over an adapter whose unlock answers `unlocked`."""
+    from functualize._config.vault_keyring import AdapterOutcome, AdapterRead
+    from functualize._config.vault_keys import KeychainKeyProvider
+    from functualize._types.enums import KeyAvailability
+
+    class _Adapter:
+        name = "linux"
+
+        def read_silent(self) -> AdapterRead:
+            return AdapterRead(AdapterOutcome.LOCKED)
+
+        def state(self) -> KeyAvailability:
+            return KeyAvailability.LOCKED
+
+        def unlock(self) -> AdapterRead:
+            return unlocked
+
+    class _Keychain(KeychainKeyProvider):
+        def is_available(self) -> bool:
+            return True
+
+    keychain = _Keychain(adapter=_Adapter())  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        "functualize._config.vault_key_resolver.default_providers", lambda: (keychain,)
+    )
+
+
+@pytest.mark.usefixtures("project")
+class TestUnlockSaysHowItEnded:
+    """A7' — already unlocked, unlocked now, nothing to unlock, cancelled, no prompt."""
+
+    def test_unlocked_now(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from functualize._config.vault_keyring import (
+            AdapterOutcome,
+            AdapterRead,
+            UnlockHow,
+        )
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _scripted_keychain(
+            monkeypatch,
+            AdapterRead(
+                AdapterOutcome.FOUND, secret=_KEY_HEX, how=UnlockHow.UNLOCKED_NOW
+            ),
+        )
+        human = _run(["unlock"])
+        machine = _run(["unlock", "--json"])
+        assert human.exit_code == 0
+        assert "Unlocked." in human.stdout
+        assert json.loads(machine.stdout)["reason"] == "unlocked"
+        assert _KEY_HEX not in human.stdout + machine.stdout
+
+    def test_nothing_to_unlock(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from functualize._config.vault_keyring import (
+            AdapterOutcome,
+            AdapterRead,
+            UnlockHow,
+        )
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _scripted_keychain(
+            monkeypatch,
+            AdapterRead(
+                AdapterOutcome.FOUND, secret=_KEY_HEX, how=UnlockHow.NOTHING_TO_UNLOCK
+            ),
+        )
+        result = _run(["unlock"])
+        assert result.exit_code == 0
+        assert "Nothing to unlock" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("how", "reason", "says"),
+        [
+            ("cancelled", "cancelled", "cancelled in the keyring's dialog"),
+            ("no_prompt", "no_prompt", "no unlock dialog appeared"),
+        ],
+    )
+    def test_a_dialog_that_ended_without_a_key_exits_refused(
+        self, monkeypatch: pytest.MonkeyPatch, how: str, reason: str, says: str
+    ) -> None:
+        from functualize._config.vault_keyring import (
+            AdapterOutcome,
+            AdapterRead,
+            UnlockHow,
+        )
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _scripted_keychain(
+            monkeypatch, AdapterRead(AdapterOutcome.LOCKED, how=UnlockHow(how))
+        )
+        human = _run(["unlock"])
+        machine = _run(["unlock", "--json"])
+        assert human.exit_code == ExitCode.REFUSED
+        assert says in human.stderr
+        assert json.loads(machine.stdout)["reason"] == reason
+
+    def test_an_env_key_has_nothing_to_unlock(self) -> None:
+        result = _run(["unlock"])
+        assert result.exit_code == 0
+        assert "nothing to unlock" in result.stdout
+
+    @pytest.mark.parametrize("args", [["unlock"], ["status"]], ids=["unlock", "status"])
+    def test_no_wording_names_a_keyring_product(
+        self, monkeypatch: pytest.MonkeyPatch, args: list[str]
+    ) -> None:
+        """A18 at the CLI."""
+        from functualize._config.vault_keyring import (
+            AdapterOutcome,
+            AdapterRead,
+            UnlockHow,
+        )
+
+        monkeypatch.delenv("FUNCTUALIZE_VAULT_KEY")
+        _scripted_keychain(
+            monkeypatch, AdapterRead(AdapterOutcome.LOCKED, how=UnlockHow.CANCELLED)
+        )
+        result = _run(args)
+        text = (result.stdout + result.stderr).lower()
+        for product in ("gnome", "kwallet", "credential manager", "secret service"):
+            assert product not in text

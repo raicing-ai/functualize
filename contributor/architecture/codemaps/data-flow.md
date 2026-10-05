@@ -117,10 +117,21 @@ Step reached during execution that needs external input
 GateContext built (frozen dataclass: resolver inputs)
   │
   ▼
-GateRegistry.resolve() dispatches by GateStrategy:
+GateRegistry.evaluate() walks the gate's ladder, one rung per strategy:
   RESOLVE    → ResolveResolver builds a pydantic model from the config chain (no human interaction)
   PROMPT     → delegates to the active PromptCollector.collect() (interactive)
   AI_INBOUND → external/agent-driven resolution
+  DECISION   → DecisionGateResolver asks a DecisionProvider for a proposal and applies the
+               gate's declared accept_at/min_margin; records decision-evidence/1 on its rung
+  │  ladder for Gate(decide=…):          decision → prompt → resolve
+  │  ladder when the decision declares a fallback:  decision → resolve
+  │    (the fallback is seeded into the decided field and the decision rung is forced,
+  │     so a failed decision is answered by the existing resolve rung — never blocks)
+  │  each rung gets its own write-once RungEvidence sink on GateContext
+  ▼
+every rung recorded as a candidate (source, outcome, detail, evidence — the decision
+rung's evidence included) → gate_requests.append_candidate → gate_draft()["resolution"],
+read back as one record by decision_record()
   │
   ▼
 Step result feeds back into the workflow graph → next Edge/ConditionalEdge

@@ -36,14 +36,18 @@ copied from a call site.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from functualize._engine.recording.input_recorder import InputRecorder
 from functualize._types.persistence import (
     ClaimWorkflow,
     CompleteStep,
     ResumeWorkflow,
     SuspendAtGate,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 __all__ = ["WorkflowRecorder"]
 
@@ -120,10 +124,17 @@ class WorkflowRecorder:
         now: datetime,
         schema: Any = None,
         prompt: Any = None,
+        model: str = "",
+        tools: tuple[Mapping[str, Any], ...] = (),
     ) -> SuspendAtGate:
         """The walk stopped at a gate and opened the input request that
-        pauses it — collecting the answer happens outside any transaction."""
-        return SuspendAtGate(
+        pauses it — collecting the answer happens outside any transaction.
+
+        Delegates to :meth:`InputRecorder.opened`, which is the one builder
+        of ``SuspendAtGate``: the id-minting lives with the input commands,
+        beside the candidates and the consumption that reference it.
+        """
+        return InputRecorder().opened(
             scope_id=scope_id,
             generation=generation,
             gate_name=gate_name,
@@ -131,6 +142,8 @@ class WorkflowRecorder:
             now=now,
             schema=schema,
             prompt=prompt,
+            model=model,
+            tools=tools,
         )
 
     def resumed(

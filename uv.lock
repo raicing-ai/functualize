@@ -16,6 +16,7 @@ members = [
     "functualize-ai-pydantic",
     "functualize-aws",
     "functualize-bitwarden",
+    "functualize-decision-jev",
     "functualize-flow-viz",
     "functualize-http",
     "functualize-inline",
@@ -1235,6 +1236,7 @@ all = [
     { name = "functualize-ai" },
     { name = "functualize-ai-pydantic" },
     { name = "functualize-aws" },
+    { name = "functualize-decision-jev" },
     { name = "functualize-flow-viz" },
     { name = "functualize-http" },
     { name = "functualize-inline" },
@@ -1274,6 +1276,7 @@ dev = [
     { name = "pytest-textual-snapshot" },
     { name = "pytest-xdist" },
     { name = "ruff" },
+    { name = "vulture" },
 ]
 docs = [
     { name = "mkdocs" },
@@ -1291,6 +1294,7 @@ requires-dist = [
     { name = "functualize-ai", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai" },
     { name = "functualize-ai-pydantic", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai-pydantic" },
     { name = "functualize-aws", marker = "extra == 'all'", editable = "plugins/credentials/functualize-aws" },
+    { name = "functualize-decision-jev", marker = "extra == 'all'", editable = "plugins/domains/functualize-decision-jev" },
     { name = "functualize-flow-viz", marker = "extra == 'all'", editable = "plugins/adapters/functualize-flow-viz" },
     { name = "functualize-http", marker = "extra == 'all'", editable = "plugins/adapters/functualize-http" },
     { name = "functualize-inline", marker = "extra == 'all'", editable = "plugins/adapters/functualize-inline" },
@@ -1326,6 +1330,7 @@ dev = [
     { name = "pytest-textual-snapshot", specifier = ">=1.0.0" },
     { name = "pytest-xdist", specifier = ">=3.5.0" },
     { name = "ruff", specifier = ">=0.8.0" },
+    { name = "vulture", specifier = ">=2.14" },
 ]
 docs = [
     { name = "mkdocs", specifier = ">=1.6.0" },
@@ -1424,6 +1429,28 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bitwarden-sdk", specifier = ">=2.0.0" },
+    { name = "functualize", editable = "." },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "functualize-decision-jev"
+version = "0.1.0"
+source = { editable = "plugins/domains/functualize-decision-jev" }
+dependencies = [
+    { name = "functualize" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
     { name = "functualize", editable = "." },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
@@ -4992,6 +5019,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/95/f0/b47ecf438211a25a97f8f0e4b23c22bc2496ebfea18dd6ec16210f09cc36/virtualenv-21.4.1.tar.gz", hash = "sha256:2ca543c713b72840ceffd94e9bdedfbd09a661defa1f7f69e5429ad4059442e2", size = 7613344, upload-time = "2026-05-28T04:12:49.905Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ff/dc/ac4f3a987a87e1a18556896f257c4e15c95ed157b7975347ec6b313b75ce/virtualenv-21.4.1-py3-none-any.whl", hash = "sha256:caf4ff72d1b4039057f41d8e8466e859513d67c0400d9c6b62c02c9d1ebc3e12", size = 7594078, upload-time = "2026-05-28T04:12:47.686Z" },
+]
+
+[[package]]
+name = "vulture"
+version = "2.16"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/3e/4d08c5903b2c0c70cad583c170cc4a663fc6a61e2ad00b711fcda61358cd/vulture-2.16.tar.gz", hash = "sha256:f8d9f6e2af03011664a3c6c240c9765b3f392917d3135fddca6d6a68d359f717", size = 52680, upload-time = "2026-03-25T14:41:27.141Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f5/be/f935130312330614811dae2ea9df3f395f6d63889eb6c2e68c14507152ee/vulture-2.16-py3-none-any.whl", hash = "sha256:6e0f1c312cef1c87856957e5c2ca9608834a7c794c2180477f30bf0e4cc58eee", size = 26993, upload-time = "2026-03-25T14:41:26.21Z" },
 ]
 
 [[package]]

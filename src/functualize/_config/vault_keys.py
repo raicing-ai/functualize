@@ -14,23 +14,33 @@ key source is wired by the application that wants it.
 
 Two ship here.
 
-``env`` — non-interactive
+``env`` — needs no terminal
     Reads a hex key from ``FUNCTUALIZE_VAULT_KEY``. It is the only source that
     works identically on a laptop, in CI, in a container and in Lambda, and it
     matches the mandate ``RemoteProvider`` already states: *"Credentials MUST be
     resolved from environment variables only."*
 
-``keychain`` — interactive
+``keychain`` — silent, not terminal-gated
     Reads from the OS keyring. Better on a developer machine, where the key
     never sits in a shell profile.
 
-Resolution order is part of the contract
-----------------------------------------
+Reading is not gated on a terminal, and never prompts
+-----------------------------------------------------
 
-Non-interactive providers are consulted **first**, and interactive ones only
-when no key was found *and* a TTY is present. Reversed, an unattended run — CI,
-a Lambda invocation, ``builtin parallel`` — would block forever on a prompt
-nobody can answer.
+The keyring is consulted **whether or not stdin and stdout are terminals**,
+and always **silently**: a developer who unlocked their keyring this morning
+gets their stored secret from a pipe, an agent's shell tool or a stdio MCP job
+exactly as from a terminal, and a locked keyring is refused at once with no
+dialog. Only ``func builtin vault unlock`` asks a keyring to unlock; even
+``vault init`` reads and writes silently.
+
+The terminal rule survives for *prompting*, not for *reading*: a provider
+whose :meth:`~functualize.plugin.VaultKeyProvider.interactive` is True — one
+that can only obtain the key by asking a person at a terminal — is still
+consulted only on a real TTY, so an unattended run cannot block forever on a
+prompt nobody can answer. :meth:`KeychainKeyProvider.interactive` is therefore
+``False``: it needs no person, and the resolver's deadline bounds only a
+backend that does not answer at all.
 
 ``keyring`` is imported lazily and its absence is reported through
 ``is_available()`` rather than raised. It is an **optional extra**,
@@ -53,14 +63,23 @@ from __future__ import annotations
 
 import binascii
 import os
-import sys
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Final, NoReturn
 
-from functualize._config.vault import KEY_BYTES, VaultError
+from functualize._config.vault import (
+    KEY_BYTES,
+    KeyringLockedError,
+    KeyringUnavailableError,
+    KeyringUnverifiedError,
+    VaultError,
+)
+from functualize._config.vault_keyring import AdapterOutcome, AdapterRead, UnlockHow
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Sequence
 
+    from functualize._config.vault_keyring import KeyringAdapter
+    from functualize._types.enums import KeyAvailability
     from functualize._types.protocols import VaultKeyProvider
 
 __all__ = [
@@ -69,9 +88,9 @@ __all__ = [
     "KEYCHAIN_SERVICE",
     "EnvKeyProvider",
     "KeychainKeyProvider",
-    "KeyResolution",
+    "UnlockedKey",
     "generate_key",
-    "resolve_vault_key",
+    "default_providers",
 ]
 
 #: Where the non-interactive provider looks. Hex-encoded, 64 characters.
@@ -148,7 +167,16 @@ class EnvKeyProvider:
 
 
 class KeychainKeyProvider:
-    """Reads and creates the vault key in the OS keyring. May prompt to unlock.
+    """Reads and creates the vault key in the OS keyring, through its platform adapter.
+
+    **Reading never prompts.** :meth:`get_key` asks the platform adapter
+    (:func:`~functualize._config.vault_keyring.select_adapter`) for a *silent*
+    read: an unlocked keyring answers with the key, a locked one raises
+    :class:`~functualize._config.vault.KeyringLockedError` at once. A run must
+    never create an unlock prompt — a prompt the client later abandons can
+    crash the keyring daemon and re-lock every keyring the user has — so
+    unlocking is :meth:`unlock`, used only by ``func builtin vault unlock``.
+    It is consulted whether or not stdin and stdout are terminals.
 
     **One key for every project**, stored at a fixed account rather than one per
     project id (ADR-023 §4). This changed: the provider used to be
@@ -157,7 +185,7 @@ class KeychainKeyProvider:
 
     Two providers disagreeing about scope meant *which* scope applied depended
     on whether ``$FUNCTUALIZE_VAULT_KEY`` happened to be exported, because
-    non-interactive providers are consulted first. Exporting it once and
+    the environment provider was always consulted first. Exporting it once and
     syncing re-encrypted each project's store under the shared key; unsetting it
     later left every one of them unopenable by the keychain, with nothing
     recording which key had written what.
@@ -172,11 +200,21 @@ class KeychainKeyProvider:
     reaches every project's vault instead of one.
     """
 
+    def __init__(self, *, adapter: KeyringAdapter | None = None) -> None:
+        """Initialise the provider.
+
+        Args:
+            adapter: The keyring adapter to use. Chosen for this platform's
+                active ``keyring`` backend on first use unless given (tests).
+        """
+        self._adapter = adapter
+
     def identifier(self) -> str:
         return "keychain"
 
     def interactive(self) -> bool:
-        return True
+        """False: reading needs no person at this terminal, and never prompts."""
+        return False
 
     def is_available(self) -> bool:
         """Whether a usable keyring backend exists.
@@ -195,24 +233,56 @@ class KeychainKeyProvider:
             return False
 
     def get_key(self, project_id: str) -> bytes | None:
-        """Return the vault key from the keyring, or None.
+        """Return the vault key, read silently, or None when nothing is stored.
+
+        Failure states are **typed**, not swallowed: a locked keyring raises
+        :class:`~functualize._config.vault.KeyringLockedError`, a missing one
+        :class:`~functualize._config.vault.KeyringUnavailableError`, and a
+        backend nobody has proven silent
+        :class:`~functualize._config.vault.KeyringUnverifiedError`. ``None``
+        means an unlocked keyring answered and holds no entry.
 
         Args:
             project_id: Ignored. Kept for the protocol, which carries it so a
                 third-party provider *may* scope per project; this one does not
                 (see the class docstring).
         """
-        try:
-            import keyring
-        except ImportError:
-            return None
-        try:
-            raw = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
-        except Exception:  # noqa: BLE001 - a locked or broken keyring defers
-            return None
-        if not raw:
-            return None
-        return _decode(raw, source=f"the OS keyring ({KEYCHAIN_SERVICE})")
+        return _key_from(self._keyring().read_silent())
+
+    def probe(self) -> KeyAvailability:
+        """Whether a silent read would succeed — never prompts, bounded."""
+        return self._keyring().state()
+
+    def adapter_name(self) -> str:
+        """The neutral name of the keyring adapter in use, for messages."""
+        return self._keyring().name
+
+    def key_stored(self) -> bool | None:
+        """Whether the vault key entry exists, asked without reading it.
+
+        None when the adapter cannot tell without reading the secret.
+        """
+        has_entry = getattr(self._keyring(), "has_entry", None)
+        return has_entry() if has_entry is not None else None
+
+    def unlock(self) -> bool:
+        """Ask the keyring to unlock (may prompt); True when a key is available after."""
+        return self.unlock_key().key is not None
+
+    def unlock_key(self, project_id: str = "") -> UnlockedKey:
+        """Unlock and read in one step — the one call that may show a dialog.
+
+        Waits for the dialog's own outcome and never cancels it. The key comes
+        back with the outcome, because on a backend nobody has proven silent a
+        later silent read would still refuse.
+        """
+        read = self._keyring().unlock()
+        key = (
+            _decode(read.secret, source=_SOURCE)
+            if read.outcome is AdapterOutcome.FOUND and read.secret is not None
+            else None
+        )
+        return UnlockedKey(read.outcome, read.how, key)
 
     def initialize_key(self, project_id: str) -> bytes:
         """Return the stored key, creating and persisting one if absent.
@@ -223,100 +293,102 @@ class KeychainKeyProvider:
         every value already written under the old one — silently, since nothing
         in the store records which key wrote a row.
 
+        **Never prompts.** Both the read and the write are silent: a locked
+        keyring refuses at once and points at ``func builtin vault unlock``,
+        which stays the only command that asks a keyring to unlock (spec B4').
+        ``keyring.set_password`` is not used — on Linux it unlocks a locked
+        collection first, and creates a default one when none exists.
+
         Args:
             project_id: Ignored, as in :meth:`get_key`.
 
         Raises:
-            VaultError: If no keyring backend is available. `init` turns this
-                into a refusal naming both routes forward; it is not a crash,
-                and it never falls back to printing a key.
+            VaultError: If no keyring is available, the keyring is locked, or
+                it cannot be written without a possible prompt. `init` turns
+                this into a refusal naming the routes forward; it is not a
+                crash, and it never falls back to printing a key.
         """
-        existing = self.get_key(project_id)
-        if existing is not None:
-            return existing
+        adapter = self._keyring()
+        existing = adapter.read_silent()
+        if existing.outcome is AdapterOutcome.FOUND and existing.secret is not None:
+            return _decode(existing.secret, source=_SOURCE)
+        if existing.outcome is AdapterOutcome.NOT_STORED:
+            created = generate_key()
+            stored = adapter.store_silent(created)
+            if stored is AdapterOutcome.FOUND:
+                return _decode(created, source=_SOURCE)
+            _refuse_to_store(stored)
+        _refuse_to_store(existing.outcome)
 
-        try:
-            import keyring
-        except ImportError as exc:  # pragma: no cover - guarded by is_available
-            msg = (
-                "No OS keyring is available, so a vault key cannot be stored. "
-                "Install it with `pip install 'functualize[keychain]'`, or set "
-                f"${ENV_VAR} instead — `func builtin vault keygen` prints one."
-            )
-            raise VaultError(msg) from exc
+    def _keyring(self) -> KeyringAdapter:
+        if self._adapter is None:
+            from functualize._config.vault_keyring import select_adapter
 
-        created = generate_key()
-        try:
-            keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, created)
-        except Exception as exc:  # noqa: BLE001 - a locked backend is a refusal
-            msg = (
-                f"The OS keyring ({KEYCHAIN_SERVICE}) refused to store the "
-                f"vault key: {type(exc).__name__}. Unlock it and retry, or set "
-                f"${ENV_VAR} instead."
-            )
-            raise VaultError(msg) from exc
-        return _decode(created, source=f"the OS keyring ({KEYCHAIN_SERVICE})")
+            self._adapter = select_adapter(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        return self._adapter
 
 
-class KeyResolution:
-    """Which provider supplied the key, and the key itself.
+#: How a key read from the keyring is named in a decoding error.
+_SOURCE: Final = f"the keyring ({KEYCHAIN_SERVICE})"
 
-    Carries the provider id so a later decryption failure can name the key that
-    was actually tried.
-    """
 
-    __slots__ = ("key", "provider_id")
+@dataclass(frozen=True, slots=True)
+class UnlockedKey:
+    """The outcome of :meth:`KeychainKeyProvider.unlock_key`. The key never prints."""
 
-    def __init__(self, key: bytes, provider_id: str) -> None:
-        self.key = key
-        self.provider_id = provider_id
+    outcome: AdapterOutcome
+    how: UnlockHow | None
+    key: bytes | None = field(default=None, repr=False)
 
-    def __repr__(self) -> str:
-        """Never render the key — this object is safe to log."""
-        return f"KeyResolution(provider_id={self.provider_id!r}, key=<{len(self.key)} bytes>)"
+
+def _refuse_to_store(outcome: AdapterOutcome) -> NoReturn:
+    """Why ``vault init`` cannot store a key, as the error it raises."""
+    if outcome is AdapterOutcome.LOCKED:
+        msg = (
+            "The keyring is locked, so a vault key cannot be stored. Unlock it "
+            "with your system's keyring manager, or run `func builtin vault "
+            f"unlock` in a terminal, then retry — or set ${ENV_VAR} instead."
+        )
+        raise KeyringLockedError(msg)
+    if outcome is AdapterOutcome.UNVERIFIED:
+        msg = (
+            "This keyring cannot be written without a possible prompt, and a "
+            f"run could not read it either. Set ${ENV_VAR} instead — "
+            "`func builtin vault keygen` prints one."
+        )
+        raise KeyringUnverifiedError(msg)
+    msg = (
+        "No keyring is available, so a vault key cannot be stored. "
+        "Install it with `pip install 'functualize[keychain]'`, or set "
+        f"${ENV_VAR} instead — `func builtin vault keygen` prints one."
+    )
+    raise KeyringUnavailableError(msg)
+
+
+def _key_from(read: AdapterRead) -> bytes | None:
+    """A silent read's outcome as the provider contract states it."""
+    if read.outcome is AdapterOutcome.FOUND and read.secret is not None:
+        return _decode(read.secret, source=_SOURCE)
+    if read.outcome is AdapterOutcome.NOT_STORED:
+        return None
+    if read.outcome is AdapterOutcome.LOCKED:
+        msg = f"The keyring ({KEYCHAIN_SERVICE}) is locked; it was not opened."
+        raise KeyringLockedError(msg)
+    if read.outcome is AdapterOutcome.UNVERIFIED:
+        msg = (
+            "This keyring cannot be read without a possible prompt, so a run "
+            f"does not read it. Set ${ENV_VAR}, or run `func builtin vault "
+            "unlock` in a terminal."
+        )
+        raise KeyringUnverifiedError(msg)
+    msg = (
+        "No keyring is reachable here, so the stored vault key cannot be read. "
+        f"Install it with `pip install 'functualize[keychain]'`, or set ${ENV_VAR} "
+        "instead — `func builtin vault keygen` prints one."
+    )
+    raise KeyringUnavailableError(msg)
 
 
 def default_providers() -> Sequence[VaultKeyProvider]:
     """The two implementations that ship with core."""
     return (EnvKeyProvider(), KeychainKeyProvider())
-
-
-def resolve_vault_key(
-    project_id: str,
-    providers: Iterable[VaultKeyProvider] | None = None,
-    *,
-    allow_interactive: bool | None = None,
-) -> KeyResolution | None:
-    """Find a vault key, non-interactive sources first.
-
-    Args:
-        project_id: The project whose vault is being opened.
-        providers: Providers to consult, in order. Defaults to the two shipped
-            implementations.
-        allow_interactive: Whether interactive providers may be consulted.
-            ``None`` decides from the terminal, matching how the CLI decides
-            elsewhere (``sys.stdin.isatty() and sys.stdout.isatty()``).
-
-    Returns:
-        The first key found, with the provider that supplied it, or ``None``
-        when no provider has one. ``None`` is not an error here: the caller
-        decides whether a missing key is fatal.
-    """
-    candidates = list(default_providers() if providers is None else providers)
-    if allow_interactive is None:
-        allow_interactive = sys.stdin.isatty() and sys.stdout.isatty()
-
-    # Two passes rather than one sorted list: an interactive provider must not
-    # be reached merely because it registered earlier.
-    for interactive in (False, True):
-        if interactive and not allow_interactive:
-            return None
-        for provider in candidates:
-            if provider.interactive() is not interactive:
-                continue
-            if not provider.is_available():
-                continue
-            key = provider.get_key(project_id)
-            if key is not None:
-                return KeyResolution(key, provider.identifier())
-    return None

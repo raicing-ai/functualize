@@ -5,23 +5,31 @@ gate, and a deposited answer could not be corrected at all: once `payload` is
 non-None, `pending_gates` stops listing the gate and every addressing path
 answers `gate_not_found`. Fixing a typo meant hand-editing `scopes.json`.
 
-The invariant under all of it: `payload` is non-null **iff** it is the output of
-a complete, successful `model(**draft.values).model_dump()`.
+The invariant under all of it: only an accepted candidate writes a payload.
 """
 
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from pydantic import BaseModel, Field
 
 from functualize._app.state import AppState
+from functualize._primitives import gate_requests
+from functualize._types.errors import InputRequestNotOpenError
+from functualize._types.gate_resolution import (
+    CandidateEvaluation,
+    EvaluationOutcome,
+    GateCandidate,
+)
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import (
     ScopeStore,
     answer_gate,
+    deposit_gate_input,
     gate_draft,
     resolve_gate,
 )
@@ -155,6 +163,64 @@ class TestAutoCommit:
         assert result["status"] == "answered"
         assert store.get_gate("rel-1", "approve")["payload"] is not None
 
+    def test_complete_answer_records_a_candidate(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        """The public answer path must reach the candidate append wire."""
+        result = answer_gate(
+            app,
+            store,
+            "rel-1",
+            "approve",
+            {"approved": True, "reason": "ok"},
+            source="api-test",
+        )
+
+        record = store.get_gate("rel-1", "approve")
+        assert result["resolution"]["request_id"] == record["request_id"]
+        assert result["resolution"]["request_status"] == "accepted"
+        assert result["resolution"]["candidates"] == [
+            {
+                "candidate_id": record["candidates"][0]["candidate_id"],
+                "ordinal": 0,
+                "source": "api-test",
+                "submitted_at": record["candidates"][0]["submitted_at"],
+                "outcome": "accepted",
+                "detail": "",
+                "errors": [],
+            }
+        ]
+        assert "payload" not in result["resolution"]["candidates"][0]
+        assert record["candidates"][0]["payload"] == record["payload"]
+
+    def test_a_candidate_with_evidence_projects_an_eighth_key(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        """A strategy rung's evidence rides the resolution view when present."""
+        record = store.get_gate("rel-1", "approve") or {}
+        gate_requests.append_candidate(
+            store,
+            "rel-1",
+            "approve",
+            GateCandidate(
+                candidate_id="cand_ev",
+                request_id=record["request_id"],
+                ordinal=0,
+                source="strategy:decision",
+                submitted_at=datetime(2026, 10, 1, 12, 0, tzinfo=UTC),
+                evaluation=CandidateEvaluation(
+                    EvaluationOutcome.FAILED,
+                    detail="below threshold",
+                    evidence={"schema": "decision-evidence/1", "x": 1},
+                ),
+            ),
+        )
+
+        report = gate_draft(app, store, "rel-1", "approve")
+
+        projected = report["resolution"]["candidates"][0]
+        assert projected["evidence"] == {"schema": "decision-evidence/1", "x": 1}
+
     def test_the_payload_is_the_validated_dump(
         self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
@@ -203,6 +269,24 @@ class TestAutoCommit:
         assert [i["field"] for i in result["invalid"]] == ["approved"]
         assert store.get_gate("rel-1", "approve")["payload"] is None
 
+    def test_a_concurrent_answer_is_a_named_refusal(
+        self,
+        app: FunctualizeApp,
+        store: ScopeStore,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The port can refuse after the draft passed its initial status check."""
+
+        def refused(*args: object, **kwargs: object) -> None:
+            raise InputRequestNotOpenError("req_other", "accepted")
+
+        monkeypatch.setattr(gate_requests, "append_candidate", refused)
+        result = answer_gate(
+            app, store, "rel-1", "approve", {"approved": True, "reason": "ok"}
+        )
+        assert result["error"] == "gate_already_answered"
+        assert store.get_gate("rel-1", "approve")["payload"] is None
+
 
 class TestReopen:
     """AC-14."""
@@ -213,13 +297,22 @@ class TestReopen:
         answer_gate(
             app, store, "rel-1", "approve", {"approved": True, "reason": "typo"}
         )
+        original = store.get_gate("rel-1", "approve")
+        original_request_id = original["request_id"]
 
         result = answer_gate(
             app, store, "rel-1", "approve", {"reason": "corrected"}, reopen=True
         )
 
         assert result["status"] == "answered"
-        assert store.get_gate("rel-1", "approve")["payload"]["reason"] == "corrected"
+        record = store.get_gate("rel-1", "approve")
+        assert record["payload"]["reason"] == "corrected"
+        assert record["request_id"] != original_request_id
+        assert record["candidates"][0]["ordinal"] == 0
+        assert record["superseded"][0]["request_id"] == original_request_id
+        assert record["superseded"][0]["status"] == "cancelled"
+        assert record["superseded"][0]["cancel_reason"] == "reopened"
+        assert record["superseded"][0]["payload"]["reason"] == "typo"
 
     def test_a_gate_the_walk_has_passed_refuses(
         self, app: FunctualizeApp, store: ScopeStore
@@ -286,6 +379,23 @@ class TestTheDraftReport:
         assert report["invalid"] == []
         assert report["complete"] is False
         assert report["answered"] is False
+        assert report["resolution"]["request_status"] == "open"
+        assert report["resolution"]["candidates"] == []
+
+    def test_resolution_reads_recorded_verdict_without_revalidating(
+        self,
+        app: FunctualizeApp,
+        store: ScopeStore,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        answer_gate(app, store, "rel-1", "approve", {"approved": True, "reason": "ok"})
+
+        def refuse_validation(*args: object, **kwargs: object) -> None:
+            raise AssertionError("resolution read revalidated the answer")
+
+        monkeypatch.setattr(Approval, "model_validate", refuse_validation)
+        report = gate_draft(app, store, "rel-1", "approve")
+        assert report["resolution"]["candidates"][0]["outcome"] == "accepted"
 
     def test_missing_and_invalid_come_from_the_commit_paths_own_errors(
         self, app: FunctualizeApp, store: ScopeStore
@@ -296,6 +406,56 @@ class TestTheDraftReport:
         report = gate_draft(app, store, "rel-1", "approve")
         assert {m["field"] for m in report["missing"]} == {"approved", "reason"}
         assert [i["field"] for i in report["invalid"]] == ["reviewers"]
+
+
+class TestDepositedCandidates:
+    def test_invalid_input_is_recorded_without_answering(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        result = deposit_gate_input(
+            app, store, "rel-1", "approve", {"approved": "invalid"}, source="api-test"
+        )
+
+        assert result["error"] == "validation_error"
+        assert result["gate"] == "approve"
+        record = store.get_gate("rel-1", "approve")
+        assert record["status"] == "open"
+        assert record["payload"] is None
+        assert record["candidates"][0]["outcome"] == "invalid"
+        assert record["candidates"][0]["source"] == "api-test"
+        assert record["candidates"][0]["errors"]
+
+    def test_valid_input_appends_after_invalid_and_returns_request_id(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        deposit_gate_input(app, store, "rel-1", "approve", {"approved": "invalid"})
+        result = deposit_gate_input(
+            app, store, "rel-1", "approve", {"approved": True, "reason": "ok"}
+        )
+
+        record = store.get_gate("rel-1", "approve")
+        assert result["status"] == "input_accepted"
+        assert result["request_id"] == record["request_id"]
+        assert [c["ordinal"] for c in record["candidates"]] == [0, 1]
+        assert [c["outcome"] for c in record["candidates"]] == [
+            "invalid",
+            "accepted",
+        ]
+
+    def test_a_second_deposit_is_refused_without_overwriting(
+        self, app: FunctualizeApp, store: ScopeStore
+    ) -> None:
+        deposit_gate_input(
+            app, store, "rel-1", "approve", {"approved": True, "reason": "first"}
+        )
+        result = deposit_gate_input(
+            app, store, "rel-1", "approve", {"approved": True, "reason": "second"}
+        )
+
+        assert result["error"] == "gate_already_answered"
+        record = store.get_gate("rel-1", "approve")
+        assert record["payload"]["reason"] == "first"
+        assert len(record["candidates"]) == 1
 
 
 class TestJointAddressing:

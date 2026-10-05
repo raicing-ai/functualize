@@ -502,7 +502,7 @@ plugin** (`uv build --all-packages`). One-time setup: each PyPI project
 `release.yml` in this repository, and the repo needs a `pypi` GitHub environment.
 
 Every package is released together at one version — the build publishes all
-twelve, so a plugin left behind at the previous number is published again under
+thirteen, so a plugin left behind at the previous number is published again under
 a version that already exists on the index. `--skip-existing` swallows that
 silently rather than failing, which is why the count above is worth running.
 
@@ -511,7 +511,7 @@ are *floors*, not exact versions, and deliberately do not track the release.
 Raise one only when that plugin starts requiring core API that older versions do
 not have — otherwise it forces an upgrade nobody needs.
 
-**Twelve** workspace plugins, all at exactly two levels below `plugins/` —
+**Thirteen** workspace plugins, all at exactly two levels below `plugins/` —
 the depth `members = ["plugins/*/*"]` and `.claude/hooks/spec_gate.py` are
 taught. An implementation is a *sibling* of the domain it implements rather than
 a child, so the tree shows the relationship without adding a third level that
@@ -519,7 +519,7 @@ both of those would need teaching about.
 
 This paragraph used to describe `plugins/functualize-fullscreen-tui/` and say it
 "does not count toward the thirteen". **That directory does not exist**, at
-either depth, and there are twelve plugins, not thirteen. Measured:
+either depth. The current count is thirteen workspace plugins, measured with:
 `ls -d plugins/*/functualize-*/ | wc -l`.
 
 ## Commit Message Convention

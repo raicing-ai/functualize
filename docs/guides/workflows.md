@@ -36,7 +36,7 @@ Six names. No overlap with `@job`:
 | Name | Purpose |
 |------|---------|
 | `Step(job)` | References a registered job — by name or by the decorated function. A step takes nothing else: DI, config, `Deps`, `Guards`, `Fingerprint`, `Exec` all come from the referenced job. Its node name is the job's canonical name (`Step(fetch_data)` → `"fetch-data"`). |
-| `Gate(name, awaits=Model, tools=[], strategy=None)` | First-class pause point. Waits for input matching a Pydantic model. `strategy` is one of `"resolve"`, `"prompt"`, `"ai_inbound"`, `"ai_outbound"`, or a registered preset. |
+| `Gate(name, awaits=Model, tools=[], strategy=None)` | First-class pause point. Waits for input matching a Pydantic model. `strategy` is one of `"resolve"`, `"prompt"`, `"ai_inbound"`, or `"ai_outbound"`; see [Gate Strategies](ai.md#gate-strategies) for the preset distinction. |
 | `AgentStep(name, instructions, executor=None, tools=(), requires=frozenset(), time_budget_s=None)` | A node performed by an **agent**, not by a registered job. See [Agent steps](#agent-steps). |
 | `Edge(source, target)` | Unconditional transition. `END` is the sentinel for the walk's terminal node. |
 | `ConditionalEdge(source, condition, targets)` | Runtime routing. `condition` is called with the source step's return value; `targets` maps its return value to node names or `END`. |
@@ -211,6 +211,226 @@ Gate resolution goes through the gate registry. Three surface outcomes:
 | Interactive TUI/CLI | Prompts inline for input |
 | Non-interactive CLI | Exits with a typed error + resume token |
 | MCP (AI agent) | Persists the block; agent calls `resume_workflow(id, input)` |
+
+When a gate blocks, the walk opens a request with its own `request_id`. That ID
+stays stable while the request is open, after an answer is accepted, and when
+the resumed walk consumes it. `gate_draft(app, store, scope_id, gate)` includes
+a `resolution` field with `request_id`, `request_status`, and `candidates`.
+Each candidate reports its ID, ordinal, source, submission time, and recorded
+outcome, detail, and errors; the read view does not expose candidate payloads
+or re-evaluate their outcomes.
+
+`answer_gate(..., reopen=True)` can correct an accepted answer while the walk
+is still parked at that gate. Reopening gives the replacement request a new ID
+and preserves the old request under `superseded`. Once the walk has passed the
+gate, reopening is refused. A direct `deposit_gate_input(...)` accepts one
+answer for an open request; a second deposit returns
+`{"error": "gate_already_answered", ...}` and leaves the first answer intact.
+Invalid deposits are recorded as invalid candidates and leave the request open.
+
+A gate is addressed by its declared name or by its canonical form —
+`approve_refund` and `approve-refund` both reach the one gate — and
+`workflow list` prints the canonical form. Naming a gate the workflow does
+not have raises `GateNotFoundError` from the Python API; the CLI prints the
+error and exits 1, and MCP returns a `gate_not_found` result carrying the
+gates that do exist.
+
+### Decision gates
+
+A gate can let a **decision provider** fill one field of its model with
+`decide=ChoiceDecision(...)`. The provider proposes one of the options the
+workflow declares, reading the recorded result of a step the workflow names;
+the workflow's own thresholds decide whether the proposal is taken:
+
+```python
+from typing import Literal
+
+from pydantic import BaseModel
+from functualize.workflow import (
+    END,
+    ChoiceDecision,
+    ConditionalEdge,
+    Edge,
+    FromStep,
+    Gate,
+    Step,
+    workflow,
+)
+
+class Route(BaseModel):
+    route: Literal["billing", "returns", "shipping"]
+
+class Approval(BaseModel):
+    approved: bool
+
+@workflow(
+    steps=[
+        Step(intake),                          # returns the ticket text
+        Gate(
+            name="route",
+            awaits=Route,
+            decide=ChoiceDecision(
+                field="route",
+                instructions="Route the ticket to the team that owns it.",
+                options={
+                    "billing": "a question about an invoice or a charge",
+                    "returns": "the customer wants to send something back",
+                    "shipping": "where a parcel is, or when it arrives",
+                },
+                state=FromStep("intake"),
+                accept_at=0.70,                # the proposal's probability
+                min_margin=0.10,               # its lead over the runner-up
+            ),
+        ),
+        Step(bill),
+        Step(ship),
+        Gate(name="approve_refund", awaits=Approval),   # a person, always
+        Step(refund, effecting=True),
+    ],
+    edges=[
+        Edge("intake", "route"),
+        ConditionalEdge(
+            source="route",
+            condition=lambda answer: answer["route"],
+            targets={
+                "billing": "bill",
+                "shipping": "ship",
+                "returns": "approve_refund",
+            },
+        ),
+        Edge("approve_refund", "refund"),
+        Edge("bill", END),
+        Edge("ship", END),
+        Edge("refund", END),
+    ],
+)
+def support():
+    """Route a ticket; refunds need a person."""
+```
+
+- **The declaration is checked when it is made.** `field` must be a field of
+  `awaits` typed as a `Literal` of strings or a `StrEnum`, and its allowed
+  values must be exactly the keys of `options`; `0 < accept_at <= 1` and
+  `0 <= min_margin < 1`. A mismatch is a `ValueError` at import, not a gate
+  that cannot be answered at run time. `decide` implies
+  `strategy="decision"`; any other strategy with it is refused.
+- **The provider proposes; the workflow decides.** The proposal is accepted
+  only when its probability reaches `accept_at` *and* leads the runner-up by
+  at least `min_margin`. The provider's own confidence score is recorded and
+  never consulted. The strategy is registered by the `functualize-decision-jev`
+  plugin (experimental; it needs `OPENCODE_API_KEY`); without it the gate
+  records the rung `unavailable` and blocks.
+- **Anything short of acceptance blocks for a person** — unless the decision
+  declares a fallback (below). A weak proposal, a
+  rate limit or a provider error is a failed rung, never a retry or a wait; the
+  gate falls through to `prompt` and `resolve` and blocks with a reason such as
+  `decision: jev/jev-1.13-free proposed 'returns' at 0.54 (margin 0.08);
+  workflow requires >= 0.70, margin >= 0.10`. Answering the gate
+  (`answer_gate`) takes the answered branch; address a gate by its stored,
+  canonical name, which is the one `blocked_on` reports (`approve_refund` is
+  stored as `approve-refund`). A resumed walk never asks the provider again:
+  the accepted or answered value is replayed from the record.
+- **The rule is part of the graph.** A walk parked at, or after, a decision gate
+  refuses to resume if the module has since changed that gate's thresholds,
+  options, instructions or model — the same refusal a moved edge gets.
+
+**The framework does not decide which options need a person — the workflow
+does, by routing those branches through a second gate.** Above, an accepted
+`returns` still stops at `approve_refund` before the effecting `refund` step,
+while an accepted `billing` or `shipping` proceeds with nobody involved. An
+option routed straight to an effecting step is executed on the model's answer
+alone.
+
+The ticket text reaches the provider as data (the request's `state`), never as
+part of its instructions, and an answer outside the declared options is
+refused rather than followed — so text in a ticket cannot open a branch the
+workflow did not declare.
+
+#### Fallback and the decision record
+
+A decision can name the option the gate takes when no proposal is accepted:
+
+```python
+from functualize.workflow import ChoiceDecision, FromStep
+
+ROUTER = ChoiceDecision(
+    field="route",
+    instructions="Choose how this request should be handled.",
+    options={
+        "deterministic": "a fixed rule or lookup answers it; no model needed",
+        "cheap_model": "a short, low-risk text task a small model can do",
+        "frontier_agent": "multi-step reasoning or tool use is required",
+        "human_review": "risky, ambiguous, or needs a person's judgement",
+    },
+    state=FromStep("intake"),
+    accept_at=0.70,
+    min_margin=0.10,
+    fallback="human_review",
+)
+```
+
+- **The fallback is declared on the decision, never as a field default.**
+  `ChoiceDecision(fallback=...)` must be one of the options, and it must
+  complete the answer by itself: every other field of `awaits` needs a
+  default. A default on the decided field is refused at import — it would
+  bypass the decision, because a fully defaulted answer completes the gate
+  before any strategy, the provider included, is asked.
+- **A gate with a fallback never blocks at the router.** Its ladder is
+  `decision` → `resolve` rather than `decision` → `prompt` → `resolve`: when
+  the decision rung fails for any reason — a weak proposal, a rate limit, no
+  provider installed — the existing `resolve` rung takes the fallback and the
+  walk follows that branch. If the fallback means "a person looks at it",
+  route its branch through a second `Gate`, as the reference workflow routes
+  `human_review` to a `review` gate. The fallback is part of the rule, so it
+  joins the graph digest.
+- **The decision rung records its evidence beside its verdict.** Whenever the
+  provider was asked, the rung's candidate carries one flat, JSON-safe mapping
+  — `schema`, `field`, `state` (the step, and the SHA-256 and length of the
+  text, never the text), `rule` (its digest, `accept_at`, `min_margin` and the
+  fallback), `provider`, `model`, `requested_model`, `proposal`,
+  `distribution`, `confidence` (recorded, never read by the rule),
+  `probability`, `margin`, `verdict`, `failure`, `latency_seconds`,
+  `input_tokens` and `output_tokens` — and `gate_draft(...)` shows it as the
+  candidate's `evidence`. Only the gate writes it: an `evidence` key inside a
+  submitted answer never becomes a candidate's evidence. A rung whose
+  provider is not installed is `unavailable` and records none.
+
+In `decision-evidence/1`, `verdict` is one of `accepted`,
+`below_threshold`, `no_distribution`, `uncovered_proposal`, or
+`provider_failed`. `uncovered_proposal` means the provider returned a
+distribution, but its proposed option is not a key in that mapping. The
+evidence keeps the returned `proposal` and `distribution`; `probability`
+and `margin` are `null` because the gate cannot read a probability for the
+proposal or compare it with another option, and `failure` is `null` because
+the provider answered without reporting an error. `no_distribution` instead
+has a `null` distribution; `provider_failed` carries an error in `failure`.
+
+`decision_record(store, scope_id, gate)` (from `functualize.app.utils`,
+**provisional**) reads one routed gate back as a single record — who took it,
+on which route, and why the decision did not:
+
+```python
+from functualize.app.utils import ScopeStore, decision_record
+
+record = decision_record(ScopeStore(app.substrate), scope_id, "route")
+# {"gate": "route", "request_id": "...", "route": "human_review",
+#  "decided_by": "fallback", "fallback_used": True,
+#  "reason": "decision: ... proposed 'deterministic' at 0.55 ...",
+#  "evidence": {"schema": "decision-evidence/1", ...}}
+```
+
+`decided_by` is `"decision"`, `"fallback"`, `"person"`, or `None` while the
+gate is open; `reason` is the decision rung's own detail when the fallback
+took over. The record is a projection of what was recorded at the time —
+nothing is re-evaluated.
+
+Two runs on the same input can route differently: the provider is
+probabilistic. The records make that visible; they do not prevent it.
+
+The worked example is
+[`examples/standalone/hermetic_router/`](https://github.com/raicing-ai/functualize/tree/master/examples/standalone/hermetic_router/):
+one gate, four routes, a `human_review` fallback, and tests that run it with a
+fake provider and with none.
 
 ---
 

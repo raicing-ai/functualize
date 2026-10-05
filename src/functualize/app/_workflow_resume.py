@@ -12,7 +12,49 @@ re-pointing the tool at these functions is behaviour-preserving.
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
+
+from functualize._engine.recording import InputRecorder
+from functualize._gate._evaluation import evaluate_submission
+from functualize._primitives import gate_requests
+from functualize._types.errors import GateNotFoundError, InputRequestNotOpenError
+from functualize._types.gate_resolution import EvaluationOutcome
+from functualize._types.naming import resolve_name
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+
+def _resolution_view(
+    store: Any, scope_id: str, gate: str, record: dict[str, Any]
+) -> dict[str, Any]:
+    """Read recorded evaluations without validating or exposing payloads."""
+    # TRANSITIONAL(FUN-21): the document gate record backs this read projection.
+    lease = store.get_lease(scope_id)
+    request = gate_requests.request_for(
+        scope_id, gate, record, lease.generation if lease else 0
+    )
+    candidates = gate_requests.candidates_for(record)
+    projected: list[dict[str, Any]] = []
+    for candidate in candidates:
+        entry = {
+            "candidate_id": candidate.candidate_id,
+            "ordinal": candidate.ordinal,
+            "source": candidate.source,
+            "submitted_at": candidate.submitted_at.isoformat(),
+            "outcome": candidate.evaluation.outcome.value,
+            "detail": candidate.evaluation.detail,
+            "errors": [list(pair) for pair in candidate.evaluation.errors],
+        }
+        if candidate.evaluation.evidence is not None:
+            entry["evidence"] = dict(candidate.evaluation.evidence)
+        projected.append(entry)
+    return {
+        "request_id": request.request_id,
+        "request_status": request.status,
+        "candidates": projected,
+    }
 
 
 def pending_gates(scope: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -31,6 +73,22 @@ def pending_gates(scope: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+def _canonical_gate(known: Iterable[str], gate: str, *, scope_id: str) -> str:
+    """The canonical spelling of a gate reference, against the gates that exist.
+
+    The one resolver every public gate entry calls first: an exact match wins,
+    then the canonical form, so a reference spelled the way Python spells it
+    (`approve_refund`) reaches the gate declared under `approve-refund`. A
+    reference that matches nothing is a caller error the caller cannot
+    ignore: it raises, naming the workflow and the gates that do exist.
+    """
+    names = sorted(known)
+    try:
+        return resolve_name(gate, names)
+    except LookupError:
+        raise GateNotFoundError(gate, scope_id=scope_id, known=names) from None
+
+
 def _resolve_gate_model(
     app: Any, scope: dict[str, Any], gate: str
 ) -> tuple[Any, dict[str, Any] | None]:
@@ -46,6 +104,14 @@ def _resolve_gate_model(
         entry = app.execution_engine.materialize_job(workflow_name)
         declaration = entry.function.__functualize_workflow__
         node = declaration.node(gate)
+        if node is None:
+            return None, {
+                "error": "gate_unresolvable",
+                "message": (
+                    f"Workflow '{workflow_name}' no longer declares gate "
+                    f"'{gate}'; the run was parked under an older declaration."
+                ),
+            }
         return node.awaits, None
     except Exception as exc:
         return None, {
@@ -58,13 +124,20 @@ def _resolve_gate_model(
 
 
 def deposit_gate_input(
-    app: Any, store: Any, scope_id: str, gate: str, payload: dict[str, Any]
+    app: Any,
+    store: Any,
+    scope_id: str,
+    gate: str,
+    payload: dict[str, Any],
+    *,
+    source: str = "api",
 ) -> dict[str, Any]:
-    """Validate ``payload`` against the gate's model, then deposit it.
+    """Evaluate and record one submitted candidate for the gate.
 
     The shared resume path: the MCP ``resume_gate`` tool and the CLI
     ``func builtin workflow resume`` both call this, so there is one notion of
-    "accept input for a gate". Nothing is stored if validation fails.
+    "accept input for a gate". An invalid attempt is recorded while the
+    request remains open; only an accepted candidate writes a payload.
 
     Returns a flat result dict:
     - ``{"status": "input_accepted", "gate", "workflow_id", "message"}`` on success
@@ -72,33 +145,42 @@ def deposit_gate_input(
     - ``{"error": "validation_error", "message", "gate"}`` if the input is invalid
     """
     scope = store.get_scope(scope_id) or {}
+    gate = _canonical_gate(scope.get("gates") or {}, gate, scope_id=scope_id)
     model, error = _resolve_gate_model(app, scope, gate)
     if error is not None:
         return error
 
-    try:
-        validated = model(**payload)
-    except Exception as exc:
+    evaluation, validated = evaluate_submission(model, payload)
+    record = store.get_gate(scope_id, gate)
+    if record is None:
         return {
-            "error": "validation_error",
-            "message": f"Input does not satisfy '{model.__name__}': {exc}",
-            "gate": gate,
+            "error": "gate_already_answered",
+            "message": f"Gate '{gate}' has no open request.",
+        }
+    resolution = _resolution_view(store, scope_id, gate, record)
+    candidate = InputRecorder().submitted(
+        resolution["request_id"],
+        source,
+        evaluation,
+        validated if validated is not None else payload,
+        ordinal=len(resolution["candidates"]),
+        now=datetime.now(UTC),
+    )
+    try:
+        # TRANSITIONAL(FUN-21): this candidate still lands in the scope document.
+        gate_requests.append_candidate(store, scope_id, gate, candidate)
+    except InputRequestNotOpenError:
+        return {
+            "error": "gate_already_answered",
+            "message": f"Gate '{gate}' is already answered.",
         }
 
-    # Store the **dump**, not the raw input.
-    #
-    # This path validated with `model(**payload)` and then stored `payload`,
-    # discarding every Pydantic default and coercion the validation had just
-    # applied. The walker's own strategy path stores `model.model_dump()`
-    # (`workflow_walker.py`), and the walker feeds whichever it finds straight
-    # to the node — so one gate produced two different objects depending on who
-    # answered it, and a model with a defaulted field had that field *missing*
-    # when a human deposited the answer.
-    #
-    # One invariant, stated once: `payload` is only ever the output of a
-    # complete, successful validation, dumped. Nothing downstream has to know
-    # which path wrote it.
-    store.deposit_gate_payload(scope_id, gate, validated.model_dump())
+    if evaluation.outcome is EvaluationOutcome.INVALID:
+        return {
+            "error": "validation_error",
+            "message": f"Input does not satisfy '{model.__name__}': {evaluation.detail}",
+            "gate": gate,
+        }
     # Name the command, not the concept. "Run the workflow job with scope_id
     # 'X'" named neither the flag nor its position, and the audit that found
     # this got both wrong twice before reading `dispatch.py`. The job address
@@ -120,5 +202,6 @@ def deposit_gate_input(
         "status": "input_accepted",
         "gate": gate,
         "workflow_id": scope_id,
+        "request_id": resolution["request_id"],
         "message": f"Input accepted for gate '{gate}'.{resume_hint}",
     }

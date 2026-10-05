@@ -222,23 +222,24 @@ gets reintroduced.
 ```
 
 **Δ — this status is derived, never stored.** In the document backend there is no request row: the
-gate→`InputRequest` projection (`_primitives/document_store.py:394-419`) reads `consumed_at` for
-`consumed`, a deposited payload for `accepted`, and `open` otherwise, and says so — `cancelled` and
-`expired` have no document shape at all and arrive with the request table. So `INPUT_REQUEST` is
+gate→`InputRequest` projection reads `consumed_at` for `consumed`, an accepted
+candidate or legacy deposited payload for `accepted`, and `open` otherwise —
+`cancelled` and `expired` have no document shape yet. So `INPUT_REQUEST` is
 enforced where the relational writer lands, and until then it is exercised directly by
 `tests/primitives/test_transitions.py`. What the `(None, "open")` edge means for a legacy record is
 deliberate: absent is a state, so an unstatused gate record cannot jump to `consumed` without passing
 through `open`.
 
-`CONSUMED` is the addition to the shape this is adopted from. On the live resume path, consumption
-is still **not a write** — the gate payload is read and nothing marks it used — which is benign while
-a replayed read is idempotent and stops being benign the moment an agent, rather than a human, can
-deposit a second candidate. **Landed at the port:** `InputRequest.status` names `consumed`, the
-input writer is append-only by contract, and the document backend's `resume` stamps `consumed_at`
-and consumes in one unit (`_primitives/document_store.py:858-872`). **Forward-looking:** the walk's
-own resume does not go through the port yet, and a second `deposit_gate_payload` still overwrites
-the first (`_primitives/scope_store.py`, `deposit_gate_payload`) — the overwrite the append-only
-`input_candidates` table below exists to remove.
+**Landed at the port on the document backend:** `InputRecorder` mints a `request_id` when the walk
+opens a gate; the same identity survives answer and resume. Ladder and submitted answers append
+candidates with their source, ordinal and evaluation (`accepted`, `invalid`, `failed`, `unavailable`,
+or `not_reached`). The walk alone moves an accepted request to `consumed` through the input port;
+replaying that consumption is idempotent. Reopening archives the accepted request and opens a new
+one with a new ID. `deposit_gate_input` refuses a second accepted answer with
+`gate_already_answered`. **Still transitional:** the document backend stores these records inside
+`scopes.json`, so candidates and evaluations are not yet independently durable. The legacy
+`ScopeStore.deposit_gate_payload` helper remains for old callers; it does not use the new candidate
+guard. The durable interaction slice will replace this nested representation.
 
 ## 2. Schema
 
@@ -295,15 +296,19 @@ current claim per aggregate, and every transition already conditions that row.
 | Table | Essential fields | Invariants |
 |---|---|---|
 | `input_requests` | id, scope_id, gate_key, generation, status, schema JSON, prompt JSON, created_at, resolved_at | PK `id`; partial unique (scope_id, gate_key, generation) `WHERE status = 'open'` — one OPEN request per gate per generation; the `status` column is `CHECK (status IN (…))` generated from §1.4 |
-| `input_candidates` | id, request_id, source, payload JSON, created_at | append only — a second candidate never overwrites the first |
+| `input_candidates` | id, request_id, ordinal, source, outcome, detail, errors JSON, payload JSON, evidence JSON, created_at | append only; evaluation recorded at submission; `evidence` is nullable — a strategy rung's own record (the decision rung's `decision-evidence/1`), written only by the gate and opaque to storage, hence JSON per §3 |
 | `outbox` | id, namespace, aggregate_type, aggregate_id, topic, payload JSON, idempotency_key, status, available_at, claimed_at, published_at, attempts, last_error | unique idempotency_key where present; index (status, available_at) |
 | `artifact_refs` | id, run_id, scope_id, step_key, kind, uri, digest, size, media_type, created_at | metadata only — bytes live in a workspace provider |
 
-`input_candidates` being append-only matters more than it looks: a second deposit overwrites the
-first today, so a human approval followed by an agent suggestion silently replaces the human's
-answer.
+`input_candidates` being append-only matters more than it looks: the public deposit path now
+refuses a second accepted answer instead of replacing the first, and an invalid submission remains
+readable as its own candidate. The legacy direct payload helper is the remaining exception.
 
-**Landed at the port:** `InputRequest`, `InputWriter` and `EffectWriter` carry this shape, and
+**Landed at the port on the document backend:** `InputRequest` carries request identity,
+`InputWriter` appends candidates with recorded evaluations, and the walk is the single writer of
+consumption. Their current representation is nested under each gate in `scopes.json`; the
+`input_requests` and `input_candidates` tables above remain pending the durable schema and
+interaction work. `EffectWriter` carries the intended effect shape, and
 `EffectWriter` says plainly that recording the intent is all that happens inside the transaction —
 claiming a row, calling the provider and acknowledging the result run outside it. The document
 backend declares `durable_outbox=False`, so its `EffectWriter.append` **refuses with**
@@ -336,21 +341,24 @@ no transaction open.
 | state batch | verify fence, upsert/delete state keys, optional state event | the caller's computation |
 | complete step | step outcome, branch, position, scope status, scope events, outbox intents | notification and network delivery |
 | finish attempt | attempt outcome, run outcome when terminal, final events, outbox intents | rendering, EventBus notification |
-| suspend at gate | input request row, scope → BLOCKED, position, event | collecting the human or agent input |
-| resume | consume ACCEPTED request, claim at a **new** generation, scope → RUNNING, resume event | the resumed body |
+| open gate request | input request, position, scope → BLOCKED when waiting or scope → RUNNING when the ladder answers inline | collecting input or running a strategy |
+| resume claim | claim at a **new** generation, scope → RUNNING | the resumed body |
+| consume gate answer | accepted request → CONSUMED, issued by the walk as it feeds the payload forward | advancing the graph |
 | cancel | scope → CANCELLED, terminal_at, event | anything observing it |
 | lease renewal | conditional generation/owner update | — |
 | dispatch effect | claim one outbox row | the provider call |
 | acknowledge effect | published_at / last_error / next attempt | — |
 
-**`resume` is one transition, and on the live path it is still two locked writes.** The deposit and
-the claim sit in different call frames (`app/_workflow_answer.py`, `_engine/frontier.py`), with
-`ScopeStore`'s lock taken twice. Today's window is benign because consumption is a read; with
-`CONSUMED` in the state machine it would not be, which is why they merge. **Landed at the port:**
-`ResumeWorkflow` is one command and the document backend's `resume` consumes the accepted request,
-claims at the new generation, moves the scope to `RUNNING` and appends the event as one unit.
-**Forward-looking:** `WorkflowRecorder().resumed` has no production caller, so the merge is FUN-20's
-to wire.
+**Consumption is a write on the live path.** `GateService.service` calls
+`FrontierWalk.consume`, which issues `tx.inputs.consume(ConsumeInput(...))`;
+the document backend records `consumed_at` under the same scope transaction
+path that opens requests and appends candidates. The walk is its one writer.
+The deposit, claim, and later consumption remain separate transaction units;
+the claim stamps the resumed scope `running`, and consumption occurs only when
+the walk feeds the accepted payload forward. `ResumeWorkflow` is a port
+command with no production caller yet. Its document implementation claims and
+stamps `running` without consuming; wiring the combined resume command remains
+forward-looking.
 
 ### Why never around a job body
 

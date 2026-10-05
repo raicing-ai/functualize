@@ -38,6 +38,9 @@ uv run pytest -k "test_workflow"
 # Run the CLI
 uv run func --help
 uv run functualize --help
+
+# Dead code a change introduces or orphans (base vs head; exit 1 = new findings)
+uv run python .github/scripts/dead_code_delta.py <base> <head> [--json]
 ```
 
 All checks must pass before any change is complete: `ruff check`, `ruff format --check`, `mypy`, `lint-imports`, `pytest`.

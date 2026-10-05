@@ -29,11 +29,13 @@ _GROUP_MODULE = """\
 from typing import Annotated
 
 from functualize.job import GroupOptions, Option
+from functualize.types import Secret
 
 
 class DeployOptions(GroupOptions, group="deploy"):
     env: Annotated[str, Option("-e")] = "staging"
     dry_run: Annotated[bool, Option("--dry-run")] = False
+    token: Secret[str] = Secret("default-token")
 
 
 class WebOptions(GroupOptions, group="deploy.web"):
@@ -58,13 +60,14 @@ def run(
     web: WebOptions = None,
 ):
     """Deploy the web tier."""
-    print(f"image={image} replicas={replicas} env={opts.env} region={web.region}")
+    print(f"image={image} replicas={replicas} env={opts.env} region={web.region} token={opts.token.get_secret_value()}")
     return image
 '''
 
 _CONFIG = """\
 [deploy]
 env = "from-file"
+token = "file-token"
 
 [deploy.web]
 region = "region-from-file"
@@ -121,6 +124,7 @@ def app_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     def run(args: list[str]):
         return CliRunner().invoke(adapter._cli_group, args, catch_exceptions=False)
 
+    run.app = app
     return run
 
 
@@ -166,6 +170,27 @@ class TestTheGroupsDefaultDoesNotOutrankItsConfigFile:
         result = app_cli(["deploy", "--env", "cli-wins", "web", "run", "v1.2"])
         assert result.exit_code == 0, result.output
         assert "env=cli-wins" in result.output
+
+    def test_vault_and_explicit_flag_precedence_on_the_standalone_adapter(
+        self, app_cli, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from functualize._config.vault_keys import generate_key
+        from functualize.app.vault import VaultIdentity, vault_put
+
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", generate_key())
+        monkeypatch.setenv("DEPLOY__TOKEN", "environment-token")
+        vault_put(
+            app_cli.app,
+            VaultIdentity("group", "deploy", "token"),
+            "vault-token",
+        )
+        app_cli.app.refresh()
+
+        from_vault = app_cli(["deploy", "web", "run", "v1"])
+        explicit = app_cli(["deploy", "--token", "flag-token", "web", "run", "v1"])
+        assert from_vault.exit_code == explicit.exit_code == 0
+        assert "token=vault-token" in from_vault.output
+        assert "token=flag-token" in explicit.output
 
 
 class TestARefusalIsStillARefusal:

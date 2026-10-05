@@ -89,6 +89,13 @@ group = "functualize.plugins"
 description = "Visualize workflow execution inline"
 recommended = true
 
+[[plugin]]
+name = "jev"
+distribution = "functualize-decision-jev"
+group = "functualize.plugins"
+description = "Experimental: a gate's choice proposed by Jev (needs OPENCODE_API_KEY)"
+recommended = true
+
 # ── Domains: the capability protocols jobs are written against ───────────────
 
 [[plugin]]

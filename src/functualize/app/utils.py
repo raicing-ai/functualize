@@ -77,6 +77,7 @@ from functualize._types.annotations import resolved_hints
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize._types.enums import RunStatus
 from functualize._types.errors import (
+    GateNotFoundError,
     JobMaterializationError,
     ScopeCancelledError,
     ScopeStoreUnreadableError,
@@ -119,6 +120,7 @@ from functualize._types.redaction import (
 from functualize._types.run_request import (
     RunRequest,
 )
+from functualize.app._decision_record import decision_record
 from functualize.app._run_view import (
     RUN_STATES,
     describe_run,
@@ -218,6 +220,7 @@ __all__ = [
     "resolve_advanceable",
     "resume_scope",
     "gate_draft",
+    "decision_record",
     "resolve_gate",
     "describe_run",
     "job_history",
@@ -279,6 +282,7 @@ __all__ = [
     # `_cli` may import public folders only.
     "ScopeCancelledError",
     "ScopeStoreUnreadableError",
+    "GateNotFoundError",
     "resolved_hints",
     "detect_config_class",
     "CLI_MARKER_TYPE_NAMES",
@@ -308,7 +312,6 @@ __all__ = [
     "normalize_name",
     "normalize_segment",
     "resolve_name",
-    "declared_config_values",
     "generate_vault_key",
     "vault_clear",
     "vault_duration",
@@ -1696,7 +1699,16 @@ class VaultKeyMismatchError(RuntimeError):
 
 
 class VaultKeyUnavailableError(RuntimeError):
-    """No key provider could supply a key, so the vault cannot be written."""
+    """No key provider could supply a key, so the vault cannot be written.
+
+    ``reason`` says which of the three ways that happened — ``key_locked``,
+    ``no_keyring`` or ``key_not_stored`` — so a delivery surface classifies
+    without parsing the message.
+    """
+
+    def __init__(self, message: str, *, reason: str = "no_keyring") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -1708,7 +1720,8 @@ class VaultStatusReport:
         exists: Whether the file is there — a project that has never synced.
         entry_count: Stored secrets. Readable without the key.
         key_provider: Which :class:`~functualize.plugin.VaultKeyProvider`
-            supplied the key, or None when none could.
+            supplied the key, or None when none did — including when the
+            keyring is locked, because status never opens it.
         oldest_sync: When the least-recently-synced entry was written.
         age: How old that is, or None for an empty vault.
         max_age: The staleness threshold in force.
@@ -1723,6 +1736,10 @@ class VaultStatusReport:
             key check value. ``None`` when the store does not exist or was
             written before check values did, in which case the question has no
             answer rather than a negative one.
+        key_state: ``"available"`` (a run would get the key),
+            ``"locked"`` (the keyring said so; it was not opened),
+            ``"unknown"`` (the keyring cannot say, or none is reachable), or
+            None when the project has no vault file.
     """
 
     path: Path
@@ -1737,6 +1754,7 @@ class VaultStatusReport:
     direct_entries: int = 0
     provider_entries: int = 0
     key_matches_store: bool | None = None
+    key_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1744,12 +1762,10 @@ class VaultSyncReport:
     """What one ``func builtin vault sync`` did.
 
     Attributes:
-        synced: ``(config key, provider that answered)`` per stored value.
-        failed: ``(config key, reason)`` for annotations nothing could resolve.
-        unresolved: Annotation-shaped values naming a provider that is not
-            installed, straight from
-            :func:`~functualize._config.annotations.scan_annotations`.
-        scanned: How many config keys were examined.
+        synced: ``(encoded scoped identity, provider)`` per stored value.
+        failed: ``(encoded scoped identity, reason)`` per failed declaration.
+        unresolved: Declarations naming a provider that is not installed.
+        scanned: How many ``[[vault_secret]]`` blocks were examined.
         path: The vault written to.
     """
 
@@ -1761,7 +1777,7 @@ class VaultSyncReport:
 
     @property
     def ok(self) -> bool:
-        """Whether every declared annotation reached the vault."""
+        """Whether every declaration reached the vault."""
         return not self.failed and not self.unresolved
 
 
@@ -1817,23 +1833,46 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
         cwd: Project directory. Defaults to the current one.
 
     Note:
-        Resolving the key here is what lets the report name the provider in
-        use, and it is done **non-interactively**: a status command must not
-        raise a keychain prompt.
+        ``key_state`` is :func:`~functualize.app.vault.vault_key_state` — one
+        implementation for every surface. It never prompts and never waits on
+        a dialog; a locked keyring is reported as locked, not opened. Only
+        when it says the keyring is unlocked is the key read (silently), to
+        name the provider and check it against the store.
     """
     from functualize._config.vault import SecretsVault, resolve_max_age
-    from functualize._config.vault_keys import resolve_vault_key
+    from functualize._config.vault_key_resolver import (
+        KeyAccess,
+        KeyStatus,
+        resolve_vault_key,
+    )
     from functualize._primitives.locator import compute_project_id
+    from functualize.app.vault import VaultKeyStatus, vault_key_state
 
     path = vault_location(cwd)
     exists = path.exists()
     entries = vault_entries(cwd) if exists else []
     vault = SecretsVault(path)
 
-    resolution = resolve_vault_key(
-        compute_project_id(Path(cwd) if cwd is not None else Path.cwd()),
-        allow_interactive=False,
+    state = vault_key_state(app, cwd)
+    key_state = (
+        None
+        if state.status is VaultKeyStatus.NOT_APPLICABLE
+        else {
+            VaultKeyStatus.UNLOCKED: "available",
+            VaultKeyStatus.LOCKED: "locked",
+        }.get(state.status, "unknown")
     )
+    found_key = None
+    lookup = None
+    if state.status is VaultKeyStatus.UNLOCKED:
+        # Unlocked, so a silent read answers at once; the short bound only
+        # guards a hung backend.
+        lookup = resolve_vault_key(
+            compute_project_id(Path(cwd) if cwd is not None else Path.cwd()),
+            access=KeyAccess.BOUNDED,
+            timeout=2.0,
+        )
+        found_key = lookup.key if lookup.status is KeyStatus.FOUND else None
     age = vault.age() if exists else None
     max_age = resolve_max_age(
         getattr(getattr(app, "_config_sources", None), "vault_max_age", None)
@@ -1851,18 +1890,20 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
     # that exists. `clear` needs the distinction to warn honestly.
     direct = sum(1 for e in entries if e.origin is VaultOrigin.DIRECT)
 
-    # Non-interactive throughout, as this function already is: `status` must
-    # answer on a machine whose keychain is locked without raising a prompt,
-    # because "why can I not read my vault?" is exactly when it gets run.
+    # Silent throughout: `status` must answer on a machine whose keychain is
+    # locked without raising a prompt, because "why can I not read my vault?"
+    # is exactly when it gets run.
     key_matches = (
-        vault.opens_with(resolution.key) if exists and resolution is not None else None
+        vault.opens_with(found_key) if exists and found_key is not None else None
     )
 
     return VaultStatusReport(
         path=path,
         exists=exists,
         entry_count=len(entries),
-        key_provider=resolution.provider_id if resolution is not None else None,
+        key_provider=lookup.provider_id
+        if lookup is not None and found_key is not None
+        else None,
         oldest_sync=vault.oldest_sync() if exists else None,
         age=age,
         max_age=max_age,
@@ -1871,6 +1912,7 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
         direct_entries=direct,
         provider_entries=len(entries) - direct,
         key_matches_store=key_matches,
+        key_state=key_state,
     )
 
 
@@ -1890,47 +1932,8 @@ def vault_clear(cwd: str | Path | None = None) -> bool:
     return existed
 
 
-def declared_config_values(app: Any) -> dict[str, str]:
-    """Every config-file value, flattened to ``"section.key"``, unresolved.
-
-    The input :func:`~functualize._config.annotations.scan_annotations` wants:
-    located but not yet resolved, because after resolution an annotation has
-    already been consumed as a literal.
-
-    **Files only, deliberately.** An annotation set in an environment variable
-    would, once synced, be answered by the vault instead — the vault sits
-    *above* Env in the chain ``remote_first()`` builds — so re-exporting the
-    variable would silently stop changing anything. A file annotation has no
-    such surprise: the file is below Env either way.
-
-    Earlier-discovered files win, matching the merge the chain itself performs.
-    """
-    values: dict[str, str] = {}
-    chain = getattr(app, "_resolution_chain", None)
-    if chain is None:
-        return values
-
-    for source in getattr(chain, "sources", []):
-        if getattr(source, "source_type", None) != "file":
-            continue
-        for _path, config in getattr(source, "per_file_values", []):
-            _flatten_config_into(config, values)
-    return values
-
-
-def _flatten_config_into(config: Mapping[str, Any], into: dict[str, str]) -> None:
-    """Add ``section.key`` strings from one file, without overwriting."""
-    for name, value in config.items():
-        if isinstance(value, dict):
-            for key, inner in value.items():
-                if isinstance(inner, str):
-                    into.setdefault(f"{name}.{key}", inner)
-        elif isinstance(value, str):
-            into.setdefault(name, value)
-
-
 def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
-    """Fetch every declared annotation from its provider and store it.
+    """Fetch each explicit scoped declaration and store it.
 
     The only thing in this codebase that touches a remote configuration
     provider. A job run reads the vault and never the network (ADR-016), so
@@ -1946,20 +1949,59 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
         that would have synced fine, and the report names each one.
 
     Raises:
-        VaultKeyUnavailableError: No key provider could supply a key. This one
-            *is* fatal — with no key there is nothing to write into, and
-            pretending otherwise would leave an operator believing a sync
-            happened.
+        VaultKeyUnavailableError: No key provider could supply a key within
+            the configured keyring wait. This one *is* fatal — with no key
+            there is nothing to write into, and pretending otherwise would
+            leave an operator believing a sync happened.
     """
     from functualize._config.annotations import scan_annotations
-    from functualize._config.vault import SecretsVault
-    from functualize._config.vault_keys import ENV_VAR, resolve_vault_key
+    from functualize._config.vault import SecretsVault, VaultOrigin, app_keyring_timeout
+    from functualize._config.vault_declarations import parse_vault_declarations
+    from functualize._config.vault_key_resolver import (
+        KeyAccess,
+        KeyStatus,
+        describe_key_failure,
+        resolve_vault_key,
+    )
     from functualize._primitives.locator import compute_project_id
+    from functualize.app.vault import resolve_vault_identity
 
     registry = app.config_registry
     registered = registry.list_remote_providers()
-    declared = declared_config_values(app)
-    scan = scan_annotations(declared, registered)
+    files = [
+        item
+        for source in getattr(app._resolution_chain, "sources", ())
+        if getattr(source, "source_type", None) == "file"
+        for item in source.per_file_values
+    ]
+    _reject_legacy_inline(app, files, registered)
+    declarations = parse_vault_declarations(files)
+    # Resolve every target and spot every duplicate before fetching anything.
+    # Canonical spelling can make two syntactically different targets collide.
+    canonical: dict[str, Any] = {}
+    for declaration in declarations:
+        identity = declaration.identity
+        try:
+            validated = resolve_vault_identity(
+                app,
+                **{identity.scope: identity.target},
+                field=identity.field,
+            )
+        except ValueError as exc:
+            from functualize._config.vault_declarations import VaultDeclarationError
+
+            raise VaultDeclarationError(f"{declaration.location}: {exc}") from exc
+        encoded = validated.encode()
+        if encoded in canonical:
+            from functualize._config.vault_declarations import VaultDeclarationError
+
+            raise VaultDeclarationError(
+                f"{declaration.location}: duplicate secret identity"
+            )
+        canonical[encoded] = declaration
+    scan = scan_annotations(
+        {key: declaration.source for key, declaration in canonical.items()}, registered
+    )
 
     path = vault_location(cwd)
     if not scan.annotations:
@@ -1967,24 +2009,33 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
             synced=(),
             failed=(),
             unresolved=tuple(scan.unresolved),
-            scanned=len(declared),
+            scanned=len(declarations),
             path=path,
         )
 
     project_id = compute_project_id(Path(cwd) if cwd is not None else Path.cwd())
-    resolution = resolve_vault_key(project_id)
-    if resolution is None:
-        msg = (
-            f"No vault key is available, so there is nothing to write into. "
-            f"Set ${ENV_VAR} — `func builtin vault keygen` prints one — or "
-            f"store a key in your OS keyring."
+    # Bounded like a job run: sync also runs from scripts, where an unbounded
+    # wait on a locked keyring is the hang this exists to remove.
+    timeout = app_keyring_timeout(app)
+    resolution = resolve_vault_key(
+        project_id, access=KeyAccess.BOUNDED, timeout=timeout
+    )
+    if resolution.status is not KeyStatus.FOUND or resolution.key is None:
+        reasons = {
+            KeyStatus.LOCKED: "key_locked",
+            KeyStatus.NOT_STORED: "key_not_stored",
+        }
+        raise VaultKeyUnavailableError(
+            describe_key_failure(
+                resolution, timeout=timeout if resolution.timed_out else None
+            ),
+            reason=reasons.get(resolution.status, "no_keyring"),
         )
-        raise VaultKeyUnavailableError(msg)
 
-    vault = SecretsVault(path, key_provider_id=resolution.provider_id)
+    vault = SecretsVault(path, key_provider_id=resolution.provider_id or "unknown")
 
     # Before writing anything. `sync` only ever writes, and only the keys that
-    # are *currently declared* as annotations -- so under a changed key it would
+    # are *currently declared* as scoped blocks -- so under a changed key it would
     # cheerfully add fresh rows beside ones it can no longer read, and report
     # ok: true. Every undeclared row and every direct entry would be stranded
     # under the old key, permanently, and under ADR-023 §1 each one becomes a
@@ -2007,8 +2058,18 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
 
     synced: list[tuple[str, str]] = []
     failed: list[tuple[str, str]] = []
+    direct_keys = {
+        entry.key
+        for entry in vault.list_entries()
+        if entry.origin is VaultOrigin.DIRECT
+    }
 
     for key, chain in scan.annotations.items():
+        if key in direct_keys:
+            failed.append(
+                (key, "direct entry already exists; remove it before syncing")
+            )
+            continue
         outcome = _fetch_first(chain, registered)
         if isinstance(outcome, str):
             failed.append((key, outcome))
@@ -2018,7 +2079,7 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
             key,
             value,
             encryption_key=resolution.key,
-            annotation=declared[key],
+            annotation=canonical[key].source,
             provider=provider_id,
             # Refreshing is what sync is *for*, so it says so rather than
             # leaning on a permissive default. A *direct* entry at this key is
@@ -2032,9 +2093,46 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
         synced=tuple(synced),
         failed=tuple(failed),
         unresolved=tuple(scan.unresolved),
-        scanned=len(declared),
+        scanned=len(declarations),
         path=path,
     )
+
+
+def _reject_legacy_inline(
+    app: Any,
+    files: list[tuple[str, Mapping[str, Any]]],
+    registered: Mapping[str, Any],
+) -> None:
+    """Reject an inline provider on a secret field even below an env winner."""
+    from functualize._config.annotations import scan_annotations
+    from functualize._config.vault_declarations import VaultDeclarationError
+    from functualize.app.vault import VaultPathError, resolve_vault_identity
+
+    def walk(path: str, section: str, values: Mapping[str, Any]) -> None:
+        for key, value in values.items():
+            if key == "vault_secret":
+                continue
+            if isinstance(value, dict):
+                child = f"{section}.{key}" if section else key
+                walk(path, child, value)
+            elif (
+                section
+                and isinstance(value, str)
+                and scan_annotations({key: value}, registered)
+            ):
+                for scope in ("group", "job"):
+                    try:
+                        resolve_vault_identity(app, **{scope: section}, field=key)
+                    except VaultPathError:
+                        continue
+                    raise VaultDeclarationError(
+                        f"{path}: secret field {section}.{key} uses legacy inline "
+                        "provider syntax; move it to [[vault_secret]] with group "
+                        "or job, field, and source"
+                    )
+
+    for path, config in files:
+        walk(path, "", config)
 
 
 def _fetch_first(
@@ -2062,7 +2160,10 @@ def _fetch_first(
         try:
             value = provider.fetch(annotation.reference)
         except Exception as exc:  # noqa: BLE001 - a provider may raise anything
-            reasons.append(f"{annotation.provider}: {type(exc).__name__}: {exc}")
+            # Provider exceptions can include credentials or response bodies.
+            # The class and provider identify the failed entry without echoing
+            # arbitrary provider-controlled text to a report or a log.
+            reasons.append(f"{annotation.provider}: {type(exc).__name__} during fetch")
             continue
         if value is None:
             reasons.append(f"{annotation.provider}: returned nothing")

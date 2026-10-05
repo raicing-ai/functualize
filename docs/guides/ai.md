@@ -209,6 +209,7 @@ ladder over several strategies.
 | `prompt` | strategy | core, at boot |
 | `ai_inbound` | strategy | `functualize-ai` |
 | `ai_outbound` | strategy | `functualize-mcp` |
+| `decision` | strategy | `functualize-decision-jev` |
 | `"ai_inbound"` | preset → `ai_inbound` → `prompt` → `resolve` | `functualize-ai` |
 | `"ai"` | preset → `ai_outbound` → `ai_inbound` → `prompt` → `resolve` | `functualize-ai` |
 
@@ -216,7 +217,19 @@ Note that `"ai_inbound"` names **both** a strategy and a preset. Which one you
 get depends on where you write it, and that is the trap the next section is
 about.
 
-### `Gate(strategy=...)` accepts only the four bare strategy names
+`decision` differs from `ai_inbound` in who decides. A gate declares it with
+`Gate(decide=ChoiceDecision(...))` (see [Workflows](workflows.md#decision-gates)):
+a decision provider **proposes** one of the declared options for one field,
+with a probability for each option, and the workflow's own thresholds decide.
+The proposal is accepted only when its probability reaches `accept_at` and
+leads the runner-up by at least `min_margin`. The provider's own `confidence`
+score is recorded on the result and never consulted — a provider cannot raise
+its own acceptance by claiming certainty. A proposal below either threshold,
+or a provider that fails or is rate-limited, does not retry or wait: the gate
+blocks for a person, and `blocked_reason` says what was proposed against what
+the workflow requires.
+
+### `Gate(strategy=...)` accepts only the five bare strategy names
 
 ```python
 Gate(name="triage", awaits=Approval, strategy="ai_inbound")   # ok
@@ -225,7 +238,7 @@ Gate(name="triage", awaits=Approval, strategy="ai")           # ValueError
 
 ```
 ValueError: Gate strategy must be one of
-['ai_inbound', 'ai_outbound', 'prompt', 'resolve'], got 'ai'
+['ai_inbound', 'ai_outbound', 'decision', 'prompt', 'resolve'], got 'ai'
 ```
 
 `Gate` validates in `__post_init__`, against a fixed set — not against the
@@ -236,6 +249,11 @@ which presets exist. The cost is that presets are unreachable from a `Gate`.
 A gate that names `ai_inbound` still gets the *ladder*, because the walker
 expands it: `Gate(strategy="ai_inbound")` is walked as
 `["ai_inbound", "prompt", "resolve"]`. So the common case needs no preset.
+A `decision` gate is walked the same way, as `["decision", "prompt", "resolve"]`
+— which is how a refused proposal falls through to a person. Every rung of a
+walked gate receives the walk's step results so far in
+`GateContext.workflow_context`; the `decision` strategy reads the step its
+`ChoiceDecision.state` names from there.
 
 ### Presets resolve through two APIs, neither of them `Gate`
 
@@ -272,9 +290,10 @@ names.
 
 ### What happens when the plugin is not installed
 
-`ai_inbound` resolves to nothing until `functualize-ai` is installed, and
-`ai_outbound` until `functualize-mcp` is. The walk **blocks** rather than
-raising, and says which package it wanted:
+`ai_inbound` resolves to nothing until `functualize-ai` is installed,
+`ai_outbound` until `functualize-mcp` is, and `decision` until
+`functualize-decision-jev` is. The walk **blocks** rather than raising, and says
+which package it wanted:
 
 ```python
 result = app.execute("review")
@@ -282,15 +301,18 @@ result = app.execute("review")
 result.status                      # RunStatus.BLOCKED
 result.metadata["blocked_on"]      # 'triage'
 result.metadata["blocked_reason"]
-# "unregistered gate strategy 'ai_inbound' (install functualize-ai to register
-#  it); Cannot resolve model Approval from config chain: unresolved fields:
-#  ['approved']"
+# Begins with "unregistered gate strategy 'ai_inbound' (install functualize-ai
+# to register it)"; subsequent rung failures keep their existing text.
 ```
 
-The reason has two halves, `;`-separated: the unregistered strategies come
-first because they are the actionable part, followed by the last rung's own
-error. Here `resolve` was the last rung, and it failed for the ordinary reason
-a gate exists — nothing had supplied `approved` yet.
+The missing `ai_inbound` rung is recorded as an `unavailable` candidate, with
+source `strategy:ai_inbound` and the install hint in its detail. The ladder
+still tries `prompt` and `resolve`, recording each result. A read through
+`gate_draft(...)["resolution"]["candidates"]` reports those recorded
+outcomes without running the strategies again. This recording does not change
+the human-facing `blocked_reason` text: unregistered strategies come first,
+then failed rungs with their existing details, separated by `;`. In this
+example `resolve` fails because nothing supplied `approved`.
 
 `blocked_reason` appears only when there is something to say. A gate waiting
 for a human by design carries `blocked_on` and no reason at all.

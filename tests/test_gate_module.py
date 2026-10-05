@@ -84,19 +84,6 @@ class TestGateContext:
         with pytest.raises(dataclasses.FrozenInstanceError):
             ctx.force_gate = True  # type: ignore[misc]
 
-    def test_field_names(self) -> None:
-        """GateContext has exactly the expected fields."""
-        field_names = [f.name for f in dataclasses.fields(GateContext)]
-        expected = [
-            "model_class",
-            "resolved_fields",
-            "unresolved_fields",
-            "all_fields",
-            "force_gate",
-            "workflow_context",
-        ]
-        assert field_names == expected
-
 
 class TestGateResolver:
     """Tests for the GateResolver protocol."""

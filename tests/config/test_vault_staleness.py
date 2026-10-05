@@ -37,7 +37,9 @@ from functualize._config.vault import (
     parse_duration,
     resolve_max_age,
 )
+from functualize._config.vault_key_resolver import VaultKeyResolver
 from functualize._config.vault_source import VaultSource
+from functualize._primitives.vault_identity import VaultIdentity
 from functualize.app.config import ConfigSources
 from functualize.app.core import FunctualizeApp, request_for
 from functualize.app.presets import remote_first
@@ -52,6 +54,9 @@ _KEY_HEX = _KEY.hex()
 #: Long and distinctive on purpose, same discipline as `test_vault_miss.py`:
 #: a short value can satisfy a leak assertion by coincidence.
 _CONSPICUOUS = "PLAINTEXT-4f10ab77-must-never-be-logged"  # gitleaks:allow
+#: The encoded identity the helpers store under, spelled by the codec so the
+#: JSON cannot drift from what `VaultIdentity.encode` writes.
+_JOB_DATABASE_PASSWORD = VaultIdentity("job", "database", "password").encode()
 
 _ANNOTATION = "fake-sm://prod/db-password"
 
@@ -317,7 +322,11 @@ class TestTheDefaultHasOneSpelling:
 # --------------------------------------------------------------------------
 
 
-def _vault(path: Path, *, keys: tuple[str, ...] = ("database.password",)) -> Path:
+def _vault(
+    path: Path,
+    *,
+    keys: tuple[str, ...] = (_JOB_DATABASE_PASSWORD,),
+) -> Path:
     store = SecretsVault(path)
     for key in keys:
         store.put(
@@ -353,7 +362,7 @@ class TestHowOldIsTheVault:
 
     def test_a_backdated_entry_reports_its_age(self, tmp_path: Path) -> None:
         path = _vault(tmp_path / "v.db")
-        _backdate(path, "database.password", timedelta(days=3))
+        _backdate(path, _JOB_DATABASE_PASSWORD, timedelta(days=3))
         age = SecretsVault(path).age()
         assert age is not None
         assert timedelta(days=3) <= age < timedelta(days=3, minutes=1)
@@ -362,8 +371,14 @@ class TestHowOldIsTheVault:
         """A vault is only as fresh as the value most likely to have been
         rotated behind it. Judging on the newest would let one re-synced key
         vouch for twenty stale ones."""
-        path = _vault(tmp_path / "v.db", keys=("a.one", "b.two"))
-        _backdate(path, "a.one", timedelta(days=9))
+        path = _vault(
+            tmp_path / "v.db",
+            keys=(
+                VaultIdentity("job", "a", "one").encode(),
+                VaultIdentity("job", "b", "two").encode(),
+            ),
+        )
+        _backdate(path, VaultIdentity("job", "a", "one").encode(), timedelta(days=9))
         age = SecretsVault(path).age()
         assert age is not None
         assert age >= timedelta(days=9)
@@ -372,7 +387,7 @@ class TestHowOldIsTheVault:
         """Negative, deliberately left unclamped: skew must not be able to
         manufacture a staleness warning."""
         path = _vault(tmp_path / "v.db")
-        _backdate(path, "database.password", timedelta(hours=-6))
+        _backdate(path, _JOB_DATABASE_PASSWORD, timedelta(hours=-6))
         age = SecretsVault(path).age()
         assert age is not None
         assert age < timedelta(0)
@@ -415,17 +430,38 @@ class TestHowOldIsTheVault:
 # --------------------------------------------------------------------------
 
 
+class _NothingStored:
+    """A live keyring holding no vault key: a lookup ends NOT_STORED."""
+
+    def identifier(self) -> str:
+        return "keychain"
+
+    def interactive(self) -> bool:
+        return False
+
+    def is_available(self) -> bool:
+        return True
+
+    def get_key(self, project_id: str) -> bytes | None:
+        return None
+
+
+def _resolver(key: bytes | None) -> VaultKeyResolver:
+    """A fixed key, or — for `None` — a keyring that answers "nothing stored"."""
+    if key is None:
+        return VaultKeyResolver("proj", providers=[_NothingStored()], timeout=5.0)
+    return VaultKeyResolver.fixed(key, "test")
+
+
 def _source(path: Path, *, max_age: timedelta | None, key: bytes | None = _KEY) -> Any:
-    return VaultSource(
-        path, encryption_key=key, providers=("fake-sm",), max_age=max_age
-    )
+    return VaultSource(path, key=_resolver(key), max_age=max_age)
 
 
 class TestTheWarningOnTheRunPath:
     @pytest.fixture
     def stale(self, tmp_path: Path) -> Path:
         path = _vault(tmp_path / "v.db")
-        _backdate(path, "database.password", timedelta(days=3))
+        _backdate(path, _JOB_DATABASE_PASSWORD, timedelta(days=3))
         return path
 
     def test_a_stale_vault_warns_on_the_first_read(
@@ -504,7 +540,7 @@ class TestTheWarningOnTheRunPath:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         path = _vault(tmp_path / "v.db")
-        _backdate(path, "database.password", timedelta(hours=23, minutes=59))
+        _backdate(path, _JOB_DATABASE_PASSWORD, timedelta(hours=23, minutes=59))
         with caplog.at_level(logging.WARNING):
             _source(path, max_age=timedelta(hours=24)).get("password", "database")
         assert caplog.records == []
@@ -515,7 +551,7 @@ class TestTheWarningOnTheRunPath:
         """The pair pins the comparison's direction. Either one alone passes
         under a comparison that never fires, or one that always does."""
         path = _vault(tmp_path / "v.db")
-        _backdate(path, "database.password", timedelta(hours=24, minutes=1))
+        _backdate(path, _JOB_DATABASE_PASSWORD, timedelta(hours=24, minutes=1))
         with caplog.at_level(logging.WARNING):
             _source(path, max_age=timedelta(hours=24)).get("password", "database")
         assert len(caplog.records) == 1
@@ -640,16 +676,17 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
 def _fill_project_vault(days_old: float) -> Path:
     from functualize._config.vault import vault_path_for_project
 
+    identity = VaultIdentity("job", "report", "password").encode()
     path = vault_path_for_project()
     SecretsVault(path).put(
-        "report.password",
+        identity,
         _CONSPICUOUS,
         annotation=_ANNOTATION,
         provider="fake-sm",
         encryption_key=_KEY,
     )
     if days_old:
-        _backdate(path, "report.password", timedelta(days=days_old))
+        _backdate(path, identity, timedelta(days=days_old))
     return path
 
 

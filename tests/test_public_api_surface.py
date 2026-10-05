@@ -158,6 +158,13 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "ThemeProvider",
         "VaultKeyInitializer",
         "VaultKeyProvider",
+        # An optional key-provider capability: "would a read prompt?", asked
+        # without prompting, so `vault status` can say "locked" (ADR-016 §5,
+        # as amended).
+        "VaultKeyProbe",
+        "KeyAvailability",
+        # The one key-provider capability that may prompt: `vault unlock` only.
+        "VaultKeyUnlocker",
         # The agent step port (agent-step-port F6): one Protocol a plugin
         # implements, plus the capability flags it declares and the payload
         # types it is handed and returns.
@@ -165,6 +172,17 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "AgentCapability",
         "AgentStepContext",
         "AgentStepResult",
+        # The decision provider port, provisional (decision-provider-seam):
+        # the Protocol a provider implements, the request it is handed, the
+        # candidate it returns, and the one error it raises instead.
+        "DecisionProvider",
+        "ChoiceRequest",
+        "DecisionResult",
+        "DecisionProvenance",
+        "DecisionFailure",
+        "DecisionUnavailableError",
+        # ...and the resolver a provider plugin registers around its provider.
+        "DecisionGateResolver",
         "discover_domains",
         "scan_domain_providers",
         "validate_extension_id",
@@ -223,6 +241,8 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "END",
         "FromStep",
         "Gate",
+        # A gate's declared decision (decision-provider-seam), provisional.
+        "ChoiceDecision",
         "Loop",
         "OnFailure",
         # A notification on a walk's outcome, and what its deliverer is handed

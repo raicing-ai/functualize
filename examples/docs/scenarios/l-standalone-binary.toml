@@ -232,7 +232,7 @@ timeout = 240
 
 [[steps]]
 engine = "docker"
-description = "Offline, `self doctor` names the binary's real path, not `-c`"
+description = "Offline, `self doctor` reports the binary's real path with an `ok binary-path`"
 image = "debian:bookworm-slim"
 network = "none"
 volumes = { "./dist/standalone" = "/work" }
@@ -241,8 +241,22 @@ command = """
 set -e
 out=$(/work/func builtin self doctor)
 echo "$out"
-# The registry used to record `<prefix>/bin/-c` -- a path that never existed --
-# and then correctly reported the fresh install as stale on its first run.
+# The positive assertion, and the whole point of this step. A build without
+# `PYAPP_PASS_LOCATION=1` has no handle on itself: `self doctor` prints
+# `!!  binary-path  this binary cannot determine its own location`, and the
+# negatives below match nothing in that report, so the step used to go green on
+# exactly the regression it is named for. The `ok` status is the report's own
+# health glyph (`self_cmd.py:487`), so requiring it asserts a confirmed path
+# rather than merely the word `binary-path` on some other status line.
+# Anchored: `install-mode`'s value is `standalone`, which is also a substring of
+# the binary's path, so an unanchored match would accept the wrong line. The
+# literal `/work` is the mount point this scenario builds into.
+echo "$out" | grep -q "^  ok  binary-path          /work/" || {
+  echo "self doctor did not confirm the binary's own path:"; exit 1; }
+# The negatives stay: the registry used to record `<prefix>/bin/-c` -- a path
+# that never existed -- and then correctly reported the fresh install as stale
+# on its first run. Every `docker run` is a fresh container, so this one has no
+# registry of its own and neither string can appear for a healthy binary.
 echo "$out" | grep -q -- "/bin/-c" && { echo "STILL RECORDING -c"; exit 1; }
 echo "$out" | grep -q "stale" && { echo "REPORTS ITSELF STALE"; exit 1; }
 echo "IDENTITY-OK"

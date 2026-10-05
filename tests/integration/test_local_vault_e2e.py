@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from functualize._app.state import AppState
 from functualize._cli.builtins import register_builtin_commands
 from functualize.app import FunctualizeApp, JobSources
 from functualize.app.core import request_for
+from functualize.app.presets import remote_first
 from functualize.app.utils import ExitCode
 
 #: Distinctive on purpose: every assertion about absence below is only as good
@@ -89,7 +91,9 @@ def _provision(project: Path, value: str = _SECRET) -> None:
     """The user's two commands, through the real CLI."""
     assert _cli_run(["init", "--key-source", "env"]).exit_code == ExitCode.OK
     result = _cli_run(
-        ["put", "deploy.api_token", "--stdin"], app=_app(project), stdin=value
+        ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+        app=_app(project),
+        stdin=value,
     )
     assert result.exit_code == ExitCode.OK, result.output
 
@@ -177,7 +181,10 @@ class TestPrecedence:
         _provision(project)
         monkeypatch.setenv("DEPLOY_API_TOKEN", "from-environment")
 
-        removed = _cli_run(["remove", "deploy.api_token", "--yes"], app=_app(project))
+        removed = _cli_run(
+            ["remove", "--job", "deploy", "--field", "api_token", "--yes"],
+            app=_app(project),
+        )
         assert removed.exit_code == ExitCode.OK
 
         assert (
@@ -203,11 +210,11 @@ class TestTheDormantDefault:
     ) -> None:
         """AC-5. A vault that holds *something else* must not interfere."""
         from functualize._config.vault import SecretsVault, VaultOrigin
-        from functualize._config.vault_keys import resolve_vault_key
+        from functualize._config.vault_key_resolver import resolve_vault_key
         from functualize._config.vault_paths import vault_path_for_project
 
         resolution = resolve_vault_key("ignored")
-        assert resolution is not None
+        assert resolution.key is not None
         SecretsVault(vault_path_for_project(project)).put(
             "other.thing",
             "irrelevant",
@@ -246,6 +253,205 @@ class TestTheRunIsOffline:
             _app(project).execute(request_for("deploy")).return_value
             == f"Secret:{_SECRET}"
         )
+
+
+_SCOPED_JOB = """
+from pydantic import BaseModel, Field
+from functualize.job import GroupOptions
+from functualize.job.decorators import job
+from functualize.types import Secret
+
+class DeployOptions(GroupOptions, group="deploy"):
+    token: Secret[str] = Field(default="group-default")
+
+class WebOptions(GroupOptions, group="deploy.web"):
+    token: Secret[str] = Field(default="web-default")
+
+class DeployConfig(BaseModel):
+    token: Secret[str] = Field(default="job-default")
+
+class ServiceConfig(BaseModel):
+    iam_key: Secret[str] = Field(default="service-default")
+
+@job
+def deploy(config: DeployConfig, options: DeployOptions, parameter: str = "default") -> str:
+    return "|".join((options.token.get_secret_value(), config.token.get_secret_value(), parameter))
+
+@job(group="deploy")
+def service(config: ServiceConfig, options: DeployOptions) -> str:
+    return "|".join((options.token.get_secret_value(), config.iam_key.get_secret_value()))
+
+@job(group="deploy.web")
+def web(parent: DeployOptions, options: WebOptions) -> str:
+    return "|".join((parent.token.get_secret_value(), options.token.get_secret_value()))
+"""
+
+
+class _Provider:
+    def __init__(self) -> None:
+        self.fetched: list[str] = []
+
+    def identifier(self) -> str:
+        return "fake-sm"
+
+    def is_ready(self) -> bool:
+        return True
+
+    def fetch(self, reference: str) -> str:
+        self.fetched.append(reference)
+        return f"provider-{reference}"
+
+
+@pytest.fixture
+def scoped_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, _Provider]:
+    from functualize._config.registry import ProviderRegistry
+    from functualize._config.vault_keys import ENV_VAR, generate_key
+
+    root = tmp_path / "scoped-project"
+    (root / "jobs").mkdir(parents=True)
+    (root / ".functualize").mkdir()
+    (root / "jobs" / "secrets.py").write_text(_SCOPED_JOB)
+    (root / "config.dev.toml").write_text(
+        '[deploy]\ntoken = "file-token"\n'
+        '[deploy.web]\ntoken = "web-file"\n'
+        '[deploy.service]\niam_key = "file-key"\n'
+        '[[vault_secret]]\ngroup = "deploy"\nfield = "token"\n'
+        'source = "fake-sm://group"\n'
+        '[[vault_secret]]\njob = "deploy.service"\nfield = "iam_key"\n'
+        'source = "fake-sm://service"\n'
+    )
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv(ENV_VAR, generate_key())
+    monkeypatch.chdir(root)
+    provider = _Provider()
+
+    def discover(self: ProviderRegistry) -> None:
+        self.register_remote_provider(provider)
+
+    monkeypatch.setattr(ProviderRegistry, "_discover_remote_entry_points", discover)
+    AppState.reset()
+    yield root, provider
+    AppState.reset()
+
+
+def _scoped_app(root: Path) -> FunctualizeApp:
+    return FunctualizeApp(
+        "scoped-e2e",
+        job_sources=JobSources(directories=[str(root / "jobs")], lazy=False),
+        config_sources=remote_first(),
+    )
+
+
+class TestScopedAcceptance:
+    def test_direct_and_provider_entries_resolve_offline_with_scope_and_precedence(
+        self,
+        scoped_project: tuple[Path, _Provider],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        root, provider = scoped_project
+        direct = _cli_run(
+            ["put", "--job", "deploy", "--field", "token", "--stdin"],
+            app=_scoped_app(root),
+            stdin="direct-job-token",
+        )
+        assert direct.exit_code == ExitCode.OK, direct.output
+        synced = _cli_run(["sync", "--json"], app=_scoped_app(root))
+        assert synced.exit_code == ExitCode.OK, synced.output
+        assert provider.fetched == ["group", "service"]
+
+        monkeypatch.setenv("DEPLOY__TOKEN", "env-group")
+        monkeypatch.setenv("DEPLOY_TOKEN", "env-job")
+        monkeypatch.setenv("DEPLOY_SERVICE_IAM_KEY", "env-service")
+
+        def refuse_fetch(reference: str) -> str:
+            raise AssertionError(f"job run contacted provider: {reference}")
+
+        monkeypatch.setattr(provider, "fetch", refuse_fetch)
+        cold = _scoped_app(root)
+        assert cold.execute(
+            request_for("deploy", parameter="invoked")
+        ).return_value == ("provider-group|direct-job-token|invoked")
+        assert cold.execute(request_for("deploy.service")).return_value == (
+            "provider-group|provider-service"
+        )
+        assert cold.execute(request_for("deploy.web.web")).return_value == (
+            "provider-group|web-file"
+        )
+        nearer = _cli_run(
+            ["put", "--group", "deploy.web", "--field", "token", "--stdin"],
+            app=_scoped_app(root),
+            stdin="nearer-group-token",
+        )
+        assert nearer.exit_code == ExitCode.OK, nearer.output
+        warm = _scoped_app(root)
+        assert warm.execute(
+            request_for("deploy", parameter="invoked")
+        ).return_value == ("provider-group|direct-job-token|invoked")
+        assert warm.execute(request_for("deploy.web.web")).return_value == (
+            "provider-group|nearer-group-token"
+        )
+        explicit = warm.execute(
+            request_for("deploy", token="job-cli").replace(
+                group_option_values={"token": "group-cli"}
+            )
+        )
+        assert explicit.return_value == "group-cli|job-cli|default"
+
+        listed = _cli_run(["list", "--json"])
+        inspected = _cli_run(
+            ["inspect", "--group", "deploy", "--field", "token", "--json"],
+            app=_scoped_app(root),
+        )
+        assert listed.exit_code == inspected.exit_code == ExitCode.OK
+        for output in (listed.output, inspected.output):
+            assert "provider-group" not in output
+            assert "direct-job-token" not in output
+            assert "provider-service" not in output
+            assert "nearer-group-token" not in output
+
+    def test_v1_store_refuses_without_deleting_and_clear_needs_no_key(
+        self,
+        scoped_project: tuple[Path, _Provider],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from functualize._config.vault_keys import ENV_VAR
+        from functualize._config.vault_paths import vault_path_for_project
+
+        root, _ = scoped_project
+        path = vault_path_for_project(root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(path) as conn:
+            conn.executescript(
+                "CREATE TABLE secrets (key TEXT PRIMARY KEY); PRAGMA user_version = 1;"
+            )
+        before = path.read_bytes()
+        result = _cli_run(["list", "--json"])
+        assert result.exit_code != ExitCode.OK
+        assert "func builtin vault clear" in result.output
+        assert path.read_bytes() == before
+
+        monkeypatch.delenv(ENV_VAR)
+        cleared = _cli_run(["clear", "--yes"])
+        assert cleared.exit_code == ExitCode.OK, cleared.output
+        assert not path.exists()
+
+    def test_function_parameter_is_not_a_vault_target(
+        self, scoped_project: tuple[Path, _Provider]
+    ) -> None:
+        root, _ = scoped_project
+        result = _cli_run(
+            ["put", "--job", "deploy", "--field", "parameter", "--stdin"],
+            app=_scoped_app(root),
+            stdin="should-never-be-read",
+        )
+        assert result.exit_code == ExitCode.USAGE
+        assert "parameter" in result.output
+        assert "should-never-be-read" not in result.output
 
 
 class TestTheRefusalReachesTheUserAsALine:
@@ -289,7 +495,10 @@ class TestTheRefusalReachesTheUserAsALine:
                 "builtin",
                 "vault",
                 "put",
-                "deploy.api_token",
+                "--job",
+                "deploy",
+                "--field",
+                "api_token",
                 "--stdin",
             ],
             cwd=project,

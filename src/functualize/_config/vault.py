@@ -57,11 +57,12 @@ import logging
 import os
 import re
 import sqlite3
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Final
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -74,20 +75,28 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 __all__ = [
+    "DEFAULT_KEYRING_TIMEOUT",
     "DEFAULT_MAX_AGE",
+    "ENV_KEYRING_TIMEOUT",
     "KEY_BYTES",
     "MAX_AGE_VAR",
     "InvalidDurationError",
+    "KeyringLockedError",
+    "KeyringUnavailableError",
+    "KeyringUnverifiedError",
     "SecretsVault",
     "VaultDecryptionError",
     "VaultEntry",
     "VaultOrigin",
     "VaultEntryExistsError",
     "VaultEntryUnreadableError",
+    "VaultFormatError",
     "VaultError",
     "VaultOriginConflictError",
+    "app_keyring_timeout",
     "format_duration",
     "parse_duration",
+    "resolve_keyring_timeout",
     "resolve_max_age",
     "vault_path_for_project",
 ]
@@ -107,6 +116,22 @@ DEFAULT_MAX_AGE = "24h"
 #: setting (``FUNCTUALIZE_<SECTION>_<KEY>``), so registering it in the catalog
 #: later adds a file path without renaming anything an operator already uses.
 MAX_AGE_VAR = "FUNCTUALIZE_VAULT_MAX_AGE"
+
+#: How long a run waits on the OS keyring before refusing, by default.
+#:
+#: The keyring is read **regardless of terminal**; this deadline is what
+#: stands where the old stdin/stdout TTY gate stood. A locked keyring may
+#: show its own unlock dialog inside the window — if it is unlocked in time
+#: the run proceeds, otherwise it is refused with a message that names the
+#: wait. functualize holds no timer of its own: when the keyring relocks,
+#: the next run finds it locked again.
+DEFAULT_KEYRING_TIMEOUT: Final = timedelta(seconds=30)
+
+#: Environment spelling of the keyring wait, derived the same way the settings
+#: store derives every ``FUNCTUALIZE_<SECTION>_<KEY>`` name, so registering
+#: ``vault.keyring_timeout`` in the catalog later renames nothing an operator
+#: already uses. Outranks any configured file value.
+ENV_KEYRING_TIMEOUT: Final = "FUNCTUALIZE_VAULT_KEYRING_TIMEOUT"
 
 #: Duration units, smallest first. Deliberately stops at weeks: months and
 #: years are not fixed-length, and a staleness threshold that silently means
@@ -129,7 +154,7 @@ _NONCE_BYTES = 12
 
 #: Bumped when the table shapes below change. Stamped into ``PRAGMA
 #: user_version`` by :func:`_upgrade`, which is what makes the upgrade run once.
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 #: The one row of :data:`_SCHEMA`'s ``vault_meta`` table, encrypted under the
 #: vault key. Fixed and non-secret on purpose: this is a **known-plaintext
@@ -178,6 +203,10 @@ class VaultError(Exception):
     """Base class for vault failures."""
 
 
+class VaultFormatError(VaultError):
+    """An existing vault uses an unsupported entry identity format."""
+
+
 class VaultDecryptionError(VaultError):
     """A stored value could not be authenticated with the supplied key.
 
@@ -185,6 +214,41 @@ class VaultDecryptionError(VaultError):
     plausible garbage. The message names the key provider in use, because "it
     did not decrypt" without saying which key was tried is the least useful
     thing this error could say.
+    """
+
+
+class KeyringLockedError(VaultError):
+    """The OS keyring exists but did not release the key.
+
+    Raised by the keychain provider when the backend reports the collection
+    is locked, or the unlock prompt was dismissed. Distinct from
+    :class:`KeyringUnavailableError` because the answers differ: a locked
+    keyring may become readable (unlock it, or wait out the deadline), where
+    a missing one cannot. Collapsing the two is what made the old refusal
+    text claim no key was available on a machine that had one.
+    """
+
+
+class KeyringUnavailableError(VaultError):
+    """No OS keyring can answer here at all.
+
+    The ``keyring`` extra is not installed, the library resolves to its fail
+    backend, there is no session bus, or backend initialization failed. The
+    honest next step is ``$FUNCTUALIZE_VAULT_KEY`` or installing
+    ``functualize[keychain]`` — not waiting, and never deleting a stored
+    entry that may be perfectly fine.
+    """
+
+
+# A subclass of KeyringUnavailableError, so a caller that knows only the wider
+# error still refuses rather than crashing; the resolver catches it first and
+# reports its own outcome.
+class KeyringUnverifiedError(KeyringUnavailableError):
+    """A keyring backend nobody has proven can be read without a prompt.
+
+    Not read by a run at all, because a run must never create an unlock
+    prompt. The ways round it are ``$FUNCTUALIZE_VAULT_KEY`` and
+    ``func builtin vault unlock``, which reads in the foreground.
     """
 
 
@@ -373,6 +437,74 @@ def resolve_max_age(configured: str | None = None) -> timedelta:
     return parse_duration(DEFAULT_MAX_AGE)
 
 
+def resolve_keyring_timeout(configured: str | None = None) -> float:
+    """The keyring wait in force, in seconds.
+
+    Precedence is ``$FUNCTUALIZE_VAULT_KEYRING_TIMEOUT`` > the configured
+    ``vault.keyring_timeout`` (from ``ConfigSources`` / the func settings
+    chain) > :data:`DEFAULT_KEYRING_TIMEOUT`, matching
+    :func:`resolve_max_age` and the settings store's documented
+    ``default < global < project < env`` order.
+
+    An unusable value is **warned about and skipped**, not raised, exactly as
+    ``resolve_max_age`` behaves: the wait governs a refusal message, and a
+    typo in it must not be more disruptive than the wait it governs. A bare
+    number is refused by the shared duration parser (``"30"`` reads as
+    seconds to whoever wrote it and as an instant timeout to whoever guesses);
+    a zero-or-negative wait is refused here, because "do not wait at all" and
+    "wait the default" are different decisions and the first one cannot be
+    written by accident through a parsed duration of ``0``.
+
+    Args:
+        configured: ``ConfigSources.vault_keyring_timeout``, or None when
+            unset. Read by the caller (the app layer) — this module never
+            imports the settings store.
+
+    Returns:
+        Seconds to wait on the keyring before refusing.
+    """
+    candidates = (
+        (os.environ.get(ENV_KEYRING_TIMEOUT), f"${ENV_KEYRING_TIMEOUT}"),
+        (configured, "the vault keyring_timeout setting"),
+    )
+    for text, origin in candidates:
+        if not text:
+            continue
+        try:
+            seconds = parse_duration(text).total_seconds()
+        except InvalidDurationError as exc:
+            logger.warning(
+                "Ignoring the vault keyring timeout from %s: %s", origin, exc
+            )
+            continue
+        if seconds <= 0:
+            logger.warning(
+                "Ignoring the vault keyring timeout from %s: %r is not a"
+                " positive wait; using the default.",
+                origin,
+                text,
+            )
+            continue
+        return seconds
+    return DEFAULT_KEYRING_TIMEOUT.total_seconds()
+
+
+def app_keyring_timeout(app: Any | None) -> float:
+    """The keyring wait configured on an app, resolved to seconds.
+
+    The single ``getattr(app._config_sources, "vault_keyring_timeout", None)``
+    chain, so the five-plus callers that need the wait do not each re-derive
+    it. Reaches for a private attribute on purpose — the same intimacy
+    ``vault_status`` and ``build_vault_source`` already carry for
+    ``vault_max_age``, collapsed to one site.
+
+    A library-mode app that never set the field gets env + default, exactly
+    like a ``func``-hosted run with no ``[vault]`` section.
+    """
+    sources = getattr(app, "_config_sources", None)
+    return resolve_keyring_timeout(getattr(sources, "vault_keyring_timeout", None))
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
@@ -415,6 +547,24 @@ class SecretsVault:
         return self._path
 
     def _connect(self) -> sqlite3.Connection:
+        if self._path.exists():
+            # Inspect through a read-only handle before WAL mode, DDL or the
+            # upgrade path can modify a legacy store. Clear bypasses _connect.
+            with closing(
+                sqlite3.connect(self._path.resolve().as_uri() + "?mode=ro", uri=True)
+            ) as old:
+                version = old.execute("PRAGMA user_version").fetchone()[0]
+                has_schema = (
+                    old.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1"
+                    ).fetchone()
+                    is not None
+                )
+            if has_schema and version != _SCHEMA_VERSION:
+                raise VaultFormatError(
+                    "This vault uses the old identity format. Run "
+                    "`func builtin vault clear` before using scoped secrets."
+                )
         self._path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self._path)
         # WAL: `builtin parallel` runs several jobs at once, so concurrent
@@ -424,6 +574,27 @@ class SecretsVault:
         conn.executescript(_SCHEMA)
         _upgrade(conn)
         return conn
+
+    @contextmanager
+    def _session(self) -> Iterator[sqlite3.Connection]:
+        """A connection that commits on success and always closes.
+
+        ``with self._connect()`` commits but never closes, so every caller
+        leaked its connection — and its un-checkpointed WAL — to the cyclic
+        garbage collector. A store could sit with pending WAL pages long
+        after the call returned, and the collector's later checkpoint
+        mutated the file at a moment no code was writing: a refused command
+        against a legacy store appeared to change the store on one Python
+        minor version and not another, because collection timing moved.
+        Closing here makes the post-call state deterministic — committed
+        and checkpointed before the caller sees control return.
+        """
+        conn = self._connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _audit(
         self,
@@ -481,7 +652,7 @@ class SecretsVault:
         )
         now = _utcnow().isoformat()
         synced_at = now if origin is VaultOrigin.PROVIDER else None
-        with self._connect() as conn:
+        with self._session() as conn:
             existing = conn.execute(
                 "SELECT origin, created_at FROM secrets WHERE key = ?", (key,)
             ).fetchone()
@@ -548,7 +719,7 @@ class SecretsVault:
                 under this key.
         """
         _require_key(encryption_key)
-        with self._connect() as conn:
+        with self._session() as conn:
             row = conn.execute(
                 "SELECT nonce, ciphertext FROM secrets WHERE key = ?", (key,)
             ).fetchone()
@@ -617,7 +788,7 @@ class SecretsVault:
         readability while holding no plaintext at all (ADR-023 §2).
         """
         _require_key(encryption_key)
-        with self._connect() as conn:
+        with self._session() as conn:
             row = conn.execute(
                 "SELECT nonce, ciphertext FROM vault_meta WHERE id = 1"
             ).fetchone()
@@ -647,7 +818,7 @@ class SecretsVault:
         removed = entries.get(key)
         if removed is None:
             return None
-        with self._connect() as conn:
+        with self._session() as conn:
             conn.execute("DELETE FROM secrets WHERE key = ?", (key,))
             self._audit(conn, key, "remove", "ok", removed.provider)
         return removed
@@ -659,7 +830,7 @@ class SecretsVault:
         surfaces and the recovery ones: ``vault remove`` has to work on a store
         this machine cannot open, and it learns what is there from here.
         """
-        with self._connect() as conn:
+        with self._session() as conn:
             rows = conn.execute(
                 "SELECT key, origin, annotation, provider, created_at,"
                 " updated_at, synced_at, key_provider"
@@ -689,7 +860,7 @@ class SecretsVault:
         # SQLite's MIN ignores NULLs, which is exactly right now that direct
         # entries carry none: a value typed in by hand has never been synced,
         # so it cannot make the vault look stale (or look fresh).
-        with self._connect() as conn:
+        with self._session() as conn:
             row = conn.execute("SELECT MIN(synced_at) FROM secrets").fetchone()
         return _parse_ts(row[0]) if row and row[0] else None
 
@@ -711,7 +882,7 @@ class SecretsVault:
 
     def audit_records(self) -> Iterator[tuple[str, str, str | None, str, str]]:
         """Every audit row, oldest first. Values never appear here."""
-        with self._connect() as conn:
+        with self._session() as conn:
             yield from conn.execute(
                 "SELECT ts, key, provider, action, outcome FROM audit_log"
                 " ORDER BY rowid"
@@ -725,61 +896,7 @@ class SecretsVault:
 
 
 def _upgrade(conn: sqlite3.Connection) -> None:
-    """Bring an older store up to :data:`_SCHEMA_VERSION`, in place and once.
-
-    Runs after ``_SCHEMA``, which uses ``CREATE TABLE IF NOT EXISTS`` and so
-    adds the *missing* tables but cannot reshape an existing one. A store
-    written before origin tracking has ``annotation``, ``provider`` and
-    ``synced_at`` as ``NOT NULL``, and SQLite cannot drop a ``NOT NULL`` with
-    ``ALTER TABLE`` — so the table is rebuilt.
-
-    Idempotent twice over, deliberately. ``PRAGMA user_version`` is the fast
-    path, and the column check behind it is the honest one: a freshly created
-    store is already v1-shaped but still stamped 0, and rebuilding it would be
-    pointless work on every first connection. Trusting the version alone would
-    also mean a store whose stamp was lost could never be repaired.
-
-    Existing rows are carried across untouched — ``nonce`` and ``ciphertext``
-    are copied, never re-encrypted, because this function has no key and must
-    never need one. Migrated rows take ``origin = 'provider'``, which is not a
-    guess: before this version, ``sync`` was the only writer.
-    """
-    if conn.execute("PRAGMA user_version").fetchone()[0] >= _SCHEMA_VERSION:
-        return
-
-    columns = {row[1] for row in conn.execute("PRAGMA table_info(secrets)")}
-    if columns and "origin" not in columns:
-        # One transaction. A half-rebuilt store is worse than an old one: the
-        # values are only recoverable from here.
-        conn.execute("""
-            CREATE TABLE secrets_upgraded (
-                key          TEXT PRIMARY KEY,
-                origin       TEXT NOT NULL DEFAULT 'provider',
-                annotation   TEXT,
-                provider     TEXT,
-                nonce        BLOB NOT NULL,
-                ciphertext   BLOB NOT NULL,
-                created_at   TEXT,
-                updated_at   TEXT,
-                synced_at    TEXT,
-                key_provider TEXT
-            )
-        """)
-        # `synced_at` fills both timestamps: it is the only one a v0 row has,
-        # and it is truthful for each -- that *is* when the row was written.
-        conn.execute("""
-            INSERT INTO secrets_upgraded
-                (key, origin, annotation, provider, nonce, ciphertext,
-                 created_at, updated_at, synced_at, key_provider)
-            SELECT key, 'provider', annotation, provider, nonce, ciphertext,
-                   synced_at, synced_at, synced_at, NULL
-            FROM secrets
-        """)
-        conn.execute("DROP TABLE secrets")
-        conn.execute("ALTER TABLE secrets_upgraded RENAME TO secrets")
-
-    # Not parameterizable -- PRAGMA takes no placeholders. The value is our own
-    # module constant, never caller input.
+    """Stamp a newly created store; existing older stores are refused."""
     conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION:d}")
 
 

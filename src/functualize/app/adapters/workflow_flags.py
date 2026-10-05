@@ -415,17 +415,21 @@ def _record(app: Any, outcome: WorkflowFlagOutcome) -> None:
     answer and a standalone one cannot validate differently. A refusal exits
     here rather than letting the walk run into the gate it was meant to open.
     """
-    from functualize.app.utils import answer_gate, resolve_gate
+    from functualize.app.utils import GateNotFoundError, answer_gate, resolve_gate
 
     gate, values = outcome.deposit  # type: ignore[misc]
     store = _store(app)
-    resolved = resolve_gate(store, outcome.scope_id, gate)
-    if isinstance(resolved, dict):
-        click.echo(f"Error: {resolved['message']}", err=True)
-        raise SystemExit(_usage() if "ambiguous" in resolved["error"] else 1)
+    try:
+        resolved = resolve_gate(store, outcome.scope_id, gate)
+        if isinstance(resolved, dict):
+            click.echo(f"Error: {resolved['message']}", err=True)
+            raise SystemExit(_usage() if "ambiguous" in resolved["error"] else 1)
 
-    scope_id, gate_name = resolved
-    result = answer_gate(app, store, scope_id, gate_name, values)
+        scope_id, gate_name = resolved
+        result = answer_gate(app, store, scope_id, gate_name, values, source="cli")
+    except GateNotFoundError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
     if "error" in result:
         click.echo(f"Error: {result['message']}", err=True)
         raise SystemExit(1)
