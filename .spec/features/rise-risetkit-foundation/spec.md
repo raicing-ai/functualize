@@ -1,9 +1,16 @@
 # Rise / RiseKit foundation — specification
 
-Status: **Specify, revision 4. Awaiting the owner's confirmation.** Plan has not
-started. `plan.md` and `tasks.md` from revision 3 are withdrawn: the
-canon they were planned against has been superseded, and `/agentic-plan` needs a
-confirmed spec first.
+Status: **Revision 4.1. Revision 4 was confirmed by the owner on 2026-10-05T17:27Z**
+("Spec confirmed. OD-1: a. OD-2: a. OQ-1: confirmed. OQ-2: no objection."). The
+answers are recorded as settled decisions in §10. The Plan phase's architecture
+gate then forced three amendments, each marked **[4.1]** where it lands:
+
+- **B6.** Rise's own three commands are registered by its plugin.
+- **S6.** The rule between an environment literal and the configuration chain.
+- **S15.12.** A secret given a literal is refused.
+
+There is also one fact refresh: P-7 has landed. These amendments are put to the
+owner with the task list (`/agentic-plan` step 11), before Execute.
 
 - **Canon.** Shape Intent SD/5407068 **v18**, `Authority: Approved`. The owner
   approved it in inline comment 12648493 (2026-10-05 08:08:47 UTC), and the
@@ -105,8 +112,16 @@ functualize (public API)  ◄──  rise  ◄──  risekit  ◄──  provid
 - **B6 — Rise adds no discovery and no loader.** Rise sees subject classes,
   operations and environment jobs only through Functualize discovery. That
   includes the generic class-discovery path (§6, P-1). Rise registers no
-  entry-point group and binds no job itself (D14: "Rise does not add a separate
-  runtime job/plugin loader").
+  entry-point group and binds no job of another package (D14: "Rise does not
+  add a separate runtime job/plugin loader").
+
+  **[4.1]** Rise's *own* three commands (`rise validate | diagnose | up`) are
+  registered by its plugin through the public `add_job_provider` /
+  `StaticProvider` seam, under the existing `functualize.plugins` group. They
+  are not published under `functualize.jobs`. The reason is a documented
+  limitation: an entry-point job's `@job(group=…)` is unknown until the job is
+  materialized (`src/functualize/_discovery/providers.py:735-741`), so a
+  `rise` command group cannot be listed from the entry-point table.
 
 ### Which side each piece enters from
 
@@ -173,6 +188,22 @@ functualize (public API)  ◄──  rise  ◄──  risekit  ◄──  provid
   matching `config.<env>.toml` overlay over `config.base.toml`. Rise adds **no**
   `--env` flag and no selector of its own. Scope and configuration environment
   are independent (D25).
+
+  **[4.1] Literal or chain.** A field given a value in the environment
+  declaration is **fixed**: no configuration source and no command-line flag
+  overrides it (D24: authors choose which values are invocation flags). A field
+  the declaration leaves unset resolves through the canonical operation job's
+  `JobConfig` chain:
+
+  ```text
+  runtime override > explicit argument > vault > environment > config file > default
+  ```
+
+  (`docs/guides/configuration.md` § *JobConfig Field Resolution*). That chain is
+  keyed by the class-level job, both for the `<JOB>_<FIELD>` variable and the
+  `[<job>]` section, so an unset field's chain value is **shared by every
+  instance of the class**. Per-instance values come from the declaration
+  literal, and per-instance *secrets* arrive with MCH-148 (OD-1).
 - **S7.** A secret-marked subject field is configuration, never an invocation
   parameter (D17). It resolves under the **approved vault contract SD/12779576
   v2**: runtime override → explicit command-line value → vault → environment →
@@ -236,7 +267,9 @@ functualize (public API)  ◄──  rise  ◄──  risekit  ◄──  provid
   8. an unresolvable or ambiguous `Ref`;
   9. an ordering cycle;
   10. a `Ref` without a resolvable criticality;
-  11. a generated descriptor that disagrees with the runtime metadata (S5).
+  11. a generated descriptor that disagrees with the runtime metadata (S5);
+  12. **[4.1]** a secret-marked field given a literal value in an environment
+      declaration. A secret in source is a leak, and S8 forbids it.
 - **S16.** Exit status: `OK` when there are no findings, non-zero otherwise.
   The mapping onto `ExitCode` is in C10.
 
@@ -371,7 +404,7 @@ not work around them with a Rise-side substitute, since B6 forbids that.
 | P-4 | Value-source provenance in run records (invoked route vs canonical job) | D23 route recording | `rg -n -i 'invoked_route\|value_source' src/functualize/_types src/functualize/_engine` → 0 hits |
 | P-5 | Gate resolution started from an ordinary job | candidate choice through a Gate (D20) | Gates are workflow nodes (`src/functualize/_types/workflow.py:286`) |
 | P-6 | Person-required mechanism | a Gate that waits for a person to fix a credential (D20) | — |
-| P-7 | The scoped vault of SD/12779576 v2, open as PR #83 (`feat(vault): resolve scoped group and job secrets`) | S7 | PR #83 OPEN on 2026-10-05; master's guide still documents `vault put deploy.api_token` (`docs/guides/configuration.md:464-491`) |
+| P-7 | The scoped vault of SD/12779576 v2 | S7 | **[4.1] Landed** as `ba36b859` "feat(vault): resolve scoped group and job secrets (#88)". `VaultIdentity(scope, target, field)` is at `src/functualize/_primitives/vault_identity.py`. No longer a dependency. |
 
 **P-1 gates FUN-8's executable proof.** Until class discovery lands, the only
 work that can proceed is work that needs no operation dispatch: the declaration
@@ -493,36 +526,23 @@ count 10).
 | 11927592 (reuse Functualize DI) | Satisfied by B4 and S21: operations run as Functualize jobs through `Invoke`, so DI is Functualize's. |
 | 12648493 ("Approved") | The approval this revision is written against. |
 
-## 10. Open decisions for the owner (put at confirmation)
+## 10. Settled decisions (owner, 2026-10-05T17:27Z)
 
-- **OD-1 — Which v2 vault identity a subject's secret field uses before the
-  amendment.** Under SD/12779576 v2 a vault entry is `--group <command-path>` or
-  `--job <command-path>`, plus `--field`. A subject's operations share one
-  canonical class-level job (S4), so a job-scoped entry is shared by **every
-  instance** of that class. In the forcing case, the token for `d1.main` and the
-  token for a second account's D1 would collide.
-  - *(a)* Use the canonical job scope now, and document per-instance secrets as
-    unavailable until MCH-148 lands.
-  - *(b)* Hold every secret-bearing subject until the amendment.
-  - *(c)* Take secret fields from environment and config only, no vault, until
-    the amendment.
+The owner confirmed revision 4 and answered all four items. They are decisions
+now, not open questions.
 
-  **Recommended: (a).** It follows the approved v2 contract exactly, it is
-  sufficient for one Cloudflare account, and the amendment later adds
-  per-address entries without changing a field declaration.
-- **OD-2 — Where `up` records a remote subject's realization before a shared
-  backend exists.** D26 says "Remote realizations need a shared lock backend
-  rather than a laptop-only file."
-  - *(a)* Record to the local backend, marked `shared: false`. Treat diagnosis
-    as the truth (S19), and allow no destructive operation (S27), so a stale
-    local record cannot cause harm.
-  - *(b)* Record nothing for remote subjects until the shared backend lands.
-
-  **Recommended: (a).** The port is the same either way. Diagnosis already
-  reconciles reality, and without `down` nothing acts on a stale record.
-- **OQ-1 — The B5 reading (PC-2).** Confirm only if you read D1's "reference
-  packages" as living *inside* the RiseKit distribution.
-- **OQ-2 — The spelling of an explicit role override** for a verb outside
-  S3's list. D16 allows it ("unless explicitly declared otherwise") but gives no
-  syntax. The proposal is a declaration on the contract's abstract method, never
-  a hand-written tag. Plan settles it unless you object.
+- **OD-1 = (a).** A subject's secret field uses the **canonical job scope** of
+  vault v2 (`--job <class-level operation job> --field <name>`). Every instance
+  of a class shares that entry. Per-instance secrets arrive with the
+  SD/12779576 amendment (MCH-148) without changing any field declaration.
+- **OD-2 = (a).** `up` records a remote subject's realization in the **local**
+  backend, marked `shared: false`. Diagnosis is the truth (S19), and there is no
+  destructive operation (S27), so a stale local record cannot act.
+- **OQ-1: B5 stands.** The RiseKit *distribution* holds no provider. Reference
+  provider packages are separate distributions in RiseKit's ecosystem (§3,
+  AC-11; the member's correction of 2026-10-02). Revision 4 phrased this
+  question backwards ("confirm only if … inside"). The confirmation is recorded
+  in the sense the report put it: B5 stands.
+- **OQ-2: no objection.** An explicit role override is a declaration on the
+  contract's abstract method, never a hand-written tag. Plan fixes the
+  spelling (plan.md § *Approach*).
