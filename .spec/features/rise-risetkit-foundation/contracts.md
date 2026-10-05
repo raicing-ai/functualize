@@ -25,11 +25,27 @@ are to `spec.md`.
 
 ## C2. Entry points
 
-**This feature declares no new entry-point group** (B6). Rise's commands are
-ordinary jobs, published under the existing `functualize.jobs` group in a job
-group named `rise`. Provider subject classes reach Functualize through the
-generic class-discovery path (C11, P-1), not through anything Rise registers.
-`functualize-risekit` declares no entry point; it is a library.
+**This feature declares no new entry-point group** (B6).
+
+| Group (existing) | Name | Value | Distribution |
+|---|---|---|---|
+| `functualize.plugins` | `rise` | `functualize_rise.plugin:RisePlugin` | `functualize-rise` |
+
+**[4.1]** `RisePlugin` registers Rise's own three commands, and nothing else,
+with `app.extensions.add_job_provider(StaticProvider([Job(fn, name=<verb>,
+group="rise"), …]))`. That is public plugin API (`functualize.plugin.Job`,
+`StaticProvider`), tested at `tests/plugins/test_public_provider_seam.py`.
+
+The commands are not published under `functualize.jobs`. An entry-point job's
+group is unknown until it is materialized
+(`src/functualize/_discovery/providers.py:735-741`), so `func rise <verb>`
+could not be listed. The plugin module imports only the command functions; the
+heavy modules are imported inside the job bodies, which keeps boot cost to one
+small import.
+
+Provider subject classes reach Functualize through the generic class-discovery
+path (C11, P-1), not through anything Rise registers. `functualize-risekit`
+declares no entry point; it is a library.
 
 ## C3. Declaration surface (Python, provisional names)
 
@@ -228,7 +244,10 @@ Each line states what Rise needs, not how the prerequisite ticket builds it.
   - Invoking that job accepts a subject address and constructs the instance
     from configuration resolved for that address.
   - A class can contribute job-declaration metadata for its methods (tags,
-    `@job` options) at class creation, through the public declaration API.
+    `@job` options) at class creation, through the public declaration API, and
+    that metadata **merges** with an author's own `@job(...)` on the method. It
+    never replaces it. Rise must not read the private `__functualize_job__`
+    attribute to do the merge itself.
   - A class with no subject marker is ignored as today.
 - **P-2 lazy child routes.** Not consumed by this feature. Instance routes
   (D23) are deferred.
@@ -237,9 +256,14 @@ Each line states what Rise needs, not how the prerequisite ticket builds it.
 - **P-4 route provenance in run records.** Not consumed. It is needed with P-2.
 - **P-5 / P-6 Gate from an ordinary job; person-required.** Not consumed. S24
   refuses instead of asking.
-- **P-7 scoped vault (SD/12779576 v2, PR #83).** Secret-marked fields on the
-  configuration that P-1 resolves are resolved in v2 order. The identity used
-  is OD-1.
+- **P-7 scoped vault (SD/12779576 v2). [4.1] Landed in `ba36b859` (#88).**
+  Secret-marked fields on the configuration that P-1 resolves are resolved in
+  v2 order, under the canonical job's identity
+  `VaultIdentity("job", <class-level job>, <field>)` (settled OD-1).
+- **P-1, additionally [4.1].** An environment literal fixes a field (spec S6).
+  P-1 must let an invocation carry the declaration's literal values as fixed
+  inputs for that address, and resolve only the unset fields through the
+  `JobConfig` chain.
 
 ## C12. Live tier
 
