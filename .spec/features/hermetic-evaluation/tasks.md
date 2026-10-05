@@ -181,7 +181,7 @@ Closes when: `uv run pytest tests/hermetic_eval/test_corpus.py -q > /tmp/functua
 passes, the three gates read their `after:` values, and the standing checks are
 clean. Commit: `test(hermetic): add the evaluation corpus loader and lock`.
 
-### [ ] T2 — the descriptive metrics
+### [x] T2 — the descriptive metrics
 
 *Files (all new):* `tests/hermetic_eval/metrics.py`,
 `tests/hermetic_eval/test_metrics.py`
