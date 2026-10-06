@@ -532,7 +532,7 @@ nothing outside this repository links a PR back to the work item that asked for
 it — make that link by hand in the tracker. This is the same convention the
 branching rule already asked for, now enforced rather than requested.
 
-### Fixed — a SQLite substrate leaves the database file at rest when a write ends
+### Fixed — a SQLite substrate folds its log before a write returns, and reports the fold a reader defers
 
 `SQLiteSubstrate` keeps one connection per thread in `threading.local()`, and
 nothing closed them. The port has no `close`, and a dropped connection does not
@@ -553,9 +553,40 @@ Two things were wrong, and closing connections fixes only the first:
   untouched. Releasing connections on death is not enough: a substrate still
   referenced from a cycle — a store keeps its readers, a reader keeps its store
   — has no owner to release it, and its close is a collection away, at a moment
-  nobody chose. The substrate now checkpoints at the end of every write and
-  every outermost lock scope, while the caller is still inside its call, and
-  skips the checkpoint inside a transaction for the outermost one to take.
+  nobody chose. The substrate now checkpoints at the end of a write that
+  changed a document and at the end of every outermost lock scope, while the
+  caller is still inside its call, and skips the checkpoint inside a transaction
+  for the outermost one to take.
+
+A checkpoint also needs every **reader** to be finished with the log, and a
+second connection holding a read snapshot defers it. Discarding that result was
+the other half of the defect, and the first push of this fix still had it: a
+write returned `True` while its pages stayed in `-wal`, a later checkpoint on
+the same file reported `(1, 2, 0)` — busy — and a per-write
+`wal_checkpoint(TRUNCATE)` could sit on the write's own 10 s `busy_timeout`
+during an ordinary long read. So the guarantee is stated with its condition, and
+the condition is reported rather than assumed away:
+
+- **A committed write is never reported as failed.** No fold failure reaches a
+  caller as a write result: `write`, `delete`, `clear` and the lock scope report
+  only what they did. A fold that could not run — a reader holding the log
+  included — is reported separately, at warning level, naming the retry.
+- **A deferred fold is retryable, and distinct.** `SQLiteSubstrate.checkpoint()`
+  is public and raises `SqliteCheckpointBusyError` (`retryable = True`,
+  `write_committed = True`) while a reader holds the log; it returns quietly
+  when the file is already at rest. The write's own result never carries it.
+- **The wait is bounded.** The checkpoint attempt runs under a 100 ms
+  `busy_timeout` restored to the write's 10 s afterwards, so a read elsewhere in
+  the process cannot hold a caller inside a write it has already committed. A
+  refused compare-and-swap and a delete that removed nothing fold nothing, so
+  they wait for nothing.
+
+Measured against a second connection holding a read snapshot: the write returned
+`True` in 0.10 s with `wal = 8272`, another connection read the committed value,
+and `checkpoint()` raised the retryable error in 0.10 s; after the reader closed,
+`checkpoint()` folded in 4 ms and `-wal` was 0 bytes. The change departs from the
+shape's I-8 ("`substrate.py`'s behaviour is unchanged") and is recorded as that
+deviation in `.spec/STATUS.md` → *sqlite-runtime-provider*.
 
 Measured on the plugin's offline import, whose guard is that a dry run leaves
 the file byte-identical. Before, with a cold bytecode cache, the database read

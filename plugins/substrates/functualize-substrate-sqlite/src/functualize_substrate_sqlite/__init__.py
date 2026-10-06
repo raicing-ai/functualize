@@ -17,7 +17,10 @@ from functualize_substrate_sqlite._runtime_store import (
     SQLITE_PROFILE,
     SqliteRuntimeStore,
 )
-from functualize_substrate_sqlite.substrate import SQLiteSubstrate
+from functualize_substrate_sqlite.substrate import (
+    SqliteCheckpointBusyError,
+    SQLiteSubstrate,
+)
 
 __all__ = [
     "SQLITE_PROFILE",
@@ -25,6 +28,7 @@ __all__ = [
     "LegacyImportRequired",
     "SQLiteSubstrate",
     "SQLiteSubstratePlugin",
+    "SqliteCheckpointBusyError",
     "SqliteRuntimeStore",
     "SqliteRuntimeStoreFactory",
 ]

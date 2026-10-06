@@ -2653,6 +2653,27 @@ structural (above), and `INPUT_REQUEST` is still enforced by no stored writer �
 guards a request's `status` directly rather than calling `require_transition`. FUN-20/21/22/23 (the
 outbox, the durable interaction slice, network stores, MCP) are out of scope.
 
+**Corrective deviation from shape I-8.** The invariant was *"the SQLite work lives in the plugin and
+`substrate.py`'s behaviour is unchanged"*, and contracts §6a leaned on the second half — *"the
+substrate's own DDL creates `documents`, so the next statement is always valid; `substrate.py` stays
+unchanged"*. Finding and fixing the at-rest defect (the two `CHANGELOG.md` `[Unreleased]` entries:
+a connection outliving its owner, and the fold left to whoever closed last) required the opposite, so
+`SQLiteSubstrate` now releases its connection when it dies, folds `-wal` at the end of a write that
+changed a document and at the end of every outermost lock scope, and reports a fold that a reader
+defers — a warning from the write path, plus the public retryable `checkpoint()` /
+`SqliteCheckpointBusyError`. The deviation is exactly that behaviour change and nothing else: no
+framework file changed, so the plugin boundary I-8 also states still holds. Its file-scope half was
+already disclosed as falsified by S-1 (spec §2 ↔ plan *Findings* F-2, D-1); this is the half that
+held until the defect contradicted it.
+
+The alternative — breaking the store/reader ownership cycle in core so a substrate dies at refcount
+time — was rejected for this branch: it moves `DocumentRuntimeStore`/`ScopeStore` lifetimes across
+ADR-022's substrate/store boundary and expands the delta far past the defect. The write-path fold is
+the deliberate interim, and it is what makes the guarantee a property of the caller's own call rather
+than of a collection's timing. Recorded in this entry because the feature's durable half is this
+record and the reference (no ADR of its own — see *The decision worth keeping* above); the site in
+`substrate.py` carries a `# TRANSITIONAL(sqlite-runtime-provider)` note pointing back here.
+
 ### runtime-schema-migrations
 
 `feat/runtime-schema-migrations`: FUN-18. Recorded here for the same reason as the ports entry below —

@@ -25,12 +25,18 @@ not asserted in prose:
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
-from functualize_substrate_sqlite.substrate import SQLiteSubstrate
+from functualize_substrate_sqlite.substrate import (
+    SqliteCheckpointBusyError,
+    SQLiteSubstrate,
+)
 
 from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.run_store import RunStore
@@ -389,3 +395,88 @@ class TestThePluginRegistersItsStore:
         [factory] = registered
         assert isinstance(factory, SqliteRuntimeStoreFactory)
         assert factory.scheme == "sqlite"
+
+
+def _wal_size(db: Path) -> int:
+    """Bytes in the write-ahead log beside ``db``; 0 when there is no log."""
+    wal = db.with_name(db.name + "-wal")
+    return wal.stat().st_size if wal.exists() else 0
+
+
+class TestAReaderCannotHideTheFoldsFailure:
+    """A blocked checkpoint is reported as itself, never as a failed write.
+
+    A checkpoint needs every reader to be done with the log, so a second
+    connection that holds a read snapshot blocks it — the case a
+    single-connection test cannot reach, and the reason a checkpoint guard can
+    pass while a write still reports a fold it never made.
+    """
+
+    def test_a_held_snapshot_defers_the_fold_without_failing_the_write(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        db = tmp_path / "state.db"
+        substrate = SQLiteSubstrate(db)
+        substrate.write("first", {"v": 0})
+        assert _wal_size(db) == 0, "no reader yet, so the first write is at rest"
+
+        reader = sqlite3.connect(db, isolation_level=None)
+        reader.execute("BEGIN")
+        # A read transaction ends when its statement is reset, so the cursor
+        # stays open: a reset statement would release the snapshot.
+        held = reader.execute("SELECT key FROM documents")
+        assert held.fetchone() is not None
+
+        started = time.monotonic()
+        with caplog.at_level(
+            logging.WARNING, logger="functualize_substrate_sqlite.substrate"
+        ):
+            assert substrate.write("second", {"v": 1}) is True
+        waited = time.monotonic() - started
+
+        # The write is reported as a write. What it could not do — fold the log
+        # back into the main file — is reported as its own retryable condition,
+        # and the wait for it is bounded by the checkpoint's timeout rather than
+        # by the write's (5 s is 50× the bound, and a fraction of the 10 s the
+        # write timeout would have cost).
+        assert _wal_size(db) > 0
+        assert waited < 5, "the fold waited out the write timeout on a reader"
+        reports = [
+            record
+            for record in caplog.records
+            if "checkpoint did not run" in record.getMessage()
+        ]
+        assert [record.levelno for record in reports] == [logging.WARNING]
+
+        # Durable, not merely returned: a connection holding no snapshot reads
+        # the value the blocked fold could not move into the main file.
+        bystander = sqlite3.connect(db)
+        try:
+            row = bystander.execute(
+                "SELECT payload FROM documents WHERE key = 'second'"
+            ).fetchone()
+        finally:
+            bystander.close()
+        assert row is not None and json.loads(row[0]) == {"v": 1}
+
+        # The explicit retry is where a caller learns the fold is retryable —
+        # and that the document it names is already committed.
+        with pytest.raises(SqliteCheckpointBusyError) as busy:
+            substrate.checkpoint()
+        assert busy.value.retryable is True
+        assert busy.value.write_committed is True
+
+        reader.execute("ROLLBACK")
+        reader.close()
+
+        substrate.checkpoint()
+        assert _wal_size(db) == 0
+        stored = substrate.read("second")
+        assert stored is not None and stored.data == {"v": 1}
+
+    def test_a_checkpoint_inside_a_transaction_is_refused(
+        self, substrate: SQLiteSubstrate
+    ) -> None:
+        """The outermost commit folds; a nested call has no completed log."""
+        with pytest.raises(RuntimeError), substrate.lock("k"):
+            substrate.checkpoint()

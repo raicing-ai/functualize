@@ -40,6 +40,7 @@ port says so.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -50,7 +51,40 @@ from typing import Any
 from functualize._types.errors import SubstrateUnreadableError
 from functualize._types.protocols import Revision, Stored
 
-__all__ = ["SQLiteSubstrate"]
+__all__ = ["SQLiteSubstrate", "SqliteCheckpointBusyError"]
+
+_LOG = logging.getLogger(__name__)
+
+#: A checkpoint copies the write-ahead log, so it can collide with a reader and
+#: wait for it. That wait belongs to *maintenance*, not to the write that is
+#: already committed: it is bounded far below the write timeout, so a long read
+#: elsewhere in the process cannot hold a caller inside a write it has returned.
+#: `checkpoint()` is the retry.
+_CHECKPOINT_TIMEOUT_MS = 100
+_WRITE_TIMEOUT_MS = 10000
+
+
+class SqliteCheckpointBusyError(Exception):
+    """A committed write's checkpoint found a reader holding the log.
+
+    The write is durable; only the fold of `-wal` back into the main file did
+    not happen. Call :meth:`SQLiteSubstrate.checkpoint` again once the reader
+    releases its snapshot — repeating the *write* is what must not happen,
+    because it could apply twice.
+    """
+
+    #: Retrying the checkpoint is the remedy, and it is idempotent.
+    retryable = True
+    #: The document is already durable when this is raised.
+    write_committed = True
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__(
+            f"SQLite write to {path} committed, but a reader held its WAL "
+            "checkpoint; call checkpoint() again once the reader closes"
+        )
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
@@ -85,13 +119,13 @@ class SQLiteSubstrate:
         if conn is None:
             conn = sqlite3.connect(str(self._path), isolation_level=None)
             conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=10000")
+            conn.execute(f"PRAGMA busy_timeout={_WRITE_TIMEOUT_MS}")
             self._local.conn = conn
             self._local.depth = 0
         return conn
 
     def _fold(self) -> None:
-        """Make the file at rest before control goes back to the caller.
+        """Checkpoint a completed write when readers permit it.
 
         A write-ahead log is folded into the main file by a checkpoint, and
         SQLite takes one when the **last** connection to the database closes.
@@ -102,17 +136,69 @@ class SQLiteSubstrate:
         appeared to change on one Python minor version and not another, which
         is what made a dry run look like it wrote.
 
-        So the checkpoint is taken here, where a write has just ended and the
-        caller is still inside its call. Skipped inside a transaction: SQLite
-        cannot checkpoint one, and the outermost transaction folds it on the
-        way out.
+        A reader holding a WAL snapshot can prevent the checkpoint. That does
+        not undo the committed write: this reports the retryable maintenance
+        failure separately and leaves the write's result intact. The next write
+        attempts another checkpoint; ``checkpoint()`` permits an explicit retry.
+        Inside a transaction the outermost commit makes this attempt.
+
+        The attempt is **bounded** by ``_CHECKPOINT_TIMEOUT_MS`` rather than by
+        the write timeout, because a reader can hold the log for as long as it
+        likes and a maintenance stall has no business inside a write that has
+        already committed.
+
+        The at-rest guarantee is a property of *this* connection, so the
+        corrective change belongs here rather than in core store/reader
+        ownership — the deviation from shape I-8 (``substrate.py``'s behaviour
+        is unchanged) that is labelled below and recorded in `.spec/STATUS.md`
+        → *sqlite-runtime-provider*.
         """
+        # TRANSITIONAL(sqlite-runtime-provider): the write-path fold carries the
+        # at-rest guarantee until the core store/reader ownership cycle is
+        # broken, where a substrate would die at refcount time instead. Here
+        # rather than in core because it is this connection that holds the log;
+        # a deviation from shape I-8, recorded in .spec/STATUS.md.
         if getattr(self._local, "depth", 0):
             return
         conn = getattr(self._local, "conn", None)
         if conn is None or conn.in_transaction:
             return
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        try:
+            self.checkpoint()
+        except (SqliteCheckpointBusyError, sqlite3.Error) as exc:
+            # A reader holding the log is the expected case, so this is a
+            # reported maintenance condition, never an exception out of a
+            # committed write. `sqlite3.Error` is deliberate: *any* way the
+            # fold fails is maintenance, and none of it may turn a write that
+            # already committed into a failure the caller sees.
+            _LOG.warning(
+                "SQLite write to %s committed; its WAL checkpoint did not run: %s",
+                self._path,
+                exc,
+            )
+
+    def checkpoint(self) -> None:
+        """Fold `-wal` into the main file now; a busy reader is retryable.
+
+        Separate from a write on purpose: a write reports whether *the write*
+        happened, and a checkpoint that a reader blocked must never be reported
+        through that result. This raises :class:`SqliteCheckpointBusyError`
+        (``retryable``/``write_committed``) while a reader holds the log, and
+        returns quietly when the database is already at rest — a truncating
+        checkpoint of an empty log changes nothing.
+        """
+        conn = self._conn()
+        if getattr(self._local, "depth", 0) or conn.in_transaction:
+            raise RuntimeError("checkpoint requires a completed transaction")
+        conn.execute(f"PRAGMA busy_timeout={_CHECKPOINT_TIMEOUT_MS}")
+        try:
+            busy, _log, _checkpointed = conn.execute(
+                "PRAGMA wal_checkpoint(TRUNCATE)"
+            ).fetchone()
+        finally:
+            conn.execute(f"PRAGMA busy_timeout={_WRITE_TIMEOUT_MS}")
+        if busy:
+            raise SqliteCheckpointBusyError(self._path)
 
     def close(self) -> None:
         """Release this thread's connection; the next call opens a fresh one.
@@ -123,7 +209,10 @@ class SQLiteSubstrate:
 
         A connection to a write-ahead-log database is closed in two steps: the
         close checkpoints, and the checkpoint folds `-wal` back into the main
-        file and deletes it. A `sqlite3.Connection` cannot be freed by
+        file and deletes it. That is the same checkpoint a reader can block, and
+        a close cannot report the difference — so the fold that carries a
+        guarantee is the one on the write path, with :meth:`checkpoint` as its
+        retry. A `sqlite3.Connection` cannot be freed by
         reference counting alone — it holds its statement cache, and each
         cached statement holds the connection — so a *dropped* connection is
         closed whenever a cyclic collection happens to run. Until then the
@@ -198,8 +287,12 @@ class SQLiteSubstrate:
             "WHERE key = ? AND revision = ?",
             (blob, key, expect),
         )
+        if not cursor.rowcount:
+            # A refused compare-and-swap wrote nothing: there is nothing to
+            # fold, and no reason to make its caller wait on a reader's log.
+            return False
         self._fold()
-        return cursor.rowcount == 1
+        return True
 
     @contextmanager
     def lock(self, *keys: str) -> Iterator[None]:
@@ -263,8 +356,10 @@ class SQLiteSubstrate:
 
     def delete(self, key: str) -> bool:
         cursor = self._conn().execute("DELETE FROM documents WHERE key = ?", (key,))
+        if not cursor.rowcount:
+            return False
         self._fold()
-        return cursor.rowcount > 0
+        return True
 
     def describe(self, key: str) -> str:
         """The database, the key, and the payload size.
