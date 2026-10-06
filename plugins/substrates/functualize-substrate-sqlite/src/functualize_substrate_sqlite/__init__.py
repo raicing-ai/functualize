@@ -8,6 +8,7 @@ than deferred.
 """
 
 from functualize_substrate_sqlite._factory import (
+    CutoverMarkerInvalid,
     LegacyImportRequired,
     SqliteRuntimeStoreFactory,
 )
@@ -20,6 +21,7 @@ from functualize_substrate_sqlite.substrate import SQLiteSubstrate
 
 __all__ = [
     "SQLITE_PROFILE",
+    "CutoverMarkerInvalid",
     "LegacyImportRequired",
     "SQLiteSubstrate",
     "SQLiteSubstratePlugin",

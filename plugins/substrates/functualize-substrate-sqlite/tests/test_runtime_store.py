@@ -105,8 +105,8 @@ def test_a_cutover_marker_lets_the_imported_file_open(tmp_path: Path) -> None:
     driver.batch(
         [
             (
-                "INSERT INTO runtime_cutover VALUES ('documents', 'now', 'digest', NULL)",
-                (),
+                "INSERT INTO runtime_cutover VALUES ('documents', ?, ?, ?)",
+                ("2026-01-01T00:00:00+00:00", "a" * 64, str(tmp_path / "backup.db")),
             )
         ]
     )

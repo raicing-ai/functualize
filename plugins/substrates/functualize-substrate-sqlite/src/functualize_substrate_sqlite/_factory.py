@@ -14,12 +14,14 @@ relative to the project root.
 
 from __future__ import annotations
 
+import re
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from functualize.plugin import PreparedStore, RuntimeStoreSelectionError, StoreProfile
-from functualize_substrate_sqlite._driver import LocalSqliteDriver
+from functualize_substrate_sqlite._driver import LocalSqliteDriver, SqliteBusyError
 from functualize_substrate_sqlite._migrations import migrate
 from functualize_substrate_sqlite._retention import apply_retention
 from functualize_substrate_sqlite._runtime_store import (
@@ -34,6 +36,8 @@ if TYPE_CHECKING:
     from functualize_substrate_sqlite._driver import SqlDriver
 
 __all__ = [
+    "BORN_RELATIONAL_DIGEST",
+    "CutoverMarkerInvalid",
     "DEFAULT_DB_NAME",
     "IMPORT_COMMAND",
     "LegacyImportRequired",
@@ -52,6 +56,9 @@ IMPORT_COMMAND = "functualize-sqlite-import"
 #: The legacy ``documents`` rows that are runtime truth. ``fresh`` and
 #: ``shell-history`` are derived data and stay in ``documents`` for good.
 _LEGACY_RUNTIME_KEYS = "key IN ('runs', 'scopes') OR key LIKE 'scope-state/%'"
+BORN_RELATIONAL_DIGEST = (
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+)
 
 
 class LegacyImportRequired(RuntimeStoreSelectionError):  # noqa: N818 — names the remedy, as contracts §5 does
@@ -70,6 +77,65 @@ class LegacyImportRequired(RuntimeStoreSelectionError):  # noqa: N818 — names 
             f"schema, and no import has been recorded. Run `{self.command}` "
             f"(offline; it backs the file up first), then start again."
         )
+
+
+class CutoverMarkerInvalid(RuntimeStoreSelectionError):  # noqa: N818 — names a refusal
+    """The marker cannot establish which store owns this file's runtime data."""
+
+    def __init__(self, path: Path, row: object) -> None:
+        self.path = path
+        self.row = row
+        super().__init__(
+            f"{path} has an invalid runtime_cutover marker {row!r}. "
+            f"Restore the database backup, or delete the invalid row and run "
+            f"`{IMPORT_COMMAND} --db {path}` so the importer decides."
+        )
+
+
+def _validated_marker(path: Path, rows: list[tuple[object, ...]]) -> str | None:
+    """Return one valid provenance, or refuse an ambiguous or malformed marker."""
+    if len(rows) > 1:
+        raise CutoverMarkerInvalid(path, rows)
+    if not rows:
+        return None
+    row = rows[0]
+    source, imported_at, digest, backup_path = row
+    try:
+        stamp = datetime.fromisoformat(str(imported_at))
+    except (TypeError, ValueError) as error:
+        raise CutoverMarkerInvalid(path, row) from error
+    if stamp.tzinfo is None or stamp.utcoffset() != timedelta(0):
+        raise CutoverMarkerInvalid(path, row)
+    if source == "documents":
+        valid = (
+            backup_path is not None
+            and isinstance(digest, str)
+            and bool(re.fullmatch(r"[0-9a-fA-F]{64}", digest))
+        )
+    elif source == "born-relational":
+        valid = backup_path is None and digest == BORN_RELATIONAL_DIGEST
+    else:
+        valid = False
+    if not valid:
+        raise CutoverMarkerInvalid(path, row)
+    return str(source)
+
+
+def _marker_rows(driver: SqlDriver) -> list[tuple[object, ...]]:
+    return driver.query(
+        "SELECT source, imported_at, source_digest, backup_path "
+        "FROM runtime_cutover ORDER BY source"
+    )
+
+
+def _legacy_runtime_rows(driver: SqlDriver) -> bool:
+    tables = {
+        row[0]
+        for row in driver.query("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    return "documents" in tables and bool(
+        driver.query(f"SELECT 1 FROM documents WHERE {_LEGACY_RUNTIME_KEYS} LIMIT 1")
+    )
 
 
 def default_database_path(project_root: Path) -> Path:
@@ -104,17 +170,45 @@ class SqliteRuntimeStoreFactory:
 
     def prepare(self, config: RuntimeStoreConfig) -> PreparedStore:
         path = database_path(config.url, config.project_root)
+        # Migration and the document-table DDL may race on the first open.
+        # The driver identifies that lock as retryable, and each step is
+        # idempotent, so a bounded retry can finish after the winner.
+        for attempt in range(3):
+            try:
+                return self._prepare_once(path)
+            except SqliteBusyError:
+                if attempt == 2:
+                    raise
+        raise AssertionError("unreachable prepare retry")
+
+    def _prepare_once(self, path: Path) -> PreparedStore:
         driver = LocalSqliteDriver(path)
         try:
             migrate(driver)
-            if _holds_unimported_legacy(driver):
+            substrate = SQLiteSubstrate(path)
+            driver.batch(
+                [
+                    (
+                        "INSERT INTO runtime_cutover "
+                        "(source, imported_at, source_digest, backup_path) "
+                        "SELECT 'born-relational', ?, ?, NULL "
+                        "WHERE NOT EXISTS (SELECT 1 FROM runtime_cutover) "
+                        f"AND NOT EXISTS (SELECT 1 FROM documents WHERE {_LEGACY_RUNTIME_KEYS})",
+                        (datetime.now(UTC).isoformat(), BORN_RELATIONAL_DIGEST),
+                    )
+                ]
+            )
+            marker = _validated_marker(path, _marker_rows(driver))
+            if marker is None and _legacy_runtime_rows(driver):
                 raise LegacyImportRequired(path)
+            if marker is None:
+                raise CutoverMarkerInvalid(path, None)
             store = SqliteRuntimeStore(driver)
             apply_retention(driver, DEFAULT_NAMESPACE)
         except BaseException:
             driver.close()
             raise
-        return PreparedStore(store=store, substrate=SQLiteSubstrate(path))
+        return PreparedStore(store=store, substrate=substrate)
 
     def unselected_data(self, project_root: Path) -> str | None:
         """Runtime data in the default ``state.db`` that the document store would not see."""
@@ -127,7 +221,20 @@ class SqliteRuntimeStoreFactory:
             legacy = "documents" in tables and _has_row(
                 conn, f"SELECT 1 FROM documents WHERE {_LEGACY_RUNTIME_KEYS} LIMIT 1"
             )
-            relational = any(
+            marker = (
+                _validated_marker(
+                    path,
+                    list(
+                        conn.execute(
+                            "SELECT source, imported_at, source_digest, backup_path "
+                            "FROM runtime_cutover ORDER BY source"
+                        )
+                    ),
+                )
+                if "runtime_cutover" in tables
+                else None
+            )
+            relational = marker is not None or any(
                 _has_row(conn, f"SELECT 1 FROM {table} LIMIT 1")
                 for table in ("runs", "workflow_scopes")
                 if table in tables
@@ -142,20 +249,6 @@ class SqliteRuntimeStoreFactory:
             else ""
         )
         return f"{path} holds runtime data for this project{remedy}."
-
-
-def _holds_unimported_legacy(driver: SqlDriver) -> bool:
-    tables = {
-        row[0]
-        for row in driver.query("SELECT name FROM sqlite_master WHERE type = 'table'")
-    }
-    if "documents" not in tables:
-        return False
-    if driver.query("SELECT 1 FROM runtime_cutover LIMIT 1"):
-        return False
-    return bool(
-        driver.query(f"SELECT 1 FROM documents WHERE {_LEGACY_RUNTIME_KEYS} LIMIT 1")
-    )
 
 
 def _tables(conn: sqlite3.Connection) -> set[str]:

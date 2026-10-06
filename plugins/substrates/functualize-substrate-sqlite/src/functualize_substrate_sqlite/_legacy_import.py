@@ -45,7 +45,10 @@ from pathlib import Path
 from typing import Any
 
 from functualize_substrate_sqlite._driver import LocalSqliteDriver
-from functualize_substrate_sqlite._factory import _LEGACY_RUNTIME_KEYS
+from functualize_substrate_sqlite._factory import (
+    _LEGACY_RUNTIME_KEYS,
+    _validated_marker,
+)
 from functualize_substrate_sqlite._legacy_source import (
     LegacySnapshot,
     Refusal,
@@ -134,7 +137,10 @@ def import_legacy(
             report.say(f"another import holds {db}.import.lock")
             return report
         step(1)
-        marker = _cutover(db)
+        marker, born_relational = _cutover(db)
+        if born_relational:
+            report.say("born relational; nothing to import")
+            return report
         if mode is Mode.ROLLBACK:
             return _rollback_only(db, marker, report)
         if marker is not None:
@@ -352,18 +358,21 @@ def _source_digest(snapshot: Path) -> str:
     return hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()
 
 
-def _cutover(db: Path) -> tuple[str, str] | None:
+def _cutover(db: Path) -> tuple[tuple[str, str] | None, bool]:
     conn = _readonly(db)
     try:
         if "runtime_cutover" not in _tables(conn):
-            return None
-        row = conn.execute(
-            "SELECT source_digest, backup_path FROM runtime_cutover WHERE source = ?",
-            (SOURCE,),
-        ).fetchone()
+            return None, False
+        rows = conn.execute(
+            "SELECT source, imported_at, source_digest, backup_path "
+            "FROM runtime_cutover ORDER BY source"
+        ).fetchall()
     finally:
         conn.close()
-    return None if row is None else (str(row[0]), str(row[1] or ""))
+    if any(row[0] == "born-relational" for row in rows):
+        return None, _validated_marker(db, rows) == "born-relational"
+    row = next((row for row in rows if row[0] == SOURCE), None)
+    return (None if row is None else (str(row[2]), str(row[3] or ""))), False
 
 
 def _existing(db: Path, legacy: LegacySnapshot) -> list[Refusal]:
