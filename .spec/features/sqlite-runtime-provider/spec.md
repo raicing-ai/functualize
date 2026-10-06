@@ -63,7 +63,20 @@ check; `tasks.md` owns where it lives.
 | `interactive_transaction` | `False` | the store issues writes only as one batch, so it never needs one — and AC-5 proves it. The matrix measures local SQLite `yes` (`contributor/reference/substrate-capability-matrix.md:85`); this is the store's promise, under-declared and never over-declared — `DOCUMENT_PROFILE`'s own rule (`_primitives/document_store.py:156-157`) |
 | `remote` | `False` | |
 | `max_document_bytes` | `None` | the matrix's local-SQLite row; "nothing refused what was attempted", not "no limit" |
-| `offline_capable` | `True` | AC-1 |
+| `offline_capable` | `True` | AC-1; gated by the `offline_capable=True` tier (contracts §4a H-6) |
+
+### AC-1 → tier matrix (for verification)
+
+| AC-1 field | Tier that holds it | Needs a hook | Observed strength |
+|---|---|---|---|
+| `cross_aggregate_atomicity=True` | `cross_aggregate_atomicity=True` | `statement_faults` | a fault before every statement of the unit, plus command-level faults |
+| `fencing='cross-process'` | `fencing='cross-process'` | — | a stale write from a second OS process lands nothing; the tier cannot say which guard held it (H-7) |
+| `offline_capable=True` | `offline_capable=True` | — | the BASELINE round trip with sockets refused |
+
+The profile's other two `True` fields that switch a tier on are also held: `durable_outbox`
+(`outbox` hook) and `versioned_migrations` (`migrations` hook). `multi_process=True` has no tier
+of its own; the fencing tier's second OS process exercises it. That gap is recorded here rather
+than filled, because AC-1 does not name the field.
 
 `interactive_transaction=False` is a deliberate spec choice: the store's write path is batch-only so
 that AC-5 is a property of the shipped code, not of a test double. The shape delegates these three

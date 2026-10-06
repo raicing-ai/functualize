@@ -298,30 +298,50 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       `GateCandidate` is not public, so a third-party suite cannot append candidates.
 - [ ] **13** Capability tiers
       *Depends on:* 12.
-      *Files:* `src/functualize/testing/conformance/capabilities.py`,
-      `tests/conformance/test_capabilities.py`
-      *Do:* `cross_aggregate_atomicity` → fault between every statement of each transition (E-3);
-      `fencing == "cross-process"` → two OS processes, stale writer refused (E-2);
-      `durable_outbox` → intent committed with its transition, surviving a kill before and after
-      commit (recording only — the dispatcher is FUN-21's); `versioned_migrations` → every supported
-      historical schema (empty; legacy `documents`-only) and a failed revision (I-9).
-      *Gate (AC-1, AC-2 second half):* SQLite runs and passes all four; the document store runs none
-      of them, and the skip is driven by its profile, not a list — asserted by declaring a stub
-      profile `True` and watching the tier run.
+      *Files (signature frozen in contracts §4a, 2026-10-06):*
+      `src/functualize/testing/conformance/hooks.py` (new), `src/functualize/testing/conformance/capabilities.py`,
+      `src/functualize/testing/conformance/__init__.py`, `tests/conformance/sqlite_hooks.py` (new),
+      `tests/conformance/test_capabilities.py`, `tests/test_public_api_surface.py`. That is six files
+      against the usual 1–3, on purpose: it is one public signature, and it does not split without
+      leaving a surface that has no caller.
+      *Do:* `HarnessHooks`, `StatementFaults`/`StatementFault`, `OutboxProbe`/`RecordedIntent`,
+      `MigrationHarness`, `TierRun`/`CapabilityReport`, `capability_report`; a keyword-only `hooks=`
+      on `run_capability_tiers` with an unchanged return type; tiers per rules H-1…H-7 —
+      `cross_aggregate_atomicity` faults between every **statement** (E-3); `fencing ==
+      "cross-process"` as now (E-2); `durable_outbox` crash before/after commit (recording only —
+      the dispatcher is FUN-21's); `versioned_migrations` every historical schema plus each refusal
+      (I-9); and the new `offline_capable=True` tier (H-6). SQLite's three hooks go in
+      `tests/conformance/sqlite_hooks.py`. Remove the strict xfail and its `TRANSITIONAL` marker.
+      *Gate (AC-1, AC-2 second half), as the profiles actually stand:*
+      - **SQLite**, with its hooks, runs and passes all **five** tiers it declares. The report's
+        strengths say statement-level atomicity, both outbox crash points, `N ≥ 2` historical
+        schemas and `M ≥ 3` refusals, and the network refused.
+      - **Document store**, no hooks, runs exactly `("fencing='cross-process'", "offline_capable=True")`
+        and passes both. Its profile declares `cross_aggregate_atomicity`, `durable_outbox` and
+        `versioned_migrations` `False`, so those three tiers do not run (AC-2).
+      - **Chosen by the profile, not a list:** the document store re-declared with
+        `cross_aggregate_atomicity=True` and no hooks runs that tier, which **fails** with H-2's
+        missing-`statement_faults` message. That replaces today's assertion that it passes.
+      - SQLite with `hooks=None` fails on H-2 for its first hook-needing tier and never skips it.
+      - `functualize._types.persistence.__all__` and `functualize.plugin.__all__` are unchanged
+        (`git diff` on both is empty); `functualize.testing.conformance.__all__` equals contracts
+        §4a's list in the surface test.
+      *Sabotage (each must turn its tier red; all of them tick 13):* (i) a unit that raised still
+      commits → atomicity red; (ii) `SqliteRuntimeStore` commit split into two `batch` calls → the
+      statement-fault tier red. The command-level check cannot see this; it is the reason for the
+      hook. (iii) the outbox `INSERT` staged in a separate batch after the step → the crash-after
+      check red, or the crash-before check if the order is reversed; (iv) the migration runner's
+      checksum comparison removed → the `"checksum"` refusal red; (v) a `socket.create_connection`
+      call added to `prepare` → the offline tier red; (vi) fencing as today, all three guards
+      removed → red.
+      *Reported, not gated:* H-7 — the fencing tier observes the outcome, not which guard held it.
       *Evidence (`eba668af`), not ticked:* `cross_aggregate_atomicity` and `fencing ==
       "cross-process"` (two OS processes, fork) pass on SQLite; sabotage — a faulted unit still
       committing → atomicity red (`('a1', None, 0)` left); the fence check and predicate removed →
       the cross-process tier red (`position='stale'` landed). Tiers are chosen by profile only
       (`tiers_for`), and declaring atomicity on the document store makes the tier run.
-      **Open — needs a decision on `run_capability_tiers`'s signature (contracts §4):**
-      `durable_outbox` (the port has no outbox reader) and `versioned_migrations` (historical
-      schemas and a failed revision are backend-specific to lay down) cannot be observed through
-      `make_store` alone; both are registered and refuse loudly, and SQLite's whole-suite test is a
-      strict xfail naming that. The same hook would let the atomicity tier fault *between the
-      statements* of a commit; at the port it can only fault between commands, so the document
-      store declared atomic passes it. Gate text vs profile: the document store declares
-      `fencing="cross-process"` (F-1's correction), so it runs — and passes — that tier, rather
-      than "none of them".
+      *History:* the earlier text said the document store runs "none of" the tiers. That was
+      wrong once F-1's correction made its `fencing` `"cross-process"`, and it is restated above.
 - [x] **14** AC-5 in Tier A
       *Depends on:* 12.
       *Files:* `tests/substrate_probe/fakes.py`, `tests/substrate_probe/tier_a.py`
@@ -383,6 +403,24 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       `contributor/reference/runtime-persistence-data-model.md` (tenses: §2 and §7 become landed),
       then `git rm -r contributor/architecture/research/` and, as the deletion-only **last**
       commit, `git rm -r .spec/features/sqlite-runtime-provider`.
+      *Named repairs that clear this branch* (found by the tip-tier run at `9f120947`; both are
+      done in task 13's write pass, and both must hold here):
+      - **R-1 — selection survives a chain that cannot answer.** `_configured_url`
+        (`src/functualize/_app/store_selection.py:112-118`, landed in `46704c8a`, wave 0) calls
+        `chain.resolve(...)` and catches only `MissingKeyError`. A resolution chain supplied as a
+        bare `object()` therefore aborts boot. Fix the source with a duck-typed
+        `getattr(chain, "resolve", None)` guard (no `resolve` → nothing configured). Do not wrap the
+        call in `except AttributeError`, which would swallow a real chain's own error. Proof:
+        `uv run pytest tests/core/test_property_constructor_defaulting.py --run-slow -q` → no failures
+        (it was `8 failed, 1 passed`).
+      - **R-2 — the entry-point test stops leaking its working directory.** The `project` fixture at
+        `tests/spec/test_a_substrate_plugin_loads_through_its_entry_point.py:75-82` uses a raw
+        `os.chdir(tmp_path)` with `finally`. Replace it with `monkeypatch.chdir(tmp_path)`. Proof:
+        `uv run pytest tests/spec/test_a_substrate_plugin_loads_through_its_entry_point.py
+        tests/test_integration.py -q -p no:randomly` → no failures (it was `21 failed, 14 passed`).
+      - **Tip tier:** `HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q` shows neither class.
+        Any remaining failure is classified host or ambient, with an isolated passing re-run as
+        evidence.
       *Gate:* `research-artifacts-cleared` and `spec-artifacts-cleared` green; two pushes per
       `.claude/rules/spec-workflow.md` → *Version control lifecycle*; PR title and body carry no
       tracker key (`.spec/CONSTITUTION.md` → *Forbidden Patterns*).

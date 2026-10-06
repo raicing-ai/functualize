@@ -241,6 +241,17 @@ Recorded so the maintainer can overrule them; none changes behaviour or scope.
   write, bounded by `DEFAULT_RETENTION`, reachable on every boot.
 - `interactive_transaction=False` on the SQLite profile (`spec.md` §1).
 
+- **The capability suite's harness hooks** (route (a), decided on MCH-149 on 2026-10-06; signature
+  authored here, frozen in contracts §4a). They are an optional keyword-only `hooks=` on
+  `run_capability_tiers`, with the hook protocols owned by `functualize.testing.conformance` and
+  not by the port. A declared tier whose hook is missing fails loudly. A new `offline_capable` tier
+  closes the AC-1 gap. Smell check:
+  - **Speculative Generality** was the risk for `MigrationHarness` and `OutboxProbe`, which have
+    one implementation today (SQLite). It is rejected as a smell: `SQLITE_PROFILE` declares both
+    capabilities `True` now, so each hook has a present consumer, the tier that must hold the
+    declaration.
+  - No **Middle Man**: the hooks construct or read, and never forward the port.
+
 ## Approach (3b — blast radius)
 
 Call sites that change, by `rg`/serena at `e8e3b867`:
