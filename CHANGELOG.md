@@ -532,6 +532,27 @@ nothing outside this repository links a PR back to the work item that asked for
 it — make that link by hand in the tracker. This is the same convention the
 branching rule already asked for, now enforced rather than requested.
 
+### Fixed — a SQLite substrate releases its connections when it dies
+
+`SQLiteSubstrate` keeps one connection per thread in `threading.local()`, and
+nothing closed them. The port has no `close`, and a dropped connection does not
+go away: a CPython `sqlite3.Connection` holds its statement cache, every cached
+statement holds the connection back, and the resulting cycle is broken only by a
+collection — so the connection stayed open, and the database's write-ahead log
+un-checkpointed, until one happened to run. A collection can run anywhere,
+including inside an unrelated call.
+
+`SQLiteSubstrate.close()` releases this thread's connection and the next call
+opens a fresh one; the finalizer calls it, so a substrate that goes out of scope
+no longer waits for a collection. What changes observably is *when the file
+moves*: closing the last connection is what folds `-wal` back into the database
+and deletes it, so a deferred close could rewrite a file a caller had been
+promised was untouched. The plugin's offline import is where that was measured —
+`import_legacy(db, dry_run=True)` against a fixture whose stores were still open
+failed "the source is byte-identical" on 3 of 3 runs with a cold bytecode cache,
+and passes 3 of 3 with the connection released at the end of the substrate's
+life instead of at the next collection.
+
 ## [0.4.0] - 2026-09-24
 
 ### Added — a measured capability matrix for seven storage backends

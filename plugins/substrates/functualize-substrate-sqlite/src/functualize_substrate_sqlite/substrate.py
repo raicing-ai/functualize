@@ -43,7 +43,7 @@ import json
 import sqlite3
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +89,42 @@ class SQLiteSubstrate:
             self._local.conn = conn
             self._local.depth = 0
         return conn
+
+    def close(self) -> None:
+        """Release this thread's connection; the next call opens a fresh one.
+
+        The port has no ``close`` and a substrate normally lives as long as the
+        process, so nothing here is required for correctness of a read or a
+        write. It is required for **when the file changes**.
+
+        A connection to a write-ahead-log database is closed in two steps: the
+        close checkpoints, and the checkpoint folds `-wal` back into the main
+        file and deletes it. A `sqlite3.Connection` cannot be freed by
+        reference counting alone — it holds its statement cache, and each
+        cached statement holds the connection — so a *dropped* connection is
+        closed whenever a cyclic collection happens to run. Until then the
+        database keeps an un-checkpointed log and an open writer, and the
+        collection lands wherever the allocator is: measured here, a deferred
+        close inside an unrelated call rewrote a file the caller was promised
+        would not move.
+
+        Closing at the moment the substrate dies removes that timing from the
+        picture. Safe to call twice, and the substrate stays usable afterwards.
+        """
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            return
+        # Drop the reference first: a close that raises must not leave a dead
+        # handle behind for the next call to reuse.
+        self._local.conn = None
+        self._local.depth = 0
+        conn.close()
+
+    def __del__(self) -> None:
+        # A torn-down interpreter can have `sqlite3` gone already, and a
+        # finalizer that raises is printed and ignored at best.
+        with suppress(Exception):
+            self.close()
 
     # ------------------------------------------------------------------
     # The port
