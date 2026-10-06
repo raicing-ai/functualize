@@ -148,8 +148,18 @@ class TestKeyState:
         assert vault_status(cwd=project).key_state is None
 
 
+class _DbField:
+    name = "password"
+    secret = True
+
+
+class _DbSpec:
+    group = "db"
+    fields = (_DbField(),)
+
+
 class _SyncApp:
-    """Just enough app for `vault_sync`: one provider, one declared annotation."""
+    """Just enough app for `vault_sync`: one provider, one declaration."""
 
     class _Registry:
         def list_remote_providers(self) -> list[str]:
@@ -157,10 +167,22 @@ class _SyncApp:
 
     class _FileSource:
         source_type = "file"
-        per_file_values = [("config.toml", {"db": {"password": "fake-sm://prod/db"}})]
+        per_file_values = [
+            (
+                "config.toml",
+                {
+                    "vault_secret": [
+                        {"group": "db", "field": "password", "source": "fake-sm://p"}
+                    ]
+                },
+            )
+        ]
 
     class _Chain:
         sources = [None]
+
+    def get_group_options_spec(self, group_path: str) -> Any:
+        return _DbSpec() if group_path == "db" else None
 
     def __init__(self) -> None:
         self.config_registry = self._Registry()

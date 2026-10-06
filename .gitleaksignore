@@ -1,0 +1,7 @@
+# Commit-pinned suppression of the one historical false positive on this
+# branch: the `generic-api-key` rule read the test's wrong-key probe
+# `encryption_key=b"\x01" * 32` as a credential (tests/config/test_vault_identity.py,
+# 961f9493). The literal is reshaped into a module constant at the head; this
+# entry hides only that past finding — a new secret in the same file is still
+# reported, which was measured when the entry was chosen.
+961f9493fc234277e6dc41e88b9e949f7c32c279:tests/config/test_vault_identity.py:generic-api-key:81
