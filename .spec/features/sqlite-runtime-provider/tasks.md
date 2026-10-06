@@ -403,7 +403,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 
 ## Wave 5 — legacy import (AC-3, AC-4)
 
-- [ ] **16** The importer
+- [x] **16** The importer
       *Depends on:* 7–9, 13.
       *Call path:* task 17, same wave — the console script (closes together with 17).
       *Files:* `PLUGIN/_legacy_import.py`, `PLUGIN_TESTS/test_legacy_import.py`
@@ -419,7 +419,19 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       `completed` scope holding a live lease is refused, listed, and the source file's digest is
       unchanged; killing at each of the seven steps either resumes or rolls back, and afterwards
       exactly one of {legacy authoritative, cutover marker present} holds; a second run is a no-op.
-- [ ] **17** The command
+      *Done (`150931cf`):* `test_legacy_import.py` 14 passed — the legal fixture (written by the
+      document store over `SQLiteSubstrate`, plus a legacy bare-payload deposit) imports and
+      verifies; a `completed` scope with a live lease is refused and listed, the source file's
+      sha256 unchanged, no backup kept; killed (`os._exit`) after each of the seven steps, steps
+      1–2 leave the documents authoritative and 3–7 the marker, never both, and the next run
+      finishes with `IMPORTED`; a second run writes nothing and adds no backup; a tampered row
+      after step 3 fails verification and rolls back. Ticked with 17 on its entry-point sabotage.
+      Deviations: three modules, not one — `_legacy_source.py` (read, judge, rows),
+      `_legacy_import.py` (the steps), `_legacy_verify.py` (steps 4 and 6, undo) — to keep each
+      under 500 lines; an identity already in the relational tables is a refused record (never
+      overwritten); a legacy deposit with a payload and no candidate is carried as one accepted
+      candidate from source `legacy-import`, counted in the report.
+- [x] **17** The command
       *Depends on:* 16.
       *Files:* `PLUGIN/_import_cli.py`, `plugins/substrates/functualize-substrate-sqlite/pyproject.toml`,
       `PLUGIN_TESTS/test_import_cli.py`
@@ -428,6 +440,12 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       `sqlite:` succeeds.
       *Call path:* the console-script entry point; sabotage = remove `[project.scripts]` → the
       subprocess test fails. That proof ticks 16 and 17 together.
+      *Done (`150931cf`):* `test_import_cli.py` 8 passed, run through the installed console
+      script: boot raises `LegacyImportRequired`, the script exits 0, boot with `sqlite:` then
+      selects `SqliteRuntimeStore`; `--dry-run` leaves the file's sha256 unchanged; exits 2
+      (`--resume` with nothing recorded), 3, 4, 5 as §6. Sabotage — `[project.scripts]` removed
+      and the venv re-synced — fails 7 of 8 (the eighth calls `main()` in-process by design);
+      restored, 154 passed.
 
 ## Wave 6 — honest docs and naming (S-7), release note
 
