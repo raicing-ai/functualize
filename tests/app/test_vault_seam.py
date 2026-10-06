@@ -23,6 +23,7 @@ from functualize.app import FunctualizeApp, JobSources
 from functualize.app.vault import (
     Readability,
     UnlockAbandonedError,
+    VaultIdentity,
     VaultKeySourceError,
     VaultPathError,
     vault_init,
@@ -36,13 +37,19 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 _SECRET = "correct-horse-battery-staple-9f3a"  # gitleaks:allow
+_JOB_TOKEN = VaultIdentity("job", "deploy", "api_token")
+_GROUP_TOKEN = VaultIdentity("group", "deploy", "api_token")
 
 _JOB_SOURCE = '''
 from pydantic import BaseModel, Field
 
-from functualize.job import RunContext
+from functualize.job import GroupOptions, RunContext
 from functualize.job.decorators import job
 from functualize.types import Secret
+
+
+class DeployOptions(GroupOptions, group="deploy"):
+    api_token: Secret[str] = Field(default="", description="Group credential")
 
 
 class DeployConfig(BaseModel):
@@ -51,7 +58,7 @@ class DeployConfig(BaseModel):
 
 
 @job
-def deploy(config: DeployConfig, rc: RunContext) -> str:
+def deploy(config: DeployConfig, options: DeployOptions, rc: RunContext) -> str:
     """Deploy something."""
     return "deployed"
 '''
@@ -144,9 +151,9 @@ class TestPut:
     def test_it_stores_a_value_and_reports_metadata_only(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        report = vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        report = vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
 
-        assert report.path == "deploy.api_token"
+        assert report.identity == _JOB_TOKEN
         assert report.origin is VaultOrigin.DIRECT
         assert report.created is True
         assert _SECRET not in str(report)
@@ -158,19 +165,21 @@ class TestPut:
         from functualize._config.vault_paths import vault_path_for_project
 
         with pytest.raises(VaultPathError):
-            vault_put(app, "deploy.region", _SECRET, cwd=project)
+            vault_put(
+                app, VaultIdentity("job", "deploy", "region"), _SECRET, cwd=project
+            )
 
         assert not vault_path_for_project(project).exists()
 
     def test_a_second_write_needs_replace(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
 
         with pytest.raises(VaultEntryExistsError):
-            vault_put(app, "deploy.api_token", "other", cwd=project)
+            vault_put(app, _JOB_TOKEN, "other", cwd=project)
 
-        report = vault_put(app, "deploy.api_token", "other", replace=True, cwd=project)
+        report = vault_put(app, _JOB_TOKEN, "other", replace=True, cwd=project)
         assert report.replaced is True
         assert report.created is False
 
@@ -184,7 +193,7 @@ class TestPut:
         resolution = resolve_vault_key("ignored")
         assert resolution.key is not None
         SecretsVault(vault_path_for_project(project)).put(
-            "deploy.api_token",
+            _JOB_TOKEN.encode(),
             "from-aws",
             encryption_key=resolution.key,
             annotation="aws-sm://x",
@@ -192,16 +201,16 @@ class TestPut:
         )
 
         with pytest.raises(VaultOriginConflictError):
-            vault_put(app, "deploy.api_token", _SECRET, replace=True, cwd=project)
+            vault_put(app, _JOB_TOKEN, _SECRET, replace=True, cwd=project)
 
 
 class TestRemove:
     def test_it_removes_and_warns_only_for_a_direct_entry(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
 
-        report = vault_remove(app, "deploy.api_token", cwd=project)
+        report = vault_remove(app, _JOB_TOKEN, cwd=project)
 
         assert report.removed is True
         assert report.origin is VaultOrigin.DIRECT
@@ -210,10 +219,21 @@ class TestRemove:
     def test_a_missing_entry_is_success(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        report = vault_remove(app, "deploy.api_token", cwd=project)
+        report = vault_remove(app, _JOB_TOKEN, cwd=project)
 
         assert report.removed is False
         assert report.origin is None
+
+    def test_flag_spelling_is_canonicalized(
+        self, app: FunctualizeApp, project: Path
+    ) -> None:
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
+
+        spelled = VaultIdentity("job", "deploy", "api-token")
+        report = vault_remove(app, spelled, cwd=project)
+
+        assert report.removed is True
+        assert report.identity == _JOB_TOKEN
 
     def test_it_needs_no_key(
         self, app: FunctualizeApp, project: Path, monkeypatch: pytest.MonkeyPatch
@@ -221,10 +241,10 @@ class TestRemove:
         """The scenario the command exists for: the key is what you lost."""
         from functualize._config.vault_keys import ENV_VAR
 
-        vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
         monkeypatch.delenv(ENV_VAR)
 
-        assert vault_remove(app, "deploy.api_token", cwd=project).removed is True
+        assert vault_remove(app, _JOB_TOKEN, cwd=project).removed is True
 
     def test_an_orphan_from_a_deleted_job_can_still_be_removed(
         self, app: FunctualizeApp, project: Path
@@ -242,13 +262,15 @@ class TestRemove:
         resolution = resolve_vault_key("ignored")
         assert resolution.key is not None
         SecretsVault(vault_path_for_project(project)).put(
-            "deleted-job.token",
+            VaultIdentity("job", "deleted-job", "token").encode(),
             _SECRET,
             encryption_key=resolution.key,
             origin=VaultOrigin.DIRECT,
         )
 
-        report = vault_remove(app, "deleted-job.token", cwd=project)
+        report = vault_remove(
+            app, VaultIdentity("job", "deleted-job", "token"), cwd=project
+        )
 
         assert report.removed is True
 
@@ -257,9 +279,9 @@ class TestInspect:
     def test_it_reports_a_stored_entry_without_its_value(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
 
-        report = vault_inspect(app, "deploy.api_token", cwd=project)
+        report = vault_inspect(app, _JOB_TOKEN, cwd=project)
 
         assert report.exists is True
         assert report.eligible is True
@@ -270,7 +292,7 @@ class TestInspect:
     def test_an_absent_entry_is_reported_not_raised(
         self, app: FunctualizeApp, project: Path
     ) -> None:
-        report = vault_inspect(app, "deploy.api_token", cwd=project)
+        report = vault_inspect(app, _JOB_TOKEN, cwd=project)
 
         assert report.exists is False
         assert report.eligible is True
@@ -280,7 +302,9 @@ class TestInspect:
         self, app: FunctualizeApp, project: Path
     ) -> None:
         """ "Why can I not store this here?" is the question it exists for."""
-        report = vault_inspect(app, "deploy.region", cwd=project)
+        report = vault_inspect(
+            app, VaultIdentity("job", "deploy", "region"), cwd=project
+        )
 
         assert report.eligible is False
 
@@ -289,14 +313,14 @@ class TestInspect:
     ) -> None:
         from functualize._config.vault_keys import ENV_VAR
 
-        vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
         monkeypatch.delenv(ENV_VAR)
         monkeypatch.setattr(
             "functualize._config.vault_keys.KeychainKeyProvider.is_available",
             lambda self: False,
         )
 
-        report = vault_inspect(app, "deploy.api_token", cwd=project)
+        report = vault_inspect(app, _JOB_TOKEN, cwd=project)
 
         assert report.readability is Readability.KEY_UNAVAILABLE
         assert report.exists is True
@@ -307,12 +331,28 @@ class TestInspect:
     ) -> None:
         from functualize._config.vault_keys import ENV_VAR, generate_key
 
-        vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
         monkeypatch.setenv(ENV_VAR, generate_key())
 
-        report = vault_inspect(app, "deploy.api_token", cwd=project)
+        report = vault_inspect(app, _JOB_TOKEN, cwd=project)
 
         assert report.readability is Readability.WRONG_KEY
+
+
+class TestScope:
+    def test_group_and_job_entries_with_the_same_text_stay_distinct(
+        self, app: FunctualizeApp, project: Path
+    ) -> None:
+        vault_put(app, _GROUP_TOKEN, "group-value", cwd=project)
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
+
+        assert vault_remove(app, _GROUP_TOKEN, cwd=project).removed is True
+
+        job = vault_inspect(app, _JOB_TOKEN, cwd=project)
+        group = vault_inspect(app, _GROUP_TOKEN, cwd=project)
+        assert job.exists is True
+        assert job.identity == _JOB_TOKEN
+        assert group.exists is False
 
 
 class _FakeKeyring:
@@ -377,7 +417,7 @@ class TestPutTellsWhyThereIsNoKey:
     ) -> None:
         keyring_only(_FakeKeyring(locked=True))
         with pytest.raises(VaultKeySourceError) as exc:
-            vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+            vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
         assert exc.value.reason == "key_locked"
         message = str(exc.value)
         assert "func builtin vault unlock" in message
@@ -389,7 +429,7 @@ class TestPutTellsWhyThereIsNoKey:
     ) -> None:
         keyring_only(_FakeKeyring(available=False))
         with pytest.raises(VaultKeySourceError) as exc:
-            vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+            vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
         assert exc.value.reason == "no_keyring"
         assert "functualize[keychain]" in str(exc.value)
 
@@ -398,7 +438,7 @@ class TestPutTellsWhyThereIsNoKey:
     ) -> None:
         keyring_only(_FakeKeyring(key=None))
         with pytest.raises(VaultKeySourceError) as exc:
-            vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+            vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
         assert exc.value.reason == "key_not_stored"
         assert "func builtin vault init" in str(exc.value)
 
@@ -415,7 +455,7 @@ class TestPutTellsWhyThereIsNoKey:
         keyring_only(_FakeKeyring(key=b"\x01" * 32, delay=5.0))
         started = time.monotonic()
         with pytest.raises(VaultKeySourceError) as exc:
-            vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+            vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
         assert time.monotonic() - started < 3.0
         assert exc.value.reason == "key_locked"
         assert "did not answer within 1s" in str(exc.value)
@@ -478,9 +518,9 @@ class TestInspectNeverPrompts:
     def test_a_locked_keyring_is_never_unlocked(
         self, app: FunctualizeApp, project: Path, keyring_only: Any
     ) -> None:
-        vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
         fake = keyring_only(_UnlockableKeyring(locked=True))
-        report = vault_inspect(app, "deploy.api_token", cwd=project)
+        report = vault_inspect(app, _JOB_TOKEN, cwd=project)
         assert report.readability is Readability.KEY_UNAVAILABLE
         assert fake.unlock_calls == 0
 
@@ -489,9 +529,9 @@ class TestInspectNeverPrompts:
     ) -> None:
         """`get_key` never prompts (the provider contract), so inspect may
         read: here the key is a different one, and inspect says so."""
-        vault_put(app, "deploy.api_token", _SECRET, cwd=project)
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
         fake = keyring_only(_UnlockableKeyring(key=b"\x5a" * 32))
-        report = vault_inspect(app, "deploy.api_token", cwd=project)
+        report = vault_inspect(app, _JOB_TOKEN, cwd=project)
         assert report.readability is Readability.WRONG_KEY
         assert fake.unlock_calls == 0
 
