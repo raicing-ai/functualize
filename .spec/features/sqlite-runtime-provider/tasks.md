@@ -202,7 +202,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 
 ## Wave 2 — writers
 
-- [ ] **8** Workflow writers
+- [x] **8** Workflow writers
       *Files:* `PLUGIN/_workflow_sql.py`, `PLUGIN_TESTS/test_workflow_sql.py`
       *Call path:* the selected store's `transaction().workflows` (wave 1) → `_BufferedTransaction` → here.
       *Sabotage:* unbind the workflow writer from `_BufferedTransaction` → a boot-selected `sqlite:`
@@ -212,14 +212,37 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       the held generation in its predicate (I-3); every status move checked against FUN-18's table
       (`IllegalTransition`). Claim is the one writer that commits on the spot (as
       `ClaimWorkflow`'s docstring says) — one batch of one statement, then a read.
-      *Gate:* stale generation → zero rows, live value survives; `completed` → `running` refused;
+      *Gate:* stale generation → zero rows, live value survives; `cancelled` → `running`
+      refused, while `completed` → `running` remains the lifecycle table's retry edge;
       `rg -n "resume" PLUGIN/_workflow_sql.py` shows no conditional on it (05 §3).
-- [ ] **9** Run, input, event and effect writers
+      *Done (`89a0fc87`):* a stale generation is refused up front
+      (`StaleGenerationError`), and a takeover between check and commit makes the staged
+      writes match zero rows with the live value intact. `cancelled → running` raises
+      `IllegalTransition`; a `completed` scope resumes at a new generation as the lifecycle
+      table requires. `claim` sends one batch of one conditional UPSERT statement, then reads;
+      a live competing holder receives `Conflict`. `rg -n "resume"` finds only the method,
+      with no command-specific status branch. Unbinding `.workflows` in
+      `BufferedTransaction` makes the boot-selected claim test fail with
+      `NotImplementedError: SqliteRuntimeStore.workflows.claim`; restoration passes.
+      Gate correction: the prior `completed → running refused` wording contradicted
+      `_types/lifecycle.SCOPE` and the data model's retry edge. The UPSERT combines
+      create-if-absent with the data model's conditional lease update in one statement.
+- [x] **9** Run, input, event and effect writers
       *Files:* `PLUGIN/_run_sql.py`, `PLUGIN_TESTS/test_run_sql.py`
       *Call path / sabotage:* as task 8, through `transaction().runs`, `.inputs`, `.events`, `.effects`.
       *Gate:* attempt `(run_id, attempt_no)` unique; `run_events`/`scope_events` `seq` strictly
       increasing per owner; one OPEN input request per gate per generation; an `outbox` row commits
       only with its transition.
+      *Done (`c2c03108`, `074f0b4f`):* all four gate items have tests in `test_run_sql.py`; sabotage — each of
+      `.runs`, `.inputs`, `.events`, `.effects` unbound in turn — fails
+      `test_a_boot_selected_store_writes_runs_inputs_events_and_effects` with that writer's
+      `NotImplementedError`, and restoration gives 124/124 plugin tests. A takeover between
+      a fenced state write and commit drops both the stale write and its outbox intent;
+      removing the outbox fence makes that regression test fail. Also touched beyond the listed files:
+      `_transaction.py` (writers bound, the unit's pending view, the fence helpers),
+      `_runtime_store.py` (owns the `default` namespace row; hands the transaction its driver),
+      `test_runtime_store.py` (counts exclude the store's own namespace; the writer half of the
+      "not yet built" test is gone because the writers are).
 
 ## Wave 3 — readers and retention
 
