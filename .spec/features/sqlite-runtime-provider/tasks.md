@@ -246,7 +246,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 
 ## Wave 3 — readers and retention
 
-- [ ] **10** Readers
+- [x] **10** Readers
       *Files:* `PLUGIN/_readers.py`, `PLUGIN_TESTS/test_readers.py`
       *Call path:* the selected store's `runs` / `workflows` / `inputs` attributes (wave 1), read by the
       engine; sabotage = bind a reader stub on the facade → the boot-selected read test fails.
@@ -254,7 +254,11 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       `recent`, `resumable` (`EXPLAIN QUERY PLAN` names the index).
       *Gate:* S-6 raw-SQL test — a status count answered by `SELECT … GROUP BY status` with no JSON
       function.
-- [ ] **11** Relational retention and its caller (was 0.2 + 0.3)
+      *Done:* SQL readers are bound on the selected store in `_runtime_store.py`; `EXPLAIN QUERY
+      PLAN` names `runs_recent` and `workflow_scopes_status` for the reader queries. The raw SQL
+      status-count test passes. After committing, replacing the run reader binding with a stub
+      failed the boot-selected read test; restoring it passed.
+- [x] **11** Relational retention and its caller (was 0.2 + 0.3)
       *Depends on:* 7, 8, 9.
       *Files:* `PLUGIN/_retention.py`, `PLUGIN/_factory.py`, `PLUGIN_TESTS/test_retention.py`
       *Gate (received, unchanged):* a version-1 database with 600 evictable and 10 `blocked` scopes
@@ -263,6 +267,14 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       artifact blob is deleted (reference rows only). A step write never runs it.
       *Call path:* `prepare()` after `migrate()`.
       *Sabotage:* remove the call from `prepare` → the over-filled-store test fails.
+      *Done:* `prepare()` applies retention after migration. The seeded version-1 test trims 600
+      completed scopes and runs to 500 each, keeps 10 blocked and one running scope, cascades
+      child rows, preserves the artifact blob, and proves a step write does not trim. After
+      committing, removing the `prepare()` call left 600 completed scopes and failed the gate;
+      restoring it passed. The strict cross-process durability xfail in
+      `tests/integration/test_substrate_durability.py` remains: its first worker reports the
+      scope was taken before the gate, so binding readers did not make that engine path pass.
+      The marker now names that remaining mixed engine persistence path.
 
 ## Wave 4 — the conformance suite (AC-1, AC-2, AC-5)
 
