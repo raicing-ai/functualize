@@ -87,7 +87,7 @@ contract's abstract method (§ *Approach*).
  ─────────────────────                     ───────────────────────────────
  functualize.plugin  ──re-exports──►  _discovery/providers.py   (peer layer)
    Job, StaticProvider,                  Job, StaticProvider, EntryPointProvider
-   JobProvider, JobTransform             registry.py:405  reads module attrs'
+   JobProvider, JobTransform             registry.py:400  reads module attrs'
  functualize.job                         __functualize_job__ only — classes ignored
    job(tags=…), Invoke ──────────►  _engine/capabilities/invoke.py  (peer layer)
  functualize.types                   _config/job_config.py, sources.py (peer layer)
@@ -107,7 +107,8 @@ contract's abstract method (§ *Approach*).
 catalogue.
 
 - **Incomplete Library Class.**
-  - `_discovery/registry.py:405` recognizes only module-level functions, so a
+  - `_discovery/registry.py:400` (predicate `_is_registerable_function`,
+    `:586-605`) recognizes only module-level functions, so a
     subject class cannot become jobs without a hand-written plugin.
   - `EntryPointProvider` cannot know an entry-point job's group before
     materializing it (`providers.py:735-741`).
