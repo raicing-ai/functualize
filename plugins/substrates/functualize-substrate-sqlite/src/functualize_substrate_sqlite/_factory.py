@@ -21,7 +21,9 @@ from typing import TYPE_CHECKING
 from functualize.plugin import PreparedStore, RuntimeStoreSelectionError, StoreProfile
 from functualize_substrate_sqlite._driver import LocalSqliteDriver
 from functualize_substrate_sqlite._migrations import migrate
+from functualize_substrate_sqlite._retention import apply_retention
 from functualize_substrate_sqlite._runtime_store import (
+    DEFAULT_NAMESPACE,
     SQLITE_PROFILE,
     SqliteRuntimeStore,
 )
@@ -107,12 +109,12 @@ class SqliteRuntimeStoreFactory:
             migrate(driver)
             if _holds_unimported_legacy(driver):
                 raise LegacyImportRequired(path)
+            store = SqliteRuntimeStore(driver)
+            apply_retention(driver, DEFAULT_NAMESPACE)
         except BaseException:
             driver.close()
             raise
-        return PreparedStore(
-            store=SqliteRuntimeStore(driver), substrate=SQLiteSubstrate(path)
-        )
+        return PreparedStore(store=store, substrate=SQLiteSubstrate(path))
 
     def unselected_data(self, project_root: Path) -> str | None:
         """Runtime data in the default ``state.db`` that the document store would not see."""

@@ -18,6 +18,7 @@ from functualize_substrate_sqlite._factory import database_path
 from functualize_substrate_sqlite._migrations import MigrationRefused
 
 from functualize.plugin import (
+    RunQuery,
     RuntimeStore,
     RuntimeStoreConfig,
     RuntimeStoreFactory,
@@ -163,15 +164,16 @@ def test_a_failing_batch_applies_none_of_it(tmp_path: Path) -> None:
     assert store.driver.query(_STAGED_NAMESPACES) == [(0,)]
 
 
-def test_ports_not_yet_built_refuse_rather_than_answer(tmp_path: Path) -> None:
+def test_reader_ports_answer_from_the_selected_store(tmp_path: Path) -> None:
     store = (
         SqliteRuntimeStoreFactory()
         .prepare(_config(tmp_path, tmp_path / "state.db"))
         .store
     )
 
-    with pytest.raises(NotImplementedError, match="task 10"):
-        store.workflows.resumable()
+    assert store.runs.recent(RunQuery()) == ()
+    assert store.workflows.workflow("missing") is None
+    assert store.inputs.awaiting() == ()
 
 
 def test_close_releases_the_driver(tmp_path: Path) -> None:

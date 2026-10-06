@@ -11,12 +11,16 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from functualize.plugin import StoreProfile
+from functualize_substrate_sqlite._readers import (
+    SqlInputReader,
+    SqlRunReader,
+    SqlWorkflowReader,
+)
 from functualize_substrate_sqlite._transaction import (
     BufferedTransaction,
-    NotYetImplemented,
     iso,
 )
 
@@ -77,13 +81,9 @@ class SqliteRuntimeStore:
                 )
             ]
         )
-        # TRANSITIONAL(wave 3, task 10): the readers bind here; until then each
-        # refuses with NotImplementedError rather than answering "nothing".
-        self.runs = cast("RunReader", NotYetImplemented("runs", "task 10"))
-        self.workflows = cast(
-            "WorkflowReader", NotYetImplemented("workflows", "task 10")
-        )
-        self.inputs = cast("InputReader", NotYetImplemented("inputs", "task 10"))
+        self.runs: RunReader = SqlRunReader(driver, namespace)
+        self.workflows: WorkflowReader = SqlWorkflowReader(driver, namespace)
+        self.inputs: InputReader = SqlInputReader(driver, namespace)
 
     @property
     def driver(self) -> SqlDriver:

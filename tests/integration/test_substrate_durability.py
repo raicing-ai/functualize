@@ -44,17 +44,16 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
-# TRANSITIONAL(sqlite-runtime-provider waves 2-3, tasks 8-10): installing the
-# SQLite plugin no longer selects storage, so the workers select it with
-# `runtime_store.url` — and the selected `SqliteRuntimeStore` refuses every
-# writer and reader with NotImplementedError until tasks 8-10 bind them (the
-# observed failure: "transaction().workflows.claim lands with task 8"). Strict,
-# so this marker errors the moment those waves make the walk pass and has to be
-# removed then, together with re-pointing the records assertion at the
-# relational tables.
+# TRANSITIONAL(workflow-persistence-atomic): the selected SQL store now has
+# writers and readers, but the walk still uses the legacy ScopeStore beside
+# that port. With the SQL readers bound, the first worker currently reports
+# SUPERSEDED before it can block at the gate. The positive records assertion
+# below also still reads the old `documents` keys; it must move to relational
+# tables when the engine's scope path is unified. Strict, so a passing test
+# forces this marker's removal at that integration step.
 pytestmark = pytest.mark.xfail(
     strict=True,
-    reason="SqliteRuntimeStore writers/readers land in tasks 8-10 (waves 2-3)",
+    reason="the workflow engine still mixes legacy scope writes with the selected SQL store",
 )
 
 _JOBS = '''
