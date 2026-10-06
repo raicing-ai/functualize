@@ -296,7 +296,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       app in a project directory and reading `app.execution_engine._runtime_store` — an attribute,
       not an import. Inputs are covered up to `suspend`/`open_for`/`awaiting`/`request`:
       `GateCandidate` is not public, so a third-party suite cannot append candidates.
-- [ ] **13** Capability tiers
+- [x] **13** Capability tiers
       *Depends on:* 12.
       *Files (signature frozen in contracts §4a, 2026-10-06):*
       `src/functualize/testing/conformance/hooks.py` (new), `src/functualize/testing/conformance/capabilities.py`,
@@ -367,6 +367,23 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       task's files do not carry: what the tier observes (no public port exposes a step row), or a
       unit boundary at the driver seam (there is none — `claim()` issues its own `batch()`). Left
       unchecked and reported to the issue.
+      *Done (`7ec70ded`):* (ii) is restated above to the split the ports can see, and it reddens:
+      with `commit` split at `statements[:2]` / `statements[2:]` (applied alone to a clean tree,
+      then restored), `cross_aggregate_atomicity` fails — `AssertionError: a fault before
+      statement 2 left ('a1', None, 0)` at `capabilities.py:192`. The split the earlier run used
+      (`[:1]` / `[1:]`) still passes (`1 passed`) and reports `statement faults at 5 positions`
+      against the intact unit's 6: its leading batch carries the unit's first `workflow_steps`
+      insert alone, and no public port exposes a step row (`WorkflowReader` offers `workflow`,
+      `resumable`, `events_after`), so `cross_aggregate_atomicity` reads nothing. That is the
+      limit the tier now states, in the form `cross_process_fencing` already uses: its docstring
+      names the outcome it reads and the partial application it cannot see, and the published
+      strength appends `"observed through the ports — a split whose leading batch writes no
+      port-visible row is not seen"` (intact: `statement faults at 6 positions + command faults at
+      4; …`), with the assertion in `test_capabilities.py` moved in the same change, and H-3 in
+      contracts.md carrying the same limit. The limit's repair is its own issue (MCH-156), so the
+      designer's intent for the hook is preserved there rather than narrowed here; the decision the
+      earlier run asked for — restate the clause rather than widen the tier — is that issue plus
+      this restatement.
       *History:* the earlier text said the document store runs "none of" the tiers. That was
       wrong once F-1's correction made its `fencing` `"cross-process"`, and it is restated above.
 - [x] **14** AC-5 in Tier A
