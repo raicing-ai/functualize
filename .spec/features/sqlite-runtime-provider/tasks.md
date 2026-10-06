@@ -553,7 +553,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 
 ## Wave 8 — pre-merge (not implementation)
 
-- [ ] **19** Clear the branch for merge
+- [x] **19** Clear the branch for merge
       *Files:* `.spec/STATUS.md` or `contributor/adr/031-*.md` (the factory registry and
       selection key are an ADR-027 follow-through — an ADR if the maintainer wants one),
       `contributor/reference/runtime-persistence-data-model.md` (tenses: §2 and §7 become landed),
@@ -580,6 +580,22 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Gate:* `research-artifacts-cleared` and `spec-artifacts-cleared` green; two pushes per
       `.claude/rules/spec-workflow.md` → *Version control lifecycle*; PR title and body carry no
       tracker key (`.spec/CONSTITUTION.md` → *Forbidden Patterns*).
+      *Done (`8565e34f`):* Both artifact gates are green and the pull request is open. The durable
+      record went to `.spec/STATUS.md` — a row and a section — rather than a new
+      `contributor/adr/031-*.md`: this task makes the ADR conditional on the maintainer wanting one,
+      and the feature's decisions already live in ADR-022, ADR-026, ADR-027 and ADR-028, with the
+      rest contract, which is the reference's job. The reference's §2 and §7 read as landed, and the
+      header's tense map, §1's two enforcement clauses, §2's "names are conceptual" line and §6's
+      retention paragraph moved with them because each stated the same pending work; all of it was
+      checked against the shipped plugin (`_migrations.py`, `_factory.py`, `_retention.py`, the SQL
+      writers), and everything FUN-20/21/4 owns stayed forward-looking. The two deletions are
+      separate commits, research first and the feature tree last, over two pushes; the PR was opened
+      after the second push so its head run sees both gates. The tick is the commit before the
+      deletions, because it cannot ride inside a deletion-only commit and cannot follow the commit
+      that removes the file. Checks at the head: full suite **12 157 passed / 1 630 skipped**, `ruff
+      check` and `ruff format --check` clean, `mypy src/` clean, `lint-imports` **7 kept, 0 broken**,
+      `mkdocs build --strict` clean; R-1 and R-2 were verified in task 18's acceptance run and were
+      not re-implemented.
 
 ## Task Dependency Graph
 
