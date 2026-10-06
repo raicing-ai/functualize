@@ -20,6 +20,9 @@ dependencies = [
     "functualize>=0.1.0,<1.0.0",
 ]
 
+[project.scripts]
+functualize-sqlite-import = "functualize_substrate_sqlite._import_cli:main"
+
 [project.entry-points."functualize.plugins"]
 substrate-sqlite = "functualize_substrate_sqlite:SQLiteSubstratePlugin"
 
