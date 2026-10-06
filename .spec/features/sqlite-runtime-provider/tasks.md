@@ -278,7 +278,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 
 ## Wave 4 — the conformance suite (AC-1, AC-2, AC-5)
 
-- [ ] **12** BASELINE tier
+- [x] **12** BASELINE tier
       *Depends on:* 4, 7–10.
       *Files:* `src/functualize/testing/conformance/__init__.py`,
       `src/functualize/testing/conformance/baseline.py`, `tests/conformance/test_baseline.py`
@@ -289,6 +289,13 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       production surface is the public import `functualize.testing.conformance`, proven by
       `tests/conformance/` importing nothing private.
       *Gate (AC-2 first half):* green for `DocumentRuntimeStore` **and** `SqliteRuntimeStore`.
+      *Done (`60a53593`):* six checks green over both stores (15 passed). Sabotage (i) SQLite
+      `recent()` ordered oldest-first → only `run tree and recent history [sqlite]` red;
+      (ii) a private import added to `baseline.py` → the import-surface test red. Deviation: the
+      document store has no public constructor, so `tests/conformance/` reaches it by booting an
+      app in a project directory and reading `app.execution_engine._runtime_store` — an attribute,
+      not an import. Inputs are covered up to `suspend`/`open_for`/`awaiting`/`request`:
+      `GateCandidate` is not public, so a third-party suite cannot append candidates.
 - [ ] **13** Capability tiers
       *Depends on:* 12.
       *Files:* `src/functualize/testing/conformance/capabilities.py`,
@@ -301,13 +308,32 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Gate (AC-1, AC-2 second half):* SQLite runs and passes all four; the document store runs none
       of them, and the skip is driven by its profile, not a list — asserted by declaring a stub
       profile `True` and watching the tier run.
-- [ ] **14** AC-5 in Tier A
+      *Evidence (`eba668af`), not ticked:* `cross_aggregate_atomicity` and `fencing ==
+      "cross-process"` (two OS processes, fork) pass on SQLite; sabotage — a faulted unit still
+      committing → atomicity red (`('a1', None, 0)` left); the fence check and predicate removed →
+      the cross-process tier red (`position='stale'` landed). Tiers are chosen by profile only
+      (`tiers_for`), and declaring atomicity on the document store makes the tier run.
+      **Open — needs a decision on `run_capability_tiers`'s signature (contracts §4):**
+      `durable_outbox` (the port has no outbox reader) and `versioned_migrations` (historical
+      schemas and a failed revision are backend-specific to lay down) cannot be observed through
+      `make_store` alone; both are registered and refuse loudly, and SQLite's whole-suite test is a
+      strict xfail naming that. The same hook would let the atomicity tier fault *between the
+      statements* of a commit; at the port it can only fault between commands, so the document
+      store declared atomic passes it. Gate text vs profile: the document store declares
+      `fencing="cross-process"` (F-1's correction), so it runs — and passes — that tier, rather
+      than "none of them".
+- [x] **14** AC-5 in Tier A
       *Depends on:* 12.
       *Files:* `tests/substrate_probe/fakes.py`, `tests/substrate_probe/tier_a.py`
       *Do:* add read-only `BatchOnlySqliteDriver.query(sql, params) -> list[tuple]`; drop nothing
       from its refusal. In `tier_a.py`, run BASELINE against `SqliteRuntimeStore(BatchOnlySqliteDriver())`.
       *Gate (AC-5, E-6):* green; then make `_BufferedTransaction` issue one statement through a
       driver transaction → `NoInteractiveTransactionError` turns it red.
+      *Done (`a3a0e887`):* `test_baseline_is_green_over_a_batch_only_driver` green; sabotage — the
+      buffered transaction sends its first statement through `driver.transaction()` →
+      `NoInteractiveTransactionError`, red. Deviation: the instrument also gains a no-op `close()`
+      (the instance is the in-memory database; close/reopen durability needs the store to close
+      and be rebuilt over it); `query()` refuses any statement that is not a read.
 
 ## Wave 5 — legacy import (AC-3, AC-4)
 
