@@ -451,7 +451,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 
 ## Wave 6 — the born-relational marker (contracts §6a)
 
-- [ ] **20** Marker provenance and the boot guard
+- [x] **20** Marker provenance and the boot guard
       *Depends on:* 7, 15, 16, 17.
       *Call path:* task 15's plugin registration → selection → `prepare` (wave 1) for the insert
       and the guard; the `functualize-sqlite-import` console script (wave 5) for the importer's
@@ -488,11 +488,24 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       - **M-9** the two-project shared-db shape of `tests/integration/test_substrate_durability.py`:
         project B is **not** refused with `LegacyImportRequired`. That module's strict xfail stays,
         on the scope-taken residual, which is not this task's.
-      *Sabotage (tick on these):* (i) drop the conditional insert → M-1's second boot fails with
-      `LegacyImportRequired`; (ii) drop the insert's legacy-rows predicate → M-2 fails, because a
+      *Sabotage (tick on these):* (i) drop the conditional insert → M-1's first boot fails with
+      G-4's `CutoverMarkerInvalid`; (ii) drop the insert's legacy-rows predicate → M-2 fails, because a
       legacy file gets marked and the import is bypassed; (iii) drop the importer's
       born-relational check → M-7 fails.
       *Also:* plugin suite green; `tests/conformance` green; tip-tier rule as task 19's.
+      *Done (`ce77ca34`):* M-1…M-9 are named in `test_cutover_marker.py` (15 parametrized
+      cases). The plugin suite passed 169 tests and `tests/conformance` passed 28. The boot path
+      writes one marker on first open and the app's run log can then write `documents['runs']`
+      without making the next boot refuse; a genuine legacy file still has no marker and raises
+      `LegacyImportRequired`. A bounded retry handles two first-open processes racing the schema
+      lock. Sabotage (i) removed the insert and M-1 failed on the **first** boot with G-4's
+      `CutoverMarkerInvalid`; the earlier predicted second-boot error was incompatible with G-4,
+      while the required red test holds. Sabotage (ii) removed only the legacy-rows predicate and
+      M-2 failed `DID NOT RAISE LegacyImportRequired`. Sabotage (iii) removed the importer no-op
+      and M-7 showed a new backup/import instead of "born relational; nothing to import". Each
+      source file was restored to a clean tree; the three target tests then passed together.
+      The old `test_runtime_store.py` fixture used an invalid marker; it now uses the valid
+      `documents` columns required by §6a, while M-3 proves a real import marker.
 
 ## Wave 7 — honest docs and naming (S-7), release note
 
