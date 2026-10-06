@@ -65,24 +65,21 @@ _WRITE_TIMEOUT_MS = 10000
 
 
 class SqliteCheckpointBusyError(Exception):
-    """A committed write's checkpoint found a reader holding the log.
+    """Another connection prevented a WAL checkpoint.
 
-    The write is durable; only the fold of `-wal` back into the main file did
-    not happen. Call :meth:`SQLiteSubstrate.checkpoint` again once the reader
-    releases its snapshot — repeating the *write* is what must not happen,
-    because it could apply twice.
+    A reader or writer can block the fold. This error says nothing about
+    whether a document write happened; retry only the checkpoint after the
+    other transaction ends.
     """
 
     #: Retrying the checkpoint is the remedy, and it is idempotent.
     retryable = True
-    #: The document is already durable when this is raised.
-    write_committed = True
 
     def __init__(self, path: Path) -> None:
         self.path = path
         super().__init__(
-            f"SQLite write to {path} committed, but a reader held its WAL "
-            "checkpoint; call checkpoint() again once the reader closes"
+            f"SQLite WAL checkpoint for {path} was busy; retry checkpoint() "
+            "after the other transaction ends"
         )
 
 
@@ -153,11 +150,10 @@ class SQLiteSubstrate:
         is unchanged) that is labelled below and recorded in `.spec/STATUS.md`
         → *sqlite-runtime-provider*.
         """
-        # TRANSITIONAL(sqlite-runtime-provider): the write-path fold carries the
-        # at-rest guarantee until the core store/reader ownership cycle is
-        # broken, where a substrate would die at refcount time instead. Here
-        # rather than in core because it is this connection that holds the log;
-        # a deviation from shape I-8, recorded in .spec/STATUS.md.
+        # The write-path fold is this substrate's settled at-rest design. A
+        # store/reader reference cycle may still delay finalization, but that
+        # lifetime does not carry the fold guarantee. The corrective deviation
+        # from shape I-8 is recorded in .spec/STATUS.md.
         if getattr(self._local, "depth", 0):
             return
         conn = getattr(self._local, "conn", None)
@@ -178,12 +174,12 @@ class SQLiteSubstrate:
             )
 
     def checkpoint(self) -> None:
-        """Fold `-wal` into the main file now; a busy reader is retryable.
+        """Fold `-wal` into the main file now; a busy peer is retryable.
 
         Separate from a write on purpose: a write reports whether *the write*
-        happened, and a checkpoint that a reader blocked must never be reported
+        happened, and a checkpoint that another connection blocked is not reported
         through that result. This raises :class:`SqliteCheckpointBusyError`
-        (``retryable``/``write_committed``) while a reader holds the log, and
+        (``retryable``) while another transaction blocks the fold, and
         returns quietly when the database is already at rest — a truncating
         checkpoint of an empty log changes nothing.
         """

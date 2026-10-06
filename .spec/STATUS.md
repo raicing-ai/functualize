@@ -2667,12 +2667,13 @@ already disclosed as falsified by S-1 (spec §2 ↔ plan *Findings* F-2, D-1); t
 held until the defect contradicted it.
 
 The alternative — breaking the store/reader ownership cycle in core so a substrate dies at refcount
-time — was rejected for this branch: it moves `DocumentRuntimeStore`/`ScopeStore` lifetimes across
-ADR-022's substrate/store boundary and expands the delta far past the defect. The write-path fold is
-the deliberate interim, and it is what makes the guarantee a property of the caller's own call rather
-than of a collection's timing. Recorded in this entry because the feature's durable half is this
-record and the reference (no ADR of its own — see *The decision worth keeping* above); the site in
-`substrate.py` carries a `# TRANSITIONAL(sqlite-runtime-provider)` note pointing back here.
+time — was rejected: it moves `DocumentRuntimeStore`/`ScopeStore` lifetimes across ADR-022's
+substrate/store boundary and expands the delta far past the defect. The plugin's write-path fold is
+the settled design. A substrate in a reference cycle can still die at collection rather than at
+refcount time; that lifetime is a stated limitation and does not carry the at-rest guarantee. A
+concurrent transaction can defer the fold, which is warned on the write path and retryable through
+`checkpoint()`. Recorded here because the feature's durable half is this record and the reference
+(no ADR of its own — see *The decision worth keeping* above). No later step is claimed or pending.
 
 ### runtime-schema-migrations
 

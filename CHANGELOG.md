@@ -572,9 +572,11 @@ the condition is reported rather than assumed away:
   only what they did. A fold that could not run — a reader holding the log
   included — is reported separately, at warning level, naming the retry.
 - **A deferred fold is retryable, and distinct.** `SQLiteSubstrate.checkpoint()`
-  is public and raises `SqliteCheckpointBusyError` (`retryable = True`,
-  `write_committed = True`) while a reader holds the log; it returns quietly
-  when the file is already at rest. The write's own result never carries it.
+  is public and raises `SqliteCheckpointBusyError` (`retryable = True`) when
+  another connection holds a read or write transaction. That error says only
+  that the checkpoint was busy: it can also occur with an empty WAL and no
+  committed write. It returns quietly when the file is already at rest. The
+  write's own result never carries it.
 - **The wait is bounded.** The checkpoint attempt runs under a 100 ms
   `busy_timeout` restored to the write's 10 s afterwards, so a read elsewhere in
   the process cannot hold a caller inside a write it has already committed. A

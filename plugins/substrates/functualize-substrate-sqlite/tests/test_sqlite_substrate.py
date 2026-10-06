@@ -403,13 +403,11 @@ def _wal_size(db: Path) -> int:
     return wal.stat().st_size if wal.exists() else 0
 
 
-class TestAReaderCannotHideTheFoldsFailure:
+class TestConcurrentCheckpointBusy:
     """A blocked checkpoint is reported as itself, never as a failed write.
 
-    A checkpoint needs every reader to be done with the log, so a second
-    connection that holds a read snapshot blocks it — the case a
-    single-connection test cannot reach, and the reason a checkpoint guard can
-    pass while a write still reports a fold it never made.
+    A second connection holding a read snapshot or write transaction can block
+    the fold. The checkpoint error alone does not say which one it was.
     """
 
     def test_a_held_snapshot_defers_the_fold_without_failing_the_write(
@@ -459,12 +457,12 @@ class TestAReaderCannotHideTheFoldsFailure:
             bystander.close()
         assert row is not None and json.loads(row[0]) == {"v": 1}
 
-        # The explicit retry is where a caller learns the fold is retryable —
-        # and that the document it names is already committed.
+        # The explicit retry reports only that the fold is busy; its caller
+        # cannot infer a write from the checkpoint error itself.
         with pytest.raises(SqliteCheckpointBusyError) as busy:
             substrate.checkpoint()
         assert busy.value.retryable is True
-        assert busy.value.write_committed is True
+        assert not hasattr(busy.value, "write_committed")
 
         reader.execute("ROLLBACK")
         reader.close()
@@ -473,6 +471,32 @@ class TestAReaderCannotHideTheFoldsFailure:
         assert _wal_size(db) == 0
         stored = substrate.read("second")
         assert stored is not None and stored.data == {"v": 1}
+
+    def test_an_empty_log_and_a_held_writer_make_no_commit_claim(
+        self, tmp_path: Path
+    ) -> None:
+        db = tmp_path / "state.db"
+        substrate = SQLiteSubstrate(db)
+        substrate.checkpoint()
+        assert _wal_size(db) == 0
+
+        writer = sqlite3.connect(db, isolation_level=None)
+        try:
+            writer.execute("BEGIN IMMEDIATE")
+            assert _wal_size(db) == 0
+            with pytest.raises(SqliteCheckpointBusyError) as busy:
+                substrate.checkpoint()
+            assert busy.value.retryable is True
+            assert not hasattr(busy.value, "write_committed")
+            assert "committed" not in str(busy.value)
+            assert "reader" not in str(busy.value)
+            assert _wal_size(db) == 0
+        finally:
+            writer.execute("ROLLBACK")
+            writer.close()
+
+        substrate.checkpoint()
+        assert _wal_size(db) == 0
 
     def test_a_checkpoint_inside_a_transaction_is_refused(
         self, substrate: SQLiteSubstrate
