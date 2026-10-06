@@ -53,6 +53,59 @@ Three behaviours change with it:
   URL (`sqlite:///abs/path.db`, `sqlite:rel/path.db`), and the plugin no longer
   reads the setting, so a config file that still carries it moves nothing.
 
+### Changed — vault secrets have explicit group and job identities
+
+Vault entries now use `(scope, target, field)`: a group option and job config
+field with the same names are separate secrets. `put`, `inspect`, and `remove`
+require `--field` and exactly one of `--group` or `--job`. Their old positional
+form is removed. Only secret-marked group options and job config fields are
+eligible; ordinary function parameters remain invocation inputs.
+
+Provider sources are declared in `[[vault_secret]]` blocks with `group` or
+`job`, `field`, and `source`. Inline `provider://reference` values in secret
+config fields are rejected. `vault sync` checks declarations across files
+before fetching, reports each failed entry, and does not replace a direct
+entry with a provider value. Group and job secrets share the order runtime
+override → explicit CLI value → vault → environment → config file → default.
+Runs read the local vault without contacting providers.
+
+Custom configuration sources must accept the scoped `Source.get` contract;
+third-party implementations using the former two-argument method need an
+update.
+
+The public lifecycle functions in `functualize.app.vault` change the same way.
+`vault_put`, `vault_inspect` and `vault_remove` take a
+`VaultIdentity(scope, target, field)` where they took a dotted
+`"<job>.<field>"` string, so `vault_put(app, "report.token", value)` becomes
+`vault_put(app, VaultIdentity("job", "report", "token"), value)`. Import
+`VaultIdentity` from `functualize.app.vault`, or build a checked identity with
+`resolve_vault_identity(app, job=..., field=...)` (or `group=...`). Their
+reports carry the identity rather than a dotted path. A string argument is not
+accepted.
+
+This changes the vault format without migration. An old store is refused with
+the instruction to run `func builtin vault clear`; clear works without a key.
+Reprovision direct values and run `vault sync` for provider entries afterward.
+JSON refusal reasons include `scope_required`, `unknown_group`, and
+`vault_format_unsupported`.
+
+### Fixed — the secret scan no longer fails a pull request for another branch's finding
+
+The `gitleaks` job checked out every branch at full depth and then ran
+`gitleaks detect --source /repo` with no commit range, so it walked all of
+them. One fixture on one feature branch therefore failed every open pull
+request: the reported commit was not in that pull request's diff, and nothing
+the pull request could do would make the check pass.
+
+A pull request is now scanned as the range it adds — `merge-base(base,
+head)..head`, the two-dot form of the three-dot range `git diff` uses — so a
+finding the pull request itself introduces still fails it. A push to `master`
+and the weekly schedule keep the full-history scan they always had. The range
+is resolved in its own step and the job fails if it cannot be, because
+`gitleaks` reports a range `git` cannot resolve as a **clean scan of zero
+commits** and exits `0`; silently covering nothing is worse than either
+scanned outcome.
+
 ### Changed — the vault key is read from an unlocked keyring with or without a terminal
 
 A run that needed a stored vault secret used to get it in a terminal and be

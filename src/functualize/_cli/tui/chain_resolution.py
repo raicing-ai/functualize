@@ -117,12 +117,15 @@ def build_group_field_defs(
     field_defs: list[FieldDef] = []
     for spec in specs:
         # The group's own config section, resolved the same way a job's is —
-        # the group path substitutes for the job name, which is the whole rule.
+        # the group path substitutes for the job name, which is the whole
+        # rule. Scope "group" is what makes that true for the environment and
+        # the vault too: without it this panel would show `DEPLOY_ENV` values
+        # a run reading `DEPLOY__ENV` would never use.
         resolved: dict[str, Any] = {}
         try:
             chain = app._func_app.resolution_chain()
             if chain is not None:
-                resolved = chain.resolve_section(spec.group)
+                resolved = chain.resolve_section(spec.group, scope="group")
         except Exception as exc:
             app.log.warning(
                 f"build_group_field_defs: resolution for group {spec.group!r} "

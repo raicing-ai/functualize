@@ -283,6 +283,11 @@ class CachedDirectoryScanProvider:
         # Not in cache — targeted discovery
         return self._admitted(self._targeted_discovery(name))
 
+    def get_group_options_spec(self, group_path: str) -> GroupOptionsSpec | None:
+        """Return a live group declaration, including group-only modules."""
+        self.list_jobs()
+        return self._group_options_entries.get(group_path)
+
     def _admits(self, descriptor: JobDescriptor) -> bool:
         """Return True if the job-level filter admits this descriptor."""
         return self._job_filter is None or self._job_filter.should_register(descriptor)

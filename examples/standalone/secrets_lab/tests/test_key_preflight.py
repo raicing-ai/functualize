@@ -17,6 +17,7 @@ import pytest
 from functualize.app import FunctualizeApp, JobSources
 from functualize.app.vault import (
     UnlockAbandonedError,
+    VaultIdentity,
     VaultKeySourceError,
     VaultKeyState,
     VaultKeyStatus,
@@ -72,7 +73,7 @@ def test_a_project_without_a_vault_is_ready(project: Path) -> None:
 
 def test_a_key_in_the_environment_is_ready_and_never_printed(project: Path) -> None:
     app = _app(project)
-    vault_put(app, "report.token", "lab-token-preflight")
+    vault_put(app, VaultIdentity("job", "report", "token"), "lab-token-preflight")
 
     state = vault_key_state(app)
 

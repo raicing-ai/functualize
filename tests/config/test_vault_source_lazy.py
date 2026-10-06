@@ -34,12 +34,21 @@ from functualize._config.vault_key_resolver import (
     VaultKeyResolver,
 )
 from functualize._config.vault_source import VaultSource
+from functualize._primitives.vault_identity import VaultIdentity
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 _KEY = b"\x22" * KEY_BYTES
 _ANNOTATION = "fake-sm://prod/db-password"
+
+_JOB_PASSWORD = VaultIdentity("job", "database", "password")
+_JOB_TOKEN = VaultIdentity("job", "api", "token")
+
+
+def _declaring(*blocks: dict[str, str]) -> list[tuple[str, dict[str, Any]]]:
+    """One discovered file whose `[[vault_secret]]` blocks declare these."""
+    return [("config.dev.toml", {"vault_secret": list(blocks)})]
 
 
 class _ExplodingResolver(VaultKeyResolver):
@@ -89,13 +98,15 @@ class _StaticSource:
     def __init__(self, values: dict[str, Any]) -> None:
         self._values = values
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self, key: str, section: str | None = None, *, scope: str = "job"
+    ) -> Any | None:
         return self._values.get(f"{section}.{key}" if section else key)
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(self, key: str, section: str | None = None, *, scope: str = "job") -> bool:
         return self.get(key, section) is not None
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: str = "job") -> set[str]:
         prefix = f"{section}."
         return {k[len(prefix) :] for k in self._values if k.startswith(prefix)}
 
@@ -106,14 +117,14 @@ def vault(tmp_path: Path) -> Path:
     path = tmp_path / "vault.db"
     store = SecretsVault(path)
     store.put(
-        "database.password",
+        _JOB_PASSWORD.encode(),
         "s3cret-provider",
         annotation=_ANNOTATION,
         provider="fake-sm",
         encryption_key=_KEY,
     )
     store.put(
-        "api.token",
+        _JOB_TOKEN.encode(),
         "s3cret-direct",
         origin=VaultOrigin.DIRECT,
         encryption_key=_KEY,
@@ -163,14 +174,17 @@ class TestNothingStoredNeverAsks:
     def test_an_ordinary_fallthrough_never_asks(self, vault: Path) -> None:
         """`note_fallthrough` checks the annotation before the key."""
         resolver = _ExplodingResolver()
-        source = VaultSource(vault, key=resolver, providers=("fake-sm",))
+        source = VaultSource(vault, key=resolver)
+        source.set_declaration_files(
+            _declaring({"job": "database", "field": "password", "source": _ANNOTATION})
+        )
         chain = ResolutionChain([source, _StaticSource({"database.port": "5432"})])  # type: ignore[list-item]
         assert chain.resolve("port", "database").value == "5432"
         assert resolver.calls == 0
 
     def test_constructing_a_source_never_asks(self, vault: Path) -> None:
         resolver = _ExplodingResolver()
-        VaultSource(vault, key=resolver, providers=("fake-sm",))
+        VaultSource(vault, key=resolver)
         assert resolver.calls == 0
 
 
@@ -279,10 +293,15 @@ class TestTheNoKeyWarningMoved:
         source = VaultSource(
             tmp_path / "never-synced.db",
             key=_locked_resolver(provider),
-            providers=("fake-sm",),
+        )
+        source.set_declaration_files(
+            _declaring(
+                {"job": "database", "field": "password", "source": _ANNOTATION},
+                {"job": "database", "field": "user", "source": "fake-sm://prod/u"},
+            )
         )
         below = _StaticSource(
-            {"database.password": _ANNOTATION, "database.user": "fake-sm://prod/u"}
+            {"database.password": "file-value", "database.user": "file-user"}
         )
         chain = ResolutionChain([source, below])  # type: ignore[list-item]
         with caplog.at_level(logging.WARNING):
@@ -291,7 +310,7 @@ class TestTheNoKeyWarningMoved:
             chain.resolve("user", "database")
         assert len(caplog.records) == 1
         message = caplog.records[0].getMessage()
-        assert _ANNOTATION in message
+        assert "[[vault_secret]]" in message
         assert "keyring is locked" in message
         assert provider.calls == 1
 
@@ -299,7 +318,7 @@ class TestTheNoKeyWarningMoved:
         self, vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         resolver = _ExplodingResolver()
-        source = VaultSource(vault, key=resolver, providers=("fake-sm",))
+        source = VaultSource(vault, key=resolver)
         chain = ResolutionChain([source, _StaticSource({"app.name": "demo"})])  # type: ignore[list-item]
         with caplog.at_level(logging.WARNING):
             chain.resolve("name", "app")

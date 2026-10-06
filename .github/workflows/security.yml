@@ -18,9 +18,45 @@ jobs:
   gitleaks:
     runs-on: ubuntu-latest
     steps:
+      # `fetch-depth: 0` on every event. The PR range below needs the base
+      # sha's history to resolve `merge-base`, and the full-history leg needs
+      # everything; a pushed `master` would otherwise scan one commit.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # A pull request is scanned as the range it adds — `merge-base(base,
+      # head)..head`, the two-dot form of the three-dot range `git diff` uses.
+      # Commits already on the base branch, and commits that exist only on some
+      # other branch, are then not this pull request's problem: before this,
+      # `detect --source /repo` walked every branch in the checkout, so one
+      # fixture on one feature branch failed every open pull request, and the
+      # reported commit was not in the pull request's diff at all.
+      #
+      # Guarded, because a range that does not resolve must not be reported as
+      # a clean scan: `git log` on an unknown revision exits non-zero and
+      # gitleaks then scans *0 commits* and exits 0. An empty `$base` would be
+      # worse still — `"..$head"` is every commit, exactly the bug above.
+      - name: Resolve the pull request's commit range
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test -n "$BASE_SHA" || { echo "::error::the event carries no base sha"; exit 1; }
+          test -n "$HEAD_SHA" || { echo "::error::the event carries no head sha"; exit 1; }
+          for sha in "$BASE_SHA" "$HEAD_SHA"; do
+            git cat-file -e "$sha^{commit}" 2>/dev/null || {
+              echo "::error::$sha is not present in this checkout; the range cannot be resolved"
+              exit 1
+            }
+          done
+          base=$(git merge-base "$BASE_SHA" "$HEAD_SHA") || {
+            echo "::error::no merge base between $BASE_SHA and $HEAD_SHA"
+            exit 1
+          }
+          echo "GITLEAKS_LOG_OPTS=$base..$HEAD_SHA" >> "$GITHUB_ENV"
+          echo "Scanning $base..$HEAD_SHA"
 
       # Runs the gitleaks binary rather than gitleaks/gitleaks-action@v2.
       # That action refuses to scan organization-owned repositories without a
@@ -30,8 +66,17 @@ jobs:
       #
       # Pinned by digest: an unpinned :latest in a security job makes the thing
       # that checks for secrets an unverified moving target.
+      #
+      # `detect` accepts `--log-opts`, and the option is appended only when the
+      # step above set it: `--log-opts=` with no value is a usage error, and
+      # omitting it keeps the full-history scan that `push` and `schedule` have
+      # always run.
       - name: Gitleaks scan
         run: |
+          opts=()
+          if [ -n "${GITLEAKS_LOG_OPTS:-}" ]; then
+            opts=(--log-opts="$GITLEAKS_LOG_OPTS")
+          fi
           docker run --rm -v "$PWD:/repo" \
             zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
             detect \
@@ -39,4 +84,5 @@ jobs:
               --config /repo/.gitleaks.toml \
               --redact \
               --no-banner \
-              --verbose
+              --verbose \
+              "${opts[@]}"
