@@ -21,8 +21,9 @@ owner with the task list (`/agentic-plan` step 11), before Execute.
   updated 2026-10-05 09:27:54 UTC: the content hash matched the earlier read on
   the same day, and the page has 10 inline comments. SD/12779576 **v2**, updated
   2026-10-04 17:29:54 UTC. Jira FUN-8, updated 2026-10-05 09:52:11 UTC.
-- **Base.** `origin/master` at `e8e3b86`. Every count and negative below was
-  produced by the command printed beside it, on that base.
+- **Base.** `origin/master` at `ba36b859`. Every count and negative below was
+  produced by the command printed beside it, on that base. Revision 4 was
+  measured on `e8e3b86`; every count is unchanged on `ba36b859`.
 - `research.md` is kept unchanged from revision 3. Its evidence does not depend
   on the canon version. The exception is R-2's provisional recommendation, which
   Decision 16 has overtaken (§9).
@@ -398,10 +399,10 @@ not work around them with a Rise-side substitute, since B6 forbids that.
 
 | # | Prerequisite | Needed by | Verified absent on `e8e3b86` |
 |---|---|---|---|
-| P-1 | Generic class discovery: one canonical job per subject-class method, invoked with a subject address | S3, S4, S21, S23, so **every executable path** | `rg -n 'isclass\|getmembers' src/functualize/_discovery src/functualize/_app` → 0 hits; `docs/guides/subjects.md`: "Directory discovery ignores classes entirely" |
-| P-2 | Lazy child-route hook (generated per-instance CLI routes) | instance routes, deferred (D23) | `rg -n -i 'lazy.?(child\|route\|group)\|child_routes' src/functualize` → 0 hits |
+| P-1 | Generic class discovery: one canonical job per subject-class method, invoked with a subject address | S3, S4, S21, S23, so **every executable path** | `rg -n -e 'isclass' -e 'getmembers' src/functualize/_discovery src/functualize/_app` → 0 hits (the same patterns match 4 files elsewhere in `src/functualize`); `docs/guides/subjects.md`: "Directory discovery ignores classes entirely" |
+| P-2 | Lazy child-route hook (generated per-instance CLI routes) | instance routes, deferred (D23) | `rg -n -i -e 'lazy.?child' -e 'lazy.?route' -e 'lazy.?group' -e 'child_routes' src/functualize` → 0 hits |
 | P-3 | The `Setting()` marker on job parameters | environment parameter tiers (D24); S10 is fixed-values-only until it lands | `Setting` at `src/functualize/_types/settings.py:35` is the *app-settings* declaration, not a parameter marker |
-| P-4 | Value-source provenance in run records (invoked route vs canonical job) | D23 route recording | `rg -n -i 'invoked_route\|value_source' src/functualize/_types src/functualize/_engine` → 0 hits |
+| P-4 | Value-source provenance in run records (invoked route vs canonical job) | D23 route recording | `rg -n -i -e 'invoked_route' -e 'value_source' src/functualize/_types src/functualize/_engine` → 0 hits |
 | P-5 | Gate resolution started from an ordinary job | candidate choice through a Gate (D20) | Gates are workflow nodes (`src/functualize/_types/workflow.py:286`) |
 | P-6 | Person-required mechanism | a Gate that waits for a person to fix a credential (D20) | — |
 | P-7 | The scoped vault of SD/12779576 v2 | S7 | **[4.1] Landed** as `ba36b859` "feat(vault): resolve scoped group and job secrets (#88)". `VaultIdentity(scope, target, field)` is at `src/functualize/_primitives/vault_identity.py`. No longer a dependency. |

@@ -1,4 +1,4 @@
-# Rise / RiseKit foundation — external contracts (revision 4)
+# Rise / RiseKit foundation — external contracts (revision 4.1)
 
 These are the surfaces that a provider author, an environment author, or a CI
 script depends on. Every Python name is **provisional**: SD/5407068 v18
@@ -229,7 +229,7 @@ provisional; the precedent is `$XDG_CACHE_HOME/functualize/<project_id>/`,
 | any of the above, unscoped with no root and not exactly one environment, or an unknown address | — | `USAGE` (2) | the environment addresses found |
 
 - These codes are Functualize's existing `ExitCode`
-  (`src/functualize/_types/exit_codes.py:36-43`, public through
+  (`src/functualize/_types/exit_codes.py:36-44`, public through
   `functualize.types`). Rise adds no exit code (D27).
 - The mapping above is a proposal, confirmed with the spec.
 - The commands are ordinary jobs, so they reach MCP and the TUI through the
