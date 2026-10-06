@@ -330,6 +330,23 @@ def test_an_outbox_row_commits_only_with_its_transition(
     ) == [("workflow", "s1", "notify", "pending")]
 
 
+def test_a_takeover_drops_the_fenced_transition_and_its_outbox_intent(
+    store: SqliteRuntimeStore,
+) -> None:
+    gen = _claimed(store)
+    with store.transaction() as stale:
+        stale.workflows.write_state(StateBatch("s1", gen, T0, {"late": 1}))
+        stale.effects.append("workflow", "notify", idempotency_key="stale")
+        with store.transaction() as fresh:
+            claimed = fresh.workflows.claim(
+                ClaimWorkflow("s1", "new-owner", T0, 60.0, force=True)
+            )
+            assert isinstance(claimed, Claimed)
+
+    assert _rows(store, "SELECT count(*) FROM scope_state") == [(0,)]
+    assert _rows(store, "SELECT count(*) FROM outbox") == [(0,)]
+
+
 # -- reachability: the boot-selected store ----------------------------------------
 
 

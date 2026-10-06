@@ -320,10 +320,15 @@ class SqlEffectWriter:
         written = sorted(tx.scopes_written)
         aggregate = written[0] if len(written) == 1 else ""
         now = iso(datetime.now(UTC))
+        # A takeover after the writer's pre-check can make its state/step
+        # statement match zero rows. The intent must miss with it, not become
+        # an outbox row for a transition that never happened.
+        fence, fence_args = tx.fence_sql(aggregate, tx.held_generation(aggregate))
         tx.stage(
             "INSERT INTO outbox (id, namespace_id, aggregate_type, aggregate_id, topic, "
             "payload, idempotency_key, status, available_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?) ON CONFLICT DO NOTHING",
+            f"SELECT ?, ?, ?, ?, ?, ?, ?, 'pending', ? WHERE {fence} "
+            "ON CONFLICT DO NOTHING",
             (
                 uuid4().hex,
                 tx.namespace,
@@ -333,5 +338,6 @@ class SqlEffectWriter:
                 dumps(payload),
                 idempotency_key,
                 now,
+                *fence_args,
             ),
         )

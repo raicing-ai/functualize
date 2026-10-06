@@ -130,6 +130,7 @@ class BufferedTransaction:
         self._requests: dict[str, RequestRow] = {}
         self._runs: dict[str, str] = {}
         self._attempts: dict[tuple[str, int], str] = {}
+        self._held_generations: dict[str, int] = {}
         #: Scopes this unit staged a write for, or claimed — where an event
         #: that names no run belongs, when there is exactly one.
         self.scopes_written: set[str] = set()
@@ -250,6 +251,11 @@ class BufferedTransaction:
                 offered=generation,
                 owner=row.owner or "nobody",
             )
+        self._held_generations[scope_id] = generation
+
+    def held_generation(self, scope_id: str) -> int:
+        """The generation this unit checked for a scoped transition, if any."""
+        return self._held_generations.get(scope_id, 0)
 
     def fence_sql(
         self, scope_id: str, generation: int
