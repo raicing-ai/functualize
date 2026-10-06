@@ -374,8 +374,10 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       (`[:1]` / `[1:]`) still passes (`1 passed`) and reports `statement faults at 5 positions`
       against the intact unit's 6: its leading batch carries the unit's first `workflow_steps`
       insert alone, and no public port exposes a step row (`WorkflowReader` offers `workflow`,
-      `resumable`, `events_after`), so `cross_aggregate_atomicity` reads nothing. That is the
-      limit the tier now states, in the form `cross_process_fencing` already uses: its docstring
+      `resumable`, `events_after`), so `cross_aggregate_atomicity` reads nothing — and `commit()`'s
+      own invariant, *"Send everything staged as one batch"* (`_transaction.py`), is **not** covered
+      by this tier. The limit is stated where the tier is, in the form `cross_process_fencing`
+      already uses: its docstring
       names the outcome it reads and the partial application it cannot see, and the published
       strength appends `"observed through the ports — a split whose leading batch writes no
       port-visible row is not seen"` (intact: `statement faults at 6 positions + command faults at
