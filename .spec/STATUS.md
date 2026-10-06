@@ -2518,6 +2518,7 @@ Items identified during development that are worth doing but not yet designed:
 
 | Feature | Description |
 |---------|-------------|
+| sqlite-runtime-provider | `feat/sqlite-runtime-provider`: FUN-19 — the relational runtime store, and the first store that is not the document backend. One config key selects it, `runtime_store.url` (read at boot step 6.5, `_app/store_selection.py`), so installing the plugin no longer changes where anything lives; `functualize-substrate-sqlite` **0.4.0** registers the `sqlite` scheme and `[plugin.substrate-sqlite] db_path` is gone. Revision `0001` (`_schema/0001_runtime_schema.sql`, frozen and checksummed) creates the fourteen §2 tables plus `runtime_cutover`, name for name, and `migrate()` refuses on a checksum mismatch, a gap, a ledger ahead of the code, runtime tables with no ledger and partial state; the same boot pass applies the relational retention statement. Three deliberate behaviour changes: boot **refuses** instead of falling back to documents (S-2); the `runtime_cutover` marker with provenances `documents` and `born-relational` (precedence G-1…G-4) decides whether a legacy database may open; the `functualize-sqlite-import` CLI is the only path in. The engine still writes legacy `documents['runs']`, so `tests/integration/test_substrate_durability.py`'s strict xfail stands, and H-3's observation limit is its own issue (MCH-156). Details below. |
 | runtime-schema-migrations | `feat/runtime-schema-migrations`: FUN-18 — the four runtime state machines as data. Scope status was assigned at **thirteen production call sites across five modules** and validated in none; `_types/lifecycle.py` now holds `SCOPE`/`RUN`/`ATTEMPT`/`INPUT_REQUEST` (closed state sets, legal pairs, absorbing/evictable sets) as data with no logic, `_primitives/transitions.py` is the one refusal (`IllegalTransition`), and every stored writer calls it — `ScopeStore.set_scope_status` and `RunStore.close_run`, each reading the current value inside the batch it is already writing, plus `RunStore.open_run` on the creation edge, which checks the pair before it writes and so refuses without touching the file. Four transition pairs the table briefly needed are gone with the defect that produced them: a resumed walk left its parked status in place, so a walk that resumed and then finished wrote `COMPLETED` over a record that said `blocked`; every entry now stamps `running` (D2 = 1) and a gate resolved inline no longer parks a live walk. `_types/retention.py`'s `RetentionPolicy` replaces the three separate `500` caps. One behaviour loss is recorded rather than hidden: `completed` is evictable and `resume` accepts it, so an evicted scope's retry answers `workflow_not_found`. No public API change; the durable half landed in `contributor/reference/` because this tree is deleted at clearing. Details below. |
 | substrate-capability-probe | `spike/substrate-capability-probe`: FUN-25's Wave 0 — `StoreProfile` was a set of assertions taken from vendor documentation, and this turned it into measurements before FUN-17 freezes the port. Ten fields across **eight columns** — the seven candidate backends plus Supabase Postgres — published at [`contributor/reference/substrate-capability-matrix.md`](../contributor/reference/substrate-capability-matrix.md): 80 cells, **76 measured** and **4 explicitly `NOT MEASURED` with their reasons**, all four in D1's column, whose evidence row states the split rather than stamping the column as measured. No `src/` or `plugins/` change at all — the diff to `master` is a probe suite under `tests/substrate_probe/`, one reference document, the durable-half rows it migrated (`CHANGELOG.md` and this file), and `.env.example`. The branch also carries one separately authored commit that is **not** this spike's work: `8300682`, the member's `ci:` governance change adding the `research-artifacts-cleared` gate, riding here with its landing decision still open. **All three open questions are answered**, each in its own section rather than inferred from a neighbouring column: Q1 — R2's conditional `PutObject` is atomic (one of eight writers won); Q2 — D1's REST latency is a measured distribution (plan against the p95, 516 ms); Q3 — retired at planning time, with a regression guard for the property. *(Corrected 2026-09-23 after the credentialed waves: this row previously said seven backends, 40 measured of 80, and two questions unanswered — the detail section below had already outgrown all three.)* Details below. |
 | runtime-persistence-ports | `feat/runtime-persistence-ports`: FUN-17 — the engine is constructed *with* a `RuntimeStore` and has no path to storage it was not given. Sixteen tasks over eleven waves: the port vocabulary as values (`_types/persistence.py` — `StoreProfile`, 8 commands, 6 outcomes, 6 views, 10 protocols), the document backend that declares its real capability and refuses cross-aggregate atomicity, engine construction moved after configuration resolution, the walk claiming through the port with a lost claim as a *value* (`WalkOutcome.HELD`), and a cancel that now refuses rather than proceeding unclaimed. Four ADRs (025–028); the public API is unchanged. Merge gate at `93ecd18`: **11 103 passed / 1 601 skipped / 0 failed**. TD-1 and the durable reading are recorded below. |
@@ -2591,6 +2592,66 @@ by the new check, while `AGENTS.md` § *Git discipline* and
 feature PR. Whether a cut is allowed its own PR without a graph is a member
 decision, filed with the check rather than taken here; the check reports instead
 of blocking until that lands.
+
+### sqlite-runtime-provider
+
+`feat/sqlite-runtime-provider`: FUN-19. Recorded here for the same reason as the two entries below —
+`.spec/features/sqlite-runtime-provider/` is deleted as this branch's last commit, so the feature's
+durable half is the reference's §2 and §7 (now landed) and this record.
+
+**What landed.** A runtime store that is *selected* rather than installed. `runtime_store.url`
+(`src/functualize/_app/store_selection.py`) is read at boot step 6.5, when the store is constructed and
+before the engine is (ADR-027), so `functualize-substrate-sqlite` **0.4.0** registering the `sqlite`
+scheme changes nothing on its own; `[plugin.substrate-sqlite] db_path` is gone, and a URL that names a
+host is refused because SQLite is a local file. The store declares
+`cross_aggregate_atomicity=True`, `fencing='cross-process'`, `versioned_migrations=True`,
+`durable_outbox=True` and `multi_machine=False`. Revision `0001`
+(`_schema/0001_runtime_schema.sql`, frozen and checksummed) creates the fourteen §2 tables plus
+`runtime_cutover` under the reference's own names. `_migrations.py` applies it in one
+`BEGIN IMMEDIATE` batch with its ledger row, and refuses on a checksum mismatch, a gap in the
+sequence, a database ahead of the code, runtime tables with no ledger, and a partially applied
+revision. The same boot pass applies the relational retention statement — `max_records=500`,
+`evictable_only=True`, `max_age=None` — which is §6's target behaviour, not an eviction inside every
+write. Relational writers cover `namespaces`, `runs`/`run_attempts`/`run_events`,
+`workflow_scopes`/`workflow_steps`/`workflow_branches`/`scope_state`/`scope_events`,
+`input_requests`/`input_candidates` and `outbox`; `artifact_refs` is DDL only. Fencing is per
+statement rather than per store: every scope write carries the held generation
+(`_transaction.py`'s `fence_sql` sub-selects `workflow_scopes.lease_generation`), which is the §5
+predicate the reference had been holding open.
+
+**What changed on purpose.** Boot **refuses** when a relational store is selected and the database
+cannot serve (S-2) — there is no fallback to documents, because a silent fallback would leave half a
+project's state in each backend. A legacy database opens only through an explicit cutover: the
+`runtime_cutover` marker records a provenance of `documents` or `born-relational` (a database that
+never held runtime documents is marked on creation), and precedence G-1…G-4 decides which row wins.
+Importing is a separate CLI — `functualize-sqlite-import` (`--project`, `--db`, `--dry-run`, and
+mutually exclusive `--resume`/`--rollback`) — so migration stays offline and the store's own boot path
+never imports. `testing.conformance` gained the tier suite a store is measured by: a BASELINE tier
+every store passes, higher tiers gated on the capability they need, so a store declaring a capability
+`False` is neither run against it nor selected by a feature that needs it.
+
+**The decision worth keeping.** Selection belongs to configuration and construction follows it
+(ADR-027, exercised here by the first store that needed it), and a store that cannot keep a promise
+declares it rather than approximating it. No `contributor/adr/031-*.md` was written: the decisions this
+feature rests on are already recorded — ADR-022 (one seam), ADR-026 (module boundaries), ADR-027
+(selection before construction), ADR-028 (storage is pluggable, execution is not) — and the rest is
+contract, which is the reference's job.
+
+**Verification at this wave.** At this branch's pre-deletion head the full suite is **12 157 passed /
+1 630 skipped / 0 failed**; `ruff check` and `ruff format --check` are clean over
+`src/ tests/ plugins/ examples/`; `mypy src/` is clean across 391 files; `lint-imports` reports
+**7 kept, 0 broken**; and `mkdocs build --strict` builds. After the two deletion commits both artifact
+gates are empty (`git ls-files .spec/features/`, `git ls-files contributor/architecture/research/`).
+
+**Still open, none blocking.** The engine still writes legacy `documents['runs']` and scope records, so
+`tests/integration/test_substrate_durability.py`'s strict xfail stands and the relational store is not
+yet the only writer. H-3's atomicity observation limit — the tier reads the outcome through the ports,
+so a commit split into batches whose leading batch writes no port-visible row is not observed — is its
+own issue (MCH-156); H-7 (the fencing tier observes the outcome, not which guard held it) is reported
+rather than gated. Two items the section below recorded as open move here: the generation arm is now
+structural (above), and `INPUT_REQUEST` is still enforced by no stored writer — the relational writer
+guards a request's `status` directly rather than calling `require_transition`. FUN-20/21/22/23 (the
+outbox, the durable interaction slice, network stores, MCP) are out of scope.
 
 ### runtime-schema-migrations
 
