@@ -47,7 +47,6 @@ are not.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -72,14 +71,17 @@ pytestmark = pytest.mark.installed_plugins
 
 
 @pytest.fixture
-def project(tmp_path: Path) -> Iterator[Path]:
-    """An empty project directory, entered — the substrate resolves from cwd."""
-    previous = Path.cwd()
-    os.chdir(tmp_path)
-    try:
-        yield tmp_path
-    finally:
-        os.chdir(previous)
+def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """An empty project directory, entered — the substrate resolves from cwd.
+
+    Entered through ``monkeypatch`` rather than a bare ``os.chdir`` with a
+    ``finally``: the restore then rides pytest's fixture stack, so the
+    suite's own cwd comes back whatever the test does to it, and nothing
+    here can leak a directory change into whichever file runs after this
+    one under a different ordering.
+    """
+    monkeypatch.chdir(tmp_path)
+    yield tmp_path
 
 
 def _boot(name: str = "ac3", *, select_sqlite: bool = True) -> FunctualizeApp:

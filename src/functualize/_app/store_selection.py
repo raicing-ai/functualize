@@ -112,10 +112,15 @@ def select_runtime_store(app: Any) -> tuple[RuntimeStore, StoreSubstrate]:
 def _configured_url(app: Any) -> str | None:
     """``runtime_store.url`` as configured, or ``None`` when nothing sets it."""
     chain = getattr(app, "_resolution_chain", None)
-    if chain is None:
+    resolve = getattr(chain, "resolve", None)
+    if resolve is None:
+        # A stand-in app may carry a chain-like object that resolves nothing:
+        # that is "nothing sets it", not a boot failure. Read by probing the
+        # attribute, never by catching `AttributeError` — the latter would
+        # also swallow a `resolve` that raises it for its own reasons.
         return None
     try:
-        value = chain.resolve("url", "runtime_store").value
+        value = resolve("url", "runtime_store").value
     except MissingKeyError:
         return None
     if value is None:
