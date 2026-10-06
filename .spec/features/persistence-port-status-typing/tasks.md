@@ -165,7 +165,7 @@ zero. After each task, update `.spec/STATE.md`.
 ## Deliberately out of scope (recorded, not forgotten)
 
 - `WalkState` retirement and the store-level scope-status writers
-  (`workflow_walker.py`, `frontier.py` entry stamps, `executor.py:1065`,
+  (`workflow_walker.py`, `frontier.py` entry stamps, `executor.py:1068`,
   `app/_workflow_control.py:446`) — no port surface; engine-internal
   vocabulary work (plan.md §3, §6).
 - `RunQuery`/`WorkflowQuery` construction sites — none exist (verified); the

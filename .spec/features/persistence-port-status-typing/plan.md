@@ -139,7 +139,7 @@ Apply path (backend consumes the fields):
 Out of scope, declared (store-level writers of the same *column*, never of a
 port field; the choke point guards them): `workflow_walker.py:451,567,757,998`
 (`WalkState`/`_SCOPE_STATUS_FOR` :1083), `frontier.py:373,375,439`,
-`executor.py:1065`, `app/_workflow_control.py:446` (literal `"cancelled"`).
+`executor.py:1068`, `app/_workflow_control.py:446` (literal `"cancelled"`).
 Their vocabulary cleanup is engine-internal work with no port surface; this
 feature does not pay for it.
 

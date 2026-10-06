@@ -67,7 +67,7 @@ member. From retrieval (full hit set with lines in `plan.md` §3): the three
 recorders, the frontier's gate-suspend path, the document backend's apply path
 and read projections, and the gate-request read projection. The engine's
 *store-level* writers that bypass the port (`workflow_walker.py`,
-`frontier.py`'s entry stamps, `executor.py:1065`,
+`frontier.py`'s entry stamps, `executor.py:1068`,
 `app/_workflow_control.py:446`) are **out of scope** — they write the same
 stored column but never touch a port field; the choke point guards them and
 their cleanup is the engine's own vocabulary work, not this feature's.
