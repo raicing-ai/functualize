@@ -672,6 +672,20 @@ Still open after the hermetic router:
   waits for FUN-18's tables and FUN-21's interaction/evidence slice.
 - **Margin comparison is still exact**, as above — unchanged by this work.
 
+### Hermetic evaluation — delivered
+
+Phase 3 of the decision-layer experiment. The instrument is `tests/hermetic_eval/`:
+one frozen corpus replayed through three comparators over the same gate, rule and
+fallback, ending in a boundary and a computed verdict. The method, the protocol
+and both commands are `contributor/reference/hermetic-evaluation.md`. Corpus `v1`
+is `tests/hermetic_eval/corpus/v1/` — 40 scenarios, 10 per route, frozen in
+`corpus.lock.json` at digest
+`466245291d9b94428a4984f216e57f654d946764522cbef6fc09ab694cf21872`, with the
+maintainer's label approval (D-4) recorded before the freeze. The measurements
+themselves are held by the maintainer, outside the repository (B-25); the
+computed verdict is a recommendation. Still open: the verdict's disposition is
+the maintainer's, and Phases 4–5 remain.
+
 ### Gate-name resolution — delivered
 
 Gate references resolve once per public entry via `resolve_name` against the

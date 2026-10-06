@@ -777,7 +777,7 @@ measurement). Commit: `test(hermetic): freeze the version 1 routing corpus`.
 
 ## Wave 5
 
-### [ ] T8 — the live measurement (no commit)
+### [x] T8 — the live measurement (no commit)
 
 *Files:* none in the repository. Output: three run directories under
 `~/.local/state/functualize-hermetic-eval/` (or `$XDG_STATE_HOME/…`).
@@ -812,7 +812,7 @@ invocation of each printed `run complete` — AC-12. No commit.
 
 ## Wave 6
 
-### [ ] T9 — the report, delivered to the maintainer (no commit)
+### [x] T9 — the report, delivered to the maintainer (no commit)
 
 *Files:* none in the repository. Output: `~/.local/state/functualize-hermetic-eval/v1-report/`.
 
@@ -845,7 +845,7 @@ commit.
 
 ## Wave 7
 
-### [ ] T10 — the durable half: the method, not the numbers
+### [x] T10 — the durable half: the method, not the numbers
 
 *Files:* `contributor/reference/hermetic-evaluation.md` (new), `.spec/STATUS.md` (modify)
 
