@@ -17,12 +17,12 @@ Gates were measured on `ba36b859` + this branch, 2026-10-05.
 | Gate | Command | Asserts | Authoring-time state |
 |---|---|---|---|
 | G-core | `git diff --stat origin/master -- src/functualize` | empty: B1, AC-2 | empty (0 lines) |
-| G-core-import | `rg -l 'functualize_rise\|functualize_risekit' src/functualize` | empty: B1 | 0 files |
-| G-private | `rg -l 'from functualize\._\|import functualize\._' plugins/domains/functualize-rise plugins/domains/functualize-risekit plugins/substrates/functualize-rise-cloudflare tests/plugins/rise` | empty: public API only | directories absent (`rg` exits 2). First real run in T2 |
+| G-core-import | `rg -l -e 'functualize_rise' -e 'functualize_risekit' src/functualize` | empty: B1 | 0 files |
+| G-private | `rg -l -e 'from functualize\._' -e 'import functualize\._' plugins/domains/functualize-rise plugins/domains/functualize-risekit plugins/substrates/functualize-rise-cloudflare tests/plugins/rise` | empty: public API only | directories absent (`rg` exits 2). First real run in T2 |
 | G-B2 | `rg -l 'functualize_risekit' plugins/domains/functualize-rise` | empty: Rise never imports RiseKit | absent; first run in T2 |
 | G-B5 | `rg -n -i 'cloudflare' plugins/domains/functualize-risekit` and `rg -l 'functualize_rise_cloudflare' plugins/domains/functualize-rise plugins/domains/functualize-risekit` | both empty: AC-11 | absent; first run in T2 |
 | G-groups | `uv run pytest -q --no-header tests/spec/test_every_declared_group_has_a_reader.py` | no new entry-point group: B6, AC-12 | **30 passed** |
-| G-no-tracker | `rg -n -i 'atlassian\|jira\|confluence' <the three package src dirs>` | empty: AC-14, no runtime path to either tool | absent; first run in T2 |
+| G-no-tracker | `rg -n -i -e atlassian -e jira -e confluence <the three package src dirs>` | empty: AC-14, no runtime path to either tool | absent; first run in T2 |
 | G-secret | the canary test (T10, T15) | no secret byte in any output: AC-13 | lands with T10 |
 
 **Test location.** Tests live in `tests/plugins/rise/`, collected by the root
