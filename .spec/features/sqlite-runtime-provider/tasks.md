@@ -81,7 +81,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Sabotage:* (i) replace the delegate with today's body → the `stub:` test fails on both paths;
       (ii) drop boot's documents-factory registration → the unset/`documents:` tests fail on both
       paths. (ii) is task 2's proof; (i) closes 1 and 3. Tick 1, 2, 3 together.
-      *Done (`46704c8a`, 2026-10-05):* sabotage (i) — the delegate replaced by the pre-change
+      *Done (`b4f1dd27`, 2026-10-05):* sabotage (i) — the delegate replaced by the pre-change
       body — failed 12 of 22 selection tests, every `stub:`, unknown-scheme, duplicate-claim
       and D-3 case, on `[static]` and `[standard]`; (ii) — boot's documents-factory
       registration dropped — failed 14 of 22, every unset and `documents:` case, on both
@@ -97,7 +97,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Gate:* the surface test lists exactly contracts §4's additions for the answered D-2 option.
       *Call path:* none of its own — re-exports carry no executable path; the surface test is the gate.
       First importers: task 15 (wave 1) and task 12 (wave 4), which use only `functualize.plugin`.
-      *Done (`46704c8a`):* 35 names of `_types/persistence.py.__all__` plus
+      *Done (`b4f1dd27`):* 35 names of `_types/persistence.py.__all__` plus
       `IllegalTransition`, `RuntimeStoreCapabilityError`, `RuntimeStoreSelectionError`;
       `tests/test_public_api_surface.py` pins exactly those 38. The suite row is tasks 12–13.
 
@@ -114,7 +114,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       whole batch back; `close()` leaves no open connection (thread test).
       *Call path:* task 15 → task 3 → task 7's `prepare` → this driver, same wave (closes
       together with 6, 7, 15).
-      *Done (`4b0a6241`, 2026-10-05):* every gate case in `test_driver.py` (FK refusal, WAL vs
+      *Done (`0cb1dcd3`, 2026-10-05):* every gate case in `test_driver.py` (FK refusal, WAL vs
       `:memory:`, held write lock → `SqliteBusyError` with `retryable is True` and not an
       `OperationalError`, whole-batch rollback, per-statement rowcounts, `close()` bringing 4
       threads' connections to 0, unopenable path failing at construction). Reachability is the
@@ -133,7 +133,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       in wave 4 — not a gate of this task, so nothing here waits on a later wave.
       *Call path:* task 15 → task 3 → task 7's `prepare` → `migrate`, same wave (closes together
       with 5, 7, 15).
-      *Done (`4b0a6241`, 2026-10-05):* `test_migrations.py` covers every gate case, including the
+      *Done (`0cb1dcd3`, 2026-10-05):* `test_migrations.py` covers every gate case, including the
       parametrized `CHECK`-list equality against `SCOPE`, `RUN`, `ATTEMPT` and `INPUT_REQUEST`, the
       no-ledger-with-runtime-tables refusal, a legacy `documents`-only database migrating, a failing
       revision leaving neither schema nor ledger, append-only triggers and scope-delete cascading
@@ -154,7 +154,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Sabotage:* remove the `migrate()` call from `prepare` → the version-1 test **through boot with
       `sqlite:`** (task 15's harness) fails.
       *No class over 500 lines; the facade ≤150.*
-      *Done (`4b0a6241`, 2026-10-05):* the facade is 80 lines; `prepare` closes the driver on every
+      *Done (`0cb1dcd3`, 2026-10-05):* the facade is 80 lines; `prepare` closes the driver on every
       failure path. Hand-over item 1 checked: the factory returns a `SQLiteSubstrate` on the same
       file, never `None` (pinned by test). Sabotage — `migrate()` removed from `prepare` — failed 6
       of 19 selection tests: `test_sqlite_configured_selects_the_sqlite_store_migrated` and
@@ -175,7 +175,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       fails; (ii) drop the `register_runtime_store_factory` call → the `sqlite:` boot test fails with
       an unknown-scheme refusal. (ii) is the reachability proof for 5, 6, 7 and 15 — tick all four
       together.
-      *Done (`4b0a6241`, 2026-10-05):* E-1 green on `boot_static`, `func`-cold and `func`-warm —
+      *Done (`0cb1dcd3`, 2026-10-05):* E-1 green on `boot_static`, `func`-cold and `func`-warm —
       including the real `func` entry refusing a doctored schema on cold and warm boot; the D-3
       refusal names `functualize-sqlite-import` and the remedy line; `unselected_data` also reports
       a relational `state.db`, and explicit `documents:` still starts fresh beside legacy SQLite
@@ -215,7 +215,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Gate:* stale generation → zero rows, live value survives; `cancelled` → `running`
       refused, while `completed` → `running` remains the lifecycle table's retry edge;
       `rg -n "resume" PLUGIN/_workflow_sql.py` shows no conditional on it (05 §3).
-      *Done (`89a0fc87`):* a stale generation is refused up front
+      *Done (`28cfe561`):* a stale generation is refused up front
       (`StaleGenerationError`), and a takeover between check and commit makes the staged
       writes match zero rows with the live value intact. `cancelled → running` raises
       `IllegalTransition`; a `completed` scope resumes at a new generation as the lifecycle
@@ -233,7 +233,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Gate:* attempt `(run_id, attempt_no)` unique; `run_events`/`scope_events` `seq` strictly
       increasing per owner; one OPEN input request per gate per generation; an `outbox` row commits
       only with its transition.
-      *Done (`c2c03108`, `074f0b4f`):* all four gate items have tests in `test_run_sql.py`; sabotage — each of
+      *Done (`570edc0b`, `244afc50`):* all four gate items have tests in `test_run_sql.py`; sabotage — each of
       `.runs`, `.inputs`, `.events`, `.effects` unbound in turn — fails
       `test_a_boot_selected_store_writes_runs_inputs_events_and_effects` with that writer's
       `NotImplementedError`, and restoration gives 124/124 plugin tests. A takeover between
@@ -289,7 +289,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       production surface is the public import `functualize.testing.conformance`, proven by
       `tests/conformance/` importing nothing private.
       *Gate (AC-2 first half):* green for `DocumentRuntimeStore` **and** `SqliteRuntimeStore`.
-      *Done (`60a53593`):* six checks green over both stores (15 passed). Sabotage (i) SQLite
+      *Done (`786d92c5`):* six checks green over both stores (15 passed). Sabotage (i) SQLite
       `recent()` ordered oldest-first → only `run tree and recent history [sqlite]` red;
       (ii) a private import added to `baseline.py` → the import-surface test red. Deviation: the
       document store has no public constructor, so `tests/conformance/` reaches it by booting an
@@ -335,7 +335,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       call added to `prepare` → the offline tier red; (vi) fencing as today, all three guards
       removed → red.
       *Reported, not gated:* H-7 — the fencing tier observes the outcome, not which guard held it.
-      *Evidence (`eba668af`), not ticked:* `cross_aggregate_atomicity` and `fencing ==
+      *Evidence (`04017859`), not ticked:* `cross_aggregate_atomicity` and `fencing ==
       "cross-process"` (two OS processes, fork) pass on SQLite; sabotage — a faulted unit still
       committing → atomicity red (`('a1', None, 0)` left); the fence check and predicate removed →
       the cross-process tier red (`position='stale'` landed). Tiers are chosen by profile only
@@ -349,7 +349,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       from its refusal. In `tier_a.py`, run BASELINE against `SqliteRuntimeStore(BatchOnlySqliteDriver())`.
       *Gate (AC-5, E-6):* green; then make `_BufferedTransaction` issue one statement through a
       driver transaction → `NoInteractiveTransactionError` turns it red.
-      *Done (`a3a0e887`):* `test_baseline_is_green_over_a_batch_only_driver` green; sabotage — the
+      *Done (`3cc2d50d`):* `test_baseline_is_green_over_a_batch_only_driver` green; sabotage — the
       buffered transaction sends its first statement through `driver.transaction()` →
       `NoInteractiveTransactionError`, red. Deviation: the instrument also gains a no-op `close()`
       (the instance is the in-memory database; close/reopen durability needs the store to close
@@ -403,10 +403,10 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       `contributor/reference/runtime-persistence-data-model.md` (tenses: §2 and §7 become landed),
       then `git rm -r contributor/architecture/research/` and, as the deletion-only **last**
       commit, `git rm -r .spec/features/sqlite-runtime-provider`.
-      *Named repairs that clear this branch* (found by the tip-tier run at `9f120947`; both are
+      *Named repairs that clear this branch* (found by the tip-tier run at `82c5222d`; both are
       done in task 13's write pass, and both must hold here):
       - **R-1 — selection survives a chain that cannot answer.** `_configured_url`
-        (`src/functualize/_app/store_selection.py:112-118`, landed in `46704c8a`, wave 0) calls
+        (`src/functualize/_app/store_selection.py:112-118`, landed in `b4f1dd27`, wave 0) calls
         `chain.resolve(...)` and catches only `MissingKeyError`. A resolution chain supplied as a
         bare `object()` therefore aborts boot. Fix the source with a duck-typed
         `getattr(chain, "resolve", None)` guard (no `resolve` → nothing configured). Do not wrap the
