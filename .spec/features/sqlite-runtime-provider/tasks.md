@@ -509,7 +509,7 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
 
 ## Wave 7 — honest docs and naming (S-7), release note
 
-- [ ] **18** Docs, naming, markers
+- [x] **18** Docs, naming, markers
       *Files:* `PLUGIN/substrate.py` (docstring only), `plugins/substrates/functualize-substrate-sqlite/README.md`,
       `CHANGELOG.md`; plus `contributor/architecture/codemaps/modules.md`, `data-flow.md`,
       `src/functualize/_primitives/document_store.py` (marker comment only), and the package
@@ -520,6 +520,36 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       marker no longer says FUN-19 removes the store. The plugin README documents the final marker
       set from contracts §6a: the `documents` and `born-relational` provenances, the G-1…G-4
       precedence, and the accepted limitation.
+      *Done (`88669e73`):* Every gate item measured green. A search for `different machines` over
+      `plugins/` and `docs/` returns nothing — `substrate.py`'s bullet now says the file is local
+      and that `multi_machine=False` declares it, and the bullet's doubly-wrong `(spec AC-3)`
+      citation (AC-3 is the legacy import) went with the claim. `PLUGIN_TESTS/test_plugin_metadata.py`
+      asserts `SQLiteSubstratePlugin.version` equals
+      `importlib.metadata.version("functualize-substrate-sqlite")`; sabotaging the literal to `9.9.9`
+      failed it (`assert '9.9.9' == '0.4.0'`), and the file was restored to a clean tree before the
+      tick. The CHANGELOG entry states the boot-refusal behaviour change (a selected store that
+      cannot open, migrate or pass its health check aborts boot, nothing falls back, and the
+      with-nothing-configured case refuses rather than coming up on the document store with data
+      unread) and the removed `[plugin.substrate-sqlite] db_path` key. Both markers over
+      `DocumentRuntimeStore` (`:13-19`, `:1107-1113`) now describe the end state: with
+      `runtime_store.url` unset the document store is what boot step 6.5 builds, so the class and
+      its file stay. The README documents contracts §6a — both provenances with the
+      `sha256(repr([]))` constant, `prepare`'s order and its single conditional insert under
+      `BEGIN IMMEDIATE`, G-1…G-4 in order, the importer's born-relational no-op, the
+      with-nothing-configured probe, and the accepted limitation. The plugin's 170 tests passed
+      (169 before this task's test).
+      *Deviation — the file set grew by four paths, each disclosed here:* the version-bearing
+      `PLUGIN/_plugin.py`, whose literal said `0.2.0` against a package at `0.4.0`, so the gate's
+      own test cannot pass without it (its `description` moved with it, and is user-visible in
+      `func builtin plugins`); the new `PLUGIN_TESTS/test_plugin_metadata.py`; the
+      `document_store.py` module docstring, which carried the same false claim as the marker three
+      lines above it (F-3's fix is comment-only either way); and
+      `docs/guides/{workflows,hosting,plugins,task-runner}.md`, which told readers to set the
+      removed `db_path` key and to expect an installation to select storage — `plugins.md` listed
+      the plugin twice and now lists it once. `contributor/architecture/boot-sequence.md` was left
+      alone: it is off this task's file list and carries no `runtime_store` text at all, which is
+      pre-existing drift.
+
 
 ## Wave 8 — pre-merge (not implementation)
 
