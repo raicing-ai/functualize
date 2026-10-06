@@ -340,6 +340,26 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       committing → atomicity red (`('a1', None, 0)` left); the fence check and predicate removed →
       the cross-process tier red (`position='stale'` landed). Tiers are chosen by profile only
       (`tiers_for`), and declaring atomicity on the document store makes the tier run.
+      *Evidence (`acfbd2b8`), not ticked — five of the six sabotage checks redden, (ii) does not:*
+      each sabotage applied alone to a clean tree at `acfbd2b8`, then restored: (i) → `atomicity`
+      red (`a fault after 1 command(s) left ('a1', None, 0)`); (iii) → `durable_outbox` red (`a
+      crash inside the transaction left intents: [RecordedIntent(… idempotency_key='idem-a')]`);
+      (iv) → `versioned_migrations` red (`damaged store (checksum) opened without refusing`);
+      (v) → `offline_capable` red (`OSError: the network was taken away: create_connection
+      refused`); (vi), all three fencing guards gone — `require_fence`'s raise, `fence_sql`'s
+      predicate and `_move`'s own `AND lease_generation = ?` — → `fencing == "cross-process"` red
+      (`the stale process's write landed: … position='stale' …`). **(ii) leaves the tier green:**
+      `commit` split into `batch(self._statements[:1]) + batch(self._statements[1:])` → `1 passed`
+      with strength `"statement faults at 5 positions + command faults at 4"`, and the same for the
+      `[:-1]`/`[-1:]` split. The hook arms per `batch()` call, so the leading batch commits alone
+      and the unit is left partially applied — but that batch holds one statement, the
+      `workflow_steps` insert, while `position` is a `workflow_scopes` column the *next* statement
+      writes and `runs.recent` is untouched, so `landed()` cannot see the partial commit. A split
+      at `[:2]` **is** caught (`a fault before statement 2 left ('a1', None, 0)`), so the hole is
+      exactly a leading batch that leaves no observable change. Closing it needs a decision this
+      task's files do not carry: what the tier observes (no public port exposes a step row), or a
+      unit boundary at the driver seam (there is none — `claim()` issues its own `batch()`). Left
+      unchecked and reported to the issue.
       *History:* the earlier text said the document store runs "none of" the tiers. That was
       wrong once F-1's correction made its `fencing` `"cross-process"`, and it is restated above.
 - [x] **14** AC-5 in Tier A
