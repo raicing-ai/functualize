@@ -14,14 +14,14 @@ members = [
     "functualize",
     "functualize-ai",
     "functualize-ai-pydantic",
-    "functualize-aws",
-    "functualize-bitwarden",
     "functualize-decision-jev",
     "functualize-flow-viz",
     "functualize-http",
     "functualize-inline",
     "functualize-lambda",
     "functualize-mcp",
+    "functualize-secrets-aws",
+    "functualize-secrets-bitwarden",
     "functualize-substrate-sqlite",
     "functualize-tasks",
     "functualize-tasks-local",
@@ -1235,13 +1235,13 @@ all = [
     { name = "click" },
     { name = "functualize-ai" },
     { name = "functualize-ai-pydantic" },
-    { name = "functualize-aws" },
     { name = "functualize-decision-jev" },
     { name = "functualize-flow-viz" },
     { name = "functualize-http" },
     { name = "functualize-inline" },
     { name = "functualize-lambda" },
     { name = "functualize-mcp" },
+    { name = "functualize-secrets-aws" },
     { name = "functualize-substrate-sqlite" },
     { name = "functualize-tasks" },
     { name = "functualize-tasks-local" },
@@ -1263,7 +1263,7 @@ keychain = [
 [package.dev-dependencies]
 dev = [
     { name = "debugpy" },
-    { name = "functualize-bitwarden" },
+    { name = "functualize-secrets-bitwarden" },
     { name = "hypothesis" },
     { name = "import-linter" },
     { name = "invoke" },
@@ -1293,13 +1293,13 @@ requires-dist = [
     { name = "functualize", extras = ["keychain"], marker = "extra == 'all'" },
     { name = "functualize-ai", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai" },
     { name = "functualize-ai-pydantic", marker = "extra == 'all'", editable = "plugins/domains/functualize-ai-pydantic" },
-    { name = "functualize-aws", marker = "extra == 'all'", editable = "plugins/credentials/functualize-aws" },
     { name = "functualize-decision-jev", marker = "extra == 'all'", editable = "plugins/domains/functualize-decision-jev" },
     { name = "functualize-flow-viz", marker = "extra == 'all'", editable = "plugins/adapters/functualize-flow-viz" },
     { name = "functualize-http", marker = "extra == 'all'", editable = "plugins/adapters/functualize-http" },
     { name = "functualize-inline", marker = "extra == 'all'", editable = "plugins/adapters/functualize-inline" },
     { name = "functualize-lambda", marker = "extra == 'all'", editable = "plugins/adapters/functualize-lambda" },
     { name = "functualize-mcp", marker = "extra == 'all'", editable = "plugins/adapters/functualize-mcp" },
+    { name = "functualize-secrets-aws", marker = "extra == 'all'", editable = "plugins/credentials/functualize-secrets-aws" },
     { name = "functualize-substrate-sqlite", marker = "extra == 'all'", editable = "plugins/substrates/functualize-substrate-sqlite" },
     { name = "functualize-tasks", marker = "extra == 'all'", editable = "plugins/domains/functualize-tasks" },
     { name = "functualize-tasks-local", marker = "extra == 'all'", editable = "plugins/domains/functualize-tasks-local" },
@@ -1317,7 +1317,7 @@ provides-extras = ["keychain", "cli", "all"]
 [package.metadata.requires-dev]
 dev = [
     { name = "debugpy", specifier = ">=1.8.21" },
-    { name = "functualize-bitwarden", editable = "plugins/credentials/functualize-bitwarden" },
+    { name = "functualize-secrets-bitwarden", editable = "plugins/credentials/functualize-secrets-bitwarden" },
     { name = "hypothesis", specifier = ">=6.82.0" },
     { name = "import-linter", specifier = ">=2.0" },
     { name = "invoke", specifier = ">=2.2.0" },
@@ -1382,54 +1382,6 @@ requires-dist = [
     { name = "functualize-ai", editable = "plugins/domains/functualize-ai" },
     { name = "litellm", specifier = ">=1.0.0" },
     { name = "pydantic-ai", specifier = ">=0.1.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "functualize-aws"
-version = "0.4.0"
-source = { editable = "plugins/credentials/functualize-aws" }
-dependencies = [
-    { name = "boto3" },
-    { name = "functualize" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "boto3", specifier = ">=1.34.0" },
-    { name = "functualize", editable = "." },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "functualize-bitwarden"
-version = "0.4.0"
-source = { editable = "plugins/credentials/functualize-bitwarden" }
-dependencies = [
-    { name = "bitwarden-sdk" },
-    { name = "functualize" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "bitwarden-sdk", specifier = ">=2.0.0" },
-    { name = "functualize", editable = "." },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
 ]
@@ -1570,6 +1522,54 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=3.4.0,<5.0.0" },
     { name = "functualize", editable = "." },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.82.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "functualize-secrets-aws"
+version = "0.4.0"
+source = { editable = "plugins/credentials/functualize-secrets-aws" }
+dependencies = [
+    { name = "boto3" },
+    { name = "functualize" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.34.0" },
+    { name = "functualize", editable = "." },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "functualize-secrets-bitwarden"
+version = "0.4.0"
+source = { editable = "plugins/credentials/functualize-secrets-bitwarden" }
+dependencies = [
+    { name = "bitwarden-sdk" },
+    { name = "functualize" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bitwarden-sdk", specifier = ">=2.0.0" },
+    { name = "functualize", editable = "." },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
 ]

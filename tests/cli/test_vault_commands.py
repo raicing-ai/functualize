@@ -56,7 +56,7 @@ endpoint = "https://api.example.com"
 
 
 class _FakeProvider:
-    """Stands in for `functualize-aws`, registered where entry points would put
+    """Stands in for `functualize-secrets-aws`, registered where entry points would put
     it so these tests do not depend on which plugins happen to be installed."""
 
     def __init__(

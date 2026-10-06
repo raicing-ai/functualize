@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from functualize_aws import clear_credential_cache
+from functualize_secrets_aws import clear_credential_cache
 
 
 @pytest.fixture(autouse=True)

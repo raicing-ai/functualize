@@ -3,7 +3,7 @@
 An *extension* is anything registered under a ``functualize.*`` entry-point
 group. Listing them is not the same question as "which plugins loaded": the
 plugin loader reads one group (``functualize.plugins``), while extensions
-register across seven, and ``functualize-aws`` is the plain case — it appears
+register across seven, and ``functualize-secrets-aws`` is the plain case — it appears
 only under ``functualize.remote_providers``, which ``_config`` reads and the
 loader never sees, so a listing built from ``loaded_plugins`` would omit it.
 

@@ -10,7 +10,11 @@ something else without saying so.
 from __future__ import annotations
 
 import pytest
-from functualize_aws import HONOURED_KEYS, InvalidReferenceError, parse_reference
+from functualize_secrets_aws import (
+    HONOURED_KEYS,
+    InvalidReferenceError,
+    parse_reference,
+)
 
 
 class TestThePlainForm:

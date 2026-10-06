@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 import boto3
 
 if TYPE_CHECKING:
-    from functualize_aws._reference import AwsReference
+    from functualize_secrets_aws._reference import AwsReference
 
 __all__ = [
     "AccountMismatchError",

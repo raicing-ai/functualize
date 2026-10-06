@@ -27,13 +27,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from functualize_aws._reference import (
+from functualize_secrets_aws._reference import (
     HONOURED_KEYS,
     AwsReference,
     InvalidReferenceError,
     parse_reference,
 )
-from functualize_aws._session import (
+from functualize_secrets_aws._session import (
     AccountMismatchError,
     clear_credential_cache,
     client_for,

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-from functualize_bitwarden import clear_client_cache
+from functualize_secrets_bitwarden import clear_client_cache
 
 ORG = "11111111-2222-3333-4444-555555555555"
 # A real-looking uuid, not a secret: the grammar tells an id from a key name by

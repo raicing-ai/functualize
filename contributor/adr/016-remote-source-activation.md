@@ -108,8 +108,8 @@ grows. It is measured at the feature's checkpoint rather than estimated.
 
 Provider implementations are **not** in core. They arrive through
 `functualize.remote_providers`, the group that already exists and is currently
-empty. Two ship with this work — `functualize-aws` (Secrets Manager and SSM
-Parameter Store) and `functualize-bitwarden` (Bitwarden Secrets Manager). Core
+empty. Two ship with this work — `functualize-secrets-aws` (Secrets Manager and SSM
+Parameter Store) and `functualize-secrets-bitwarden` (Bitwarden Secrets Manager). Core
 must not import either; `grep -rn "boto3" src/functualize/` stays **0**.
 
 ### 4. Storage: stdlib SQLite, per-value AES-256-GCM, one vault per project

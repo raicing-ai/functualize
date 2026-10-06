@@ -9,7 +9,7 @@ file full of load-bearing-looking no-ops is no better than one full of typos.
 from __future__ import annotations
 
 import pytest
-from functualize_bitwarden import (
+from functualize_secrets_bitwarden import (
     HONOURED_KEYS,
     InvalidReferenceError,
     parse_reference,

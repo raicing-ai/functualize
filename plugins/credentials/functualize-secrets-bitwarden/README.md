@@ -1,4 +1,4 @@
-# functualize-bitwarden
+# functualize-secrets-bitwarden
 
 Bitwarden **Secrets Manager** (`bws`) provider for functualize's remote
 configuration layer.
