@@ -1,14 +1,7 @@
-"""V6 — a vault miss falls through, but never quietly (ADR-016).
+"""An unsynced explicit declaration warns about the lower source that won.
 
-The defect this feature exists to close is a job receiving a local value while
-its author believes they are reading a secret store. Task 3.1 closed the
-loudest form of that (a preset that silently *was* ``classic()``); this closes
-the per-key form: the vault is wired, the provider is installed, and one key
-was simply never synced.
-
-The value that then reaches the job is usually the annotation itself —
-``aws-sm://prod/db`` handed to a database driver as a password. That failure is
-noisy at the far end and mute at the near one, which is precisely backwards.
+The warning uses the scoped declaration map, including when environment wins
+over a config file, and never renders a secret or provider reference.
 """
 
 from __future__ import annotations
@@ -29,9 +22,9 @@ from functualize._config.vault import (
 )
 from functualize._config.vault_key_resolver import VaultKeyResolver
 from functualize._config.vault_source import VaultSource
+from functualize._primitives.vault_identity import VaultIdentity
 
 _KEY = b"\x11" * KEY_BYTES
-_PROVIDERS = ("fake-sm", "fake-ssm")
 
 #: Long and distinctive on purpose. A short value like "s3cret" can pass a leak
 #: assertion by coincidence — it is a substring of nothing and a substring of
@@ -40,6 +33,7 @@ _PROVIDERS = ("fake-sm", "fake-ssm")
 _CONSPICUOUS = "PLAINTEXT-e7c41d9a-must-never-be-logged"  # gitleaks:allow
 
 _ANNOTATION = "fake-sm://prod/db-password"
+_FILE_FALLBACK = "file-fallback"
 
 
 class _StaticSource:
@@ -53,13 +47,15 @@ class _StaticSource:
     def _qualified(self, key: str, section: str | None) -> str:
         return f"{section}.{key}" if section else key
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self, key: str, section: str | None = None, *, scope: str = "job"
+    ) -> Any | None:
         return self._values.get(self._qualified(key, section))
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(self, key: str, section: str | None = None, *, scope: str = "job") -> bool:
         return self._qualified(key, section) in self._values
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: str = "job") -> set[str]:
         prefix = f"{section}."
         return {k[len(prefix) :] for k in self._values if k.startswith(prefix)}
 
@@ -69,7 +65,7 @@ def synced_vault(tmp_path: Path) -> Path:
     """A vault that opens and holds one unrelated key, so it is `usable`."""
     path = tmp_path / "vault.db"
     SecretsVault(path).put(
-        "database.username",
+        VaultIdentity("job", "database", "username").encode(),
         "app",
         annotation="fake-sm://prod/db-username",
         provider="fake-sm",
@@ -102,7 +98,25 @@ def _resolver(key: bytes | None) -> VaultKeyResolver:
 
 
 def _source(vault_path: Path, *, key: bytes | None = _KEY) -> VaultSource:
-    return VaultSource(vault_path, key=_resolver(key), providers=_PROVIDERS)
+    source = VaultSource(vault_path, key=_resolver(key))
+    source.set_declaration_files(
+        [
+            (
+                "config.dev.toml",
+                {
+                    "vault_secret": [
+                        {"job": "database", "field": "password", "source": _ANNOTATION},
+                        {
+                            "job": "api",
+                            "field": "token",
+                            "source": "fake-ssm://prod/api-token",
+                        },
+                    ]
+                },
+            )
+        ]
+    )
+    return source
 
 
 def _chain(vault: VaultSource, below: _StaticSource) -> ResolutionChain:
@@ -116,25 +130,25 @@ class TestTheFallThroughStillHappens:
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(synced_vault), below)
         with caplog.at_level(logging.WARNING):
             resolved = chain.resolve("password", "database")
-        assert resolved.value == _ANNOTATION
+        assert resolved.value == _FILE_FALLBACK
         assert resolved.source_type == "file"
 
-    def test_a_warning_is_emitted_naming_the_annotation(
+    def test_a_warning_is_emitted_naming_the_declaration(
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             _chain(_source(synced_vault), below).resolve("password", "database")
         assert len(caplog.records) == 1
         message = caplog.records[0].getMessage()
-        assert _ANNOTATION in message
+        assert "[[vault_secret]]" in message
         assert "database.password" in message
 
     def test_the_warning_names_the_source_that_answered_instead(
@@ -142,7 +156,7 @@ class TestTheFallThroughStillHappens:
     ) -> None:
         """'It fell through' is not actionable; 'it fell through to X' is."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             _chain(_source(synced_vault), below).resolve("password", "database")
@@ -152,22 +166,22 @@ class TestTheFallThroughStillHappens:
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             _chain(_source(synced_vault), below).resolve("password", "database")
         assert "vault sync" in caplog.records[0].getMessage()
 
-    def test_it_says_the_job_gets_the_annotation_not_the_secret(
+    def test_it_says_the_job_gets_the_file_value_not_the_secret(
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The consequence is the part an operator acts on."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             _chain(_source(synced_vault), below).resolve("password", "database")
-        assert "literal annotation string" in caplog.records[0].getMessage()
+        assert "resolved from file" in caplog.records[0].getMessage()
 
 
 class TestOncePerKeyPerRun:
@@ -175,7 +189,7 @@ class TestOncePerKeyPerRun:
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(synced_vault), below)
         with caplog.at_level(logging.WARNING):
@@ -191,8 +205,8 @@ class TestOncePerKeyPerRun:
             "file",
             "config.dev.toml",
             {
-                "database.password": _ANNOTATION,
-                "api.token": "fake-ssm://prod/api-token",
+                "database.password": _FILE_FALLBACK,
+                "api.token": "api-fallback",
             },
         )
         chain = _chain(_source(synced_vault), below)
@@ -206,7 +220,7 @@ class TestOncePerKeyPerRun:
     ) -> None:
         """`resolve` and `introspect` walk one body, so they cannot diverge."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(synced_vault), below)
         with caplog.at_level(logging.WARNING):
@@ -223,30 +237,28 @@ class TestOncePerKeyPerRun:
         shared-ledger test green.
         """
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(synced_vault), below)
         with caplog.at_level(logging.WARNING):
             chain.introspect("password", "database")
         assert len(caplog.records) == 1
-        assert _ANNOTATION in caplog.records[0].getMessage()
+        assert "[[vault_secret]]" in caplog.records[0].getMessage()
 
 
 class TestNothingSecretIsRendered:
-    """ADR-008 — `is_secret_field` stays the only redaction opinion, and this
-    method sidesteps the question by rendering only annotations."""
+    """The warning renders identity and provenance, never a resolved value."""
 
     def test_a_secret_from_a_lower_source_never_reaches_the_log(
         self, synced_vault: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """The annotation is in the file; an env var beats it with the secret.
+        """An env var wins below an unsynced vault declaration.
 
-        The key *is* declared remote, so this warns — and the warning must
-        name the annotation while saying nothing about the value that won.
+        The warning names the winning source without exposing its value.
         """
         env = _StaticSource("env", "environ", {"database.password": _CONSPICUOUS})
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = ResolutionChain([_source(synced_vault), env, below])  # type: ignore[list-item]
         with caplog.at_level(logging.WARNING):
@@ -255,7 +267,7 @@ class TestNothingSecretIsRendered:
         assert len(caplog.records) == 1
         message = caplog.records[0].getMessage()
         assert _CONSPICUOUS not in message
-        assert _ANNOTATION in message
+        assert "[[vault_secret]]" in message
         assert "env (environ)" in message
 
     def test_the_whole_log_record_is_clean_not_just_the_message(
@@ -269,7 +281,7 @@ class TestNothingSecretIsRendered:
         """
         env = _StaticSource("env", "environ", {"database.password": _CONSPICUOUS})
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = ResolutionChain([_source(synced_vault), env, below])  # type: ignore[list-item]
         with caplog.at_level(logging.WARNING):
@@ -325,13 +337,14 @@ class TestOnlyDeclaredKeysWarn:
         below = _StaticSource(
             "file",
             "config.dev.toml",
-            {"database.password": _ANNOTATION, "database.token": _ANNOTATION},
+            {"database.password": _FILE_FALLBACK, "api.token": "api-value"},
         )
         chain = _chain(_source(synced_vault, key=None), below)
         with caplog.at_level(logging.WARNING):
             resolved = chain.resolve("password", "database")
-            chain.resolve("token", "database")
-        assert resolved.value == _ANNOTATION
+            second = chain.resolve("token", "api")
+        assert resolved.value == _FILE_FALLBACK
+        assert second.value == "api-value"
         assert len(caplog.records) == 1
         message = caplog.records[0].getMessage()
         assert "vault key is not available" in message
@@ -368,15 +381,15 @@ class TestTheFirstRunIsTheLoudestCase:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(tmp_path / "never-synced.db"), below)
         with caplog.at_level(logging.WARNING):
             resolved = chain.resolve("password", "database")
 
-        assert resolved.value == _ANNOTATION
+        assert resolved.value == _FILE_FALLBACK
         assert len(caplog.records) == 1
-        assert _ANNOTATION in caplog.records[0].getMessage()
+        assert "[[vault_secret]]" in caplog.records[0].getMessage()
 
     def test_the_warning_names_the_command_that_would_fix_it(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -384,7 +397,7 @@ class TestTheFirstRunIsTheLoudestCase:
         """The whole reason this case must not be silent: unlike a missing
         key, it has a one-command fix that the message can name."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             _chain(_source(tmp_path / "never-synced.db"), below).resolve(
@@ -399,7 +412,7 @@ class TestTheFirstRunIsTheLoudestCase:
         Said once — the warning boot used to print, moved to the first
         declared value that needed the key — and not per key."""
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         chain = _chain(_source(tmp_path / "never-synced.db", key=None), below)
         with caplog.at_level(logging.WARNING):
@@ -448,7 +461,7 @@ class TestTheChainStaysGeneric:
         """
         env = _StaticSource("env", "environ", {"database.password": _CONSPICUOUS})
         below = _StaticSource(
-            "file", "config.dev.toml", {"database.password": _ANNOTATION}
+            "file", "config.dev.toml", {"database.password": _FILE_FALLBACK}
         )
         with caplog.at_level(logging.WARNING):
             one = ResolutionChain([_source(synced_vault), env, below]).resolve(  # type: ignore[list-item]
@@ -458,7 +471,7 @@ class TestTheChainStaysGeneric:
                 "password", "database"
             )
         assert one == two
-        assert one.alternatives == [("file", "config.dev.toml", _ANNOTATION)]
+        assert one.alternatives == [("file", "config.dev.toml", _FILE_FALLBACK)]
 
 
 class TestFallthroughRecordsStillFeedDiagnostics:
@@ -471,7 +484,7 @@ class TestFallthroughRecordsStillFeedDiagnostics:
         below = _StaticSource(
             "file",
             "config.dev.toml",
-            {"database.port": 5432, "database.password": _ANNOTATION},
+            {"database.port": 5432, "database.password": _FILE_FALLBACK},
         )
         chain = _chain(source, below)
         with caplog.at_level(logging.WARNING):
@@ -550,7 +563,7 @@ class TestPresenceDecides:
             _source(synced_vault, key=None).get("username", "database")
 
         message = str(exc.value)
-        assert "vault remove database.username" in message
+        assert "vault remove --job database --field username" in message
         assert "vault clear" in message
         assert "need no key" in message
 
@@ -571,7 +584,7 @@ class TestPresenceDecides:
         """
         path = tmp_path / "vault.db"
         SecretsVault(path).put(
-            "database.username",
+            VaultIdentity("job", "database", "username").encode(),
             "app",
             annotation="fake-sm://prod/db-username",
             provider="fake-sm",
@@ -581,3 +594,118 @@ class TestPresenceDecides:
             conn.execute("DELETE FROM vault_meta")
 
         assert _source(path).get("username", "database") == "app"
+
+
+class TestScopedIdentity:
+    """A vault entry is addressed by ``(scope, target, field)`` — Task 3.
+
+    The storage key is the encoded :class:`VaultIdentity`, so the same target
+    and field text under two scopes are two entries, and a flat
+    ``section.field`` key is not any scoped entry at all.
+    """
+
+    def test_a_job_scoped_entry_answers_a_job_scoped_lookup(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put(
+            VaultIdentity("job", "deploy", "api_token").encode(),
+            "job-value",
+            encryption_key=_KEY,
+        )
+
+        assert _source(path).get("api_token", "deploy", scope="job") == "job-value"
+
+    def test_the_same_text_under_two_scopes_is_two_entries(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "vault.db"
+        vault = SecretsVault(path)
+        vault.put(
+            VaultIdentity("job", "deploy", "token").encode(),
+            "the-job-one",
+            encryption_key=_KEY,
+        )
+        vault.put(
+            VaultIdentity("group", "deploy", "token").encode(),
+            "the-group-one",
+            encryption_key=_KEY,
+        )
+        source = _source(path)
+
+        assert source.get("token", "deploy", scope="job") == "the-job-one"
+        assert source.get("token", "deploy", scope="group") == "the-group-one"
+
+    def test_a_flat_key_is_no_scoped_entry(self, tmp_path: Path) -> None:
+        """A pre-scope key never satisfies a scoped lookup, by either scope."""
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put("deploy.token", "flat", encryption_key=_KEY)
+        source = _source(path)
+
+        assert source.get("token", "deploy", scope="job") is None
+        assert source.get("token", "deploy", scope="group") is None
+
+    def test_keys_decode_per_scope(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.db"
+        vault = SecretsVault(path)
+        vault.put(
+            VaultIdentity("group", "deploy", "token").encode(),
+            "g",
+            encryption_key=_KEY,
+        )
+        vault.put(
+            VaultIdentity("job", "deploy", "token").encode(),
+            "j",
+            encryption_key=_KEY,
+        )
+        vault.put(
+            VaultIdentity("group", "deploy.web", "other").encode(),
+            "n",
+            encryption_key=_KEY,
+        )
+        source = _source(path)
+
+        assert source.keys("deploy", scope="group") == {"token"}
+        assert source.keys("deploy", scope="job") == {"token"}
+        assert source.keys("deploy.web", scope="group") == {"other"}
+
+    def test_has_is_scope_aware(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put(
+            VaultIdentity("group", "deploy", "token").encode(),
+            "g",
+            encryption_key=_KEY,
+        )
+        source = _source(path)
+
+        assert source.has("token", "deploy", scope="group") is True
+        assert source.has("token", "deploy", scope="job") is False
+
+    def test_the_refusal_names_the_scoped_remove_command(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put(
+            VaultIdentity("group", "deploy.web", "iam_key").encode(),
+            "g",
+            encryption_key=_KEY,
+        )
+
+        with pytest.raises(VaultEntryUnreadableError) as exc:
+            _source(path, key=None).get("iam_key", "deploy.web", scope="group")
+
+        message = str(exc.value)
+        assert "vault remove --group deploy.web --field iam_key" in message
+        assert "vault clear" in message
+        assert "need no key" in message
+
+    def test_a_sectionless_lookup_is_never_a_vault_hit(self, tmp_path: Path) -> None:
+        """No target means no identity, so the vault answers nothing rather
+        than guessing a scope for a key it cannot name."""
+        path = tmp_path / "vault.db"
+        SecretsVault(path).put(
+            VaultIdentity("job", "general", "debug").encode(),
+            "g",
+            encryption_key=_KEY,
+        )
+        source = _source(path)
+
+        assert source.get("debug") is None

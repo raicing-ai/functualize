@@ -12,7 +12,7 @@ section to come from the same source.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from hypothesis import given
 from hypothesis import strategies as st
@@ -44,7 +44,13 @@ class FakeSource:
     def source_id(self) -> str:
         return self._source_id
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
         return self._data.get((section, key))
 
     def has(self, key: str, section: str | None = None) -> bool:
