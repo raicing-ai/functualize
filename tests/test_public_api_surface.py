@@ -309,6 +309,21 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "NoopPerf",
         "TestRunContext",
     },
+    # The conformance sub-package is public surface too: a third-party backend
+    # runs the suite through exactly these names.
+    "functualize.testing.conformance": {
+        "run_baseline",
+        "run_capability_tiers",
+        "capability_report",
+        "HarnessHooks",
+        "StatementFaults",
+        "StatementFault",
+        "OutboxProbe",
+        "RecordedIntent",
+        "MigrationHarness",
+        "CapabilityReport",
+        "TierRun",
+    },
 }
 
 KNOWN_PRIVATE_DEVIATIONS: dict[str, set[str]] = {

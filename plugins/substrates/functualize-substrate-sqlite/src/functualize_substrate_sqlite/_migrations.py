@@ -20,6 +20,7 @@ engine exists, so no job can run against a schema that is not current.
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -101,6 +102,18 @@ def _load(version: int, name: str) -> Migration:
 SHIPPED_MIGRATIONS: tuple[Migration, ...] = (_load(1, "runtime_schema"),)
 
 
+#: The objects a revision's SQL creates, by name — what "this revision
+#: applied" has to mean on disk, so a table that vanished while its ledger
+#: row stayed is caught as the partial application it is (§7).
+_CREATED = re.compile(
+    r"CREATE\s+(?:TEMP\s+)?(?:UNIQUE\s+)?(?:TABLE|INDEX|TRIGGER|VIEW)\s+"
+    r"(?:IF\s+NOT\s+EXISTS\s+)?"
+    "[\"'`\\[]?"
+    r"([A-Za-z_][A-Za-z0-9_]*)",
+    re.IGNORECASE,
+)
+
+
 def migrate(
     driver: SqlDriver, migrations: Sequence[Migration] = SHIPPED_MIGRATIONS
 ) -> int:
@@ -112,6 +125,7 @@ def migrate(
     shipped = _check_shipped(migrations)
     ledger = _read_ledger(driver)
     _check_ledger(ledger, shipped)
+    _check_objects(driver, ledger, shipped)
     current = max(ledger, default=0)
     for migration in shipped.values():
         if migration.version <= current:
@@ -183,6 +197,28 @@ def _check_ledger(ledger: dict[int, str], shipped: dict[int, Migration]) -> None
                 actual_checksum=recorded,
                 repair="a shipped revision must never be edited; reinstall the "
                 "package version that created this database, or restore a backup.",
+            )
+
+
+def _check_objects(
+    driver: SqlDriver, ledger: dict[int, str], shipped: dict[int, Migration]
+) -> None:
+    """Every applied revision's objects exist; a missing one is partial state."""
+    present = {row[0] for row in driver.query("SELECT name FROM sqlite_master")}
+    for version in sorted(ledger):
+        missing = sorted(
+            name
+            for name in _CREATED.findall(shipped[version].sql)
+            if name not in present
+        )
+        if missing:
+            raise MigrationRefused(
+                f"The {_LEDGER} ledger records revision {version}, but its "
+                f"objects ({', '.join(missing)}) are missing from the database.",
+                version=version,
+                repair="restore the database from a backup; a revision whose "
+                "objects are gone while its ledger row stays is not a state "
+                "this runner repairs by guessing.",
             )
 
 
