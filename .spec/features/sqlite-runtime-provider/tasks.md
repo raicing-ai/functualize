@@ -146,7 +146,9 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       returning `_BufferedTransaction` (writers append statements; `__exit__` → one
       `driver.batch`; nothing on error); `SqliteRuntimeStoreFactory.prepare`: driver → `migrate`
       → legacy guard (`LegacyImportRequired` when `documents` holds runtime keys and no
-      `runtime_cutover` row) → store; `PreparedStore.substrate` = `SQLiteSubstrate` on the same file.
+      `runtime_cutover` row) → store. **Guard contract amended 2026-10-06 (contracts §6a):** the
+      predicate above cannot tell a born-relational file from a pre-relational one, and the
+      repair is task 20. This box stays ticked for what it proved; the guard is re-proven there; `PreparedStore.substrate` = `SQLiteSubstrate` on the same file.
       *Gate:* `prepare` on an empty path → version 1; a doctored checksum → `MigrationRefused` out of
       `prepare`; legacy runtime keys present → `LegacyImportRequired` naming
       `functualize-sqlite-import`; a raising writer inside `with store.transaction()` leaves zero
@@ -447,7 +449,52 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       and the venv re-synced — fails 7 of 8 (the eighth calls `main()` in-process by design);
       restored, 154 passed.
 
-## Wave 6 — honest docs and naming (S-7), release note
+## Wave 6 — the born-relational marker (contracts §6a)
+
+- [ ] **20** Marker provenance and the boot guard
+      *Depends on:* 7, 15, 16, 17.
+      *Call path:* task 15's plugin registration → selection → `prepare` (wave 1) for the insert
+      and the guard; the `functualize-sqlite-import` console script (wave 5) for the importer's
+      no-op.
+      *Files:* `PLUGIN/_factory.py`, `PLUGIN/_legacy_import.py`, `PLUGIN/__init__.py`
+      (export `CutoverMarkerInvalid`), `PLUGIN_TESTS/test_cutover_marker.py` (new).
+      *Do:* contracts §6a, exactly:
+      - in `prepare`: `migrate` → `SQLiteSubstrate(path)` → the one-statement conditional
+        `born-relational` insert → the guard in G-1…G-4 order → store;
+      - the importer's born-relational no-op;
+      - `unselected_data` counting a valid marker as relational.
+      No engine change, no new capability, no new schema revision, and no weakening of G-3.
+      *Gate — the test matrix, each case a named test:*
+      - **M-1** `fresh_file_boots_again_after_a_run`: a fresh `sqlite:` file → `prepare` writes one
+        `born-relational` row with the §6a values → one run through the shipped boot path writes
+        `documents['runs']` → a second `prepare` (and a second boot) **succeeds**; still exactly one
+        marker row.
+      - **M-2** `legacy_without_marker_is_still_refused`: a `documents` table holding runtime keys,
+        no marker → `LegacyImportRequired` whose message names `functualize-sqlite-import --db
+        <path>`; no marker row was written; the source digest is unchanged.
+      - **M-3** `imported_marker_boots`: a `documents` marker from a real import, legacy rows
+        retained → boots.
+      - **M-4** `born_relational_marker_with_legacy_rows_boots`: G-2 precedence.
+      - **M-5** `degenerate_markers_are_refused` (parametrised, one case per G-1 clause): two
+        rows; an unknown `source`; `documents` with NULL `backup_path`; `documents` with a
+        non-hex digest; `born-relational` with a non-NULL `backup_path`; `born-relational` with a
+        digest other than the constant; an unparseable `imported_at` → each `CutoverMarkerInvalid`
+        naming the row.
+      - **M-6** `concurrent_first_prepare_writes_one_marker`: two OS processes `prepare` one fresh
+        file → exactly one row, both boot.
+      - **M-7** `import_on_a_born_relational_file_is_a_no_op`: exit 0, file digest unchanged,
+        report says born relational.
+      - **M-8** `unselected_data_on_a_born_relational_file_names_no_import`.
+      - **M-9** the two-project shared-db shape of `tests/integration/test_substrate_durability.py`:
+        project B is **not** refused with `LegacyImportRequired`. That module's strict xfail stays,
+        on the scope-taken residual, which is not this task's.
+      *Sabotage (tick on these):* (i) drop the conditional insert → M-1's second boot fails with
+      `LegacyImportRequired`; (ii) drop the insert's legacy-rows predicate → M-2 fails, because a
+      legacy file gets marked and the import is bypassed; (iii) drop the importer's
+      born-relational check → M-7 fails.
+      *Also:* plugin suite green; `tests/conformance` green; tip-tier rule as task 19's.
+
+## Wave 7 — honest docs and naming (S-7), release note
 
 - [ ] **18** Docs, naming, markers
       *Files:* `PLUGIN/substrate.py` (docstring only), `plugins/substrates/functualize-substrate-sqlite/README.md`,
@@ -457,9 +504,11 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
       *Gate:* `rg -n "different machines" plugins/ docs/` → nothing; a test asserts
       `SQLiteSubstratePlugin.version` equals the package version; the CHANGELOG entry states the
       boot-refusal behaviour change and the removed `db_path` key (shape Q-3); the TRANSITIONAL
-      marker no longer says FUN-19 removes the store.
+      marker no longer says FUN-19 removes the store. The plugin README documents the final marker
+      set from contracts §6a: the `documents` and `born-relational` provenances, the G-1…G-4
+      precedence, and the accepted limitation.
 
-## Wave 7 — pre-merge (not implementation)
+## Wave 8 — pre-merge (not implementation)
 
 - [ ] **19** Clear the branch for merge
       *Files:* `.spec/STATUS.md` or `contributor/adr/031-*.md` (the factory registry and
@@ -504,8 +553,9 @@ group is built in `depends_on` order and ticked together on its last member's sa
     {"id": 3, "tasks": ["10", "11"]},
     {"id": 4, "tasks": ["12", "13", "14"]},
     {"id": 5, "tasks": ["16", "17"]},
-    {"id": 6, "tasks": ["18"]},
-    {"id": 7, "tasks": ["19"]}
+    {"id": 6, "tasks": ["20"]},
+    {"id": 7, "tasks": ["18"]},
+    {"id": 8, "tasks": ["19"]}
   ],
   "depends_on": {
     "1": [],
@@ -525,7 +575,8 @@ group is built in `depends_on` order and ticked together on its last member's sa
     "14": ["12"],
     "16": ["7", "8", "9", "13"],
     "17": ["16"],
-    "18": ["15", "17"],
+    "20": ["7", "15", "16", "17"],
+    "18": ["15", "17", "20"],
     "19": ["18"]
   },
   "call_path": {
@@ -533,7 +584,7 @@ group is built in `depends_on` order and ticked together on its last member's sa
     "5": "15", "6": "15", "7": "15", "15": "15",
     "8": "15", "9": "15", "10": "15", "11": "7",
     "12": null, "13": null, "14": null,
-    "16": "17", "17": "17", "18": null, "19": null
+    "16": "17", "17": "17", "20": "15", "18": null, "19": null
   },
   "close_together": [["1", "2", "3"], ["5", "6", "7", "15"], ["16", "17"]],
   "decision_gates": {"D-1": ["1", "2", "3", "4"], "D-2": ["4", "12", "13"], "D-3": ["3", "15"]},
@@ -547,7 +598,7 @@ Consistency check, run at authoring time against the block above (any non-empty 
 import json, re
 g = json.loads(re.search(r"```json\n(.*?)\n```", open("tasks.md").read().rpartition("## Task " + "Dependency Graph")[2], re.S).group(1))
 wave = {t: w["id"] for w in g["waves"] for t in w["tasks"]}
-assert sorted(wave, key=int) == [str(i) for i in range(1, 20)]
+assert sorted(wave, key=int) == [str(i) for i in range(1, 21)]
 late_deps   = [(t, d) for t, ds in g["depends_on"].items() for d in ds if wave[d] > wave[t]]
 split_pairs = [p for p in g["close_together"] if len({wave[t] for t in p}) > 1]
 late_paths  = [(t, c) for t, c in g["call_path"].items() if c and wave[c] > wave[t]]

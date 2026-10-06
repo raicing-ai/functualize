@@ -202,6 +202,7 @@ is enforced the way the rest of D-2's is.
 | `RuntimeStoreCapabilityError` (exists, `_types/errors.py:669`) | S-3 | store, field, config key, needed, actual |
 | `MigrationRefused` (plugin) | checksum mismatch, gap, ledger ahead, partial revision | version, expected/actual checksum, repair steps |
 | `LegacyImportRequired` (plugin, subclass of `RuntimeStoreSelectionError`) | `sqlite` selected, legacy runtime documents present, no cutover marker | db path, the import command line |
+| `CutoverMarkerInvalid` (plugin, subclass of `RuntimeStoreSelectionError`) | §6a G-1 / G-4 — a degenerate or contradictory `runtime_cutover` | db path, the offending row, both remedies |
 | `SqliteBusyError` (plugin, retryable) | busy timeout exhausted (I-5) | db path, timeout; `retryable = True` |
 | `LegacyRecordRefused` (plugin, in the import report, not raised to boot) | AC-4 | key, record id, the illegal pair |
 
@@ -220,6 +221,73 @@ exit 5   another import holds the migration lock
 Spelling and exit numbers are delegated latitude; the seven steps, the refusal and "source stays
 authoritative" are not. The cutover marker is a row in the target database
 (`runtime_cutover(source, imported_at, source_digest, backup_path)`), written in step 5's unit.
+Its provenance, and the guard that reads it, are §6a.
+
+## 6a. Marker provenance and the boot guard (amended 2026-10-06)
+
+**The defect this amends.** The guard used to be: refuse when "`documents` holds runtime keys and
+no `runtime_cutover` row". That cannot tell a file **born relational** from one that is
+**pre-relational**. With `sqlite` selected, the framework's run log still writes `documents['runs']`
+into the same file through `SQLiteSubstrate` (`src/functualize/_primitives/run_store.py:244`).
+And `prepare` had no step that recorded a fresh file's birth (`_factory.py:100-116`). So every
+`sqlite:` project booted once and was refused on every later boot (reproduced on MCH-149 at
+`46dc590f`).
+
+**The marker gains a second provenance.** The table is frozen in revision `0001`, so no new
+revision is needed: both values fit its columns as shipped.
+
+| `source` | Written by | `imported_at` | `source_digest` | `backup_path` |
+|---|---|---|---|---|
+| `documents` (exists) | the importer, step 5's unit (§6) | import time, ISO-8601 UTC | the importer's digest of the legacy runtime rows | the backup's path, **non-NULL** |
+| `born-relational` (new) | `prepare`, the first time it opens a file that holds no legacy runtime documents | that moment, ISO-8601 UTC | `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945` = `sha256(repr([]))`, the importer's own digest of a `documents` table holding no runtime rows | **NULL** — there is nothing to back up |
+
+**How `prepare` writes it, race-free.** The order is `migrate` → construct `SQLiteSubstrate(path)`
+→ the conditional insert → the guard → the store. The substrate's own DDL creates `documents`, so
+the next statement is always valid; `substrate.py` stays unchanged. The insert is **one statement
+in one batch**, so it runs under `BEGIN IMMEDIATE`:
+
+```sql
+INSERT INTO runtime_cutover (source, imported_at, source_digest, backup_path)
+SELECT 'born-relational', :now, :born_digest, NULL
+ WHERE NOT EXISTS (SELECT 1 FROM runtime_cutover)
+   AND NOT EXISTS (SELECT 1 FROM documents WHERE <legacy runtime keys>);
+```
+
+Two processes opening a fresh file at once produce exactly one row. A file that already holds
+legacy rows never gets one.
+
+**The guard, read after the insert. Precedence, top to bottom; the first row that matches decides:**
+
+| # | State of the file | Outcome |
+|---|---|---|
+| G-1 | more than one marker row, or a row whose `source` is neither value above, or a row whose columns break its own line of the table above (`documents` with NULL `backup_path` or a digest that is not 64 hex digits; `born-relational` with a non-NULL `backup_path` or a digest other than the constant; an `imported_at` that does not parse as ISO-8601) | **refuse**: `CutoverMarkerInvalid` (new, plugin, subclass of `RuntimeStoreSelectionError`). Names the path, the offending row and both remedies: restore the backup, or delete the row and run `functualize-sqlite-import --db <path>`, which then decides |
+| G-2 | exactly one valid marker, of either source | **boot**, whatever `documents` holds. Legacy runtime keys beside a marker are expected in both cases. After an import, the source rows are retained (the backup *and* the table). On a born-relational file, the run log keeps writing `documents['runs']` until the durability residual lands |
+| G-3 | no marker, and legacy runtime keys present | **refuse**: `LegacyImportRequired`, naming `functualize-sqlite-import --db <path>`. **Unchanged, and still the only way in for such a file** (§6: the refusal is not delegated latitude) |
+| G-4 | no marker, no legacy runtime keys | unreachable after the insert. If it is observed, it is a defect: refuse with `CutoverMarkerInvalid` rather than boot unmarked |
+
+**The importer and the D-3 probe read the same marker:**
+- `functualize-sqlite-import` on a file whose marker is `born-relational` exits **0**, changes
+  nothing, and reports "born relational; nothing to import". Otherwise it would import the run
+  log's own `documents['runs']` as if it were legacy. Its existing `documents`-marker path (verify
+  the recorded import) is unchanged.
+- `unselected_data` (D-3, nothing configured) counts a file with any valid marker as relational.
+  Its message then names no import command.
+
+**Why here, and not by stopping the run log's legacy writes.** Moving the engine's run log and
+scope writes onto the runtime port is the durability residual's own work
+(`tests/integration/test_substrate_durability.py:54-57`, *"the workflow engine still mixes legacy
+scope writes with the selected SQL store"*). It is an engine change and out of FUN-19's scope. The
+marker records the one fact the guard was missing — when and how the file became relational. It
+stays correct after the engine stops writing legacy documents, so nothing done here is undone
+later.
+
+**The one limitation accepted.** A framework *older than the marker*, writing into a
+born-relational file, puts its runtime documents into `documents`. The marker then boots the file
+anyway (G-2), and those documents are neither imported nor read. This is **out of contract,
+undetected**. Several framework versions sharing one store file is unsupported before release
+(`.spec/CONSTITUTION.md`: no backward-compatibility shims). The same holds for a branch-era file
+created before this amendment (born relational, unmarked): it is refused (G-3), and is not a
+shipped state.
 
 ## 7. Schema
 
@@ -228,7 +296,7 @@ implements `contributor/reference/runtime-persistence-data-model.md` §2 (tables
 indexes), §5 (fencing statements) and §7 (migration discipline) — the frozen contract received
 from `runtime-schema-migrations` (D3 = B). Each status `CHECK (status IN (…))` list equals the
 state set of its machine in `_types/lifecycle.py`; a test asserts the equality so the two cannot
-drift. Plus `runtime_cutover` (§6 above).
+drift. Plus `runtime_cutover` (§6 and §6a above). Its two `source` values are §6a's, and need no new revision.
 
 ## 8. Import-linter contracts
 

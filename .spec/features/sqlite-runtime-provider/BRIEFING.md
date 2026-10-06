@@ -14,7 +14,7 @@ that is expected.** This file gets you to the point where you can start.
 | **Runs in parallel with** | none |
 | **Base** | rebased 2026-10-05 onto `origin/master` @ `e8e3b867` (was `8c06198`) |
 | **Shape** | SD/12583004, `Authority: Approved` — `plan.md` → `## Alignment` |
-| **Phase** | Plan complete; decisions D-1 a, D-2 a, D-3 refuse answered 2026-10-05; Execute: waves 0–5 complete (tasks 1–17; wave 5, the legacy import, at `150931cf`); wave 6 next (task 18), then wave 7 (task 19) |
+| **Phase** | Plan complete; decisions D-1 a, D-2 a, D-3 refuse answered 2026-10-05; Execute: waves 0–5 complete (tasks 1–17; wave 5, the legacy import, at `150931cf`); wave 6 next (task 20, the born-relational marker — contracts §6a), then wave 7 (task 18), then wave 8 (task 19) |
 
 ## The one-line goal
 
