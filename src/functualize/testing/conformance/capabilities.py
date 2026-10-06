@@ -122,7 +122,15 @@ def cross_aggregate_atomicity(
 ) -> str:
     """A unit over two scopes and a run lands whole, or — faulted after any of
     its commands, refused part-way, or faulted before any of its *statements*
-    — not at all."""
+    — not at all.
+
+    What this observes is the *outcome*, through the ports a store publishes:
+    the two scopes' positions and the run count. A partial application that
+    writes only rows no port exposes — a commit split into batches whose
+    leading batch carries the lone ``workflow_steps`` insert — is therefore
+    not observable here, and the strength below says so rather than claiming
+    more.
+    """
     store = make_store(root)
     a, b = _claim(store, "agg-a", "runner"), _claim(store, "agg-b", "runner")
     commands: list[Callable[[RuntimeTransaction], None]] = [
@@ -195,7 +203,8 @@ def cross_aggregate_atomicity(
     store.close()
     return (
         f"statement faults at {statement_faults} positions "
-        f"+ command faults at {len(commands) + 1}"
+        f"+ command faults at {len(commands) + 1}; observed through the ports — "
+        f"a split whose leading batch writes no port-visible row is not seen"
     )
 
 

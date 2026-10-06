@@ -70,6 +70,10 @@ def test_the_report_states_the_strength_of_each_run(tmp_path: Path) -> None:
         atomicity.startswith("statement faults at ")
         and "+ command faults at 4" in atomicity
     ), atomicity
+    assert atomicity.endswith(
+        "; observed through the ports — a split whose leading batch writes no "
+        "port-visible row is not seen"
+    ), atomicity
     assert (
         strengths["fencing='cross-process'"]
         == "stale write from a second OS process landed nothing"

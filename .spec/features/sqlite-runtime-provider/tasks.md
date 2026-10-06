@@ -327,14 +327,21 @@ are replaced by plugin paths (`plan.md` → *Iteration log*, candidate E); the g
         (`git diff` on both is empty); `functualize.testing.conformance.__all__` equals contracts
         §4a's list in the surface test.
       *Sabotage (each must turn its tier red; all of them tick 13):* (i) a unit that raised still
-      commits → atomicity red; (ii) `SqliteRuntimeStore` commit split into two `batch` calls → the
-      statement-fault tier red. The command-level check cannot see this; it is the reason for the
-      hook. (iii) the outbox `INSERT` staged in a separate batch after the step → the crash-after
+      commits → atomicity red; (ii) `SqliteRuntimeStore`'s commit split into two `batch` calls whose
+      leading batch carries a **write the ports expose** (e.g. `statements[:2]` and
+      `statements[2:]`) → the statement-fault tier red. The command-level check cannot see this; it
+      is the reason for the hook. A split whose leading batch carries only the unit's first
+      `workflow_steps` insert (`[:1]`) is **not** observable through the ports, so it is a
+      documented limit of this tier rather than a second form of (ii): the tier names the limit in
+      its docstring and in its strength, and the limit's repair is its own issue, MCH-156.
+      (iii) the outbox `INSERT` staged in a separate batch after the step → the crash-after
       check red, or the crash-before check if the order is reversed; (iv) the migration runner's
       checksum comparison removed → the `"checksum"` refusal red; (v) a `socket.create_connection`
       call added to `prepare` → the offline tier red; (vi) fencing as today, all three guards
       removed → red.
-      *Reported, not gated:* H-7 — the fencing tier observes the outcome, not which guard held it.
+      *Reported, not gated:* H-7 — the fencing tier observes the outcome, not which guard held it;
+      likewise `cross_aggregate_atomicity` observes the two scopes' positions and the run count, so
+      a split whose leading batch writes no port-visible row is a limit it reports (MCH-156).
       *Evidence (`cbe7f3a5`), not ticked:* `cross_aggregate_atomicity` and `fencing ==
       "cross-process"` (two OS processes, fork) pass on SQLite; sabotage — a faulted unit still
       committing → atomicity red (`('a1', None, 0)` left); the fence check and predicate removed →
