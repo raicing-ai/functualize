@@ -532,7 +532,7 @@ nothing outside this repository links a PR back to the work item that asked for
 it — make that link by hand in the tracker. This is the same convention the
 branching rule already asked for, now enforced rather than requested.
 
-### Fixed — a SQLite substrate releases its connections when it dies
+### Fixed — a SQLite substrate leaves the database file at rest when a write ends
 
 `SQLiteSubstrate` keeps one connection per thread in `threading.local()`, and
 nothing closed them. The port has no `close`, and a dropped connection does not
@@ -542,16 +542,30 @@ collection — so the connection stayed open, and the database's write-ahead log
 un-checkpointed, until one happened to run. A collection can run anywhere,
 including inside an unrelated call.
 
-`SQLiteSubstrate.close()` releases this thread's connection and the next call
-opens a fresh one; the finalizer calls it, so a substrate that goes out of scope
-no longer waits for a collection. What changes observably is *when the file
-moves*: closing the last connection is what folds `-wal` back into the database
-and deletes it, so a deferred close could rewrite a file a caller had been
-promised was untouched. The plugin's offline import is where that was measured —
-`import_legacy(db, dry_run=True)` against a fixture whose stores were still open
-failed "the source is byte-identical" on 3 of 3 runs with a cold bytecode cache,
-and passes 3 of 3 with the connection released at the end of the substrate's
-life instead of at the next collection.
+Two things were wrong, and closing connections fixes only the first:
+
+- **A connection outlives its owner.** `SQLiteSubstrate.close()` releases this
+  thread's connection and the next call opens a fresh one; the finalizer calls
+  it, so a substrate that goes out of scope no longer waits for a collection.
+- **The fold was left to whoever closed last.** Closing the last connection to
+  a write-ahead-log database is what folds `-wal` back into the file and deletes
+  it, so a deferred close rewrote a file a caller had been promised was
+  untouched. Releasing connections on death is not enough: a substrate still
+  referenced from a cycle — a store keeps its readers, a reader keeps its store
+  — has no owner to release it, and its close is a collection away, at a moment
+  nobody chose. The substrate now checkpoints at the end of every write and
+  every outermost lock scope, while the caller is still inside its call, and
+  skips the checkpoint inside a transaction for the outermost one to take.
+
+Measured on the plugin's offline import, whose guard is that a dry run leaves
+the file byte-identical. Before, with a cold bytecode cache, the database read
+`main=4096 wal=74192` when the guard took its first digest, and the close that
+folded the log landed *inside* the dry run: the guard failed 6 of 6. With both
+halves it reads `main=12288 wal=0`, the digests before and after the dry run are
+equal, and the guard passes 5 of 5 — as does the plugin's full test directory,
+cold, on 3.11 and 3.13. The same failure was already found and fixed this way
+once, in `SecretsVault._session`: commit and checkpoint before the caller sees
+control return.
 
 ## [0.4.0] - 2026-09-24
 

@@ -90,6 +90,30 @@ class SQLiteSubstrate:
             self._local.depth = 0
         return conn
 
+    def _fold(self) -> None:
+        """Make the file at rest before control goes back to the caller.
+
+        A write-ahead log is folded into the main file by a checkpoint, and
+        SQLite takes one when the **last** connection to the database closes.
+        That moment belongs to whoever happens to close last, not to the
+        write: a caller that has already returned can watch the file change
+        later, when a connection nobody is using is finalized, and whether
+        that lands inside its call is allocation timing — the same store
+        appeared to change on one Python minor version and not another, which
+        is what made a dry run look like it wrote.
+
+        So the checkpoint is taken here, where a write has just ended and the
+        caller is still inside its call. Skipped inside a transaction: SQLite
+        cannot checkpoint one, and the outermost transaction folds it on the
+        way out.
+        """
+        if getattr(self._local, "depth", 0):
+            return
+        conn = getattr(self._local, "conn", None)
+        if conn is None or conn.in_transaction:
+            return
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
     def close(self) -> None:
         """Release this thread's connection; the next call opens a fresh one.
 
@@ -167,12 +191,14 @@ class SQLiteSubstrate:
                 "revision = documents.revision + 1",
                 (key, blob),
             )
+            self._fold()
             return True
         cursor = conn.execute(
             "UPDATE documents SET payload = ?, revision = revision + 1 "
             "WHERE key = ? AND revision = ?",
             (blob, key, expect),
         )
+        self._fold()
         return cursor.rowcount == 1
 
     @contextmanager
@@ -201,6 +227,8 @@ class SQLiteSubstrate:
                     raise
                 else:
                     conn.execute("COMMIT")
+                    self._local.depth = depth
+                    self._fold()
             else:
                 yield
         finally:
@@ -230,10 +258,12 @@ class SQLiteSubstrate:
             (backup, row[0]),
         )
         conn.execute("DELETE FROM documents WHERE key = ?", (key,))
+        self._fold()
         return f"{self._path}#{backup}"
 
     def delete(self, key: str) -> bool:
         cursor = self._conn().execute("DELETE FROM documents WHERE key = ?", (key,))
+        self._fold()
         return cursor.rowcount > 0
 
     def describe(self, key: str) -> str:
