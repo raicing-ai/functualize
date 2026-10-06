@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 from functualize_substrate_sqlite import SqliteRuntimeStore, SQLiteSubstratePlugin
@@ -89,6 +90,15 @@ def test_a_first_claim_creates_the_scope_at_generation_1(
     assert _row(store, "SELECT status, lease_owner FROM workflow_scopes") == [
         ("running", "a")
     ]
+
+
+def test_claim_commits_one_batch_of_one_statement(store: SqliteRuntimeStore) -> None:
+    with patch.object(store.driver, "batch", wraps=store.driver.batch) as batch:
+        assert isinstance(_claim(store), Claimed)
+        assert isinstance(_claim(store, "b"), Conflict)
+
+    assert batch.call_count == 2
+    assert all(len(call.args[0]) == 1 for call in batch.call_args_list)
 
 
 def test_a_live_lease_is_a_conflict_value_not_an_exception(
@@ -212,6 +222,40 @@ def test_an_edge_outside_the_scope_machine_is_refused(
         )
 
     assert _row(store, "SELECT status FROM workflow_scopes") == [("completed",)]
+
+
+def test_cancelled_is_absorbing_nothing_moves_it_back_to_running(
+    store: SqliteRuntimeStore,
+) -> None:
+    gen = _held(store)
+    with store.transaction() as tx:
+        tx.workflows.cancel(CancelWorkflow("s1", gen, T0))
+
+    with pytest.raises(IllegalTransition), store.transaction() as tx:
+        tx.workflows.complete_step(
+            CompleteStep("s1", gen, "x", T0, scope_status="running")
+        )
+    with pytest.raises(IllegalTransition), store.transaction() as tx:
+        tx.workflows.resume(ResumeWorkflow("s1", "a", "approve", T0, LEASE))
+
+    assert _row(store, "SELECT status FROM workflow_scopes") == [("cancelled",)]
+
+
+def test_completed_to_running_is_the_retry_edge_and_is_allowed(
+    store: SqliteRuntimeStore,
+) -> None:
+    """`_types/lifecycle.SCOPE` lists ``(completed, running)``; the store follows it."""
+    gen = _held(store)
+    with store.transaction() as tx:
+        tx.workflows.complete_step(
+            CompleteStep("s1", gen, "x", T0, scope_status="completed")
+        )
+    with store.transaction() as tx:
+        tx.workflows.resume(ResumeWorkflow("s1", "a", "retry", T0, LEASE))
+
+    assert _row(store, "SELECT status, lease_generation FROM workflow_scopes") == [
+        ("running", gen + 1)
+    ]
 
 
 def test_a_cancelled_scope_cannot_be_cancelled_again(store: SqliteRuntimeStore) -> None:

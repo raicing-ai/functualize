@@ -91,31 +91,32 @@ class SqlWorkflowWriter:
             [
                 (
                     "INSERT INTO workflow_scopes (namespace_id, id, workflow, status, "
-                    "lease_generation, created_at, updated_at) "
-                    "VALUES (?, ?, '', 'running', 0, ?, ?) ON CONFLICT DO NOTHING",
-                    (tx.namespace, cmd.scope_id, now, now),
-                ),
-                (
-                    "UPDATE workflow_scopes SET lease_owner = ?, lease_expires_at = ?, "
-                    "lease_generation = lease_generation + 1, updated_at = ? "
-                    "WHERE namespace_id = ? AND id = ? AND (? OR lease_owner = ? "
-                    "OR lease_expires_at IS NULL OR lease_expires_at <= ?)",
+                    "lease_owner, lease_expires_at, lease_generation, created_at, updated_at) "
+                    "VALUES (?, ?, '', 'running', ?, ?, 1, ?, ?) "
+                    "ON CONFLICT (namespace_id, id) DO UPDATE SET "
+                    "lease_owner = excluded.lease_owner, "
+                    "lease_expires_at = excluded.lease_expires_at, "
+                    "lease_generation = workflow_scopes.lease_generation + 1, "
+                    "updated_at = excluded.updated_at "
+                    "WHERE ? OR workflow_scopes.lease_owner = excluded.lease_owner "
+                    "OR workflow_scopes.lease_expires_at IS NULL "
+                    "OR workflow_scopes.lease_expires_at <= ?",
                     (
+                        tx.namespace,
+                        cmd.scope_id,
                         cmd.owner,
                         expires,
                         now,
-                        tx.namespace,
-                        cmd.scope_id,
+                        now,
                         int(cmd.force),
-                        cmd.owner,
                         now,
                     ),
-                ),
+                )
             ]
         )
         tx.forget_scope(cmd.scope_id)
         row = tx.scope(cmd.scope_id)
-        if counts[1] == 1:
+        if counts[0] == 1:
             return Claimed(
                 scope_id=cmd.scope_id,
                 generation=row.generation,
