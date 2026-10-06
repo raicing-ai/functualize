@@ -123,7 +123,7 @@ Read projections and parse sites:
 | `_primitives/document_store.py:330-352` (`_workflow_view`, :335) | 8 | also `:282` (`resumable` — filter compares `query.status` :303), `:275` (`workflow`) |
 | `_primitives/document_store.py:202` (`recent` — `query.status` filter) | 9 | zero external constructors |
 | `_primitives/gate_requests.py:332-345` (`request_for`, `status=_status(record)` :337; derivation `_status` :92, `_legacy_status` :79) | 6 | the document backend **derives** this status — the parse lands here |
-| `app/_workflow_resume.py:55` (`request.status` into the result envelope) | 6 | the one production reader of a port field outside the backend |
+| `app/_workflow_resume.py:55` (`request.status` into the result envelope) | 6 | the one production reader of a port field outside the backend; in task 3.2's file scope, whose `request_for` parse narrows the value it reads — no edit expected (it lands in a `dict[str, Any]` envelope, and a `StrEnum` member is a `str`) |
 
 Apply path (backend consumes the fields):
 
@@ -151,7 +151,7 @@ Test fixtures handing status values to port fields (from
 | `tests/types/test_gate_resolution_values.py:82-90` (`InputRequest(..., status="open")`) | the one literal into a constructor |
 | `tests/primitives/test_document_runtime_store.py:344-357` (`SuspendAtGate(...)`, default scope_status) | exercises `_suspend` |
 | `tests/types/test_runtime_store_port.py:134` (`error.status == "accepted"`) | by-value; stays green |
-| `tests/types/fixtures/runtime_store_conformance.py` | mypy signature conformance — the file that pins the typing for implementers |
+| `tests/types/fixtures/runtime_store_conformance.py:43` (`takes_the_port(store)`, the store-to-port assignment) | mypy signature conformance — the file that pins the typing for implementers; in task 2.1's file scope, whose gate runs mypy over it — no edit expected (`contracts.md` §5: protocol signatures unchanged) |
 | `tests/engine/test_walk_claims_through_the_port.py`, `tests/primitives/test_transitions.py`, `tests/types/test_lifecycle_tables.py`, `tests/primitives/test_gate_requests.py`, `tests/integration/test_crash_and_resume.py`, `tests/integration/test_notify_exactly_once.py`, `tests/engine/test_run_record.py`, `tests/workflow/test_gate_drafts.py`, `tests/_support/engine_storage.py`, `tests/core/test_store_capability_refusal.py`, `tests/primitives/test_one_substrate_choice.py` | reference the port types; each lands in a task's file scope only if its imports change |
 
 ## 4. The choke point and the already-dispatched work

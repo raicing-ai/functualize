@@ -48,7 +48,9 @@ zero. After each task, update `.spec/STATE.md`.
 ## 2.1 · The port's ten annotations
 
 - **After:** 1.1, 1.2.
-- **Files:** `src/functualize/_types/persistence.py`.
+- **Files:** `src/functualize/_types/persistence.py`,
+  `tests/types/fixtures/runtime_store_conformance.py:43` (gate target — no edit
+  expected; `plan.md` §3).
 - **Does:** the §2 table of `spec.md` — ten fields typed, defaults become
   members; module imports the enums from `_types.lifecycle` (same package);
   field docstrings drop the now-redundant vocabulary spellings where the enum
@@ -87,7 +89,9 @@ zero. After each task, update `.spec/STATE.md`.
 
 - **After:** 2.1.
 - **Files:** `src/functualize/_types/lifecycle.py` (adds `ATTEMPT_TO_RUN`),
-  `src/functualize/_primitives/document_store.py`, `src/functualize/_primitives/gate_requests.py`, `src/functualize/_types/errors.py`.
+  `src/functualize/_primitives/document_store.py`, `src/functualize/_primitives/gate_requests.py`, `src/functualize/_types/errors.py`,
+  `src/functualize/app/_workflow_resume.py:55` (reads `request.status` — no edit
+  expected; `plan.md` §3).
 - **Does:** `_run_view`/`_workflow_view` parse strictly (`RunState(value)`,
   `ScopeStatus(value)`; the refusal message names value and vocabulary);
   `request_for` parses `InputRequestStatus(_status(record))`;
