@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the SQLite runtime store is selected by configuration, not by installation
+
+Installing `functualize-substrate-sqlite` used to choose storage: the plugin
+offered a substrate at boot, and every document of every project quietly moved
+into `state.db`. The plugin now registers one URL scheme, and configuration is
+what selects it:
+
+```toml
+[runtime_store]
+url = "sqlite:"
+```
+
+`sqlite:` is the project's own `state.db` (`.functualize/state.db`, or the XDG
+cache keyed by project id); `sqlite:///abs/path.db` is absolute, and
+`sqlite:rel/path.db` is relative to the project root. A `sqlite://host/…` form
+is refused — SQLite is a local file, and the store's profile now says plainly
+that one machine is what it reaches (`multi_machine=False`). With nothing
+configured, every store stays where it is today.
+
+The store writes the runtime ports as relational tables in revision `0001` —
+runs and attempts, workflow scopes, steps and branches, scope state, input
+requests and candidates, the outbox, artifact references — and hands boot a
+`SQLiteSubstrate` on the same file, so the freshness ledger and shell history
+live beside runtime truth instead of falling back to the filesystem.
+`functualize-sqlite-import` moves a project's existing runtime documents into
+that schema offline: it backs the file up first, verifies what it wrote, and
+refuses the whole import if any record is illegal.
+
+Three behaviours change with it:
+
+- **A selected store that cannot start aborts boot.** An unopenable file, a
+  revision that does not apply, a file whose legacy runtime documents were
+  never imported, and a `runtime_cutover` marker that cannot say which store
+  owns the file each stop boot with a named error and the remedy. Nothing falls
+  back to the document store and no weaker store is substituted, because a
+  silent downgrade is the failure mode the store profile exists to make
+  impossible. The `runtime_cutover` marker also settles the question the old
+  guard got wrong: a database created by the store is not mistaken for one
+  whose documents still need importing.
+- **With nothing configured, a store file can still refuse.** If a `state.db`
+  already holds this project's runtime data, boot stops and says so rather than
+  coming up on the document store with that data unread.
+- **`[plugin.substrate-sqlite] db_path` is gone.** The location is part of the
+  URL (`sqlite:///abs/path.db`, `sqlite:rel/path.db`), and the plugin no longer
+  reads the setting, so a config file that still carries it moves nothing.
+
 ### Changed — the vault key is read from an unlocked keyring with or without a terminal
 
 A run that needed a stored vault secret used to get it in a terminal and be

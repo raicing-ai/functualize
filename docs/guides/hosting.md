@@ -217,12 +217,17 @@ Two things to do about it:
    dependencies = ["functualize", "functualize-substrate-sqlite"]
    ```
 
-   Then point it somewhere shared, in your own config defaults:
+   Then select its store in your own config defaults, pointing the file
+   somewhere that outlives the process:
 
    ```toml
-   [plugin.substrate-sqlite]
-   db_path = "/var/lib/yourapp/state.db"
+   [runtime_store]
+   url = "sqlite:///var/lib/yourapp/state.db"
    ```
+
+   Installing the plugin registers the `sqlite` scheme; `[runtime_store] url`
+   is what chooses it, and a store that cannot open or migrate stops boot
+   rather than falling back to the filesystem.
 
 2. **Tell your users where it went.** `yourapp builtin data show` reports the
    location of every runtime document, and it is the first command to run when

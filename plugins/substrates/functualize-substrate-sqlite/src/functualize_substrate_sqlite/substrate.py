@@ -17,9 +17,10 @@ none does.
 `JsonFileSubstrate` is the baseline; it exists to change nothing. This one is
 the reason the port exists at all:
 
-- **It has no shared disk.** Two processes on different machines can reach the
-  same database, which is what makes a gate blocked on one runner resumable on
-  another (spec AC-3).
+- **It is a local file, and says so.** `SQLITE_PROFILE` declares
+  `multi_machine=False`: the database is a path on this host, reachable from
+  every process on it and from nothing else. SQLite is not what would make a
+  gate blocked on one runner resumable on another, and nothing here claims it.
 - **`lock` is one lock.** A transaction covers every key it is given, so the
   lock-order inversion an external review found between the scope lock and the
   state lock is removed *by construction* rather than by asking callers to

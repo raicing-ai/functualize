@@ -10,11 +10,13 @@ It lives in `_primitives` because that is where the three stores it wraps
 live. Putting it in `_engine` would place storage adaptation in the layer that
 owns lifecycle meaning — the line `plan.md` draws when it rejects Candidate C.
 
-**It is a declared middle man and it is temporary.** The class carries
+**It is a declared middle man.** The class carries
 `# TRANSITIONAL(FUN-17/T7)`: it forwards to three existing stores and adds no
 behaviour of its own beyond the profile, the buffering transaction and the
 cross-aggregate refusal (T8). The standard answer to middle man — remove it —
-is what FUN-19's `SqliteRuntimeStore` does, and this file goes with it.
+is not what happened: FUN-19 made a store *selectable* from configuration
+instead of replacing this one, and with `runtime_store.url` unset this is what
+boot step 6.5 builds.
 
 ## The profile is what this store may be selected for
 
@@ -1105,9 +1107,10 @@ def _utcnow() -> datetime:
 
 
 # TRANSITIONAL(FUN-17/T7): a declared middle man over the three document
-# stores, so this wave can land without FUN-19's `SqliteRuntimeStore`. It
-# forwards and adds no behaviour of its own beyond the profile, the buffering
-# transaction and T8's refusal. FUN-19 removes it, and this file with it.
+# stores. It forwards and adds no behaviour of its own beyond the profile, the
+# buffering transaction and T8's refusal. FUN-19 makes a store *selectable*
+# rather than replacing this one: with `runtime_store.url` unset, the document
+# store is what boot step 6.5 builds, so this class and this file stay.
 class DocumentRuntimeStore:
     """`RuntimeStore` over `ScopeStore`, `RunStore` and `ScopeStateStore`.
 
