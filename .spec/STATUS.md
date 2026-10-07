@@ -2514,6 +2514,27 @@ Items identified during development that are worth doing but not yet designed:
     Close this by adding that per-scan memo, or by deciding the cold-boot cost
     is acceptable and saying so.
 
+35. **`OPTIONAL_VALUE_VALID_SET` no longer describes what it carries — rename it.**
+    Left open by the one-arity rule
+    ([ADR-032](../contributor/adr/032-one-arity-per-pre-boot-flag.md)), deferred
+    by the maintainer as a separate follow-up.
+
+    After that change every flag in the table is value-*required*: its entries
+    are each flag's accepted explicit values, and the `default` half of each
+    `(valid_set, default)` tuple says what an *absent* flag means, not a
+    bare-flag fallback (there is none). The name still says "optional", and
+    the `(valid_set, default)` inner spelling predates the change too. It ships
+    marked `# TRANSITIONAL(emit-format-alias-diagnostic)` in
+    `src/functualize/_types/flag_grammar.py`, and `docs/api/types.md` says the
+    name is transitional.
+
+    The remedy is *Rename*, to something like `GLOBAL_OPTION_ACCEPTED_VALUES`,
+    keeping the tuple shape. It is a public name: it is re-exported from
+    `functualize.types` and `functualize.app.utils`, and
+    `tests/test_public_api_surface.py` lists it. Pre-release, the constitution
+    forbids a compatibility alias, so the rename deletes the old name outright.
+    Close this by doing the rename and removing the `TRANSITIONAL` marker.
+
 ## Recently Completed (2026-09)
 
 | Feature | Description |
