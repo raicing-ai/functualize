@@ -131,11 +131,20 @@ in for the job name:
 |---|---|---|
 | 1 (highest) | Runtime override | `rc.config.set("env", "prod")` |
 | 2 | The flag on the command line | `func deploy --env prod …` |
-| 3 | Environment variable | `DEPLOY__ENV=prod` |
-| 4 | Config file section | `[deploy]` → `env = "prod"` |
-| 5 (lowest) | The field's declared default | `env: str = "staging"` |
+| 3 | Vault, for a secret-marked field | `func builtin vault put --group deploy --field token` |
+| 4 | Environment variable | `DEPLOY__ENV=prod` |
+| 5 | Config file section | `[deploy]` → `env = "prod"` |
+| 6 (lowest) | The field's declared default | `env: str = "staging"` |
 
 `config.set()` deposits an **override**: a value written during the run, which is where that run will then find it — above everything a source supplied, the command line included.
+
+The vault identity uses the **declaring group**, even when a nested job
+inherits that group's options. For example, `deploy.web.run` reading
+`DeployOptions(group="deploy")` uses `--group deploy --field token`. A nearer
+`GroupOptions(group="deploy.web")` declaration uses `--group deploy.web`
+instead. The job's own config field is a separate `--job` identity, even when
+the target and field text match the group's. Only secret-marked fields are
+eligible; ordinary group options keep the rest of this ladder.
 
 A dotted group path flattens for the environment variable and stays dotted for
 the config section: `group="deploy.web"` reads `DEPLOY_WEB__ENV` and
@@ -164,7 +173,7 @@ default you cannot override from the command line would defeat the point of
 typing it.
 
 None of this depends on the CLI. A job run from Python resolves the same
-file, environment and default layers:
+vault, file, environment and default layers:
 
 ```python
 app.execute("deploy.web.run")           # opts.env comes from file/env/default
@@ -180,8 +189,8 @@ caller who wants to pass one on now says so.
 app.execute("deploy.web.run", group_option_values={"env": "prod"})
 
 # `rc.invoke` starts no command line, so by default it passes none: a job
-# invoked from inside another job resolves its group options from its own file,
-# environment and default layers.
+# invoked from inside another job resolves its group options from its own vault,
+# file, environment and default layers.
 rc.invoke("deploy.web.run")
 
 # ...and it can pass one deliberately, for the case where a parent really is
@@ -191,7 +200,7 @@ rc.invoke("deploy.web.run", group_option_values={"env": "prod"})
 
 A `@workflow` step behaves like a bare `rc.invoke`: the walk runs each step as
 an ordinary job with no flag layer, so a step's group options come from file,
-environment and defaults.
+vault, environment and defaults.
 
 !!! note "The default did not change; the boundary did"
 
