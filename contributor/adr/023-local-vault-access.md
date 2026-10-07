@@ -5,6 +5,15 @@
 **Deciders**: maintainer, during the `local-vault-access` Plan phase
 **Amends**: [ADR-016](016-remote-source-activation.md) §7
 
+**Amended 2026-10-04 — scoped identities.** Presence is checked for the
+encoded `(scope, target, field)` identity. Group and job entries with the
+same target and field remain distinct. `put`, `inspect`, and `remove` use
+`--field` with exactly one of `--group` or `--job`; the old positional form
+is removed. Only secret-marked group options and job config fields are vault
+targets. Old flat-key stores are refused without mutation, with an instruction
+to run keyless `func builtin vault clear`; there is no format migration. The
+historical discussion below records the earlier decision's context.
+
 ## Context
 
 ADR-016 turned `remote_first()` from a lie into a working preset backed by an
@@ -76,7 +85,7 @@ and a declared-but-unsynced annotation still warns per key and continues.
 
 Refusing is tolerable only because recovery is cheap, and all three routes are:
 
-- `vault remove PATH` — any origin, **needs no key** (see 3);
+- `vault remove --group TARGET --field FIELD` or `--job TARGET --field FIELD` — any origin, **needs no key** (see 3);
 - `vault clear` — needs no key, as today;
 - `vault sync` — refreshes provider entries from upstream.
 
@@ -180,8 +189,9 @@ key into a provider and never shows it.
 
 - `list --json` gains nullable `provider` / `annotation` / `synced_at`, because a
   direct entry has none of the three. No field is removed or renamed.
-- The store gains columns and a one-time in-place upgrade. Additive; existing
-  ciphertext is preserved byte-for-byte.
+- The key-check change originally gained columns through a one-time in-place
+  upgrade. The later scoped-identity format does **not** migrate old flat keys;
+  an old store must be cleared and reprovisioned.
 
 ## Alternatives rejected
 

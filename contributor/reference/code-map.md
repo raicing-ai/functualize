@@ -15,7 +15,7 @@
 | `classic()` | `app/presets.py` | Preset: CLI → Env → Files → Defaults |
 | `twelve_factor()` | `app/presets.py` | Preset: CLI → Env → Defaults (no files) |
 | `env_only()` | `app/presets.py` | Preset: CLI → Env → Defaults (minimal) |
-| `remote_first()` | `app/presets.py` | Preset: CLI → Vault → Env → Files → Defaults. `provider://reference` values resolve from the project's encrypted local vault, filled by `func builtin vault sync`; reads never touch the network. Raises at construction when no remote provider is registered, rather than degrading to `classic()` (ADR-016) |
+| `remote_first()` | `app/presets.py` | Preset: CLI → Vault → Env → Files → Defaults. Explicit `[[vault_secret]]` blocks identify secret-marked group or job fields and provider sources; `func builtin vault sync` fills the project's encrypted local vault. Reads never touch the network. Raises at construction when no remote provider is registered, rather than degrading to `classic()` (ADR-016) |
 | `coerce_kwargs()` | `app/utils.py` | String → Python type coercion via Pydantic |
 | `import_job()` | `app/utils.py` | Import job function(s) from a file path |
 | `auto_discover()` | `app/utils.py` | Scan CWD for job directories |

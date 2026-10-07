@@ -17,7 +17,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from functualize._config.errors import (
     AnnotationResolutionError,
@@ -134,15 +134,27 @@ class CliSource:
             section, key = self._parse_cli_key(raw_key)
             self._indexed[(section, key)] = value
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
         """Retrieve a value for the given key."""
         return self._indexed.get((section, key))
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> bool:
         """Check if this source can provide a value for the key."""
         return (section, key) in self._indexed
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: Literal["group", "job"] = "job") -> set[str]:
         """Return all keys available for the given section."""
         return {key for (sec, key) in self._indexed if sec == section}
 
@@ -164,13 +176,18 @@ class CliSource:
 
 
 class EnvSource:
-    """Reads configuration from os.environ using SECTION_KEY convention.
+    """Reads configuration from os.environ using the SECTION_KEY convention.
 
     Key lookup convention:
     - ``get("port", "database")`` → reads ``DATABASE_PORT``
     - ``get("debug")`` → reads ``DEBUG`` (no section)
+    - ``get("env", "deploy", scope="group")`` → reads ``DEPLOY__ENV``
 
-    All lookups are uppercased. Section and key are joined with underscore.
+    All lookups are uppercased. Job scope joins section and key with one
+    underscore; group scope keeps the group options convention of two —
+    ``DEPLOY__ENV``, ``DEPLOY_WEB__ENV`` — because a nested group path is
+    itself flattened with single underscores, so one underscore cannot tell
+    group ``deploy`` with a field ``web_env`` apart from group ``deploy.web``.
     """
 
     @property
@@ -198,21 +215,41 @@ class EnvSource:
             return self._environ
         return dict(os.environ)
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
         """Retrieve a value from environment variables."""
-        env_key = self._build_env_key(key, section)
+        env_key = self._build_env_key(key, section, scope)
         environ = self._get_environ()
         return environ.get(env_key)
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> bool:
         """Check if the environment variable exists."""
-        env_key = self._build_env_key(key, section)
+        env_key = self._build_env_key(key, section, scope)
         environ = self._get_environ()
         return env_key in environ
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: Literal["group", "job"] = "job") -> set[str]:
         """Return all keys available for the given section."""
         environ = self._get_environ()
+        if scope == "group":
+            flattened = section.upper().replace("-", "_").replace(".", "_")
+            prefix = f"{flattened}__"
+            return {
+                env_key[len(prefix) :].lower()
+                for env_key in environ
+                if env_key.startswith(prefix)
+            }
         prefix = f"{section.upper().replace('-', '_')}_"
         return {
             env_key[len(prefix) :].lower()
@@ -221,23 +258,34 @@ class EnvSource:
         }
 
     @staticmethod
-    def _build_env_key(key: str, section: str | None) -> str:
+    def _build_env_key(
+        key: str, section: str | None, scope: Literal["group", "job"] = "job"
+    ) -> str:
         """Build the environment variable name from section and key.
 
         Hyphens **and dots** become underscores. Sections are job names, which
-        are canonical (``env-cfg``) and may be group-qualified (``infra.deploy``),
-        and an environment variable name can contain neither character — so
-        without this the key would be ``ENV-CFG_API_URL`` or
-        ``INFRA.DEPLOY_API_URL``, which no shell can export and nothing would
-        ever match. The value would fall through to the default silently, which
-        is the worst way for config to fail.
+        are canonical (``env-cfg``) and may be group-qualified
+        (``infra.deploy``), and an environment variable name can contain
+        neither character — so without this the key would be
+        ``ENV-CFG_API_URL`` or ``INFRA.DEPLOY_API_URL``, which no shell can
+        export and nothing would ever match. The value would fall through to
+        the default silently, which is the worst way for config to fail.
 
-        The dot half was added with T45: that task promises an error naming the
-        environment variable that sets a missing field, and a named variable
-        this builder could never look up would be worse than no name at all.
-        It matches what the group-options path already did by hand
+        The dot half was added with T45: that task promises an error naming
+        the environment variable that sets a missing field, and a named
+        variable this builder could never look up would be worse than no name
+        at all. It matches what the group-options path already did by hand
         (``_resolve_group_options``'s ``env_scope``).
+
+        Group scope joins with a double underscore instead, matching
+        ``_config.resolved_field.group_env_name_for`` — the spelling group
+        options have always documented, which until the scoped chain was read
+        directly from ``os.environ`` *above* the vault. Reading it here puts
+        it below the vault where it belongs, without changing the name.
         """
+        if scope == "group" and section:
+            flattened = section.upper().replace("-", "_").replace(".", "_")
+            return f"{flattened}__{key.upper().replace('-', '_').replace('.', '_')}"
         if section:
             return f"{section}_{key}".upper().replace("-", "_").replace(".", "_")
         return key.upper().replace("-", "_").replace(".", "_")
@@ -291,7 +339,13 @@ class RemoteSource:
             resource = payload.pop("resource", "")
             self._event_bus.emit(event_name, resource=resource, **payload)
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
         """Retrieve a value by resolving its remote annotation.
 
         Raises:
@@ -313,12 +367,18 @@ class RemoteSource:
         self._resolved.add(lookup_key)
         return value
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> bool:
         """Check if an annotation exists for this key."""
         lookup_key = self._build_lookup_key(key, section)
         return lookup_key in self._annotations
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: Literal["group", "job"] = "job") -> set[str]:
         """Return all keys available for the given section."""
         prefix = f"{section}."
         return {k[len(prefix) :] for k in self._annotations if k.startswith(prefix)}
@@ -519,6 +579,7 @@ class FileSource:
         event_bus: EventBus | None = None,
         environment: str | None = None,
         require_slot: bool = False,
+        remote_providers: tuple[str, ...] = (),
     ) -> None:
         """Initialize the file source.
 
@@ -561,6 +622,7 @@ class FileSource:
         )
         self._event_bus = event_bus
         self._environment = environment
+        self._remote_providers = remote_providers
         self._discovered_paths: list[str] = []
         self._merged_config: dict[str, Any] = {}
         self._per_file_configs: list[tuple[str, dict[str, Any]]] = []
@@ -622,21 +684,61 @@ class FileSource:
                 return walked
         return None
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def reject_inline_provider(self, section: str, key: str) -> None:
+        """Refuse a legacy provider URI in any file for a secret field.
+
+        Inspect per-file input, including a lower-priority file hidden by an
+        environment override. Ordinary URL values do not count as providers.
+        """
+        from functualize._config.annotations import scan_annotations
+
+        spellings = (section, section.replace("-", "_"), section.replace("_", "-"))
+        for path, config in self._per_file_configs:
+            for spelling in spellings:
+                data: Any = config.get(spelling)
+                if not isinstance(data, dict) and "." in spelling:
+                    data = config
+                    for part in spelling.split("."):
+                        data = data.get(part) if isinstance(data, dict) else None
+                if not isinstance(data, dict):
+                    continue
+                value = data.get(key)
+                if isinstance(value, str) and scan_annotations(
+                    {key: value}, self._remote_providers
+                ):
+                    raise ValueError(
+                        f"{path}: secret field {section}.{key} uses legacy inline "
+                        "provider syntax; move it to [[vault_secret]] with group "
+                        "or job, field, and source"
+                    )
+
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
         """Retrieve a value from the merged file configuration."""
         if section:
             section_data = self._section_data(section)
             return section_data.get(key) if section_data is not None else None
         return self._merged_config.get(key)
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> bool:
         """Check if the merged config contains the key."""
         if section:
             section_data = self._section_data(section)
             return section_data is not None and key in section_data
         return key in self._merged_config
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: Literal["group", "job"] = "job") -> set[str]:
         """Return all keys available for the given section.
 
         Goes through ``_section_data`` like ``get``/``has`` do, so a section
@@ -811,7 +913,13 @@ class DefaultSource:
         """
         self._defaults = defaults
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
         """Retrieve a default value for the given key."""
         if section:
             section_data = self._defaults.get(section)
@@ -820,7 +928,13 @@ class DefaultSource:
             return None
         return self._defaults.get(key)
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> bool:
         """Check if a default exists for the key."""
         if section:
             section_data = self._defaults.get(section)
@@ -829,7 +943,7 @@ class DefaultSource:
             return False
         return key in self._defaults
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: Literal["group", "job"] = "job") -> set[str]:
         """Return all keys available for the given section."""
         section_data = self._defaults.get(section)
         if isinstance(section_data, dict):

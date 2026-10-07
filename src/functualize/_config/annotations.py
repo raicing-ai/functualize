@@ -1,10 +1,9 @@
-"""Deciding which config values are remote annotations (ADR-016).
+"""Classify provider references for explicit vault declarations and diagnostics.
 
-A config value like ``aws-sm://prod/db-password`` names *where* a credential
-lives without carrying the credential. This module finds those values and turns
-them into the ``annotations`` map :class:`~functualize._config.sources.RemoteSource`
-consumes. It is the first production caller of
-:func:`~functualize._config.manifest.parse_annotation`.
+``vault sync`` passes the ``source`` of each validated ``[[vault_secret]]``
+block here. Config resolution also uses this classifier to refuse legacy
+inline provider syntax on secret-marked fields before any higher-priority
+source can hide it. Ordinary config fields are never sync declarations.
 
 Why the pattern alone is not the test
 -------------------------------------
@@ -16,24 +15,22 @@ these are all annotations::
     postgres://user:pw@host/db   -> provider 'postgres'
     s3://bucket/key              -> provider 's3'
 
-A config file full of ordinary URLs would become a config file full of
-annotations, and boot would go looking for a provider named ``https``. So the
-test is **the scheme matches a registered remote provider**, not the shape.
+A config file full of ordinary URLs must not become a collection of provider
+sources. The test is **the scheme matches a registered remote provider**, not
+the shape alone.
 
 The failure that decision creates, and how it is handled
 --------------------------------------------------------
 
 Keying on registration means ``aws-sm://prod/db`` with the AWS plugin *not
-installed* is no longer an annotation — it is a literal, and a job would
-receive the string ``"aws-sm://prod/db"`` as its password. Silently. That is
-the exact failure class ADR-016 exists to remove, reintroduced one layer down.
+installed* is unresolved. In an explicit declaration, sync reports that
+provider as missing; in a secret config field, the value is refused as legacy
+inline syntax rather than passed to the job as a literal password.
 
 So a value that looks like an annotation and names an **unregistered** scheme
 is recorded as :class:`UnresolvedAnnotation` rather than passed over in
-silence. Common URL schemes are excluded from that report, because a config
-file legitimately holds URLs. Note the asymmetry: the exclusion list is used
-only to decide whether to *complain*, never to decide what a value *is* — so a
-scheme missing from it costs a spurious warning, never a wrong value.
+silence. Common URL schemes are excluded from that report. The exclusion list
+only decides whether to *complain*, never what a registered provider is.
 """
 
 from __future__ import annotations
