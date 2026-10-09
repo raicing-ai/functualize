@@ -24,15 +24,24 @@ resolution anchor. This change does not bump versions or publish artifacts.
 - Update `plugins/PUBLISHING.md` so its release table and counts describe all
   fourteen built distributions as included in the upload, with one publisher
   per project.
-- Preserve the independent `bake` artifact download and leave
-  `pyproject.toml` unchanged.
+- Remove `functualize-secrets-aws` from the core `[all]` extra. It stays
+  separately installable and included in the PyPI upload.
+- Keep the curated plugin catalog's recommended set aligned with `[all]`.
+  Update the installation and configuration guides for binary users who need
+  AWS providers.
+- Preserve the independent `bake` artifact download. Its contents change
+  because it installs `[all]`.
+
+## Accepted standalone consequence
+
+The standalone binary bakes `functualize[all]`; after AWS leaves that extra,
+the binary no longer includes the `aws-sm://` or `aws-ssm://` providers by
+default. Users can add `functualize-secrets-aws` to a standalone installation
+with `func builtin self install functualize-secrets-aws`.
 
 ## Open question — outside this change
 
-Does `functualize-secrets-aws` remain in the `[all]` extra? The maintainer has
-not decided. That answer also determines whether the standalone binary,
-which bakes `[all]`, keeps the AWS providers. Keep today's `[all]` and bake
-configuration untouched; this spec does not decide their future membership.
+An opt-in `functualize[aws]` extra is undecided. Do not add it here.
 
 ## Acceptance
 
@@ -42,10 +51,17 @@ configuration untouched; this spec does not decide their future membership.
 2. The publishing guide names fourteen uploaded distributions (core plus
    thirteen plugins), marks both credential plugins as uploaded, and states
    that fourteen ordinary trusted publishers are needed.
-3. `pyproject.toml` and all runtime source remain unchanged. No legacy
+3. `[all]` contains `functualize[cli]`, `functualize[keychain]`, and eleven
+   plugins; neither secrets provider is included. The catalog still lists
+   both providers, with neither recommended. No `[aws]` extra or legacy
    distribution is introduced.
-4. Before merge or a `v*` tag, the maintainer creates
+4. The standalone binary still bakes `[all]` and therefore excludes AWS
+   providers by default. The two guides identify the opt-in installation
+   route, including `func builtin self install` for binary users.
+5. Before merge or a `v*` tag, the maintainer creates
    `functualize-secrets-aws`, `functualize-secrets-bitwarden`, and
    `functualize-decision-jev` on PyPI and configures each ordinary trusted
    publisher for `raicing-ai/functualize`, `release.yml`, environment `pypi`.
-   The `0.5.0` resolver and live upload checks run after release.
+   Among the three new projects, only `functualize-decision-jev` remains an
+   `[all]` prerequisite. The `0.5.0` resolver and live upload checks run
+   after release.
