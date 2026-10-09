@@ -223,7 +223,6 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "http_status_for_status",
         # Flag vocabulary and alias matching (run-outcome-authority F2 T8).
         "GLOBAL_OPTIONS_ALWAYS_VALUE",
-        "GLOBAL_OPTIONS_OPTIONAL_VALUE",
         "OPTIONAL_VALUE_VALID_SET",
         "GLOBAL_OPTIONS_WITH_VALUE",
         "GLOBAL_BOOL_FLAGS",

@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — one arity per pre-boot flag, and one exit code for a wrong value
+
+Every flag `func` reads before boot is boolean or value-required — never
+value-optional. `--emit-format` and `--perf-report` used to take their value
+optionally: a token after them outside the valid set was left standing as the
+*command*, so `func --emit-format shortcut` with a broken `[aliases]` entry
+reported the flag's valid set while the alias error — the setting actually at
+fault — stayed hidden outside command position. Both flags now require their
+value; the token after the flag is its value, whatever it spells, and no
+command or alias lookup happens in value position. The alias error is
+reachable exactly where the alias is a command (`func shortcut`,
+`func --emit-format json shortcut`).
+
+A missing value is a usage error for **every** value-required flag, not only
+the two: `func --emit-format` and `func --config-directory` exit 2 with
+`Error: --emit-format requires a value: one of {auto, json, ndjson, none, raw}.`
+and `Error: --config-directory requires a value.` respectively — the
+accepted-values clause names its table when the flag has one. A known global
+flag in the value slot (`--force`, `--help`, `--version`) means the value is
+missing rather than swallowed: `func --emit-format --force greet` and
+`func --emit-format --version` exit 2, and the version fast path stays silent
+for the latter. An unrecognized dash token and a negative number remain value
+candidates.
+
+**Breaking, named rather than glossed:** an invalid value is exit 2 for the
+whole value-required table. `--emit-format` and `--perf-report` keep exit 2,
+and `--log-level BOGUS` / `--discovery-depth abc` move from 1 to 2 — any
+script that tested for `1` there sees the change. Command-position errors are
+untouched (`func bogus` is still exit 1). Spellings that relied on the
+lookahead — `func --emit-format greet`, `func --perf-report hello` — are now
+invalid-value usage errors rather than runs.
+
+The app's own `--emit-format` is value-required too: `main.py --emit-format
+emit` gets Click's `Error: Option '--emit-format' requires an argument.`
+(exit 2), and `func --help` renders `--emit-format TEXT` with the accepted
+values in the description instead of the `[auto|json|ndjson|none|raw]`
+bracket that advertised an optional value. `OPTIONAL_VALUE_VALID_SET` keeps
+its transitional name; the rename is a separate follow-up.
+### Changed — vault secrets have explicit group and job identities
+
+Vault entries now use `(scope, target, field)`: a group option and job config
+field with the same names are separate secrets. `put`, `inspect`, and `remove`
+require `--field` and exactly one of `--group` or `--job`. Their old positional
+form is removed. Only secret-marked group options and job config fields are
+eligible; ordinary function parameters remain invocation inputs.
+
+Provider sources are declared in `[[vault_secret]]` blocks with `group` or
+`job`, `field`, and `source`. Inline `provider://reference` values in secret
+config fields are rejected. `vault sync` checks declarations across files
+before fetching, reports each failed entry, and does not replace a direct
+entry with a provider value. Group and job secrets share the order runtime
+override → explicit CLI value → vault → environment → config file → default.
+Runs read the local vault without contacting providers.
+
+Custom configuration sources must accept the scoped `Source.get` contract;
+third-party implementations using the former two-argument method need an
+update.
+
+The public lifecycle functions in `functualize.app.vault` change the same way.
+`vault_put`, `vault_inspect` and `vault_remove` take a
+`VaultIdentity(scope, target, field)` where they took a dotted
+`"<job>.<field>"` string, so `vault_put(app, "report.token", value)` becomes
+`vault_put(app, VaultIdentity("job", "report", "token"), value)`. Import
+`VaultIdentity` from `functualize.app.vault`, or build a checked identity with
+`resolve_vault_identity(app, job=..., field=...)` (or `group=...`). Their
+reports carry the identity rather than a dotted path. A string argument is not
+accepted.
+
+This changes the vault format without migration. An old store is refused with
+the instruction to run `func builtin vault clear`; clear works without a key.
+Reprovision direct values and run `vault sync` for provider entries afterward.
+JSON refusal reasons include `scope_required`, `unknown_group`, and
+`vault_format_unsupported`.
+
 ### Changed — the deferred credentials plugins are renamed with a secrets prefix
 
 The two credentials plugins that have not launched yet are renamed before their

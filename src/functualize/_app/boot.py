@@ -30,7 +30,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterator, Mapping
@@ -402,11 +402,14 @@ def build_engine(
 
     app: Any = host
 
-    def _config_view_factory(*, section_prefix: str) -> Any:
+    def _config_view_factory(
+        *, section_prefix: str, scope: Literal["group", "job"] = "job"
+    ) -> Any:
         chain = getattr(app, "_resolution_chain", None) or ResolutionChain([])
         return JobConfigView(
             resolution_chain=chain,
             default_section_prefix=section_prefix,
+            scope=scope,
         )
 
     engine = JobExecutionEngine(
@@ -1299,16 +1302,11 @@ def build_vault_source(app: Any) -> Any:
     return _lazy_vault_source(
         app,
         vault_path_for_project(),
-        # The identifiers, so a fall-through can tell an annotation naming an
-        # installed provider from an ordinary URL that merely looks like one.
-        providers=registered,
         max_age=resolve_max_age(getattr(app._config_sources, "vault_max_age", None)),
     )
 
 
-def _lazy_vault_source(
-    app: Any, path: Path, *, providers: Any = (), max_age: Any = None
-) -> Any:
+def _lazy_vault_source(app: Any, path: Path, *, max_age: Any = None) -> Any:
     """One ``VaultSource`` per app over a key that is resolved on first need.
 
     **Nothing is resolved here.** Boot builds the resolver and hands it over;
@@ -1324,7 +1322,7 @@ def _lazy_vault_source(
     from functualize._primitives.locator import compute_project_id
 
     resolver = VaultKeyResolver.for_app(compute_project_id(Path.cwd()), app)
-    return VaultSource(path, key=resolver, providers=providers, max_age=max_age)
+    return VaultSource(path, key=resolver, max_age=max_age)
 
 
 def _build_dormant_vault_source(app: Any) -> Any:
@@ -1428,9 +1426,21 @@ def build_resolution_chain(
             # `config.toml` here would make that file count only when a
             # slotted sibling happened to anchor its directory.
             require_slot=True,
+            remote_providers=tuple(config_registry.list_remote_providers()),
         ),
         DefaultSource({}),
     ]
+    if remote_source is not None:
+        bind = getattr(remote_source, "set_declaration_files", None)
+        if bind is not None:
+            bind(
+                [
+                    item
+                    for source in sources
+                    if getattr(source, "source_type", None) == "file"
+                    for item in source.per_file_values
+                ]
+            )
     return ResolutionChain(sources)
 
 

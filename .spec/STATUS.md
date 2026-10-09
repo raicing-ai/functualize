@@ -690,6 +690,63 @@ member decision. Delivered on `fix/gate-name-resolution`; the surface
 behaviour is documented in `docs/guides/workflows.md` → *Gate answering*,
 and `examples/standalone/gate_refusal/` is the reference caller.
 
+### persistence-port-status-typing — designed, not implemented
+
+Recorded here because `.spec/features/persistence-port-status-typing/` is deleted before merge,
+and it is the only written home of the implementation plan that
+[ADR-031](../contributor/adr/031-persistence-port-status-is-typed.md) authorizes: the ADR says
+the implementation's "tasks carry the file scopes and gates". The decision itself — the field
+census and the enum for each field, `RunState`, the `StepStatus` promotion, the attempt→run
+derivation as data, the strict parse at the read projection, the unchanged choke point, and what
+implementers owe — is in ADR-031, which extends
+[ADR-026](../contributor/adr/026-persistence-ports-need-no-new-layer.md). Nothing in `src/` has
+changed yet. Line numbers below are at `master` @ `ba36b85`.
+
+**The task plan — 8 tasks in 4 waves.** Waves are binding. Green-form gates pass before and
+after; red-form gates give the hit count measured when the gate was written, and close at zero.
+
+| Wave | Task | Files | Gate | Production call path |
+|---|---|---|---|---|
+| 0 | **1.1 `RunState` and the re-derived run table** — `RunState` (`StrEnum`, nine stored spellings); `RUN.states` derives from it, `RUN.absorbing` through `RunStatus[s.name].terminal`; total-mapping test (`RunState` names == `RunStatus` names) and absorbing-set equivalence test; the `_RUN_STATES`/`_RUN_TERMINAL` lower-casing derivation is deleted | `_types/lifecycle.py`, `tests/types/test_lifecycle_tables.py` | green: `uv run pytest tests/types/test_lifecycle_tables.py tests/primitives/test_transitions.py tests/primitives/test_run_transitions.py -q` | `RunStore.open_run`/`close_run` (`_primitives/run_store.py:237,265`) read `RUN`'s sets on every stored run write; the read side via `_run_view` (`_primitives/document_store.py:258`). Sabotage: drop `refused` from the absorbing derivation → `tests/primitives/test_run_transitions.py` fails |
+| 0 | **1.2 `StepStatus` promoted to `_types`** — moves from `_engine/frontier.py:113` to `_types/lifecycle.py` as a `StrEnum`, values byte-identical; `frontier.py` imports it from `_types`; `workflow_walker.py`'s import follows (`_SCOPE_STATUS_FOR` otherwise untouched). Deliberately not a fifth `Machine` | `_types/lifecycle.py`, `_engine/frontier.py`, `_engine/workflow_walker.py` | green: `uv run pytest tests/engine/ -q` plus `uv run lint-imports` | `WorkflowWalker` writes step markers through `ScopeStore.record_step` and maps step → scope status through `_SCOPE_STATUS_FOR` (`workflow_walker.py:998`) on every failed/cancelled node; `_note_the_step_that_went_silent` writes `StepStatus.TIMED_OUT`. Sabotage: change one member's value → `tests/engine/test_workflow_walker*.py` fails |
+| 1 | **2.1 The port's ten annotations** (after 1.1, 1.2) — ten fields typed, defaults become members; the module imports the enums from `_types.lifecycle`; no `__all__` change, no new declarations | `_types/persistence.py`, `tests/types/fixtures/runtime_store_conformance.py:43` (gate target, no edit expected) | red → green: the AST census of status fields reports zero `str` annotations (pre-state 10). Green: `uv run mypy src/` and `uv run pytest tests/types/ -q` (mypy over the conformance fixture, zero errors) | the port module is the vocabulary every layer imports |
+| 2 | **3.1 Recorders hand over members** (after 2.1) — `step_completed` params → `StepStatus`/`ScopeStatus` with member defaults; `opened`/`suspended` `scope_status` → `ScopeStatus`; `finished` `status` → `AttemptStatus` | `_engine/recording/workflow_recorder.py`, `input_recorder.py`, `run_recorder.py` | green: `uv run mypy src/`; `uv run pytest tests/engine/test_walk_claims_through_the_port.py tests/workflow/test_gate_drafts.py -q` | `opened` is live — the walk's gate path (`_engine/frontier.py:523`) and the answer surface (`app/_workflow_answer.py:331`). `step_completed`/`finished` have **no production caller** (`_engine/executor.py:264`); their reachability rides the T11 wiring |
+| 2 | **3.2 Document backend: strict parses and the derivation fix** (after 2.1) — `_run_view`/`_workflow_view` parse strictly (`RunState(value)`, `ScopeStatus(value)`, refusal names value and vocabulary); `request_for` parses `InputRequestStatus(_status(record))`; `_resume`/`_cancel` stamp members instead of `"running"`/`"cancelled"`; `_finish_attempt` records the attempt with `AttemptStatus`, transitions the attempt machine, and derives the run outcome via `ATTEMPT_TO_RUN` (added to `_types/lifecycle.py`: `succeeded→success`, `failed→failure`, `skipped→skipped`, `cancelled→cancelled`) plus the record's cancellation flag instead of forwarding `cmd.status` to `close_run`; `InputRequestNotOpenError.status` becomes `InputRequestStatus` | `_types/lifecycle.py`, `_primitives/document_store.py`, `_primitives/gate_requests.py`, `_types/errors.py`, `app/_workflow_resume.py:55` (reads `request.status`, no edit expected) | red → green: `rg -n '"running"\|"cancelled"' src/functualize/_primitives/document_store.py` restricted to the `_resume`/`_cancel` bodies returns nothing (pre-state 2 hits, `:930`, `:967`). Green: `uv run pytest tests/primitives/test_document_runtime_store.py tests/primitives/test_gate_requests.py tests/types/ -q`; sabotage: restore `close_run(cmd.status)` → `tests/primitives/test_run_transitions.py` fails on `succeeded` | read projections via the `RuntimeStore` readers (walk resolution `_engine/frontier.py:572-575`; resume envelope `app/_workflow_resume.py:55`); the apply path via the walk's claim/suspend/consume transactions. `_finish_attempt` itself has no production caller (T11) |
+| 3 | **4.1 The walk and the answer surface pass members** (after 3.1) — `open_request`'s `scope_status` becomes `ScopeStatus = ScopeStatus.BLOCKED` (the `WalkState.BLOCKED` default goes; `WalkState` stays); the answer surface's `opened(...)` call needs no edit unless mypy demands one | `_engine/frontier.py`, `app/_workflow_answer.py` | green: `uv run pytest tests/engine/test_walk_claims_through_the_port.py tests/integration/test_crash_and_resume.py -q`; `uv run mypy src/` | live — every gate a walk suspends on (`frontier.py:523` → `tx.workflows.suspend` → `_suspend` → `set_scope_status`) and every reopen (`app/_workflow_answer.py:331`) |
+| 3 | **4.2 Fixtures and typed assertions** (after 3.2) — `InputRequest(..., status=InputRequestStatus.OPEN)` (`test_gate_resolution_values.py:87`); an `is InputRequestStatus.ACCEPTED` form beside `error.status == "accepted"` (`test_runtime_store_port.py:134`); projection assertions for the strict parses | `tests/types/test_gate_resolution_values.py`, `tests/types/test_runtime_store_port.py`, `tests/primitives/test_document_runtime_store.py` | green: `uv run pytest tests/types/ tests/primitives/ -q` | tests only |
+| 3 | **4.3 Reference doc points at the resolution** (after 3.2) — see below | `contributor/reference/runtime-persistence-data-model.md` | green: `uv run pytest tests/test_contributor_docs.py -q` | none (reference prose) |
+
+**2.1 may merge only in the same change as 3.1–3.2.** Typing the port alone makes
+`document_store.py`'s reader returns type-incorrect until 3.2 parses strictly, so 2.1 and 3.2 share
+one completion gate and 2.1 stays unchecked until then (*Transitional Changes*).
+
+**The ordering: this typing → T11 recorder wiring → FUN-19 tables.** ADR-031 does not record it.
+The typing lands **before** the port's recorder wiring (T11, the gap that `step_completed`,
+`suspended` and `finished` have no caller): wiring the recorders first would create production call
+sites passing literals, which this work would then have to convert. FUN-19's relational writer lands
+after either — it inherits typed reads and settles the run-close boundary ADR-031 records. The
+runtime-schema work already landed (T1 tables, T4 refusal, T6 store writers) is untouched.
+
+**Declared out of scope.** The engine's own store-level scope-status writers — `workflow_walker.py`
+(`:451`, `:567`, `:757`, `:998`, and `_SCOPE_STATUS_FOR` at `:1083`), `frontier.py`'s entry stamps
+(`:373`, `:375`, `:439`), `executor.py:1068`, and `app/_workflow_control.py:446` (literal
+`"cancelled"`) — write the same stored column but never a port field; the choke point guards them.
+Their vocabulary cleanup, and retiring `WalkState`, are engine-internal work with no port surface,
+and this feature does not pay for them. `RunQuery`/`WorkflowQuery` have no construction site, so
+their typing rides the annotations alone. A run-close command for `blocked`/`timeout`/`refused` is
+the relational writer's.
+
+**`IllegalTransition` keeps its `str` fields.** It reports the *pair* the store held, which may be
+any text, including a value no vocabulary names — so it is deliberately not typed.
+
+**Pending reference-doc update (task 4.3).** In
+[`runtime-persistence-data-model.md`](../contributor/reference/runtime-persistence-data-model.md),
+§1.1's conflation paragraph ("`FinishAttempt.status` speaks the run-outcome vocabulary …
+`_finish_attempt` never transitions the attempt machine") gains its resolution pointer — the
+derivation lives in `_types/lifecycle.py` (`ATTEMPT_TO_RUN`) and the backend transitions the attempt
+machine — and "`ATTEMPT` is therefore enforced where the relational writer lands" (§1.1) is updated to say where
+enforcement landed. §1.2's lower-casing note gains the `RunState` pointer.
+
 ## Deferred
 
 Specified work that is not being picked up yet, and what it is waiting on.

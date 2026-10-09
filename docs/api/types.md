@@ -147,21 +147,20 @@ Returns `None` for every status that owes nothing, so a caller can write `if (li
 
 ## Global flag vocabulary
 
-`GLOBAL_BOOL_FLAGS`, `GLOBAL_OPTIONS_OPTIONAL_VALUE`, `GLOBAL_OPTIONS_WITH_VALUE` and `OPTIONAL_VALUE_VALID_SET` are the four tables that say how functualize's *global* options consume the tokens after them. They are public because the CLI is forbidden from reaching `_types/` directly — `_cli/` may import public folders only — so the re-export is the sanctioned route, not an accident.
+`GLOBAL_BOOL_FLAGS`, `GLOBAL_OPTIONS_ALWAYS_VALUE`, `GLOBAL_OPTIONS_WITH_VALUE` and `OPTIONAL_VALUE_VALID_SET` are the four tables that say how functualize's *global* options consume the tokens after them. They are public because the CLI is forbidden from reaching `_types/` directly — `_cli/` may import public folders only — so the re-export is the sanctioned route, not an accident.
 
-Global options fall into three kinds, and the difference is entirely about the **next token**:
+Global options fall into two kinds, and the difference is entirely about the **next token** — a flag is boolean, or its value is mandatory:
 
 | Table | Meaning | Members |
 |---|---|---|
-| `GLOBAL_OPTIONS_ALWAYS_VALUE` | Always consumes the next token | `--log-level`, `--dotenv-file`, `--config-directory`, `--discovery-depth`, the seven `--require-*` filters, `--exclude`, `--perf-filter`, `--import-libs` |
-| `GLOBAL_OPTIONS_OPTIONAL_VALUE` | *May* consume the next token, by lookahead | `--perf-report`, `--emit-format` |
+| `GLOBAL_OPTIONS_ALWAYS_VALUE` | Consumes the next token as its value | `--log-level`, `--dotenv-file`, `--config-directory`, `--discovery-depth`, the seven `--require-*` filters, `--exclude`, `--perf-filter`, `--import-libs`, `--perf-report`, `--emit-format` |
 | `GLOBAL_BOOL_FLAGS` | Never consumes a token | `--no-dotenv`, `--prompt-gates`, `--no-prompt-gates`, `--force`, `--help`, `-h` |
 
-`GLOBAL_OPTIONS_WITH_VALUE` is the union of the first two — every flag that *could* be followed by a value — and exists for `--option=value` detection, where the distinction between "always" and "maybe" does not apply.
+`GLOBAL_OPTIONS_WITH_VALUE` has the same membership as `GLOBAL_OPTIONS_ALWAYS_VALUE` under its own name — it is the global-flag detector's table, used for `--option=value` detection and for "move it before the group" advice.
 
 ### `OPTIONAL_VALUE_VALID_SET`
 
-The lookahead needs to know what a legal value looks like, because that is the only thing separating a value from the next argument. This maps each optional-value flag to `(valid_values, default)`:
+A value-required flag with a selection table names its accepted values in its error sentences. This maps each such flag to `(valid_values, default)`:
 
 ```python
 from functualize.types import OPTIONAL_VALUE_VALID_SET
@@ -173,9 +172,9 @@ OPTIONAL_VALUE_VALID_SET["--emit-format"]
 # (frozenset({'auto', 'json', 'ndjson', 'raw', 'none'}), 'auto')
 ```
 
-So `func --perf-report deploy` runs the `deploy` job with a text report, while `func --perf-report json deploy` consumes `json` as the report format. `deploy` is not in the valid set, so it is left alone as the job name.
+So `func --perf-report json deploy` consumes `json` as the report format, while `func --perf-report deploy` is a usage error — `deploy` is the flag's value and not one it accepts — and a bare `--perf-report` reports the missing value rather than defaulting. An *absent* `--emit-format` still means `auto`, and the `default` half of each row names exactly that.
 
-Note that `auto` is both `--emit-format`'s default *and* a typeable value. A bare `--emit-format` falls back to it through the lookahead, and that fallback is validated like any other, so it has to be legal — which also lets a caller name the default explicitly.
+Note that `auto` is both `--emit-format`'s absent-flag default *and* a typeable value, so a caller can name the default explicitly. The set's name still says "optional", which no longer describes it — every member is value-required — a transitional name whose rename is a separate follow-up.
 
 !!! warning "`--emit-format` governs `out.emit()` and nothing else"
     A job's *return value* is never rendered at any format, and `print()` ignores the flag entirely. It was called `--output` until 2026-09-10 and renamed precisely because that name promises to control "the command's output" and does not. There is deliberately no alias: pre-alpha, the constitution says delete rather than shim.

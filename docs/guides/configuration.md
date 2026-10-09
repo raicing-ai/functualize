@@ -13,7 +13,7 @@ The configuration system provides:
 - **Per-job sections** that map directly to `JobConfig` Pydantic models
 - **Tracking** of which settings were accessed and where values came from
 - **[Credentials](#credentials)** declared with `Secret[str]`, masked on every surface that renders configuration
-- **[Remote configuration](#remote-configuration)** — values declared as `aws-sm://prod/db-password`, synced into an encrypted local vault
+- **[Remote configuration](#remote-configuration)** — scoped `[[vault_secret]]` declarations synced into an encrypted local vault
 
 ## Configuration Presets
 
@@ -36,7 +36,7 @@ app = FunctualizeApp(name="myapp", config_sources=remote_first())
 ```
 
 !!! info "`remote_first()` requires a provider plugin"
-    It resolves declared `provider://reference` annotations from the project's
+    It resolves scoped `[[vault_secret]]` declarations from the project's
     encrypted local vault, which `func builtin vault sync` fills. Selecting it
     with **no** remote provider registered raises at construction rather than
     quietly resolving from local files. See
@@ -334,9 +334,10 @@ When a job function declares a `JobConfig` Pydantic model parameter, each field 
 
 1. **Runtime override** — a value deposited by `rc.config.set("batch_size", 200)` during the run
 2. **CLI argument** — explicitly passed via the command line (e.g., `--batch-size 200`)
-3. **Environment variable** — `JOBNAME_FIELDNAME` uppercased (e.g., `DATA_SYNC_BATCH_SIZE`)
-4. **Config file section** — the `[job_name]` section in the loaded config files
-5. **Model default** — the default value defined on the Pydantic field
+3. **Vault** — a stored value for a secret-marked job config field
+4. **Environment variable** — `JOBNAME_FIELDNAME` uppercased (e.g., `DATA_SYNC_BATCH_SIZE`)
+5. **Config file section** — the `[job_name]` section in the loaded config files
+6. **Model default** — the default value defined on the Pydantic field
 
 An override outranks the command line: it is written after the command line was
 read, and it is what the rest of the run reads back.
@@ -345,7 +346,9 @@ read, and it is what the rest of the run reads back.
 flowchart TD
     A[Resolve JobConfig field] --> B{CLI argument provided?}
     B -->|Yes| C[Use CLI value]
-    B -->|No| D{Env var JOBNAME_FIELDNAME set?}
+    B -->|No| V{Scoped vault entry stored?}
+    V -->|Yes| W[Use readable vault value]
+    V -->|No| D{Env var JOBNAME_FIELDNAME set?}
     D -->|Yes| E[Use env var value]
     D -->|No| F{Key in config section?}
     F -->|Yes| G[Use config file value]
@@ -441,7 +444,7 @@ for.
 ### Where credentials come from
 
 Set them in the environment, or in a `.env` file that is not committed — or
-name a remote secret store with an annotation, covered in
+name a remote secret store in a `[[vault_secret]]` block, covered in
 [Remote Configuration](#remote-configuration).
 
 A `${env:VAR}` interpolation syntax was considered and **rejected**, and that
@@ -452,14 +455,11 @@ feature. That appearance is the danger: it invites putting the real value there
 "just for now". A field that resolves from the environment does so because that
 is the ladder, not because a config file pointed at it.
 
-An annotation is a different thing, and the difference is the whole reason it
-was accepted where `${env:VAR}` was not: `aws-sm://prod/db-password` names a
-location the config file could not otherwise reach, and nothing about it
-tempts anyone to paste a password in its place. It names **where** a credential
-lives and never carries its **value** (ADR-016).
-
-There is no `[secrets]` section. A credential is a field in its job's own
-section, marked secret — one concept, not two.
+A provider source is a different thing: `aws-sm://prod/db-password` names a
+location the config file could not otherwise reach. Put that source in an
+explicit `[[vault_secret]]` block with a group or job and a secret-marked
+field. The ordinary config section may still hold a literal fallback value;
+an inline provider URI there is rejected with replacement guidance.
 
 ## A secret of your own
 
@@ -469,22 +469,21 @@ Bitwarden. It is also, and more simply, somewhere to put **one secret you have**
 
 ```console
 $ func builtin vault init                    # once per machine
-$ func builtin vault put deploy.api_token    # masked prompt
+$ func builtin vault put --job deploy --field api_token    # masked prompt
 $ func deploy                                # the job receives it
 ```
 
-`deploy.api_token` is a **canonical path**: the job's published name, then one
-of its config fields. The field must be declared `Secret[str]` (or marked
-secret), because the vault stores only what a job has said is sensitive — a
-value cannot be put somewhere it would later be printed. The path is checked
-against the live job schema *before* the value is read, so a typo costs you
-nothing you have already typed.
+The identity is a **scope**, a target, and a field. Use `--job` for a job's
+config model or `--group` for a group's options model, plus `--field` for one
+secret-marked field. A function parameter is an invocation input and cannot
+be a vault target. The identity is checked against the live schema *before*
+the value is read, so a typo costs you nothing you have already typed.
 
 The stored value resolves through the ordinary configuration chain, above the
 environment and config files and below an explicit argument:
 
 ```text
-explicit argument  >  vault  >  environment  >  config file  >  model default
+runtime override  >  explicit argument  >  vault  >  environment  >  config file  >  model default
 ```
 
 Nothing changes for a project that has never used the vault.
@@ -497,7 +496,7 @@ write, so the whole recipe is:
 ```bash
 export FUNCTUALIZE_VAULT_KEY="$CI_VAULT_KEY"
 func builtin vault init --key-source env     # optional: fail fast if unset
-echo "$TOKEN" | func builtin vault put deploy.api_token --stdin
+echo "$TOKEN" | func builtin vault put --job deploy --field api_token --stdin
 func deploy
 ```
 
@@ -507,32 +506,41 @@ never reports anything at all.
 
 ## Remote Configuration
 
-A config value can name **where** a credential lives instead of carrying it:
+A `[[vault_secret]]` block names **where** one secret-marked group option or
+job config field gets a value. It is separate from ordinary config sections:
 
 ```toml title="config.base.toml"
 [data-sync]
-password = "aws-sm://prod/db-password"
-api_token = "aws-ssm:///platform/api-token"
-webhook   = "bws://8a9c2f0e-1b3d-4c5e-9f70-2a1b3c4d5e6f"
 region    = "eu-west-1"                      # an ordinary value, untouched
 docs_url  = "https://docs.example.com"       # an ordinary URL, untouched
+
+[[vault_secret]]
+job = "data-sync"
+field = "password"
+source = "aws-sm://prod/db-password"
+
+[[vault_secret]]
+group = "deploy"
+field = "token"
+source = "aws-ssm:///platform/deploy-token"
 ```
 
-Two rules make that safe to put in a committed file:
+Each block requires exactly one of `group` or `job`, plus `field` and `source`.
+The target and field must exist and be marked secret. Duplicate identities,
+including duplicates in separate config files, fail before a provider is
+contacted. The `source` is a location, never the credential value.
 
-- The annotation names a **location**, never a **value**. Reading the file
-  tells you a credential exists and which store holds it, which is what the
-  file previously could not say at all.
-- A value is an annotation only when its scheme matches a **registered
-  provider**. `https://docs.example.com` stays a string because no plugin
-  registers `https`.
+The old inline form, such as `password = "aws-sm://prod/db-password"`, is no
+longer a vault declaration. A secret-marked field using it fails with guidance
+to move the reference into `[[vault_secret]]`. Ordinary URLs in non-secret
+fields remain strings.
 
 ### The vault, and why reads never hit the network
 
 Values are fetched by `func builtin vault sync` and written to a per-project
 encrypted store. A job run reads that store and **never** the network.
 
-That is a deliberate trade (ADR-016). Resolving annotations live would put a
+That is a deliberate trade (ADR-016). Resolving provider references live would put a
 network round-trip and a 30-second timeout between the operator and every job
 run, including runs of jobs that use no secret at all — and it would stop you
 working offline. Here the network is touched when *you* sync.
@@ -545,10 +553,10 @@ flowchart LR
     run -.->|"never"| remote
 ```
 
-Only the **value** is encrypted. `key`, `annotation`, `provider` and
+Only the **value** is encrypted. The scoped identity, `source`, `provider` and
 `synced_at` are stored in clear on purpose, so `vault list` can report what is
 held and how fresh it is on a machine that cannot open the store. None of them
-is the secret: knowing that `data-sync.password` came from
+is the secret: knowing that job `data-sync` field `password` came from
 `aws-sm://prod/db-password` reveals nothing the config file did not already say
 out loud.
 
@@ -566,7 +574,7 @@ pip install functualize-secrets-bitwarden    # bws (separate: its SDK has no mus
 # 2. Create a vault key and keep it somewhere your shell can read.
 export FUNCTUALIZE_VAULT_KEY=$(func builtin vault keygen)
 
-# 3. Declare annotations in your config file, then fill the vault.
+# 3. Declare [[vault_secret]] blocks in your config file, then fill the vault.
 func builtin vault sync
 
 # 4. Run jobs as usual. Nothing else contacts the network.
@@ -587,11 +595,12 @@ app = FunctualizeApp(
 
 ### Where the vault sits in the chain
 
-`remote_first()` builds **CLI → Vault → Env → Files → Defaults**. A synced
-secret outranks the environment and the config file; an explicit CLI argument
-still wins.
+`remote_first()` builds **CLI → Vault → Env → Files → Defaults**. A runtime
+override sits above the chain. The same order applies to group options and
+job config fields. A synced secret outranks the environment and the config
+file; an explicit CLI argument still wins.
 
-Note what that means in practice: once `data-sync.password` is in the vault, an
+Note what that means in practice: once job `data-sync` field `password` is in the vault, an
 environment variable no longer overrides it. That is the preset's whole
 proposition — the value comes from the store you named — but it is a change
 from `classic()` worth knowing before you switch.
@@ -707,25 +716,25 @@ says what happened, and the next step:
 | a key was found and does not open this vault | supply the key it was written with |
 
 In the first four the key may well still exist, so the message never suggests
-deleting anything. Only where the key really is gone does it list
-`func builtin vault remove <path>` and `func builtin vault clear` — last, and
-saying that they destroy the stored value, which for an entry typed in with
-`vault put` is the only copy.
+deleting anything. Where the key really is gone the last resort is
+`func builtin vault sync` for a provider entry, and — saying that they destroy
+the stored value, which for an entry typed in with `vault put` is the only
+copy — `func builtin vault remove --group|--job <path> --field <name>` and
+`func builtin vault clear`, which need no key.
 
 ### Three things that warn rather than fail
 
 Offline work has to keep working, so none of these stops a run.
 
 **A key declared remotely with nothing synced for it.** Resolution continues to
-the next source, and the warning names the key, its annotation, which source
+the next source, and the warning names the scoped identity, which source
 answered instead, and the fix:
 
 ```
-Config key 'data-sync.password' is declared remotely as
-'aws-sm://prod/db-password', but the vault holds no synced value for it. The
-job will receive the literal annotation string from
-file (/srv/my-platform/config.base.toml), not the secret it names. Run
-`func builtin vault sync` to fill the vault.
+Config key 'data-sync.password' has a [[vault_secret]] declaration, but the vault
+holds no synced value for it. It resolved from file
+(/srv/my-platform/config.base.toml) instead. Run `func builtin vault sync` to
+fill the vault.
 ```
 
 That is also what a **first run** looks like — a key exported and `vault sync`
@@ -749,18 +758,18 @@ config_sources=remote_first(max_age="7d")
 number is refused rather than guessed, and so is `1M`: a month has no fixed
 length, and reading it as minutes would be wrong by a factor of 43,200.
 
-**An annotation whose plugin is not installed.** `aws-sm://prod/db` with
+**A declaration whose plugin is not installed.** `aws-sm://prod/db` with
 `functualize-secrets-aws` absent is reported by `vault sync` rather than passed over,
-because the alternative is a job receiving the literal string as its password.
+because the declared secret would otherwise remain unsynced.
 
 ### The `builtin vault` commands
 
 ```bash
 func builtin vault init      # ensure this machine has a key -- never prints it
-func builtin vault put       # store one secret at <job>.<field>
-func builtin vault inspect   # explain a path -- never the value
-func builtin vault remove    # drop one entry, needs no key
-func builtin vault sync      # fetch every annotation, write the vault
+func builtin vault put --job deploy --field api_token       # masked prompt
+func builtin vault inspect --group deploy --field token     # metadata only
+func builtin vault remove --job deploy --field api_token    # needs no key
+func builtin vault sync      # fetch explicit declarations, write the vault
 func builtin vault list      # names, origins, timestamps -- never values
 func builtin vault status    # key provider and key state, age, entry counts
 func builtin vault unlock    # the one command that asks the keyring to unlock
@@ -769,6 +778,19 @@ func builtin vault keygen    # print a fresh 32-byte key, hex-encoded
 ```
 
 All of them take `--json`.
+
+The JSON refusal envelope includes a stable `reason`. In particular,
+`scope_required` means the command needs exactly one of `--group` or `--job`;
+`unknown_group` means the named group has no declared options; and
+`vault_format_unsupported` means an old-format vault must be cleared before
+scoped secrets can be used.
+
+This is a breaking change for existing local stores: no identity migration is
+performed. Run `func builtin vault clear --yes` in that project, then provision
+direct entries again and run `func builtin vault sync` for provider entries.
+`clear` needs no vault key. The old positional `put` / `inspect` / `remove`
+form and inline provider references in secret config fields are no longer
+accepted.
 
 The first four are the **local** lifecycle: they need no remote provider and no
 cloud account. See *A secret of your own* above. `sync` is the remote one, and
@@ -805,17 +827,18 @@ Run `func builtin vault sync` to refresh it.
 provider must not abandon the other twelve secrets. It exits non-zero when
 anything declared did not land, so a pipeline still notices.
 
-Only config **files** are scanned. An annotation set in an environment variable
-would, once synced, be answered by the vault instead — the vault sits above Env
-— so re-exporting the variable would silently stop changing anything.
+Only config **files** provide `[[vault_secret]]` declarations. Environment
+variables remain ordinary runtime sources below the vault.
 
 ### Fallback chains
 
-An annotation may name more than one store, tried in order:
+A declaration's `source` may name more than one provider, tried in order:
 
 ```toml
-[data-sync]
-password = "aws-sm://prod/db-password | bws://DB_PASSWORD"
+[[vault_secret]]
+job = "data-sync"
+field = "password"
+source = "aws-sm://prod/db-password | bws://DB_PASSWORD"
 ```
 
 Up to five entries. Each keeps its own provider-specific options, and `sync`
@@ -827,11 +850,10 @@ Everything after `://` is opaque to functualize and is handed to the provider
 whole, which is what lets a provider define its own options:
 
 ```toml
-[data-sync]
-password = "aws-sm://prod/db-password?profile=prod-admin"
-replica  = "aws-sm://prod/db?account=123456789012&region=eu-west-1"
-audit    = "aws-ssm:///p/audit?role=arn:aws:iam::123456789012:role/Deploy"
-scoped   = "bws://DB_PASSWORD?project=aaaaaaaa-1111-2222-3333-444444444444"
+[[vault_secret]]
+job = "data-sync"
+field = "password"
+source = "aws-sm://prod/db-password?profile=prod-admin"
 ```
 
 See each plugin's README for the options it honours. Both shipped plugins

@@ -186,6 +186,47 @@ class TestEnvSource:
         assert source.get("test_var", section="functualize") == "works"
 
 
+class TestEnvSourceGroupSpelling:
+    """Group scope reads ``SCOPE__FIELD``; job scope keeps ``JOB_FIELD``.
+
+    The double underscore is the group-options convention: a nested path is
+    flattened with single underscores (``deploy.web`` -> ``DEPLOY_WEB``), so
+    only a ``__`` separator keeps ``DEPLOY_WEB__ENV`` distinguishable from
+    group ``deploy`` with a field named ``web_env``.
+    """
+
+    def test_group_scope_reads_the_double_underscore_spelling(self) -> None:
+        source = EnvSource(environ={"DEPLOY__TOKEN": "from-group-env"})
+        assert source.get("token", "deploy", scope="group") == "from-group-env"
+
+    def test_group_scope_does_not_read_the_job_spelling(self) -> None:
+        source = EnvSource(environ={"DEPLOY_TOKEN": "from-job-env"})
+        assert source.get("token", "deploy", scope="group") is None
+
+    def test_job_scope_does_not_read_the_group_spelling(self) -> None:
+        source = EnvSource(environ={"DEPLOY__TOKEN": "from-group-env"})
+        assert source.get("token", "deploy", scope="job") is None
+
+    def test_nested_group_scope_flattens_dots_then_doubles(self) -> None:
+        source = EnvSource(environ={"DEPLOY_WEB__TOKEN": "from-nested"})
+        assert source.get("token", "deploy.web", scope="group") == "from-nested"
+
+    def test_group_scope_has(self) -> None:
+        source = EnvSource(environ={"DEPLOY__TOKEN": "x"})
+        assert source.has("token", "deploy", scope="group") is True
+        assert source.has("token", "deploy.web", scope="group") is False
+
+    def test_group_scope_keys(self) -> None:
+        source = EnvSource(
+            environ={"DEPLOY__TOKEN": "x", "DEPLOY__OTHER": "y", "DEPLOY_TOKEN": "z"}
+        )
+        assert source.keys("deploy", scope="group") == {"token", "other"}
+
+    def test_job_scope_keys_are_unchanged(self) -> None:
+        source = EnvSource(environ={"DEPLOY_TOKEN": "z"})
+        assert source.keys("deploy", scope="job") == {"token"}
+
+
 # --- RemoteSource tests ---
 
 

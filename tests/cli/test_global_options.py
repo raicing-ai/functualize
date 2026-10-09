@@ -32,10 +32,10 @@ class TestExtractGlobalOptionsLogLevel:
         assert opts.log_level == "WARNING"
 
     def test_invalid_log_level_raises_system_exit(self) -> None:
-        """Invalid --log-level BOGUS triggers SystemExit (validation error)."""
+        """Invalid --log-level BOGUS triggers SystemExit (usage error, exit 2)."""
         with pytest.raises(SystemExit) as exc_info:
             _extract_global_options(["func", "--log-level", "BOGUS", "deploy"])
-        assert exc_info.value.code == 1
+        assert exc_info.value.code == 2
 
     def test_invalid_log_level_prints_error(
         self, capsys: pytest.CaptureFixture[str]

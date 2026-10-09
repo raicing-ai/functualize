@@ -143,7 +143,9 @@ convention drift.
 ### Neutral
 
 - Two CLI parsers remain (click and pre-boot) — inherent to pre-boot; they share a vocabulary, not
-  a syntax. The `--perf-report` lookahead stays deliberately `func`-only.
+  a syntax. `--perf-report` stays deliberately `func`-only. *(Superseded: the lookahead
+  this row used to cite was withdrawn — every pre-boot flag is boolean or value-required;
+  the two-parser decision stands.)*
 - `app/utils.py`'s corridor (2,021 LOC) is untouched by this ADR; recorded as the next
   surface-boundary question, with the group-options cache fingerprint gap as its open wound.
 
@@ -175,3 +177,81 @@ convention drift.
   Template Method this decision preserves
 - `.spec/STATUS.md` — case files: boolean-flag negation, 0.1.1 cache findings, standalone
   distribution defects
+
+## Addendum — one arity per pre-boot flag (2026-10)
+
+**Deciders**: maintainer, 2026-09-27; scope confirmed 2026-09-28 and 2026-10-05.
+
+The *Neutral* row above used to say the `--perf-report` lookahead stays
+deliberately `func`-only. That lookahead is withdrawn; this addendum records why,
+and what replaced it. The two-parser decision is unchanged: pre-boot and Click
+share a vocabulary but still parse separately.
+
+### Context
+
+`func`'s early (pre-boot) parse used to let two of its flags take a value
+**optionally**. `--emit-format` and `--perf-report` were listed in
+`GLOBAL_OPTIONS_OPTIONAL_VALUE`, with their accepted values in
+`OPTIONAL_VALUE_VALID_SET`, and every reader of that table decided what the
+token after a bare flag meant by asking whether it belonged to the flag's
+accepted set. A token outside the set was left standing as a *command
+candidate*: `func --emit-format greet` ran `greet` with the default format.
+
+That lookahead made one token mean two things at once, and the two meanings
+were resolved by different code at different times:
+
+- **pre-boot** — `_cli/dispatch.py::detect_mode` consumed the flag alone and
+  classified the token as the command; `_cli/dispatch.py::_extract_global_options`
+  assigned the flag's *default* value and left the token at
+  `first_positional_index`.
+- **post-boot** — `_cli/main.py::_handle_job` re-walked the same prefix through
+  `_cli/dispatch.py::refused_optional_value`, which asked the opposite question
+  and re-decided the same token as the value the flag refused.
+
+With `[aliases] shortcut = "absent"` and no `absent` job, the consequence
+(PR #51 review, finding 1) was:
+
+```
+$ func --emit-format shortcut
+Error: --emit-format must be one of {auto, json, ndjson, none, raw}, got 'shortcut'.
+```
+
+Exit 1. The same token in command position reports the repair the operator
+actually has to make:
+
+```
+$ func shortcut
+Error: Alias 'shortcut' maps to job 'absent', which was not found.
+```
+
+The token was resolved as a command pre-boot and rejected as a flag value
+post-boot, so the alias diagnostic was unreachable on exactly the spelling that
+needed it. An operator was sent to repair a `--emit-format` value that was not
+the setting at fault.
+
+### Decision
+
+**In `func`'s early (pre-boot) parse a flag is either boolean, or its value is
+mandatory — never optional, never defaulted.** With no optional-value flag there
+is no position in which a token might be a command, so the misdiagnosis class
+cannot exist rather than being re-ordered.
+
+- **One arity per flag.** `GLOBAL_BOOL_FLAGS` consumes no token;
+  `GLOBAL_OPTIONS_ALWAYS_VALUE` consumes one. `--perf-report` and
+  `--emit-format` join the latter, and `GLOBAL_OPTIONS_OPTIONAL_VALUE` is
+  removed. The token after a value-required flag is its value, with no command
+  or alias lookup; a following known global flag means the value is missing.
+- **One exit code for a wrong value.** A missing value and an invalid value are
+  both usage errors, exit 2, for every value-required pre-boot flag.
+  Command-position errors are unchanged, and the alias error is reachable
+  wherever the alias is in command position (`func shortcut`,
+  `func --emit-format json shortcut`).
+
+### Alternatives Considered
+
+| Alternative | Pros | Cons | Why rejected |
+|-------------|------|------|-------------|
+| **A-1.** Keep the optional value and move the diagnostics: recognize the command first, report the flag value only if command resolution misses | Keeps every existing spelling, including `func --emit-format greet` | It keeps the two-meaning token and would add a third place that decides what the token means | Withdrawn by the maintainer (2026-09-27): the fix is the flag contract, not the diagnostic order |
+| **A-2 (chosen).** One arity per pre-boot flag: boolean or value-required | The misdiagnosis class cannot exist; one statement of the rule, held by a parity test | Breaking for spellings that relied on the lookahead | — |
+
+The two follow-ups this change leaves open are tracked outside the repository.

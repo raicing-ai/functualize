@@ -1,7 +1,7 @@
 """Where a project's declared directories resolve to — the one answer.
 
-This is "walk A" in `.spec/features/declared-plugin-directories/research.md` §5:
-walk upward from the working directory collecting one config per level, merge
+This is "walk A" of the declared-plugin-directories study (2026-09-19; the
+decisions survive in `.spec/STATUS.md`): walk upward from the working directory collecting one config per level, merge
 them nearest-first with ``root = true`` stop semantics, then resolve the
 list-valued directory keys through the full precedence chain::
 

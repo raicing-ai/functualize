@@ -37,7 +37,7 @@ def _temp_state() -> State:
     construct. That is what a *test* pays, which is the relevant cost here. On a
     real project's 1 MB ``scopes.json`` the same ``set`` costs **58 ms**, because
     every state operation re-reads the whole file and the file has no cap — see
-    `.spec/features/scope-record-lifecycle/`.
+    `contributor/reference/state-store.md`.
 
     The :class:`~tempfile.TemporaryDirectory` is held by the store, so it is
     cleaned when the store is collected and no caller has to remember it.

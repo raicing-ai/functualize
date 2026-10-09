@@ -11,9 +11,9 @@ A job that returns a value prints nothing, by design (`_types/stdout.py`), so an
 author who has never been told about `out.emit()` writes the silent version and
 cannot tell success from a no-op. The run-scoped globals are parsed pre-boot and
 deliberately not declared on the `cli_app` group (it also serves `func builtin`,
-which rejects them — ADR-020), so help never listed them. And because
-`--emit-format` takes an *optional* value, the lookahead left `bogus` standing
-as the command name.
+which rejects them — ADR-020), so help never listed them. And with the flag
+value-required, a bad value is the flag's own invalid-value sentence — the
+spelling that used to leave `bogus` standing as the command name is gone.
 """
 
 from __future__ import annotations
@@ -49,13 +49,20 @@ class TestHelpOffersTheEmitSurface:
 
         assert result.exit_code == 0
         out = result.stdout
-        assert "--emit-format [auto|json|ndjson|none|raw]" in out
+        assert "--emit-format TEXT" in out
+        assert "[auto|json|ndjson|none|raw]" not in out
         assert "--force" in out
         assert "--prompt-gates" in out
         assert "before the job name" in out
 
     def test_help_says_how_output_reaches_stdout(self, cli_run, project_tree) -> None:
-        """AC2 — on both doors: `func --help` and an app's own `--help`."""
+        """AC2 — on both doors: `func --help` and an app's own `--help`.
+
+        The accepted values live in the description prose on both (AC7's
+        prose half; the bracketless `TEXT` row is the func-only test above —
+        Click's own usage line for a Choice option legitimately shows the
+        choices, which on that surface is the arity being required).
+        """
         result = cli_run(["--help"], cwd=_tree(project_tree))
 
         assert result.exit_code == 0
@@ -63,6 +70,7 @@ class TestHelpOffersTheEmitSurface:
         assert "return value is never printed" in out
         assert "out.emit()" in out
         assert "print()" in out
+        assert "auto, json, ndjson, none, raw" in out
 
 
 @surfaces("func")
@@ -71,7 +79,7 @@ class TestABadValueIsDiagnosedAsAValue:
         """AC3 — the `--emit-format=bogus` sentence, not `Unknown command`."""
         result = cli_run(["--emit-format", "bogus", "greet"], cwd=_tree(project_tree))
 
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "--emit-format must be one of" in result.stderr
         assert "'bogus'" in result.stderr
         assert "Unknown command" not in result.stderr
@@ -79,16 +87,16 @@ class TestABadValueIsDiagnosedAsAValue:
     def test_bad_value_alone(self, cli_run, project_tree) -> None:
         result = cli_run(["--emit-format", "bogus"], cwd=_tree(project_tree))
 
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "--emit-format must be one of" in result.stderr
         assert "Unknown command" not in result.stderr
 
-    def test_bad_value_for_the_other_optional_value_flag(
+    def test_bad_value_for_the_other_selection_table_flag(
         self, cli_run, project_tree
     ) -> None:
         result = cli_run(["--perf-report", "bogus", "greet"], cwd=_tree(project_tree))
 
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "--perf-report must be one of" in result.stderr
         assert "Unknown command" not in result.stderr
 
@@ -97,19 +105,23 @@ class TestABadValueIsDiagnosedAsAValue:
         spaced = cli_run(["--emit-format", "bogus", "greet"], cwd=root)
         joined = cli_run(["--emit-format=bogus", "greet"], cwd=root)
 
-        assert spaced.exit_code == joined.exit_code == 1
+        assert spaced.exit_code == joined.exit_code == 2
         assert spaced.stderr.strip() == joined.stderr.strip()
 
 
 @surfaces("func")
-class TestTheLookaheadIsUnchanged:
-    def test_a_bare_flag_before_a_job_still_runs_it(
+class TestABareFlagIsAMissingValue:
+    def test_a_job_name_after_the_bare_flag_is_its_value(
         self, cli_run, project_tree
     ) -> None:
-        """AC4 — `--emit-format greet` is the default format, then `greet`."""
+        """B4 — `--emit-format greet` does not run greet: the job name is
+        the flag's value, an invalid one, and no command lookup happens."""
         result = cli_run(["--emit-format", "greet"], cwd=_tree(project_tree))
 
-        assert result.exit_code == 0, result.stderr
+        assert result.exit_code == 2
+        assert "--emit-format must be one of" in result.stderr
+        assert "'greet'" in result.stderr
+        assert "Unknown command" not in result.stderr
 
     def test_an_unknown_command_is_still_one(self, cli_run, project_tree) -> None:
         result = cli_run(["nosuchjob"], cwd=_tree(project_tree))

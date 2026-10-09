@@ -109,9 +109,9 @@ $ func builtin vault init --key-source env
 A vault key is already available from 'env'.
 Nothing was written.
 
-$ func builtin vault put report.token
+$ func builtin vault put --job report --field token
 Value: ********
-Stored report.token (new).
+Stored --job report --field token (new).
 
 $ func report
 output_dir = ./out
@@ -137,15 +137,17 @@ keychain route can do — only you can set an environment variable.
 back to printing a key: `keygen` exists for that, and where the key then lives
 is your decision.
 
-**The vault outranks the environment.** Once `report.token` is stored,
+**The vault outranks the environment.** Once job `report` field `token` is stored,
 `REPORT_TOKEN` no longer overrides it. An explicit `--token` on the command
 still does.
 
 ### What you can ask about a secret you cannot read
 
 ```console
-$ func builtin vault inspect report.token
-Path:       report.token
+$ func builtin vault inspect --job report --field token
+Scope:      job
+Target:     report
+Field:      token
 Eligible:   yes
 Stored:     yes
 Origin:     direct
@@ -157,12 +159,14 @@ Would win:  vault
 check row — so this works, and tells you the truth, on a machine whose key is
 wrong.
 
-`sync.sort_key` is the lab's decoy from step 1. The vault follows the model for
+Job `sync` field `sort_key` is the lab's decoy from step 1. The vault follows the model for
 exactly the same reason nothing else here uses name heuristics:
 
 ```console
-$ func builtin vault inspect sync.sort_key
-Path:       sync.sort_key
+$ func builtin vault inspect --job sync --field sort_key
+Scope:      job
+Target:     sync
+Field:      sort_key
 Eligible:   no
 Stored:     no
 ```
@@ -170,9 +174,9 @@ Stored:     no
 ### Taking it back
 
 ```console
-$ func builtin vault remove report.token
-Remove report.token? [y/N]: y
-Removed report.token (direct).
+$ func builtin vault remove --job report --field token
+Remove --job report --field token? [y/N]: y
+Removed --job report --field token (direct).
 Warning: no upstream copy; this value is gone
 ```
 
@@ -188,12 +192,19 @@ The same lifecycle is a public API, so an application that embeds functualize
 does not shell out to `func`:
 
 ```python
-from functualize.app.vault import vault_init, vault_put, vault_inspect
+from functualize.app.vault import VaultIdentity, vault_init, vault_inspect, vault_put
+
+report_token = VaultIdentity("job", "report", "token")  # scope, target, field
 
 vault_init(key_source="env")
-vault_put(app, "report.token", token)
+vault_put(app, report_token, token)
 app.refresh()          # the chain is built at boot; this picks up the change
+vault_inspect(app, report_token)   # origin and readability, never the value
 ```
+
+The identity carries the same three things as `--job report --field token`. A
+group option is `VaultIdentity("group", "<group path>", "<option>")`, and it is
+a different entry from a job field with the same names.
 
 `tests/test_vault_lifecycle.py` is that code, and it asserts that this whole
 example imports nothing private — if the published API were incomplete for its

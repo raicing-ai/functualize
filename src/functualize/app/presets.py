@@ -97,9 +97,9 @@ def remote_first(
 ) -> ConfigSources:
     """CLI → Vault → Env → Files → Defaults.
 
-    Values declared as ``provider://reference`` annotations resolve from the
-    project's encrypted local vault, which ``func builtin vault sync`` fills
-    from the registered remote providers. Reads never touch the network
+    Scoped ``[[vault_secret]]`` declarations name provider sources for
+    secret-marked group or job config fields. ``func builtin vault sync``
+    fills the project's encrypted local vault; reads never touch the network
     (ADR-016).
 
     Requires at least one remote provider to be registered through the
