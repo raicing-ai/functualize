@@ -34,6 +34,10 @@ filter and adds no component or abstraction.
   trusted-publisher guidance, and `[all]` count.
 - `pyproject.toml`: remove AWS from `[all]`; keep both credential plugins as
   workspace members and keep the optional `[aws]` question open.
+- `uv.lock`, `examples/project/weather_app/uv.lock`, and
+  `examples/project/monorepo_children/uv.lock`: refresh the local-core
+  metadata. `uv lock --check` failed after the extra changed, and searches
+  found the old `extra == 'all'` AWS edge in all three files.
 - `src/functualize/_cli/data/plugin_catalog.toml` and
   `tests/cli/test_plugin_catalog.py`: make AWS discoverable but not
   recommended, with an explicit regression assertion.
@@ -41,7 +45,8 @@ filter and adds no component or abstraction.
   `docs/guides/configuration.md`: show the AWS opt-in path for binary users.
 - Check both jobs' artifact downloads, the two upload rows, counts, and a
   negative search for the removed filter. Check the exact `[all]` entries,
-  catalog parity, packaged wheel metadata, and repository verification gates.
+  catalog parity, lockfile consistency, packaged wheel metadata, and
+  repository verification gates.
 
 ## Surviving smells
 

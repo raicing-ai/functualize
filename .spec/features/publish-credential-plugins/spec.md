@@ -26,6 +26,8 @@ resolution anchor. This change does not bump versions or publish artifacts.
   per project.
 - Remove `functualize-secrets-aws` from the core `[all]` extra. It stays
   separately installable and included in the PyPI upload.
+- Refresh the root and two example project `uv.lock` files so their package
+  metadata matches the extra.
 - Keep the curated plugin catalog's recommended set aligned with `[all]`.
   Update the installation and configuration guides for binary users who need
   AWS providers.
@@ -54,7 +56,7 @@ An opt-in `functualize[aws]` extra is undecided. Do not add it here.
 3. `[all]` contains `functualize[cli]`, `functualize[keychain]`, and eleven
    plugins; neither secrets provider is included. The catalog still lists
    both providers, with neither recommended. No `[aws]` extra or legacy
-   distribution is introduced.
+   distribution is introduced. All three lockfiles match the new metadata.
 4. The standalone binary still bakes `[all]` and therefore excludes AWS
    providers by default. The two guides identify the opt-in installation
    route, including `func builtin self install` for binary users.

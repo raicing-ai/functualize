@@ -21,12 +21,17 @@ same change after tasks 1.1–2.1 were completed and pushed.
   Acceptance: task 1.1 and 1.2 gates pass, `git diff` touches only the two
   intended production files at that checkpoint, `pyproject.toml` was
   unchanged before D3, and applicable checks were reported.
-- [ ] **3.1 Make AWS opt-in packaging.** [F] `pyproject.toml`.
+- [ ] **3.1 Make AWS opt-in packaging.** [F] `pyproject.toml`,
+  `uv.lock`, `examples/project/weather_app/uv.lock`,
+  `examples/project/monorepo_children/uv.lock`.
   Acceptance: TOML parsing reports `[all]` with two core extras and exactly
   eleven plugins, excluding both secrets distributions; the AWS and
   Bitwarden workspace entries remain; no `[aws]` extra is added. Baseline:
   fourteen `[all]` entries, twelve of them plugins, with AWS on line 128
-  and its boto3 comment on lines 124–127.
+  and its boto3 comment on lines 124–127. Refresh all three lockfiles and
+  pass `uv lock --check` in their respective project roots. Baseline
+  lockfile hit set: those three files each carry an AWS
+  `extra == 'all'` metadata edge.
 - [ ] **4.1 Align the catalog and guard the decision.** [F]
   `src/functualize/_cli/data/plugin_catalog.toml`,
   `tests/cli/test_plugin_catalog.py`. Acceptance: AWS remains listed but
