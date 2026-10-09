@@ -572,7 +572,7 @@ pip install functualize-secrets-aws          # aws-sm, aws-ssm (opt-in)
 pip install functualize-secrets-bitwarden    # bws (separate: its SDK has no musl build)
 
 # If using the standalone binary, add AWS to its bundled Python instead:
-func builtin self install functualize-secrets-aws
+func builtin plugin install functualize-secrets-aws
 
 # 2. Create a vault key and keep it somewhere your shell can read.
 export FUNCTUALIZE_VAULT_KEY=$(func builtin vault keygen)

@@ -62,7 +62,7 @@ To use `aws-sm://` or `aws-ssm://` with the standalone binary, add the AWS
 plugin to its bundled Python:
 
 ```bash
-func builtin self install functualize-secrets-aws
+func builtin plugin install functualize-secrets-aws
 ```
 
 That install downloads the plugin from PyPI; the binary itself does not
