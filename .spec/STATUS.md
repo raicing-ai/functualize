@@ -720,12 +720,17 @@ after; red-form gates give the hit count measured when the gate was written, and
 `document_store.py`'s reader returns type-incorrect until 3.2 parses strictly, so 2.1 and 3.2 share
 one completion gate and 2.1 stays unchecked until then (*Transitional Changes*).
 
-**The ordering: this typing → T11 recorder wiring → FUN-19 tables.** ADR-031 does not record it.
+**The ordering: this typing → T11 recorder wiring.** ADR-031 does not record it.
 The typing lands **before** the port's recorder wiring (T11, the gap that `step_completed`,
 `suspended` and `finished` have no caller): wiring the recorders first would create production call
-sites passing literals, which this work would then have to convert. FUN-19's relational writer lands
-after either — it inherits typed reads and settles the run-close boundary ADR-031 records. The
-runtime-schema work already landed (T1 tables, T4 refusal, T6 store writers) is untouched.
+sites passing literals, which this work would then have to convert. FUN-19's relational writer is not
+a later step: it has shipped (`sqlite-runtime-provider`, under *Recently Completed*), ahead of this
+typing, so it did not inherit typed reads. Its readers hand back the stored status strings
+(`plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_readers.py:57`, `:134`, `:196`), and its writer
+derives between the run and attempt vocabularies with tables of its own (`_run_sql.py:43-60`).
+Typing the port (2.1) therefore reaches a second implementer that the task table above does not yet
+scope; scoping it is this plan's open revision, not settled here. The runtime-schema work already
+landed (T1 tables, T4 refusal, T6 store writers) is untouched.
 
 **Declared out of scope.** The engine's own store-level scope-status writers — `workflow_walker.py`
 (`:451`, `:567`, `:757`, `:998`, and `_SCOPE_STATUS_FOR` at `:1083`), `frontier.py`'s entry stamps
@@ -733,8 +738,10 @@ runtime-schema work already landed (T1 tables, T4 refusal, T6 store writers) is 
 `"cancelled"`) — write the same stored column but never a port field; the choke point guards them.
 Their vocabulary cleanup, and retiring `WalkState`, are engine-internal work with no port surface,
 and this feature does not pay for them. `RunQuery`/`WorkflowQuery` have no construction site, so
-their typing rides the annotations alone. A run-close command for `blocked`/`timeout`/`refused` is
-the relational writer's.
+their typing rides the annotations alone. A run-close command for `blocked`/`timeout`/`refused` was
+left to the relational writer, which shipped without one: it accepts those as a run-vocabulary
+`FinishAttempt.status` and derives the attempt's status from it (`_run_sql.py:43-60`), the reverse
+direction of ADR-031's attempt→run data.
 
 **`IllegalTransition` keeps its `str` fields.** It reports the *pair* the store held, which may be
 any text, including a value no vocabulary names — so it is deliberately not typed.
@@ -744,8 +751,10 @@ any text, including a value no vocabulary names — so it is deliberately not ty
 §1.1's conflation paragraph ("`FinishAttempt.status` speaks the run-outcome vocabulary …
 `_finish_attempt` never transitions the attempt machine") gains its resolution pointer — the
 derivation lives in `_types/lifecycle.py` (`ATTEMPT_TO_RUN`) and the backend transitions the attempt
-machine — and "`ATTEMPT` is therefore enforced where the relational writer lands" (§1.1) is updated to say where
-enforcement landed. §1.2's lower-casing note gains the `RunState` pointer.
+machine. §1.1's sentence placing `ATTEMPT` enforcement "where the relational writer lands" is no
+longer part of this task: the relational writer's own record already rewrote it to name
+`_run_sql.py`'s `require_transition(ATTEMPT, …)` calls. §1.2's lower-casing note gains the
+`RunState` pointer.
 
 ## Deferred
 
