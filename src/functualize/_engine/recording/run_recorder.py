@@ -2,8 +2,9 @@
 
 FUN-17/T9. ``JobExecutionEngine`` owns the twenty-step lifecycle; this module
 is where two of its moments become persistence commands. Thin by contract
-(``plan.md`` §3: turning a lifecycle moment into a command is *"thin; no
-decisions of its own"*): every method takes the facts a moment observed and
+(the rule this layer was written under: turning a lifecycle moment into a
+command is *"thin; no decisions of its own"*): every method takes the facts a
+moment observed and
 returns the command value for it — no clock reads, no conditionals, no state
 between calls.
 
@@ -14,10 +15,11 @@ transaction and issues what these methods return —
 ``tx.runs.start_attempt(recorder.started(...))`` — which is T11's wiring,
 not this module's.
 
-Mapping sources: ``contracts.md`` §1.2 fixes the command shapes and
-``tasks.md`` T9 names the two moments. Nothing constructs these values
-anywhere in the tree yet, so the mapping is derived from the contract, not
-copied from a call site.
+Mapping sources: the command shapes are the port's own
+(``_types/persistence.py``), and the two moments are the lifecycle's own — a
+run starts, an attempt finishes. Nothing constructs these values anywhere in
+the tree yet, so the mapping is derived from the contract, not copied from a
+call site.
 """
 
 from __future__ import annotations
