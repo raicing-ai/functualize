@@ -621,8 +621,8 @@ class CrossAggregateRefusedError(Exception):
     refusal is a repeatable state a caller can retry one aggregate at a time.
 
     A claim is the exception, and it is why ``landed`` exists. ``claim``
-    commits on the spot (``contracts.md`` §1.3) — that is what lets it answer
-    with a value — so a unit that claimed ``scope-a`` and then reached for
+    commits on the spot — it is the port's one writer that answers with a
+    value read back — so a unit that claimed ``scope-a`` and then reached for
     ``scope-b`` has already *written* ``scope-a`` when the refusal is raised at
     the crossing call. That write cannot be rolled back here, and the message
     says so rather than promising nothing landed: a caller retrying blindly
@@ -731,7 +731,8 @@ class RuntimeStoreCapabilityError(Exception):
 class IllegalTransition(Exception):  # noqa: N818 — names a refused move, not an error
     """A state change the machine's transition table does not name.
 
-    `runtime-schema-migrations`/T2, from `schema.md` §1. The tables are data and
+    `runtime-schema-migrations`/T2, from the machines in
+    `contributor/reference/runtime-persistence-data-model.md` §1. The tables are data and
     the refusal belongs where a write was about to happen, so the caller that
     raises this is the transition check at `_primitives/transitions.py` (T4,
     wave 1) and the two store writers behind it (T6). Nothing raises it in this

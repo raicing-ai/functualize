@@ -53,8 +53,7 @@ def pytest_collect_file(
     """Collect the probe's measurement modules, which are not named `test_*.py`.
 
     Every module here is one backend's measurement — `tier_a.py`, `d1.py`,
-    `s3.py` — and those names are the ticket's
-    (`.spec/features/substrate-capability-probe/tasks.md`). None of them matches
+    `s3.py` — and those names are the probe package's own. None of them matches
     pytest's default `python_files` patterns, so without this hook a plain
     `uv run pytest` would collect **nothing** from this directory and the
     "skips, never fails" guarantee (AC4, AC5) would be a claim no run ever

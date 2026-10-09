@@ -18,7 +18,7 @@ once used to defend more than they can: 0.557 ms per unbatched ``set``,
 construct. That is what a *test* pays, which is the relevant cost here. On a
 real project's 1 MB ``scopes.json`` the same ``set`` costs **58 ms**, because
 every state operation re-reads the whole file and the file has no cap — see
-`.spec/features/scope-record-lifecycle/`.
+`contributor/reference/state-store.md`.
 """
 
 from __future__ import annotations

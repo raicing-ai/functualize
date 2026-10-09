@@ -86,7 +86,6 @@ from functualize._types.exit_codes import ExitCode, exit_code_for_status
 from functualize._types.flag_grammar import (
     GLOBAL_BOOL_FLAGS,
     GLOBAL_OPTIONS_ALWAYS_VALUE,
-    GLOBAL_OPTIONS_OPTIONAL_VALUE,
     GLOBAL_OPTIONS_WITH_VALUE,
     OPTIONAL_VALUE_VALID_SET,
     flag_aliases,
@@ -304,7 +303,6 @@ __all__ = [
     "group_ancestors",
     "negative_flag_for",
     "GLOBAL_OPTIONS_ALWAYS_VALUE",
-    "GLOBAL_OPTIONS_OPTIONAL_VALUE",
     "OPTIONAL_VALUE_VALID_SET",
     "GLOBAL_OPTIONS_WITH_VALUE",
     "GLOBAL_BOOL_FLAGS",
