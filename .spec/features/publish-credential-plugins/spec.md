@@ -39,7 +39,7 @@ resolution anchor. This change does not bump versions or publish artifacts.
 The standalone binary bakes `functualize[all]`; after AWS leaves that extra,
 the binary no longer includes the `aws-sm://` or `aws-ssm://` providers by
 default. Users can add `functualize-secrets-aws` to a standalone installation
-with `func builtin self install functualize-secrets-aws`.
+  with `func builtin plugin install functualize-secrets-aws`.
 
 ## Open question — outside this change
 
@@ -59,7 +59,7 @@ An opt-in `functualize[aws]` extra is undecided. Do not add it here.
    distribution is introduced. All three lockfiles match the new metadata.
 4. The standalone binary still bakes `[all]` and therefore excludes AWS
    providers by default. The two guides identify the opt-in installation
-   route, including `func builtin self install` for binary users.
+   route, including `func builtin plugin install` for binary users.
 5. Before merge or a `v*` tag, the maintainer creates
    `functualize-secrets-aws`, `functualize-secrets-bitwarden`, and
    `functualize-decision-jev` on PyPI and configures each ordinary trusted

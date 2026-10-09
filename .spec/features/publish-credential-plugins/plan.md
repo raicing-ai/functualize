@@ -19,7 +19,9 @@ already-included decision provider require PyPI bootstrap before merge.
 The packaging boundary also changes: `pyproject.toml`'s `[all]` extra drops
 the AWS distribution, and the curated catalog mirrors that choice. The bake
 recipe still installs `[all]`, so the binary omits AWS by default. The install
-guides supply an explicit `self install` route for binary users.
+guides supply an explicit `plugin install` route for binary users. The plugin
+command uses the same package installer as `self install`, but records the
+extension under the plugin key for `self update`.
 
 ## Design guidance consulted
 

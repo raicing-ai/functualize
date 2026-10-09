@@ -13,5 +13,5 @@ opt-in distributions outside it. The curated catalog keeps the AWS entry
 discoverable but sets `recommended = false`, matching the extra.
 
 The standalone binary thus excludes `aws-sm://` and `aws-ssm://` providers
-until the user runs `func builtin self install functualize-secrets-aws`.
+until the user runs `func builtin plugin install functualize-secrets-aws`.
 Python import, entry-point, URL-scheme, and CLI syntax contracts do not change.
