@@ -51,10 +51,22 @@ Use the **CLI** variants to get the `func` command and TUI (includes Click, Rich
 
 ## The standalone binary
 
-A single executable with Python and every first-party plugin `[all]` carries already inside it
-(all but `functualize-secrets-bitwarden`, whose SDK has no musl build). **It has no
-prerequisites at all** — not even Python — and its first run needs no network, because the
-distribution is baked into the binary rather than downloaded on first launch.
+The standalone binary is a single executable containing Python and the eleven
+first-party plugins in `[all]`. The AWS and Bitwarden secrets providers are
+opt-in.
+**It has no prerequisites at all** — not even Python — and its first run needs
+no network, because the distribution is baked into the binary rather than
+downloaded on first launch.
+
+To use `aws-sm://` or `aws-ssm://` with the standalone binary, add the AWS
+plugin to its bundled Python:
+
+```bash
+func builtin self install functualize-secrets-aws
+```
+
+That install downloads the plugin from PyPI; the binary itself does not
+include the AWS providers by default.
 
 Reach for it when you are on a machine where installing Python is not your call: a CI image,
 a container, a locked-down server, someone else's laptop. If you already have Python, the

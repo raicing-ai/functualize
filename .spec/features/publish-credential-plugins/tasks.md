@@ -21,7 +21,7 @@ same change after tasks 1.1–2.1 were completed and pushed.
   Acceptance: task 1.1 and 1.2 gates pass, `git diff` touches only the two
   intended production files at that checkpoint, `pyproject.toml` was
   unchanged before D3, and applicable checks were reported.
-- [ ] **3.1 Make AWS opt-in packaging.** [F] `pyproject.toml`,
+- [x] **3.1 Make AWS opt-in packaging.** [F] `pyproject.toml`,
   `uv.lock`, `examples/project/weather_app/uv.lock`,
   `examples/project/monorepo_children/uv.lock`.
   Acceptance: TOML parsing reports `[all]` with two core extras and exactly
@@ -32,14 +32,14 @@ same change after tasks 1.1–2.1 were completed and pushed.
   pass `uv lock --check` in their respective project roots. Baseline
   lockfile hit set: those three files each carry an AWS
   `extra == 'all'` metadata edge.
-- [ ] **4.1 Align the catalog and guard the decision.** [F]
+- [x] **4.1 Align the catalog and guard the decision.** [F]
   `src/functualize/_cli/data/plugin_catalog.toml`,
   `tests/cli/test_plugin_catalog.py`. Acceptance: AWS remains listed but
   `recommended = false`; the test asserts both secrets providers are
   excluded from `[all]` and recommendation, while the manifest parity test
   and targeted CLI tests pass. Baseline: AWS recommendation on catalog line
   145; the catalog parity test is at lines 87–98.
-- [ ] **4.2 Correct installation and publishing prose.** [F]
+- [x] **4.2 Correct installation and publishing prose.** [F]
   `plugins/PUBLISHING.md`, `docs/getting-started/installation.md`,
   `docs/guides/configuration.md`. Acceptance: the guide counts eleven
   `[all]` plugins, still lists fourteen upload names, and both install guides

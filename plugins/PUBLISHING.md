@@ -212,8 +212,8 @@ is a separate question, answered by `release.yml` and set out in
 | functualize-substrate-sqlite | 1 — Ready | 0 | SQLite state backend |
 | functualize-tasks-local | 1 — Ready | 1 | Local state-backed task queue |
 | functualize-ai-pydantic | 1 — Ready | 1 | PydanticAI provider bridge |
-| functualize-secrets-aws | 2 — Bundled | 0 | AWS Secrets Manager and SSM Parameter Store credential providers. Included in the PyPI upload |
-| functualize-secrets-bitwarden | 2 — Bundled | 0 | Bitwarden Secrets Manager credential provider. Included in the PyPI upload; currently left out of `[all]` (see `pyproject.toml`) |
+| functualize-secrets-aws | 2 — Bundled | 0 | AWS Secrets Manager and SSM Parameter Store credential providers. Included in the PyPI upload; opt-in outside `[all]` |
+| functualize-secrets-bitwarden | 2 — Bundled | 0 | Bitwarden Secrets Manager credential provider. Included in the PyPI upload; opt-in outside `[all]` (see `pyproject.toml`) |
 | functualize-decision-jev | 3 — Experimental | 0 | Jev decision-provider adapter; its own README declares it Tier 3. Built **and** uploaded, at `version = "0.1.0"` while its siblings are at `0.4.0` |
 | functualize-fullscreen-tui | 3 — Experimental | — | **Not a package.** No `pyproject.toml`, so it is not a uv workspace member and is never built or published. Source and tests only |
 
@@ -228,8 +228,9 @@ All ten Tier 1 entries were verified against the Tier 1 checklist: each has a
 no tests under its own plugin directory (its tests live in `tests/plugins/`).
 
 **Publish every uploaded name together, including the ones nobody imports
-directly.** Two things break otherwise. The core package's `[all]` extra names twelve
-plugins — every plugin except `functualize-secrets-bitwarden` — so
+directly.** Two things break otherwise. The core package's `[all]` extra names eleven
+plugins — every plugin except `functualize-secrets-aws` and
+`functualize-secrets-bitwarden` — so
 `pip install functualize[all]` fails against any name that is missing from the index.
 And an unregistered name referenced by an unpinned dependency is a name someone else
 can claim and have resolved into your users' environments. Publishing claims them.
