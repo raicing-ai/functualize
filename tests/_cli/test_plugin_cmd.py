@@ -50,10 +50,14 @@ class TestDiscovery:
         """AC15, and the reason discovery is not built from `loaded_plugins`.
 
         The loader reads **one** group, `functualize.plugins`; extensions
-        register across seven. `functualize-secrets-aws` appears only under
+        register across seven. `functualize-secrets-bitwarden` appears only under
         `functualize.remote_providers`, which `_config` reads and the loader
         never touches, so a listing derived from the loader's own view would
         omit it.
+
+        AWS is opt-in and may be absent from this environment. Bitwarden is
+        installed by the development dependency group in both CI and local
+        checkouts, regardless of whether AWS was also installed.
 
         Until `plugin-taxonomy`/T5 this test used `functualize-inline` and
         `functualize.interactivity_providers` -- a group **nothing** read. That
@@ -63,10 +67,13 @@ class TestDiscovery:
         layer rather than by no layer.
         """
         entries = discover_extensions()
-        aws = [e for e in entries if e.group == "functualize.remote_providers"]
-        assert aws, "functualize-secrets-aws should be installed in this checkout"
-        assert {e.registered_name for e in aws} >= {"aws-sm", "aws-ssm"}
-        assert aws[0].distribution == "functualize-secrets-aws"
+        bitwarden = [
+            e
+            for e in entries
+            if e.group == "functualize.remote_providers" and e.registered_name == "bws"
+        ]
+        assert len(bitwarden) == 1
+        assert bitwarden[0].distribution == "functualize-secrets-bitwarden"
 
     def test_both_names_are_carried_and_they_differ(self) -> None:
         """The whole reason the entry holds two fields.
@@ -149,7 +156,7 @@ class TestListCommand:
         """
         result = cli_run(["builtin", "plugin", "list"], cwd=tmp_path)
         assert result.exit_code == 0
-        assert "functualize-secrets-aws" in result.stdout
+        assert "functualize-secrets-bitwarden" in result.stdout
         assert "remote_providers" in result.stdout
 
     def test_the_json_form_carries_all_three_fields(

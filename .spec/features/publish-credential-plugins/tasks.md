@@ -51,7 +51,7 @@ same change after tasks 1.1–2.1 were completed and pushed.
   Acceptance: lint, type, import, targeted tests, and build metadata checks
   pass; the test selector's shared-infrastructure verdict is reported; the
   dead-code delta is measured from dispatch base to delivered head.
-- [ ] **6.1 Align installed-extension tests with opt-in AWS.** [F]
+- [x] **6.1 Align installed-extension tests with opt-in AWS.** [F]
   `tests/_cli/test_plugin_cmd.py`. Acceptance: discovery and CLI listing
   exercise Bitwarden's `functualize.remote_providers` entry point, which the
   plugin loader ignores; neither test requires AWS to be installed. The
