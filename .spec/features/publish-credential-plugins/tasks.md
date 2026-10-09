@@ -47,7 +47,7 @@ same change after tasks 1.1–2.1 were completed and pushed.
   functualize-secrets-aws`. No claim says AWS is bundled by default.
   Baseline hits: publishing guide lines 231–232, installation guide lines
   54–55, configuration guide line 571.
-- [ ] **5.1 Verify the combined change.** [F] no production file.
+- [x] **5.1 Verify the combined change.** [F] no production file.
   Acceptance: lint, type, import, targeted tests, and build metadata checks
   pass; the test selector's shared-infrastructure verdict is reported; the
   dead-code delta is measured from dispatch base to delivered head.
