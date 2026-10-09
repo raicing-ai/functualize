@@ -51,9 +51,26 @@ same change after tasks 1.1–2.1 were completed and pushed.
   Acceptance: lint, type, import, targeted tests, and build metadata checks
   pass; the test selector's shared-infrastructure verdict is reported; the
   dead-code delta is measured from dispatch base to delivered head.
+- [ ] **6.1 Align installed-extension tests with opt-in AWS.** [F]
+  `tests/_cli/test_plugin_cmd.py`. Acceptance: discovery and CLI listing
+  exercise Bitwarden's `functualize.remote_providers` entry point, which the
+  plugin loader ignores; neither test requires AWS to be installed. The
+  separate catalog test continues to guard AWS's absence from `[all]`.
+  Baseline: discovery assertions at lines 53–69 and listing assertions at
+  lines 145–153 require AWS; CI installs `--all-extras` and only sees `bws`.
+- [ ] **6.2 Validate the corrected PR head.** [F] no production file.
+  Acceptance: targeted tests and the native lint, type, and import gates pass;
+  PR validation has green `test-fast` and all `test-full` matrix legs before
+  spec artifact cleanup. `spec-artifacts-cleared` is expected to remain red
+  while the feature files are tracked.
+- [ ] **7.1 Clear feature artifacts.** [F]
+  `.spec/features/publish-credential-plugins/`. Acceptance: after task 6.2,
+  the final commit deletes only this tracked feature tree, the native task
+  graph gate passes against the commit range, and the PR's
+  `spec-artifacts-cleared` check passes.
 
 ## Task Dependency Graph
 
 ```json
-{"waves": [{"id": 0, "tasks": ["1.1", "1.2"]}, {"id": 1, "tasks": ["2.1"]}, {"id": 2, "tasks": ["3.1"]}, {"id": 3, "tasks": ["4.1", "4.2"]}, {"id": 4, "tasks": ["5.1"]}]}
+{"waves": [{"id": 0, "tasks": ["1.1", "1.2"]}, {"id": 1, "tasks": ["2.1"]}, {"id": 2, "tasks": ["3.1"]}, {"id": 3, "tasks": ["4.1", "4.2"]}, {"id": 4, "tasks": ["5.1"]}, {"id": 5, "tasks": ["6.1", "6.2"]}, {"id": 6, "tasks": ["7.1"]}]}
 ```
