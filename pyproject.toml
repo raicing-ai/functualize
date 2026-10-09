@@ -121,12 +121,9 @@ all = [
     "functualize-tasks-local",
     "functualize-decision-jev",
     "functualize-mcp",
-    # Pulls boto3/botocore (~20MB of wheel). `all` means every plugin, and it
-    # is itself opt-in, so the cost lands only on someone who asked for
-    # everything -- but it is the one entry here that is not small. Measured
-    # at the 7.1 checkpoint.
-    "functualize-secrets-aws",
-    # `functualize-secrets-bitwarden` is deliberately NOT here. `bitwarden-sdk>=2.0.0`
+    # Secrets providers are opt-in. AWS pulls boto3/botocore (~20MB of wheel);
+    # install `functualize-secrets-aws` separately when those providers are needed.
+    # `functualize-secrets-bitwarden` is also deliberately NOT here. `bitwarden-sdk>=2.0.0`
     # publishes wheels for glibc, macOS and Windows only, with no sdist, so
     # including it makes `functualize[all]` **unresolvable** on both musl
     # targets -- and `all` is what the standalone binary bakes
@@ -137,8 +134,8 @@ all = [
     # There is no PEP 508 marker for musl vs glibc, so it cannot be excluded
     # conditionally. The plugin stays first-class and directly installable
     # (`pip install functualize-secrets-bitwarden`), which is what the docs already
-    # tell people to do; it simply is not part of "everything", because on two
-    # of the seven shipped targets it cannot be.
+    # tell people to do; it is not part of the portable bundle, because on two
+    # of the seven shipped targets it cannot be installed.
 ]
 
 [build-system]

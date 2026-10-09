@@ -142,7 +142,8 @@ name = "aws-sm"
 distribution = "functualize-secrets-aws"
 group = "functualize.remote_providers"
 description = "AWS Secrets Manager and SSM Parameter Store"
-recommended = true
+# Opt-in: the AWS SDK would add boto3/botocore to the recommended bundle.
+recommended = false
 
 [[plugin]]
 name = "bws"
@@ -155,6 +156,6 @@ description = "Bitwarden Secrets Manager"
 # the standalone binary bakes (PYAPP_PROJECT_FEATURES=all), so the
 # Alpine/distroless binaries could not be built at all. There is no PEP 508
 # marker for musl vs glibc, so it cannot be excluded conditionally. The plugin
-# is first-class and directly installable; it simply is not part of
-# "everything", because on two of the seven shipped targets it cannot be.
+# is first-class and directly installable; it is not part of the portable
+# bundle, because on two of the seven shipped targets it cannot be installed.
 recommended = false

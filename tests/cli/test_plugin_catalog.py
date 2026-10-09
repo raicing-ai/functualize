@@ -85,7 +85,7 @@ class TestManifestMatchesReality:
         assert not missing, f"manifest names non-existent plugin dirs: {missing}"
 
     def test_recommended_set_matches_the_all_extra(self) -> None:
-        """AC-B7 — two lists of "everything" is one too many.
+        """AC-B7 — the recommended list must mirror the `[all]` extra.
 
         Adding a plugin to `[all]` without updating the manifest fails here.
         """
@@ -97,22 +97,20 @@ class TestManifestMatchesReality:
         }
         assert set(recommended_distributions()) == extra
 
-    def test_bitwarden_is_deliberately_not_recommended(self) -> None:
-        """AC-B8 — and here is why, so nobody "fixes" it.
+    @pytest.mark.parametrize(
+        "distribution",
+        ["functualize-secrets-aws", "functualize-secrets-bitwarden"],
+    )
+    def test_secrets_providers_are_opt_in(self, distribution: str) -> None:
+        """AWS adds boto3; Bitwarden's SDK cannot install on musl.
 
-        `bitwarden-sdk` publishes wheels for glibc, macOS and Windows only,
-        with no sdist, so including it makes `functualize[all]` UNRESOLVABLE on
-        both musl targets. `[all]` is what the standalone binary bakes
-        (PYAPP_PROJECT_FEATURES=all), so the Alpine and distroless binaries
-        could not be built at all. There is no PEP 508 marker for musl vs
-        glibc, so it cannot be excluded conditionally.
+        The standalone binary bakes `[all]`, so both providers require an
+        explicit install there as well as in a Python environment.
         """
-        assert "functualize-secrets-bitwarden" not in recommended_distributions()
-        entry = next(
-            e
-            for e in load_catalog()
-            if e.distribution == "functualize-secrets-bitwarden"
-        )
+        data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+        assert distribution not in data["project"]["optional-dependencies"]["all"]
+        assert distribution not in recommended_distributions()
+        entry = next(e for e in load_catalog() if e.distribution == distribution)
         assert entry.recommended is False
 
 

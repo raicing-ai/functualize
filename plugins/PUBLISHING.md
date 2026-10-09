@@ -212,8 +212,8 @@ is a separate question, answered by `release.yml` and set out in
 | functualize-substrate-sqlite | 1 — Ready | 0 | SQLite state backend |
 | functualize-tasks-local | 1 — Ready | 1 | Local state-backed task queue |
 | functualize-ai-pydantic | 1 — Ready | 1 | PydanticAI provider bridge |
-| functualize-secrets-aws | 2 — Bundled | 0 | AWS Secrets Manager and SSM Parameter Store credential providers. Built, but removed from the PyPI upload by `release.yml` |
-| functualize-secrets-bitwarden | 2 — Bundled | 0 | Bitwarden Secrets Manager credential provider. Built, but removed from the PyPI upload by `release.yml`; also deliberately left out of `[all]` (see `pyproject.toml`) |
+| functualize-secrets-aws | 2 — Bundled | 0 | AWS Secrets Manager and SSM Parameter Store credential providers. Included in the PyPI upload; opt-in outside `[all]` |
+| functualize-secrets-bitwarden | 2 — Bundled | 0 | Bitwarden Secrets Manager credential provider. Included in the PyPI upload; opt-in outside `[all]` (see `pyproject.toml`) |
 | functualize-decision-jev | 3 — Experimental | 0 | Jev decision-provider adapter; its own README declares it Tier 3. Built **and** uploaded, at `version = "0.1.0"` while its siblings are at `0.4.0` |
 | functualize-fullscreen-tui | 3 — Experimental | — | **Not a package.** No `pyproject.toml`, so it is not a uv workspace member and is never built or published. Source and tests only |
 
@@ -228,13 +228,12 @@ All ten Tier 1 entries were verified against the Tier 1 checklist: each has a
 no tests under its own plugin directory (its tests live in `tests/plugins/`).
 
 **Publish every uploaded name together, including the ones nobody imports
-directly.** Two things break otherwise. The core package's `[all]` extra names twelve
-plugins — every plugin except `functualize-secrets-bitwarden` — so
+directly.** Two things break otherwise. The core package's `[all]` extra names eleven
+plugins — every plugin except `functualize-secrets-aws` and
+`functualize-secrets-bitwarden` — so
 `pip install functualize[all]` fails against any name that is missing from the index.
 And an unregistered name referenced by an unpinned dependency is a name someone else
 can claim and have resolved into your users' environments. Publishing claims them.
-`functualize-secrets-aws` is the exception the release currently carries: `[all]` names it,
-but `release.yml` does not upload it.
 
 `functualize-interactivity` appeared in earlier revisions of this document. No such
 package has ever existed in this repository.
@@ -242,10 +241,9 @@ package has ever existed in this repository.
 ## Plugin-to-Package Mapping
 
 `uv build --all-packages` builds **fourteen** distributions: the `functualize` core
-package and the thirteen plugins below. `release.yml` then removes
-`functualize_secrets_aws-*` and `functualize_secrets_bitwarden-*` from `dist/` before the publish
-step, so **twelve** names are uploaded to PyPI: `functualize` plus the eleven plugins
-marked *Uploaded* below.
+package and the thirteen plugins below. `release.yml` passes all fourteen to
+the PyPI publish step: `functualize` plus the thirteen plugins marked
+*Uploaded* below.
 
 | Plugin Directory | PyPI Package Name | Python Import | Release |
 |-----------------|-------------------|---------------|---------|
@@ -260,8 +258,8 @@ marked *Uploaded* below.
 | functualize-tasks-local | functualize-tasks-local | `functualize_tasks_local` | Uploaded |
 | functualize-mcp | functualize-mcp | `functualize_mcp` | Uploaded |
 | functualize-decision-jev | functualize-decision-jev | `functualize_decision_jev` | Uploaded |
-| functualize-secrets-aws | functualize-secrets-aws | `functualize_secrets_aws` | Built, not uploaded |
-| functualize-secrets-bitwarden | functualize-secrets-bitwarden | `functualize_secrets_bitwarden` | Built, not uploaded |
+| functualize-secrets-aws | functualize-secrets-aws | `functualize_secrets_aws` | Uploaded |
+| functualize-secrets-bitwarden | functualize-secrets-bitwarden | `functualize_secrets_bitwarden` | Uploaded |
 
 `functualize-fullscreen-tui` is deliberately absent: it has no `pyproject.toml`, so
 it is not a workspace member and produces no distribution.
@@ -269,9 +267,9 @@ it is not a workspace member and produces no distribution.
 ## Trusted Publishing
 
 Every *uploaded* name above, plus `functualize`, needs its own PyPI trusted
-publisher — twelve in total, all sharing this configuration. `functualize-secrets-aws` and
-`functualize-secrets-bitwarden` need one too, before the line in `release.yml` that removes
-them is deleted.
+publisher — fourteen in total, all sharing this configuration. Bootstrap
+`functualize-secrets-aws`, `functualize-secrets-bitwarden`, and
+`functualize-decision-jev` before merging the release workflow change.
 
 | Field | Value |
 |-------|-------|
@@ -316,9 +314,8 @@ tag's artifacts are already on the index by the time the workflow runs.
 created, anyone may claim it — which is the other reason to run step 2 for every new
 name at once rather than publishing the core package alone.
 
-**A plugin added after the last bootstrap needs its own.** `functualize-decision-jev`
-joined the workspace after `v0.4.0` and is in the upload set, but it has no PyPI
-project yet, so no trusted publisher can exist for it and the publish step will
-reject its upload. Run steps 1–4 for it before the next `v*` tag.
-`skip-existing: true` does not help here: it skips files already on the index, not
+**Each new project needs its own bootstrap.** `functualize-secrets-aws`,
+`functualize-secrets-bitwarden`, and `functualize-decision-jev` are in the
+upload set. Run steps 1–4 for all three before merging this change or pushing
+the next `v*` tag. `skip-existing: true` skips files already on the index, not
 projects that do not exist.
