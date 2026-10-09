@@ -113,6 +113,7 @@ Level 0 — No plugin dependencies
 ├── functualize-flow-viz        → core, textual
 ├── functualize-mcp             → core, fastmcp
 ├── functualize-substrate-sqlite → core
+├── functualize-decision-jev    → core
 ├── functualize-aws             → core, boto3
 └── functualize-bitwarden       → core, bitwarden-sdk
 
@@ -192,9 +193,12 @@ uv run pytest plugins/<group>/functualize-<name>/tests/ -v
 
 ## Current Classification
 
-**Nothing is on PyPI yet.** All 12 names — core plus the 11 plugins — are
-unregistered as of the v0.1.0 release preparation. "Tier 1" below means *meets the
-Tier 1 bar*, not *currently downloadable*.
+The workspace has **thirteen** plugin packages — every directory matching
+`plugins/*/functualize-*/` (`ls -d plugins/*/functualize-*/ | wc -l`). Each one has a
+`pyproject.toml`, is a uv workspace member (`members = ["plugins/*/*"]`), and is
+built. "Tier 1" below means *meets the Tier 1 bar*; which names are actually uploaded
+is a separate question, answered by `release.yml` and set out in
+[Plugin-to-Package Mapping](#plugin-to-package-mapping).
 
 | Plugin | Tier | Level | Notes |
 |--------|------|-------|-------|
@@ -204,49 +208,70 @@ Tier 1 bar*, not *currently downloadable*.
 | functualize-inline | 1 — Ready | 0 | Inline interactivity (Textual) |
 | functualize-flow-viz | 1 — Ready | 0 | Workflow execution visualization |
 | functualize-mcp | 1 — Ready | 0 | MCP (Model Context Protocol) integration |
-| functualize-ai | 1 — Ready | 1 | AI/LLM capability |
-| functualize-substrate-sqlite | 1 — Ready | 1 | SQLite state backend |
+| functualize-ai | 1 — Ready | 0 | AI/LLM capability |
+| functualize-substrate-sqlite | 1 — Ready | 0 | SQLite state backend |
 | functualize-tasks-local | 1 — Ready | 1 | Local state-backed task queue |
-| functualize-ai-pydantic | 1 — Ready | 2 | PydanticAI provider bridge |
+| functualize-ai-pydantic | 1 — Ready | 1 | PydanticAI provider bridge |
+| functualize-aws | 2 — Bundled | 0 | AWS Secrets Manager and SSM Parameter Store credential providers. Built, but removed from the PyPI upload by `release.yml` |
+| functualize-bitwarden | 2 — Bundled | 0 | Bitwarden Secrets Manager credential provider. Built, but removed from the PyPI upload by `release.yml`; also deliberately left out of `[all]` (see `pyproject.toml`) |
+| functualize-decision-jev | 3 — Experimental | 0 | Jev decision-provider adapter; its own README declares it Tier 3. Built **and** uploaded, at `version = "0.1.0"` while its siblings are at `0.4.0` |
 | functualize-fullscreen-tui | 3 — Experimental | — | **Not a package.** No `pyproject.toml`, so it is not a uv workspace member and is never built or published. Source and tests only |
 
-All eleven Tier 1 entries were verified against the Tier 1 checklist: each has a
-`py.typed` marker, a README of 43–114 lines, and an `examples/` directory.
+The Level column is the plugin-to-plugin level from
+[Dependency Topology](#dependency-topology).
 
-**Publish all 12 together, including the ones nobody imports directly.** Two things
-break otherwise. The core package's `[all]` extra names all 11 plugins, so
-`pip install functualize[all]` fails against any name that is missing. And an
-unregistered name referenced by an unpinned dependency is a name someone else can
-claim and have resolved into your users' environments. Publishing claims them.
+All ten Tier 1 entries were verified against the Tier 1 checklist: each has a
+`py.typed` marker, a README of 59–114 lines, and an `examples/` directory.
+`functualize-aws` and `functualize-bitwarden` have tests and READMEs but no
+`py.typed` marker and no `examples/` directory, so they sit at Tier 2.
+`functualize-decision-jev` has a `py.typed` marker but no `examples/` directory and
+no tests under its own plugin directory (its tests live in `tests/plugins/`).
+
+**Publish every uploaded name together, including the ones nobody imports
+directly.** Two things break otherwise. The core package's `[all]` extra names twelve
+plugins — every plugin except `functualize-bitwarden` — so
+`pip install functualize[all]` fails against any name that is missing from the index.
+And an unregistered name referenced by an unpinned dependency is a name someone else
+can claim and have resolved into your users' environments. Publishing claims them.
+`functualize-aws` is the exception the release currently carries: `[all]` names it,
+but `release.yml` does not upload it.
 
 `functualize-interactivity` appeared in earlier revisions of this document. No such
 package has ever existed in this repository.
 
 ## Plugin-to-Package Mapping
 
-These are the eleven distributions built by `uv build --all-packages`, alongside the
-`functualize` core package.
+`uv build --all-packages` builds **fourteen** distributions: the `functualize` core
+package and the thirteen plugins below. `release.yml` then removes
+`functualize_aws-*` and `functualize_bitwarden-*` from `dist/` before the publish
+step, so **twelve** names are uploaded to PyPI: `functualize` plus the eleven plugins
+marked *Uploaded* below.
 
-| Plugin Directory | PyPI Package Name | Python Import |
-|-----------------|-------------------|---------------|
-| functualize-substrate-sqlite | functualize-substrate-sqlite | `functualize_substrate_sqlite` |
-| functualize-http | functualize-http | `functualize_http` |
-| functualize-lambda | functualize-lambda | `functualize_lambda` |
-| functualize-inline | functualize-inline | `functualize_inline` |
-| functualize-flow-viz | functualize-flow-viz | `functualize_flow_viz` |
-| functualize-ai | functualize-ai | `functualize_ai` |
-| functualize-ai-pydantic | functualize-ai-pydantic | `functualize_ai_pydantic` |
-| functualize-tasks | functualize-tasks | `functualize_tasks` |
-| functualize-tasks-local | functualize-tasks-local | `functualize_tasks_local` |
-| functualize-mcp | functualize-mcp | `functualize_mcp` |
+| Plugin Directory | PyPI Package Name | Python Import | Release |
+|-----------------|-------------------|---------------|---------|
+| functualize-substrate-sqlite | functualize-substrate-sqlite | `functualize_substrate_sqlite` | Uploaded |
+| functualize-http | functualize-http | `functualize_http` | Uploaded |
+| functualize-lambda | functualize-lambda | `functualize_lambda` | Uploaded |
+| functualize-inline | functualize-inline | `functualize_inline` | Uploaded |
+| functualize-flow-viz | functualize-flow-viz | `functualize_flow_viz` | Uploaded |
+| functualize-ai | functualize-ai | `functualize_ai` | Uploaded |
+| functualize-ai-pydantic | functualize-ai-pydantic | `functualize_ai_pydantic` | Uploaded |
+| functualize-tasks | functualize-tasks | `functualize_tasks` | Uploaded |
+| functualize-tasks-local | functualize-tasks-local | `functualize_tasks_local` | Uploaded |
+| functualize-mcp | functualize-mcp | `functualize_mcp` | Uploaded |
+| functualize-decision-jev | functualize-decision-jev | `functualize_decision_jev` | Uploaded |
+| functualize-aws | functualize-aws | `functualize_aws` | Built, not uploaded |
+| functualize-bitwarden | functualize-bitwarden | `functualize_bitwarden` | Built, not uploaded |
 
 `functualize-fullscreen-tui` is deliberately absent: it has no `pyproject.toml`, so
 it is not a workspace member and produces no distribution.
 
 ## Trusted Publishing
 
-Every name above, plus `functualize`, needs its own PyPI trusted publisher — twelve
-in total, all sharing this configuration:
+Every *uploaded* name above, plus `functualize`, needs its own PyPI trusted
+publisher — twelve in total, all sharing this configuration. `functualize-aws` and
+`functualize-bitwarden` need one too, before the line in `release.yml` that removes
+them is deleted.
 
 | Field | Value |
 |-------|-------|
@@ -259,12 +284,12 @@ The `pypi` GitHub environment must also exist on the repository, matching the
 `environment: pypi` key in `release.yml`. A name mismatch is the most common
 first-release failure.
 
-### Bootstrapping the twelve projects
+### Bootstrapping the projects
 
 They cannot all be created by this workflow. A **pending** publisher — the kind that
 may create a project that does not exist yet — is unique on the tuple
 `(owner, repo, workflow, environment)`, because PyPI has to know which single project
-to create when it fires. All twelve packages share that tuple, so registering a second
+to create when it fires. Every package shares that tuple, so registering a second
 one fails with:
 
 > A pending trusted publisher matching this configuration has already been registered
@@ -277,9 +302,9 @@ once by hand, and trusted publishing takes over from the next release:
 
 1. Create an API token scoped to **the entire account** — a project-scoped token
    cannot create new projects.
-2. `uv build --all-packages`, then `twine upload dist/*`. This creates all twelve
-   projects and publishes the first version.
-3. For each of the twelve, add an ordinary trusted publisher at
+2. `uv build --all-packages`, then `twine upload` the distributions of the projects
+   being created. This creates them and publishes their first version.
+3. For each new project, add an ordinary trusted publisher at
    `https://pypi.org/manage/project/<name>/settings/publishing/` using the table above.
 4. Delete the account-scoped token.
 
@@ -288,5 +313,12 @@ From then on, a `v*` tag publishes through OIDC with no stored credential. The
 tag's artifacts are already on the index by the time the workflow runs.
 
 **A pending publisher does not reserve the name.** Until a project is actually
-created, anyone may claim it — which is the other reason to run step 2 for all twelve
-at once rather than publishing the core package alone.
+created, anyone may claim it — which is the other reason to run step 2 for every new
+name at once rather than publishing the core package alone.
+
+**A plugin added after the last bootstrap needs its own.** `functualize-decision-jev`
+joined the workspace after `v0.4.0` and is in the upload set, but it has no PyPI
+project yet, so no trusted publisher can exist for it and the publish step will
+reject its upload. Run steps 1–4 for it before the next `v*` tag.
+`skip-existing: true` does not help here: it skips files already on the index, not
+projects that do not exist.
