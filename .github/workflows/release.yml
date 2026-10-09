@@ -119,13 +119,6 @@ jobs:
           name: dist
           path: dist/
 
-      # These integrations are not part of the 0.3.0 PyPI release yet. Keep
-      # their wheels available to the standalone-binary bake, but do not hand
-      # them to the publisher until their projects are intentionally launched.
-      - name: Remove deferred packages from the PyPI upload
-        run: |
-          rm -f dist/functualize_secrets_aws-* dist/functualize_secrets_bitwarden-*
-
       # NOTE: every package name remaining in dist/ (functualize + the plugins
       # in the current release scope) must have a PyPI "trusted publisher"
       # configured for this repository and workflow, plus the `pypi` GitHub
