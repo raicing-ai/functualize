@@ -50,7 +50,7 @@ An unknown key is rejected, never ignored, for the same reason as in the AWS
 provider: a caller who writes ``?porject=`` has stated an intent, and quietly
 resolving under a different one is the defect this feature exists to remove.
 
-This duplicates the shape of ``functualize_aws._reference`` rather than sharing
+This duplicates the shape of ``functualize_secrets_aws._reference`` rather than sharing
 it. Plugins must not depend on each other, and a shared "annotation query
 grammar" library would be a third package to version for forty lines that the
 two providers are free to diverge on.

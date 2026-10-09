@@ -70,7 +70,7 @@ dev = [
     # seven build targets unresolvable. It is still a first-party plugin with
     # its own suite, so it belongs in the development environment, and
     # `uv sync --all-extras` keeps installing it from here.
-    "functualize-bitwarden",
+    "functualize-secrets-bitwarden",
 ]
 docs = [
     "mkdocs>=1.6.0",
@@ -125,8 +125,8 @@ all = [
     # is itself opt-in, so the cost lands only on someone who asked for
     # everything -- but it is the one entry here that is not small. Measured
     # at the 7.1 checkpoint.
-    "functualize-aws",
-    # `functualize-bitwarden` is deliberately NOT here. `bitwarden-sdk>=2.0.0`
+    "functualize-secrets-aws",
+    # `functualize-secrets-bitwarden` is deliberately NOT here. `bitwarden-sdk>=2.0.0`
     # publishes wheels for glibc, macOS and Windows only, with no sdist, so
     # including it makes `functualize[all]` **unresolvable** on both musl
     # targets -- and `all` is what the standalone binary bakes
@@ -136,7 +136,7 @@ all = [
     #
     # There is no PEP 508 marker for musl vs glibc, so it cannot be excluded
     # conditionally. The plugin stays first-class and directly installable
-    # (`pip install functualize-bitwarden`), which is what the docs already
+    # (`pip install functualize-secrets-bitwarden`), which is what the docs already
     # tell people to do; it simply is not part of "everything", because on two
     # of the seven shipped targets it cannot be.
 ]
@@ -160,8 +160,8 @@ functualize-tasks = { workspace = true }
 functualize-tasks-local = { workspace = true }
 functualize-decision-jev = { workspace = true }
 functualize-mcp = { workspace = true }
-functualize-aws = { workspace = true }
-functualize-bitwarden = { workspace = true }
+functualize-secrets-aws = { workspace = true }
+functualize-secrets-bitwarden = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/functualize"]

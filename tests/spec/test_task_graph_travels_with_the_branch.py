@@ -49,7 +49,9 @@ _SCRIPT_TEXT = _SCRIPT.read_text(encoding="utf-8")
 CONTEXT = "contract-diff-carries-task-graph"
 
 GATED_FILE = "src/functualize/_engine/explain.py"
-GROUPED_PLUGIN_FILE = "plugins/aws/functualize-aws/src/functualize_aws/plugin.py"
+GROUPED_PLUGIN_FILE = (
+    "plugins/aws/functualize-secrets-aws/src/functualize_secrets_aws/plugin.py"
+)
 
 GRAPH = """\
 ## tasks
@@ -423,7 +425,7 @@ class TestPassed:
         """`plugins/**/tests/**` and `examples/**` are free at write time too."""
         _write(
             repo,
-            "plugins/aws/functualize-aws/tests/test_x.py",
+            "plugins/aws/functualize-secrets-aws/tests/test_x.py",
             "def test_x():\n    pass\n",
         )
         _write(repo, "examples/standalone/lab/src/lab/__init__.py", "")

@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from functualize_aws import (
+from functualize_secrets_aws import (
     AccountMismatchError,
     InvalidReferenceError,
     ParameterStoreProvider,
@@ -21,7 +21,7 @@ from functualize_aws import (
     clear_credential_cache,
     parse_reference,
 )
-from functualize_aws import _session as session_mod
+from functualize_secrets_aws import _session as session_mod
 
 from tests.conftest import FakeClient
 
@@ -58,7 +58,7 @@ def patched_client(monkeypatch: Any) -> Any:
             seen["service"] = service
             return client
 
-        monkeypatch.setattr("functualize_aws.client_for", fake_client_for)
+        monkeypatch.setattr("functualize_secrets_aws.client_for", fake_client_for)
         return seen
 
     return install

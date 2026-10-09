@@ -1864,7 +1864,7 @@ Items identified during development that are worth doing but not yet designed:
     than degrading to `classic()`. `parse_annotation` has a production caller
     (`_config/annotations.py`), the encrypted per-project vault and its key
     seam exist, `func builtin vault sync|list|status|clear|keygen` fill and
-    inspect it, and `functualize-aws` / `functualize-bitwarden` provide
+    inspect it, and `functualize-secrets-aws` / `functualize-secrets-bitwarden` provide
     `aws-sm`, `aws-ssm` and `bws`. The decision the entry asked for was made
     the "wire it" way; see `contributor/adr/016-remote-source-activation.md`.
 
@@ -2155,13 +2155,13 @@ Items identified during development that are worth doing but not yet designed:
 
     - The docstring tells an implementor to raise `RemoteKeyNotFoundError` and
       `RemoteConnectionError`. **Neither exists.** Only `RemoteTimeoutError`
-      does, and none of the three is publicly exported, so `functualize-aws`
-      and `functualize-bitwarden` each define their own `SecretNotFoundError`.
+      does, and none of the three is publicly exported, so `functualize-secrets-aws`
+      and `functualize-secrets-bitwarden` each define their own `SecretNotFoundError`.
       Two plugins, two private hierarchies, and a caller cannot catch "not
       found" generically. Either export the family or delete the promise.
     - *"Credentials MUST be resolved from environment variables only, following
-      12-Factor App principles."* `functualize-bitwarden` honours it;
-      `functualize-aws` cannot, because the maintainer's per-value override
+      12-Factor App principles."* `functualize-secrets-bitwarden` honours it;
+      `functualize-secrets-aws` cannot, because the maintainer's per-value override
       requirement (`?profile=`, `?role=`, `?account=`, `?region=`) is
       something environment variables cannot express — different secrets in one
       config file may need different accounts. The clause is now half-false by

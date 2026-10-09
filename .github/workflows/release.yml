@@ -124,7 +124,7 @@ jobs:
       # them to the publisher until their projects are intentionally launched.
       - name: Remove deferred packages from the PyPI upload
         run: |
-          rm -f dist/functualize_aws-* dist/functualize_bitwarden-*
+          rm -f dist/functualize_secrets_aws-* dist/functualize_secrets_bitwarden-*
 
       # NOTE: every package name remaining in dist/ (functualize + the plugins
       # in the current release scope) must have a PyPI "trusted publisher"

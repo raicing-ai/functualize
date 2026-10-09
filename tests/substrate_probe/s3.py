@@ -19,7 +19,7 @@ any probe that writes once and reads back.
 
 R2 is reached exactly as the repo already reaches an emulator — through an
 endpoint override on the same boto3 client
-(`plugins/credentials/functualize-aws/tests/test_integration_floci.py:12-14`) —
+(`plugins/credentials/functualize-secrets-aws/tests/test_integration_floci.py:12-14`) —
 so S3 and R2 are the same code against different credentials. `.env.example`
 gains `FUNCTUALIZE_PROBE_R2_*` beside the AWS names.
 

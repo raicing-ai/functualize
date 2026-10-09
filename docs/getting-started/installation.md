@@ -52,7 +52,7 @@ Use the **CLI** variants to get the `func` command and TUI (includes Click, Rich
 ## The standalone binary
 
 A single executable with Python and every first-party plugin `[all]` carries already inside it
-(all but `functualize-bitwarden`, whose SDK has no musl build). **It has no
+(all but `functualize-secrets-bitwarden`, whose SDK has no musl build). **It has no
 prerequisites at all** — not even Python — and its first run needs no network, because the
 distribution is baked into the binary rather than downloaded on first launch.
 

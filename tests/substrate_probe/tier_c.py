@@ -65,7 +65,7 @@ Stdlib `sqlite3` is not libSQL — that is the local SQLite column, already
 measured in Tier A — and an embedded libSQL file is not the Turso *service*, so
 neither could carry a `measured (real service)` row. Substituting either would
 produce a green run that measured something nobody asked about, which is the
-failure `plugins/credentials/functualize-aws/tests/test_integration_floci.py:17-19`
+failure `plugins/credentials/functualize-secrets-aws/tests/test_integration_floci.py:17-19`
 names and this ticket inherited. A test below asserts there is no route through
 this module that reaches a measured cell without a client and an account.
 """

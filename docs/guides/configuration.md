@@ -568,8 +568,8 @@ actually work on.
 
 ```bash
 # 1. Install a provider plugin.
-pip install functualize-aws          # aws-sm, aws-ssm (also in functualize[all])
-pip install functualize-bitwarden    # bws (separate: its SDK has no musl build)
+pip install functualize-secrets-aws          # aws-sm, aws-ssm (also in functualize[all])
+pip install functualize-secrets-bitwarden    # bws (separate: its SDK has no musl build)
 
 # 2. Create a vault key and keep it somewhere your shell can read.
 export FUNCTUALIZE_VAULT_KEY=$(func builtin vault keygen)
@@ -759,7 +759,7 @@ number is refused rather than guessed, and so is `1M`: a month has no fixed
 length, and reading it as minutes would be wrong by a factor of 43,200.
 
 **A declaration whose plugin is not installed.** `aws-sm://prod/db` with
-`functualize-aws` absent is reported by `vault sync` rather than passed over,
+`functualize-secrets-aws` absent is reported by `vault sync` rather than passed over,
 because the declared secret would otherwise remain unsynced.
 
 ### The `builtin vault` commands

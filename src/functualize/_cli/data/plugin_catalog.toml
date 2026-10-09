@@ -139,14 +139,14 @@ recommended = true
 
 [[plugin]]
 name = "aws-sm"
-distribution = "functualize-aws"
+distribution = "functualize-secrets-aws"
 group = "functualize.remote_providers"
 description = "AWS Secrets Manager and SSM Parameter Store"
 recommended = true
 
 [[plugin]]
 name = "bws"
-distribution = "functualize-bitwarden"
+distribution = "functualize-secrets-bitwarden"
 group = "functualize.remote_providers"
 description = "Bitwarden Secrets Manager"
 # NOT recommended, and not an oversight. `bitwarden-sdk` publishes wheels for

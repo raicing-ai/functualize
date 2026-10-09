@@ -81,6 +81,22 @@ Reprovision direct values and run `vault sync` for provider entries afterward.
 JSON refusal reasons include `scope_required`, `unknown_group`, and
 `vault_format_unsupported`.
 
+### Changed — the deferred credentials plugins are renamed with a secrets prefix
+
+The two credentials plugins that have not launched yet are renamed before their
+first release: distribution and directory `functualize-aws` becomes
+`functualize-secrets-aws`, `functualize-bitwarden` becomes
+`functualize-secrets-bitwarden`, and the import packages `functualize_aws` /
+`functualize_bitwarden` become `functualize_secrets_aws` /
+`functualize_secrets_bitwarden` to match.
+
+**Neither package was ever published to PyPI**, so no released artifact, index
+name or install instruction changes. What deliberately stays as it was: the URL
+schemes `aws-sm://`, `aws-ssm://` and `bws://`, the `functualize.remote_providers`
+entry-point group and its keys, and the provider class names. Both plugins
+remain deferred — the release workflow still strips them from the upload until
+their intentional one-per-release launch.
+
 ### Fixed — the secret scan no longer fails a pull request for another branch's finding
 
 The `gitleaks` job checked out every branch at full depth and then ran

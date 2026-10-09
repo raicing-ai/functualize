@@ -160,7 +160,7 @@ wheels = [
 
 [[package]]
 name = "functualize"
-version = "0.3.0"
+version = "0.4.0"
 source = { editable = "../../../" }
 dependencies = [
     { name = "cryptography" },
@@ -182,18 +182,21 @@ requires-dist = [
     { name = "click", marker = "extra == 'cli'", specifier = ">=8.0.0" },
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "functualize", extras = ["cli"], marker = "extra == 'all'" },
+    { name = "functualize", extras = ["keychain"], marker = "extra == 'all'" },
     { name = "functualize-ai", marker = "extra == 'all'", editable = "../../../plugins/domains/functualize-ai" },
     { name = "functualize-ai-pydantic", marker = "extra == 'all'", editable = "../../../plugins/domains/functualize-ai-pydantic" },
-    { name = "functualize-aws", marker = "extra == 'all'", editable = "../../../plugins/credentials/functualize-aws" },
+    { name = "functualize-decision-jev", marker = "extra == 'all'", editable = "../../../plugins/domains/functualize-decision-jev" },
     { name = "functualize-flow-viz", marker = "extra == 'all'", editable = "../../../plugins/adapters/functualize-flow-viz" },
     { name = "functualize-http", marker = "extra == 'all'", editable = "../../../plugins/adapters/functualize-http" },
     { name = "functualize-inline", marker = "extra == 'all'", editable = "../../../plugins/adapters/functualize-inline" },
     { name = "functualize-lambda", marker = "extra == 'all'", editable = "../../../plugins/adapters/functualize-lambda" },
     { name = "functualize-mcp", marker = "extra == 'all'", editable = "../../../plugins/adapters/functualize-mcp" },
+    { name = "functualize-secrets-aws", marker = "extra == 'all'", editable = "../../../plugins/credentials/functualize-secrets-aws" },
     { name = "functualize-substrate-sqlite", marker = "extra == 'all'", editable = "../../../plugins/substrates/functualize-substrate-sqlite" },
     { name = "functualize-tasks", marker = "extra == 'all'", editable = "../../../plugins/domains/functualize-tasks" },
     { name = "functualize-tasks-local", marker = "extra == 'all'", editable = "../../../plugins/domains/functualize-tasks-local" },
     { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "keyring", marker = "extra == 'keychain'", specifier = ">=24.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0.0" },
@@ -201,12 +204,12 @@ requires-dist = [
     { name = "textual", extras = ["syntax"], marker = "extra == 'cli'", specifier = ">=8.0" },
     { name = "textual-autocomplete", marker = "extra == 'cli'", specifier = ">=4.0.0" },
 ]
-provides-extras = ["cli", "all"]
+provides-extras = ["keychain", "cli", "all"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "debugpy", specifier = ">=1.8.21" },
-    { name = "functualize-bitwarden", editable = "../../../plugins/credentials/functualize-bitwarden" },
+    { name = "functualize-secrets-bitwarden", editable = "../../../plugins/credentials/functualize-secrets-bitwarden" },
     { name = "hypothesis", specifier = ">=6.82.0" },
     { name = "import-linter", specifier = ">=2.0" },
     { name = "invoke", specifier = ">=2.2.0" },
@@ -219,6 +222,7 @@ dev = [
     { name = "pytest-textual-snapshot", specifier = ">=1.0.0" },
     { name = "pytest-xdist", specifier = ">=3.5.0" },
     { name = "ruff", specifier = ">=0.8.0" },
+    { name = "vulture", specifier = ">=2.14" },
 ]
 docs = [
     { name = "mkdocs", specifier = ">=1.6.0" },

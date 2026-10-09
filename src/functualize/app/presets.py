@@ -104,7 +104,7 @@ def remote_first(
 
     Requires at least one remote provider to be registered through the
     ``functualize.remote_providers`` entry-point group — install
-    ``functualize-aws`` or another provider plugin. An app selecting this
+    ``functualize-secrets-aws`` or another provider plugin. An app selecting this
     preset with none registered raises at construction rather than quietly
     resolving from local files.
 

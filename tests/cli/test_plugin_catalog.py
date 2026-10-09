@@ -107,9 +107,11 @@ class TestManifestMatchesReality:
         could not be built at all. There is no PEP 508 marker for musl vs
         glibc, so it cannot be excluded conditionally.
         """
-        assert "functualize-bitwarden" not in recommended_distributions()
+        assert "functualize-secrets-bitwarden" not in recommended_distributions()
         entry = next(
-            e for e in load_catalog() if e.distribution == "functualize-bitwarden"
+            e
+            for e in load_catalog()
+            if e.distribution == "functualize-secrets-bitwarden"
         )
         assert entry.recommended is False
 
@@ -211,7 +213,9 @@ class TestRendering:
                 _curated("mcp", "functualize-mcp", "functualize.plugins"),
                 _curated("state", "functualize-state", "functualize.domains"),
                 _curated(
-                    "bws", "functualize-bitwarden", "functualize.remote_providers"
+                    "bws",
+                    "functualize-secrets-bitwarden",
+                    "functualize.remote_providers",
                 ),
             ],
             [],

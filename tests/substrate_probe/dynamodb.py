@@ -17,7 +17,7 @@ always tell what answered.
 
 **Reached the way the repo already reaches an emulator**: `AWS_ENDPOINT_URL`,
 which botocore honours itself, so nothing here needs to know what is listening
-(`plugins/credentials/functualize-aws/tests/test_integration_floci.py:12-14`).
+(`plugins/credentials/functualize-secrets-aws/tests/test_integration_floci.py:12-14`).
 The variable must be *set*; this module will not go looking for something on
 `localhost:4566`, because a probe that adopts whatever happens to hold a port
 is how a measurement ends up describing the wrong service.
