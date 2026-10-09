@@ -58,11 +58,12 @@ same change after tasks 1.1–2.1 were completed and pushed.
   separate catalog test continues to guard AWS's absence from `[all]`.
   Baseline: discovery assertions at lines 53–69 and listing assertions at
   lines 145–153 require AWS; CI installs `--all-extras` and only sees `bws`.
-- [ ] **6.2 Validate the corrected PR head.** [F] no production file.
+- [x] **6.2 Validate the corrected PR head.** [F] `.spec/STATUS.md`.
   Acceptance: targeted tests and the native lint, type, and import gates pass;
   PR validation has green `test-fast` and all `test-full` matrix legs before
-  spec artifact cleanup. `spec-artifacts-cleared` is expected to remain red
-  while the feature files are tracked.
+  spec artifact cleanup. Migrate the durable release decision to
+  `.spec/STATUS.md`. `spec-artifacts-cleared` is expected to remain red while
+  the feature files are tracked.
 - [ ] **7.1 Clear feature artifacts.** [F]
   `.spec/features/publish-credential-plugins/`. Acceptance: after task 6.2,
   the final commit deletes only this tracked feature tree, the native task
