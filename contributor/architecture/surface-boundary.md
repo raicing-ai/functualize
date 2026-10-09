@@ -194,7 +194,7 @@ Deliberately, and these are **not** gaps:
 | `func <file>.py` | `Mode.SINGLE_FILE` reads a path as the thing to run; an app **is** the program |
 | aliases | resolved pre-boot, from `merged_config`, before an app exists |
 | `--exclude`, `--discovery-depth`, `--require-*` | discovery filters applied *before* the app is constructed — an app declares its `JobSources` in code |
-| `--perf-report` with no value | optional-value lookahead in `dispatch.py`; click has no equivalent |
+| `--perf-report` | recognized by `func`'s pre-boot scan before any app exists; the flag is value-required, on both surfaces that declare it |
 | listing / unknown-command rendering and their exit codes | `_dispatch_group` owns the tree on `func`; click owns it on an app |
 
 ### How to add a feature that must align

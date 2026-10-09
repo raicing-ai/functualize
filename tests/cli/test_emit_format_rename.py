@@ -86,15 +86,14 @@ class TestTheFlagRendersWhatEmitWasGiven:
         assert result.stdout.strip() == ""
 
     @surfaces("func")
-    def test_a_bare_flag_still_falls_back_to_the_default(
-        self, cli_run, project_tree
-    ) -> None:
-        """The optional-value lookahead the grammar table encodes: a bare
-        `--emit-format` means `auto`, and must not swallow the job name."""
+    def test_a_bare_flag_now_requires_a_value(self, cli_run, project_tree) -> None:
+        """The one-arity rule: a bare `--emit-format` is a missing value,
+        not a spelling of the default that runs the job behind it."""
         result = cli_run(["--emit-format", "emits"], cwd=_tree(project_tree))
 
-        assert result.exit_code == 0, result.stdout + result.stderr
-        assert "emit" in result.stdout
+        assert result.exit_code == 2, result.stdout + result.stderr
+        assert "--emit-format must be one of" in result.stderr
+        assert "emit" not in result.stdout
 
 
 class TestTheOldNameIsSimplyGone:

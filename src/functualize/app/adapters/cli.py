@@ -1109,13 +1109,14 @@ class CliAdapter:
             # Choices and default come from the one flag grammar
             # (`_types/flag_grammar.py`), not a second copy: `func` reads the
             # same table, so the two surfaces cannot drift on what
-            # `--emit-format` accepts. A bare `--emit-format` means the default,
-            # matching func's optional-value lookahead.
+            # `--emit-format` accepts. Value-required like `func`'s pre-boot
+            # parse: `is_flag=False` with no `flag_value` makes Click demand
+            # an argument, and `default=None` keeps an absent flag meaning
+            # the grammar's default (auto).
             click.Option(
                 ["--emit-format"],
                 type=click.Choice(sorted(_OUTPUT_VALUES)),
                 is_flag=False,
-                flag_value=_OUTPUT_DEFAULT,
                 default=None,
                 # The second sentence is `func`'s too (`_cli/main.py`, the
                 # run-options section): a first-time author returns a value,

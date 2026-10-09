@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — one arity per pre-boot flag, and one exit code for a wrong value
+
+Every flag `func` reads before boot is boolean or value-required — never
+value-optional. `--emit-format` and `--perf-report` used to take their value
+optionally: a token after them outside the valid set was left standing as the
+*command*, so `func --emit-format shortcut` with a broken `[aliases]` entry
+reported the flag's valid set while the alias error — the setting actually at
+fault — stayed hidden outside command position. Both flags now require their
+value; the token after the flag is its value, whatever it spells, and no
+command or alias lookup happens in value position. The alias error is
+reachable exactly where the alias is a command (`func shortcut`,
+`func --emit-format json shortcut`).
+
+A missing value is a usage error for **every** value-required flag, not only
+the two: `func --emit-format` and `func --config-directory` exit 2 with
+`Error: --emit-format requires a value: one of {auto, json, ndjson, none, raw}.`
+and `Error: --config-directory requires a value.` respectively — the
+accepted-values clause names its table when the flag has one. A known global
+flag in the value slot (`--force`, `--help`, `--version`) means the value is
+missing rather than swallowed: `func --emit-format --force greet` and
+`func --emit-format --version` exit 2, and the version fast path stays silent
+for the latter. An unrecognized dash token and a negative number remain value
+candidates.
+
+**Breaking, named rather than glossed:** an invalid value is exit 2 for the
+whole value-required table. `--emit-format` and `--perf-report` keep exit 2,
+and `--log-level BOGUS` / `--discovery-depth abc` move from 1 to 2 — any
+script that tested for `1` there sees the change. Command-position errors are
+untouched (`func bogus` is still exit 1). Spellings that relied on the
+lookahead — `func --emit-format greet`, `func --perf-report hello` — are now
+invalid-value usage errors rather than runs.
+
+The app's own `--emit-format` is value-required too: `main.py --emit-format
+emit` gets Click's `Error: Option '--emit-format' requires an argument.`
+(exit 2), and `func --help` renders `--emit-format TEXT` with the accepted
+values in the description instead of the `[auto|json|ndjson|none|raw]`
+bracket that advertised an optional value. `OPTIONAL_VALUE_VALID_SET` keeps
+its transitional name; the rename is a separate follow-up.
 ### Changed — vault secrets have explicit group and job identities
 
 Vault entries now use `(scope, target, field)`: a group option and job config
