@@ -41,7 +41,7 @@ _extensions = st.text(
 #: registry here would make the exclusion silently follow whatever happens to be
 #: installed, so a newly-claimed identifier would stop being tested instead of
 #: failing loudly and being added here.
-_PLUGIN_OWNED_IDENTIFIERS = frozenset({"bws"})
+_PLUGIN_OWNED_IDENTIFIERS = frozenset({"bws", "bwpm"})
 
 # Strategy for valid remote provider identifiers (lowercase alpha + hyphens)
 _identifiers = (
