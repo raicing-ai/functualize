@@ -36,7 +36,7 @@ from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
-from functualize._types.outcome import Family, is_failure, report_line
+from functualize._types.outcome import Family, is_failure, raised_by_job, report_line
 from functualize.types import negative_flag_for
 
 if TYPE_CHECKING:
@@ -1252,6 +1252,16 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
             click.echo(f"Error: {result.exception}", err=True)
             raise SystemExit(ExitCode.USAGE) from result.exception
 
+        # The job's own exception is the job's answer, not a crash: one line,
+        # the "job raised" code. Which exception *is* the job's own is decided
+        # by the engine, by identity, at the one call that runs the body --
+        # never guessed here from the exception's type or text. Anything else
+        # keeps its traceback, because that is what a framework bug owes the
+        # person reporting it.
+        if _renders_as_job_error(result):
+            click.echo(f"Error: {_job_error_line(result.exception)}", err=True)
+            raise SystemExit(exit_code_for_status(result.status)) from result.exception
+
         raise result.exception
 
     # Every terminal status takes its code from the one table (D-6). Two of
@@ -1295,6 +1305,44 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
     if not is_failure(result.status, family=Family.PROCESS):
         return result.return_value
     raise SystemExit(exit_code_for_status(result.status))
+
+
+def _renders_as_job_error(result: Any) -> bool:
+    """Whether the boundary prints ``result``'s exception as one line.
+
+    Three conditions, each for its own reason:
+
+    - **the engine marked it the job's own** — the only evidence of origin
+      there is (``functualize._types.outcome.raised_by_job``);
+    - **an ordinary ``Exception`` that is not a click signal** — a job raising
+      ``click.ClickException``, ``Abort`` or ``Exit`` chose click's own
+      rendering, and ``SystemExit`` / ``KeyboardInterrupt`` are not errors to
+      describe;
+    - **not at DEBUG** — ``--log-level DEBUG`` is the opt-in back to the full
+      traceback, the same threshold :func:`_report_blocked` uses for the
+      detail a script does not need.
+    """
+    exc = result.exception
+    return (
+        raised_by_job(result)
+        and isinstance(exc, Exception)
+        and not isinstance(
+            exc, (click.ClickException, click.exceptions.Abort, click.exceptions.Exit)
+        )
+        and not logger.isEnabledFor(logging.DEBUG)
+    )
+
+
+def _job_error_line(exc: BaseException) -> str:
+    """``<Class>: <message>``, or ``<Class>`` when the message is empty.
+
+    The class's bare name, never its module: a job module loaded through the
+    deferred provider lives under a synthetic ``_functualize_sync_.*`` name,
+    which means nothing to the person who wrote the job.
+    """
+    message = str(exc)
+    name = type(exc).__name__
+    return f"{name}: {message}" if message else name
 
 
 def _report_refused(result: Any) -> None:

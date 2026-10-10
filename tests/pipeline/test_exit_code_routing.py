@@ -22,12 +22,15 @@ twenty lines away in the executor, is the same trap still open.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+import click
 import pytest
 
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
+from functualize._types.outcome import RAISED_BY_JOB
 from functualize.app.adapters.click_params import deliver_job_result
 
 
@@ -37,7 +40,7 @@ class _Result:
     def __init__(self, status: Any, *, return_value: Any = "VALUE") -> None:
         self.status = status
         self.return_value = return_value
-        self.exception = None
+        self.exception: BaseException | None = None
         self.metadata: dict[str, Any] = {}
 
 
@@ -115,3 +118,95 @@ def test_a_refusals_reason_reaches_stderr() -> None:
     with pytest.raises(SystemExit) as raised:
         deliver_job_result(result, "j")
     assert raised.value.code == ExitCode.REFUSED
+
+
+# ─── A job's own exception (raised_by_job) ─────────────────────────────────
+#
+# The engine marks a failed result whose exception escaped the job function
+# call (`_types/outcome.py` `RAISED_BY_JOB`). The boundary renders exactly that
+# case as one line at the "job raised" code and re-raises everything else, so
+# a framework failure keeps the traceback its reporter needs.
+
+_BOUNDARY_LOGGER = "functualize.app.adapters.click_params"
+
+
+def _failed(exc: BaseException, *, marked: bool) -> _Result:
+    result = _Result(RunStatus.FAILURE)
+    result.exception = exc
+    if marked:
+        result.metadata = {RAISED_BY_JOB: True}
+    return result
+
+
+def test_the_jobs_own_exception_is_one_line_at_the_job_raised_code(
+    capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger=_BOUNDARY_LOGGER)
+    exc = RuntimeError("boom")
+
+    with pytest.raises(SystemExit) as raised:
+        deliver_job_result(_failed(exc, marked=True), "j")
+
+    assert raised.value.code == ExitCode.JOB_RAISED
+    assert raised.value.__cause__ is exc
+    captured = capsys.readouterr()
+    assert captured.err == "Error: RuntimeError: boom\n"
+    assert captured.out == ""
+
+
+def test_an_empty_message_prints_the_class_alone(
+    capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger=_BOUNDARY_LOGGER)
+
+    with pytest.raises(SystemExit):
+        deliver_job_result(_failed(ValueError(), marked=True), "j")
+
+    assert capsys.readouterr().err == "Error: ValueError\n"
+
+
+def test_an_unmarked_exception_is_re_raised_untouched(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Not the job's own — a framework failure keeps its traceback."""
+    caplog.set_level(logging.INFO, logger=_BOUNDARY_LOGGER)
+    exc = RuntimeError("engine bug")
+
+    with pytest.raises(RuntimeError) as raised:
+        deliver_job_result(_failed(exc, marked=False), "j")
+
+    assert raised.value is exc
+
+
+def test_debug_is_the_opt_in_back_to_the_traceback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG, logger=_BOUNDARY_LOGGER)
+    exc = RuntimeError("boom")
+
+    with pytest.raises(RuntimeError) as raised:
+        deliver_job_result(_failed(exc, marked=True), "j")
+
+    assert raised.value is exc
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        click.ClickException("bad input"),
+        click.exceptions.Abort(),
+        click.exceptions.Exit(4),
+        KeyboardInterrupt(),
+    ],
+    ids=lambda e: type(e).__name__,
+)
+def test_click_signals_and_base_exceptions_keep_their_own_rendering(
+    exc: BaseException, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A job raising a click signal chose click's rendering; leave it to click."""
+    caplog.set_level(logging.INFO, logger=_BOUNDARY_LOGGER)
+
+    with pytest.raises(type(exc)) as raised:
+        deliver_job_result(_failed(exc, marked=True), "j")
+
+    assert raised.value is exc
