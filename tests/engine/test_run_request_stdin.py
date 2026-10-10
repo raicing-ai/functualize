@@ -13,13 +13,15 @@ A unit test of the helper is not a test of the wiring.
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Annotated
-from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel
 from tests._support.engine_run import register
 from tests._support.engine_storage import engine_storage
+from tests._support.stdin_fakes import fake_stdin, real_pipe_stdin
 
 from functualize._engine.executor import JobExecutionEngine
 from functualize._engine.middleware import ExecutionMiddlewareChain
@@ -56,16 +58,7 @@ def _run(engine: JobExecutionEngine, surface: str, **kwargs: object):
 
 class TestAConsoleSurfaceReadsThePipe:
     def test_a_pipe_reaches_the_job(self, engine: JobExecutionEngine) -> None:
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty",
-                return_value=False,
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value="from the pipe",
-            ),
-        ):
+        with fake_stdin(tty=False, data="from the pipe"):
             result = _run(engine, "func.job")
 
         assert result.status is RunStatus.SUCCESS
@@ -73,16 +66,7 @@ class TestAConsoleSurfaceReadsThePipe:
 
     def test_an_explicit_value_beats_the_pipe(self, engine: JobExecutionEngine) -> None:
         """Explicit outranks implicit — the rule `Stdin`'s docstring states."""
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty",
-                return_value=False,
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value="from the pipe",
-            ),
-        ):
+        with fake_stdin(tty=False, data="from the pipe"):
             result = _run(engine, "func.job", data="explicit")
 
         assert result.return_value == "explicit"
@@ -102,9 +86,7 @@ class TestAConsoleSurfaceReadsThePipe:
         rather than deleted — what was recorded as a defect is now recorded as
         the rule, in the same place, so a reader sees which way it went.
         """
-        with patch(
-            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-        ):
+        with fake_stdin(tty=True):
             result = _run(engine, "func.job")
 
         assert result.status is RunStatus.SUCCESS, result.exception
@@ -125,9 +107,7 @@ class TestAConsoleSurfaceReadsThePipe:
             return data
 
         register(engine, "required-shout", _required)
-        with patch(
-            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-        ):
+        with fake_stdin(tty=True):
             result = engine.run(
                 RunRequest(job_name="required-shout", surface="func.job")
             )
@@ -148,20 +128,11 @@ class TestANonConsoleSurfaceDoesNot:
     def test_the_job_keeps_its_default(
         self, engine: JobExecutionEngine, surface: str
     ) -> None:
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty",
-                return_value=False,
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value="from the pipe",
-            ) as read,
-        ):
+        with fake_stdin(tty=False, data="from the pipe") as fake:
             result = _run(engine, surface)
 
         assert result.return_value == "the default"
-        assert read.call_count == 0, "a non-console surface must not touch stdin"
+        assert fake.read_calls == 0, "a non-console surface must not touch stdin"
 
     def test_the_set_names_only_console_doors(self) -> None:
         """A door that owns stdin is a door that may read the user's pipe.
@@ -233,16 +204,7 @@ class TestAMarkerThatSharesAConfigFieldsName:
 
     def _run(self, engine: JobExecutionEngine, **kwargs: object):
         register(engine, "collides", _colliding, config_class=_CollidingConfig)
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty",
-                return_value=False,
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value="from the pipe",
-            ),
-        ):
+        with fake_stdin(tty=False, data="from the pipe"):
             return engine.run(
                 RunRequest(job_name="collides", surface="func.job", kwargs=kwargs)  # type: ignore[arg-type]
             )
@@ -301,3 +263,90 @@ class TestAMarkerThatSharesAConfigFieldsName:
         assert result.return_value == (
             "param='the parameter default' config='from the pipe'"
         )
+
+
+class TestNothingPipedKeepsTheDefault:
+    """The rule the CLI suite pins, through `engine.run` — both suites agree.
+
+    A silent pipe (`sleep 30 | func s`) and an empty stream (`func s <
+    /dev/null`) are different shapes and stay distinguishable (the reader
+    never reads the first; it reads the second and finds it empty). Both
+    resolve nothing, so the parameter's default is what the job receives.
+    """
+
+    def test_a_silent_pipe_leaves_the_default(self, engine: JobExecutionEngine) -> None:
+        with fake_stdin(tty=False, ready=False):
+            result = _run(engine, "func.job")
+
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert result.return_value == "the default"
+
+    def test_an_empty_stream_leaves_the_default(
+        self, engine: JobExecutionEngine
+    ) -> None:
+        with fake_stdin(tty=False, data="", ready=True):
+            result = _run(engine, "func.job")
+
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert result.return_value == "the default"
+
+    def test_a_silent_real_pipe_returns_within_the_wall_clock(
+        self, engine: JobExecutionEngine
+    ) -> None:
+        """`sleep 30 | func s` at the engine: default out, no wait, no read.
+
+        The run happens on a daemon worker; a regression to a blocking read
+        fails the join timeout instead of hanging the suite.
+        """
+        outcome: dict[str, object] = {}
+        started = time.monotonic()
+
+        def _go() -> None:
+            result = _run(engine, "func.job")
+            outcome["status"] = result.status
+            outcome["value"] = result.return_value
+
+        with real_pipe_stdin(None):
+            worker = threading.Thread(target=_go, daemon=True)
+            worker.start()
+            worker.join(timeout=5.0)
+        elapsed = time.monotonic() - started
+
+        assert not worker.is_alive(), "the run blocked on a silent pipe"
+        assert elapsed < 5.0
+        assert outcome == {"status": RunStatus.SUCCESS, "value": "the default"}
+
+    def test_a_required_param_with_an_empty_stream_fails_as_missing_argument(
+        self, engine: JobExecutionEngine
+    ) -> None:
+        """An empty stream is not "" for a required parameter either.
+
+        The stream resolves nothing, so the call is missing its argument — the
+        ordinary error every other parameter raises, not a stdin-specific one.
+        """
+
+        def _required(data: Annotated[str, Stdin()]) -> str:
+            return data
+
+        register(engine, "required-shout-empty", _required)
+        with fake_stdin(tty=False, data="", ready=True):
+            result = engine.run(
+                RunRequest(job_name="required-shout-empty", surface="func.job")
+            )
+
+        assert result.status is not RunStatus.SUCCESS
+        assert result.exception is not None
+        assert "data" in str(result.exception)
+
+    def test_a_deliberately_empty_flag_is_still_a_value(
+        self, engine: JobExecutionEngine
+    ) -> None:
+        """The distinction that stays visible at the job: explicit "" wins.
+
+        The default would have been "the default"; the user typed "".
+        """
+        with fake_stdin(tty=False, data="from the pipe"):
+            result = _run(engine, "func.job", data="")
+
+        assert result.status is RunStatus.SUCCESS, result.exception
+        assert result.return_value == ""
