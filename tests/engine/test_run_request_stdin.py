@@ -23,6 +23,7 @@ from tests._support.engine_storage import engine_storage
 
 from functualize._engine.executor import JobExecutionEngine
 from functualize._engine.middleware import ExecutionMiddlewareChain
+from functualize._engine.stdin_reader import StdinState
 from functualize._events.bus import EventBus
 from functualize._events.hooks import HookRegistry
 from functualize._primitives.di import DIRegistry
@@ -58,11 +59,11 @@ class TestAConsoleSurfaceReadsThePipe:
     def test_a_pipe_reaches_the_job(self, engine: JobExecutionEngine) -> None:
         with (
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty",
-                return_value=False,
+                "functualize._engine.stdin_reader.stdin_state",
+                return_value=StdinState.READY,
             ),
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.read_stdin",
                 return_value="from the pipe",
             ),
         ):
@@ -75,11 +76,11 @@ class TestAConsoleSurfaceReadsThePipe:
         """Explicit outranks implicit — the rule `Stdin`'s docstring states."""
         with (
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty",
-                return_value=False,
+                "functualize._engine.stdin_reader.stdin_state",
+                return_value=StdinState.READY,
             ),
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.read_stdin",
                 return_value="from the pipe",
             ),
         ):
@@ -103,7 +104,7 @@ class TestAConsoleSurfaceReadsThePipe:
         the rule, in the same place, so a reader sees which way it went.
         """
         with patch(
-            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+            "functualize._engine.stdin_reader.stdin_state", return_value=StdinState.TTY
         ):
             result = _run(engine, "func.job")
 
@@ -126,7 +127,7 @@ class TestAConsoleSurfaceReadsThePipe:
 
         register(engine, "required-shout", _required)
         with patch(
-            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+            "functualize._engine.stdin_reader.stdin_state", return_value=StdinState.TTY
         ):
             result = engine.run(
                 RunRequest(job_name="required-shout", surface="func.job")
@@ -150,11 +151,11 @@ class TestANonConsoleSurfaceDoesNot:
     ) -> None:
         with (
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty",
-                return_value=False,
+                "functualize._engine.stdin_reader.stdin_state",
+                return_value=StdinState.READY,
             ),
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.read_stdin",
                 return_value="from the pipe",
             ) as read,
         ):
@@ -235,11 +236,11 @@ class TestAMarkerThatSharesAConfigFieldsName:
         register(engine, "collides", _colliding, config_class=_CollidingConfig)
         with (
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty",
-                return_value=False,
+                "functualize._engine.stdin_reader.stdin_state",
+                return_value=StdinState.READY,
             ),
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.read_stdin",
                 return_value="from the pipe",
             ),
         ):
