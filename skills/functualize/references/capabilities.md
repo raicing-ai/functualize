@@ -116,15 +116,36 @@ declaration alone does not qualify.
 
 ## Shell
 
-Callable for the common case, with context managers for scoping:
+Callable for the common case — a list of argv tokens — with context managers
+for scoping:
 
 ```python
-sh("ls -la")
+sh(["ls", "-la"])
 with sh.cd("/tmp"):
-    sh("pwd")
+    sh(["pwd"])
 with sh.prefix("docker exec web"):
-    sh("ps aux")
+    sh(["ps", "aux"])
 ```
+
+A raw string is a different declaration, and must say which one it is. With
+`shell=True` it is a shell line — pipes, globs, redirection — handed to the
+shell verbatim:
+
+```python
+sh("ps aux | grep web", shell=True)
+```
+
+With template params it is a quoted, split-to-argv invocation — no shell
+involved. Params are `shlex.quote`-d before interpolation:
+
+```python
+sh("git commit -m {msg}", msg="Release v1.0")
+```
+
+A bare raw string — no `shell=True`, no template params — is refused with
+`ValueError: Raw string commands require shell=True (for shell interpretation) or template params (auto-quoted), never a silent split`. The ambiguity is real: `ps aux` could be a shell line or a program
+name, and silently splitting it would guess. The capability never guesses —
+say which form you mean.
 
 `sh.defer(cmd)` queues cleanup; `sh.run_deferred()` runs it. Command output is
 redacted against the job's secret values.
