@@ -214,7 +214,7 @@ is a separate question, answered by `release.yml` and set out in
 | functualize-ai-pydantic | 1 — Ready | 1 | PydanticAI provider bridge |
 | functualize-secrets-aws | 2 — Bundled | 0 | AWS Secrets Manager and SSM Parameter Store credential providers. Included in the PyPI upload; opt-in outside `[all]` |
 | functualize-secrets-bitwarden | 2 — Bundled | 0 | Bitwarden Secrets Manager credential provider. Included in the PyPI upload; opt-in outside `[all]` (see `pyproject.toml`) |
-| functualize-decision-jev | 3 — Experimental | 0 | Jev decision-provider adapter; its own README declares it Tier 3. Built **and** uploaded, at `version = "0.1.0"` while its siblings are at `0.4.0` |
+| functualize-decision-jev | 3 — Experimental | 0 | Jev decision-provider adapter; its own README declares it Tier 3. Built **and** uploaded, at `version = "0.5.0"` with its siblings |
 | functualize-fullscreen-tui | 3 — Experimental | — | **Not a package.** No `pyproject.toml`, so it is not a uv workspace member and is never built or published. Source and tests only |
 
 The Level column is the plugin-to-plugin level from

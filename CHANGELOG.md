@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-10
+
 ### Changed — one arity per pre-boot flag, and one exit code for a wrong value
 
 Every flag `func` reads before boot is boolean or value-required — never
@@ -2743,7 +2745,8 @@ function knowing which.
   through the injected `Log` is deferred to a later release.
   *(Fixed in 0.1.1.)*
 
-[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/raicing-ai/functualize/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/raicing-ai/functualize/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/raicing-ai/functualize/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/raicing-ai/functualize/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/raicing-ai/functualize/compare/v0.2.2...v0.2.3
