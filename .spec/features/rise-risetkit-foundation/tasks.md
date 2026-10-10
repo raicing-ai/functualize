@@ -1,18 +1,19 @@
 # Rise / RiseKit foundation — tasks
 
-Execute against `spec.md` (revision 4.1), `contracts.md` and `plan.md`.
+Execute against `spec.md` (**revision 5: Rise v1 on the 0.5.0 cut**),
+`contracts.md` and `plan.md`.
 
 - **Wave ordering is binding.** No task in wave N+1 starts while wave N holds an
   unchecked task.
-- **Wave 9 (T14) is a hard stop.** Execute halts there until class discovery
-  (P-1) has merged to `master`.
-- **Execute does not begin** until the owner has answered the two items
-  `/agentic-plan` step 11 puts to them: the 4.1 amendments, and the
-  *Dead Code (transitional)* smell in plan.md § *Surviving smells*.
+- **[5] No core dependency.** Every task runs on Functualize 0.5.0's public
+  API. Revision 4.1's class-discovery checkpoint is removed, and provider-owned
+  binding (T14) stands in for it.
+- **Execute does not begin** until the owner has confirmed revision 5 (spec
+  §11) and approved shape amendment A-1 on SD/5407068.
 
 ## Gates
 
-Gates were measured on `ba36b859` + this branch, 2026-10-05.
+Gates were measured on `ba36b859` + this branch, 2026-10-05, and re-checked on `4e816a0f` (0.5.0 base), 2026-10-10, with unchanged results.
 
 | Gate | Command | Asserts | Authoring-time state |
 |---|---|---|---|
@@ -42,7 +43,8 @@ it with the tip tier, not a local full run.
     `ls contributor/adr` first and take the next free number. It carries
     B1–B6, the side-ownership table, and the AFTER diagram from plan.md.
   - Add a *Rise and RiseKit* section to `.spec/ARCHITECTURE.md`. It states the
-    layering, cites SD/5407068 v18, and names P-1 as an external prerequisite.
+    layering, cites SD/5407068 v18 and amendment A-1, and names provider-owned
+    binding as the v1 stand-in for core class discovery (P-1).
   - *Files:* `contributor/adr/031-rise-layers-on-functualize.md` (new),
     `.spec/ARCHITECTURE.md`
   - *Gate:* the ADR contains "B1" through "B6" (`rg -c 'B[1-6]'` ≥ 6). No
@@ -55,7 +57,7 @@ it with the tip tier, not a local full run.
     and `plugins/substrates/functualize-rise-cloudflare/`. Each gets
     `pyproject.toml`, `README.md`, `LICENSE`, `NOTICE` and
     `src/<pkg>/__init__.py`, copied from the jev package's shape.
-  - Dependencies follow C1. Only `functualize-rise` declares the
+  - Dependencies follow C1, with `functualize>=0.5.0,<1.0.0` [5]. Only `functualize-rise` declares the
     `functualize.plugins` entry `rise = "functualize_rise.plugin:RisePlugin"`;
     `plugin.py` is a stub in this task.
   - Refresh `uv.lock`: workspace members are added, no dependency moves.
@@ -98,7 +100,7 @@ it with the tip tier, not a local full run.
     `secrets` as a source class only.
   - The file lives under Functualize's per-project cache directory. Use no
     module-level state.
-  - Mark `# TRANSITIONAL(T15): reached by rise up after class discovery (P-1)`.
+  - Mark `# TRANSITIONAL(T15): reached by rise up when T15 wires dispatch`.
   - *Files:* `…/functualize_rise/realization.py`,
     `tests/plugins/rise/test_realization.py`
   - *Gate:* append-then-read returns records in order. A second append never
@@ -114,15 +116,17 @@ it with the tip tier, not a local full run.
   - `Ref[T]` and `Ref["address"]` default to ordering + `required`. The
     optional and informational spellings are fixed here and documented in
     contracts.md C3; this task updates C3.
-  - Add a strict-xfail test: a `Secret[str]` field keeps its marker through the
-    `JobConfig` chain. It waits for T15.
+  - **[5]** Add a test that a `Secret[str]` field of a frozen subject keeps its
+    marker and is masked (`'•••'`) in the run record's `resolved_inputs` when
+    the subject is a job's config parameter. This was confirmed on 0.5.0 by
+    the spec §0 probe (F-2).
   - *Files:* `…/functualize_rise/subject.py`,
     `tests/plugins/rise/test_subject.py`, `.spec/features/rise-risetkit-foundation/contracts.md`
   - *Gate:*
     - a frozen instance refuses mutation;
     - two equal configurations compare equal;
     - the contract identity is readable from the class without instantiating it;
-    - the xfail is present and strict.
+    - the `Secret[str]` test passes on 0.5.0.
 
 ## Wave 5 — environments and descriptors
 
@@ -130,6 +134,9 @@ it with the tip tier, not a local full run.
   - S9–S13. An environment is recognized by the return annotation
     `-> Environment` of a job function.
   - Evaluation is lazy and fixed-values-only (S10).
+  - **[5]** Recognize `-> Environment` through `typing.get_type_hints`, so that a
+    module using `from __future__ import annotations` also works. Test both
+    forms.
   - The unscoped root is read from `[rise] root` in Functualize configuration.
     With no root and not exactly one environment, refuse with `USAGE` and list
     the addresses found.
@@ -153,7 +160,7 @@ it with the tip tier, not a local full run.
     - a changed source invalidates the cache;
     - no secret value appears, only `"secret": true`.
 
-## Wave 6 — the judges
+## Wave 6 — the judges, and the binding
 
 - [ ] **T9** `validate.py`: findings 1–10 and 12 of S15
   - Finding 11 (descriptor vs runtime metadata) lands in T16.
@@ -171,7 +178,7 @@ it with the tip tier, not a local full run.
     - deterministic order (dependencies first, ties alphabetical);
     - a root record last;
     - a failed observation becomes a record, never a traceback.
-  - Mark `# TRANSITIONAL(T15): observe() is bound to Invoke after class discovery (P-1)`.
+  - Mark `# TRANSITIONAL(T15): observe() is bound to Invoke in T15`.
   - *Files:* `…/functualize_rise/diagnose.py`,
     `tests/plugins/rise/test_diagnose.py`
   - *Gate:*
@@ -180,6 +187,30 @@ it with the tip tier, not a local full run.
     - an optional failure leaves the parent `pass`, and a required one fails it;
     - an observer that raises yields `observation_error`;
     - the canary secret is absent (G-secret).
+
+- [ ] **T14** **[5]** `binding.py`: `bind(*classes) -> list[Job]`
+  - One `Job` per (class, operation), named per contracts C5: group
+    `<ns>.<name>.<candidate>` (local: the class `group` or
+    `local.<snake_class_name>`), and name `<group>.<verb>`.
+  - The wrapper's parameters are `subject: <class>` (the job config model) and
+    `address: str`. It calls the unbound method on the resolved subject and
+    returns its value.
+  - The declaration is the method's own `JobDeclaration` (from
+    `__functualize_job__`, documented at `docs/guides/jobs-discovery.md:377`),
+    with `rise:op:*`, `rise:implements:*` and `effect:*` appended through
+    `dataclasses.replace`. Never re-apply `@job` (spec §0, F-5).
+  - Refuse a missing `candidate` on a contract implementation. Refuse a
+    duplicate name within one call, naming both classes.
+  - *Files:* `…/functualize_rise/binding.py`,
+    `tests/plugins/rise/test_binding.py`
+  - *Gate:* in an app booted with an explicit plugin that calls `bind`:
+    - the jobs list as `cloudflare`-shaped fixture groups;
+    - `declaration.tags` holds the three generated tags, **and** an author's
+      `@job(category=…)` survives;
+    - a field resolves from `[<group>.<verb>]` in `config.base.toml`;
+    - a flattened kwarg beats that file value (the explicit tier, F-4);
+    - **reachability:** dropping the `add_job_provider` call makes the listing
+      test fail.
 
 ## Wave 7 — the first production path, and the toolkit
 
@@ -212,50 +243,45 @@ it with the tip tier, not a local full run.
 
 ## Wave 8 — the provider, offline
 
-- [ ] **T13** `functualize-rise-cloudflare`: contracts, providers, transport
+- [ ] **T13** `functualize-rise-cloudflare`: contracts, providers, transport, binding plugin
   - `D1Database` (`cloudflare.d1@1`) and `WorkerScript` (`cloudflare.worker@1`,
     with a `Ref` to D1, `required`), per C3.
-  - `CloudflareApiD1` and `CloudflareApiWorker`.
+  - `CloudflareApiD1` and `CloudflareApiWorker`, each with `candidate = "api"`.
   - A transport with a real HTTP client and a fake.
   - The token is a `Secret[str]` configuration field (S31).
+  - **[5]** `plugin.py`: a module-level `plugin` that registers
+    `StaticProvider(bind(CloudflareApiD1, CloudflareApiWorker))`, marked
+    `# TRANSITIONAL(P-1): delete when core class discovery ships`. Declare it
+    under `functualize.plugins` as `rise-cloudflare` (contracts C2), in the
+    package's `pyproject.toml`.
   - *Files:* `plugins/substrates/functualize-rise-cloudflare/src/functualize_rise_cloudflare/contracts.py`,
-    `…/providers.py`, `…/transport.py`, `tests/plugins/rise/test_cloudflare_offline.py`
+    `…/providers.py`, `…/transport.py`, `…/plugin.py`,
+    `plugins/substrates/functualize-rise-cloudflare/pyproject.toml`,
+    `tests/plugins/rise/test_cloudflare_offline.py`
   - *Gate:*
     - `assert_conformant` passes both providers;
-    - against the fake, `up` creates when absent and changes nothing when
-      present (S29);
-    - methods are called directly **in tests only**, and no Rise module calls
-      them (`rg -n 'CloudflareApi' plugins/domains/functualize-rise` is empty).
+    - in an app booted with the provider plugin, the jobs
+      `cloudflare.d1.api.up` and `cloudflare.d1.api.diagnose` are listed;
+    - run through `app.execute` against the fake, `up` creates when absent and
+      changes nothing when present (S29);
+    - no Rise module names a provider class
+      (`rg -n 'CloudflareApi' plugins/domains/functualize-rise` is empty).
 
-## Wave 9 — checkpoint: class discovery (P-1)
-
-- [ ] **T14** STOP until P-1 is on `master`
-  - Not work: a gate.
-  - *Gate:*
-    - `git log origin/master` shows the class-discovery merge;
-    - it meets contracts.md C11 point by point: canonical job per (class,
-      method), address-carrying invocation, merge-not-replace class tags, and
-      literal-fixed fields.
-    - Record the merge sha here.
-    - **Any C11 point unmet returns this feature to Specify. It is never
-      worked around.**
-
-## Wave 10 — dispatch
+## Wave 9 — dispatch
 
 - [ ] **T15** `up.py`, and `rise diagnose` / `rise up` through `Invoke`
-  - `observe` is bound to `Invoke(<canonical diagnose job>, address)`, and `up`
-    to `Invoke(<canonical up job>, address)` (B4, S21, S23).
+  - `observe` is bound to `Invoke(<canonical diagnose job>, address=…,
+    **literal_fields)`, and `up` likewise (B4, S21, S23). Literal fields are
+    the instance's `model_fields_set`: the explicit tier (spec S6, F-4).
   - Single-candidate selection: several candidates refuse with `REFUSED` and
     list them (S24). A destructive role is refused (S27).
   - Dependency-ordered `up` (S25). Each realization is appended through
     `LocalRealizationStore` (S26).
   - Register the `diagnose` and `up` jobs in `RisePlugin`, and remove the
     T8/T10 `TRANSITIONAL` markers.
-  - Flip T5's xfail.
   - *Files:* `…/functualize_rise/up.py`, `…/functualize_rise/jobs.py`,
     `…/functualize_rise/plugin.py`, `…/functualize_rise/diagnose.py`,
-    `…/functualize_rise/realization.py`, `tests/plugins/rise/test_cli_dispatch.py`,
-    `tests/plugins/rise/test_subject.py`
+    `…/functualize_rise/realization.py`, `tests/plugins/rise/test_cli_dispatch.py`
   - *Gate:*
     - the run record of each operation shows a child run under the `rise`
       command (ancestry);
@@ -265,16 +291,21 @@ it with the tip tier, not a local full run.
       file;
     - **reachability:** removing the `Invoke` binding makes the dispatch test
       fail.
-- [ ] **T16** Generated tags through P-1's merge hook, and validate finding 11
-  - `Subject.__init_subclass__` contributes `rise:op:*`, `rise:implements:*` and
-    `effect:*` through the hook C11 names, merged with any author `@job(...)`.
-  - Validation finding 11 compares the descriptor with the runtime tags.
-  - *Files:* `…/functualize_rise/subject.py`, `…/functualize_rise/roles.py`,
-    `…/functualize_rise/validate.py`, `tests/plugins/rise/test_tags.py`
+## Wave 10 — the binding judged
+
+- [ ] **T16** **[5]** Validate findings 11 and 13 against the bound jobs
+  - Finding 11 compares the generated descriptor with the bound job's
+    `declaration.tags` and parameters.
+  - Finding 13 checks that every in-scope contract operation has its canonical
+    job registered (spec S15.13). That covers an unbound class and a name lost
+    to a cross-plugin collision.
+  - *Files:* `…/functualize_rise/validate.py`, `tests/plugins/rise/test_validate_bound.py`
   - *Gate:*
     - `func builtin info` lists the three tags on a fixture's canonical job;
-    - an author `@job(timeout=…)` survives the merge;
-    - a hand-edited descriptor mismatch yields finding 11.
+    - a hand-edited descriptor mismatch yields finding 11;
+    - an environment referencing a class whose plugin is not loaded yields
+      finding 13;
+    - so do two plugins binding the same canonical name.
 
 ## Wave 11 — the forcing case end to end
 
@@ -297,14 +328,21 @@ it with the tip tier, not a local full run.
 - [ ] **T18** Traceability, status, the full quality run
   - Add the traceability table to `research.md` § *Traceability review*: every
     package, public name and acceptance criterion maps to a spec §8 row (AC-14).
-  - Add the `.spec/STATUS.md` open-features entry.
+  - Add the `.spec/STATUS.md` open-features entry. It records the v1
+    limitations (per-operation config sections and vault entries, spec S6/S7),
+    the core finding F-7 (`get_job_config_section` disagrees with the run) for a
+    separate ticket, and the migration triggers P-1, P-8 and vault v3.
+  - **[5]** Add a `README.md` section to the provider showing the
+    per-operation vault entries. Verify the exact `--job` target spelling by
+    running `func builtin vault put --job cloudflare.d1.api.up --field
+    api_token` in a scratch project **before** writing it.
   - Run every gate, the five quality commands
     (`ruff check`, `ruff format --check`, `mypy src/`, `lint-imports`,
     `pytest`), and
     `uv run python .github/scripts/dead_code_delta.py origin/master HEAD`.
     Classify each finding KNOWN or UNMARKED.
   - *Files:* `.spec/features/rise-risetkit-foundation/research.md`,
-    `.spec/STATUS.md`
+    `.spec/STATUS.md`, `plugins/substrates/functualize-rise-cloudflare/README.md`
   - *Gate:*
     - all gates in § *Gates* are clean;
     - all five commands pass;
@@ -321,11 +359,11 @@ it with the tip tier, not a local full run.
     { "id": 3, "tasks": ["T4", "T8"] },
     { "id": 4, "tasks": ["T5"] },
     { "id": 5, "tasks": ["T6", "T7"] },
-    { "id": 6, "tasks": ["T9", "T10"] },
+    { "id": 6, "tasks": ["T9", "T10", "T14"] },
     { "id": 7, "tasks": ["T11", "T12"] },
     { "id": 8, "tasks": ["T13"] },
-    { "id": 9, "tasks": ["T14"] },
-    { "id": 10, "tasks": ["T15", "T16"] },
+    { "id": 9, "tasks": ["T15"] },
+    { "id": 10, "tasks": ["T16"] },
     { "id": 11, "tasks": ["T17"] },
     { "id": 12, "tasks": ["T18"] }
   ]
