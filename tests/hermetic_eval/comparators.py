@@ -39,6 +39,7 @@ __all__ = [
     "FrontierRouter",
     "TimeoutExpired",
     "build_schema",
+    "canonical_schema",
     "hermetic",
     "hermetic_identity",
     "identity_sha256",
@@ -193,32 +194,25 @@ class FrontierRouter:
 
     def choose(self, request: ChoiceRequest) -> DecisionResult[str]:
         if self._cli_version is None:
-            _, version, _ = self._run([_CODEX, "--version"], self._cwd, self._timeout)
+            try:
+                _, version, _ = self._run(
+                    [_CODEX, "--version"], self._cwd, self._timeout
+                )
+            except TimeoutExpired as exc:
+                # B-8: a timeout anywhere in the call, the version probe
+                # included, is a recorded failed comparison — never an escape.
+                raise self._timeout_failure() from exc
             self._cli_version = version.strip()
         prompt = _render_prompt(request)
         argv = self.argv(prompt)
         if not self._schema_path.exists():
-            self._schema_path.write_text(
-                json.dumps(build_schema(request.options)), encoding="utf-8"
-            )
+            self._schema_path.write_bytes(canonical_schema(request.options))
         self._last_path.unlink(missing_ok=True)
         started = time.monotonic()
         try:
             code, stdout, stderr = self._run(argv, self._cwd, self._timeout)
         except TimeoutExpired as exc:
-            self.calls.append(
-                FrontierCall(
-                    cli_version=self._cli_version,
-                    model=None,
-                    model_mismatch=False,
-                    usage=None,
-                )
-            )
-            raise DecisionUnavailableError(
-                kind=DecisionFailure.UNREACHABLE,
-                provider=self.name,
-                detail=f"timeout after {self._timeout}s",
-            ) from exc
+            raise self._timeout_failure() from exc
         elapsed = time.monotonic() - started
         usage, named_model = _parse_events(stdout)
         call = FrontierCall(
@@ -281,6 +275,22 @@ class FrontierRouter:
             confidence=None,
         )
 
+    def _timeout_failure(self) -> DecisionUnavailableError:
+        """The failure a timeout maps to, its call recorded (C-3, B-8)."""
+        self.calls.append(
+            FrontierCall(
+                cli_version=self._cli_version,
+                model=None,
+                model_mismatch=False,
+                usage=None,
+            )
+        )
+        return DecisionUnavailableError(
+            kind=DecisionFailure.UNREACHABLE,
+            provider=self.name,
+            detail=f"timeout after {self._timeout}s",
+        )
+
     def _read_last(self) -> dict[str, Any] | None:
         try:
             payload = json.loads(self._last_path.read_text(encoding="utf-8"))
@@ -315,10 +325,16 @@ class FrontierRouter:
         ]
 
     def identity(self) -> dict[str, object]:
+        from tests.hermetic_eval._router import load_router
+
         argv = self.argv("PROMPT")
         argv[_SCHEMA_INDEX] = "SCHEMA_PATH"
         argv[_LAST_INDEX] = "LAST_PATH"
         argv[_CWD_INDEX] = "CWD"
+        # B-6 pins the gate's options to ROUTER's, so the schema those options
+        # build is the schema every cell emitted — hashing its canonical bytes
+        # makes a schema change move this digest and refuse the old lock (B-5).
+        options = dict(load_router().ROUTER.options)
         return {
             "comparator": self.name,
             "cli": _CODEX,
@@ -328,7 +344,7 @@ class FrontierRouter:
             "prompt_template_sha256": sha256(
                 PROMPT_TEMPLATE.encode("utf-8")
             ).hexdigest(),
-            "schema_builder": "v1",
+            "schema_sha256": sha256(canonical_schema(options)).hexdigest(),
         }
 
 
@@ -366,6 +382,16 @@ def build_schema(options: Mapping[str, str]) -> dict[str, Any]:
         "required": ["choice", "probabilities"],
         "additionalProperties": False,
     }
+
+
+def canonical_schema(options: Mapping[str, str]) -> bytes:
+    """The exact bytes a ``choose`` writes to the schema file.
+
+    One serialization serves both the emitted file and the identity's
+    ``schema_sha256``, so the digest the lock pins is the request contract the
+    CLI actually received.
+    """
+    return json.dumps(build_schema(options)).encode("utf-8")
 
 
 def _render_prompt(request: ChoiceRequest) -> str:

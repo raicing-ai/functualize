@@ -164,34 +164,56 @@ def _comparator_document(rows: Sequence[Row]) -> dict[str, Any]:
     }
 
 
+def _provenance(runs: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """The B-23 block every artifact carries, so each stands alone.
+
+    Corpus version and digest, each run's id, identity digest and ledger
+    digest, and the repository commit the runs measured from.
+    """
+    commits = {run["header"].get("repo_commit") for run in runs.values()}
+    return {
+        "corpus": {
+            "version": runs["hermetic"]["header"].get("corpus"),
+            "sha256": runs["hermetic"]["header"].get("scenarios_sha256"),
+        },
+        "runs": {
+            comparator: {
+                "run_id": runs[comparator]["header"].get("run_id"),
+                "identity_sha256": runs[comparator]["header"].get("identity_sha256"),
+                "ledger_sha256": _sha256_file(
+                    runs[comparator]["run_dir"] / "cells.jsonl"
+                ),
+                "started_at": runs[comparator]["header"].get("started_at"),
+                "cells": len(runs[comparator]["rows"]),
+            }
+            for comparator in replay.COMPARATORS
+        },
+        "repo_commit": commits.pop() if len(commits) == 1 else "mixed",
+    }
+
+
+def _provenance_lines(runs: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """The B-23 block as markdown, for the two prose documents."""
+    provenance = _provenance(runs)
+    lines = ["## Provenance", ""]
+    for comparator in sorted(replay.COMPARATORS):
+        entry = provenance["runs"][comparator]
+        lines.append(
+            f"- **{comparator}** — run `{entry['run_id']}`, identity "
+            f"`{entry['identity_sha256']}`, ledger `{entry['ledger_sha256']}`, "
+            f"{entry['cells']} cells."
+        )
+    lines.append(f"- Repository commit `{provenance['repo_commit']}`.")
+    return lines
+
+
 def _metrics_document(
     runs: Mapping[str, Mapping[str, Any]],
     comparators: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     """The whole of S-3."""
-    commits = {run["header"].get("repo_commit") for run in runs.values()}
     return {
-        "provenance": {
-            "corpus": {
-                "version": runs["hermetic"]["header"].get("corpus"),
-                "sha256": runs["hermetic"]["header"].get("scenarios_sha256"),
-            },
-            "runs": {
-                comparator: {
-                    "run_id": runs[comparator]["header"].get("run_id"),
-                    "identity_sha256": runs[comparator]["header"].get(
-                        "identity_sha256"
-                    ),
-                    "ledger_sha256": _sha256_file(
-                        runs[comparator]["run_dir"] / "cells.jsonl"
-                    ),
-                    "started_at": runs[comparator]["header"].get("started_at"),
-                    "cells": len(runs[comparator]["rows"]),
-                }
-                for comparator in replay.COMPARATORS
-            },
-            "repo_commit": commits.pop() if len(commits) == 1 else "mixed",
-        },
+        "provenance": _provenance(runs),
         "comparators": {
             comparator: comparators[comparator] for comparator in replay.COMPARATORS
         },
@@ -211,6 +233,7 @@ def _boundary_document(
     """The whole of C-9, verdict and uncertainty included."""
     header = runs["hermetic"]["header"]
     document: dict[str, Any] = {
+        "provenance": _provenance(runs),
         "corpus": {
             "version": header.get("corpus"),
             "sha256": header.get("scenarios_sha256"),
@@ -259,6 +282,8 @@ def _benchmark(
         "",
         f"Corpus `{runs['hermetic']['header'].get('corpus')}`, "
         f"sha256 `{runs['hermetic']['header'].get('scenarios_sha256')}`.",
+        "",
+        *_provenance_lines(runs),
         "",
         "## Summary",
         "",
@@ -450,18 +475,11 @@ def _finding(
         f"Corpus `{header.get('corpus')}`, "
         f"scenarios sha256 `{header.get('scenarios_sha256')}`.",
         "",
-        "## Provenance",
+        *_provenance_lines(runs),
+        "",
+        "## Boundary",
         "",
     ]
-    for comparator in sorted(replay.COMPARATORS):
-        run = runs[comparator]
-        lines.append(
-            f"- **{comparator}** — run `{run['header'].get('run_id')}` from "
-            f"`{run['header'].get('repo_commit')}`, identity "
-            f"`{run['header'].get('identity_sha256')}`, "
-            f"{len(run['rows'])} cells."
-        )
-    lines.extend(["", "## Boundary", ""])
     lines.extend(_route_sentence(route, routes[route]) for route in corpus.ROUTES)
     lines.extend(
         [

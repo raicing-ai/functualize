@@ -10,7 +10,7 @@
   },
   "comparators": {
     "deterministic": "68e77f593b8abe1f849a3e07c3c90b51bb28fed4f3442b30fd7fec791f55b6f6",
-    "frontier": "c0f586d457ed86e6af330ccf0e64e039b0e5a685089e795dac4d35956edff595",
+    "frontier": "cd34a61f5766ad95f15f4630c8aaf822e944a2a9bc23593dd62c21f2745d70a8",
     "hermetic": "3fc899129e19f5e59051ec3d1798a23c6392e852a1f66656399e61ad1d67f756"
   },
   "count": 40,

@@ -77,8 +77,10 @@ option meanings alone.
   a named model and reasoning effort, constrained by `--output-schema` to
   `{"choice": <option>, "probabilities": {<option>: number, …}}`: `choice` is
   read as the proposal and `probabilities` as the distribution. Identity: CLI
-  version, model, effort, argv template, and the SHA-256 of the prompt template
-  and of the JSON schema.
+  (name only — the version is recorded per cell instead), model, effort, argv
+  template, and the SHA-256 of the prompt template and of the JSON schema's
+  canonical bytes — so a schema change moves the identity digest, refuses the
+  old corpus lock, and needs a new corpus version and a full re-run.
 - **deterministic** — an ordered table of case-insensitive regular expressions
   over `state` only; the first match proposes its route with the distribution
   `{route: 1.0, others: 0.0}`. No match proposes `human_review` with a uniform

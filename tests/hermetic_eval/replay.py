@@ -485,9 +485,18 @@ def main(
         if row["status"] == _INVALID_MODEL:
             print(_INVALID_MODEL)
             return 3
-        retry_after = failure.get("retry_after")
-        if failure.get("kind") == _RATE_LIMITED and retry_after is not None:
-            print(f"resume after {_iso(now() + timedelta(seconds=float(retry_after)))}")
+        if failure.get("kind") == _RATE_LIMITED:
+            # B-12: every rate-limit failure pauses the invocation — a provider
+            # that names no reset time pauses too, on "resume after unknown",
+            # rather than spending the next cells on a spent window.
+            retry_after = failure.get("retry_after")
+            if retry_after is None:
+                print("resume after unknown")
+            else:
+                print(
+                    f"resume after "
+                    f"{_iso(now() + timedelta(seconds=float(retry_after)))}"
+                )
             return 0
     print("run complete")
     return 0

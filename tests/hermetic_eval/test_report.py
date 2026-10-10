@@ -7,6 +7,7 @@ decision gate. Nothing here spawns a process (spec B-28).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -16,6 +17,7 @@ import pytest
 
 from tests.hermetic_eval import corpus, replay, report
 from tests.hermetic_eval.test_replay import (
+    _COMMIT,
     Fakes,
     argv,
     install_offline,
@@ -43,29 +45,38 @@ def runs(scenarios: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str,
 
     Module scoped: the three runs take forty-five cells, and no test here
     writes to a ledger it shares — the one that doctors a row copies it first.
+    A module-scoped fixture is built before any function-scoped autouse patch,
+    so the offline guard is installed around the runs themselves: otherwise the
+    header writer would spawn the one process these tests promise not to.
     """
-    root = scenarios.parents[1]
-    scratch = tmp_path_factory.mktemp("runs")
-    fakes = Fakes()
-    assert (
-        replay.main(
-            ["--freeze", "--corpus", "v1", "--corpus-root", str(root)],
-            factories=fakes.factories(),
-        )
-        == 0
-    )
-    directories: dict[str, Path] = {}
-    for comparator in replay.COMPARATORS:
-        run_dir = scratch / f"run-{comparator}"
+    patcher = pytest.MonkeyPatch()
+    install_offline(patcher)
+    try:
+        root = scenarios.parents[1]
+        scratch = tmp_path_factory.mktemp("runs")
+        fakes = Fakes()
         assert (
             replay.main(
-                argv(root, run_dir, comparator=comparator), factories=fakes.factories()
+                ["--freeze", "--corpus", "v1", "--corpus-root", str(root)],
+                factories=fakes.factories(),
             )
             == 0
         )
-        assert len(ledger(run_dir)) == 15
-        directories[comparator] = run_dir
-    return directories
+        directories: dict[str, Path] = {}
+        for comparator in replay.COMPARATORS:
+            run_dir = scratch / f"run-{comparator}"
+            assert (
+                replay.main(
+                    argv(root, run_dir, comparator=comparator),
+                    factories=fakes.factories(),
+                )
+                == 0
+            )
+            assert len(ledger(run_dir)) == 15
+            directories[comparator] = run_dir
+        return directories
+    finally:
+        patcher.undo()
 
 
 def _args(directories: dict[str, Path]) -> list[str]:
@@ -122,6 +133,27 @@ def test_every_document_carries_the_corpus_digest(
     digest = corpus.corpus_sha256(scenarios)
     for name in report.DOCUMENTS:
         assert digest in (out / name).read_text(encoding="utf-8")
+
+
+def test_every_document_carries_the_run_provenance(
+    runs: dict[str, Path], tmp_path: Path
+) -> None:
+    """B-23: each artifact alone names its runs, identities, ledgers, commit."""
+    out = tmp_path / "out"
+    assert report.main([*_args(runs), "--out", str(out)]) == 0
+    for name in report.DOCUMENTS:
+        text = (out / name).read_text(encoding="utf-8")
+        for comparator in replay.COMPARATORS:
+            header = json.loads(
+                (runs[comparator] / "run.json").read_text(encoding="utf-8")
+            )
+            ledger_sha = hashlib.sha256(
+                (runs[comparator] / "cells.jsonl").read_bytes()
+            ).hexdigest()
+            assert header["run_id"] in text
+            assert header["identity_sha256"] in text
+            assert ledger_sha in text
+        assert _COMMIT in text
 
 
 def test_a_row_that_contradicts_the_rule_refuses_to_report(

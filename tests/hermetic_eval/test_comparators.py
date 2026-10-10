@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from functualize.plugin import (
     DecisionUnavailableError,
 )
 from tests.hermetic_eval import comparators
+from tests.hermetic_eval._router import load_router
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -67,6 +69,7 @@ class FakeRunner:
         stderr: str = "",
         last: str | None = None,
         timeout: bool = False,
+        version_timeout: bool = False,
         version: str = "codex-cli 0.156.1",
     ) -> None:
         self.stdout = stdout
@@ -74,6 +77,7 @@ class FakeRunner:
         self.stderr = stderr
         self.last = last
         self.timeout = timeout
+        self.version_timeout = version_timeout
         self.version = version
         self.calls: list[tuple[list[str], str, float]] = []
 
@@ -82,6 +86,8 @@ class FakeRunner:
     ) -> tuple[int, str, str]:
         self.calls.append((argv, cwd, timeout))
         if argv[1:] == ["--version"]:
+            if self.version_timeout:
+                raise comparators.TimeoutExpired(argv, timeout)
             return 0, f"{self.version}\n", ""
         if self.timeout:
             raise comparators.TimeoutExpired(argv, timeout)
@@ -167,7 +173,6 @@ def test_frontier_identity_holds_placeholders(tmp_path: Path) -> None:
     identity = router.identity()
     assert identity["comparator"] == "frontier"
     assert identity["model"] == "gpt-6-astra"
-    assert identity["schema_builder"] == "v1"
     argv = identity["argv"]
     assert argv[4] == "SCHEMA_PATH"
     assert argv[6] == "LAST_PATH"
@@ -177,6 +182,38 @@ def test_frontier_identity_holds_placeholders(tmp_path: Path) -> None:
         identity["prompt_template_sha256"]
         == hashlib.sha256(comparators.PROMPT_TEMPLATE.encode("utf-8")).hexdigest()
     )
+    options = dict(load_router().ROUTER.options)
+    assert (
+        identity["schema_sha256"]
+        == hashlib.sha256(comparators.canonical_schema(options)).hexdigest()
+    )
+
+
+def test_the_identity_digest_follows_the_emitted_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B-5/B-6: a changed schema moves the identity digest the lock pins."""
+    original = comparators.build_schema
+
+    def drifted(options: Mapping[str, str]) -> dict[str, Any]:
+        schema = original(options)
+        schema["properties"]["choice"]["minLength"] = 1
+        return schema
+
+    router = _router(tmp_path, FakeRunner())
+    before = comparators.identity_sha256(router.identity())
+    monkeypatch.setattr(comparators, "build_schema", drifted)
+    assert comparators.identity_sha256(router.identity()) != before
+
+
+def test_the_emitted_schema_file_is_the_identity_s_bytes(tmp_path: Path) -> None:
+    """The schema a choose writes is byte-identical to what the identity hashes."""
+    runner = FakeRunner(stdout=SUCCESS_EVENTS, last=SUCCESS_LAST)
+    router = _router(tmp_path, runner)
+    router.choose(_request())
+    written = (tmp_path / "frontier-schema.json").read_bytes()
+    options = dict(load_router().ROUTER.options)
+    assert written == comparators.canonical_schema(options)
 
 
 def test_frontier_success_fixture_maps_to_a_result(tmp_path: Path) -> None:
@@ -274,6 +311,24 @@ def test_a_timeout_maps_to_unreachable(tmp_path: Path) -> None:
         router.choose(_request())
     assert caught.value.kind is DecisionFailure.UNREACHABLE
     assert caught.value.detail == "timeout after 180.0s"
+
+
+def test_a_version_probe_timeout_maps_to_unreachable(tmp_path: Path) -> None:
+    """B-8/AC-4: a timeout in the version probe is a failed comparison, not an
+    exception that escapes the gate and loses the cell."""
+    router = _router(
+        tmp_path,
+        FakeRunner(version_timeout=True, stdout=SUCCESS_EVENTS, last=SUCCESS_LAST),
+    )
+    with pytest.raises(DecisionUnavailableError) as caught:
+        router.choose(_request())
+    assert caught.value.kind is DecisionFailure.UNREACHABLE
+    assert caught.value.detail == "timeout after 180.0s"
+    assert router.calls == [
+        comparators.FrontierCall(
+            cli_version=None, model=None, model_mismatch=False, usage=None
+        )
+    ]
 
 
 def test_deterministic_rules_are_one_hot_and_uniform_on_a_miss() -> None:

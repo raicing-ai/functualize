@@ -67,11 +67,17 @@ class FakeProvider:
     """A comparator that answers from a script and records what it was asked."""
 
     def __init__(
-        self, name: str, *, mismatch: bool = False, fail_at: int | None = None
+        self,
+        name: str,
+        *,
+        mismatch: bool = False,
+        fail_at: int | None = None,
+        retry_after: float | None = 19014.0,
     ) -> None:
         self.name = name
         self.mismatch = mismatch
         self.fail_at = fail_at
+        self.retry_after = retry_after
         self.requests: list[ChoiceRequest] = []
         self.calls: list[FrontierCall] = []
 
@@ -83,7 +89,7 @@ class FakeProvider:
                 kind=DecisionFailure.RATE_LIMITED,
                 provider="fake",
                 status=429,
-                retry_after=19014.0,
+                retry_after=self.retry_after,
                 detail="Rate limit exceeded",
             )
         self.calls.append(
@@ -112,14 +118,26 @@ class FakeProvider:
 class Fakes:
     """The three injected comparators, rebuilt on every factory call."""
 
-    def __init__(self, *, mismatch: bool = False, fail_at: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        mismatch: bool = False,
+        fail_at: int | None = None,
+        retry_after: float | None = 19014.0,
+    ) -> None:
         self.mismatch = mismatch
         self.fail_at = fail_at
+        self.retry_after = retry_after
         self.providers: dict[str, FakeProvider] = {}
 
     def _factory(self, name: str) -> Callable[[Path], tuple[DecisionProvider, Any]]:
         def build(_run_dir: Path) -> tuple[DecisionProvider, Any]:
-            provider = FakeProvider(name, mismatch=self.mismatch, fail_at=self.fail_at)
+            provider = FakeProvider(
+                name,
+                mismatch=self.mismatch,
+                fail_at=self.fail_at,
+                retry_after=self.retry_after,
+            )
             self.providers[name] = provider
             return (provider, {"comparator": name, "fake": True})
 
@@ -354,6 +372,40 @@ def test_a_rate_limited_cell_pauses_and_resumes(
     assert len(after) == len(SCENARIOS) * 5
     assert after[:2] == rows
     assert resumed.provider().requests
+    assert len(resumed.provider().requests) == len(after) - 2
+
+
+def test_an_unknown_rate_limit_reset_pauses_the_run(
+    frozen: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """B-12: a rate limit that names no reset time still pauses the invocation."""
+    run_dir = tmp_path / "run"
+    failing = Fakes(fail_at=2, retry_after=None)
+
+    def explode(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("the replay command must never sleep")
+
+    monkeypatch.setattr(time, "sleep", explode)
+    first = replay.main(argv(frozen, run_dir), factories=failing.factories())
+    assert first == 0
+    assert "resume after unknown" in capsys.readouterr().out
+    rows = ledger(run_dir)
+    assert len(rows) == 2
+    assert rows[1]["status"] == "failed"
+    assert rows[1]["failure"]["kind"] == "rate_limited"
+    assert rows[1]["failure"]["retry_after"] is None
+    assert rows[1]["route"] == "human_review"
+    assert failing.provider().requests and len(failing.provider().requests) == 2
+
+    resumed = Fakes()
+    seconded = replay.main(argv(frozen, run_dir), factories=resumed.factories())
+    assert seconded == 0
+    after = ledger(run_dir)
+    assert len(after) == len(SCENARIOS) * 5
+    assert after[:2] == rows
     assert len(resumed.provider().requests) == len(after) - 2
 
 
