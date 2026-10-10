@@ -81,21 +81,31 @@ Reprovision direct values and run `vault sync` for provider entries afterward.
 JSON refusal reasons include `scope_required`, `unknown_group`, and
 `vault_format_unsupported`.
 
+### Changed — credential plugins join the release upload; AWS becomes opt-in
+
+The release workflow now includes `functualize-secrets-aws` and
+`functualize-secrets-bitwarden` in the PyPI upload. AWS is no longer in
+`functualize[all]`: install `functualize-secrets-aws` separately for the
+`aws-sm://` and `aws-ssm://` providers. The standalone binary bakes `[all]`
+and therefore no longer includes those providers by default; add them with
+`func builtin plugin install functualize-secrets-aws`. Bitwarden remains
+outside `[all]`.
+
 ### Changed — the deferred credentials plugins are renamed with a secrets prefix
 
-The two credentials plugins that have not launched yet are renamed before their
-first release: distribution and directory `functualize-aws` becomes
-`functualize-secrets-aws`, `functualize-bitwarden` becomes
-`functualize-secrets-bitwarden`, and the import packages `functualize_aws` /
-`functualize_bitwarden` become `functualize_secrets_aws` /
-`functualize_secrets_bitwarden` to match.
+The two credentials plugins were renamed before their first release:
+distribution and directory `functualize-aws` became
+`functualize-secrets-aws`; `functualize-bitwarden` became
+`functualize-secrets-bitwarden`. Their import packages changed from
+`functualize_aws` and `functualize_bitwarden` to `functualize_secrets_aws`
+and `functualize_secrets_bitwarden`.
 
-**Neither package was ever published to PyPI**, so no released artifact, index
-name or install instruction changes. What deliberately stays as it was: the URL
+**Neither package had been published to PyPI at the time of the rename**, so
+no released artifact, index name or install instruction changed. The URL
 schemes `aws-sm://`, `aws-ssm://` and `bws://`, the `functualize.remote_providers`
-entry-point group and its keys, and the provider class names. Both plugins
-remain deferred — the release workflow still strips them from the upload until
-their intentional one-per-release launch.
+entry-point group and its keys, and the provider class names stayed the same.
+The release workflow still excluded both distributions from its PyPI upload at
+that point.
 
 ### Fixed — the secret scan no longer fails a pull request for another branch's finding
 
