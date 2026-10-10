@@ -225,44 +225,35 @@ def wire_entry_point_jobs(app: Any) -> None:
 def _select_runtime_store(app: Any) -> tuple[RuntimeStore, StoreSubstrate]:
     """Boot step 6.5 — select and prepare the one runtime store, uncaught.
 
-    FUN-17/T11. Today's selection is the only store that ships:
-    ``DocumentRuntimeStore`` over the project's substrate — the host's
-    installed override when a plugin left one, otherwise
-    ``substrate_for_project``. A factory registry and ``prepare()`` proper
-    (migrations, a health check) arrive with the backend plugins
-    (FUN-19/FUN-22); what cannot wait for them is the shape: the store exists
-    **before** the engine is built, and a failure here **aborts boot** —
-    nothing catches it, which is the whole of the B2 fix. Wrapping this step
-    in a log-and-continue would reintroduce the silent degradation it exists
-    to remove, and must not change what an ``APP_READY`` hook means: a failing
-    *hook* is still caught by its own loop, only selection is not catchable.
-
-    Since T12 this is the **only** place either answer is read. The engine
-    receives what this returns and has no resolution of its own, so a plugin
-    that installs a substrate after this point is refused rather than half
-    applied (``_app/impl.install_substrate``), and one that installs before it
-    — at plugin registration — is honoured on both paths. A plugin whose
-    choice reads its own config *offers* instead, and is asked here, first
-    thing (:func:`_resolve_substrate_claim`): configuration has resolved by
-    now on both paths, and the store has not been chosen.
+    The one call both boot paths make. The selection itself lives in
+    :mod:`functualize._app.store_selection`: ``runtime_store.url`` names a
+    scheme, the factory registered under it (boot's own ``documents`` factory
+    by default, see :func:`_register_builtin_store_factory`) prepares the
+    store, and the store's profile is checked against what this configuration
+    requires. A failure anywhere in it **aborts boot** — nothing catches it,
+    which is the whole of the B2 fix. Wrapping this step in a log-and-continue
+    would reintroduce the silent degradation it exists to remove.
 
     The substrate is selected in the same step and returned beside the
     store: the engine's freshness ledger and scope records still speak
     ``StoreSubstrate`` (D-9), and one selection serving both is what keeps
-    them on one backend — folding the two into one argument would merge
-    derived-fingerprint storage with runtime truth, the drift this
-    initiative exists to prevent.
+    them on one backend.
     """
-    from functualize._primitives.document_store import DocumentRuntimeStore
-    from functualize._primitives.substrate import substrate_for_project
+    from functualize._app.store_selection import select_runtime_store
 
-    _resolve_substrate_claim(app)
-    substrate = app.substrate_override or substrate_for_project(app.fresh_root)
-    store = DocumentRuntimeStore(substrate)
-    # T13: the store's profile against what this configuration requires.
-    # Same refusal discipline as everything above — uncaught, no fallback.
-    check_required_capabilities(store.profile, _required_capabilities(app))
-    return store, substrate
+    return select_runtime_store(app)
+
+
+def _register_builtin_store_factory(app: Any) -> None:
+    """Register the ``documents`` store through the door plugins use.
+
+    Runs on both boot paths before plugins load, so the default store is
+    selected by the same registry lookup as any plugin's and a plugin that
+    also claims ``documents`` is refused as a duplicate, never preferred.
+    """
+    from functualize._app.store_selection import DocumentRuntimeStoreFactory
+
+    app.register_runtime_store_factory(DocumentRuntimeStoreFactory(app))
 
 
 def _resolve_substrate_claim(app: Any) -> None:
@@ -586,6 +577,8 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     app.config_registry = ProviderRegistry()
 
     # Observability already initialized during engine setup (idempotent)
+
+    _register_builtin_store_factory(app)
 
     # Load explicit plugins (no entry-point discovery, no file discovery)
     explicit_plugins = app._plugin_sources.explicit_plugins or []
@@ -962,7 +955,9 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     _warn_about_empty_declared_plugin_directories(app._project_directories)
     perf_timeline.mark("boot.project_dirs.end")
 
-    # 4. Load plugins EARLY (so they can register providers)
+    # 4. Load plugins EARLY (so they can register providers). The built-in
+    #    documents store registers first, through the same door they use.
+    _register_builtin_store_factory(app)
     perf_timeline.mark("boot.plugins.start")
     disabled_plugins = set(
         name.lower() for name in (app._plugin_sources.disabled or [])

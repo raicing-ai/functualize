@@ -22,7 +22,6 @@ import pytest
 
 from functualize._app.state import AppState
 from functualize._events.hooks import HookEvent
-from functualize._types.errors import SubstrateInstallError
 from functualize.app.config import ConfigSources, JobSources, PluginSources
 from functualize.app.core import FunctualizeApp
 
@@ -35,25 +34,38 @@ def _reset_state() -> Generator[None]:
     AppState.reset()
 
 
-def _boot_with_plugin(mode: str, tmp_path: Path, plugin: object) -> FunctualizeApp:
+def _boot_with_plugin(
+    mode: str, tmp_path: Path, plugin: object, *, runtime_store_url: str | None = None
+) -> FunctualizeApp:
     """Boot one explicit plugin through the named production boot path."""
+    from functualize._config.chain import ResolutionChain
+    from functualize._config.sources import DefaultSource
+
     sources = PluginSources(entry_point_group="", explicit_plugins=[plugin])
+    config: dict[str, Any] = (
+        {}
+        if runtime_store_url is None
+        else {"runtime_store": {"url": runtime_store_url}}
+    )
     if mode == "standard":
         jobs = tmp_path / "jobs"
         jobs.mkdir()
         return FunctualizeApp(
             name="app-ready-standard",
             job_sources=JobSources(directories=[str(jobs)]),
+            config_sources=ConfigSources(
+                config_resolution_chain=ResolutionChain([DefaultSource(config)])
+            )
+            if config
+            else ConfigSources(),
             plugin_sources=sources,
         )
-
-    from functualize._config.chain import ResolutionChain
 
     return FunctualizeApp(
         name="app-ready-static",
         job_sources=JobSources(functions=[]),
         config_sources=ConfigSources(
-            config_resolution_chain=ResolutionChain([]),
+            config_resolution_chain=ResolutionChain([DefaultSource(config)]),
             dotenv=False,
         ),
         plugin_sources=sources,
@@ -157,19 +169,25 @@ class TestAppReadyHook:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """The storage plugin's construction failure escapes both boot loops."""
+        """A selected store that cannot open escapes both boot loops.
+
+        Raised from the SQLite factory's ``prepare`` inside step 6.5, which
+        nothing catches: boot aborts rather than coming up on documents.
+        """
         from functualize_substrate_sqlite import SQLiteSubstratePlugin
 
-        def fail_construction(path: object) -> None:  # noqa: ARG001
+        def fail_construction(path: object, **_: object) -> None:  # noqa: ARG001
             raise OSError("database unavailable")
 
         monkeypatch.setattr(
-            "functualize_substrate_sqlite._plugin.SQLiteSubstrate",
+            "functualize_substrate_sqlite._factory.LocalSqliteDriver",
             fail_construction,
         )
 
-        with pytest.raises(SubstrateInstallError, match="database unavailable"):
-            _boot_with_plugin(mode, tmp_path, SQLiteSubstratePlugin())
+        with pytest.raises(OSError, match="database unavailable"):
+            _boot_with_plugin(
+                mode, tmp_path, SQLiteSubstratePlugin(), runtime_store_url="sqlite:"
+            )
 
     @pytest.mark.parametrize("mode", ["standard", "static"])
     def test_unrelated_ready_error_is_still_swallowed(

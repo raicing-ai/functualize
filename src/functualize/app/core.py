@@ -63,6 +63,7 @@ if TYPE_CHECKING:
         RegisteredJob,
     )
     from functualize._types.host import SubstrateOffer
+    from functualize._types.persistence import RuntimeStoreFactory
     from functualize._types.protocols import StoreSubstrate
     from functualize.job._workflow_scope import WorkflowScope
 
@@ -384,6 +385,16 @@ class FunctualizeApp:
         from functualize._app.impl import offer_substrate
 
         offer_substrate(self, offer)
+
+    def register_runtime_store_factory(self, factory: RuntimeStoreFactory) -> None:
+        """Make a runtime store selectable by ``runtime_store.url``.
+
+        Refused once boot has selected the store; the guard and the registry
+        live in ``_app/impl.py``, as :meth:`install_substrate`'s do.
+        """
+        from functualize._app.impl import register_runtime_store_factory
+
+        register_runtime_store_factory(self, factory)
 
     @property
     def fresh_root(self) -> Path:

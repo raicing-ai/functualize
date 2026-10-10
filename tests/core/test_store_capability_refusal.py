@@ -20,6 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from functualize._app import boot
+from functualize._app.store_selection import DocumentRuntimeStoreFactory
 from functualize._primitives.document_store import DOCUMENT_PROFILE
 from functualize._types.errors import RuntimeStoreCapabilityError
 
@@ -94,5 +95,9 @@ class TestTheRefusalIsInsideSelection:
         app = SimpleNamespace(
             _substrate_claims=(), substrate_override=None, fresh_root=tmp_path
         )
+        # What boot registers on both paths before plugins load.
+        app._runtime_store_factories = [
+            ("functualize", DocumentRuntimeStoreFactory(app))
+        ]
         with pytest.raises(RuntimeStoreCapabilityError, match="multi_machine"):
             boot._select_runtime_store(app)

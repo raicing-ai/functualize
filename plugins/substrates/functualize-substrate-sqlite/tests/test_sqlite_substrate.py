@@ -25,12 +25,18 @@ not asserted in prose:
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
-from functualize_substrate_sqlite.substrate import SQLiteSubstrate
+from functualize_substrate_sqlite.substrate import (
+    SqliteCheckpointBusyError,
+    SQLiteSubstrate,
+)
 
 from functualize._primitives.fresh_store import FreshStore
 from functualize._primitives.run_store import RunStore
@@ -355,49 +361,146 @@ class TestItNeedsNoSharedDisk:
         assert seen == [], f"a store asked the substrate for {seen}"
 
 
-class TestThePluginOffersItsSubstrate:
-    """`SQLiteSubstratePlugin` had **zero test references anywhere** — T6.
+class TestThePluginRegistersItsStore:
+    """`SQLiteSubstratePlugin` registers a store; it no longer chooses storage.
 
-    `rg -l SQLiteSubstratePlugin` over the whole tree returned its own package, its
-    README, a scaffold template's `pyproject.toml.j2`, and the stale graphify
-    dump. No test. The substrate above is thoroughly covered; the plugin that
-    installs it was not covered at all, which is why T6's reachability gate —
-    "break the registration and watch all four plugin suites fail" — saw this
-    suite stay green.
-
-    Two claims, and the second is the one the substrate tests cannot make: a
-    backend is *offered* at registration and built only when boot asks, at step
-    6.5 — after configuration resolves, so `db_path` is read, and before the
-    store is selected (FUN-17/T12). Installing from `APP_READY` is after the
-    choice and is refused.
+    It used to *offer* a substrate at registration, so installing the package
+    moved every document into ``state.db``. Selection is configuration now
+    (``runtime_store.url``); the plugin's whole registration is one factory,
+    and it neither offers nor installs a substrate. Boot-level behaviour —
+    unconfigured stays on documents, ``sqlite:`` selects this store — is
+    pinned in `test_plugin_selection.py`.
     """
 
-    def test_it_offers_and_hands_over_its_chooser(self) -> None:
-        from functualize_substrate_sqlite import SQLiteSubstratePlugin
+    def test_it_registers_the_sqlite_factory_and_claims_no_substrate(self) -> None:
+        from functualize_substrate_sqlite import (
+            SqliteRuntimeStoreFactory,
+            SQLiteSubstratePlugin,
+        )
 
-        offered: list[object] = []
-
-        class _App:
-            def offer_substrate(self, offer: object) -> None:
-                offered.append(offer)
-
-        plugin = SQLiteSubstratePlugin()
-        plugin(_App())
-
-        assert offered == [plugin._choose_substrate]
-
-    def test_registering_builds_nothing_yet(self) -> None:
-        """Building during `__call__` would be before config resolves."""
-        from functualize_substrate_sqlite import SQLiteSubstratePlugin
+        registered: list[object] = []
 
         class _App:
+            def register_runtime_store_factory(self, factory: object) -> None:
+                registered.append(factory)
+
             def offer_substrate(self, offer: object) -> None:
-                return None
+                raise AssertionError("installing the plugin must not choose storage")
 
             def install_substrate(self, substrate: object) -> None:
-                raise AssertionError("installing at registration reads no config")
+                raise AssertionError("installing the plugin must not choose storage")
 
-        plugin = SQLiteSubstratePlugin()
-        plugin(_App())
+        SQLiteSubstratePlugin()(_App())
 
-        assert plugin.substrate is None
+        [factory] = registered
+        assert isinstance(factory, SqliteRuntimeStoreFactory)
+        assert factory.scheme == "sqlite"
+
+
+def _wal_size(db: Path) -> int:
+    """Bytes in the write-ahead log beside ``db``; 0 when there is no log."""
+    wal = db.with_name(db.name + "-wal")
+    return wal.stat().st_size if wal.exists() else 0
+
+
+class TestConcurrentCheckpointBusy:
+    """A blocked checkpoint is reported as itself, never as a failed write.
+
+    A second connection holding a read snapshot or write transaction can block
+    the fold. The checkpoint error alone does not say which one it was.
+    """
+
+    def test_a_held_snapshot_defers_the_fold_without_failing_the_write(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        db = tmp_path / "state.db"
+        substrate = SQLiteSubstrate(db)
+        substrate.write("first", {"v": 0})
+        assert _wal_size(db) == 0, "no reader yet, so the first write is at rest"
+
+        reader = sqlite3.connect(db, isolation_level=None)
+        reader.execute("BEGIN")
+        # A read transaction ends when its statement is reset, so the cursor
+        # stays open: a reset statement would release the snapshot.
+        held = reader.execute("SELECT key FROM documents")
+        assert held.fetchone() is not None
+
+        started = time.monotonic()
+        with caplog.at_level(
+            logging.WARNING, logger="functualize_substrate_sqlite.substrate"
+        ):
+            assert substrate.write("second", {"v": 1}) is True
+        waited = time.monotonic() - started
+
+        # The write is reported as a write. What it could not do — fold the log
+        # back into the main file — is reported as its own retryable condition,
+        # and the wait for it is bounded by the checkpoint's timeout rather than
+        # by the write's (5 s is 50× the bound, and a fraction of the 10 s the
+        # write timeout would have cost).
+        assert _wal_size(db) > 0
+        assert waited < 5, "the fold waited out the write timeout on a reader"
+        reports = [
+            record
+            for record in caplog.records
+            if "checkpoint did not run" in record.getMessage()
+        ]
+        assert [record.levelno for record in reports] == [logging.WARNING]
+
+        # Durable, not merely returned: a connection holding no snapshot reads
+        # the value the blocked fold could not move into the main file.
+        bystander = sqlite3.connect(db)
+        try:
+            row = bystander.execute(
+                "SELECT payload FROM documents WHERE key = 'second'"
+            ).fetchone()
+        finally:
+            bystander.close()
+        assert row is not None and json.loads(row[0]) == {"v": 1}
+
+        # The explicit retry reports only that the fold is busy; its caller
+        # cannot infer a write from the checkpoint error itself.
+        with pytest.raises(SqliteCheckpointBusyError) as busy:
+            substrate.checkpoint()
+        assert busy.value.retryable is True
+        assert not hasattr(busy.value, "write_committed")
+
+        reader.execute("ROLLBACK")
+        reader.close()
+
+        substrate.checkpoint()
+        assert _wal_size(db) == 0
+        stored = substrate.read("second")
+        assert stored is not None and stored.data == {"v": 1}
+
+    def test_an_empty_log_and_a_held_writer_make_no_commit_claim(
+        self, tmp_path: Path
+    ) -> None:
+        db = tmp_path / "state.db"
+        substrate = SQLiteSubstrate(db)
+        substrate.checkpoint()
+        assert _wal_size(db) == 0
+
+        writer = sqlite3.connect(db, isolation_level=None)
+        try:
+            writer.execute("BEGIN IMMEDIATE")
+            assert _wal_size(db) == 0
+            with pytest.raises(SqliteCheckpointBusyError) as busy:
+                substrate.checkpoint()
+            assert busy.value.retryable is True
+            assert not hasattr(busy.value, "write_committed")
+            assert "committed" not in str(busy.value)
+            assert "reader" not in str(busy.value)
+            assert _wal_size(db) == 0
+        finally:
+            writer.execute("ROLLBACK")
+            writer.close()
+
+        substrate.checkpoint()
+        assert _wal_size(db) == 0
+
+    def test_a_checkpoint_inside_a_transaction_is_refused(
+        self, substrate: SQLiteSubstrate
+    ) -> None:
+        """The outermost commit folds; a nested call has no completed log."""
+        with pytest.raises(RuntimeError), substrate.lock("k"):
+            substrate.checkpoint()

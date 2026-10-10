@@ -49,10 +49,19 @@ pytestmark = pytest.mark.installed_plugins
 _REPO = Path(__file__).resolve().parents[2]
 
 
-def _project(tmp_path: Path, config: str) -> Path:
-    """A declared project — `.functualize/` is what makes it one."""
+def _project(tmp_path: Path, config: str, *, select_sqlite: bool = False) -> Path:
+    """A declared project — `.functualize/` is what makes it one.
+
+    ``select_sqlite`` writes the one setting that selects the SQLite store
+    (``runtime_store.url``) into the project's config file; the plugin itself
+    only registers the store.
+    """
     (tmp_path / ".functualize").mkdir()
     (tmp_path / ".functualize.toml").write_text(config, encoding="utf-8")
+    if select_sqlite:
+        (tmp_path / "config.base.toml").write_text(
+            '[runtime_store]\nurl = "sqlite:"\n', encoding="utf-8"
+        )
     return tmp_path
 
 
@@ -104,8 +113,12 @@ def _data_show(cwd: Path) -> str:
 def test_the_substrate_plugin_decides_where_builtin_commands_look(
     tmp_path: Path,
 ) -> None:
-    """Enabled: every store names the database. This is the T5 storage fix."""
-    output = _data_show(_project(tmp_path, 'name = "probe"\n'))
+    """Enabled and selected: every store names the database. The T5 storage fix.
+
+    Selection is configuration since the SQLite runtime provider
+    (``runtime_store.url``); installed and enabled alone changes nothing.
+    """
+    output = _data_show(_project(tmp_path, 'name = "probe"\n', select_sqlite=True))
 
     assert "state.db#runs" in output, output
     assert "runs.json" not in output, output
@@ -137,7 +150,11 @@ def test_disabled_matches_the_entry_point_name(tmp_path: Path) -> None:
     gets no error and no effect.
     """
     output = _data_show(
-        _project(tmp_path, 'name = "probe"\n\n[plugins]\ndisabled = ["sqlite"]\n')
+        _project(
+            tmp_path,
+            'name = "probe"\n\n[plugins]\ndisabled = ["sqlite"]\n',
+            select_sqlite=True,
+        )
     )
 
     assert "state.db#runs" in output, output

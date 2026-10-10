@@ -33,7 +33,10 @@ from typing import Any
 
 import pytest
 
-from functualize._primitives.document_store import DocumentRuntimeStore
+from functualize._primitives.document_store import (
+    DOCUMENT_PROFILE,
+    DocumentRuntimeStore,
+)
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.errors import (
     GateResolutionError,
@@ -42,7 +45,10 @@ from functualize._types.errors import (
 from functualize._types.persistence import (
     InputReader,
     InputWriter,
+    PreparedStore,
     RuntimeStore,
+    RuntimeStoreConfig,
+    RuntimeStoreFactory,
     RuntimeTransaction,
 )
 
@@ -148,3 +154,62 @@ class TestTheRefusalCarriesItsFacts:
         assert str(carrying) == str(baseline)
         assert carrying.evaluations == (evaluation,)
         assert baseline.evaluations == ()
+
+
+FACTORY_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "runtime_store_factory_conformance.py"
+)
+
+
+class _MinimalFactory:
+    scheme = "minimal"
+    profile = DOCUMENT_PROFILE
+
+    def prepare(self, config: RuntimeStoreConfig) -> PreparedStore:
+        raise NotImplementedError
+
+    def unselected_data(self, project_root: Path) -> str | None:
+        return None
+
+
+class _NoPrepare:
+    scheme = "minimal"
+    profile = DOCUMENT_PROFILE
+
+    def unselected_data(self, project_root: Path) -> str | None:
+        return None
+
+
+class TestTheFactoryPort:
+    """`RuntimeStoreFactory`: how boot step 6.5 obtains a store by URL scheme."""
+
+    def test_a_minimal_factory_satisfies_it_at_runtime(self) -> None:
+        assert isinstance(_MinimalFactory(), RuntimeStoreFactory)
+
+    def test_an_object_missing_prepare_is_refused(self) -> None:
+        assert not isinstance(_NoPrepare(), RuntimeStoreFactory)
+
+    def test_the_factory_has_exactly_its_four_members(self) -> None:
+        assert _members(RuntimeStoreFactory) == {
+            "scheme",
+            "profile",
+            "prepare",
+            "unselected_data",
+        }
+
+    def test_the_config_names_its_setting_by_default(self, tmp_path: Path) -> None:
+        config = RuntimeStoreConfig(
+            url="documents:", scheme="documents", project_root=tmp_path
+        )
+        assert config.config_key == "runtime_store.url"
+
+    def test_under_mypy(self) -> None:
+        """A minimal factory and the built-in one, signature for signature."""
+        api = pytest.importorskip("mypy.api", reason="mypy is a dev dependency")
+        out, _err, _code = api.run(["--strict", str(FACTORY_FIXTURE)])
+        errors = [
+            line for line in out.splitlines() if re.match(r"^.*?:\d+: error:", line)
+        ]
+        assert not errors, (
+            "A factory no longer satisfies RuntimeStoreFactory:\n" + "\n".join(errors)
+        )

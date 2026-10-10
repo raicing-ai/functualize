@@ -14,6 +14,7 @@ Fixed order, do not reorder (see `contributor/architecture/boot-sequence.md` for
 | 4b | `domains` — `functualize.domains` discovered; `[<domain>] provider` read from 3.5's merged config | 10ms |
 | 5 | `config_entry_points` — format/remote provider entry points discovered | 50ms |
 | 6 | `config_resolution` — `ResourceLocator` + `ResolutionChain` built once | 100ms |
+| 6.5 | `runtime_store` — the factory registered for the configured scheme selected and prepared; an unset `runtime_store.url` reads as `documents:` | — |
 | 7 | — `AFTER_CONFIG_INIT` hook fires | — |
 | 8 | `job_registration` — providers from `JobSources` wired | 50ms |
 | 9 | `children` — child `FunctualizeApp` projects mounted | 50ms |

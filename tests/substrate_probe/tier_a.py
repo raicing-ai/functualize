@@ -57,7 +57,10 @@ from tests.substrate_probe.harness import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from functualize._types.protocols import StoreSubstrate
+    from functualize.plugin import RuntimeStore
 
 #: The two columns this module measures, named as the matrix will name them.
 FILESYSTEM: Final[str] = "the JSON filesystem — JsonFileSubstrate"
@@ -344,3 +347,38 @@ def test_the_two_shipping_backends_answer_every_field_from_the_real_thing(
     assert {a.evidence for column in instruments for a in column.answers} == {
         FAKE_EVIDENCE
     }
+
+
+# ------------------------------------------------------------------
+# AC-5 (E-6): the shipped SQLite runtime store over a D1-shaped driver.
+#
+# `BatchOnlySqliteDriver` has no interactive transaction — its
+# `transaction()` raises `NoInteractiveTransactionError`. BASELINE going green
+# over it is the proof that `SqliteRuntimeStore` only ever writes in batches:
+# a code path that needed BEGIN/COMMIT across round trips would hit the
+# refusal and turn this red.
+# ------------------------------------------------------------------
+
+
+def _batch_only_store_factory() -> Callable[[Path], RuntimeStore]:
+    """`make_store` over one batch-only driver per directory, migrated once."""
+    from functualize_substrate_sqlite import SqliteRuntimeStore
+    from functualize_substrate_sqlite._migrations import migrate
+
+    drivers: dict[Path, BatchOnlySqliteDriver] = {}
+
+    def make_store(root: Path) -> RuntimeStore:
+        driver = drivers.get(root)
+        if driver is None:
+            driver = drivers[root] = BatchOnlySqliteDriver()
+            migrate(driver)
+        return SqliteRuntimeStore(driver)
+
+    return make_store
+
+
+def test_baseline_is_green_over_a_batch_only_driver(tmp_path: Path) -> None:
+    """AC-5: the SQLite store runs BASELINE with no interactive transaction."""
+    from functualize.testing.conformance import run_baseline
+
+    run_baseline(_batch_only_store_factory(), tmp_path)
