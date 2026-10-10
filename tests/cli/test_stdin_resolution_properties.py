@@ -16,7 +16,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize._engine.stdin_reader import resolve_stdin_params
+from functualize._engine.stdin_reader import StdinState, resolve_stdin_params
 from functualize.job.markers import Stdin
 
 # =============================================================================
@@ -92,10 +92,11 @@ class TestStdinExplicitWins:
         # Mock stdin as piped (non-TTY) with content available
         with (
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+                "functualize._engine.stdin_reader.stdin_state",
+                return_value=StdinState.READY,
             ),
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.read_stdin",
                 return_value=stdin_content,
             ),
         ):
@@ -128,7 +129,7 @@ class TestStdinExplicitWins:
 
         # Mock stdin as TTY (no piped data)
         with patch(
-            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
+            "functualize._engine.stdin_reader.stdin_state", return_value=StdinState.TTY
         ):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
@@ -169,10 +170,11 @@ class TestStdinExplicitWins:
         # Mock stdin as piped (non-TTY)
         with (
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+                "functualize._engine.stdin_reader.stdin_state",
+                return_value=StdinState.READY,
             ),
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.read_stdin",
                 return_value=stdin_content,
             ),
         ):
@@ -221,10 +223,11 @@ class TestStdinResolutionFromPipe:
         # Mock stdin as piped (non-TTY) with content
         with (
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+                "functualize._engine.stdin_reader.stdin_state",
+                return_value=StdinState.READY,
             ),
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.read_stdin",
                 return_value=stdin_content,
             ),
         ):
@@ -256,10 +259,11 @@ class TestStdinResolutionFromPipe:
         # Mock stdin as piped (non-TTY) with content
         with (
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+                "functualize._engine.stdin_reader.stdin_state",
+                return_value=StdinState.READY,
             ),
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.read_stdin",
                 return_value=stdin_content,
             ),
         ):
@@ -302,10 +306,11 @@ class TestStdinResolutionFromPipe:
         # Mock stdin as piped (non-TTY) with content
         with (
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+                "functualize._engine.stdin_reader.stdin_state",
+                return_value=StdinState.READY,
             ),
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.read_stdin",
                 return_value=stdin_content,
             ),
         ):
@@ -337,10 +342,11 @@ class TestStdinResolutionFromPipe:
 
         with (
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
+                "functualize._engine.stdin_reader.stdin_state",
+                return_value=StdinState.READY,
             ),
             patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
+                "functualize._engine.stdin_reader.read_stdin",
                 return_value=stdin_content,
             ),
         ):

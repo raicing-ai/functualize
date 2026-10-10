@@ -27,6 +27,7 @@ from __future__ import annotations
 import getpass
 import sys
 
+from functualize._engine.stdin_reader import StdinState, stdin_state
 from functualize._types.interactivity import (
     PromptIntent,
     PromptRequest,
@@ -49,11 +50,14 @@ class StdinCollector:
     def is_available() -> bool:
         """Return ``True`` only when both stdin and stdout are TTYs.
 
-        Mirrors the ``_cli/stdin_reader`` TTY idiom. Any failure probing the
+        The stdin half is :func:`_engine.stdin_reader.stdin_state` — the same
+        classification ``Stdin``-parameter resolution reads, so the two doors
+        cannot contradict: prompts happen at a TTY; anything else keeps the
+        ``default`` / ``InputNotAvailable`` behaviour. Any failure probing the
         streams is treated as "not available".
         """
         try:
-            return bool(sys.stdin.isatty() and sys.stdout.isatty())
+            return bool(stdin_state() is StdinState.TTY and sys.stdout.isatty())
         except (AttributeError, OSError, ValueError):
             return False
 

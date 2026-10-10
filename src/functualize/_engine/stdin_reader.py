@@ -4,7 +4,8 @@ Handles non-blocking stdin detection, content reading, and resolution of
 ``Stdin()``-marked function parameters from piped input.
 
 Public API:
-- ``is_stdin_available`` — check if stdin has piped data (non-TTY)
+- ``stdin_state`` — classify stdin without waiting: ``TTY`` / ``NO_INPUT`` / ``READY``
+- ``is_stdin_available`` — whether a read of stdin returns promptly
 - ``read_stdin`` — read all available stdin data
 - ``iter_stdin_ndjson`` — lazily yield NDJSON records as they arrive
 - ``resolve_stdin_params`` — populate Stdin-marked params from pipe
@@ -17,7 +18,9 @@ closes. Anything else keeps the eager whole-of-stdin string.
 
 from __future__ import annotations
 
+import enum
 import json
+import select
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -27,8 +30,10 @@ if TYPE_CHECKING:
     from functualize._types.cli_markers import Stdin
 
 __all__ = [
+    "StdinState",
     "is_stdin_available",
     "stdin_markers_for",
+    "stdin_state",
     "streaming_stdin_params",
     "iter_stdin_ndjson",
     "read_stdin",
@@ -36,14 +41,73 @@ __all__ = [
 ]
 
 
+class StdinState(enum.Enum):
+    """What a non-blocking probe can know about stdin.
+
+    ``READY`` means *a read returns promptly*: input is already there, or
+    end-of-stream is — an empty-but-present stream reads as ``""``.
+    ``NO_INPUT`` means the pipe that is stdin is never written; waiting on it
+    is waiting forever. ``TTY`` means nothing was piped at all.
+    """
+
+    TTY = "tty"
+    NO_INPUT = "no_input"
+    READY = "ready"
+
+
+def _readiness(stream: Any) -> bool | None:
+    """Whether a read on ``stream``'s fd returns promptly; None if unprobeable.
+
+    ``select.poll`` with a zero timeout — the "poll(), not select()" lesson of
+    ``_engine/capabilities/shell.py``: ``select()`` carries a hard FD_SETSIZE
+    ceiling that wide test sessions reach. POLLHUP/POLLERR are reported even
+    for a POLLIN-only registration, so end-of-stream reads as ready and the
+    read then returns ``""``, which is the truth.
+
+    Unprobeable streams yield ``None``: no ``fileno()`` (``io.StringIO``, test
+    doubles), no ``select.poll`` (Windows — its ``select()`` is sockets-only),
+    or a probe that raises. Readiness is unknowable without consuming there,
+    so the caller keeps the eager rule that predates this probe.
+    """
+    try:
+        fd = stream.fileno()
+        poller = select.poll()
+        poller.register(fd, select.POLLIN)
+        try:
+            events = poller.poll(0)
+        finally:
+            poller.unregister(fd)
+    except (OSError, ValueError, AttributeError):
+        return None
+    return bool(events)
+
+
+def stdin_state(stream: Any | None = None) -> StdinState:
+    """Classify stdin without waiting for it.
+
+    Never blocks: a pipe that is never written is ``NO_INPUT`` in constant
+    time, so ``sleep 30 | func s`` returns instead of hanging on the read.
+    An unprobeable stream is ``READY`` — the eager rule this probe refines,
+    where the read itself decides what is there.
+    """
+    stream = sys.stdin if stream is None else stream
+    if stream.isatty():
+        return StdinState.TTY
+    ready = _readiness(stream)
+    if ready is None:
+        return StdinState.READY
+    return StdinState.READY if ready else StdinState.NO_INPUT
+
+
 def is_stdin_available() -> bool:
-    """Check if stdin has piped data (non-TTY).
+    """Check whether a read of stdin returns promptly.
 
     Returns:
-        ``True`` if stdin is not a TTY (i.e., data is piped in),
-        ``False`` if stdin is an interactive terminal.
+        ``True`` when stdin carries input or is at end-of-stream — an
+        empty-but-present stream is available and reads as ``""``;
+        ``False`` for a TTY and for a pipe that is never written.
     """
-    return not sys.stdin.isatty()
+    return stdin_state() is StdinState.READY
 
 
 def read_stdin(encoding: str = "utf-8") -> str:
@@ -130,8 +194,6 @@ def resolve_stdin_params(
     Raises:
         ValueError: If multiple Stdin-marked parameters need stdin (ambiguous —
             stdin can only feed one parameter).
-        SystemExit: If stdin is a TTY and a required parameter has no default
-            value and no CLI value (would block forever waiting for input).
     """
     # Rule 1: explicit CLI value always wins — filter to unresolved params
     unresolved = {
@@ -157,17 +219,25 @@ def resolve_stdin_params(
     target_name = next(iter(unresolved))
     target_marker = unresolved[target_name]
 
-    # Rule 3: stdin available (piped) → hand over the stream
-    if is_stdin_available():
-        # An iterator-typed parameter gets the lazy NDJSON stream: reading it
-        # eagerly here would stall the pipeline until the upstream closed,
-        # which is exactly what row-wise streaming exists to avoid.
-        if streaming and target_name in streaming:
-            return {target_name: iter_stdin_ndjson(target_marker.encoding)}
-        content = read_stdin(encoding=target_marker.encoding)
-        return {target_name: content}
+    # Rule 3: an iterator-typed parameter gets the lazy NDJSON stream on any
+    # non-TTY stdin. Reading it eagerly here would stall the pipeline until
+    # the upstream closed, which is exactly what row-wise streaming exists to
+    # avoid — waiting for that producer is the type's documented contract,
+    # the one opt-in to waiting this resolution recognises.
+    if streaming and target_name in streaming and stdin_state() is not StdinState.TTY:
+        return {target_name: iter_stdin_ndjson(target_marker.encoding)}
 
-    # Rule 4: stdin is a terminal and nothing supplied the parameter — resolve
+    # Rule 4: stdin says a read returns promptly — input is already there, or
+    # end-of-stream is. Deposit what it carries: the content, or "" when the
+    # stream was empty but present. "" is what the user actually piped — an
+    # empty document is still a document — so it lands like any other piped
+    # content instead of the parameter's default silently standing in for it.
+    if is_stdin_available():
+        return {target_name: read_stdin(encoding=target_marker.encoding)}
+
+    # Rule 5: nothing was piped — stdin is a terminal, or a pipe that is never
+    # written (the classifier does not wait for one: `sleep 30 | func s` used
+    # to hang exactly here) — resolve
     # nothing, and let the job's own default win.
     #
     # This used to `raise SystemExit(1)` here, under a comment reading "the
