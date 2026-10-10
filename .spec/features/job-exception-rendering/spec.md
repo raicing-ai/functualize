@@ -117,13 +117,19 @@ What that means, case by case:
 | --- | --- | --- |
 | Raised by the job body, re-raised unchanged by any execution middleware | yes | one line (B1) |
 | Raised by a capability *called from* the job body and not caught by it (`invoke` re-raising a child's error, a `Shell` failure) | yes — it escaped the job call | one line (B1) |
-| Raised by execution middleware itself, or a different exception substituted by middleware for the job's | no | traceback, as today |
+| Raised by execution middleware itself — before the body runs, or after a body that returned | no | traceback, as today |
 | A refusal before the body ran (`_failure_before_execution`: config/argument validation, launch refusal) | no | unchanged — panel / `MissingValueError` line / traceback, as today |
 | Synthesised by the engine (`dependencies failed for …`, a workflow walk's `run.error`) | no | traceback, as today |
 | Raised outside any `JobResult` (DI, boot, hooks before the body) | n/a — never a `JobResult` | traceback, as today |
 
 A bug inside functualize that raises from the engine, the adapter, a hook or a
 middleware is therefore **not** marked and keeps its traceback.
+
+A middleware cannot today *replace* a job's exception with its own:
+`_resume_generators` (`_engine/middleware.py`) keeps the first exception and
+throws it through every generator. If that ever changes, the identity check
+keeps a substituted exception unmarked — a same-class exception is not the
+same object.
 
 The honest limit of the rule: a functualize defect inside a capability that the
 job calls, and which the job does not catch, escapes through the job's own call

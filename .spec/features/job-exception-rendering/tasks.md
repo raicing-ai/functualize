@@ -14,7 +14,8 @@
     new import edge between peer layers.
   - Gate (spec AC3, engine half):
     `uv run pytest -q --no-header tests/engine/test_raised_by_job_mark.py` green —
-    job raises → marked; middleware raises its own exception → unmarked;
+    job raises → marked; middleware raises before the body or after a
+    body that returned → unmarked;
     middleware re-raises the job's exception → marked; middleware plants the
     key in `context.metadata` and then raises → unmarked; success → unmarked.
   - Reachability: `engine.run()` → `_execute_lifecycle` → `_exec_policy().call(...)` → `_execute_with_lifecycle`
