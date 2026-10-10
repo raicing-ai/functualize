@@ -115,6 +115,19 @@ top-of-stack; `Live` binds to the active live-capable surface.
 | Inline TUI plugin | `plugins/adapters/functualize-inline/` | separate package |
 | Flow visualization plugin | `plugins/adapters/functualize-flow-viz/` | separate package |
 
+## The parameter door reads the same classifier
+
+`Stdin`-parameter resolution (`_engine/stdin_reader.py`) classifies stdin
+through the same `StdinState` verdict the prompt door above reads, but the two
+doors project it differently — deliberately. The prompt door asks "should
+someone be asked?": a TTY, and nothing else. The parameter door asks "what did
+the user pipe?": nothing (a terminal, or a pipe that is never written) keeps
+the parameter's own default; an empty-but-present stream deposits `""`, because
+an empty document is still what the user piped; content deposits the content.
+An iterator-typed parameter is the documented opt-in to waiting and gets the
+lazy NDJSON stream on any non-TTY. Decision record:
+`contributor/adr/032-optional-stdin-empty-stream.md`.
+
 ## Design principle
 
 > The engine emits `StructuredEvent`s to every registered `Surface` and routes a

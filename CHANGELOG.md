@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — an optional stdin parameter no longer waits on a pipe that carries nothing
+
+`sleep 30 | func s` used to hang: stdin resolution saw the pipe, read it, and
+waited for an upstream that never writes. Stdin is now classified without
+waiting — a terminal, a pipe that is never written, or a stream a read returns
+from promptly — and a pipe that carries nothing resolves like a terminal:
+nothing is deposited, and the parameter's own default stands. A required
+parameter with no default still fails, and fails the ordinary
+missing-argument way.
+
+An empty-but-present stream — `< /dev/null`, or a pipe closed without writing —
+deposits `""`. That value the old read produced by accident is now the
+documented rule, chosen so "nothing was piped" (the default survives) and "an
+empty stream was piped" (`""`) remain two different facts. Piped content
+arrives whole as before, multi-line and multibyte included.
+
+The prompt door (`StdinCollector.is_available`) derives its verdict from the
+same classifier, so prompts happen at a terminal and parameter resolution and
+prompt availability can no longer contradict each other. On Windows, which has
+no `select.poll`, stdin keeps the previous eager behaviour until a
+`PeekNamedPipe` probe lands.
+
 ### Changed — one arity per pre-boot flag, and one exit code for a wrong value
 
 Every flag `func` reads before boot is boolean or value-required — never
