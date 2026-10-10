@@ -2,7 +2,7 @@
 
 ## Wave 0
 
-- [ ] **1.1 — the reader classifies stdin without waiting** (AC1, AC2, AC3, AC5)
+- [x] **1.1 — the reader classifies stdin without waiting** (AC1, AC2, AC3, AC5)
   - Files: `src/functualize/_engine/stdin_reader.py`,
     `tests/engine/test_stdin_states.py`,
     `tests/cli/test_stdin_integration_unit.py`,
@@ -28,7 +28,7 @@
 
 ## Wave 1
 
-- [ ] **2.1 — the prompt door reads the same classifier** (AC4)
+- [x] **2.1 — the prompt door reads the same classifier** (AC4)
   - Files: `src/functualize/_engine/capabilities/stdin_collector.py`,
     `tests/engine/test_stdin_states.py`
   - `StdinCollector.is_available` derives its stdin half from `stdin_state()`
@@ -44,7 +44,7 @@
 
 ## Wave 2
 
-- [ ] **3.1 — the decision outlives the feature tree** (AC2, AC4)
+- [x] **3.1 — the decision outlives the feature tree** (AC2, AC4)
   - Files: `contributor/adr/032-optional-stdin-empty-stream.md`,
     `contributor/architecture/interactivity-model.md`, `CHANGELOG.md`
   - The empty-document-wins rule, the two-door projection split and the
