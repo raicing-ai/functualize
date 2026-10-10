@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — hermetic evaluation of the decision router
+
+A frozen corpus of 40 routing scenarios can now be replayed through the
+hermetic router, a frontier comparator and a deterministic baseline under the
+same gate, rule and fallback. The evaluation harness records failures as data,
+checks the corpus lock before a run, and produces reproducible metrics,
+provenance and a boundary recommendation from the recorded ledgers. The corpus,
+method and report commands are documented in
+`contributor/reference/hermetic-evaluation.md`; measured runs remain outside
+the repository. The recommendation still requires a maintainer decision.
+
 ### Fixed — the secret scan no longer fails a pull request for another branch's finding
 
 The `gitleaks` job checked out every branch at full depth and then ran
