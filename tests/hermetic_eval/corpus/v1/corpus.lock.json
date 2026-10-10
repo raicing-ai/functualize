@@ -1,0 +1,33 @@
+{
+  "boundary": {
+    "declared_accept_at": 0.7,
+    "declared_min_margin": 0.1,
+    "max_accuracy_gap": 0.05,
+    "min_availability": 0.9,
+    "min_coverage": 0.25,
+    "min_distinct_scenarios": 4,
+    "min_support": 10
+  },
+  "comparators": {
+    "deterministic": "68e77f593b8abe1f849a3e07c3c90b51bb28fed4f3442b30fd7fec791f55b6f6",
+    "frontier": "cd34a61f5766ad95f15f4630c8aaf822e944a2a9bc23593dd62c21f2745d70a8",
+    "hermetic": "3fc899129e19f5e59051ec3d1798a23c6392e852a1f66656399e61ad1d67f756"
+  },
+  "count": 40,
+  "frozen_at": "2026-10-05T15:51:19Z",
+  "per_route": {
+    "cheap_model": 10,
+    "deterministic": 10,
+    "frontier_agent": 10,
+    "human_review": 10
+  },
+  "per_stratum": {
+    "borderline": 16,
+    "clear": 24
+  },
+  "repeats": 5,
+  "scenarios_sha256": "466245291d9b94428a4984f216e57f654d946764522cbef6fc09ab694cf21872",
+  "seed": 20261004,
+  "time_box_hours": 72,
+  "version": "v1"
+}
