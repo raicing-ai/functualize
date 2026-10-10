@@ -2,7 +2,7 @@
 
 ## Wave 1 — the engine knows who raised
 
-- [ ] **T1 — mark the job's own exception on the result**
+- [x] **T1 — mark the job's own exception on the result**
   - Files: `src/functualize/_types/outcome.py`,
     `src/functualize/_engine/executor.py`,
     `tests/engine/test_raised_by_job_mark.py` (new).
@@ -21,10 +21,14 @@
   - Reachability: `engine.run()` → `_execute_lifecycle` → `_exec_policy().call(...)` → `_execute_with_lifecycle`
     → `_execute_job` → `_call_recording_escape`. Sabotage: drop the
     `_mark_raised_by_job` call and watch the "job raises → marked" test fail.
+  - Evidence: gate 6 passed. Sabotage, committed first at `1aabaa8f`:
+    dropping the `_mark_raised_by_job` call failed 3 of 6, including
+    "job raises → marked". Skipping the key removal failed the planted-key test,
+    so that test is not vacuous. Both restored with `git checkout --`.
 
 ## Wave 2 — the boundary renders it
 
-- [ ] **T2 — one line at the process boundary, traceback behind DEBUG**
+- [x] **T2 — one line at the process boundary, traceback behind DEBUG**
   - Files: `src/functualize/app/adapters/click_params.py`,
     `tests/pipeline/test_exit_code_routing.py`,
     `tests/pipeline/test_job_exception_rendering.py` (new).
@@ -44,10 +48,17 @@
     `lazy_command` callback (warm) → `deliver_job_result`. The subprocess test
     runs both doors, each cold and warm. Sabotage: remove the new arm and
     watch the subprocess frame-absence test fail.
+  - Evidence: gate 27 passed; `rg` returns one hit
+    (`click_params.py:1265`). Sabotage, committed first at `7fd4df9f`:
+    disabling the new arm failed
+    `test_a_raising_job_prints_one_line_and_no_frames[func]` and `[app]`.
+    Dropping the engine's `_mark_raised_by_job` call failed the same two plus
+    `test_the_warm_run_renders_the_same_line[func]` and `[app]`, so the public
+    entry point depends on the engine half on both doors, cold and warm.
 
 ## Wave 3 — record and verify
 
-- [ ] **T3 — changelog and native gates**
+- [x] **T3 — changelog and native gates**
   - Files: `CHANGELOG.md`.
   - Do: one `[Unreleased]` entry describing the new rendering, the DEBUG
     opt-in and the classification rule.
@@ -55,6 +66,12 @@
     `uv run ruff format --check src/ tests/ plugins/ examples/`,
     `uv run mypy src/`, `uv run lint-imports` (7 kept, 0 broken), and the step
     tier: `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)`.
+  - Evidence: ruff check clean; format check clean (1599 files); mypy
+    "no issues found in 388 source files"; lint-imports "7 kept, 0 broken".
+    Step tier (mapper exit 0, 47 files): 650 passed, 62 skipped. Wave tier over
+    `tests/pipeline tests/integration tests/skills tests/adapters tests/cli
+    tests/workflow`: 3073 passed, 418 skipped. Tip tier (`--run-slow`, all
+    directories) not run locally; CI's `test-full` covers it.
 
 ## Task Dependency Graph
 

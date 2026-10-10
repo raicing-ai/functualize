@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a job's own exception is one line, not a framework traceback
+
+A job that raised printed the whole call stack: the console script, the CLI
+dispatcher, click, the adapter and the executor, with the author's message as
+the last of about forty lines. It now prints one line on stderr and exits 1,
+the code the table already gave it:
+
+```
+$ func boom
+Error: RuntimeError: boom
+```
+
+The class is named without its module, so a job module imported from the
+discovery cache no longer shows up as `_functualize_sync_.<stem>_<id>.DemoError`.
+`--log-level DEBUG` brings the full traceback back, on `func` and on a
+project's own entry point alike.
+
+Only the job's *own* exception is shortened, and the engine decides which
+one that is at the single call that runs the job function. It compares the
+exception object itself, never its type or message. Anything else still
+prints its traceback: an exception raised by execution middleware, by a hook
+or by the framework. That keeps the traceback for a functualize bug, which is
+what whoever reports it needs. One limit: an exception raised inside a
+capability the job calls (`invoke`, `sh`) and not caught by the job leaves
+through the job's own call, so it counts as the job's.
+
+Unchanged: `click.ClickException`, `Abort` and `Exit` raised by a job are still
+rendered by click; a closed pipe is still a quiet exit 0; a config validation
+failure is still a panel and a missing value still a one-line usage error, both
+exit 2. `--emit-format` still governs stdout only, so a failed job writes
+nothing there whatever the format.
+
 ### Changed — one arity per pre-boot flag, and one exit code for a wrong value
 
 Every flag `func` reads before boot is boolean or value-required — never
