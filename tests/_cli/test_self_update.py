@@ -162,11 +162,63 @@ class TestVerification:
         with pytest.raises(ChecksumMismatchError, match="not listed"):
             self_update.verify(archive, _sums(archive, "other.tar.gz"), "a.tar.gz")
 
-    def test_a_binary_marker_in_the_sums_line_is_tolerated(self) -> None:
-        """`sha256sum -b` writes ` *name`, and releases do get built that way."""
+    @pytest.mark.parametrize(
+        "listed",
+        [
+            pytest.param("a.tar.gz", id="bare"),
+            pytest.param("./a.tar.gz", id="dot-slash"),
+            pytest.param("*a.tar.gz", id="binary-marker"),
+            pytest.param("*./a.tar.gz", id="binary-marker-and-dot-slash"),
+        ],
+    )
+    def test_every_name_sha256sum_writes_for_the_asset_is_accepted(
+        self, listed: str
+    ) -> None:
+        """`sha256sum ./*` writes `./name` -- every release up to 0.4.0 did --
+        and `-b` adds a `*`. Each names the same file, and `sha256sum -c`
+        accepts each, so the updater must too."""
         archive = b"payload"
-        line = f"{hashlib.sha256(archive).hexdigest()} *a.tar.gz\n"
+        line = f"{hashlib.sha256(archive).hexdigest()}  {listed}\n"
         self_update.verify(archive, line, "a.tar.gz")
+
+    def test_the_published_release_line_verifies(self) -> None:
+        """The shape of a real published line, for the asset `perform` asks
+        for by its bare name."""
+        archive = _tar_with(b"NEW-BINARY")
+        line = _sums(archive, f"./{_SOURCE.archive_name}")
+        self_update.verify(archive, line, _SOURCE.archive_name)
+
+    def test_a_prefixed_line_with_another_digest_is_still_a_mismatch(self) -> None:
+        """Tolerating the prefix finds the line; it does not pass the line."""
+        published = hashlib.sha256(b"the real thing").hexdigest()
+        served = hashlib.sha256(b"something else entirely").hexdigest()
+        with pytest.raises(ChecksumMismatchError) as caught:
+            self_update.verify(
+                b"something else entirely",
+                f"{published}  ./a.tar.gz\n",
+                "a.tar.gz",
+            )
+        assert published in str(caught.value)
+        assert served in str(caught.value)
+
+    @pytest.mark.parametrize(
+        "listed",
+        [
+            pytest.param("x-a.tar.gz", id="longer-name"),
+            pytest.param("dir/a.tar.gz", id="other-directory"),
+            pytest.param("../a.tar.gz", id="parent-directory"),
+            pytest.param("**a.tar.gz", id="two-markers"),
+        ],
+    )
+    def test_a_name_that_only_ends_with_the_asset_is_not_the_asset(
+        self, listed: str
+    ) -> None:
+        """One marker and one `./` are all that is removed. A `basename` would
+        let another file's line vouch for this one."""
+        archive = b"payload"
+        line = f"{hashlib.sha256(archive).hexdigest()}  {listed}\n"
+        with pytest.raises(ChecksumMismatchError, match="not listed"):
+            self_update.verify(archive, line, "a.tar.gz")
 
 
 class TestExtraction:
