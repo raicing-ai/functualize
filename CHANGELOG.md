@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — the `bwpm://` provider, for the Bitwarden Password Manager vault
+
+`functualize-secrets-bitwarden` now registers a second provider beside
+`bws`: `bwpm`, which reads the normal Bitwarden **Password Manager** vault —
+the product Vaultwarden reimplements — through the user's own `bw` CLI,
+driven as a subprocess. Where the Secrets Manager provider speaks to machine
+accounts through the vendor SDK, `bwpm` consumes what the user has already
+set up: a signed-in, unlocked `bw` session (`$BW_SESSION`). It never logs
+in, never prompts for a master password, never handles 2FA, and never
+persists a session — the key reaches the child only through the inherited
+environment, never a `--session` argument, a log, an error message or the
+vault. The `bw` binary is a runtime dependency of this provider alone, and a
+missing binary, a signed-out vault and a locked session are three distinct
+refusals, each naming the state it found. The provider adds no Python
+dependency.
+
+References take the form `bwpm://<item>/<field>`: the item by uuid or exact
+name, the field never defaulted — one of `password`, `username`, `totp`,
+`notes`, `uri`, or a custom field as `field:<name>`. An unknown field, a
+query string, an ambiguous item name and a valueless field all refuse rather
+than resolve quietly. `totp` stores the seed, never a generated code — a
+code in the vault would silently expire. Because server selection stays
+with the `bw` CLI's own configuration, `bwpm` works against a self-hosted
+Vaultwarden as-is, which makes it the project's first self-hosted-friendly
+secret source; the plugin README documents the grammar, the refusal table,
+the session-expiry operational reality, and which product each scheme
+speaks.
+
 ### Changed — one arity per pre-boot flag, and one exit code for a wrong value
 
 Every flag `func` reads before boot is boolean or value-required — never
