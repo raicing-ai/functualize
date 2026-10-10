@@ -163,7 +163,7 @@ def verify(archive: bytes, checksums: str, asset_name: str) -> None:
         parts = line.split()
         if len(parts) != 2:
             continue
-        published, name = parts[0], parts[1].lstrip("*")
+        published, name = parts[0], _listed_name(parts[1])
         if name == asset_name:
             if published.lower() == digest:
                 return
@@ -171,6 +171,21 @@ def verify(archive: bytes, checksums: str, asset_name: str) -> None:
                 f"{asset_name}: published {published}, downloaded {digest}"
             )
     raise ChecksumMismatchError(f"{asset_name} is not listed in {_SUMS_ASSET}")
+
+
+def _listed_name(field: str) -> str:
+    """The asset a ``SHA256SUMS`` name field refers to.
+
+    ``sha256sum`` writes the path it was given, and marks binary mode with a
+    leading ``*``: ``sha256sum ./*`` — which built every release up to 0.4.0 —
+    writes ``./<asset>``, and ``-b`` on top of it ``*./<asset>``. All of them
+    name the same file, and ``sha256sum -c`` and both installers accept them.
+
+    One marker and one ``./`` are removed and nothing else: a ``basename``
+    would let ``dir/<asset>`` or ``../<asset>`` stand in for the asset, and
+    tolerance must never widen what passes.
+    """
+    return field.removeprefix("*").removeprefix("./")
 
 
 def extract_executable(archive: bytes, *, is_zip: bool) -> bytes:

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `self update` on a standalone binary can verify a release again
+
+Every standalone update since 0.2.2 was refused with
+`functualize-<target>.tar.gz is not listed in SHA256SUMS`. The release
+workflow wrote the checksum file with `sha256sum ./*`, so each line named its
+asset `./functualize-<target>.tar.gz`, and the updater compared against the
+bare name. Nothing was ever installed unverified — the refusal is the
+fail-closed path — but nothing could be installed at all.
+
+Both sides changed. The release workflow now writes bare names
+(`sha256sum *`), which is what the updater in the 0.2.2–0.4.0 binaries can
+match: those binaries update by reading the *next* release's file, so this
+release is the first they can update to. And the updater now accepts every
+name `sha256sum` writes for an asset — `<asset>`, `./<asset>`, `*<asset>` and
+`*./<asset>`, as `sha256sum -c` and both install scripts already did — and
+nothing wider: `dir/<asset>` or `other-<asset>` is still "not listed", and a
+differing digest is still refused with both digests named.
+
 ### Changed — one arity per pre-boot flag, and one exit code for a wrong value
 
 Every flag `func` reads before boot is boolean or value-required — never
