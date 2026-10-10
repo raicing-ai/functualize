@@ -102,8 +102,8 @@ def test_a_middleware_failing_before_the_job_runs_is_not_the_job() -> None:
     ran: list[bool] = []
 
     def broken(_rc: Any) -> Generator[None]:
+        yield from ()  # a generator that fails on its first step
         raise _MiddlewareError("middleware bug")
-        yield  # pragma: no cover - makes this a generator
 
     def job() -> None:
         ran.append(True)
