@@ -11,6 +11,7 @@ class names and never provider message text.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -25,7 +26,6 @@ from functualize_secrets_bitwarden import (
     InvalidReferenceError,
     ItemNotFoundError,
     PasswordManagerProvider,
-    clear_cli_state_cache,
 )
 
 from tests.conftest import (
@@ -83,14 +83,16 @@ class TestTheRefusalsNameTheirState:
         assert [argv[1:3] for argv in _argvs(shim)] == [["status", "--raw"]]
 
     def test_a_failed_status_probe_is_a_command_error(self, bw_shim: Any) -> None:
-        bw_shim(status_stderr="keyring unavailable", items=[pm_item()])
-        with pytest.raises(BwCommandError, match="keyring unavailable"):
+        bw_shim(status_stderr=SESSION_KEY, items=[pm_item()])
+        with pytest.raises(BwCommandError, match="status.*failed") as exc:
             _provider().fetch(f"{ITEM_ID}/password")
+        assert SESSION_KEY not in str(exc.value)
 
     def test_an_unknown_status_word_is_a_command_error(self, bw_shim: Any) -> None:
         bw_shim(state="logging-in", items=[pm_item()])
-        with pytest.raises(BwCommandError, match="logging-in"):
+        with pytest.raises(BwCommandError, match="unknown state") as exc:
             _provider().fetch(f"{ITEM_ID}/password")
+        assert "logging-in" not in str(exc.value)
 
 
 class TestFetchingByUuid:
@@ -109,11 +111,24 @@ class TestFetchingByUuid:
         _provider().fetch(f"{ITEM_ID}/notes")
         assert ["list", "items"] not in [argv[1:3] for argv in _argvs(shim)]
 
-    def test_a_missing_item_surfaces_bws_own_words(self, bw_shim: Any) -> None:
-        """A uuid miss is decided by `bw` itself; its words are the reason."""
+    def test_a_missing_uuid_has_its_own_refusal(self, bw_shim: Any) -> None:
         bw_shim(items=[], get_stderr="Not found. no-such-id")
-        with pytest.raises(BwCommandError, match="Not found"):
+        with pytest.raises(ItemNotFoundError, match="No Password Manager item"):
             _provider().fetch(f"{ITEM_ID}/password")
+
+    def test_a_uuid_miss_reaches_the_sync_report(self, bw_shim: Any) -> None:
+        from functualize.app.utils import _fetch_first
+
+        bw_shim(items=[])
+        annotation = SimpleNamespace(provider="bwpm", reference=f"{ITEM_ID}/password")
+        reason = _fetch_first([annotation], {"bwpm": _provider()})
+        assert reason == "bwpm: ItemNotFoundError during fetch"
+
+    def test_other_get_failure_is_not_a_uuid_miss(self, bw_shim: Any) -> None:
+        bw_shim(items=[], get_stderr=PASSWORD_VALUE)
+        with pytest.raises(BwCommandError) as exc:
+            _provider().fetch(f"{ITEM_ID}/password")
+        assert PASSWORD_VALUE not in str(exc.value)
 
 
 class TestFetchingByName:
@@ -235,6 +250,28 @@ class TestFieldSemantics:
 
 
 class TestSecrecy:
+    @pytest.mark.parametrize(
+        ("output_kind", "reference"),
+        [
+            ("get_stdout", f"{ITEM_ID}/password"),
+            ("list_stdout", "deploy-token/password"),
+            ("status_stdout", f"{ITEM_ID}/password"),
+        ],
+    )
+    def test_malformed_cli_output_never_reaches_errors(
+        self, bw_shim: Any, output_kind: str, reference: str
+    ) -> None:
+        bw_shim(items=[pm_item()], **{output_kind: PASSWORD_VALUE})
+        with pytest.raises(BwCommandError) as exc:
+            _provider().fetch(reference)
+        assert PASSWORD_VALUE not in str(exc.value)
+
+    def test_failed_list_output_never_reaches_errors(self, bw_shim: Any) -> None:
+        bw_shim(items=[pm_item()], list_stderr=SESSION_KEY)
+        with pytest.raises(BwCommandError) as exc:
+            _provider().fetch("deploy-token/password")
+        assert SESSION_KEY not in str(exc.value)
+
     def test_the_session_reaches_the_child_only_through_the_environment(
         self, bw_shim: Any
     ) -> None:
@@ -273,21 +310,22 @@ class TestSecrecy:
         assert vars(provider) == {}
 
 
-class TestTheProbeCache:
-    def test_one_probe_per_process(self, bw_shim: Any) -> None:
+class TestTheCurrentStateProbe:
+    def test_each_fetch_probes_again(self, bw_shim: Any) -> None:
         shim = bw_shim(items=[pm_item()])
         provider = _provider()
         provider.fetch(f"{ITEM_ID}/password")
         provider.fetch(f"{ITEM_ID}/username")
         probes = [argv for argv in _argvs(shim) if argv[1:3] == ["status", "--raw"]]
-        assert len(probes) == 1
+        assert len(probes) == 2
 
-    def test_clearing_the_cache_probes_again(self, bw_shim: Any) -> None:
+    def test_changed_session_state_refuses_on_next_fetch(self, bw_shim: Any) -> None:
         shim = bw_shim(items=[pm_item()])
         provider = _provider()
         provider.fetch(f"{ITEM_ID}/password")
-        clear_cli_state_cache()
-        provider.fetch(f"{ITEM_ID}/password")
+        shim.set_state("locked")
+        with pytest.raises(BwSessionLockedError):
+            provider.fetch(f"{ITEM_ID}/password")
         probes = [argv for argv in _argvs(shim) if argv[1:3] == ["status", "--raw"]]
         assert len(probes) == 2
 

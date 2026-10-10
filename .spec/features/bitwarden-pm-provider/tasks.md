@@ -12,8 +12,8 @@ while wave N has unchecked tasks.
       value-free `label`. Imports `_is_uuid` from `_reference`.
       Files: `src/functualize_secrets_bitwarden/_pm_reference.py`
 - [x] 1.2 `_pm_client.py`: the `bw` subprocess transport — binary probe,
-      `bw status` state machine (unauthenticated/locked/unlocked) cached per
-      process behind a lock with `clear_cli_state_cache()`, uuid-form
+      `bw status` state machine (unauthenticated/locked/unlocked) probed for
+      each fetch without module state, uuid-form
       `bw get item <uuid> --raw`, name-form `bw list items --raw` with exact
       match and ambiguity, `--nointeraction` + `stdin=DEVNULL` + 20 s timeout,
       ambient env passing (never a `--session` argv), field extraction
@@ -24,7 +24,7 @@ while wave N has unchecked tasks.
 ## 2. Wire the provider in
 
 - [x] 2.1 `PasswordManagerProvider` in `__init__.py`: `identifier() ->
-      "bwpm"`, `is_ready()` (binary + unlocked, cached probe), `fetch()`
+      "bwpm"`, `is_ready()` (true so fetch can report specific refusals), `fetch()`
       (parse → probe → fetch → extract); export it and the new exceptions;
       rewrite the package docstring for two providers and record the
       Vaultwarden flip where the old "Not Vaultwarden" note stood.
@@ -47,7 +47,7 @@ while wave N has unchecked tasks.
       uuid and name fetch paths; ambiguity (item and custom field); field
       semantics (seed passthrough, first uri, no-value refusal, missing
       login block); secrecy (no `--session` argv, no session key or values
-      in errors, provider holds no state); probe caching; protocol contract
+      in errors, provider holds no state); fresh state probe; protocol contract
       (`identifier == "bwpm"`, satisfies `RemoteProvider`).
       Files: `tests/test_pm_provider.py`
 - [x] 3.4 `test_integration_vaultwarden.py`: module-skips without an

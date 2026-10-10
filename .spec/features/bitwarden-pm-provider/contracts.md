@@ -5,7 +5,7 @@
 ```python
 class PasswordManagerProvider:          # satisfies RemoteProvider
     def identifier(self) -> str: ...    # "bwpm"
-    def is_ready(self) -> bool: ...     # bw present AND session unlocked; cached per process
+    def is_ready(self) -> bool: ...     # true; specific refusals happen in fetch()
     def fetch(self, reference: str) -> str: ...
 ```
 
@@ -16,9 +16,10 @@ New exceptions (all `RuntimeError`/`LookupError` subclasses, exported):
 | `BwBinaryMissingError` | No `bw` executable on `PATH`. |
 | `BwNotLoggedInError` | `bw status` reports `unauthenticated`. |
 | `BwSessionLockedError` | `bw status` reports `locked`. |
-| `BwRequestError` | A `bw` invocation failed otherwise (carries bw's stderr, never env). |
+| `BwCommandError` | A `bw` invocation failed otherwise; CLI output is withheld. |
 | `InvalidReferenceError` | The `bwpm://` reference is malformed or names an unknown field. |
-| `ItemNotFoundError` | Well-formed reference; no such item / no stored value. |
+| `ItemNotFoundError` | Well-formed reference; no such item. |
+| `FieldNotFoundError` | The item exists but the requested field has no value. |
 | `AmbiguousItemError` | An item name matches more than one item (names candidate ids). |
 | `AmbiguousFieldError` | Duplicate custom-field names inside one item. |
 
@@ -70,9 +71,9 @@ property that never carries a value.
 | Item by name | `bw list items --raw` → JSON array; exact `name` match client-side |
 | Session | Ambient only: the child inherits `os.environ` (`BW_SESSION` flows through). **Never** a `--session` argv (argv is world-readable via `ps`). |
 | stdin | `DEVNULL` always — no invocation can wait on input. |
-| stdout/stderr | Captured, decoded; stderr text may flow into `BwRequestError`, values never do. |
+| stdout/stderr | Captured, decoded; neither raw stream is included in exceptions. |
 | Timeout | 20 s per invocation (`subprocess.run` kills the child on expiry); core's 30 s fetch wrapper still governs each value. |
-| State cache | The probe result is cached per process behind a lock; `clear_cli_state_cache()` drops it. Only the state *name* is cached — never env, never values. |
+| State probe lifetime | Each fetch probes the current CLI state; no module cache survives a session or `PATH` change. |
 
 Field extraction, from the item JSON: `login.password`, `login.username`,
 `login.totp` (the stored seed/URI — `bw get totp` is never invoked, it emits a

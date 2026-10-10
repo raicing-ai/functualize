@@ -108,7 +108,7 @@ contracts are untouched by construction.
 
 1. `_pm_reference.py` — the grammar; pure parsing, no I/O, refuses before any
    subprocess spawns (a typo costs a clear message, not a `bw` invocation).
-2. `_pm_client.py` — state probe (cached), subprocess calls, JSON extraction,
+2. `_pm_client.py` — fresh state probe per fetch, subprocess calls, JSON extraction,
    the four session/binary refusals, field semantics (totp seed not code,
    first uri, empty refuses).
 3. `__init__.py` — `PasswordManagerProvider` + exports + docstring rewrite
@@ -148,9 +148,8 @@ contracts are untouched by construction.
 - **A `bw` invocation that prompts** would hang a sync. Mitigation:
   `--nointeraction` + `stdin=DEVNULL` + a 20 s subprocess timeout under core's
   30 s per-value wrapper.
-- **Session state changing mid-sync.** The probe result is cached per process;
-  a lock/unlock halfway through a sync surfaces as a specific per-value
-  failure in the sync report, which is the honest outcome.
+- **Session state changing mid-sync.** Each fetch probes again, so a lock or
+  unlock between values is reflected in the next value's sync report.
 
 ## Surviving smells
 
@@ -162,6 +161,7 @@ contracts are untouched by construction.
 - **O(vault) name-form fetch** (`bw list items` per name-form value): the same
   trade the `bws` provider makes with its organization listing, chosen over a
   process-lifetime cache of decrypted items. Needs no maintainer review.
-- No Forbidden-Patterns smell is introduced: no peer-layer imports, no new
-  global mutable state beyond the probe-result cache (same shape as the
-  reviewed SDK-client cache), no ABC, no `_cli` import.
+- No new Forbidden-Patterns smell is introduced: no peer-layer imports,
+  global mutable state, ABC, or `_cli` import. The original probe-result
+  module singleton was removed during review remediation; the older SDK
+  client cache remains outside this change's scope.

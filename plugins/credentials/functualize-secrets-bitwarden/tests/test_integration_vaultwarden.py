@@ -114,9 +114,12 @@ def seeded() -> Any:
         {"name": "api-key", "value": "integration-field-value", "type": 1}
     ]
 
-    created = _bw("create", "item", "--raw", stdin=json.dumps(item))
+    encoded = _bw("encode", stdin=json.dumps(item))
+    if encoded.returncode != 0:
+        pytest.fail("`bw encode` failed while preparing the integration item")
+    created = _bw("create", "item", encoded.stdout.strip(), "--raw")
     if created.returncode != 0:
-        pytest.fail(f"`bw create item` failed: {created.stderr}")
+        pytest.fail("`bw create item` failed while seeding the integration item")
     item_id = str(json.loads(created.stdout)["id"])
 
     try:

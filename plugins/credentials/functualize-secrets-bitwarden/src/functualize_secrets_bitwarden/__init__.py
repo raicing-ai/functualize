@@ -74,7 +74,6 @@ from functualize_secrets_bitwarden._pm_client import (
     BwSessionLockedError,
     FieldNotFoundError,
     ItemNotFoundError,
-    clear_cli_state_cache,
     extract_field,
     fetch_item,
 )
@@ -118,7 +117,6 @@ __all__ = [
     "PmReference",
     "SecretNotFoundError",
     "SecretsManagerProvider",
-    "clear_cli_state_cache",
     "clear_client_cache",
     "parse_pm_reference",
     "parse_reference",
@@ -272,7 +270,8 @@ class PasswordManagerProvider:
             BwNotLoggedInError: The vault is not signed in.
             BwSessionLockedError: The session is locked.
             BwCommandError: A ``bw`` invocation failed otherwise.
-            ItemNotFoundError: No such item, or the field stores no value.
+            ItemNotFoundError: No such item.
+            FieldNotFoundError: The item stores no value for the field.
             AmbiguousItemError: An item name matching more than one item.
             AmbiguousFieldError: Duplicate custom-field names in one item.
         """

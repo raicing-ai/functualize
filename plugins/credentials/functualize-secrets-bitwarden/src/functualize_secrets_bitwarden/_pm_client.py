@@ -13,8 +13,8 @@ persists a session.
 The session key travels exactly one way: inherited through the environment,
 because that is where ``bw unlock`` told the user to put it. It is **never**
 passed as a ``--session`` argument — argv is world-readable on every host via
-``ps`` — and it is never written anywhere by this module. Errors quote bw's
-own stderr and name reference parts; neither can carry the key or a value.
+``ps`` — and it is never written anywhere by this module. CLI output is
+untrusted and never included in an exception, even when it is malformed.
 
 Four states, four refusals
 --------------------------
@@ -29,11 +29,10 @@ differ:
 * ``locked`` — the human runs ``bw unlock`` and sync re-runs; this is the
   operational reality of ambient state, which is less durable than a BWS
   token;
-* anything else — ``BwRequestError`` carrying bw's own message.
+* anything else — ``BwCommandError`` with a fixed, value-free message.
 
-The probe is cached for the process, behind a lock: a sync fetching thirty
-values spawns one ``status`` rather than thirty, and only the state *name*
-is cached — never the environment, never a value.
+Each fetch probes the current state, so a long-lived process observes a
+changed session or CLI path rather than reusing a stale module cache.
 
 No prompt can hang a sync
 -------------------------
@@ -50,7 +49,6 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import threading
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -66,7 +64,6 @@ __all__ = [
     "BwSessionLockedError",
     "FieldNotFoundError",
     "ItemNotFoundError",
-    "clear_cli_state_cache",
     "fetch_item",
     "session_state",
 ]
@@ -80,9 +77,6 @@ _SUBPROCESS_TIMEOUT = 20.0
 _UNLOCKED = "unlocked"
 _LOCKED = "locked"
 _UNAUTHENTICATED = "unauthenticated"
-
-_STATE: str | None = None
-_LOCK = threading.Lock()
 
 
 class BwBinaryMissingError(RuntimeError):
@@ -98,7 +92,7 @@ class BwSessionLockedError(RuntimeError):
 
 
 class BwCommandError(RuntimeError):
-    """A ``bw`` invocation failed otherwise. Carries bw's own stderr.
+    """A ``bw`` invocation failed otherwise, without exposing CLI output.
 
     Named apart from the Secrets Manager transport's ``BitwardenRequestError``
     on purpose: the two names appear side by side in this package's public
@@ -122,35 +116,25 @@ class AmbiguousFieldError(LookupError):
     """One item carries more than one custom field of the same name."""
 
 
-def clear_cli_state_cache() -> None:
-    """Drop the cached probe result. For tests, and for a long-lived process
-    that has just been told the session changed."""
-    global _STATE
-    with _LOCK:
-        _STATE = None
-
-
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
     # The binary is resolved from PATH by name; stdin is DEVNULL so no
     # invocation can wait on a prompt nobody can answer inside a sync.
-    return subprocess.run(
-        [BW_BINARY, "--nointeraction", *args],
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        timeout=_SUBPROCESS_TIMEOUT,
-        check=False,
-    )
-
-
-def _output_snippet(completed: subprocess.CompletedProcess[str]) -> str:
-    """A bounded fragment of bw's stdout, for a 'did not return JSON' error."""
-    text = completed.stdout or ""
-    return " ".join(text.split())[:200]
+    try:
+        return subprocess.run(
+            [BW_BINARY, "--nointeraction", *args],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=_SUBPROCESS_TIMEOUT,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        # TimeoutExpired retains stdout/stderr, which may hold item values.
+        raise BwCommandError("`bw` timed out.") from None
 
 
 def session_state() -> str:
-    """The CLI's state, probed once per process.
+    """The CLI's current state, probed for this fetch.
 
     Returns:
         ``"unlocked"``, ``"locked"`` or ``"unauthenticated"`` — bw's own word
@@ -161,50 +145,22 @@ def session_state() -> str:
         BwCommandError: The probe failed, or its output is not the JSON
             shape this module understands.
     """
-    global _STATE
-    with _LOCK:
-        if _STATE is not None:
-            return _STATE
+    if shutil.which(BW_BINARY) is None:
+        raise BwBinaryMissingError(
+            "No 'bw' executable on PATH. Install the Bitwarden CLI and "
+            "sign in with `bw login`."
+        )
 
-        if shutil.which(BW_BINARY) is None:
-            raise BwBinaryMissingError(
-                f"No {BW_BINARY!r} executable on PATH. This provider drives "
-                f"the Bitwarden CLI as a subprocess; install it from "
-                f"https://bitwarden.com/download/ (or your package manager) "
-                f"and sign in with `bw login`."
-            )
-
-        completed = _run("status", "--raw")
-        if completed.returncode != 0:
-            raise BwCommandError(
-                f"`{BW_BINARY} status` failed: "
-                f"{_bw_says(completed.stderr) or 'no output'}"
-            )
-        try:
-            status = json.loads(completed.stdout).get("status")
-        except (json.JSONDecodeError, AttributeError):
-            raise BwCommandError(
-                f"`{BW_BINARY} status` did not return the expected JSON; "
-                f"got: {_output_snippet(completed)!r}"
-            ) from None
-        if status not in (_UNLOCKED, _LOCKED, _UNAUTHENTICATED):
-            raise BwCommandError(
-                f"`{BW_BINARY} status` reported {status!r}, which this "
-                f"provider does not know."
-            )
-
-        _STATE = str(status)
-        return _STATE
-
-
-def _bw_says(stderr: str) -> str:
-    """bw's own words for an error message, whitespace-collapsed.
-
-    bw's stderr for a failed read names the failure, not the value — but it
-    is still bw's text, so it is quoted as the *reason*, bounded, and never
-    prefixed with anything that looks like a value.
-    """
-    return " ".join(stderr.split())
+    completed = _run("status", "--raw")
+    if completed.returncode != 0:
+        raise BwCommandError("`bw status` failed; CLI output was withheld.")
+    try:
+        status = json.loads(completed.stdout).get("status")
+    except (json.JSONDecodeError, AttributeError):
+        raise BwCommandError("`bw status` did not return the expected JSON.") from None
+    if status not in (_UNLOCKED, _LOCKED, _UNAUTHENTICATED):
+        raise BwCommandError("`bw status` returned an unknown state.")
+    return str(status)
 
 
 def _unlocked_or_raise() -> None:
@@ -228,7 +184,7 @@ def fetch_item(ref: PmReference) -> dict[str, Any]:
     """Return the referenced item's JSON as a dict.
 
     Raises:
-        BwRequestError: A ``bw`` invocation failed.
+        BwCommandError: A ``bw`` invocation failed.
         ItemNotFoundError: A name matched nothing.
         AmbiguousItemError: A name matched more than one item.
     """
@@ -241,17 +197,13 @@ def fetch_item(ref: PmReference) -> dict[str, Any]:
 def _get_item(item_id: str) -> dict[str, Any]:
     completed = _run("get", "item", item_id, "--raw")
     if completed.returncode != 0:
-        raise BwCommandError(
-            f"`{BW_BINARY} get item` failed for {item_id}: "
-            f"{_bw_says(completed.stderr) or 'no output'}"
-        )
+        if completed.stderr.strip().casefold().startswith("not found."):
+            raise ItemNotFoundError(f"No Password Manager item with id {item_id}.")
+        raise BwCommandError("`bw get item` failed; CLI output was withheld.")
     try:
         item = json.loads(completed.stdout)
     except json.JSONDecodeError:
-        raise BwCommandError(
-            f"`{BW_BINARY} get item {item_id}` did not return JSON; "
-            f"got: {_output_snippet(completed)!r}"
-        ) from None
+        raise BwCommandError("`bw get item` did not return JSON.") from None
     if not isinstance(item, dict):
         raise BwCommandError(
             f"`{BW_BINARY} get item {item_id}` returned {type(item).__name__}, "
@@ -263,17 +215,11 @@ def _get_item(item_id: str) -> dict[str, Any]:
 def _match_name(item_name: str) -> str:
     completed = _run("list", "items", "--raw")
     if completed.returncode != 0:
-        raise BwCommandError(
-            f"`{BW_BINARY} list items` failed: "
-            f"{_bw_says(completed.stderr) or 'no output'}"
-        )
+        raise BwCommandError("`bw list items` failed; CLI output was withheld.")
     try:
         items = json.loads(completed.stdout)
     except json.JSONDecodeError:
-        raise BwCommandError(
-            f"`{BW_BINARY} list items` did not return JSON; "
-            f"got: {_output_snippet(completed)!r}"
-        ) from None
+        raise BwCommandError("`bw list items` did not return JSON.") from None
     # Exact match on purpose. `bw list items --search` fuzzes, and a fuzzy
     # hit that is not the item the config file named is a *working* run with
     # the wrong credential.

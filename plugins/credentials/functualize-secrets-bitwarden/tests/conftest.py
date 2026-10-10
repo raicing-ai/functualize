@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-from functualize_secrets_bitwarden import clear_cli_state_cache, clear_client_cache
+from functualize_secrets_bitwarden import clear_client_cache
 
 ORG = "11111111-2222-3333-4444-555555555555"
 # A real-looking uuid, not a secret: the grammar tells an id from a key name by
@@ -235,10 +235,16 @@ items = json.load(open(os.path.join(state_dir, "items.json"), encoding="utf-8"))
 if argv[:3] == ["--nointeraction", "status", "--raw"]:
     if status.get("status_stderr") is not None:
         fail(status["status_stderr"])
+    if status.get("status_stdout") is not None:
+        print(status["status_stdout"])
+        sys.exit(0)
     print(json.dumps({"serverUrl": "https://shim.invalid", "status": status["state"]}))
 elif argv[:3] == ["--nointeraction", "get", "item"] and argv[-1] == "--raw":
     if status.get("get_stderr") is not None:
         fail(status["get_stderr"])
+    if status.get("get_stdout") is not None:
+        print(status["get_stdout"])
+        sys.exit(0)
     found = items["by_id"].get(argv[3])
     if found is None:
         fail("Not found. " + argv[3])
@@ -246,6 +252,9 @@ elif argv[:3] == ["--nointeraction", "get", "item"] and argv[-1] == "--raw":
 elif argv[:3] == ["--nointeraction", "list", "items"] and argv[-1] == "--raw":
     if status.get("list_stderr") is not None:
         fail(status["list_stderr"])
+    if status.get("list_stdout") is not None:
+        print(status["list_stdout"])
+        sys.exit(0)
     print(json.dumps(items["list"]))
 else:
     fail("shim: unexpected invocation " + repr(argv))
@@ -295,8 +304,11 @@ def bw_shim(monkeypatch: Any, tmp_path: Any) -> Any:
         state: str = "unlocked",
         items: list[dict[str, Any]] | None = None,
         status_stderr: str | None = None,
+        status_stdout: str | None = None,
         get_stderr: str | None = None,
+        get_stdout: str | None = None,
         list_stderr: str | None = None,
+        list_stdout: str | None = None,
         session: str | None = None,
     ) -> BwShim:
         entries = items or []
@@ -322,8 +334,11 @@ def bw_shim(monkeypatch: Any, tmp_path: Any) -> Any:
                 {
                     "state": state,
                     "status_stderr": status_stderr,
+                    "status_stdout": status_stdout,
                     "get_stderr": get_stderr,
+                    "get_stdout": get_stdout,
                     "list_stderr": list_stderr,
+                    "list_stdout": list_stdout,
                 }
             ),
             encoding="utf-8",
@@ -360,14 +375,6 @@ def pm_item(**overrides: Any) -> dict[str, Any]:
     }
     item.update(overrides)
     return item
-
-
-@pytest.fixture(autouse=True)
-def clean_cli_state() -> Any:
-    """The probed session state is module-global; never let it cross a test."""
-    clear_cli_state_cache()
-    yield
-    clear_cli_state_cache()
 
 
 @pytest.fixture(autouse=True)
