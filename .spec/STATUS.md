@@ -881,6 +881,44 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### An optional Stdin parameter never blocks on a silent pipe (2026-10-10, `fix/optional-stdin-silent-pipe`)
+
+**The decision worth keeping.** *A `Stdin` parameter takes piped content, never
+a silent wait.* Rule 3 reads stdin only when it is a pipe that already carries
+data or has reached end-of-stream: a silent pipe (write end open, nothing
+written) and an empty stream both resolve **no value**, so the signature default
+survives — Rule 4 reachable outside a terminal for the first time. The two
+"nothing there" shapes stay distinguishable in the reader's accounting
+(never-read vs read-and-found-empty) and in the tests. A deliberately empty
+flag (`--data ""`) is an explicit value and still wins (Rule 1). Real piped
+data passes through unchanged — multi-line and non-default `encoding` intact.
+
+**Rules that outlive the feature:**
+
+- **"Pipe present" is not "data available".** `is_stdin_available()` means
+  "non-TTY and content ready (or EOF)"; readiness is one zero-width probe
+  (`_stdin_data_ready`: a test double's `data_ready()`, else a zero-width
+  `select` poll), and an unprobeable stream keeps the historical read-to-EOF
+  contract — Windows `select` included.
+- **A streaming annotation is the documented opt-in to waiting.** `list[...]`
+  / `Iterator[...]` parameters keep the ungated lazy hand-over: row-wise
+  pipelines must deliver first rows however late the upstream starts.
+- **Never fabricate an empty value.** An empty stream is "no value", not `""`;
+  a required (no-default) `Stdin` parameter on an empty stream fails the
+  ordinary missing-argument way. An explicit `""` is the only way to mean empty.
+- Both halves of interactivity state one rule: the prompt half
+  (`StdinCollector.is_available()` — no prompting on a non-interactive run) and
+  the parameter half agree that a run blocks on a human or on data only when
+  the human or the data is actually there.
+
+Pinned by `tests/cli/test_stdin_integration_unit.py` and
+`tests/engine/test_run_request_stdin.py` — wall-clock silent-pipe tests over a
+real `os.pipe()` with the write end held open, so a blocking-read regression
+fails the `join(timeout)` instead of hanging the suite — sharing the
+`tests/_support/stdin_fakes.py` seam. Full feature record (spec, contracts,
+plan, tasks) archived in Confluence before this clearing:
+https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/15138850 (PR #105).
+
 ### The vault key from an unlocked keyring, never a prompt from a run (2026-10-03, `sdd/vault-keyring-unlock`)
 
 **The decision worth keeping.** *A run never asks the keyring to unlock.* The
