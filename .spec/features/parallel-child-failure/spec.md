@@ -1,7 +1,7 @@
 # Parallel child failures reach the parent
 
-Status: draft; awaiting confirmation before Plan. This document describes the
-proposed behavior, not behavior already implemented.
+Status: confirmed for Plan; not implemented. The member approved this contract
+and the narrow `_app/impl.py` scope extension on 2026-10-11.
 
 ## Problem
 
@@ -113,9 +113,11 @@ promises returned failures for top-level reporting and currently calls
 would affect it too. Plan must resolve this against the dispatched file scope;
 the proposed minimal extension is for that caller to pass
 `raise_on_failure=False`. That additional production file needs scope approval
-before implementation. Do not silently vary the default by delivery surface.
+before implementation. The member approved that extension on 2026-10-11; the
+caller will select `raise_on_failure=False` explicitly. Do not silently vary
+the default by delivery surface.
 
-Confirmation of this specification precedes Plan. A reviewed native task graph
+This specification was confirmed on 2026-10-11. A reviewed native task graph
 and a fresh six-file execution anchor precede implementation. Review,
 verification, and the two-push artifact cleanup remain later gates.
 

@@ -1,6 +1,6 @@
 # Parallel failure contract
 
-Status: draft; not implemented. Confirm with `spec.md` before Plan.
+Status: confirmed for Plan; not implemented.
 
 ## Job-author surface
 
@@ -42,8 +42,8 @@ the submitted pairs.
   existing delegation. The explicit opt-out is available through the injected
   `Invoke` capability; extending the facade's signature is outside this draft.
 - `FunctualizeApp.execute_parallel` retains its existing results/reporting
-  contract. Its shared caller must select result handling explicitly, subject
-  to the scope decision identified in `spec.md`.
+  contract. Its shared caller selects `raise_on_failure=False` explicitly, as
+  approved with the scope extension in `spec.md`.
 - No CLI flag, delivery exit-code table, or parallel observer interface changes.
 
 ## Timing
