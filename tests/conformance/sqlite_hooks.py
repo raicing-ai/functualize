@@ -1,9 +1,9 @@
 """SQLite's harness hooks — the instruments the suite cannot fake (contracts §4a).
 
-Test code, not shipped code: it reaches the plugin the way `test_baseline.py`
-does — through its public constructors, nothing private — because only the
-backend's own code can build a store whose commit dies mid-statement, read
-the outbox cold, or lay down last year's schema.
+Test code, not shipped code: it reaches the plugin through its public
+constructors and the packaged historical SQL text, without importing private
+Python modules. The backend's own harness must be able to build a store whose
+commit dies mid-statement, read the outbox cold, and lay down last year's schema.
 
 - `statement_faults` prepares the store exactly as boot does (the factory's
   ``prepare`` migrates and health-checks), then rebuilds it over a driver
@@ -25,8 +25,10 @@ the outbox cold, or lay down last year's schema.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
+from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -146,17 +148,22 @@ class SqliteMigrationHarness:
         if schema == "empty":
             return
         if schema == "version-1":
-            from functualize_substrate_sqlite._driver import LocalSqliteDriver
-            from functualize_substrate_sqlite._migrations import (
-                SHIPPED_MIGRATIONS,
-                migrate,
+            sql = (
+                resources.files("functualize_substrate_sqlite")
+                .joinpath("_schema", "0001_runtime_schema.sql")
+                .read_text(encoding="utf-8")
             )
-
-            driver = LocalSqliteDriver(root / DB_NAME)
+            connection = sqlite3.connect(root / DB_NAME)
             try:
-                migrate(driver, SHIPPED_MIGRATIONS[:1])
+                connection.executescript(sql)
+                connection.execute(
+                    "INSERT INTO schema_migrations (version, name, checksum, applied_at) "
+                    "VALUES (1, 'runtime_schema', ?, 'historical')",
+                    (hashlib.sha256(sql.encode("utf-8")).hexdigest(),),
+                )
+                connection.commit()
             finally:
-                driver.close()
+                connection.close()
             return
         if schema == "documents-only":
             # The legacy file: derived keys only, so opening it is not the
