@@ -139,7 +139,7 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       (ruling R-2, contracts §1.5).
       *R-2 witness:* a takeover's `timed_out` record keeps `completed_at == ""` on the document
       store (a test asserting the stored record) and NULL on SQLite.
-- [ ] **W9** Tests that built a walk by hand, and the architecture test
+- [x] **W9** Tests that built a walk by hand, and the architecture test
       *Depends on:* W8.
       *Files:* `tests/spec/test_the_walk_writes_only_through_the_port.py` (new), a shared fixture
       in `tests/conftest.py` or `tests/workflow/conftest.py`, and the 20 files that construct
@@ -167,6 +167,21 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       stores; (iii) re-add one `self._store.get_scope` → the architecture test fails; (iv) restore
       `store.get_step` in `loop_state.current_iteration` (any receiver) → the architecture test fails,
       which proves the wide net reaches past the three walk files.
+      *Done (`44524c41` plus the wave-boundary proof):* boot-selected store →
+      `WorkflowRunner` → `WorkflowWalker` → `FrontierWalk` → workflow writers/readers;
+      loop iteration and walk-scoped `FromJob` also read through the port. The
+      existing shared `tests/_support/engine_storage.py::port_for` supplies the
+      document port to hand-built tests; the new two-store module exercises a
+      real loop and replay on SQLite. The architecture sweep covers every
+      `_engine` module, with its allowlist bound to the exact state module.
+      Disabling SQLite branch recording changed replay from `l-out` to `r-out`;
+      deleting `StartWalk` left both stores `blocked` on resume; inserting
+      `self._store.get_scope` in `frontier.py` and `store.get_step` in
+      `loop_state.py` each failed the architecture test at the inserted line.
+      Every sabotage was restored and its focused test passed. The Python 3.13
+      root suite passed in three bounded chunks (3,245 + 5,328 + 3,799 passed),
+      the SQLite plugin suite passed (184), and the two slow crash modules
+      passed (8); ruff, mypy and all seven import contracts passed.
 
 ## Wave 3 — the walk's state and events
 

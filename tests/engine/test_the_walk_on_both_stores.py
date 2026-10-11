@@ -33,8 +33,10 @@ from functualize_substrate_sqlite import SQLiteSubstratePlugin
 from pydantic import BaseModel
 
 from functualize._engine.frontier import FrontierWalk, GraphModel, StepStatus
+from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
 from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._types.workflow import Loop, WorkflowDeclaration
 from functualize.job import FromJob, job
 from functualize.plugin import Claimed, RuntimeStoreConfig
 from functualize.workflow import END, Edge, Step, workflow
@@ -147,6 +149,45 @@ def test_each_loop_pass_records_its_own_step(store: RuntimeStore) -> None:
     assert set(records) == {"spin::h1", "spin::h2"}
     assert walk.should_replay_skip("spin", "h1") is True
     assert walk.should_replay_skip("spin", "h2") is False  # a failed pass re-runs
+    store.close()
+
+
+def test_a_looped_workflow_repeats_on_both_stores(store: RuntimeStore) -> None:
+    """A real walker follows each loop edge and persists each pass through the port."""
+    declaration = WorkflowDeclaration(
+        nodes=(Step("fan"), Step("left"), Step("right"), Step("join")),
+        edges=(
+            Edge(source="fan", target="left"),
+            Edge(source="fan", target="right"),
+            Edge(source="left", target="join"),
+            Edge(source="right", target="join"),
+            Loop(source="join", target="fan", max_iterations=3),
+            Edge(source="join", target=END),
+        ),
+    )
+    calls: list[str] = []
+
+    def run_step(name: str) -> str:
+        calls.append(name)
+        return name
+
+    report = WorkflowWalker(
+        declaration,
+        "loop-scope",
+        run_step=run_step,
+        runtime_store=store,
+        workflow_name="loop-flow",
+    ).run()
+
+    assert report.outcome is WalkOutcome.COMPLETED, report
+    assert {name: calls.count(name) for name in ("fan", "left", "right", "join")} == {
+        "fan": 3,
+        "left": 3,
+        "right": 3,
+        "join": 3,
+    }
+    steps = store.workflows.steps("loop-scope")
+    assert len([step for step in steps if step.step_key.startswith("join::")]) == 3
     store.close()
 
 
