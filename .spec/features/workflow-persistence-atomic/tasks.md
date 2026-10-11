@@ -102,14 +102,24 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
 - [ ] **W8** The walker, the runner and their callers
       *Depends on:* W7.
       *Files:* `src/functualize/_engine/workflow_walker.py`, `src/functualize/_engine/workflow_runner.py`,
-      `src/functualize/_engine/workflow_orchestrator.py`, `src/functualize/_engine/dependency_runner.py`.
-      Four files, against the usual 1–3, because the constructor change is one signature and does
-      not split without leaving a caller that cannot compile.
+      `src/functualize/_engine/workflow_orchestrator.py`, `src/functualize/_engine/dependency_runner.py`,
+      `src/functualize/_engine/loop_state.py`, and `src/functualize/_engine/executor.py`
+      (`_from_job_value` only).
+      Six files, against the usual 1–3, because the constructor change is one signature and does not
+      split without leaving a caller that cannot compile. Widened 2026-10-11 by ruling R-3: the
+      first four were not the whole hit set. `rg -ln "\b(get_step|get_scope|…)\(" src/functualize/_engine`
+      also returns `loop_state.py` (`:72`, called from `workflow_walker.py:690`) and `executor.py`
+      (`:2162`, a walk-scoped `FromJob` read). `executor.py`'s `_scope_for` and `_close_scope` are
+      the out-of-scope sites allowlisted in W-AC-1.
       *Do:* graph digest via `WorkflowView.graph_digest` + `StartWalk`; status writes via
       `MoveScope` / `CompleteStep`; failure routes and notify markers via `branch` + `RecordBranch`;
       the failed-step record via `RecordStep`; epilogue via `RecordStep(EPILOGUE_STEP_KEY)` and
       reader `step`; the orchestrator stops passing `_scope_store()`; `DependencyRunner` reads
-      `steps`.
+      `steps`; `current_iteration` takes the reader (contracts §4); `_from_job_value` reads
+      `steps` inside a walk (contracts §4); every `RecordStep` passes `completed_at` explicitly
+      (ruling R-2, contracts §1.5).
+      *R-2 witness:* a takeover's `timed_out` record keeps `completed_at == ""` on the document
+      store (a test asserting the stored record) and NULL on SQLite.
 - [ ] **W9** Tests that built a walk by hand, and the architecture test
       *Depends on:* W8.
       *Files:* `tests/spec/test_the_walk_writes_only_through_the_port.py` (new), a shared fixture
@@ -128,12 +138,16 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       `tests/workflow/test_watch_stream.py`. Mechanical: each builds the walk over a store from the
       fixture; no assertion changes except reading a record through the port.
       *Gate (W-AC-1, W-AC-4):* `rg -n "self\._store\." frontier.py workflow_walker.py
-      workflow_runner.py` → nothing; the `ast` architecture test green; every listed test green on
-      the document store; `tests/workflow` and `tests/engine` green.
+      workflow_runner.py` → nothing; the `ast` architecture test over **all of `src/functualize/_engine/`**
+      green, with exactly the allowlist W-AC-1 names; every listed test green on the document store;
+      `tests/workflow` and `tests/engine` green; a looped workflow (`tests/workflow/test_loops.py`)
+      and a `FromJob`-inside-a-walk test both green on SQLite.
       *Sabotage (ticks W5–W9):* (i) make `SqliteRuntimeStore.record_branch` a no-op → a replay test
       parametrised on SQLite takes a different branch than it paused on; (ii) delete the
       `StartWalk` issue in `FrontierWalk.start` → `test_resumed_walk_says_running` fails on both
-      stores; (iii) re-add one `self._store.get_scope` → the architecture test fails.
+      stores; (iii) re-add one `self._store.get_scope` → the architecture test fails; (iv) restore
+      `store.get_step` in `loop_state.current_iteration` (any receiver) → the architecture test fails,
+      which proves the wide net reaches past the three walk files.
 
 ## Wave 3 — the walk's state and events
 
@@ -167,7 +181,8 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       *Files:* `src/functualize/testing/conformance/baseline.py`, `tests/conformance/test_baseline.py`.
       *Gate (S-8, W-AC-4):* a check per new writer and reader (start/renew/release/record_step/
       record_branch/move round trips, `state`, `steps`, `branch`, epilogue key, and
-      `deposited_answer` is `None` for a candidate-answered gate — R-1) green on **both**
+      `deposited_answer` is `None` for a candidate-answered gate — R-1; a `RecordStep` with
+      `completed_at=None` reads back `None` — R-2) green on **both**
       stores and over `BatchOnlySqliteDriver` in Tier A.
       *Call path:* the shipped test library (as in the first feature).
       *Sabotage:* a store whose `release` keeps the owner → the release check fails.

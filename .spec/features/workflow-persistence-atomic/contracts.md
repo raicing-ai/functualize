@@ -41,6 +41,7 @@ class RecordStep:           # a step record that moves neither position nor stat
     generation: int
     step_key: str
     now: datetime
+    completed_at: datetime | None   # REQUIRED, no default — ruling R-2 (§1.5)
     iteration: int = 0
     status: str = "success"
     result: Any = None
@@ -186,6 +187,70 @@ that, and removes `deposited_answer` with it. It writes nothing.
 - A SQLite test: a legacy file whose gate had a bare payload, once imported, resumes from the
   `#legacy` candidate, and `deposited_answer` is `None` there.
 
+### 1.5 Ruling R-2 — a step record that never completed (2026-10-11, amends §1.1)
+
+**The gap.** `FrontierWalk._record_timed_out` (`_engine/frontier.py:290-298`) writes
+`{"status": "timed_out", …, "completed_at": ""}`: the runner that overran never finished, so the
+record has no completion time. `RecordStep` as first written carried no completion time, and the
+document store stamps one from `now` (`_primitives/document_store.py:351`). The timed-out record
+would quietly gain a timestamp.
+
+**Why it matters (it is not cosmetic).** `completed_at` is read in two places:
+- `app/_workflow_view.py:383` shows it as the step's completion time;
+- `app/_workflow_control.py:611-625` `_newest_timestamp` uses the newest one as a scope's age for
+  `purge --older-than-days`. A `""` fails `fromisoformat` and is skipped; a stamp would make a
+  scope taken over by a new runner look recent and survive a purge it should not.
+
+So reading W-AC-4 as "only the fields that carry meaning" does not help: this field carries
+meaning.
+
+**Ruling.** `RecordStep.completed_at: datetime | None` is a required field with no default, so
+every caller decides and none inherits a stamp by accident:
+
+| Caller | Passes |
+|---|---|
+| `_record_timed_out` (`frontier.py:290`) | `None` |
+| failed-then-routed (`workflow_walker.py:596-604`, today `_now()`) | `now` |
+| epilogue (`workflow_runner.py:238-245`, today `datetime.now(UTC)`) | `now` |
+
+| Store | `completed_at=None` becomes |
+|---|---|
+| document store | `"completed_at": ""`, byte-identical to today |
+| SQLite | `workflow_steps.completed_at` NULL (the column is nullable in `0001`) |
+| reader | `StepView.completed_at = None` on both |
+
+`CompleteStep` keeps stamping from `now`. Its one caller (`workflow_walker.py:859-865`) always
+passes `completed_at=_now()`, so the `""` default of `FrontierWalk.complete` never reaches it.
+Already-written W5/W6 code (`86588af5`) adds the field in the W7–W9 pass. BASELINE (W13) adds: a
+`RecordStep` with `completed_at=None` reads back as `None` on both stores.
+
+### 1.6 Ruling R-3 — the walk's reads that lived outside the walk files (2026-10-11)
+
+**The gap.** W-AC-1 and W9's gate looked at three files, and W8's file list named four. Two reads
+of the walk's own scope live elsewhere:
+- `_engine/loop_state.py:72`: `current_iteration` calls `store.get_step(...)`, with its only caller
+  at `workflow_walker.py:690`. A looped walk counts its iterations from the legacy store.
+- `_engine/executor.py:2162`: `_from_job_value` reads `store.scopes.get_scope(scope_id)` for a
+  `FromJob` reference inside a walk.
+
+On SQLite both would go blind, so S-9 would be false for a looped walk and for `FromJob` inside a
+walk. This one was found by this run's own sweep: `rg -ln` over `_engine/` for the
+`ScopeStore`-only method names.
+
+**Reading.** Both are reads of the walk's own scope, so they are in S-9. Neither is the "engine-side
+workflow state … outside the walk's scope reads and writes" that the narrowed FUN-20 non-goal
+keeps out.
+
+**Ruling.**
+- W8 takes both files (`tasks.md`), with the signatures in §4.
+- W-AC-1's gate becomes an `ast` test over **all of `_engine/`**, refusing the `ScopeStore` import,
+  `_scope_store(`, `.scopes.` and the `ScopeStore`-only method names.
+- The test carries a named allowlist of exactly the out-of-scope sites, each with its reason:
+  `executor._scope_store`, `executor._scope_for`, `executor._close_scope`, and
+  `capabilities/state.py`.
+
+A future walk read added anywhere in the engine then fails the gate, whatever file it lands in.
+
 ## 2. Store implementations
 
 | Store | How the new commands land |
@@ -218,6 +283,15 @@ three columns when a legacy step record carries them (`return_value_kind`, `retu
 - `_events/walk_log.py` appends through `tx.events.append(type, payload, run_id)` on the selected
   store instead of `ScopeStore.append_event`.
 - `DependencyRunner` (`dependency_runner.py:82-88`) reads `WorkflowReader.steps`.
+- `loop_state.current_iteration(reader: WorkflowReader, scope_id, name, bound)` replaces its
+  `store: Any` parameter (`loop_state.py:59-75`). It asks `reader.step(scope_id,
+  iteration_step_key(name, i))`; the key scheme is unchanged. Its caller is
+  `workflow_walker.py:690` (ruling R-3).
+- `executor._from_job_value` (`executor.py:2145-2170`), for a `FromJob` reference **inside a walk**
+  (`scope_id is not None`), reads `runtime_store.workflows.steps(scope_id)` instead of
+  `store.scopes.get_scope(scope_id)`. `reusable_return_value` is handed the step as the record shape
+  it reads (status, return value, reusable flag and kind), built from the `StepView`. The
+  fingerprint branch, outside a walk, is unchanged (ruling R-3).
 
 ## 5. Backward compatibility
 

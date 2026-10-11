@@ -27,11 +27,29 @@ records exactly that as a strict xfail marked `TRANSITIONAL(workflow-persistence
 
 Gates run at authoring time; each task's file scope is the gate's hit set.
 
-1. **W-AC-1 — the walk never touches the legacy scope store.** `rg -n "self\._store\."
+1. **W-AC-1 — the walk never touches the legacy scope store** (widened 2026-10-11, ruling R-3).
+   A new architecture test, `tests/spec/test_the_walk_writes_only_through_the_port.py`, walks the
+   `ast` of **every module under `src/functualize/_engine/`**. Docstrings name `ScopeStore` and must
+   not count, so it is not a regex. It refuses:
+   - an import of `functualize._primitives.scope_store`;
+   - a call to `_scope_store(`, or an attribute access `.scopes.`;
+   - a call to any `ScopeStore`-only method name: `get_scope`, `ensure_scope`, `get_step`,
+     `record_step`, `get_branch`, `record_branch`, `get_position`, `set_position`,
+     `set_scope_status`, `get_graph_digest`, `set_graph_digest`, `get_epilogue`,
+     `record_epilogue`, `get_gate`, `renew_scope`, `release_scope`, `hold`.
+
+   The only exceptions are a named allowlist of sites the spec puts out of scope (§3):
+   - `executor.py` — `_scope_store` (the definition), `_scope_for` (builds non-walk `State`) and
+     `_close_scope` (closes a non-walk run's scope);
+   - `capabilities/state.py` (`ScopeBackedStateStore`, for non-walk `State`).
+
+   Each allowlist entry carries its reason in the test. Also, `rg -n "self\._store\."
    src/functualize/_engine/frontier.py src/functualize/_engine/workflow_walker.py
-   src/functualize/_engine/workflow_runner.py` returns nothing (it is 46 at `0ede988b`); none of the three imports `ScopeStore`; and a new architecture test, `tests/spec/test_the_walk_writes_only_through_the_port.py`,
-   holds it with an `ast` walk (imports and attribute calls), not a regex: docstrings name
-   `ScopeStore` and must not count.
+   src/functualize/_engine/workflow_runner.py` returns nothing (it is 46 at `0ede988b`). The wider
+   net is the point: two walk reads lived outside those three files — `loop_state.current_iteration`
+   (`loop_state.py:72`, called from `workflow_walker.py:690`) and `executor._from_job_value`
+   (`executor.py:2162`, a `FromJob` reference inside a walk reading its step records). A three-file
+   gate could not see either.
 2. **W-AC-2 — the durability test passes and stops being an xfail.** `tests/integration/test_substrate_durability.py`
    passes on `runtime_store.url = "sqlite:///…"` with the module-level strict xfail and its
    `TRANSITIONAL(workflow-persistence-atomic)` marker **removed**; its positive-records assertions
