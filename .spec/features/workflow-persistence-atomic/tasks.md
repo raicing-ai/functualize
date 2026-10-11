@@ -34,18 +34,22 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
 
 ## Wave 1 — the lease slice (the defect itself)
 
-- [ ] **W2** `RenewLease` / `ReleaseLease` in the vocabulary and the document store
+- [x] **W2** `RenewLease` / `ReleaseLease` in the vocabulary and the document store
       *Files:* `src/functualize/_types/persistence.py`, `src/functualize/_primitives/document_store.py`,
       `tests/primitives/test_document_runtime_store.py`.
       *Do:* contracts §1.1/§1.2 for the two commands; the document store applies them through
       `ScopeStore.renew_scope` / `release_scope` with the command's generation.
       *Call path:* W4, same wave (closes together with W3, W4).
-- [ ] **W3** The same two on SQLite
+      *Done (`d5d18b01`):* the document port applies both commands through
+      `ScopeStore` with the held generation; W4 proves the production call.
+- [x] **W3** The same two on SQLite
       *Files:* `PLUGIN/_workflow_sql.py`, `PLUGIN_TESTS/test_workflow_sql.py`.
       *Do:* contracts §2 — one conditional `UPDATE` each; release clears `lease_owner`, sets
       `lease_expires_at = now`, keeps `lease_generation`.
       *Call path:* W4, same wave.
-- [ ] **W4** `FrontierWalk.renew` / `release` through the port
+      *Done (`d5d18b01`):* SQL renew/release are conditional fenced updates;
+      W4 proves the selected-store path and the second-process claim.
+- [x] **W4** `FrontierWalk.renew` / `release` through the port
       *Depends on:* W2, W3.
       *Files:* `src/functualize/_engine/frontier.py`, `tests/engine/test_walk_leases_through_the_port.py` (new).
       *Do:* `renew()` and `release()` issue the commands in a port transaction; best-effort
@@ -56,6 +60,13 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       the first walk land nothing.
       *Sabotage (ticks W2, W3, W4):* route `release()` back to `self._store.release_scope` → on
       SQLite the second process gets `Conflict`.
+      *Done (`d5d18b01`):* boot-selected runtime store → engine →
+      `FrontierWalk.renew/release` → transaction workflow writer → document
+      lease or SQLite conditional update. The two-store, second-OS-process test
+      passed (2); routing release back to `ScopeStore` made the SQLite case fail
+      with `Conflict(scope_id='s1', held_generation=1)` instead of `Claimed`.
+      Restored: 2 passed. The focused root suite passed (62), the plugin suite
+      passed (175), mypy found no issues, and `lint-imports` kept seven contracts.
 
 ## Wave 2 — the records slice (the walk leaves `ScopeStore`)
 
