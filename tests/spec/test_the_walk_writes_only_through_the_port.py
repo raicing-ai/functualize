@@ -77,7 +77,7 @@ ALLOWED_FUNCTIONS = {
 
 #: Modules whose *module-level* scope-store use is out of scope wholesale.
 ALLOWED_MODULES = {
-    "state.py": "ScopeBackedStateStore — the State a non-walk context keeps",
+    "capabilities/state.py": "ScopeBackedStateStore — the State a non-walk context keeps",
 }
 
 
@@ -107,7 +107,7 @@ def _receiver_is_legitimate(func: ast.expr) -> bool:
 def _violations(path: Path) -> list[str]:
     """Every refusal this module's tree trips, as `module:line — what` lines."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    module_allows_all = path.relative_to(ENGINE).as_posix() == "capabilities/state.py"
+    module_allows_all = path.relative_to(ENGINE).as_posix() in ALLOWED_MODULES
     found: list[str] = []
 
     def allow(func: ast.FunctionDef | ast.AsyncFunctionDef | None) -> bool:
