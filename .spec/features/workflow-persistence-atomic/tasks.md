@@ -75,14 +75,17 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       `tests/primitives/test_document_runtime_store.py`.
       *Do:* `StartWalk`, `RecordStep`, `RecordBranch`, `MoveScope`, the `CompleteStep` fields,
       `StepView`, `EPILOGUE_STEP_KEY`, readers `step`/`steps`/`branch`, `InputReader.for_gate`,
+      `InputReader.deposited_answer` (ruling R-1, contracts §1.4 — `TRANSITIONAL(FUN-21)`),
       `WorkflowView.graph_digest` (contracts §1); the document store maps each onto the `ScopeStore`
-      method the walk calls today (contracts §2), behaviour unchanged.
+      method the walk calls today (contracts §2), behaviour unchanged; `deposited_answer` delegates
+      to `gate_requests.recorded_answer(self.scope_store, …)`.
       *Call path:* W7/W8, same wave.
 - [ ] **W6** The same on SQLite
       *Depends on:* W1.
       *Files:* `PLUGIN/_workflow_sql.py`, `PLUGIN/_readers.py`, `PLUGIN_TESTS/test_workflow_sql.py`.
       *Do:* contracts §2; every statement carries `fence_sql`; `RecordBranch` same-target replay
-      is a no-op, different-target raises.
+      is a no-op, different-target raises; `deposited_answer` returns `None` (R-1), with a test:
+      an imported legacy gate with a bare payload resumes from its `#legacy` candidate.
       *Call path:* W7/W8, same wave.
 - [ ] **W7** `FrontierWalk` speaks only the port
       *Depends on:* W5, W6.
@@ -91,7 +94,11 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       marker); `start` → `StartWalk`; `complete` → `CompleteStep` with the record fields;
       `_record_timed_out` → `RecordStep`; `_resolve_branch` → reader `branch` + `RecordBranch`;
       `_step_that_went_silent`, `is_blocked`, `completed_steps`, `should_replay_skip`,
-      `_request_id_for` → readers (`workflow`, `step`, `steps`, `for_gate`).
+      `_request_id_for` → readers (`workflow`, `step`, `steps`, `for_gate`); `gate_payload`'s
+      `TRANSITIONAL(FUN-21)` fallback → `self._runtime_store.inputs.deposited_answer(...)` (R-1),
+      precedence unchanged; drop the `recorded_answer` import.
+      *Witness:* `tests/workflow/test_gate_resolution_model.py::test_legacy_gate_record_resumes_with_zero_candidates`
+      green, unchanged.
 - [ ] **W8** The walker, the runner and their callers
       *Depends on:* W7.
       *Files:* `src/functualize/_engine/workflow_walker.py`, `src/functualize/_engine/workflow_runner.py`,
@@ -159,7 +166,8 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
 - [ ] **W13** BASELINE for the new commands
       *Files:* `src/functualize/testing/conformance/baseline.py`, `tests/conformance/test_baseline.py`.
       *Gate (S-8, W-AC-4):* a check per new writer and reader (start/renew/release/record_step/
-      record_branch/move round trips, `state`, `steps`, `branch`, epilogue key) green on **both**
+      record_branch/move round trips, `state`, `steps`, `branch`, epilogue key, and
+      `deposited_answer` is `None` for a candidate-answered gate — R-1) green on **both**
       stores and over `BatchOnlySqliteDriver` in Tier A.
       *Call path:* the shipped test library (as in the first feature).
       *Sabotage:* a store whose `release` keeps the owner → the release check fails.

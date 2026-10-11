@@ -109,6 +109,8 @@ class WorkflowReader(Protocol):       # existing: workflow, resumable, events_af
 
 class InputReader(Protocol):          # existing: open_for, awaiting, request, candidates_for
     def for_gate(self, scope_id: str, gate_name: str) -> InputRequest | None: ...   # newest
+    # TRANSITIONAL(FUN-21): removed when FUN-21 retires the legacy deposit path — ruling R-1 (§1.4)
+    def deposited_answer(self, scope_id: str, gate_name: str) -> Any | None: ...
 ```
 
 `WorkflowView` gains `graph_digest: str | None = None`.
@@ -125,6 +127,64 @@ the same target it is a no-op (replay).
 
 Every name above is exported (the D-2 = a rule of the first feature: a store implements what
 `functualize.plugin` exports). `tests/test_public_api_surface.py` lists them.
+
+### 1.4 Ruling R-1 — the legacy gate-record payload (2026-10-11, amends §1.2)
+
+**The gap.** `FrontierWalk.gate_payload` (`_engine/frontier.py:490-504`) reads the accepted
+candidate's payload, and otherwise falls back to `recorded_answer(self._store, …)`
+(`_primitives/gate_requests.py:114-126`). That fallback reads `scope["gates"][gate]["payload"]`
+off the legacy `ScopeStore` record, and the comment marks it `TRANSITIONAL(FUN-21)`. Nothing on
+the port could answer the same question: `InputRequest` has no payload, and `InputReader` had only
+`open_for`/`awaiting`/`request`/`candidates_for`. So W7 ("`FrontierWalk` speaks only the port")
+and the fallback could not both hold. The production path is `_engine/gate_service.py:103` →
+`_recorded_payload` → `walk.gate_payload`. Its only witness is
+`tests/workflow/test_gate_resolution_model.py:282`
+(`test_legacy_gate_record_resumes_with_zero_candidates`).
+
+**Reading of S-9.** `recorded_answer` reads the walk's **own** scope: the gate record on the scope
+it holds. S-9's *"its scope reads and writes … go through the runtime store port"* covers it, so it
+moves to the port. It does not stay on `ScopeStore` as an exception.
+
+**Ruling.** A reader on `InputReader`:
+
+```python
+def deposited_answer(self, scope_id: str, gate_name: str) -> Any | None:
+    """The answer this store holds on the gate that no candidate records, or None.
+
+    Only a store with a legacy deposit path can hold one: a gate record written before
+    requests existed, or by the legacy deposit helper, keeps its answer as a bare payload.
+    Read-only, never re-validated, fed to replay as it was. TRANSITIONAL(FUN-21).
+    """
+```
+
+| Store | Answer |
+|---|---|
+| `DocumentRuntimeStore` | `gate_requests.recorded_answer(self.scope_store, scope_id, gate_name)`, the exact function the walk calls today, so behaviour is unchanged (W-AC-4) |
+| `SqliteRuntimeStore` | always `None`. Nothing writes a bare payload to it: its importer turns a legacy deposit into the one accepted candidate it was, `"{request_id}#legacy"` (`_legacy_source.py:302-319`), and that candidate is what replay then reads. Returning `None` here is a fact about this store, not a degradation |
+| a third-party store | `None` unless it carries its own legacy deposit path |
+
+The engine changes in one place: `gate_payload`'s fallback becomes
+`self._runtime_store.inputs.deposited_answer(self._scope_id, gate_name)`. `gate_service` keeps
+calling `walk.gate_payload`, and the precedence stays: an accepted candidate first, then the
+deposited answer.
+
+**Why not the alternatives:**
+- *A `payload` field on `InputRequest`* would put a document-store legacy into every request view,
+  every reader, and every store's contract, for a field only one store can fill.
+- *The document store synthesising an accepted candidate from the payload* would change what its
+  reader reports. The witness asserts `projected["candidates"] == []` and, after the run, still
+  `== []` (`test_gate_resolution_model.py:307,310`), so that is a W-AC-4 break.
+- *An explicit exception on `ScopeStore`* would leave W-AC-1 false for the one read S-9 covers.
+
+**What this does not do.** It does not retire the legacy deposit path or its helper; FUN-21 owns
+that, and removes `deposited_answer` with it. It writes nothing.
+
+**Gates.**
+- `test_gate_resolution_model.py:282` passes unchanged on the document store.
+- BASELINE (W13) adds: for a gate answered by an accepted candidate, `deposited_answer` is `None`
+  on both stores.
+- A SQLite test: a legacy file whose gate had a bare payload, once imported, resumes from the
+  `#legacy` candidate, and `deposited_answer` is `None` there.
 
 ## 2. Store implementations
 
