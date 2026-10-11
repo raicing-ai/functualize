@@ -1,8 +1,8 @@
 # Lease heartbeat tasks
 
-The specification is confirmed. Plan and task-list review are pending; every
-task remains unchecked. All waves are serialized because later work consumes
-the preceding symbol or edits the same engine test file. `[F]` lists edit
+The specification, plan, and task list are confirmed. All waves are serialized
+because later work consumes the preceding symbol or edits the same engine test
+file. `[F]` lists edit
 scope, based on the symbol references and exact prose search recorded in
 `plan.md`. Test commands below were run before authoring: the two existing
 engine files passed 18 tests at baseline. New assertions must fail against the
@@ -10,7 +10,7 @@ old behavior before their corresponding production change closes a task.
 
 ## Wave 0
 
-### [ ] 1.1 Classify frontier renewal outcomes
+### [x] 1.1 Classify frontier renewal outcomes
 
 [F] `src/functualize/_engine/frontier.py`,
 `tests/engine/test_timeout_is_lease_expiry.py`.
@@ -28,6 +28,12 @@ the production wire reaches `FrontierWalk.renew()`. Run
 `uv run pytest -q --no-header tests/engine/test_timeout_is_lease_expiry.py`
 after the required ruff checks. Commit before sabotaging that wire, and record
 the observed failing assertion and safe restoration.
+
+Evidence: the focused file passed 15 tests. Removing the walker's renewal call
+after committing produced `AssertionError: the walk renewed 0 times across two
+nodes`; the call was restored and the checkout verified clean. The production
+path is `WorkflowWalker.run()` → `_run_walk()` → `FrontierWalk.renew()` after
+each node. In-step renewal remains for wave 1.
 
 ## Wave 1
 

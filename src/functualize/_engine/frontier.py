@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from functualize._engine.recording import InputRecorder
@@ -52,6 +53,7 @@ __all__ = [
     "TERMINAL_SUCCESS",
     "FrontierWalk",
     "GraphModel",
+    "RenewalOutcome",
     "StepStatus",
     "WalkState",
 ]
@@ -108,6 +110,15 @@ class WalkState:
     RUNNING = "running"
     BLOCKED = "blocked"
     COMPLETED = "completed"
+
+
+class RenewalOutcome(StrEnum):
+    """What happened when a walk tried to extend its current claim."""
+
+    RENEWED = "renewed"
+    SUPERSEDED = "superseded"
+    TRANSIENT_ERROR = "transient_error"
+    NO_CLAIM = "no_claim"
 
 
 class StepStatus:
@@ -296,33 +307,31 @@ class FrontierWalk:
             },
         )
 
-    def renew(self) -> None:
-        """Extend this walk's claim. The generation does not move.
+    # TRANSITIONAL(lease-heartbeat/2.1): the walker still renews only between nodes.
+    def renew(self) -> RenewalOutcome:
+        """Try to extend this walk's claim without moving its generation.
 
-        **The heartbeat, and without it the lease is a step time limit.** A walk
-        claims once and the lease runs for `DEFAULT_LEASE_SECONDS`; any step
-        slower than that would see its scope become claimable while it was
-        still working, and another runner could take it. Renewing between nodes
-        says "still here" — so the lease measures *silence*, not duration.
-
-        Moving the generation on renewal would be the opposite of the point: it
-        would fence this walk's own in-flight writes, so every heartbeat would
-        invalidate the work it exists to protect.
-
-        Best-effort. A renewal that fails means the scope has been taken, and
-        the next write will say so with the holder named — raising here would
-        report it in the middle of a step that is still running fine.
+        A stale generation means another claim superseded this one, even after
+        expiry. An ordinary storage error cannot establish a takeover: report
+        it separately so a caller can retry. Direct calls remain best-effort;
+        the next fenced write still reports a lost claim with its holder named.
         """
         if self._generation is None:
-            return
+            return RenewalOutcome.NO_CLAIM
+        from functualize._primitives.lease import StaleGenerationError
         from functualize._primitives.run_store import runner_identity
 
         try:
             self._store.renew_scope(
                 self._scope_id, owner=runner_identity(), generation=self._generation
             )
-        except Exception:  # noqa: BLE001 - the next write reports it properly
+        except StaleGenerationError:
+            logger.debug("scope lease was superseded", exc_info=True)
+            return RenewalOutcome.SUPERSEDED
+        except Exception:  # noqa: BLE001 - a storage error is not a takeover
             logger.debug("could not renew the scope lease", exc_info=True)
+            return RenewalOutcome.TRANSIENT_ERROR
+        return RenewalOutcome.RENEWED
 
     def release(self) -> None:
         """Give up the claim, leaving the scope immediately claimable.

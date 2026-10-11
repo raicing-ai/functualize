@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 from tests._support.engine_storage import port_for
 
-from functualize._engine.frontier import FrontierWalk, GraphModel
+from functualize._engine.frontier import FrontierWalk, GraphModel, RenewalOutcome
 from functualize._primitives.lease import DEFAULT_LEASE_SECONDS, is_expired
 from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
@@ -82,7 +82,7 @@ class TestSilenceIsWhatExpires:
         _age_the_lease(store, 60)
         assert derived_state(store.get_scope("wf")) == "abandoned"
 
-        walk.renew()
+        assert walk.renew() is RenewalOutcome.RENEWED
 
         assert not is_expired(store.get_lease("wf"), datetime.now(UTC))
         assert derived_state(store.get_scope("wf")) == "running"
@@ -92,7 +92,7 @@ class TestSilenceIsWhatExpires:
         walk = _walk(store)
         claimed = walk.claim()
         assert isinstance(claimed, Claimed)
-        walk.renew()
+        assert walk.renew() is RenewalOutcome.RENEWED
         assert store.get_lease("wf").generation == claimed.generation
 
     def test_renewing_after_being_superseded_does_not_raise(
@@ -108,7 +108,7 @@ class TestSilenceIsWhatExpires:
         walk.claim()
         store.claim_scope("wf", owner="someone-else", force=True)
 
-        walk.renew()  # must not raise
+        assert walk.renew() is RenewalOutcome.SUPERSEDED
 
         from functualize._primitives.lease import StaleGenerationError
 
@@ -116,7 +116,29 @@ class TestSilenceIsWhatExpires:
             store.record_step("wf", "n1", {"status": "success"})
 
     def test_renewing_without_a_claim_is_harmless(self, store: ScopeStore) -> None:
-        _walk(store).renew()
+        assert _walk(store).renew() is RenewalOutcome.NO_CLAIM
+
+    def test_renewing_after_expiry_distinguishes_a_takeover(
+        self, store: ScopeStore
+    ) -> None:
+        walk = _walk(store)
+        walk.claim()
+        _age_the_lease(store, 60)
+        store.claim_scope("wf", owner="new-runner")
+
+        assert walk.renew() is RenewalOutcome.SUPERSEDED
+
+    def test_storage_failure_is_not_a_takeover(
+        self, store: ScopeStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        walk = _walk(store)
+        walk.claim()
+
+        def fail_renewal(*args: object, **kwargs: object) -> None:
+            raise OSError("storage unavailable")
+
+        monkeypatch.setattr(store, "renew_scope", fail_renewal)
+        assert walk.renew() is RenewalOutcome.TRANSIENT_ERROR
 
 
 class TestTheWalkActuallyRenews:
