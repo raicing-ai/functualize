@@ -17,6 +17,7 @@ from functualize.plugin import (
     RunQuery,
     RunTree,
     RunView,
+    StepView,
     WorkflowQuery,
     WorkflowView,
 )
@@ -176,6 +177,53 @@ class SqlWorkflowReader:
             for row in rows
         )
 
+    _STEP_COLUMNS = (
+        "step_key, iteration, status, result, reusable, result_kind, "
+        "result_type, inputs, effecting, completed_at"
+    )
+
+    @staticmethod
+    def _step(scope_id: str, row: tuple[Any, ...]) -> StepView:
+        return StepView(
+            scope_id=scope_id,
+            step_key=row[0],
+            iteration=row[1],
+            status=row[2],
+            result=_json(row[3]),
+            reusable=bool(row[4]),
+            result_kind=row[5],
+            result_type=row[6],
+            inputs=_json(row[7]),
+            effecting=bool(row[8]),
+            completed_at=_time(row[9]),
+        )
+
+    def step(self, scope_id: str, step_key: str, iteration: int = 0) -> StepView | None:
+        rows = self._driver.query(
+            f"SELECT {self._STEP_COLUMNS} FROM workflow_steps "
+            "WHERE namespace_id = ? AND scope_id = ? AND step_key = ? "
+            "AND iteration = ?",
+            (self._namespace, scope_id, step_key, iteration),
+        )
+        return self._step(scope_id, rows[0]) if rows else None
+
+    def steps(self, scope_id: str) -> tuple[StepView, ...]:
+        rows = self._driver.query(
+            f"SELECT {self._STEP_COLUMNS} FROM workflow_steps "
+            "WHERE namespace_id = ? AND scope_id = ? "
+            "ORDER BY completed_at, step_key, iteration",
+            (self._namespace, scope_id),
+        )
+        return tuple(self._step(scope_id, row) for row in rows)
+
+    def branch(self, scope_id: str, decision_key: str) -> str | None:
+        rows = self._driver.query(
+            "SELECT chosen_target FROM workflow_branches "
+            "WHERE namespace_id = ? AND scope_id = ? AND decision_key = ?",
+            (self._namespace, scope_id, decision_key),
+        )
+        return str(rows[0][0]) if rows else None
+
 
 class SqlInputReader:
     """Open requests, workspace-wide waiting, and recorded candidates."""
@@ -223,6 +271,28 @@ class SqlInputReader:
             (self._namespace, request_id),
         )
         return self._view(rows[0]) if rows else None
+
+    def for_gate(self, scope_id: str, gate_name: str) -> InputRequest | None:
+        """The newest request on this scope's gate, whatever its status."""
+        rows = self._driver.query(
+            f"SELECT {self._COLUMNS} FROM input_requests "
+            "WHERE namespace_id = ? AND scope_id = ? AND gate_key = ? "
+            "ORDER BY created_at DESC, id DESC LIMIT 1",
+            (self._namespace, scope_id, gate_name),
+        )
+        return self._view(rows[0]) if rows else None
+
+    # TRANSITIONAL(FUN-21): removed with the legacy deposit path (ruling R-1).
+    def deposited_answer(self, scope_id: str, gate_name: str) -> Any | None:
+        """Always None: this store has no legacy deposit path.
+
+        Its importer turns a legacy deposit into the one accepted candidate
+        it was (`"{request_id}#legacy"`), and that candidate is what replay
+        reads — so there is no bare payload here for a reader to find.
+        Returning None is a fact about this store, not a degradation.
+        """
+        del scope_id, gate_name
+        return None
 
     def candidates_for(self, request_id: str) -> tuple[GateCandidate, ...]:
         rows = self._driver.query(

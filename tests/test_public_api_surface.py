@@ -192,7 +192,13 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         # speak, and the three refusals a backend raises or meets.
         "StoreProfile",
         "ClaimWorkflow",
+        "EPILOGUE_STEP_KEY",
+        "MoveScope",
+        "RecordBranch",
+        "RecordStep",
         "RenewLease",
+        "StartWalk",
+        "StepView",
         "ReleaseLease",
         "CompleteStep",
         "SuspendAtGate",

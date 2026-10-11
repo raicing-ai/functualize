@@ -35,7 +35,7 @@ from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -50,6 +50,11 @@ __all__ = [
     "RenewLease",
     "ReleaseLease",
     "CompleteStep",
+    "StartWalk",
+    "RecordStep",
+    "RecordBranch",
+    "MoveScope",
+    "EPILOGUE_STEP_KEY",
     "SuspendAtGate",
     "ResumeWorkflow",
     "ConsumeInput",
@@ -67,6 +72,7 @@ __all__ = [
     # Views and queries
     "RunView",
     "WorkflowView",
+    "StepView",
     "EventView",
     "RunTree",
     "RunQuery",
@@ -224,6 +230,91 @@ class CompleteStep:
     #: The scope's status after this step — ``running`` mid-walk,
     #: ``completed`` or ``failed`` when terminal.
     scope_status: str = "running"
+    #: The classified return value, as `classify_return_value` saw it. These
+    #: exist only in the legacy document today; carrying them on the command
+    #: is what lets every store record the same step metadata.
+    reusable: bool = False
+    result_kind: str | None = None
+    result_type: str | None = None
+    #: The step's declared inputs, recorded as it saw them.
+    inputs: Mapping[str, Any] | None = None
+    #: Whether the step was declared to affect the outside world, recorded on
+    #: the step rather than looked up from a possibly-changed declaration.
+    effecting: bool = False
+
+
+@dataclass(frozen=True)
+class StartWalk:
+    """Ensure the scope exists, stamp it ``running``, and settle its position.
+
+    The walk's entry write: the first entry creates the scope at the graph's
+    entry node, and a resume keeps the persisted position it finds (replay
+    resumes there rather than re-entering at the entry).
+    """
+
+    scope_id: str
+    generation: int
+    workflow: str
+    #: Used only when the scope has no position yet.
+    entry: str | None
+    #: Recorded when the scope has none; never overwritten here.
+    graph_digest: str
+    now: datetime
+
+
+@dataclass(frozen=True)
+class RecordStep:
+    """A step record that moves neither position nor status.
+
+    The step records that are not a node completing in the frontier's sense:
+    a step timed out on takeover, a failure routed to its fallback, and the
+    epilogue — the workflow body's return value under `EPILOGUE_STEP_KEY`.
+    """
+
+    scope_id: str
+    generation: int
+    step_key: str
+    now: datetime
+    iteration: int = 0
+    status: str = "success"
+    result: Any = None
+    reusable: bool = False
+    result_kind: str | None = None
+    result_type: str | None = None
+    inputs: Mapping[str, Any] | None = None
+    effecting: bool = False
+
+
+@dataclass(frozen=True)
+class RecordBranch:
+    """An immutable decision: a conditional choice, a failure route, a marker.
+
+    Recording the same ``(scope, decision_key)`` with the **same** target
+    again is a no-op (a replay); a **different** target raises, because the
+    branch a resumed walk reads is the one it originally took.
+    """
+
+    scope_id: str
+    generation: int
+    decision_key: str
+    chosen_target: str
+    now: datetime
+
+
+@dataclass(frozen=True)
+class MoveScope:
+    """A status-and-position move with no step record.
+
+    The moves that are not a step completing: a nested gate blocking the
+    scope, and END reached by a path that records no step of its own.
+    """
+
+    scope_id: str
+    generation: int
+    #: Checked against the SCOPE machine on commit.
+    status: str
+    position: str | None
+    now: datetime
 
 
 @dataclass(frozen=True)
@@ -383,6 +474,13 @@ class FinishAttempt:
     failure_detail: Any = None
 
 
+#: The workflow body's return value is a step record under this key — the
+#: epilogue. It replaces the scope record's dedicated epilogue slot, so the
+#: body's outcome is a step like any other and survives on stores that have
+#: no scope document at all.
+EPILOGUE_STEP_KEY: Final = "__epilogue__"
+
+
 # ------------------------------------------------------------------
 # Outcomes — values a caller branches on. Losing a claim is an
 # expected outcome of a concurrent system, not an error (ADR-025's
@@ -521,6 +619,31 @@ class WorkflowView:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     terminal_at: datetime | None = None
+    #: The graph this scope's walk was started against, written once on first
+    #: entry. ``None`` when nothing recorded one.
+    graph_digest: str | None = None
+
+
+@dataclass(frozen=True)
+class StepView:
+    """One step record as a reader finds it.
+
+    Carries the classified-return metadata the walk records on the step, so
+    a resumed process can answer "was this reusable, and as what" without the
+    declaration that produced it — which may have changed since it ran.
+    """
+
+    scope_id: str
+    step_key: str
+    iteration: int
+    status: str
+    result: Any = None
+    reusable: bool = False
+    result_kind: str | None = None
+    result_type: str | None = None
+    inputs: Mapping[str, Any] | None = None
+    effecting: bool = False
+    completed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -606,7 +729,15 @@ class WorkflowWriter(Protocol):
 
     def release(self, cmd: ReleaseLease) -> None: ...
 
+    def start(self, cmd: StartWalk) -> None: ...
+
     def complete_step(self, cmd: CompleteStep) -> None: ...
+
+    def record_step(self, cmd: RecordStep) -> None: ...
+
+    def record_branch(self, cmd: RecordBranch) -> None: ...
+
+    def move(self, cmd: MoveScope) -> None: ...
 
     def suspend(self, cmd: SuspendAtGate) -> None: ...
 
@@ -720,6 +851,14 @@ class WorkflowReader(Protocol):
 
     def events_after(self, scope_id: str, seq: int) -> Sequence[EventView]: ...
 
+    def step(
+        self, scope_id: str, step_key: str, iteration: int = 0
+    ) -> StepView | None: ...
+
+    def steps(self, scope_id: str) -> Sequence[StepView]: ...
+
+    def branch(self, scope_id: str, decision_key: str) -> str | None: ...
+
 
 @runtime_checkable
 class InputReader(Protocol):
@@ -746,6 +885,20 @@ class InputReader(Protocol):
     def request(self, request_id: str) -> InputRequest | None: ...
 
     def candidates_for(self, request_id: str) -> Sequence[GateCandidate]: ...
+
+    def for_gate(self, scope_id: str, gate_name: str) -> InputRequest | None:
+        """The newest request on this scope's gate, whatever its status."""
+
+    # TRANSITIONAL(FUN-21): removed when FUN-21 retires the legacy deposit
+    # path — ruling R-1 (the feature's contracts, §1.4).
+    def deposited_answer(self, scope_id: str, gate_name: str) -> Any | None:
+        """The answer this store holds on the gate that no candidate records.
+
+        Only a store with a legacy deposit path can hold one: a gate record
+        written before requests existed, or by the legacy deposit helper,
+        keeps its answer as a bare payload. Read-only, never re-validated,
+        fed to replay as it was.
+        """
 
 
 # ------------------------------------------------------------------

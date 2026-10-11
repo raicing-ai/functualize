@@ -31,9 +31,13 @@ from functualize.plugin import (
     ClaimWorkflow,
     CompleteStep,
     Conflict,
+    MoveScope,
+    RecordBranch,
+    RecordStep,
     ReleaseLease,
     RenewLease,
     ResumeWorkflow,
+    StartWalk,
     StateBatch,
     SuspendAtGate,
 )
@@ -178,28 +182,10 @@ class SqlWorkflowWriter:
         tx.require_fence(cmd.scope_id, cmd.generation)
         current = tx.ensure_scope(cmd.scope_id, cmd.now)
         target = require_transition(SCOPE, current.status, cmd.scope_status)
-        fence, fence_args = tx.fence_sql(cmd.scope_id, cmd.generation)
-        tx.stage(
-            "INSERT INTO workflow_steps (namespace_id, scope_id, step_key, iteration, "
-            "status, result, completed_at) "
-            f"SELECT ?, ?, ?, ?, ?, ?, ? WHERE {fence} "
-            "ON CONFLICT (namespace_id, scope_id, step_key, iteration) DO UPDATE SET "
-            "status = excluded.status, result = excluded.result, "
-            f"completed_at = excluded.completed_at WHERE {fence}",
-            (
-                tx.namespace,
-                cmd.scope_id,
-                cmd.step_key,
-                cmd.iteration,
-                cmd.status,
-                dumps(cmd.result),
-                iso(cmd.now),
-                *fence_args,
-                *fence_args,
-            ),
-        )
+        self._stage_step(cmd, tx.fence_sql(cmd.scope_id, cmd.generation))
         if cmd.decision_key is not None and cmd.chosen_target is not None:
             # Immutable once written: the first evaluation is what replay reads.
+            fence, fence_args = tx.fence_sql(cmd.scope_id, cmd.generation)
             tx.stage(
                 "INSERT INTO workflow_branches (namespace_id, scope_id, decision_key, "
                 f"chosen_target, chosen_at) SELECT ?, ?, ?, ?, ? WHERE {fence} "
@@ -214,6 +200,135 @@ class SqlWorkflowWriter:
                 ),
             )
         self._move(cmd.scope_id, cmd.generation, target, cmd.now, position=cmd.position)
+
+    def start(self, cmd: StartWalk) -> None:
+        """Ensure the scope, stamp it running, settle position and digest.
+
+        One upsert: the entry position and the digest land only when the
+        column is unsettled (``position`` NULL, digest NULL), so a resume
+        keeps the position it finds and the digest of the graph it first
+        walked. The status stamp is the entry rule (every entry into a walk
+        is ``running``), guarded by the states the machine lets move there.
+        """
+        tx = self._tx
+        tx.require_fence(cmd.scope_id, cmd.generation)
+        now = iso(cmd.now)
+        predecessors = _predecessors("running")
+        marks = ", ".join("?" for _ in predecessors)
+        fence, fence_args = tx.fence_sql(cmd.scope_id, cmd.generation)
+        tx.stage(
+            "INSERT INTO workflow_scopes (namespace_id, id, workflow, status, "
+            "position, graph_digest, lease_generation, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'running', ?, ?, 0, ?, ?) "
+            "ON CONFLICT (namespace_id, id) DO UPDATE SET "
+            "workflow = CASE WHEN workflow_scopes.workflow = '' "
+            "THEN excluded.workflow ELSE workflow_scopes.workflow END, "
+            "status = 'running', terminal_at = NULL, "
+            "position = COALESCE(workflow_scopes.position, excluded.position), "
+            "graph_digest = COALESCE(workflow_scopes.graph_digest, "
+            "excluded.graph_digest), updated_at = excluded.updated_at "
+            f"WHERE status IN ({marks}) AND {fence}",
+            (
+                tx.namespace,
+                cmd.scope_id,
+                cmd.workflow,
+                cmd.entry,
+                cmd.graph_digest,
+                now,
+                now,
+                *predecessors,
+                *fence_args,
+            ),
+        )
+        tx.forget_scope(cmd.scope_id)
+
+    def record_step(self, cmd: RecordStep) -> None:
+        """A step record that moves neither position nor status."""
+        tx = self._tx
+        tx.require_fence(cmd.scope_id, cmd.generation)
+        tx.ensure_scope(cmd.scope_id, cmd.now)
+        self._stage_step(cmd, tx.fence_sql(cmd.scope_id, cmd.generation))
+
+    def record_branch(self, cmd: RecordBranch) -> None:
+        """An immutable decision: same target replays, a different one raises."""
+        tx = self._tx
+        tx.require_fence(cmd.scope_id, cmd.generation)
+        tx.ensure_scope(cmd.scope_id, cmd.now)
+        rows = tx.driver.query(
+            "SELECT chosen_target FROM workflow_branches "
+            "WHERE namespace_id = ? AND scope_id = ? AND decision_key = ?",
+            (tx.namespace, cmd.scope_id, cmd.decision_key),
+        )
+        if rows:
+            recorded = str(rows[0][0])
+            if recorded != cmd.chosen_target:
+                raise ValueError(
+                    f"branch {cmd.decision_key!r} on scope {cmd.scope_id!r} was "
+                    f"recorded as {recorded!r}; {cmd.chosen_target!r} would "
+                    "rewrite a decision replay depends on"
+                )
+            return  # the replay is a no-op
+        fence, fence_args = tx.fence_sql(cmd.scope_id, cmd.generation)
+        tx.stage(
+            "INSERT INTO workflow_branches (namespace_id, scope_id, decision_key, "
+            f"chosen_target, chosen_at) SELECT ?, ?, ?, ?, ? WHERE {fence} "
+            "ON CONFLICT DO NOTHING",
+            (
+                tx.namespace,
+                cmd.scope_id,
+                cmd.decision_key,
+                cmd.chosen_target,
+                iso(cmd.now),
+                *fence_args,
+            ),
+        )
+
+    def move(self, cmd: MoveScope) -> None:
+        """A status-and-position move with no step, machine-checked."""
+        tx = self._tx
+        tx.require_fence(cmd.scope_id, cmd.generation)
+        current = tx.ensure_scope(cmd.scope_id, cmd.now)
+        target = require_transition(SCOPE, current.status, cmd.status)
+        self._move(cmd.scope_id, cmd.generation, target, cmd.now, position=cmd.position)
+
+    def _stage_step(
+        self,
+        cmd: CompleteStep | RecordStep,
+        fence: tuple[str, tuple[object, ...]],
+    ) -> None:
+        """The `workflow_steps` upsert both step writers stage, under the fence."""
+        tx = self._tx
+        fence_sql, fence_args = fence
+        tx.stage(
+            "INSERT INTO workflow_steps (namespace_id, scope_id, step_key, iteration, "
+            "status, result, reusable, result_kind, result_type, inputs, effecting, "
+            "completed_at) "
+            "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
+            f"WHERE {fence_sql} "
+            "ON CONFLICT (namespace_id, scope_id, step_key, iteration) DO UPDATE SET "
+            "status = excluded.status, result = excluded.result, "
+            "reusable = excluded.reusable, result_kind = excluded.result_kind, "
+            "result_type = excluded.result_type, inputs = excluded.inputs, "
+            "effecting = excluded.effecting, "
+            f"completed_at = excluded.completed_at WHERE {fence_sql}",
+            (
+                tx.namespace,
+                cmd.scope_id,
+                cmd.step_key,
+                cmd.iteration,
+                cmd.status,
+                dumps(cmd.result),
+                int(cmd.reusable),
+                cmd.result_kind,
+                cmd.result_type,
+                dumps(dict(cmd.inputs or {})),
+                int(cmd.effecting),
+                iso(cmd.now),
+                *fence_args,
+                *fence_args,
+            ),
+        )
+        tx.update_scope(cmd.scope_id)
 
     def suspend(self, cmd: SuspendAtGate) -> None:
         tx = self._tx

@@ -48,9 +48,13 @@ from functualize._types.persistence import (
     Claimed,
     ClaimWorkflow,
     ConsumeInput,
+    MoveScope,
+    RecordBranch,
+    RecordStep,
     ReleaseLease,
     RenewLease,
     ResumeWorkflow,
+    StartWalk,
     SuspendAtGate,
 )
 
@@ -478,3 +482,130 @@ class TestTheInputsAggregate:
         assert request.status == "accepted"
         assert store.inputs.candidates_for("wf-1::approve") == ()
         assert store.inputs.open_for("wf-1") is not None
+
+
+class TestTheWalkRecordsCommands:
+    """The records slice's new commands over the same ScopeStore methods."""
+
+    def test_start_creates_the_scope_running_with_entry_and_digest(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        claimed = _claim(store, "s1")
+        with store.transaction() as tx:
+            tx.workflows.start(
+                StartWalk("s1", claimed.generation, "my-flow", "first", "digest-1", NOW)
+            )
+
+        view = _fresh(tmp_path).workflows.workflow("s1")
+        assert view is not None
+        assert view.status == "running" and view.position == "first"
+        assert view.workflow == "my-flow" and view.graph_digest == "digest-1"
+
+    def test_start_never_overwrites_the_digest_or_a_held_position(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        claimed = _claim(store, "s1")
+        with store.transaction() as tx:
+            tx.workflows.start(
+                StartWalk("s1", claimed.generation, "f", "first", "digest-1", NOW)
+            )
+        with store.transaction() as tx:
+            tx.workflows.move(
+                MoveScope("s1", claimed.generation, "blocked", "gate-1", NOW)
+            )
+        with store.transaction() as tx:
+            tx.workflows.start(
+                StartWalk("s1", claimed.generation, "f", "first", "digest-2", NOW)
+            )
+
+        view = _fresh(tmp_path).workflows.workflow("s1")
+        assert view is not None
+        assert view.graph_digest == "digest-1" and view.position == "gate-1"
+
+    def test_record_step_and_the_readers_round_trip(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        claimed = _claim(store, "s1")
+        with store.transaction() as tx:
+            tx.workflows.record_step(
+                RecordStep(
+                    "s1",
+                    claimed.generation,
+                    "__epilogue__",
+                    NOW,
+                    result="done",
+                    reusable=True,
+                    result_kind="json",
+                    result_type="str",
+                    effecting=True,
+                )
+            )
+
+        fresh = _fresh(tmp_path)
+        [view] = fresh.workflows.steps("s1")
+        assert view.step_key == "__epilogue__" and view.result == "done"
+        assert view.reusable and view.result_kind == "json"
+        assert view.result_type == "str" and view.effecting
+        again = fresh.workflows.step("s1", "__epilogue__")
+        assert again is not None and again.status == "success"
+
+    def test_record_branch_replays_the_same_target_and_refuses_a_different_one(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        claimed = _claim(store, "s1")
+        with store.transaction() as tx:
+            tx.workflows.record_branch(
+                RecordBranch("s1", claimed.generation, "route", "b", NOW)
+            )
+        with store.transaction() as tx:  # the replay is a no-op
+            tx.workflows.record_branch(
+                RecordBranch("s1", claimed.generation, "route", "b", NOW)
+            )
+        with pytest.raises(ValueError, match="route"), store.transaction() as tx:
+            tx.workflows.record_branch(
+                RecordBranch("s1", claimed.generation, "route", "c", NOW)
+            )
+
+        assert _fresh(tmp_path).workflows.branch("s1", "route") == "b"
+
+    def test_move_writes_status_and_position(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        claimed = _claim(store, "s1")
+        with store.transaction() as tx:
+            tx.workflows.start(
+                StartWalk("s1", claimed.generation, "f", "first", "d", NOW)
+            )
+        with store.transaction() as tx:
+            tx.workflows.move(
+                MoveScope("s1", claimed.generation, "blocked", "gate-1", NOW)
+            )
+
+        view = _fresh(tmp_path).workflows.workflow("s1")
+        assert view is not None
+        assert view.status == "blocked" and view.position == "gate-1"
+
+    def test_deposited_answer_reads_the_legacy_gate_payload(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        from functualize._primitives.scope_store import ScopeStore
+
+        claimed = _claim(store, "s1")
+        with store.transaction() as tx:
+            tx.workflows.suspend(
+                SuspendAtGate(
+                    "s1",
+                    claimed.generation,
+                    "ask",
+                    "req-1",
+                    "gate-1",
+                    NOW,
+                )
+            )
+        assert ScopeStore(JsonFileSubstrate(tmp_path)).deposit_gate_payload(
+            "s1", "ask", {"answer": "legacy"}
+        )
+
+        fresh = _fresh(tmp_path)
+        assert fresh.inputs.deposited_answer("s1", "ask") == {"answer": "legacy"}
+        assert fresh.inputs.deposited_answer("s1", "nonesuch") is None

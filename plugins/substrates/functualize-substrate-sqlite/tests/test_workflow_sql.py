@@ -23,6 +23,11 @@ from functualize import FunctualizeApp
 from functualize._config.chain import ResolutionChain
 from functualize._config.sources import DefaultSource
 from functualize._primitives.lease import LeaseHeldError, StaleGenerationError
+from functualize._types.gate_resolution import (
+    CandidateEvaluation,
+    EvaluationOutcome,
+    GateCandidate,
+)
 from functualize.app.config import ConfigSources, JobSources, PluginSources
 from functualize.plugin import (
     CancelWorkflow,
@@ -30,11 +35,16 @@ from functualize.plugin import (
     ClaimWorkflow,
     CompleteStep,
     Conflict,
+    ConsumeInput,
     IllegalTransition,
+    MoveScope,
+    RecordBranch,
+    RecordStep,
     ReleaseLease,
     RenewLease,
     ResumeWorkflow,
     RuntimeStoreConfig,
+    StartWalk,
     StateBatch,
     SuspendAtGate,
 )
@@ -498,3 +508,219 @@ def test_a_boot_selected_store_claims_and_writes(tmp_path: Path) -> None:
     assert cast("SqliteRuntimeStore", store).driver.query(
         "SELECT key FROM scope_state"
     ) == [("k",)]
+
+
+# -- the records slice: start / record_step / record_branch / move ---------
+
+
+def test_start_creates_the_scope_running_with_entry_and_digest(
+    store: SqliteRuntimeStore,
+) -> None:
+    held = _held(store)
+    with store.transaction() as tx:
+        tx.workflows.start(StartWalk("s1", held, "my-flow", "first", "digest-1", T0))
+
+    assert _row(
+        store, "SELECT workflow, status, position, graph_digest FROM workflow_scopes"
+    ) == [("my-flow", "running", "first", "digest-1")]
+
+
+def test_start_keeps_a_held_position_and_the_first_digest(
+    store: SqliteRuntimeStore,
+) -> None:
+    held = _held(store)
+    with store.transaction() as tx:
+        tx.workflows.start(StartWalk("s1", held, "f", "first", "digest-1", T0))
+    with store.transaction() as tx:
+        tx.workflows.move(MoveScope("s1", held, "blocked", "gate-1", T0))
+    with store.transaction() as tx:
+        tx.workflows.start(StartWalk("s1", held, "f", "first", "digest-2", T0))
+
+    assert _row(
+        store, "SELECT position, graph_digest, status FROM workflow_scopes"
+    ) == [("gate-1", "digest-1", "running")]
+
+
+def test_record_step_persists_the_step_metadata_columns(
+    store: SqliteRuntimeStore,
+) -> None:
+    held = _held(store)
+    with store.transaction() as tx:
+        tx.workflows.record_step(
+            RecordStep(
+                "s1",
+                held,
+                "__epilogue__",
+                T0,
+                result="done",
+                reusable=True,
+                result_kind="json",
+                result_type="str",
+                inputs={"n": 1},
+                effecting=True,
+            )
+        )
+
+    assert _row(
+        store,
+        "SELECT step_key, status, result, reusable, result_kind, result_type, "
+        "inputs, effecting FROM workflow_steps",
+    ) == [("__epilogue__", "success", '"done"', 1, "json", "str", '{"n": 1}', 1)]
+    assert store.workflows.step("s1", "__epilogue__").result == "done"  # type: ignore[union-attr]
+    [view] = store.workflows.steps("s1")
+    assert view.reusable and view.effecting and view.result_kind == "json"
+
+
+def test_record_branch_replays_the_same_target_and_refuses_a_different_one(
+    store: SqliteRuntimeStore,
+) -> None:
+    held = _held(store)
+    with store.transaction() as tx:
+        tx.workflows.record_branch(RecordBranch("s1", held, "route", "b", T0))
+    with store.transaction() as tx:  # the replay is a no-op
+        tx.workflows.record_branch(RecordBranch("s1", held, "route", "b", T0))
+    with pytest.raises(ValueError, match="route"), store.transaction() as tx:
+        tx.workflows.record_branch(RecordBranch("s1", held, "route", "c", T0))
+
+    assert store.workflows.branch("s1", "route") == "b"
+    assert _row(store, "SELECT COUNT(*) FROM workflow_branches") == [(1,)]
+
+
+def test_move_writes_status_position_and_terminal_at(
+    store: SqliteRuntimeStore,
+) -> None:
+    held = _held(store)
+    with store.transaction() as tx:
+        tx.workflows.start(StartWalk("s1", held, "f", "first", "d", T0))
+    with store.transaction() as tx:
+        tx.workflows.move(MoveScope("s1", held, "blocked", "gate-1", T0))
+
+    assert _row(store, "SELECT status, position FROM workflow_scopes") == [
+        ("blocked", "gate-1")
+    ]
+
+
+def test_a_stale_generation_lands_nothing_for_the_new_writers(
+    store: SqliteRuntimeStore,
+) -> None:
+    held = _held(store)
+    _claim(store, "b", force=True)  # generation 2; the first holder is stale
+
+    with pytest.raises(StaleGenerationError), store.transaction() as tx:
+        tx.workflows.record_step(RecordStep("s1", held, "late", T0))
+    with pytest.raises(StaleGenerationError), store.transaction() as tx:
+        tx.workflows.move(MoveScope("s1", held, "blocked", "gate-9", T0))
+
+    assert _row(store, "SELECT COUNT(*) FROM workflow_steps") == [(0,)]
+    assert _row(store, "SELECT position FROM workflow_scopes") == [(None,)]
+
+
+def test_for_gate_tracks_the_gate_request_across_statuses(
+    store: SqliteRuntimeStore,
+) -> None:
+    """One gate keeps one request id (the reuse rule), and `for_gate` finds
+    it whatever its status; newest-wins is pinned against a second row."""
+    held = _held(store)
+    with store.transaction() as tx:
+        tx.workflows.suspend(SuspendAtGate("s1", held, "ask", "req-1", "gate-1", T0))
+
+    found = store.inputs.for_gate("s1", "ask")
+    assert found is not None and found.request_id == "req-1"  # open
+
+    with store.transaction() as tx:
+        tx.inputs.append(
+            GateCandidate(
+                candidate_id="cand-1",
+                request_id="req-1",
+                ordinal=0,
+                source="cli",
+                submitted_at=T0,
+                evaluation=CandidateEvaluation(outcome=EvaluationOutcome.ACCEPTED),
+                payload={"answer": "one"},
+            )
+        )
+    assert store.inputs.for_gate("s1", "ask").request_id == "req-1"  # accepted
+    with store.transaction() as tx:
+        tx.inputs.consume(ConsumeInput("s1", held, "req-1", T0))
+    assert store.inputs.for_gate("s1", "ask").request_id == "req-1"  # consumed
+    assert store.inputs.for_gate("s1", "nonesuch") is None
+
+    # A second, later row for the same gate answers as the newest — pinned
+    # directly because the writer's reuse rule would keep the first id.
+    store.driver.batch(
+        [
+            (
+                "INSERT INTO input_requests (id, namespace_id, scope_id, gate_key, "
+                "generation, status, created_at) VALUES "
+                "('req-9', 'default', 's1', 'ask', 7, 'open', ?)",
+                # Written as the store writes timestamps (`iso`), and later:
+                # text order is time order only in that one fixed-width form.
+                (iso(T0 + timedelta(seconds=1)),),
+            )
+        ]
+    )
+    assert store.inputs.for_gate("s1", "ask").request_id == "req-9"
+
+
+def test_deposited_answer_is_none_a_fact_about_this_store(
+    store: SqliteRuntimeStore,
+) -> None:
+    held = _held(store)
+    with store.transaction() as tx:
+        tx.workflows.suspend(SuspendAtGate("s1", held, "ask", "req-1", "gate-1", T0))
+    with store.transaction() as tx:
+        tx.inputs.append(
+            GateCandidate(
+                candidate_id="cand-1",
+                request_id="req-1",
+                ordinal=0,
+                source="cli",
+                submitted_at=T0,
+                evaluation=CandidateEvaluation(outcome=EvaluationOutcome.ACCEPTED),
+                payload={"answer": "yes"},
+            )
+        )
+
+    assert store.inputs.deposited_answer("s1", "ask") is None
+
+
+def test_an_imported_legacy_deposit_resumes_from_its_legacy_candidate(
+    tmp_path: Path,
+) -> None:
+    """R-1's SQLite gate: a bare legacy payload becomes the accepted
+    `#legacy` candidate, and `deposited_answer` is None there."""
+    from functualize_substrate_sqlite._legacy_import import Outcome, import_legacy
+    from functualize_substrate_sqlite.substrate import SQLiteSubstrate
+
+    from functualize._primitives.document_store import DocumentRuntimeStore
+
+    db = tmp_path / "state.db"
+    legacy = DocumentRuntimeStore(SQLiteSubstrate(db))
+    claimed = _claim(cast("SqliteRuntimeStore", legacy))  # type: ignore[arg-type]
+    assert isinstance(claimed, Claimed)
+    with legacy.transaction() as tx:
+        tx.workflows.suspend(
+            SuspendAtGate("s1", claimed.generation, "ask", "req-1", "gate-1", T0)
+        )
+    from functualize._primitives.scope_store import ScopeStore
+
+    ScopeStore(SQLiteSubstrate(db)).deposit_gate_payload(
+        "s1", "ask", {"answer": "legacy"}
+    )
+    legacy.close()
+
+    report = import_legacy(db)
+    assert report.outcome is Outcome.IMPORTED, report.text()
+
+    config = RuntimeStoreConfig(
+        url=f"sqlite://{db}", scheme="sqlite", project_root=tmp_path
+    )
+    store = cast(
+        "SqliteRuntimeStore", SqliteRuntimeStoreFactory().prepare(config).store
+    )
+    assert store.inputs.deposited_answer("s1", "ask") is None
+    found = store.inputs.for_gate("s1", "ask")
+    assert found is not None
+    candidates = store.inputs.candidates_for(found.request_id)
+    assert [c.candidate_id for c in candidates] == [f"{found.request_id}#legacy"]
+    assert candidates[0].payload == {"answer": "legacy"}

@@ -64,9 +64,18 @@ TRANSACTION_MEMBERS = {"runs", "workflows", "inputs", "events", "effects"}
 #: consumption is a separate command rather than an argument of a deposit.
 INPUT_WRITER_MEMBERS = {"append", "consume"}
 
-#: The inputs reader's four questions. `request` and `candidates_for` are the
+#: The inputs reader's questions. `request` and `candidates_for` are the
 #: resolution read — asking by request id, which is the whole point of the id.
-INPUT_READER_MEMBERS = {"open_for", "awaiting", "request", "candidates_for"}
+INPUT_READER_MEMBERS = {
+    "open_for",
+    "awaiting",
+    "request",
+    "candidates_for",
+    # The walk's own gate, newest request first (workflow-persistence-atomic).
+    "for_gate",
+    # TRANSITIONAL(FUN-21): the legacy bare-payload answer, ruling R-1.
+    "deposited_answer",
+}
 
 
 def _members(protocol: type[Any]) -> set[str]:
