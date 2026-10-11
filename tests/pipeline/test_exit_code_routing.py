@@ -131,7 +131,7 @@ _BOUNDARY_LOGGER = "functualize.app.adapters.click_params"
 
 
 class _Domain:
-    class BadInput(Exception):
+    class BadInputError(Exception):
         pass
 
 
@@ -176,10 +176,10 @@ def test_nested_exception_class_keeps_its_qualified_name_without_a_module(
     caplog.set_level(logging.INFO, logger=_BOUNDARY_LOGGER)
 
     with pytest.raises(SystemExit) as raised:
-        deliver_job_result(_failed(_Domain.BadInput("bad row"), marked=True), "j")
+        deliver_job_result(_failed(_Domain.BadInputError("bad row"), marked=True), "j")
 
     assert raised.value.code == ExitCode.JOB_RAISED
-    assert capsys.readouterr().err == "Error: _Domain.BadInput: bad row\n"
+    assert capsys.readouterr().err == "Error: _Domain.BadInputError: bad row\n"
 
 
 def test_an_unmarked_exception_is_re_raised_untouched(
