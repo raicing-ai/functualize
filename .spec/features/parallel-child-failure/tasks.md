@@ -1,7 +1,7 @@
 # Parallel child failure tasks
 
-Status: proposed task graph; member review required before Execute. The
-specification and the `_app/impl.py` scope extension are already approved.
+Status: approved for Execute on 2026-10-11, including the plan's Long Method
+tradeoff. The specification and `_app/impl.py` scope extension are approved.
 The execution anchor is `AGENTS.md`, `.spec/CONSTITUTION.md`,
 `.spec/ARCHITECTURE.md`, `.spec/TESTING.md`, optional `.spec/STATE.md`, and
 this file. A fresh execution context must be prepared from that anchor.
