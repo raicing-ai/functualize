@@ -17,10 +17,10 @@ the outbox cold, or lay down last year's schema.
 - `outbox` reads the `outbox` table over a fresh `sqlite3` connection — never
   a store object, which is what a dispatcher restarting after a crash would
   do.
-- `migrations` lays down the two historical schemas a local file can have
-  (empty, and the legacy `documents`-only file holding derived keys), and the
-  three kinds of damage the runner refuses: a doctored checksum, a ledger
-  ahead of the shipped set, and a dropped table with its ledger row kept.
+- `migrations` lays down the three historical schemas a local file can have
+  (empty, the legacy `documents`-only file, and the version-1 relational schema), and the
+  four kinds of damage the runner refuses: a doctored checksum, a ledger
+  ahead of the shipped set, a gap, and a dropped table with its ledger row kept.
 """
 
 from __future__ import annotations
@@ -138,12 +138,25 @@ class SqliteOutboxProbe:
 class SqliteMigrationHarness:
     """`MigrationHarness` — the schemas and damage a local file can have."""
 
-    latest_version = 1
-    historical = ("empty", "documents-only")
-    refusals = ("checksum", "ahead", "partial")
+    latest_version = 2
+    historical = ("empty", "documents-only", "version-1")
+    refusals = ("checksum", "ahead", "gap", "partial")
 
     def lay_down(self, root: Path, schema: str) -> None:
         if schema == "empty":
+            return
+        if schema == "version-1":
+            from functualize_substrate_sqlite._driver import LocalSqliteDriver
+            from functualize_substrate_sqlite._migrations import (
+                SHIPPED_MIGRATIONS,
+                migrate,
+            )
+
+            driver = LocalSqliteDriver(root / DB_NAME)
+            try:
+                migrate(driver, SHIPPED_MIGRATIONS[:1])
+            finally:
+                driver.close()
             return
         if schema == "documents-only":
             # The legacy file: derived keys only, so opening it is not the
@@ -172,8 +185,10 @@ class SqliteMigrationHarness:
             self._execute(
                 path,
                 "INSERT INTO schema_migrations (version, name, checksum, applied_at) "
-                "VALUES (2, 'future', 'x', 'now')",
+                "VALUES (3, 'future', 'x', 'now')",
             )
+        elif refusal == "gap":
+            self._execute(path, "DELETE FROM schema_migrations WHERE version = 1")
         elif refusal == "partial":
             # One table of revision 0001 gone while its ledger row stays:
             # a schema that claims to be current and is not.

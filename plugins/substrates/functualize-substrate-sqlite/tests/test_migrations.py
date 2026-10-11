@@ -1,4 +1,4 @@
-"""The migration runner and revision `0001` — data model §2 and §7."""
+"""The migration runner and revisions — data model §2 and §7."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from functualize_substrate_sqlite._driver import LocalSqliteDriver
+from functualize_substrate_sqlite._factory import SqliteRuntimeStoreFactory
 from functualize_substrate_sqlite._migrations import (
     SHIPPED_MIGRATIONS,
     Migration,
@@ -15,6 +16,7 @@ from functualize_substrate_sqlite._migrations import (
 )
 
 from functualize._types.lifecycle import ATTEMPT, INPUT_REQUEST, RUN, SCOPE, Machine
+from functualize.plugin import RuntimeStoreConfig
 
 REVISION_1 = SHIPPED_MIGRATIONS[0]
 
@@ -69,21 +71,60 @@ def _names(driver: LocalSqliteDriver, kind: str) -> set[str]:
     return {name for (name,) in rows if not name.startswith("sqlite_")}
 
 
-def test_an_empty_database_becomes_version_1_with_one_ledger_row(
+def test_an_empty_database_becomes_version_2_with_two_ledger_rows(
     driver: LocalSqliteDriver,
 ) -> None:
-    assert migrate(driver) == 1
+    assert migrate(driver) == 2
 
     rows = driver.query("SELECT version, name, checksum FROM schema_migrations")
-    assert rows == [(1, "runtime_schema", REVISION_1.checksum)]
+    assert rows == [
+        (1, "runtime_schema", REVISION_1.checksum),
+        (2, "step_record_metadata", SHIPPED_MIGRATIONS[1].checksum),
+    ]
+
+
+def test_prepare_upgrades_a_version_1_file_and_defaults_step_metadata(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "state.db"
+    driver = LocalSqliteDriver(path)
+    try:
+        assert migrate(driver, SHIPPED_MIGRATIONS[:1]) == 1
+        version_1_checksum = driver.query(
+            "SELECT checksum FROM schema_migrations WHERE version = 1"
+        )[0][0]
+    finally:
+        driver.close()
+
+    prepared = SqliteRuntimeStoreFactory().prepare(
+        RuntimeStoreConfig(
+            url=f"sqlite://{path}", scheme="sqlite", project_root=tmp_path
+        )
+    )
+    try:
+        driver = LocalSqliteDriver(path)
+        try:
+            assert driver.query("SELECT max(version) FROM schema_migrations") == [(2,)]
+            columns = {
+                row[1]: row for row in driver.query("PRAGMA table_info(workflow_steps)")
+            }
+            assert {"result_kind", "result_type", "effecting"} <= columns.keys()
+            assert columns["effecting"][4] == "0"
+            assert driver.query(
+                "SELECT checksum FROM schema_migrations WHERE version = 1"
+            ) == [(version_1_checksum,)]
+        finally:
+            driver.close()
+    finally:
+        prepared.store.close()
 
 
 def test_a_second_run_is_a_no_op(driver: LocalSqliteDriver) -> None:
     migrate(driver)
     schema = driver.query("SELECT sql FROM sqlite_master ORDER BY name")
 
-    assert migrate(driver) == 1
-    assert driver.query("SELECT count(*) FROM schema_migrations") == [(1,)]
+    assert migrate(driver) == 2
+    assert driver.query("SELECT count(*) FROM schema_migrations") == [(2,)]
     assert driver.query("SELECT sql FROM sqlite_master ORDER BY name") == schema
 
 
@@ -92,7 +133,7 @@ def test_an_edited_revision_is_refused(driver: LocalSqliteDriver) -> None:
     edited = Migration(1, REVISION_1.name, REVISION_1.sql + "\n-- edited\n")
 
     with pytest.raises(MigrationRefused) as refused:
-        migrate(driver, [edited])
+        migrate(driver, [edited, SHIPPED_MIGRATIONS[1]])
 
     assert refused.value.version == 1
     assert refused.value.expected_checksum == edited.checksum
@@ -105,7 +146,7 @@ def test_a_ledger_ahead_of_the_shipped_set_is_refused(
 ) -> None:
     migrate(driver)
     driver.batch(
-        [("INSERT INTO schema_migrations VALUES (2, 'future', 'x', 'now')", ())]
+        [("INSERT INTO schema_migrations VALUES (3, 'future', 'x', 'now')", ())]
     )
 
     with pytest.raises(MigrationRefused, match="newer than this code"):
@@ -143,7 +184,7 @@ def test_a_legacy_documents_table_alone_is_migrated(driver: LocalSqliteDriver) -
         ]
     )
 
-    assert migrate(driver) == 1
+    assert migrate(driver) == 2
 
 
 def test_a_failing_revision_leaves_neither_schema_nor_ledger(

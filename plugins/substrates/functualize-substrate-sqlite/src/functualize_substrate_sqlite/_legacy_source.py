@@ -182,7 +182,8 @@ def _scope(
         out.rows.append(
             (
                 "INSERT INTO workflow_steps (namespace_id, scope_id, step_key, iteration, "
-                "status, result, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "status, result, completed_at, result_kind, result_type, effecting) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     ns,
                     scope_id,
@@ -191,6 +192,9 @@ def _scope(
                     str(step.get("status") or "success"),
                     dumps(step.get("result")),
                     _when(step.get("at"), None),
+                    step.get("return_value_kind"),
+                    step.get("return_value_type"),
+                    int(bool(step.get("effecting", False))),
                 ),
             )
         )

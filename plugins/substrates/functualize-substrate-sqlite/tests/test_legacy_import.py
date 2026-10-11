@@ -108,6 +108,17 @@ def _legacy(db: Path) -> None:
     # A gate answered through the legacy deposit helper: a bare payload, no candidate.
     scopes = ScopeStore(SQLiteSubstrate(db))
     scopes.ensure_scope("walk-2", "other")
+    scopes.record_step(
+        "walk-2",
+        "metadata",
+        {
+            "status": "success",
+            "result": {"ok": True},
+            "return_value_kind": "value",
+            "return_value_type": "dict",
+            "effecting": True,
+        },
+    )
     scopes.put_gate("walk-2", "ok", {"status": "open", "candidates": []})
     scopes.deposit_gate_payload("walk-2", "ok", {"answer": 42})
     SQLiteSubstrate(db).write("fresh", {"entries": {}})
@@ -158,6 +169,11 @@ def test_a_legal_fixture_imports_and_verifies(db: Path) -> None:
 
     assert report.outcome is Outcome.IMPORTED, report.text()
     assert _authority(db) == "relational"
+    assert _rows(
+        db,
+        "SELECT step_key, result_kind, result_type, effecting "
+        "FROM workflow_steps WHERE scope_id = 'walk-2'",
+    ) == [("metadata", "value", "dict", 1)]
     assert _rows(
         db,
         "SELECT id, status, position, lease_generation FROM workflow_scopes ORDER BY id",

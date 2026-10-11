@@ -82,7 +82,7 @@ def test_the_report_states_the_strength_of_each_run(tmp_path: Path) -> None:
         strengths["durable_outbox=True"]
         == "crash before commit, crash after commit, raised unit"
     )
-    assert strengths["versioned_migrations=True"] == "2 historical, 3 refusals"
+    assert strengths["versioned_migrations=True"] == "3 historical, 4 refusals"
     assert strengths["offline_capable=True"] == "baseline round trip, network refused"
 
 

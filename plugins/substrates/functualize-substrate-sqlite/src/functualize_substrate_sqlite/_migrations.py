@@ -99,7 +99,10 @@ def _load(version: int, name: str) -> Migration:
 
 
 #: Every revision this package ships, in order. Append only.
-SHIPPED_MIGRATIONS: tuple[Migration, ...] = (_load(1, "runtime_schema"),)
+SHIPPED_MIGRATIONS: tuple[Migration, ...] = (
+    _load(1, "runtime_schema"),
+    _load(2, "step_record_metadata"),
+)
 
 
 #: The objects a revision's SQL creates, by name — what "this revision
