@@ -15,7 +15,7 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
 
 ## Wave 0 — schema revision `0002`
 
-- [ ] **W1** Step-record metadata columns
+- [x] **W1** Step-record metadata columns
       *Files:* `PLUGIN/_schema/0002_step_record_metadata.sql` (new), `PLUGIN/_migrations.py` (ship
       the revision), `PLUGIN/_legacy_source.py` (map `return_value_kind`/`return_value_type`/
       `effecting` when present), `PLUGIN_TESTS/test_migrations.py`.
@@ -25,6 +25,12 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       `"version-1"` and the `versioned_migrations` tier passes with it.
       *Call path:* boot step 6.5 → `SqliteRuntimeStoreFactory.prepare` → `migrate` (existing).
       *Sabotage:* drop `0002` from the shipped list → the version-2 test fails.
+      *Done (`af6e0c75`):* boot step 6.5 → `SqliteRuntimeStoreFactory.prepare` →
+      `migrate` applies revision 2. Removing revision 2 from `SHIPPED_MIGRATIONS`
+      made `test_prepare_upgrades_a_version_1_file_and_defaults_step_metadata`
+      fail (`[(1,)] != [(2,)]`); the committed file was restored. The plugin
+      suite passed (174), the capability tier passed (13), and `lint-imports`
+      kept all seven contracts.
 
 ## Wave 1 — the lease slice (the defect itself)
 
