@@ -48,7 +48,7 @@ from functualize._engine.gate_service import GateService
 from functualize._engine.loop_state import current_iteration, iteration_step_key
 from functualize._primitives.graph import descendants
 from functualize._types.errors import ScopeCancelledError
-from functualize._types.persistence import Conflict
+from functualize._types.persistence import CompleteStep, Conflict
 from functualize._types.workflow import (
     END,
     AgentStep,
@@ -63,7 +63,6 @@ from functualize._types.workflow import (
 )
 
 if TYPE_CHECKING:
-    from functualize._primitives.scope_store import ScopeStore
     from functualize._types.persistence import RuntimeStore
     from functualize._types.protocols import AgentStepResult
     from functualize._types.workflow import WorkflowDeclaration
@@ -292,7 +291,6 @@ class WorkflowWalker:
     def __init__(
         self,
         declaration: WorkflowDeclaration,
-        store: ScopeStore,
         scope_id: str,
         *,
         run_step: Callable[[str], Any],
@@ -306,16 +304,17 @@ class WorkflowWalker:
         notifiers: Any = None,
     ) -> None:
         self._declaration = declaration
-        self._store = store
         self._scope_id = scope_id
+        self._runtime_store = runtime_store
         self._run_step = run_step
         self._run_agent_step = run_agent_step
         self._workflow_name = workflow_name
         self._graph = graph_model_of(declaration)
         self._predecessors = self._build_predecessors(declaration)
-        self._walk = FrontierWalk(
-            self._graph, store, scope_id, runtime_store=runtime_store
-        )
+        self._walk = FrontierWalk(self._graph, scope_id, runtime_store=runtime_store)
+        #: The digest a first entry records, settled by `_check_graph` and
+        #: written by the walk's own entry command (`StartWalk`).
+        self._digest_to_record = ""
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
         self._gates = GateService()
@@ -431,24 +430,25 @@ class WorkflowWalker:
         current = graph_digest(self._declaration)
         if not current:
             return
-        recorded = self._store.get_graph_digest(self._scope_id)
+        view = self._walk.view()
+        recorded = (view.graph_digest if view is not None else None) or ""
         if not recorded:
             # First entry, or a scope parked before this check existed — the
             # legacy-mapping path (AC-17). Record and proceed; refusing here
             # would strand every walk that was already waiting.
-            self._store.set_graph_digest(self._scope_id, current)
+            self._digest_to_record = current
             return
         if recorded != current:
             raise WorkflowGraphChangedError(self._scope_id, recorded, current)
 
     def _run_walk(self) -> WalkReport:
         """The walk itself. See `run` for the lease that wraps it."""
-        self._walk.start(self._workflow_name)
+        self._walk.start(self._workflow_name, graph_digest=self._digest_to_record)
         self._say("walk.start", node=self._declaration.entry or "")
 
         entry = self._declaration.entry
         if entry is None:  # an empty graph is already at its end
-            self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)
+            self._walk.move(WalkState.COMPLETED, None)
             return WalkReport(WalkOutcome.COMPLETED, self._scope_id)
 
         # **Keyed by node and iteration**, not by node
@@ -564,7 +564,7 @@ class WorkflowWalker:
             if back is not None:
                 pending.append((back, iteration + 1))
 
-        self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)
+        self._walk.move(WalkState.COMPLETED, None)
         return WalkReport(
             WalkOutcome.COMPLETED,
             self._scope_id,
@@ -593,14 +593,8 @@ class WorkflowWalker:
         scope status change: the walk is continuing down a declared route, and
         a workflow that recovers is not a failed workflow.
         """
-        self._store.record_step(
-            self._scope_id,
-            self._key(name),
-            {
-                "status": StepStatus.FAILED,
-                "return_value": None,
-                "completed_at": _now(),
-            },
+        self._walk.record(
+            self._key(name), StepStatus.FAILED, completed_at=datetime.now(UTC)
         )
 
     def _failure_route(self, name: str, exc: BaseException) -> str | None:
@@ -628,7 +622,7 @@ class WorkflowWalker:
             finish" and "no route" are different, and collapsing them made a
             declared `OnFailure(..., target=END)` fail the walk.
         """
-        recorded = self._store.get_branch(self._scope_id, _failure_branch(name))
+        recorded = self._walk.branch(_failure_branch(name))
         if recorded is not None:
             return str(recorded)
 
@@ -638,7 +632,7 @@ class WorkflowWalker:
             if edge.when is not None and not edge.when(exc):
                 continue
             target = _ROUTED_TO_END if _is_end(edge.target) else str(edge.target)
-            self._store.record_branch(self._scope_id, _failure_branch(name), target)
+            self._walk.record_branch(_failure_branch(name), target)
             return target
 
         # Nothing routed it. **Not recorded**: a node with no `OnFailure` has
@@ -688,7 +682,10 @@ class WorkflowWalker:
         # counter is a known simplification — see `_loop_back`.
         return max(
             current_iteration(
-                self._store, self._scope_id, loop.target, loop.max_iterations
+                self._runtime_store.workflows,
+                self._scope_id,
+                loop.target,
+                loop.max_iterations,
             )
             for loop in loops
         )
@@ -743,9 +740,9 @@ class WorkflowWalker:
         ledger: _Ledger,
     ) -> _NodeRun | WalkReport:
         """A step: replay its recorded value, or run the job it names."""
-        record = self._store.get_step(self._scope_id, self._key(name))
-        if record is not None and record.get("status") in TERMINAL_SUCCESS:
-            return _NodeRun(record.get("return_value"), replayed=True)
+        record = self._walk.step(self._key(name))
+        if record is not None and record.status in TERMINAL_SUCCESS:
+            return _NodeRun(record.result, replayed=True)
         try:
             outcome = self._run_step(name)
         except StepBlocked as blocked:
@@ -753,8 +750,7 @@ class WorkflowWalker:
             # blocks *here*, without recording the step as
             # finished, so resuming the child and re-entering
             # replays up to this node and carries on.
-            self._store.set_position(self._scope_id, name)
-            self._store.set_scope_status(self._scope_id, WalkState.BLOCKED)
+            self._walk.move(WalkState.BLOCKED, name)
             return WalkReport(
                 WalkOutcome.BLOCKED,
                 self._scope_id,
@@ -790,9 +786,9 @@ class WorkflowWalker:
         ``WorkflowRunner.prelude``, before this walk started — so a missing
         executor cannot reach here, and nothing is resolved twice.
         """
-        record = self._store.get_step(self._scope_id, self._key(name))
-        if record is not None and record.get("status") in TERMINAL_SUCCESS:
-            return _NodeRun(record.get("return_value"), replayed=True)
+        record = self._walk.step(self._key(name))
+        if record is not None and record.status in TERMINAL_SUCCESS:
+            return _NodeRun(record.result, replayed=True)
         if self._run_agent_step is None:
             # A walker built by hand with no executor door. Refused rather than
             # skipped: a step that silently records nothing is worse than one
@@ -875,7 +871,7 @@ class WorkflowWalker:
         """
         if not self._graph.is_conditional(name):
             return None
-        recorded = self._store.get_branch(self._scope_id, name)
+        recorded = self._walk.branch(name)
         if recorded is not None:
             return recorded
         for edge in self._declaration.outgoing(name):
@@ -910,19 +906,20 @@ class WorkflowWalker:
         """
         if self._notifiers is None or not self._declaration.notify:
             return
-        scope = self._store.get_scope(self._scope_id) or {}
-        status = str(scope.get("status") or "")
+        view = self._walk.view()
+        status = view.status if view is not None else ""
         for declared in self._declaration.notifications_for(status):
             key = _notify_key(declared)
-            if self._store.get_branch(self._scope_id, key) is not None:
+            if self._walk.branch(key) is not None:
                 continue
-            self._store.record_branch(self._scope_id, key, "sent")
+            self._walk.record_branch(key, "sent")
             self._notifiers.deliver(
                 declared,
                 Notification(
                     to=declared.to,
                     scope_id=self._scope_id,
-                    workflow=self._workflow_name or scope.get("workflow"),
+                    workflow=self._workflow_name
+                    or (view.workflow if view is not None else None),
                     status=status,
                     node=report.failed_node or report.blocked_on or None,
                 ),
@@ -988,14 +985,19 @@ class WorkflowWalker:
         stopped is on the step and on the scope, which is where both a human
         and a resume look.
         """
-        with self._store.batch():
-            self._store.record_step(
-                self._scope_id,
-                self._key(node),
-                {"status": status, "return_value": None, "completed_at": _now()},
+        # One unit: the step's record, its position and the scope's status.
+        with self._runtime_store.transaction() as tx:
+            tx.workflows.complete_step(
+                CompleteStep(
+                    scope_id=self._scope_id,
+                    generation=self._walk.generation,
+                    step_key=self._key(node),
+                    now=datetime.now(UTC),
+                    status=status,
+                    position=node,
+                    scope_status=_SCOPE_STATUS_FOR[status],
+                )
             )
-            self._store.set_position(self._scope_id, node)
-            self._store.set_scope_status(self._scope_id, _SCOPE_STATUS_FOR[status])
         return WalkReport(
             WalkOutcome.FAILED,
             self._scope_id,

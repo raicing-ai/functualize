@@ -70,7 +70,7 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
 
 ## Wave 2 — the records slice (the walk leaves `ScopeStore`)
 
-- [ ] **W5** The rest of the vocabulary, and the document store
+- [x] **W5** The rest of the vocabulary, and the document store
       *Files:* `src/functualize/_types/persistence.py`, `src/functualize/_primitives/document_store.py`,
       `tests/primitives/test_document_runtime_store.py`.
       *Do:* `StartWalk`, `RecordStep`, `RecordBranch`, `MoveScope`, the `CompleteStep` fields,
@@ -80,14 +80,26 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       method the walk calls today (contracts §2), behaviour unchanged; `deposited_answer` delegates
       to `gate_requests.recorded_answer(self.scope_store, …)`.
       *Call path:* W7/W8, same wave.
-- [ ] **W6** The same on SQLite
+      *Done (`86588af5`, finished with W7–W9):* the vocabulary (`StartWalk`, `RecordStep`
+      with required `completed_at` per R-2, `RecordBranch`, `MoveScope`, `StepView`,
+      `EPILOGUE_STEP_KEY`, the `CompleteStep` record fields, readers `step`/`steps`/`branch`,
+      `InputReader.for_gate` and `deposited_answer` R-1, `WorkflowView.graph_digest`) maps
+      onto the `ScopeStore` methods the walk called, behaviour unchanged; the reserved
+      epilogue key lands in `scope["epilogue"]` (contracts §2). Exported through
+      `functualize.plugin` and pinned by the surface test. The walk's calls are W7's proof.
+- [x] **W6** The same on SQLite
       *Depends on:* W1.
       *Files:* `PLUGIN/_workflow_sql.py`, `PLUGIN/_readers.py`, `PLUGIN_TESTS/test_workflow_sql.py`.
       *Do:* contracts §2; every statement carries `fence_sql`; `RecordBranch` same-target replay
       is a no-op, different-target raises; `deposited_answer` returns `None` (R-1), with a test:
       an imported legacy gate with a bare payload resumes from its `#legacy` candidate.
       *Call path:* W7/W8, same wave.
-- [ ] **W7** `FrontierWalk` speaks only the port
+      *Done (`86588af5`, finished with W7–W9):* `start`/`record_step`/`record_branch`/`move`
+      stage fenced SQL (revision-0002 columns carried); `RecordBranch` same-target replay
+      is a no-op, different-target raises; `deposited_answer` is `None` with the
+      imported-`#legacy`-candidate test; readers `step`/`steps`/`branch`/`for_gate` over
+      their tables. The walk's calls are W7's proof.
+- [x] **W7** `FrontierWalk` speaks only the port
       *Depends on:* W5, W6.
       *Files:* `src/functualize/_engine/frontier.py`.
       *Do:* drop the `store: ScopeStore` parameter and both `hold` calls (and W4's TRANSITIONAL
@@ -99,7 +111,14 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       precedence unchanged; drop the `recorded_answer` import.
       *Witness:* `tests/workflow/test_gate_resolution_model.py::test_legacy_gate_record_resumes_with_zero_candidates`
       green, unchanged.
-- [ ] **W8** The walker, the runner and their callers
+      *Done (`W7` in the W7–W9 unit):* `store: ScopeStore` and both `hold` calls are gone;
+      `start` → `StartWalk`; `complete` → one transaction of `RecordBranch` + `CompleteStep`
+      with every record field; `_record_timed_out` → `RecordStep(completed_at=None)`; the
+      reads go through readers; `gate_payload`'s fallback is `inputs.deposited_answer(...)`
+      with precedence unchanged and the `recorded_answer` import dropped; port-backed
+      helpers (`generation`/`view`/`step`/`steps`/`branch`/`record_branch`/`record`/`move`)
+      carry the held generation for the walker and runner. The witness is green unchanged.
+- [x] **W8** The walker, the runner and their callers
       *Depends on:* W7.
       *Files:* `src/functualize/_engine/workflow_walker.py`, `src/functualize/_engine/workflow_runner.py`,
       `src/functualize/_engine/workflow_orchestrator.py`, `src/functualize/_engine/dependency_runner.py`,

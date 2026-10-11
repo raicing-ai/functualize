@@ -275,6 +275,10 @@ class RecordStep:
     generation: int
     step_key: str
     now: datetime
+    #: When the step finished, or ``None`` for one that never did — a step
+    #: timed out on takeover is recorded by the runner that took it over, not
+    #: by the one that overran. Required, so no caller drops it by omission.
+    completed_at: datetime | None
     iteration: int = 0
     status: str = "success"
     result: Any = None

@@ -75,7 +75,6 @@ def _walk(store: ScopeStore, registry: GateRegistry) -> WorkflowWalker:
     )
     return WorkflowWalker(
         declaration,
-        store,
         "wf-gate",
         run_step=lambda name: f"{name}-result",
         runtime_store=port_for(store),
@@ -308,7 +307,6 @@ def _decision_walk(store: ScopeStore, registry: Any) -> WorkflowWalker:
     )
     return WorkflowWalker(
         declaration,
-        store,
         "wf-decision",
         run_step=lambda name: f"{name}-result",
         runtime_store=port_for(store),
@@ -348,7 +346,6 @@ class TestTheWalkHandsTheGateItsResultsAndItsDecision:
 
         WorkflowWalker(
             declaration,
-            store,
             "wf-plain",
             run_step=lambda name: name,
             runtime_store=port_for(store),

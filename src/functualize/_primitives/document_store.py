@@ -56,6 +56,7 @@ from functualize._types.errors import (
 )
 from functualize._types.gate_resolution import GateCandidate
 from functualize._types.persistence import (
+    EPILOGUE_STEP_KEY,
     CancelWorkflow,
     Claimed,
     ClaimWorkflow,
@@ -321,7 +322,10 @@ class _DocumentWorkflowReader:
         # iteration dimension; the walk's loop keys differ per pass, so the
         # default iteration is the only one this store can answer for.
         del iteration
-        record = self._scopes.get_step(scope_id, step_key)
+        if step_key == EPILOGUE_STEP_KEY:
+            record = self._scopes.get_epilogue(scope_id)
+        else:
+            record = self._scopes.get_step(scope_id, step_key)
         return None if record is None else _step_view(scope_id, step_key, record)
 
     def steps(self, scope_id: str) -> Sequence[StepView]:
@@ -348,9 +352,20 @@ def _step_record(cmd: CompleteStep | RecordStep) -> dict[str, Any]:
         "return_value_kind": cmd.result_kind,
         "return_value_type": cmd.result_type,
         "inputs": dict(cmd.inputs or {}),
-        "completed_at": _iso(cmd.now),
+        "completed_at": _completed_at(cmd),
         "effecting": cmd.effecting,
     }
+
+
+def _completed_at(cmd: CompleteStep | RecordStep) -> str:
+    """When the step finished, as the walk has always written it.
+
+    A completed step stamps its moment; a `RecordStep` carries its own, and
+    one that never finished (``None``) keeps the empty string the walk wrote.
+    """
+    if isinstance(cmd, RecordStep):
+        return "" if cmd.completed_at is None else _iso(cmd.completed_at)
+    return _iso(cmd.now)
 
 
 def _step_view(scope_id: str, key: str, record: dict[str, Any]) -> StepView:
@@ -1015,8 +1030,12 @@ class _DocumentTransaction:
         keeps the position it finds, which is what replay resumes from.
         """
         with self._held(scopes, cmd.scope_id, cmd.generation):
-            scopes.ensure_scope(cmd.scope_id, cmd.workflow)
-            scopes.set_graph_digest(cmd.scope_id, cmd.graph_digest)
+            # An empty name or digest records nothing, as the walk's direct
+            # writes never did: `ensure_scope` would overwrite a real name with
+            # "", and `set_graph_digest` keeps the first value it is given.
+            scopes.ensure_scope(cmd.scope_id, cmd.workflow or None)
+            if cmd.graph_digest:
+                scopes.set_graph_digest(cmd.scope_id, cmd.graph_digest)
             if scopes.get_position(cmd.scope_id) is None and cmd.entry is not None:
                 scopes.set_position(cmd.scope_id, cmd.entry)
             # D2 = 1: every entry into a walk stamps `running`.
@@ -1026,10 +1045,16 @@ class _DocumentTransaction:
         """A step record that moves neither position nor status.
 
         Same record shape as the legacy walk wrote, so files written before
-        and after this change read identically.
+        and after this change read identically. The reserved
+        `EPILOGUE_STEP_KEY` lands where the body's return value has always
+        lived — `record_epilogue` — so every surface reading
+        ``scope["epilogue"]`` sees it unchanged (contracts §2).
         """
         with self._held(scopes, cmd.scope_id, cmd.generation):
-            scopes.record_step(cmd.scope_id, cmd.step_key, _step_record(cmd))
+            if cmd.step_key == EPILOGUE_STEP_KEY:
+                scopes.record_epilogue(cmd.scope_id, _step_record(cmd))
+            else:
+                scopes.record_step(cmd.scope_id, cmd.step_key, _step_record(cmd))
 
     def _record_branch(self, cmd: RecordBranch, scopes: ScopeStore) -> None:
         """An immutable decision: same target replays, a different one raises."""

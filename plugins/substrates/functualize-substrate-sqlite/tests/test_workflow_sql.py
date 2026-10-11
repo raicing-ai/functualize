@@ -552,6 +552,7 @@ def test_record_step_persists_the_step_metadata_columns(
                 held,
                 "__epilogue__",
                 T0,
+                T0,
                 result="done",
                 reusable=True,
                 result_kind="json",
@@ -607,7 +608,7 @@ def test_a_stale_generation_lands_nothing_for_the_new_writers(
     _claim(store, "b", force=True)  # generation 2; the first holder is stale
 
     with pytest.raises(StaleGenerationError), store.transaction() as tx:
-        tx.workflows.record_step(RecordStep("s1", held, "late", T0))
+        tx.workflows.record_step(RecordStep("s1", held, "late", T0, T0))
     with pytest.raises(StaleGenerationError), store.transaction() as tx:
         tx.workflows.move(MoveScope("s1", held, "blocked", "gate-9", T0))
 

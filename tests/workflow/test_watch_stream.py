@@ -91,7 +91,6 @@ def _walk(
 ) -> Any:
     return WorkflowWalker(
         declaration or _line(),
-        store,
         scope_id,
         run_step=runner or _Runner(),
         emit=bus.emit if bus is not None else None,

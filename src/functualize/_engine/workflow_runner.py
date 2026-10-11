@@ -29,10 +29,10 @@ from typing import TYPE_CHECKING, Any
 
 from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
 from functualize._types.errors import ScopeCancelledError
+from functualize._types.persistence import EPILOGUE_STEP_KEY, RecordStep
 
 if TYPE_CHECKING:
     from functualize._engine.agent_step import AgentStepRegistry
-    from functualize._primitives.scope_store import ScopeStore
     from functualize._types.persistence import RuntimeStore
     from functualize._types.protocols import AgentStepResult
     from functualize._types.run_request import RunRequest
@@ -113,7 +113,6 @@ class WorkflowRunner:
 
     def __init__(
         self,
-        store: ScopeStore,
         *,
         run_step: Any,
         runtime_store: RuntimeStore,
@@ -125,7 +124,6 @@ class WorkflowRunner:
         emit: Any = None,
         notifiers: Any = None,
     ) -> None:
-        self._store = store
         self._run_step = run_step
         #: The port the walk claims through, handed down unchanged (T14,
         #: R-14.1). The runner decides nothing about storage; it is the layer
@@ -181,10 +179,10 @@ class WorkflowRunner:
             AgentCapabilityRefusedError: An agent step requires something its
                 executor cannot honour.
         """
-        scope = self._store.get_scope(self._scope_id)
-        if scope is not None and scope.get("status") == "cancelled":
+        view = self._runtime_store.workflows.workflow(self._scope_id)
+        if view is not None and view.status == "cancelled":
             raise ScopeCancelledError(
-                self._scope_id, workflow=scope.get("workflow") or job_name
+                self._scope_id, workflow=view.workflow or job_name
             )
 
         # Before the walk, for the same reason as the rule above — and before
@@ -202,7 +200,6 @@ class WorkflowRunner:
 
         report = WorkflowWalker(
             declaration,
-            self._store,
             self._scope_id,
             run_step=self._run_step,
             runtime_store=self._runtime_store,
@@ -223,23 +220,33 @@ class WorkflowRunner:
                 blocked_reason=report.blocked_reason,
             )
 
-        recorded = self._store.get_epilogue(self._scope_id)
+        recorded = self._runtime_store.workflows.step(self._scope_id, EPILOGUE_STEP_KEY)
         if recorded is not None:
             return WorkflowRun(
                 report.outcome,
                 self._scope_id,
                 body_done=True,
-                body_value=recorded.get("return_value"),
+                body_value=recorded.result,
             )
         return WorkflowRun(report.outcome, self._scope_id)
 
     def record_body(self, return_value: Any, *, status: str = "success") -> None:
         """Record the epilogue so a replay of this scope does not re-run it."""
-        self._store.record_epilogue(
-            self._scope_id,
-            {
-                "status": status,
-                "return_value": return_value,
-                "completed_at": datetime.now(UTC).isoformat(),
-            },
-        )
+        # The body's value under the reserved step key, through the port — and
+        # kept as given, as the epilogue always was (`reusable=True`). The
+        # walk's last claim was released when it finished, so this record is
+        # unfenced (generation 0), exactly as the direct write it replaces.
+        now = datetime.now(UTC)
+        with self._runtime_store.transaction() as tx:
+            tx.workflows.record_step(
+                RecordStep(
+                    self._scope_id,
+                    0,
+                    EPILOGUE_STEP_KEY,
+                    now,
+                    now,
+                    status=status,
+                    result=return_value,
+                    reusable=True,
+                )
+            )

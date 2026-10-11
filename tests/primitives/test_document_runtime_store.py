@@ -531,23 +531,41 @@ class TestTheWalkRecordsCommands:
                 RecordStep(
                     "s1",
                     claimed.generation,
-                    "__epilogue__",
+                    "bonus::",
+                    NOW,
                     NOW,
                     result="done",
                     reusable=True,
                     result_kind="json",
                     result_type="str",
+                    inputs={"n": 1},
                     effecting=True,
+                )
+            )
+        # The reserved key is the body's epilogue slot, not a step row —
+        # contracts §2, so surfaces reading `scope["epilogue"]` see it.
+        with store.transaction() as tx:
+            tx.workflows.record_step(
+                RecordStep(
+                    "s1",
+                    claimed.generation,
+                    "__epilogue__",
+                    NOW,
+                    NOW,
+                    result="body",
+                    reusable=True,
                 )
             )
 
         fresh = _fresh(tmp_path)
         [view] = fresh.workflows.steps("s1")
-        assert view.step_key == "__epilogue__" and view.result == "done"
+        assert view.step_key == "bonus::" and view.result == "done"
         assert view.reusable and view.result_kind == "json"
         assert view.result_type == "str" and view.effecting
-        again = fresh.workflows.step("s1", "__epilogue__")
+        again = fresh.workflows.step("s1", "bonus::")
         assert again is not None and again.status == "success"
+        epilogue = fresh.workflows.step("s1", "__epilogue__")
+        assert epilogue is not None and epilogue.result == "body"
 
     def test_record_branch_replays_the_same_target_and_refuses_a_different_one(
         self, store: DocumentRuntimeStore, tmp_path: Path

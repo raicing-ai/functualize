@@ -79,6 +79,14 @@ def _status_sql(target: str, now: datetime) -> tuple[str, tuple[object, ...]]:
     return "status = ?", (target,)
 
 
+def _completed_at(cmd: CompleteStep | RecordStep) -> str | None:
+    """A completed step stamps its moment; a `RecordStep` carries its own,
+    and one that never finished stores NULL."""
+    if isinstance(cmd, RecordStep):
+        return None if cmd.completed_at is None else iso(cmd.completed_at)
+    return iso(cmd.now)
+
+
 class _Keep:
     """Sentinel: leave ``position`` as it is (a cancel does not move the walk)."""
 
@@ -219,7 +227,7 @@ class SqlWorkflowWriter:
         tx.stage(
             "INSERT INTO workflow_scopes (namespace_id, id, workflow, status, "
             "position, graph_digest, lease_generation, created_at, updated_at) "
-            "VALUES (?, ?, ?, 'running', ?, ?, 0, ?, ?) "
+            "VALUES (?, ?, ?, 'running', ?, NULLIF(?, ''), 0, ?, ?) "
             "ON CONFLICT (namespace_id, id) DO UPDATE SET "
             "workflow = CASE WHEN workflow_scopes.workflow = '' "
             "THEN excluded.workflow ELSE workflow_scopes.workflow END, "
@@ -323,7 +331,7 @@ class SqlWorkflowWriter:
                 cmd.result_type,
                 dumps(dict(cmd.inputs or {})),
                 int(cmd.effecting),
-                iso(cmd.now),
+                _completed_at(cmd),
                 *fence_args,
                 *fence_args,
             ),

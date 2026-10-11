@@ -2159,10 +2159,18 @@ class JobExecutionEngine:
         from functualize._primitives.fingerprint import reusable_return_value
 
         if scope_id is not None:
-            scope = store.scopes.get_scope(scope_id)
-            steps = (scope or {}).get("steps", {})
-            for key, record in steps.items():
-                if key.split("::", 1)[0] == ref.name and isinstance(record, dict):
+            # Inside a walk the value is the walk's own step record, read
+            # through the port (ruling R-3) and handed over in the record shape
+            # `reusable_return_value` reads.
+            for step in self._runtime_store.workflows.steps(scope_id):
+                if step.step_key.split("::", 1)[0] == ref.name:
+                    record = {
+                        "status": step.status,
+                        "return_value": step.result,
+                        "return_value_reusable": step.reusable,
+                        "return_value_kind": step.result_kind,
+                        "return_value_type": step.result_type,
+                    }
                     value = reusable_return_value(
                         record, job_name=ref.name, expected_type=expected_type
                     )

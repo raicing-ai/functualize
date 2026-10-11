@@ -8,13 +8,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from functualize_substrate_sqlite import SQLiteSubstrate
 from functualize_substrate_sqlite._factory import SqliteRuntimeStoreFactory
 
 from functualize._engine.frontier import FrontierWalk, GraphModel
 from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.lease import StaleGenerationError
-from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.plugin import (
     Claimed,
@@ -61,14 +59,7 @@ def test_a_walk_releases_the_selected_lease_for_a_second_process(
     root = tmp_path / backend
     root.mkdir()
     runtime = _store(backend, root)
-    substrate = (
-        JsonFileSubstrate(root)
-        if backend == "documents"
-        else SQLiteSubstrate(root / "state.db")
-    )
-    walk = FrontierWalk(
-        GraphModel(entry="a"), ScopeStore(substrate), "s1", runtime_store=runtime
-    )
+    walk = FrontierWalk(GraphModel(entry="a"), "s1", runtime_store=runtime)
     first = walk.claim()
     assert isinstance(first, Claimed)
     before = runtime.workflows.workflow("s1")
