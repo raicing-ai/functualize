@@ -137,8 +137,14 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       `steps`; `current_iteration` takes the reader (contracts §4); `_from_job_value` reads
       `steps` inside a walk (contracts §4); every `RecordStep` passes `completed_at` explicitly
       (ruling R-2, contracts §1.5).
-      *R-2 witness:* a takeover's `timed_out` record keeps `completed_at == ""` on the document
-      store (a test asserting the stored record) and NULL on SQLite.
+      *R-2 witness:* `tests/engine/test_the_walk_on_both_stores.py::test_a_takeover_records_no_completion_time`
+      drives the real wire — a walk that dies mid-flow with its node still `running` and
+      nothing stamped, then a resumed walk's `claim` → `_step_that_went_silent` →
+      `_record_timed_out` — and reads the stored record raw: `completed_at == ""` on
+      documents and NULL on SQLite, a `timed_out` record with no completion through the
+      view. Deleting the `_record_timed_out` call from `claim` failed it on both stores
+      (`KeyError: 'first::'` on documents, `ValueError: not enough values to unpack
+      (expected 1, got 0)` on SQLite); restored, both legs passed.
 - [x] **W9** Tests that built a walk by hand, and the architecture test
       *Depends on:* W8.
       *Files:* `tests/spec/test_the_walk_writes_only_through_the_port.py` (new), a shared fixture
@@ -181,7 +187,15 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       Every sabotage was restored and its focused test passed. The Python 3.13
       root suite passed in three bounded chunks (3,245 + 5,328 + 3,799 passed),
       the SQLite plugin suite passed (184), and the two slow crash modules
-      passed (8); ruff, mypy and all seven import contracts passed.
+      passed (8); ruff, mypy and all seven import contracts passed. The
+      epilogue's stored shape is pinned by
+      `tests/engine/test_the_walk_on_both_stores.py::test_the_epilogue_keeps_its_legacy_record`:
+      `scope["epilogue"]` is exactly `status`, `return_value`, `completed_at` on
+      documents, the plain step row with the same content on SQLite, both read back
+      as a usable step view. Writing the generic step record into `record_epilogue`
+      again failed the documents leg (`Extra items in the left set:
+      'return_value_kind', 'effecting', 'return_value_type', 'inputs',
+      'return_value_reusable'`); restored, both legs passed.
 
 ## Wave 3 — the walk's state and events
 
