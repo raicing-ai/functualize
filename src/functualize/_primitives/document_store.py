@@ -357,6 +357,21 @@ def _step_record(cmd: CompleteStep | RecordStep) -> dict[str, Any]:
     }
 
 
+def _epilogue_record(cmd: RecordStep) -> dict[str, Any]:
+    """The body's return value as `scope["epilogue"]` has always been written.
+
+    Exactly the keys `WorkflowRunner.record_body` wrote before the walk's
+    records came through the port (contracts §2, W-AC-4 "same content"): the
+    epilogue is the body's slot, not a step record, and surfaces read it
+    directly. The value is kept as given, as the epilogue always was.
+    """
+    return {
+        "status": cmd.status,
+        "return_value": cmd.result,
+        "completed_at": _completed_at(cmd),
+    }
+
+
 def _completed_at(cmd: CompleteStep | RecordStep) -> str:
     """When the step finished, as the walk has always written it.
 
@@ -1052,7 +1067,7 @@ class _DocumentTransaction:
         """
         with self._held(scopes, cmd.scope_id, cmd.generation):
             if cmd.step_key == EPILOGUE_STEP_KEY:
-                scopes.record_epilogue(cmd.scope_id, _step_record(cmd))
+                scopes.record_epilogue(cmd.scope_id, _epilogue_record(cmd))
             else:
                 scopes.record_step(cmd.scope_id, cmd.step_key, _step_record(cmd))
 
