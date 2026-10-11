@@ -8,7 +8,7 @@ this file. A fresh execution context must be prepared from that anchor.
 
 ## Wave 0 — remove forbidden class growth before behavior change
 
-- [ ] **1.1 Extract the private parallel batch collaborator.**
+- [x] **1.1 Extract the private parallel batch collaborator.**
   - [F] `src/functualize/_engine/capabilities/invoke.py`.
   - Move the existing worker submission, collection, timeout sweep and
     nonblocking shutdown out of `WiredInvoke` into a private `_ParallelBatch`
@@ -43,7 +43,7 @@ this file. A fresh execution context must be prepared from that anchor.
 
 ## Wave 1 — apply the approved failure contract
 
-- [ ] **2.1 Raise on failed child by default, preserve top-level reporting.**
+- [x] **2.1 Raise on failed child by default, preserve top-level reporting.**
   - [F] `src/functualize/_engine/capabilities/invoke.py`,
     `src/functualize/_app/impl.py`,
     `tests/context/test_invoke_parallel_and_schema.py`.

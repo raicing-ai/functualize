@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from functualize._engine.capabilities.spec import CapabilitySpec
+from functualize._types.outcome import Family, is_failure
 from functualize._types.run_request import nested_request
 
 if TYPE_CHECKING:
@@ -91,6 +92,9 @@ class Invoke:
     until wired.
 
     The engine replaces this stub with a fully-wired instance at runtime.
+    ``parallel`` raises after collecting failed children by default;
+    ``parallel(..., raise_on_failure=False)`` returns every result instead.
+    This option belongs to ``parallel``, not to a single ``__call__``.
     """
 
     def __call__(
@@ -119,6 +123,10 @@ class Invoke:
             gate_strategy: Override configured gate strategy for this invocation.
             timeout: Optional timeout in seconds.
             **kwargs: Arguments to pass to the job.
+
+        A single invocation returns its JobResult. For a batch, use
+        ``parallel``; it raises on failed children by default and accepts
+        ``raise_on_failure=False`` to return all results.
 
         Returns:
             A JobResult with status, return_value, exception, metadata.
@@ -163,20 +171,24 @@ class Invoke:
         jobs: Sequence[tuple[str | Callable[..., Any], dict[str, Any]]],
         *,
         timeout: float | None = None,
+        raise_on_failure: bool = True,
     ) -> list[JobResult]:
-        """Invoke 1-32 jobs concurrently, returning results in input order.
+        """Invoke 1-32 jobs concurrently, raising after failed children by default.
 
         Args:
             jobs: List of (job_or_fn, kwargs) tuples to execute concurrently.
             timeout: Seconds the batch may run before unfinished jobs are
                 reported as timed out. ``None`` uses
                 :data:`DEFAULT_PARALLEL_TIMEOUT`; ``<= 0`` waits indefinitely.
+            raise_on_failure: Raise after collection if any child failed. Set
+                to ``False`` to receive every result in input order.
 
         Returns:
             List of JobResult objects in the same order as input.
 
         Raises:
             ValueError: If more than 32 jobs are specified.
+            RuntimeError: If a child failed and ``raise_on_failure`` is true.
         """
         if len(jobs) > 32:
             raise ValueError(
@@ -539,8 +551,9 @@ class WiredInvoke(Invoke):
         *,
         timeout: float | None = None,
         observer: ParallelObserver | None = None,
+        raise_on_failure: bool = True,
     ) -> list[JobResult]:
-        """Invoke 1-32 jobs concurrently, returning results in input order.
+        """Invoke 1-32 jobs concurrently, raising after failed children by default.
 
         Resolves function references to job names and executes each job
         with independent context via the engine.
@@ -555,12 +568,36 @@ class WiredInvoke(Invoke):
                 binding is the whole basis of per-job output attribution
                 (``func builtin parallel --output grouped|prefixed``); a caller
                 cannot reconstruct it from the returned results.
+            raise_on_failure: Raise after collection when a child has a failed
+                tool status. Set to ``False`` to receive all ordered results.
 
         Returns:
-            One JobResult per input, in input order.
+            One JobResult per input, in input order, when no child failed or
+            ``raise_on_failure`` is false.
+
+        Raises:
+            RuntimeError: Names every failed position, job and status; chains
+                the first failed child's exception when available.
         """
-        # TRANSITIONAL(2.1): failed results still return until the default raise policy is added.
-        return _ParallelBatch(self).run(jobs, timeout=timeout, observer=observer)
+        results = _ParallelBatch(self).run(jobs, timeout=timeout, observer=observer)
+        if raise_on_failure:
+            failed = [
+                (index, result)
+                for index, result in enumerate(results, start=1)
+                if is_failure(result.status, family=Family.TOOL)
+            ]
+            if failed:
+                details = ", ".join(
+                    f"#{index} {result.job_name or str(jobs[index - 1][0])!r} "
+                    f"({result.status.value})"
+                    for index, result in failed
+                )
+                cause = next(
+                    (result.exception for _, result in failed if result.exception),
+                    None,
+                )
+                raise RuntimeError(f"Parallel batch failed: {details}") from cause
+        return results
 
     def schema(self, job_or_fn: str | Callable[..., Any]) -> JobDescriptor:
         """Retrieve the JobDescriptor for a job by name or function reference."""
