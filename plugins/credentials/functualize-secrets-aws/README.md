@@ -1,4 +1,4 @@
-# functualize-aws
+# functualize-secrets-aws
 
 AWS Secrets Manager (`aws-sm`) and SSM Parameter Store (`aws-ssm`) providers
 for functualize's remote configuration layer.
@@ -37,7 +37,7 @@ Set `AWS_ENDPOINT_URL` and any LocalStack-compatible emulator works:
 
 ```
 docker run -d --name floci -p 4566:4566 floci/floci:latest
-AWS_ENDPOINT_URL=http://localhost:4566 uv run pytest plugins/credentials/functualize-aws
+AWS_ENDPOINT_URL=http://localhost:4566 uv run pytest plugins/credentials/functualize-secrets-aws
 ```
 
 Without it the integration tests skip.

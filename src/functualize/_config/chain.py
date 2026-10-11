@@ -14,7 +14,7 @@ from __future__ import annotations
 import contextlib
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from functualize._config.errors import MissingKeyError
 
@@ -84,7 +84,13 @@ class ResolutionChain:
             resource = payload.pop("resource", "")
             self._event_bus.emit(event_name, resource=resource, **payload)
 
-    def resolve(self, key: str, section: str | None = None) -> ResolvedValue:
+    def resolve(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> ResolvedValue:
         """Resolve a key by consulting sources in precedence order.
 
         The first source providing a non-None value wins. Alternatives
@@ -94,6 +100,9 @@ class ResolutionChain:
         Args:
             key: The configuration key to resolve.
             section: Optional section/namespace for the key.
+            scope: Whether ``section`` names a group or a job. The chain is
+                provider-neutral: it forwards the scope to every source, and
+                each source decides whether its lookup spelling depends on it.
 
         Returns:
             ResolvedValue with the winning value and provenance metadata.
@@ -101,9 +110,11 @@ class ResolutionChain:
         Raises:
             MissingKeyError: If no source provides a value for the key.
         """
-        return self._walk(key, section)
+        return self._walk(key, section, scope)
 
-    def _walk(self, key: str, section: str | None) -> ResolvedValue:
+    def _walk(
+        self, key: str, section: str | None, scope: Literal["group", "job"]
+    ) -> ResolvedValue:
         """Consult every source in order and record provenance.
 
         Shared by :meth:`resolve` and :meth:`introspect`, whose bodies were
@@ -118,7 +129,7 @@ class ResolutionChain:
         found = False
 
         for source in self._sources:
-            value = source.get(key, section)
+            value = source.get(key, section, scope=scope)
             if value is None:
                 silent.append(source)
                 continue
@@ -144,19 +155,22 @@ class ResolutionChain:
             key=key,
             alternatives=alternatives,
         )
-        self._notify_fallthrough(silent, resolved, section)
+        self._notify_fallthrough(silent, resolved, section, scope)
         return resolved
 
     @staticmethod
     def _notify_fallthrough(
-        silent: list[Any], resolved: ResolvedValue, section: str | None
+        silent: list[Any],
+        resolved: ResolvedValue,
+        section: str | None,
+        scope: Literal["group", "job"] = "job",
     ) -> None:
         """Tell a source that answered nothing which source answered instead.
 
         Opt-in and duck-typed: a source participates by defining
-        ``note_fallthrough(resolved, section)``. Only ``VaultSource`` does,
-        because only it has cause to speak — a key it does not hold may be a
-        secret that was *meant* to arrive from a remote store and did not
+        ``note_fallthrough(resolved, section, *, scope)``. Only ``VaultSource``
+        does, because only it has cause to speak — a key it does not hold may
+        be a secret that was *meant* to arrive from a remote store and did not
         (ADR-016). The chain stays generic and still knows nothing about
         vaults.
 
@@ -167,9 +181,11 @@ class ResolutionChain:
         for source in silent:
             notify = getattr(source, "note_fallthrough", None)
             if notify is not None:
-                notify(resolved, section)
+                notify(resolved, section, scope=scope)
 
-    def resolve_section(self, section: str) -> dict[str, ResolvedValue]:
+    def resolve_section(
+        self, section: str, *, scope: Literal["group", "job"] = "job"
+    ) -> dict[str, ResolvedValue]:
         """Resolve all keys in a section by querying each source.
 
         Gathers all keys that any source has for the given section,
@@ -177,13 +193,14 @@ class ResolutionChain:
 
         Args:
             section: The section/namespace to resolve.
+            scope: Whether ``section`` names a group or a job.
 
         Returns:
             Dict mapping key names to their ResolvedValue instances.
         """
         all_keys: set[str] = set()
         for source in self._sources:
-            all_keys.update(source.keys(section))
+            all_keys.update(source.keys(section, scope=scope))
 
         self._emit(
             "config.resolution.start",
@@ -196,7 +213,7 @@ class ResolutionChain:
         results: dict[str, ResolvedValue] = {}
         for key in sorted(all_keys):
             with contextlib.suppress(MissingKeyError):
-                results[key] = self.resolve(key, section)
+                results[key] = self.resolve(key, section, scope=scope)
 
         duration_ms = (time.perf_counter() - start) * 1000
         self._emit(
@@ -209,7 +226,13 @@ class ResolutionChain:
 
         return results
 
-    def introspect(self, key: str, section: str | None = None) -> ResolvedValue:
+    def introspect(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> ResolvedValue:
         """Resolve a key and always gather all alternatives.
 
         Same as resolve but explicitly gathers values from all sources,
@@ -218,6 +241,7 @@ class ResolutionChain:
         Args:
             key: The configuration key to inspect.
             section: Optional section/namespace for the key.
+            scope: Whether ``section`` names a group or a job.
 
         Returns:
             ResolvedValue with the winning value and all alternatives
@@ -226,4 +250,4 @@ class ResolutionChain:
         Raises:
             MissingKeyError: If no source provides a value for the key.
         """
-        return self._walk(key, section)
+        return self._walk(key, section, scope)

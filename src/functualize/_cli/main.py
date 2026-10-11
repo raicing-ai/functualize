@@ -79,12 +79,13 @@ class _LeftMarginEpilogGroup(click.Group):
         from functualize.app.utils import OPTIONAL_VALUE_VALID_SET
 
         values, default = OPTIONAL_VALUE_VALID_SET["--emit-format"]
+        accepted = ", ".join(sorted(values))
         rows = [
             (
-                f"--emit-format [{'|'.join(sorted(values))}]",
-                f"Serialization for out.emit() (default {default}). A job's "
-                "return value is never printed: write stdout with out.emit() "
-                "(the Stdout capability) or print().",
+                "--emit-format TEXT",
+                f"Serialization for out.emit(): {accepted} (default {default}). "
+                "A job's return value is never printed: write stdout with "
+                "out.emit() (the Stdout capability) or print().",
             ),
             (
                 "--force",
@@ -762,34 +763,6 @@ def _diagnostic_scope(effective_args: list[str]) -> AbstractContextManager[None]
     return contextlib.nullcontext()
 
 
-# ─── Unknown command handling ────────────────────────────────────────────
-
-
-def _handle_unknown(args: list[str], job_names: set[str]) -> None:
-    """Print 'command not found' with fuzzy suggestions.
-
-    Does NOT boot FunctualizeApp — provides instant feedback for typos.
-
-    Args:
-        args: [unknown_command, ...remaining]. Only args[0] is used.
-        job_names: Set of valid job names for suggestion matching.
-    """
-    cmd = args[0] if args else ""
-
-    print(f"Error: Unknown command '{cmd}'.", file=sys.stderr)
-
-    from functualize.app.utils import suggest_similar_commands
-
-    suggestions = suggest_similar_commands(cmd, job_names)
-    if suggestions:
-        print("\nDid you mean:", file=sys.stderr)
-        for suggestion in suggestions:
-            print(f"  func {suggestion}", file=sys.stderr)
-        print(file=sys.stderr)
-
-    print("Run 'func' to see all available commands.", file=sys.stderr)
-
-
 # ─── Group handler ───────────────────────────────────────────────────────
 
 
@@ -1464,20 +1437,6 @@ def _handle_job(
                 help_text=ungrouped_cmd.help_text,
             )
 
-        # `func --emit-format bogus greet`: the lookahead refused `bogus` as a
-        # value, so it arrived here as the command. Now that boot has shown it
-        # names nothing, it was a bad value — say so, with the valid set, in
-        # the words `--emit-format=bogus` already gets.
-        from functualize._cli.dispatch import (
-            invalid_value_message,
-            refused_optional_value,
-        )
-
-        refused = refused_optional_value(sys.argv[1:])
-        if refused is not None and refused[1] == raw_name:
-            print(invalid_value_message(*refused), file=sys.stderr)
-            return 1
-
         if raw_name in aliases:
             # Alias target not found
             print(
@@ -2003,43 +1962,22 @@ def _run_cli() -> None:
     # positional argument (the command name). `func --version` prints the
     # version; `func deploy --version v1` passes --version to the job. This is
     # the same convention as other global flags (--log-level, --emit-format, etc.)
-    # and unlike --help which Click handles per-command.
-    # The one flag grammar (`_types/flag_grammar.py`), reached through the
-    # public corridor because `_cli` may import public folders only.
-    from functualize.app.utils import (
-        GLOBAL_OPTIONS_ALWAYS_VALUE,
-        GLOBAL_OPTIONS_OPTIONAL_VALUE,
-    )
+    # and unlike --help which Click handles per-command. The prefix walk is
+    # `version_requested` in `_cli/dispatch.py`, which applies the same arity
+    # rule as the other pre-boot scans — a value-position `--version` is a
+    # missing value for the preceding flag, not the version command.
+    from functualize._cli.dispatch import version_requested
 
     _argv_tail = sys.argv[1:]
-    _first_positional = len(_argv_tail)  # default: no positional found
-    _i = 0
-    while _i < len(_argv_tail):
-        _tok = _argv_tail[_i]
-        if _tok == "--version":
-            # Found it in the prefix → print and return
-            import importlib.metadata
+    if version_requested(_argv_tail):
+        import importlib.metadata
 
-            try:
-                version = importlib.metadata.version("functualize")
-            except importlib.metadata.PackageNotFoundError:
-                version = "unknown"
-            print(f"functualize {version}")
-            return
-        if _tok.startswith("-"):
-            # A flag — skip it (and its value if it takes one)
-            if "=" in _tok:
-                _i += 1
-            elif _tok in GLOBAL_OPTIONS_ALWAYS_VALUE:
-                _i += 2  # skip flag + value
-            elif _tok in GLOBAL_OPTIONS_OPTIONAL_VALUE:
-                _i += 1  # conservative: don't consume the next token
-            else:
-                _i += 1  # unknown flag or bool flag (--no-dotenv, --help)
-        else:
-            # First positional found — --version was not in the prefix
-            break
-        continue
+        try:
+            version = importlib.metadata.version("functualize")
+        except importlib.metadata.PackageNotFoundError:
+            version = "unknown"
+        print(f"functualize {version}")
+        return
 
     # `self doctor` answers here for the same reason `--version` does, plus a
     # sharper one: `cli_app` boots a full `FunctualizeApp` before any builtin

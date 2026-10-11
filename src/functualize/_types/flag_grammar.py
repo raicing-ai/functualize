@@ -1,18 +1,15 @@
 """The single authority for flag vocabulary and alias matching.
 
-The value-flag tables, optional-value tables, bool-flag set, and the alias
-matchers that resolve a token to a field — currently scattered across
-``_cli/dispatch.py`` and ``_types/naming.py`` — live here so every surface
-that renders or matches a flag asks one source.
+The value-flag tables, bool-flag set, and the alias matchers that resolve a
+token to a field — currently scattered across ``_cli/dispatch.py`` and
+``_types/naming.py`` — live here so every surface that renders or matches a
+flag asks one source.
 
-**The** ``--perf-report`` **lookahead deliberately stays in** ``_cli/dispatch.py``.
-That lookahead is not data — it is behavior tightly coupled to the pre-boot
-argv scan (``detect_mode`` and ``_extract_global_options``), where the next
-token is consumed only if it is in the valid set. Moving the table without
-moving the lookahead would split the rule from its enforcement; moving the
-lookahead would drag pre-boot dispatch logic into this low-level module, which
-must stay importable from ``_cli`` without a cycle. So the tables are here,
-the lookahead stays there, and both reference the same vocabulary.
+Every flag is **boolean or value-required** — there is no optional-value
+flag. Which token a value-required flag consumes is behavior, not data, and
+its single statement (``value_required_takes_next``) lives in
+``_cli/dispatch.py`` beside the pre-boot scans that enforce it; the tables
+here are what those scans and the renderers both read.
 
 Pure data + pure functions, stdlib-only, importable from ``_cli``, ``app`` and
 ``_engine`` alike without a cycle.
@@ -28,7 +25,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "GLOBAL_OPTIONS_ALWAYS_VALUE",
-    "GLOBAL_OPTIONS_OPTIONAL_VALUE",
     "OPTIONAL_VALUE_VALID_SET",
     "GLOBAL_OPTIONS_WITH_VALUE",
     "GLOBAL_BOOL_FLAGS",
@@ -43,7 +39,10 @@ __all__ = [
 # Flag vocabulary
 # ---------------------------------------------------------------------------
 
-# Global options that always consume the next token as their value.
+# Global options that always consume the next token as their value — which is
+# every value-taking flag: a flag is boolean or value-required, never
+# optional-valued. A following known global flag means the value is missing
+# (the pre-boot arity rule, enforced in ``_cli/dispatch.py``).
 GLOBAL_OPTIONS_ALWAYS_VALUE = frozenset(
     {
         "--log-level",
@@ -60,26 +59,24 @@ GLOBAL_OPTIONS_ALWAYS_VALUE = frozenset(
         "--exclude",
         "--perf-filter",
         "--import-libs",
-    }
-)
-
-# Global options that MAY take a value from a known set; if the next token
-# is not in that set, the flag assumes its default value (lookahead).
-GLOBAL_OPTIONS_OPTIONAL_VALUE = frozenset(
-    {
         "--perf-report",
         "--emit-format",
     }
 )
 
-# Mapping: flag -> (valid_values_frozenset, default_value)
+# TRANSITIONAL(emit-format-alias-diagnostic): the names
+# ``OPTIONAL_VALUE_VALID_SET`` and its ``(valid_set, default)`` inner spelling
+# predate this feature and no longer describe what they carry — every flag in
+# the table is value-*required* now, and the entries are its accepted explicit
+# values. The public rename (e.g. GLOBAL_OPTION_ACCEPTED_VALUES) is a separate
+# follow-up and keeps the tuple shape; the legacy ``default`` half describes
+# what an *absent* flag means, not a bare-flag fallback (there is none).
 OPTIONAL_VALUE_VALID_SET: dict[str, tuple[frozenset[str], str]] = {
     "--perf-report": (frozenset({"text", "json"}), "text"),
     # §C.2 serialization vocabulary for ``out.emit()``. "auto" (dispatch by the
-    # emitted value's type) is both the default *and* a typeable value: a bare
-    # ``--emit-format`` falls back to it via the lookahead, and that fallback is
-    # fed back through validation, so it has to be a legal value — spelling it
-    # also lets a user name the default explicitly.
+    # emitted value's type) is both the absent-flag default *and* a typeable
+    # value: it has to be a legal value so a user can name the default
+    # explicitly — the flag takes it as an ordinary explicit value.
     #
     # **Named `--emit-format`, not `--output`.** It governs `out.emit()` and
     # nothing else: a job's *return value* is never rendered at any format, and
@@ -95,8 +92,10 @@ OPTIONAL_VALUE_VALID_SET: dict[str, tuple[frozenset[str], str]] = {
     "--emit-format": (frozenset({"auto", "json", "ndjson", "raw", "none"}), "auto"),
 }
 
-# Union set for backward compatibility (used for --option=value detection).
-GLOBAL_OPTIONS_WITH_VALUE = GLOBAL_OPTIONS_ALWAYS_VALUE | GLOBAL_OPTIONS_OPTIONAL_VALUE
+# The global-flag detector's table (used for --option=value detection and for
+# "move it before the group" advice): with no optional-value flags left, it is
+# the same membership as GLOBAL_OPTIONS_ALWAYS_VALUE under its own name.
+GLOBAL_OPTIONS_WITH_VALUE = GLOBAL_OPTIONS_ALWAYS_VALUE
 
 # Global options that are boolean flags (no value after the flag).
 # NOTE: --version is NOT here — it is handled by the pre-boot fast path in

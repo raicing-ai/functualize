@@ -56,8 +56,8 @@ functualize/
 │   ├── substrates/           ← where a project's documents live
 │   │   └── functualize-substrate-sqlite/
 │   ├── credentials/          ← where secrets are fetched from
-│   │   ├── functualize-aws/
-│   │   └── functualize-bitwarden/
+│   │   ├── functualize-secrets-aws/
+│   │   └── functualize-secrets-bitwarden/
 │   └── domains/              ← a capability protocol, and its implementations beside it
 │       ├── functualize-ai/
 │       ├── functualize-ai-pydantic/

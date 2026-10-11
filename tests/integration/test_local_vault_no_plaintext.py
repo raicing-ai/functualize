@@ -104,14 +104,14 @@ class TestTheSweep:
             outputs.append(_run(["init", "--key-source", "env"]).output)
             outputs.append(
                 _run(
-                    ["put", "deploy.api_token", "--stdin"],
+                    ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
                     app=_app(project),
                     stdin=_SECRET,
                 ).output
             )
             for args in (
-                ["inspect", "deploy.api_token"],
-                ["inspect", "deploy.api_token", "--json"],
+                ["inspect", "--job", "deploy", "--field", "api_token"],
+                ["inspect", "--job", "deploy", "--field", "api_token", "--json"],
                 ["list"],
                 ["list", "--json"],
                 ["status"],
@@ -124,7 +124,15 @@ class TestTheSweep:
 
             outputs.append(
                 _run(
-                    ["remove", "deploy.api_token", "--yes", "--json"],
+                    [
+                        "remove",
+                        "--job",
+                        "deploy",
+                        "--field",
+                        "api_token",
+                        "--yes",
+                        "--json",
+                    ],
                     app=_app(project),
                 ).output
             )
@@ -144,7 +152,11 @@ class TestTheSweep:
         while the plaintext sat beside it.
         """
         _run(["init", "--key-source", "env"])
-        _run(["put", "deploy.api_token", "--stdin"], app=_app(project), stdin=_SECRET)
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=_app(project),
+            stdin=_SECRET,
+        )
 
         files = _store_files(tmp_path)
         assert files, "expected the vault to have written something"
@@ -163,7 +175,11 @@ class TestTheSweep:
         encryption is working, not that the scan is looking in the wrong place.
         """
         _run(["init", "--key-source", "env"])
-        _run(["put", "deploy.api_token", "--stdin"], app=_app(project), stdin=_SECRET)
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=_app(project),
+            stdin=_SECRET,
+        )
 
         planted = next(iter(_store_files(tmp_path))).parent / "planted.txt"
         planted.write_bytes(_SECRET.encode())
@@ -177,14 +193,22 @@ class TestTheSweep:
     ) -> None:
         """Refusals are a leak surface: they are printed, logged and often
         pasted into an issue."""
-        from functualize.app.vault import VaultEntryExistsError, vault_put
+        from functualize.app.vault import (
+            VaultEntryExistsError,
+            VaultIdentity,
+            vault_put,
+        )
 
         _run(["init", "--key-source", "env"])
         app = _app(project)
-        _run(["put", "deploy.api_token", "--stdin"], app=app, stdin=_SECRET)
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=app,
+            stdin=_SECRET,
+        )
 
         with pytest.raises(VaultEntryExistsError) as exc:
-            vault_put(app, "deploy.api_token", _SECRET)
+            vault_put(app, VaultIdentity("job", "deploy", "api_token"), _SECRET)
 
         assert _SECRET not in str(exc.value)
         assert _SECRET not in repr(exc.value)
@@ -196,7 +220,11 @@ class TestTheSweep:
         a field nobody thought about is still caught."""
         _run(["init", "--key-source", "env"])
         app = _app(project)
-        _run(["put", "deploy.api_token", "--stdin"], app=app, stdin=_SECRET)
+        _run(
+            ["put", "--job", "deploy", "--field", "api_token", "--stdin"],
+            app=app,
+            stdin=_SECRET,
+        )
 
         def _leaves(node: Any) -> list[Any]:
             if isinstance(node, dict):
@@ -206,7 +234,7 @@ class TestTheSweep:
             return [node]
 
         for args in (
-            ["inspect", "deploy.api_token", "--json"],
+            ["inspect", "--job", "deploy", "--field", "api_token", "--json"],
             ["list", "--json"],
             ["status", "--json"],
         ):

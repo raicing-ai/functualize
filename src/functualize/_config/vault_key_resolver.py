@@ -501,6 +501,7 @@ def describe_key_failure(
     qualified: str | None = None,
     direct: bool | None = None,
     timeout: float | None = None,
+    remove_target: str | None = None,
 ) -> str:
     """The one refusal message for a key that could not be had (spec B3).
 
@@ -519,6 +520,10 @@ def describe_key_failure(
         qualified: The config key the run was resolving, if any.
         direct: Whether the stored entry was written by hand — the only copy.
         timeout: The hung-backend bound, for "did not answer within N s".
+        remove_target: What follows ``vault remove`` in the last-resort line —
+            a scoped identity's flags (``--job deploy --field token``), so the
+            command the message prints is one the CLI accepts. Falls back to
+            ``qualified``, then the generic ``<key>``.
     """
     if lookup.status is KeyStatus.FOUND:
         msg = "describe_key_failure called on a FOUND lookup"
@@ -557,7 +562,7 @@ def describe_key_failure(
             if direct
             else ""
         )
-        target = qualified or "<key>"
+        target = remove_target or qualified or "<key>"
         return (
             f"{prefix}no vault key is stored on this machine. Run "
             f"`func builtin vault init`, or export $FUNCTUALIZE_VAULT_KEY. "

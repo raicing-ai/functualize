@@ -56,12 +56,14 @@ class _FileLikeSource:
     def source_id(self) -> str:
         return "in-memory.toml"
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self, key: str, section: str | None = None, *, scope: str = "job"
+    ) -> Any | None:
         if section != self._section:
             return None
         return self._values.get(key)
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(self, key: str, section: str | None = None, *, scope: str = "job") -> bool:
         return section == self._section and key in self._values
 
 
@@ -73,11 +75,11 @@ def _job_config_view(
 ) -> JobConfigView:
     """A real ``JobConfigView`` over a real chain: env above the file layer.
 
-    Since ADR-008, ``resolve_job_config`` layers only CLI (and ``group_scope``)
-    on top of what the chain resolves — the env → file → default ranking lives
-    entirely in the chain. A ``MagicMock(spec=JobConfigView)`` therefore cannot
-    exercise the env layer at all: it answers every ``get()`` with the config
-    value and the env var is never read by anything.
+    Since ADR-008, ``resolve_job_config`` layers only CLI on top of what the
+    chain resolves — the env → file → default ranking lives entirely in the
+    chain. A ``MagicMock(spec=JobConfigView)`` therefore cannot exercise the
+    env layer at all: it answers every ``get()`` with the config value and the
+    env var is never read by anything.
     """
     chain = ResolutionChain([EnvSource(env), _FileLikeSource(job_name, config)])
     return JobConfigView(chain, default_section_prefix=job_name)

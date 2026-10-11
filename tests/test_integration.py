@@ -325,8 +325,10 @@ class TestScaffoldRunCycle:
         content = config_file.read_text()
         # Should have at least one TOML section header
         assert "[" in content
-        # Should include provider://reference annotation examples
-        assert "provider://" in content
+        # Secrets are declared as scoped blocks, never inline provider
+        # references inside an ordinary section (scoped-secrets contracts §3)
+        assert "[[vault_secret]]" in content
+        assert 'source = "aws-sm://' in content
 
     def test_scaffold_add_job_creates_module(self, tmp_path):
         """add_job creates a job module with the correct JOB_GROUP."""

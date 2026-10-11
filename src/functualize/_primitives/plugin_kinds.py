@@ -3,7 +3,7 @@
 The distinction is real and a user needs it before installing anything. An
 adapter (``functualize-mcp``) adds commands anybody might want. A domain SDK
 (``functualize-state``) publishes the protocol a capability is written
-against. An *implementation* (``functualize-aws``, ``functualize-bitwarden``)
+against. An *implementation* (``functualize-secrets-aws``, ``functualize-secrets-bitwarden``)
 is a concrete backend you choose because of the infrastructure you already
 run — installing two of them for the same domain is usually a mistake, not a
 richer setup.

@@ -11,22 +11,51 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Gate: detect the dedicated final cleanup commit.
+  # Gate: classify the change into the lane the rest of the workflow runs.
   #
-  # The spec-driven workflow first commits feature artifacts so they are
-  # reviewable, runs the full gate set, and only then pushes one cleanup commit
-  # deleting those artifacts. That commit clears the two trees the artifact
-  # gates refuse — `.spec/features/**` and `contributor/architecture/research/**`
-  # — so a deletion-only commit touching either, or both, is the shape
-  # recognized here. Only that final deletion-only commit is redundant. Earlier
-  # feature commits, ordinary code commits, and a cleanup commit mixed with
+  # Class 1 — the dedicated final cleanup commit. The spec-driven workflow
+  # first commits feature artifacts so they are reviewable, runs the full gate
+  # set, and only then pushes one cleanup commit deleting those artifacts. That
+  # commit clears the two trees the artifact gates refuse —
+  # `.spec/features/**` and `contributor/architecture/research/**` — so a
+  # deletion-only commit touching either, or both, is the shape recognized
+  # here. Only that final deletion-only commit is redundant. Earlier feature
+  # commits, ordinary code commits, and a cleanup commit mixed with
   # source/doc changes all run normally.
   #
-  # On a PR, inspect the head commit itself; base..head includes the whole PR.
-  # The parent must have a completed CI run with every validation job green.
-  # That run's overall conclusion is red by design because the artifact gates
-  # must fail while their trees are still tracked.
-  # Missing API data fails closed into a full run.
+  # The cleanup class is a property of the head commit alone: inspect the head
+  # commit itself, not the range. The parent must have a completed CI run with
+  # every validation job green. That run's overall conclusion is red by design
+  # because the artifact gates must fail while their trees are still tracked.
+  #
+  # Class 2 — a no-code diff. A pull request whose whole range touches
+  # documentation, workflow YAML or root-level markdown pays for nothing it
+  # could fail: lint, imports, types, the fast suite, the three full-suite
+  # legs and the four package/example jobs all read code the diff does not
+  # touch. `no_code` marks the class and the heavy jobs below resolve
+  # `skipped` on it — which GitHub counts as a passing required check.
+  # Unlike the cleanup class this one is a property of the whole pull request:
+  # a docs commit followed by a code commit must resolve to the code lane, so
+  # the range is taken as merge-base(base, head)..head and re-evaluated on
+  # every synchronize.
+  #
+  # The non-code set is a narrow allowlist — `docs/**`,
+  # `.github/workflows/**`, root `*.md`, `LICENSE`, `NOTICE` — and anything
+  # outside it (pyproject.toml, uv.lock, .github/scripts/**, contributor/**,
+  # anything new) fails into the full run. A dependency bump or a CI helper
+  # script is not classified, and a classifier that mis-skips tests on a code
+  # PR is the one unacceptable outcome; unrecognized means full lane.
+  # `.github/workflows/**` is allowlisted but not treated as a no-op: the
+  # reduced lane keeps a YAML parse of the workflow files and the docs jobs —
+  # a workflow-only PR is the one class where parse and trigger semantics are
+  # the change.
+  #
+  # Missing data — no base sha, an unresolvable merge base, a missing object —
+  # leaves every output false, and the gates below fail open into a full run.
+  # A workflow-level path filter must never replace this gate: filtered jobs
+  # never report a check run, and the required contexts on the master ruleset
+  # would deadlock a docs-only PR on "Expected — Waiting for status to be
+  # reported". The split exists only as these in-job `if:` conditions.
   # ---------------------------------------------------------------------------
   spec-only-change:
     runs-on: ubuntu-latest
@@ -35,17 +64,21 @@ jobs:
       contents: read
     outputs:
       skip: ${{ steps.detect.outputs.skip }}
+      no_code: ${{ steps.detect.outputs.no_code }}
+      docs_or_workflows: ${{ steps.detect.outputs.docs_or_workflows }}
+      workflows_changed: ${{ steps.detect.outputs.workflows_changed }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # The PR head and its parent must both be available for inspection.
+          # The PR head, its parent and the base must all be available.
           fetch-depth: 0
 
-      - name: Detect final artifact cleanup commit
+      - name: Detect final artifact cleanup commit and no-code diff
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_BRANCH: ${{ github.head_ref }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -69,11 +102,36 @@ jobs:
               fi
             fi
           fi
+
+          no_code=false
+          docs_or_workflows=false
+          workflows_changed=false
+          if [ "$EVENT_NAME" = pull_request ] && [ -n "$PR_BASE" ] && [ -n "$PR_HEAD" ] \
+            && git cat-file -e "$PR_BASE^{commit}" 2>/dev/null \
+            && git cat-file -e "$PR_HEAD^{commit}" 2>/dev/null; then
+            base="$(git merge-base "$PR_BASE" "$PR_HEAD" 2>/dev/null || true)"
+            if [ -n "$base" ]; then
+              pr_files="$(git diff --name-only "$base" "$PR_HEAD" 2>/dev/null || true)"
+              if [ -n "$pr_files" ]; then
+                if ! printf '%s\n' "$pr_files" | grep -qvE '^(docs/.+|\.github/workflows/.+|[^/]+\.md|LICENSE|NOTICE)$'; then
+                  no_code=true
+                fi
+                printf '%s\n' "$pr_files" | grep -qE '^(docs/|\.github/workflows/)' && docs_or_workflows=true || true
+                printf '%s\n' "$pr_files" | grep -qE '^\.github/workflows/' && workflows_changed=true || true
+              fi
+            fi
+          fi
+
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "no_code=$no_code" >> "$GITHUB_OUTPUT"
+          echo "docs_or_workflows=$docs_or_workflows" >> "$GITHUB_OUTPUT"
+          echo "workflows_changed=$workflows_changed" >> "$GITHUB_OUTPUT"
           if [ "$skip" = true ]; then
             echo "Final artifact cleanup commit (.spec/features/ and/or contributor/architecture/research/) follows green validation; validation jobs will skip."
+          elif [ "$no_code" = true ]; then
+            echo "No-code pull request: every changed path is docs, workflow YAML or root markdown; heavy validation jobs will skip." >&2
           else
-            echo "Full CI run."
+            echo "Full CI run: the range touches code or an unrecognized path, or the class could not be resolved." >&2
           fi
 
   lint:
@@ -93,7 +151,7 @@ jobs:
     # stays blocked however the gated jobs below resolve. Do not add an `if:`
     # to that job, and do not drop it from the ruleset's required contexts —
     # either one silently reopens this.
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -117,7 +175,7 @@ jobs:
 
   lint-imports:
     needs: spec-only-change
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -138,7 +196,7 @@ jobs:
 
   typecheck:
     needs: spec-only-change
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -161,7 +219,7 @@ jobs:
   # Finishes quickly to give immediate signal on PRs.
   test-fast:
     needs: spec-only-change
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -189,7 +247,7 @@ jobs:
   # workspace packages.
   examples:
     needs: spec-only-change
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -218,7 +276,7 @@ jobs:
   # that net running.
   plugin-mcp:
     needs: spec-only-change
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -253,7 +311,7 @@ jobs:
   # published proof that the package works is worth a check that runs it.
   plugin-substrate-sqlite:
     needs: spec-only-change
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -293,7 +351,7 @@ jobs:
   # separate change — a guard that is hard to keep green stops being run.
   clean-clone-examples:
     needs: spec-only-change
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -363,7 +421,10 @@ jobs:
   # (`.agents/skills/release/SKILL.md` Phase 4). No scheduled workflow exists.
   doc-verify:
     needs: spec-only-change
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    # Same lane condition as docs-build: full lane always; in the no-code lane
+    # only when docs or workflow YAML changed, because those are the trees the
+    # documented commands read and publish through.
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true' && (needs.spec-only-change.outputs.no_code != 'true' || needs.spec-only-change.outputs.docs_or_workflows == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -403,7 +464,11 @@ jobs:
   # copying its neighbours here fails on a missing `mkdocs` executable.
   docs-build:
     needs: spec-only-change
-    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true'
+    # Runs in the full lane as always. In the no-code lane it runs only when
+    # the diff touches docs or workflow YAML — the two allowlisted trees this
+    # job can fail on. A root-markdown-only PR skips it: no `mkdocs` input
+    # changed.
+    if: (!cancelled()) && needs.spec-only-change.outputs.skip != 'true' && (needs.spec-only-change.outputs.no_code != 'true' || needs.spec-only-change.outputs.docs_or_workflows == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -419,6 +484,36 @@ jobs:
       - name: Install documentation dependencies
         run: uv sync --group docs
 
+      # Workflow YAML only gets parsed by GitHub when one of its own events
+      # fires, so a syntax-broken docs.yml or release.yml passes every other
+      # check on a workflow-only PR and explodes later, on the push that
+      # needed it. Parse every workflow file when the diff touches the tree —
+      # in the no-code lane and the full lane alike. Never runs when workflows
+      # are untouched, so a pre-existing breakage cannot fail an unrelated PR.
+      #
+      # `uv run python` after the sync above: mkdocs depends on PyYAML, so the
+      # parse needs no runner-image assumption.
+      - name: Parse workflow YAML
+        if: needs.spec-only-change.outputs.workflows_changed == 'true'
+        run: |
+          uv run python - <<'EOF'
+          import glob
+          import sys
+
+          import yaml
+
+          failed = False
+          for path in sorted(glob.glob(".github/workflows/*.yml") + glob.glob(".github/workflows/*.yaml")):
+              with open(path) as fh:
+                  doc = yaml.safe_load(fh)
+              if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), dict):
+                  print(f"::error::{path}: not a workflow document (no top-level 'jobs' mapping)")
+                  failed = True
+                  continue
+              print(f"{path}: OK ({len(doc['jobs'])} jobs)")
+          sys.exit(1 if failed else 0)
+          EOF
+
       - name: Build documentation
         run: uv run mkdocs build --strict
 
@@ -431,35 +526,40 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - name: Skip validated suite for final spec cleanup
-        if: needs.spec-only-change.outputs.skip == 'true'
-        run: echo "Prior PR validation was green; skipping the unchanged full suite for Python ${{ matrix.python-version }}."
+      - name: Explain a skipped validated suite
+        if: needs.spec-only-change.outputs.skip == 'true' || needs.spec-only-change.outputs.no_code == 'true'
+        run: |
+          if [ "${{ needs.spec-only-change.outputs.skip }}" = "true" ]; then
+            echo "Prior PR validation was green; skipping the unchanged full suite for Python ${{ matrix.python-version }}."
+          else
+            echo "The pull request range touches no code; skipping the unchanged full suite for Python ${{ matrix.python-version }}."
+          fi
 
       - uses: actions/checkout@v4
-        if: needs.spec-only-change.outputs.skip != 'true'
+        if: needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
 
       - name: Install uv
-        if: needs.spec-only-change.outputs.skip != 'true'
+        if: needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
 
       - name: Set up Python ${{ matrix.python-version }}
-        if: needs.spec-only-change.outputs.skip != 'true'
+        if: needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        if: needs.spec-only-change.outputs.skip != 'true'
+        if: needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
         run: uv sync --all-extras
 
       - name: Run full test suite (property tests + coverage, parallel)
-        if: needs.spec-only-change.outputs.skip != 'true'
+        if: needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
         env:
           HYPOTHESIS_PROFILE: ci
         run: uv run pytest --run-slow --cov=functualize --cov-report=xml -n auto
 
       - name: Upload coverage
-        if: needs.spec-only-change.outputs.skip != 'true'
+        if: needs.spec-only-change.outputs.skip != 'true' && needs.spec-only-change.outputs.no_code != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.python-version }}

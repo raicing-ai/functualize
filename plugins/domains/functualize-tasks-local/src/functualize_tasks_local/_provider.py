@@ -141,7 +141,7 @@ class LocalTaskProvider:
         there is a revision to compare. Bounded in practice: the document is
         created once, and ``lock()`` is real on both shipped substrates. Pinned
         by `test_the_very_first_write_cannot_be_compare_and_swapped`, and
-        recorded as Q2 of `.spec/features/substrate-conformance/research.md` on
+        recorded as Q2 of the substrate-conformance research on
         `sdd/substrate-conformance` — it is precisely the question a substrate
         whose lock is a no-op has to answer.
         """

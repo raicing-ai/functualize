@@ -10,6 +10,10 @@ app entry point could not ask for a machine-readable run at all.
 The vocabulary is not restated here. `--emit-format`'s legal values come from
 `OPTIONAL_VALUE_VALID_SET`, the one flag grammar both surfaces read, so a value
 added there is offered by both without either test or adapter changing.
+
+One parity is deliberate divergence: both surfaces **require** the flag's
+value, but each reports it in its own words — `func`'s pre-boot parse names
+the accepted values, Click's own arity rule says "requires an argument".
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ import json
 import pytest
 
 from functualize.types import OPTIONAL_VALUE_VALID_SET
+from tests.conftest import surfaces
 
 _VALUES, _DEFAULT = OPTIONAL_VALUE_VALID_SET["--emit-format"]
 
@@ -68,4 +73,32 @@ class TestTheFlagIsAcceptedOnBothSurfaces:
         result = cli_run(["--emit-format", "yaml", "emit"], cwd=emit_tree)
 
         assert result.exit_code != 0
+        assert "Traceback" not in result.stderr
+
+
+class TestABareFlagRequiresItsValueOnBothSurfaces:
+    """AC9: the flag takes a value on the app entry point too.
+
+    The sentences differ by design — each surface speaks its own usage
+    dialect — but the arity and the exit code agree, and neither surfaces a
+    traceback.
+    """
+
+    @surfaces("func")
+    def test_func_names_the_accepted_values(self, cli_run, emit_tree) -> None:
+        result = cli_run(["--emit-format"], cwd=emit_tree)
+
+        assert result.exit_code == 2, result.stderr
+        assert (
+            f"Error: --emit-format requires a value: one of "
+            f"{{{', '.join(sorted(_VALUES))}}}." in result.stderr
+        )
+        assert "Traceback" not in result.stderr
+
+    @surfaces("app")
+    def test_the_app_entry_point_gets_clicks_sentence(self, cli_run, emit_tree) -> None:
+        result = cli_run(["--emit-format"], cwd=emit_tree)
+
+        assert result.exit_code == 2, result.stderr
+        assert "Error: Option '--emit-format' requires an argument." in (result.stderr)
         assert "Traceback" not in result.stderr

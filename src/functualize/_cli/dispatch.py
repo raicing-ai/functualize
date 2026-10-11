@@ -32,9 +32,9 @@ if TYPE_CHECKING:
 from functualize.app.utils import (
     GLOBAL_BOOL_FLAGS,
     GLOBAL_OPTIONS_ALWAYS_VALUE,
-    GLOBAL_OPTIONS_OPTIONAL_VALUE,
     GLOBAL_OPTIONS_WITH_VALUE,
     OPTIONAL_VALUE_VALID_SET,
+    ExitCode,
     match_group_flag,
 )
 
@@ -152,18 +152,11 @@ def detect_mode(
             continue
 
         if arg in GLOBAL_OPTIONS_ALWAYS_VALUE:
-            # Always-consumes-value flag — skip both the flag and its value
-            i += 2
-            continue
-
-        if arg in GLOBAL_OPTIONS_OPTIONAL_VALUE:
-            # Optional-value flag — lookahead: only consume next token if
-            # it is in the valid set for this flag.
-            valid_set, _default = OPTIONAL_VALUE_VALID_SET[arg]
-            if i + 1 < len(args) and args[i + 1] in valid_set:
-                i += 2  # consume flag + valid value
-            else:
-                i += 1  # flag only, next token is NOT consumed
+            # Value-required flag — it consumes the next token as its value
+            # unless a pre-boot-owned token stands there (a known global flag
+            # or `--version`), which means the value is missing.
+            nxt = args[i + 1] if i + 1 < len(args) else None
+            i += 2 if value_required_takes_next(arg, nxt) else 1
             continue
 
         if arg.startswith("--") and "=" in arg:
@@ -345,26 +338,16 @@ def _extract_global_options(
 
         # Handle --option VALUE style for recognized options
         if arg in GLOBAL_OPTIONS_ALWAYS_VALUE:
-            if i + 1 >= len(args):
-                # Missing value — treat as end (let downstream handle)
-                first_positional_index = i
-                break
-            value = args[i + 1]
-            _assign_option(arg, value, state)
+            next_index = i + 1
+            next_token = args[next_index] if next_index < len(args) else None
+            if not value_required_takes_next(arg, next_token):
+                # Missing value: nothing follows, or a pre-boot-owned token
+                # does — a flag's value may not eat a token the pre-boot
+                # layer owns. A usage error, not a routing question.
+                print(missing_value_message(arg), file=sys.stderr)
+                raise SystemExit(ExitCode.USAGE)
+            _assign_option(arg, args[next_index], state)
             i += 2
-            continue
-
-        # Handle optional-value flags with lookahead
-        if arg in GLOBAL_OPTIONS_OPTIONAL_VALUE:
-            valid_set, default_value = OPTIONAL_VALUE_VALID_SET[arg]
-            if i + 1 < len(args) and args[i + 1] in valid_set:
-                # Next token is a valid format value → consume it
-                _assign_option(arg, args[i + 1], state)
-                i += 2
-            else:
-                # Next token is NOT a valid format (or no next token) → use default
-                _assign_option(arg, default_value, state)
-                i += 1
             continue
 
         # Unrecognized flag (starts with - but not in our sets) — stop.
@@ -386,7 +369,7 @@ def _extract_global_options(
                 f"{', '.join(sorted(_VALID_LOG_LEVELS))}, got '{state.log_level}'.",
                 file=sys.stderr,
             )
-            raise SystemExit(1)
+            raise SystemExit(ExitCode.USAGE)
         state.log_level = normalized
 
     opts = ParsedGlobalOptions(
@@ -520,7 +503,7 @@ def _assign_option(
                 f"Error: --discovery-depth must be a valid integer, got '{value}'.",
                 file=sys.stderr,
             )
-            raise SystemExit(1) from None
+            raise SystemExit(ExitCode.USAGE) from None
     elif flag == "--require-file-import":
         state.require_file_import = value
     elif flag == "--require-file-prefix":
@@ -544,23 +527,23 @@ def _assign_option(
     elif flag == "--perf-report":
         if value not in OPTIONAL_VALUE_VALID_SET["--perf-report"][0]:
             print(invalid_value_message(flag, value), file=sys.stderr)
-            raise SystemExit(1)
+            raise SystemExit(ExitCode.USAGE)
         state.perf_report = value
     elif flag == "--perf-filter":
         state.perf_filter = value
     elif flag == "--emit-format":
         if value not in OPTIONAL_VALUE_VALID_SET["--emit-format"][0]:
             print(invalid_value_message(flag, value), file=sys.stderr)
-            raise SystemExit(1)
+            raise SystemExit(ExitCode.USAGE)
         state.output = value
 
 
 def invalid_value_message(flag: str, value: str) -> str:
-    """The one sentence for a value an optional-value global does not accept.
+    """The one sentence for a value a selection-table global does not accept.
 
-    Shared by the ``--flag=value`` spelling (``_assign_option``) and the
-    ``--flag value`` spelling (``refused_optional_value``, reported post-boot),
-    so the two ways of typing the same mistake get the same answer.
+    ``_assign_option`` reaches it for both spellings — ``--flag=value`` and
+    ``--flag value`` — so the two ways of typing the same mistake get the
+    same answer, naming the flag and its accepted values.
     """
     valid_values = OPTIONAL_VALUE_VALID_SET[flag][0]
     return (
@@ -569,46 +552,19 @@ def invalid_value_message(flag: str, value: str) -> str:
     )
 
 
-def refused_optional_value(argv_tail: Sequence[str]) -> tuple[str, str] | None:
-    """The ``(flag, token)`` pair when an optional-value global refused the command.
+def missing_value_message(flag: str) -> str:
+    """The one sentence for a value-required global whose value is absent.
 
-    ``--emit-format`` and ``--perf-report`` take an *optional* value: the
-    lookahead in ``detect_mode`` consumes the next token only when it is in the
-    flag's valid set, so ``func --emit-format greet`` means "default format, run
-    greet". The cost is that ``func --emit-format bogus greet`` leaves ``bogus``
-    as the first positional, and it used to be reported as
-    ``Unknown command 'bogus'`` — an invalid *value* read as a missing
-    *command*, with the valid set never shown.
-
-    This walks the same global prefix ``detect_mode`` does and returns the pair
-    only when the first positional is the token such a flag refused. It says
-    nothing about whether that token names something: a function-level job, a
-    group or a plugin command is only visible post-boot, so the caller asks
-    after everything else has missed.
+    A flag with a selection table names its accepted values so the repair is
+    on the same line; every other value-required flag gets the plain form.
     """
-    i = 0
-    while i < len(argv_tail):
-        arg = argv_tail[i]
-        if arg in GLOBAL_OPTIONS_ALWAYS_VALUE:
-            i += 2
-            continue
-        if arg in GLOBAL_OPTIONS_OPTIONAL_VALUE:
-            valid_set, _default = OPTIONAL_VALUE_VALID_SET[arg]
-            if i + 1 >= len(argv_tail):
-                return None
-            nxt = argv_tail[i + 1]
-            if nxt in valid_set:
-                i += 2
-                continue
-            if nxt.startswith("-"):
-                i += 1
-                continue
-            return (arg, nxt)
-        if arg.startswith("-"):
-            i += 1
-            continue
-        return None
-    return None
+    valid_entry = OPTIONAL_VALUE_VALID_SET.get(flag)
+    if valid_entry is None:
+        return f"Error: {flag} requires a value."
+    valid_values = valid_entry[0]
+    return (
+        f"Error: {flag} requires a value: one of {{{', '.join(sorted(valid_values))}}}."
+    )
 
 
 def scan_early_setting_flags(argv: list[str]) -> int:
@@ -799,3 +755,61 @@ def is_known_global_flag(token: str) -> bool:
     """
     flag = token.split("=", 1)[0]
     return flag in GLOBAL_OPTIONS_WITH_VALUE or flag in GLOBAL_BOOL_FLAGS
+
+
+def is_reserved_pre_boot_token(token: str) -> bool:
+    """A token the pre-boot layer owns, which no value flag may consume.
+
+    `is_known_global_flag` plus `--version`: the version fast path is a
+    pre-boot flag, but is deliberately absent from `GLOBAL_BOOL_FLAGS` (which
+    Click also reads), so it is named here instead. A value-required flag
+    whose value slot holds one of these tokens is missing its value, not
+    holding a value that spells a flag.
+    """
+    return is_known_global_flag(token) or token.split("=", 1)[0] == "--version"
+
+
+def value_required_takes_next(flag_token: str, next_token: str | None) -> bool:
+    """Does ``--flag`` consume ``next_token`` as its value?
+
+    The single statement of the pre-boot arity rule, shared by
+    ``detect_mode``, ``_extract_global_options`` and ``version_requested``:
+    a value-required flag takes the next token as its value unless nothing
+    follows or a pre-boot-owned token stands there. Every other token —
+    a job name, an unrecognized dash token, a negative number — is its value.
+    """
+    return next_token is not None and not is_reserved_pre_boot_token(next_token)
+
+
+def version_requested(argv_tail: Sequence[str]) -> bool:
+    """Is ``--version`` in the global prefix of ``argv_tail`` (pre-boot)?
+
+    Position-aware: ``--version`` counts only before the first positional
+    argument, the same convention as every other global flag. The walk
+    advances over the prefix with ``value_required_takes_next`` — the same
+    rule ``detect_mode`` and ``_extract_global_options`` apply — so a
+    value-position ``--version`` is a missing value for the preceding flag,
+    not the version command, and this scan answers False so the usage error
+    is what the caller reports.
+    """
+    i = 0
+    while i < len(argv_tail):
+        token = argv_tail[i]
+        if token == "--version":
+            return True
+        if token.startswith("-"):
+            # A flag — skip it (and its value if it takes one)
+            if "=" in token:
+                i += 1
+            elif token in GLOBAL_OPTIONS_ALWAYS_VALUE:
+                nxt = argv_tail[i + 1] if i + 1 < len(argv_tail) else None
+                if not value_required_takes_next(token, nxt):
+                    # A usage error, not a version request.
+                    return False
+                i += 2  # skip flag + value
+            else:
+                i += 1  # unknown flag or bool flag (--no-dotenv, --help, -h)
+        else:
+            # First positional found — --version was not in the prefix
+            return False
+    return False

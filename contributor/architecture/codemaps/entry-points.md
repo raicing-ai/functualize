@@ -68,8 +68,9 @@ _cli/main.py: main()                                     [captures _module_impor
      (functualize._cli.dispatch)                              SINGLE_FILE | BUILTIN | JOB |
                                                                 GROUP | BARE | UNKNOWN
   6. Direct dispatch (no exception-based fallback):
-     _handle_single_file() | _handle_job() | _handle_group() |
-     _handle_bare() | _handle_unknown() | Click cli_app() (BUILTIN/--help)
+     _handle_single_file() | _handle_job() (JOB, and UNKNOWN — an unknown
+     name is the same job path, which prints the error) | _handle_group() |
+     _handle_bare() | Click cli_app() (BUILTIN/--help)
   │
   ▼
 Handler constructs FunctualizeApp (functualize.app)   ◄── THE BOUNDARY.

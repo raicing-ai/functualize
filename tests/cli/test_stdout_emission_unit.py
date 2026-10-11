@@ -247,16 +247,16 @@ class TestInvalidOutputValue:
     """Test invalid --emit-format value produces error on stderr."""
 
     def test_invalid_output_xml_raises_system_exit(self) -> None:
-        """--emit-format=xml triggers SystemExit with code 1."""
+        """--emit-format=xml triggers SystemExit with code 2 (usage)."""
         with pytest.raises(SystemExit) as exc_info:
             _extract_global_options(["func", "--emit-format=xml", "deploy"])
-        assert exc_info.value.code == 1
+        assert exc_info.value.code == 2
 
     def test_invalid_output_yaml_raises_system_exit(self) -> None:
-        """--emit-format=yaml triggers SystemExit with code 1."""
+        """--emit-format=yaml triggers SystemExit with code 2 (usage)."""
         with pytest.raises(SystemExit) as exc_info:
             _extract_global_options(["func", "--emit-format=yaml", "deploy"])
-        assert exc_info.value.code == 1
+        assert exc_info.value.code == 2
 
     def test_invalid_output_prints_error_to_stderr(
         self, capsys: pytest.CaptureFixture[str]

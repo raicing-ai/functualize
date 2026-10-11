@@ -165,8 +165,8 @@ terminal status are re-derived per surface:
 ### Cause 4 — `func`'s pre-boot layer is a permanent second CLI, and the "one rule" fixes are per-rule hand extractions, not a mechanism
 
 The pre-boot layer must parse before an app exists (legitimate — `surface-boundary.md` §1), so
-`_cli/dispatch.py` carries a hand-written tokenizer: value-taking globals
-(`dispatch.py:81`), optional-value lookahead sets (`:90-101`), bool flags (`:121`), an
+`_cli/dispatch.py` carries a hand-written tokenizer: value-required globals
+(`dispatch.py:81`), bool flags (`:121`), an
 `_OptionAccumulator` + `_assign_option` state machine (`:503-626`), and the group-flag matchers
 `_flag_aliases`/`_negative_aliases`/`_match_group_flag` (`:703-767`). A *third* parser exists in
 the TUI (`_cli/tui/cli_arg_parser.py:16-71`, `parse_cli_args_to_kwargs`). And pre-boot reads the
@@ -364,7 +364,8 @@ rendering medium.
 
 **Intent.** Generalize the `negative_flag_for` precedent (STATUS.md:806-810) from *one rule
 extracted by hand* to *the whole flag vocabulary extracted once*. A `_types/flag_grammar.py`
-holds: which flags take values / optional values / are bool; the negative-spelling rule; the
+holds: which flags take values / are bool (value-optional members were withdrawn from this
+vocabulary by the later one-arity rule); the negative-spelling rule; the
 group-flag alias matching (`dispatch.py:703-767`). Consumers: the click builders
 (`click_params.py:322-876`), the pre-boot parser (`dispatch.py`), the TUI bar/sync
 (`bar.py:295`, `sync.py:134`), completions. Parsers keep only their *syntax* (lookahead stays
@@ -608,9 +609,10 @@ this audit found.
    letter-perfectly while re-publishing internals (`read_*_from_cache`, vault functions). *Rec:* out
    of scope here; record as the next surface-boundary question — the group-options fingerprint gap
    (STATUS.md:186-189) is its open wound.
-6. **`--perf-report` optional-value lookahead** stays `func`-only (surface-boundary §4 table).
-   *Rec:* confirm the grammar module deliberately excludes it so the exclusion is a documented
-   decision, not an omission.
+6. **`--perf-report`** stays `func`-only (surface-boundary §4 table). The lookahead this
+   recommendation cited was later withdrawn — every pre-boot flag is boolean or
+   value-required. *Rec:* confirm the grammar module deliberately excludes the flag so the
+   exclusion is a documented decision, not an omission.
 
 ---
 

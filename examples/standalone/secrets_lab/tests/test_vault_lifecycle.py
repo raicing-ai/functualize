@@ -22,6 +22,7 @@ from functualize.app import FunctualizeApp, JobSources
 from functualize.app.core import request_for
 from functualize.app.vault import (
     Readability,
+    VaultIdentity,
     VaultOrigin,
     vault_init,
     vault_inspect,
@@ -33,6 +34,11 @@ _ROOT = Path(__file__).parent.parent
 
 #: Distinctive, so an assertion about absence is not satisfied by coincidence.
 _TOKEN = "lab-token-7c2f91-not-a-real-credential"  # gitleaks:allow
+
+#: `report`'s `token` config field. A vault entry is named by scope, target and
+#: field — the same three things `func builtin vault put --job report --field
+#: token` takes — so a group option and a job field never share an entry.
+_REPORT_TOKEN = VaultIdentity("job", "report", "token")
 
 
 @pytest.fixture
@@ -88,7 +94,7 @@ def test_put_then_run_delivers_the_secret_to_the_job(project: Path) -> None:
     vault_init(key_source="env")
     app = _app(project)
 
-    vault_put(app, "report.token", _TOKEN)
+    vault_put(app, _REPORT_TOKEN, _TOKEN)
 
     # `refresh()` because this app booted *before* the vault existed, and the
     # resolution chain is built once at boot — that is the architecture, not an
@@ -113,7 +119,7 @@ def test_the_job_still_receives_a_secret_not_a_string(project: Path) -> None:
 
     vault_init(key_source="env")
     app = _app(project)
-    vault_put(app, "report.token", _TOKEN)
+    vault_put(app, _REPORT_TOKEN, _TOKEN)
     app.refresh()
 
     token = next(f for f in job_config_fields(app, "report") if f.name == "token")
@@ -126,9 +132,9 @@ def test_inspect_explains_the_entry_without_revealing_it(project: Path) -> None:
     """Step 4. What you can ask about a secret you cannot read."""
     vault_init(key_source="env")
     app = _app(project)
-    vault_put(app, "report.token", _TOKEN)
+    vault_put(app, _REPORT_TOKEN, _TOKEN)
 
-    report = vault_inspect(app, "report.token")
+    report = vault_inspect(app, _REPORT_TOKEN)
 
     assert report.exists is True
     assert report.origin is VaultOrigin.DIRECT
@@ -141,20 +147,23 @@ def test_inspect_explains_why_a_plain_field_is_refused(project: Path) -> None:
     name-based heuristic and is not one. The vault follows the model too."""
     vault_init(key_source="env")
 
-    assert vault_inspect(_app(project), "sync.sort_key").eligible is False
+    assert (
+        vault_inspect(_app(project), VaultIdentity("job", "sync", "sort_key")).eligible
+        is False
+    )
 
 
 def test_remove_takes_it_back_and_says_what_was_lost(project: Path) -> None:
     """Step 5. A typed-in value has no upstream copy, so removing one warns."""
     vault_init(key_source="env")
     app = _app(project)
-    vault_put(app, "report.token", _TOKEN)
+    vault_put(app, _REPORT_TOKEN, _TOKEN)
 
-    removed = vault_remove(app, "report.token")
+    removed = vault_remove(app, _REPORT_TOKEN)
 
     assert removed.removed is True
     assert removed.warning is not None
-    assert vault_inspect(app, "report.token").exists is False
+    assert vault_inspect(app, _REPORT_TOKEN).exists is False
 
 
 def test_the_example_uses_only_the_published_api(project: Path) -> None:

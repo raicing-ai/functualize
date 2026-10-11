@@ -64,13 +64,17 @@ class TestGlobalOptionSkipping:
     def test_always_value_flag_consumes_its_value(self) -> None:
         assert _detect("--log-level", "DEBUG", "deploy") == (Mode.JOB, ["deploy"])
 
-    def test_optional_value_flag_consumes_a_valid_value(self) -> None:
+    def test_selection_table_flag_consumes_a_valid_value(self) -> None:
         assert _detect("--emit-format", "json", "deploy") == (Mode.JOB, ["deploy"])
 
-    def test_optional_value_flag_releases_an_invalid_value(self) -> None:
-        """`--emit-format deploy` is `--emit-format` (defaulted) followed by the job —
-        the lookahead is what keeps a job name from being eaten as a value."""
-        assert _detect("--emit-format", "deploy") == (Mode.JOB, ["deploy"])
+    def test_a_value_flag_without_a_value_leaves_the_next_flag_alone(self) -> None:
+        """`--emit-format --force deploy`: a pre-boot-owned token in the value
+        slot is a missing value, so the walk releases it — the single arity
+        rule is what keeps a global flag from being eaten as a value."""
+        assert _detect("--emit-format", "--force", "deploy") == (
+            Mode.JOB,
+            ["deploy"],
+        )
 
     def test_equals_form_is_one_token(self) -> None:
         assert _detect("--log-level=DEBUG", "deploy") == (Mode.JOB, ["deploy"])

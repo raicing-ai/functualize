@@ -1,20 +1,17 @@
 """Unit tests for CLI handler functions in _cli/main.py.
 
 Tests cover:
-- _handle_unknown error output and fuzzy suggestions (task 6.5)
 - _fuzzy_suggest algorithm correctness (task 6.5)
 - _handle_bare TTY vs non-TTY branching (task 6.6)
 - Non-TTY: parseable job list output (one per line)
 - Non-TTY with no jobs: "No jobs discovered." output
 - Property 11: Job List Output Format (task 10.3)
 
-Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4
+Requirements: 5.1, 5.2, 5.3, 6.1, 6.2, 6.3, 6.4
 """
 
 from __future__ import annotations
 
-import sys
-from io import StringIO
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -23,7 +20,6 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize._cli.main import _handle_unknown
 from functualize._types.descriptors import JobDescriptor
 from functualize.app.utils import suggest_similar_commands as _fuzzy_suggest
 
@@ -103,70 +99,6 @@ class TestFuzzySuggest:
         """Command contained within job name -> suggested."""
         result = _fuzzy_suggest("ploy", {"deploy", "migrate", "test"})
         assert "deploy" in result
-
-
-# =============================================================================
-# Task 6.5: _handle_unknown tests
-# =============================================================================
-
-
-class TestHandleUnknown:
-    """Tests for _handle_unknown() error output."""
-
-    def test_unknown_command_output_contains_command_name(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Output to stderr includes the unknown command name."""
-        stderr_capture = StringIO()
-        monkeypatch.setattr(sys, "stderr", stderr_capture)
-
-        _handle_unknown(["deplyo"], {"deploy", "migrate"})
-
-        output = stderr_capture.getvalue()
-        assert "deplyo" in output
-
-    def test_unknown_command_suggests_close_match(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """When fuzzy matches exist, suggestions are printed."""
-        stderr_capture = StringIO()
-        monkeypatch.setattr(sys, "stderr", stderr_capture)
-
-        _handle_unknown(["deplyo"], {"deploy", "migrate"})
-
-        output = stderr_capture.getvalue()
-        assert "deploy" in output
-        assert "Did you mean" in output
-
-    def test_empty_job_names_still_prints_guidance(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """With no job names, still prints guidance to run func."""
-        stderr_capture = StringIO()
-        monkeypatch.setattr(sys, "stderr", stderr_capture)
-
-        _handle_unknown(["unknown_cmd"], set())
-
-        output = stderr_capture.getvalue()
-        assert "unknown_cmd" in output
-        assert "Run 'func' to see all available commands." in output
-        # No suggestions when job_names is empty
-        assert "Did you mean" not in output
-
-    def test_returns_none(self) -> None:
-        """_handle_unknown returns None - caller handles exit code."""
-        result = _handle_unknown(["deplyo"], {"deploy", "migrate"})
-        assert result is None
-
-    def test_always_prints_func_guidance(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Every unknown command response directs user to run func."""
-        stderr_capture = StringIO()
-        monkeypatch.setattr(sys, "stderr", stderr_capture)
-
-        _handle_unknown(["deplyo"], {"deploy", "migrate"})
-
-        output = stderr_capture.getvalue()
-        assert "Run 'func' to see all available commands." in output
 
 
 # =============================================================================

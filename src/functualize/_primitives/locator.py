@@ -484,8 +484,8 @@ class ResourceLocator:
 def find_functualize_dir(start: Path) -> Path | None:
     """Search upward from ``start`` for a ``.functualize/`` directory.
 
-    The project-root walk — "walk C" in
-    `.spec/features/declared-plugin-directories/research.md` §5. Returns the
+    The project-root walk — "walk C" of the declared-plugin-directories
+    study (2026-09-19; the decisions survive in `.spec/STATUS.md`). Returns the
     ``.functualize/`` directory itself, or None in standalone mode (no such
     directory anywhere above ``start``). Bounded only by the filesystem root.
 

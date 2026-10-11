@@ -34,10 +34,12 @@ class FakeSource:
     def source_id(self) -> str:
         return self._source_id
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self, key: str, section: str | None = None, *, scope: str = "job"
+    ) -> Any | None:
         return self._data.get((section, key))
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(self, key: str, section: str | None = None, *, scope: str = "job") -> bool:
         return (section, key) in self._data
 
 
@@ -63,7 +65,9 @@ class DictSource:
     def source_id(self) -> str:
         return self._source_id
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self, key: str, section: str | None = None, *, scope: str = "job"
+    ) -> Any | None:
         if section:
             section_data = self._merged_config.get(section)
             if isinstance(section_data, dict):
@@ -71,7 +75,7 @@ class DictSource:
             return None
         return self._merged_config.get(key)
 
-    def has(self, key: str, section: str | None = None) -> bool:
+    def has(self, key: str, section: str | None = None, *, scope: str = "job") -> bool:
         if section:
             section_data = self._merged_config.get(section)
             if isinstance(section_data, dict):
@@ -79,7 +83,7 @@ class DictSource:
             return False
         return key in self._merged_config
 
-    def keys(self, section: str) -> set[str]:
+    def keys(self, section: str, *, scope: str = "job") -> set[str]:
         section_data = self._merged_config.get(section)
         if isinstance(section_data, dict):
             return set(section_data.keys())
@@ -390,3 +394,141 @@ class TestResolutionChainSources:
         assert sources[0].source_type == "cli"
         assert sources[1].source_type == "env"
         assert sources[2].source_type == "file"
+
+
+# --- Scope forwarding (scoped vault secrets, Task 3) ---
+
+
+class _RecordingSource:
+    """A source that records every lookup it is asked, then answers nothing."""
+
+    def __init__(self) -> None:
+        self.source_type = "test"
+        self.source_id = "recording"
+        self.get_calls: list[tuple[str, str | None, str]] = []
+        self.keys_calls: list[tuple[str, str]] = []
+        self.fallthrough_scopes: list[str | None] = []
+
+    def get(
+        self, key: str, section: str | None = None, *, scope: str = "job"
+    ) -> Any | None:
+        self.get_calls.append((key, section, scope))
+        return None
+
+    def has(self, key: str, section: str | None = None, *, scope: str = "job") -> bool:
+        return False
+
+    def keys(self, section: str, *, scope: str = "job") -> set[str]:
+        self.keys_calls.append((section, scope))
+        return set()
+
+    def note_fallthrough(
+        self, resolved: Any, section: str | None = None, *, scope: str = "job"
+    ) -> None:
+        self.fallthrough_scopes.append(scope)
+
+
+class TestScopeForwarding:
+    """One chain, two scopes — the request's scope reaches every source.
+
+    The chain itself stays provider-neutral: it does not know what a group or a
+    job *is*, only that a lookup may be scoped and that the scope is part of
+    the request, the same way the section already is.
+    """
+
+    def test_resolve_passes_the_scope_to_every_source(self) -> None:
+        recorder = _RecordingSource()
+        chain = ResolutionChain([recorder])
+
+        with pytest.raises(MissingKeyError):
+            chain.resolve("token", "deploy", scope="group")
+
+        assert recorder.get_calls == [("token", "deploy", "group")]
+
+    def test_the_default_scope_is_job(self) -> None:
+        recorder = _RecordingSource()
+        chain = ResolutionChain([recorder])
+
+        with pytest.raises(MissingKeyError):
+            chain.resolve("token", "deploy")
+
+        assert recorder.get_calls[0][2] == "job"
+
+    def test_resolve_section_forwards_the_scope(self) -> None:
+        class _Keyed:
+            source_type = "test"
+            source_id = "keyed"
+
+            def __init__(self) -> None:
+                self.keys_calls: list[tuple[str, str]] = []
+
+            def get(
+                self, key: str, section: str | None = None, *, scope: str = "job"
+            ) -> Any | None:
+                return f"{scope}:{key}"
+
+            def has(
+                self, key: str, section: str | None = None, *, scope: str = "job"
+            ) -> bool:
+                return True
+
+            def keys(self, section: str, *, scope: str = "job") -> set[str]:
+                self.keys_calls.append((section, scope))
+                return {"token"}
+
+        keyed = _Keyed()
+        chain = ResolutionChain([keyed])
+
+        resolved = chain.resolve_section("deploy", scope="group")
+
+        assert keyed.keys_calls == [("deploy", "group")]
+        assert resolved["token"].value == "group:token"
+
+    def test_introspect_forwards_the_scope(self) -> None:
+        class _Answering:
+            source_type = "test"
+            source_id = "answering"
+
+            def get(
+                self, key: str, section: str | None = None, *, scope: str = "job"
+            ) -> Any | None:
+                return "value" if scope == "group" else None
+
+            def has(
+                self, key: str, section: str | None = None, *, scope: str = "job"
+            ) -> bool:
+                return scope == "group"
+
+            def keys(self, section: str, *, scope: str = "job") -> set[str]:
+                return set()
+
+        chain = ResolutionChain([_Answering()])
+
+        assert chain.introspect("token", "deploy", scope="group").value == "value"
+        with pytest.raises(MissingKeyError):
+            chain.introspect("token", "deploy", scope="job")
+
+    def test_fallthrough_notification_carries_the_scope(self) -> None:
+        class _Winner:
+            source_type = "env"
+            source_id = "environ"
+
+            def get(
+                self, key: str, section: str | None = None, *, scope: str = "job"
+            ) -> Any | None:
+                return "from-env"
+
+            def has(
+                self, key: str, section: str | None = None, *, scope: str = "job"
+            ) -> bool:
+                return True
+
+            def keys(self, section: str, *, scope: str = "job") -> set[str]:
+                return set()
+
+        recorder = _RecordingSource()
+        chain = ResolutionChain([_Winner(), recorder])
+
+        chain.resolve("token", "deploy", scope="group")
+
+        assert recorder.fallthrough_scopes == ["group"]

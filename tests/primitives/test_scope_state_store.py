@@ -13,6 +13,7 @@ import json
 import tempfile
 import threading
 import time
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -32,7 +33,7 @@ from functualize._primitives.substrate import JsonFileSubstrate
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from functualize._types.protocols import Revision
+    from functualize._types.protocols import Revision, Stored
 
 
 class _OneConflictSubstrate(JsonFileSubstrate):
@@ -51,6 +52,43 @@ class _OneConflictSubstrate(JsonFileSubstrate):
             self.conflict = False
             assert super().write(key, {"state": {"concurrent": True}}, expect=expect)
         return super().write(key, payload, expect=expect)
+
+
+class _CountingSubstrate(JsonFileSubstrate):
+    """Count substrate operations, so a cost claim can skip the clock.
+
+    A wall-clock ratio over tens-of-microseconds reads measures the scheduler
+    whenever the host is busy; a counted read set measures the store. The
+    counter keys are ``op`` and ``op:<document>``, so an assertion can state
+    both "how much work" and "exactly which files".
+    """
+
+    def __init__(self, root: Path | str) -> None:
+        super().__init__(root)
+        self.ops: Counter[str] = Counter()
+
+    def read(self, key: str) -> Stored | None:
+        self.ops["read"] += 1
+        self.ops[f"read:{key}"] += 1
+        return super().read(key)
+
+    def write(
+        self,
+        key: str,
+        payload: dict[str, Any],
+        *,
+        expect: Revision | None = None,
+    ) -> bool:
+        self.ops["write"] += 1
+        self.ops[f"write:{key}"] += 1
+        return super().write(key, payload, expect=expect)
+
+    @contextmanager
+    def lock(self, *keys: str) -> Iterator[None]:
+        self.ops["lock"] += 1
+        self.ops[f"lock:{','.join(keys)}"] += 1
+        with super().lock(*keys):
+            yield
 
 
 class TestStateRoundTrips:
@@ -140,8 +178,8 @@ class TestTheCostDoesNotGrowWithTheProject:
     """AC-1, stated as a measurement rather than a feeling."""
 
     @staticmethod
-    def _store_with(n: int) -> ScopeStore:
-        store = ScopeStore(JsonFileSubstrate(Path(tempfile.mkdtemp())))
+    def _store_with(n: int, substrate: JsonFileSubstrate | None = None) -> ScopeStore:
+        store = ScopeStore(substrate or JsonFileSubstrate(Path(tempfile.mkdtemp())))
         if n:
             with store.batch():
                 for i in range(n):
@@ -183,22 +221,38 @@ class TestTheCostDoesNotGrowWithTheProject:
 
     @pytest.mark.slow
     def test_reads_are_at_parity(self) -> None:
-        big, small = self._store_with(2000), self._store_with(0)
+        """A read of one scope's state drives exactly one substrate read —
+        its own.
+
+        Replaces the wall-clock ratio this test used to assert (`big_t <
+        small_t * 2` over min-of-7 `perf_counter` samples): those reads land
+        in tens of microseconds on an idle host, so past a certain machine
+        load the assertion measured the scheduler, not the store — observed
+        2026-09-27 as a 2.1x failure while two heavy runs shared the host,
+        green in isolation immediately after, on byte-identical test and
+        store blobs. The property the test exists for is structural, so it
+        is asserted structurally: history grows the *record* file, and a
+        read that ever touches it, any neighbour's state file, the lock, or
+        a write path fails here deterministically — however busy or idle
+        the machine.
+        """
+        big_sub = _CountingSubstrate(Path(tempfile.mkdtemp()))
+        small_sub = _CountingSubstrate(Path(tempfile.mkdtemp()))
+        big, small = self._store_with(2000, big_sub), self._store_with(0, small_sub)
         for store in (big, small):
             store.set_state("mine", "k", 1)
 
-        def timed(store: ScopeStore) -> float:
-            start = time.perf_counter()
-            store.get_state("mine", "k")
-            return time.perf_counter() - start
+        big_sub.ops.clear()
+        small_sub.ops.clear()
+        assert big.get_state("mine", "k") == 1
+        assert small.get_state("mine", "k") == 1
 
-        big_t = min(timed(big) for _ in range(7))
-        small_t = min(timed(small) for _ in range(7))
-
-        assert big_t < small_t * 2, (
-            f"a read took {big_t * 1000:.2f}ms versus {small_t * 1000:.2f}ms "
-            f"({big_t / small_t:.1f}x)"
+        expected = Counter({"read": 1, "read:scope-state/mine": 1})
+        assert big_sub.ops == expected, (
+            f"a read against a project with 2,000 past runs drove "
+            f"{dict(big_sub.ops)} — history is back inside the read path"
         )
+        assert small_sub.ops == expected
 
     def test_the_noise_store_really_is_full(self) -> None:
         """Guards the two measurements above against measuring nothing.

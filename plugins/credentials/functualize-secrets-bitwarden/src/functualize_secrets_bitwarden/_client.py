@@ -50,7 +50,7 @@ import threading
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from functualize_bitwarden._reference import BwsReference
+    from functualize_secrets_bitwarden._reference import BwsReference
 
 __all__ = [
     "BitwardenAuthError",

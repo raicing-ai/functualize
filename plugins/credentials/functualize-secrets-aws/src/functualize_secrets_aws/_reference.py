@@ -35,7 +35,7 @@ roles or profiles, so the override is per *value*, not per provider.
     An IAM role ARN to assume. Composes with ``profile``: the profile (or the
     ambient chain) supplies the *source* identity, and the role is assumed from
     it. The resulting temporary credentials live in memory for the life of the
-    process and are **never** persisted — see :mod:`functualize_aws._session`.
+    process and are **never** persisted — see :mod:`functualize_secrets_aws._session`.
 
 ``region``
     The region the client is built for.

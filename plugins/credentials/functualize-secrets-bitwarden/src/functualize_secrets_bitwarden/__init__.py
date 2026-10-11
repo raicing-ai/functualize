@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from functualize_bitwarden._client import (
+from functualize_secrets_bitwarden._client import (
     ACCESS_TOKEN_VAR,
     ORGANIZATION_VAR,
     BitwardenAuthError,
@@ -41,7 +41,7 @@ from functualize_bitwarden._client import (
     organization_for,
     unwrap,
 )
-from functualize_bitwarden._reference import (
+from functualize_secrets_bitwarden._reference import (
     HONOURED_KEYS,
     BwsReference,
     InvalidReferenceError,

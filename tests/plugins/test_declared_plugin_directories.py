@@ -21,7 +21,8 @@ In one boot from ``hello_app/``, the app finds ``root/.functualize/`` as its
 project anchor and writes runtime state there — while the plugin loader looks
 only at ``hello_app/.functualize/plugins`` and says nothing about it.
 
-Gates AC-1, AC-2 and AC-3 of `.spec/features/declared-plugin-directories/spec.md`.
+Gates the three acceptance criteria the declared-plugin-directories package
+landed under (2026-09-19; the decisions survive in `.spec/STATUS.md`).
 """
 
 from __future__ import annotations

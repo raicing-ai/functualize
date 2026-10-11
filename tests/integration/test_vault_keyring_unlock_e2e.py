@@ -154,11 +154,21 @@ def _provision(project: Path, tmp_path: Path, *paths: str) -> None:
     """Store direct entries through a real `func`, with the env key, so the
     store and the later runs agree about which vault they mean."""
     for path in paths:
+        target, field = path.rsplit(".", 1)
         stored = _run(
             project,
             tmp_path,
-            ["builtin", "vault", "put", path, "--stdin"],
-            stdin=f"{_SECRET}-{path.rsplit('.', 1)[-1]}",
+            [
+                "builtin",
+                "vault",
+                "put",
+                "--job",
+                target,
+                "--field",
+                field,
+                "--stdin",
+            ],
+            stdin=f"{_SECRET}-{field}",
             FUNCTUALIZE_VAULT_KEY=_KEY_HEX,
             FAKE_KEYRING_MODE="raises",
         )

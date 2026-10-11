@@ -9,7 +9,7 @@ which file started reading the grammar.
 
 The scan is the T12 gate from ``tasks.md``, implemented in Python (not shell)
 so the test runs anywhere. It is a **mention** scan, like the ``rg -l`` gate it
-replaces: any file under ``src/functualize`` naming one of the nine public
+replaces: any file under ``src/functualize`` naming one of the eight public
 grammar spellings counts. Two current hits are prose rather than imports —
 ``_cli/completions/data.py`` explains the builder's rule in a docstring, and
 ``_cli/tui/sync.py`` mentions ``flag_aliases`` while calling
@@ -62,11 +62,12 @@ _SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "functualize"
 # groups in the T12 gate. (The tasks.md shell line passes the first group as a
 # positional pattern next to ``-e`` flags, which rg treats as a file path and
 # drops; Python has no such hazard, and the gate's intent is the union.)
+# ``GLOBAL_OPTIONS_OPTIONAL_VALUE`` left the pattern with the table: the name
+# is gone from the grammar, so it can no longer name a consumer.
 _PATTERN = re.compile(
     "|".join(
         [
             "GLOBAL_OPTIONS_ALWAYS_VALUE",
-            "GLOBAL_OPTIONS_OPTIONAL_VALUE",
             "OPTIONAL_VALUE_VALID_SET",
             "GLOBAL_OPTIONS_WITH_VALUE",
             "GLOBAL_BOOL_FLAGS",

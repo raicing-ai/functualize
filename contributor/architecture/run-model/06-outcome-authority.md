@@ -133,15 +133,18 @@ flag-rendering sites, not the four the plan named"*). Counting re-derivation sit
 mechanism. The count is pinned by no test today, so an eighth can appear silently.
 
 `_types/flag_grammar.py` takes the whole vocabulary, not one rule of it: which flags take
-values, which take optional values, which are bool (`dispatch.py:81-121`), the negative
-spelling, and the group-flag alias matchers (`dispatch.py:703-767`).
+values, which are bool (`dispatch.py:81-121`), the negative spelling, and the group-flag
+alias matchers (`dispatch.py:703-767`). Every value flag is value-required — one arity per
+flag, no lookahead.
 
 **Two parsers remain, and that is correct.** The pre-boot tokenizer and click are different
 *syntaxes*; pre-boot exists so `func` can route without importing job modules, and that is a
 3 ms budget this design must not touch ([12](12-performance.md)). They share a vocabulary,
-not a parser. `--perf-report`'s optional-value lookahead stays deliberately `func`-only, and
-the grammar module says so in a comment, so the exclusion is a decision rather than an
-omission.
+not a parser. `--perf-report` stays deliberately `func`-only — it is not declared on an
+app's own tree at all — and the grammar module says so in a comment, so the exclusion is a
+decision rather than an omission. Where it is declared, on both surfaces, it is
+value-required: the lookahead it used to have was withdrawn (one arity per pre-boot
+flag).
 
 ## F. Why this feature is independent of F1
 

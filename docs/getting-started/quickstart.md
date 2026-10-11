@@ -239,8 +239,9 @@ app = FunctualizeApp(
 | `remote_first()` | CLI → Vault → Env → Files → Defaults | AWS Secrets Manager, Bitwarden |
 
 !!! info "`remote_first()` needs a provider plugin and a vault key"
-    Config values declared as `aws-sm://prod/db-password` resolve from an
-    encrypted local vault that `func builtin vault sync` fills — reads never
+    Scoped `[[vault_secret]]` declarations can name provider sources such as
+    `aws-sm://prod/db-password`. `func builtin vault sync` fills the encrypted
+    local vault from those sources; job runs never
     touch the network. Selecting the preset with no remote provider registered
     raises at construction rather than quietly resolving from local files. See
     [Remote Configuration](../guides/configuration.md#remote-configuration).

@@ -518,7 +518,7 @@ class JobExecutionEngine:
 
         return new_entry
 
-    def _make_config_view(self, section_prefix: str) -> Any:
+    def _make_config_view(self, section_prefix: str, *, scope: str = "job") -> Any:
         """Create a config view using the injected factory.
 
         Uses the config_view_factory injected at construction time.
@@ -530,12 +530,15 @@ class JobExecutionEngine:
 
         Args:
             section_prefix: The default section prefix for config lookups.
+            scope: Whether that prefix names a group or a job — the vault
+                encodes it into the storage identity and the environment
+                source picks its spelling from it.
 
         Returns:
             A ConfigView-compatible instance.
         """
         if self._config_view_factory is not None:
-            return self._config_view_factory(section_prefix=section_prefix)
+            return self._config_view_factory(section_prefix=section_prefix, scope=scope)
         # Minimal stub for test scenarios without factory injection
         return _MinimalConfigView(section_prefix)
 
@@ -2380,7 +2383,7 @@ class JobExecutionEngine:
             # The *config view* keeps the dotted path, so the file section
             # stays `[deploy.web]`.
             env_scope = group_path.replace(".", "_")
-            config_view = self._make_config_view(group_path)
+            config_view = self._make_config_view(group_path, scope="group")
 
             def _build(
                 values: dict[str, Any],
@@ -2394,7 +2397,6 @@ class JobExecutionEngine:
                         job_name=_scope,
                         config_view=_view,
                         cli_values=values,
-                        group_scope=_scope,
                     )
                 return _cls(**values)
 

@@ -1,6 +1,8 @@
 # ADR-026: Persistence Ports Need No New Layer — `_types`, `_engine`, `_app`
 
-**Status**: accepted
+**Status**: accepted — the port's status-field surface is **extended by
+[ADR-031](031-persistence-port-status-is-typed.md)**, which types it with the
+lifecycle status types
 **Date**: 2026-09-23
 **Deciders**: maintainer, during `runtime-persistence-ports` (FUN-17)
 
@@ -166,3 +168,13 @@ later feature adds to this module, or if any executable logic appears in it. A
 line count on its own is not the trigger — *growth from a new feature* is, since
 the module is complete for the feature that created it. A split, if it ever
 happens, runs along the vocabulary/ports boundary and is its own decision.
+
+> **Amended by [ADR-031](031-persistence-port-status-is-typed.md) (2026-10-05).**
+> The re-examination the paragraph above asks for has been done once:
+> `_types/persistence.py` measured **777** lines, the growth being the
+> gate-lifecycle wave's `SuspendAtGate.scope_status` field and its
+> documentation. The finding stands where it stood — still one file, still
+> zero logic, still read as a unit, and the port is where the typed status
+> surface belongs, so the growth neither reopens the placement nor triggers a
+> split. What that ADR adds to the port is types on the fields this ADR
+> already placed; the vocabulary itself lands in `_types/lifecycle.py`.

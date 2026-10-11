@@ -53,7 +53,7 @@ def state(tmp_path: Any) -> Any:
     `set` on an empty store. That is an **empty-store** figure, worth naming as
     such — it was once used to defend the design itself, and on a real 1 MB
     `scopes.json` the same `set` costs 58 ms
-    (`.spec/features/scope-record-lifecycle/`).
+    (`contributor/reference/state-store.md`).
     """
     from functualize._engine.capabilities.state import ScopeBackedStateStore, State
     from functualize._primitives.scope_store import ScopeStore

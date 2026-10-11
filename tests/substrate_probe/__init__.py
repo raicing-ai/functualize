@@ -4,8 +4,8 @@ Each module here measures **one backend directly**, through that backend's own
 client, and reports what a future `StoreProfile` would have to say about it.
 The probe deliberately does not measure through functualize: there is no
 `StoreProfile` in this codebase and no remote substrate to measure through, so
-a probe routed through our adapter would measure the adapter
-(`.spec/features/substrate-capability-probe/plan.md` §2, §4).
+a probe routed through our adapter would measure the adapter — the probe
+package's own plan, restated in `contributor/reference/substrate-capability-matrix.md`.
 
 The boundary rule this directory exists to keep, checkable in one command::
 

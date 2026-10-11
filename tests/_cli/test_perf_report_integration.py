@@ -13,11 +13,9 @@ import json
 
 from tests.conftest import surfaces
 
-# `func`-only: `--perf-report` is a pre-command global with **optional-value
-# lookahead** — bare `--perf-report` means `text`, and `--perf-report json`
-# consumes the value only when it is one. That lookahead lives in
-# `_cli/dispatch.py::_GLOBAL_OPTIONS_OPTIONAL_VALUE`; click has no equivalent,
-# so on an app the same flag answers `requires an argument`.
+# `func`-only: `--perf-report` is a pre-command global parsed by `func`'s
+# pre-boot layer; click has no equivalent on an app's own tree, so there is
+# no second surface for these to run on.
 #
 # One more face of the dispatch-layer divergence recorded in `.spec/STATE.md`.
 pytestmark = surfaces("func")
@@ -53,36 +51,30 @@ class TestPerfReportJsonWithJob:
         assert "marks" in perf_data
 
 
-class TestPerfReportDefaultWithJob:
-    """func --perf-report <job> (no explicit format) uses default "text"."""
+class TestPerfReportRequiresItsValue:
+    """A bare --perf-report is a missing value, in both spellings."""
 
-    def test_perf_report_default_with_job(self, cli_run, project_tree) -> None:
+    def test_perf_report_followed_by_job_name_is_a_usage_error(
+        self, cli_run, project_tree
+    ) -> None:
         root = project_tree(jobs={"hello.py": "def hello():\n    print('world')\n"})
-        # --perf-report followed by job name (not a valid format value)
-        # should use default format "text" and route "hello" as the job
+        # The job name is the flag's value — an invalid one — so the run
+        # never starts and the sentence names the accepted formats.
         result = cli_run(["--perf-report", "hello"], cwd=root)
-        assert result.exit_code == 0
-        # Job should execute
-        assert "world" in result.stdout
-        # Perf report in text format on stderr
-        assert "Total:" in result.stderr
-        assert "ms" in result.stderr
+        assert result.exit_code == 2
+        assert "--perf-report must be one of {json, text}, got 'hello'." in (
+            result.stderr
+        )
+        assert "world" not in result.stdout
 
-
-class TestPerfReportBareMode:
-    """func --perf-report in bare mode (non-TTY) produces perf report on stderr."""
-
-    def test_perf_report_bare_mode(self, cli_run, project_tree) -> None:
+    def test_perf_report_alone_is_a_missing_value(self, cli_run, project_tree) -> None:
         root = project_tree(jobs={"hello.py": "def hello():\n    print('world')\n"})
-        # --perf-report with no job name → BARE mode (cli_run is non-TTY)
-        # Should list jobs AND print perf report on stderr
+        # Nothing follows the flag: exit 2 with the missing-value sentence,
+        # not a bare-mode listing with a default-format report.
         result = cli_run(["--perf-report"], cwd=root)
-        assert result.exit_code == 0
-        # BARE mode lists discovered jobs on stdout
-        assert "hello" in result.stdout
-        # Perf report should appear on stderr
-        assert "Total:" in result.stderr
-        assert "ms" in result.stderr
+        assert result.exit_code == 2
+        assert "--perf-report requires a value: one of {json, text}." in (result.stderr)
+        assert "hello" not in result.stdout
 
 
 class TestPerfReportJsonStructure:

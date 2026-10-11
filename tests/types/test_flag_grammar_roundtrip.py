@@ -34,7 +34,6 @@ from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize._types.flag_grammar import (
     GLOBAL_BOOL_FLAGS,
     GLOBAL_OPTIONS_ALWAYS_VALUE,
-    GLOBAL_OPTIONS_OPTIONAL_VALUE,
     GLOBAL_OPTIONS_WITH_VALUE,
     OPTIONAL_VALUE_VALID_SET,
     flag_aliases,
@@ -53,7 +52,7 @@ def _sample_value(flag: str) -> str:
     """A value ``_extract_global_options`` will not reject for ``flag``.
 
     Most value flags accept any token; ``--log-level`` validates at the end of
-    extraction, ``--discovery-depth`` parses an int, and the two optional-value
+    extraction, ``--discovery-depth`` parses an int, and the two selection-table
     flags validate against their own grammar valid-set.
     """
     if flag == "--log-level":
@@ -88,15 +87,13 @@ def _field(
 # ─── The tables are internally consistent ───────────────────────────────────
 
 
-def test_always_and_optional_value_tables_partition_the_union() -> None:
-    # The dispatch parser branches on the split (unconditional next-token
-    # consumption vs. lookahead); an entry in both would be ambiguous, and an
-    # entry in neither would be invisible to --flag=value detection.
-    assert GLOBAL_OPTIONS_ALWAYS_VALUE.isdisjoint(GLOBAL_OPTIONS_OPTIONAL_VALUE)
-    assert (
-        GLOBAL_OPTIONS_WITH_VALUE
-        == GLOBAL_OPTIONS_ALWAYS_VALUE | GLOBAL_OPTIONS_OPTIONAL_VALUE
-    )
+def test_every_value_flag_is_always_value_and_the_tables_agree() -> None:
+    # One arity: a flag is boolean or value-required. GLOBAL_OPTIONS_WITH_VALUE
+    # is the global-flag detector's table; a flag it knows that ALWAYS_VALUE
+    # does not would be one whose value the pre-boot parser never consumes,
+    # and the reverse would be a flag invisible to --flag=value detection and
+    # to the "move it before the group" advice.
+    assert GLOBAL_OPTIONS_WITH_VALUE == GLOBAL_OPTIONS_ALWAYS_VALUE
 
 
 def test_bool_flags_never_take_a_value() -> None:
@@ -105,16 +102,19 @@ def test_bool_flags_never_take_a_value() -> None:
     assert GLOBAL_BOOL_FLAGS.isdisjoint(GLOBAL_OPTIONS_WITH_VALUE)
 
 
-def test_optional_valid_set_covers_exactly_the_optional_table() -> None:
-    # detect_mode and _extract_global_options both index
-    # OPTIONAL_VALUE_VALID_SET[arg] for a member of
-    # GLOBAL_OPTIONS_OPTIONAL_VALUE — a member without a row is a KeyError on
-    # the pre-boot path, and a row without a member is dead vocabulary.
-    assert set(OPTIONAL_VALUE_VALID_SET) == GLOBAL_OPTIONS_OPTIONAL_VALUE
+def test_valid_set_covers_value_required_selection_flags() -> None:
+    # OPTIONAL_VALUE_VALID_SET carries the accepted explicit values for the
+    # value-required flags that have a selection table. A key outside
+    # GLOBAL_OPTIONS_ALWAYS_VALUE is dead vocabulary — no parser branch reads
+    # it — and the two flags whose arity moved in this change must both carry
+    # their table so the invalid-value sentence can name the values.
+    assert set(OPTIONAL_VALUE_VALID_SET) <= GLOBAL_OPTIONS_ALWAYS_VALUE
+    assert {"--emit-format", "--perf-report"} <= set(OPTIONAL_VALUE_VALID_SET)
     for flag, (valid, default) in OPTIONAL_VALUE_VALID_SET.items():
         assert valid, f"{flag} has an empty valid set"
-        # The bare-flag fallback assigns the default, which is then fed back
-        # through validation — so the default must itself be a legal value.
+        # The default names what an *absent* flag means; it is no longer fed
+        # back through validation (a bare flag is a missing value), but it
+        # stays a legal explicit value so the default is typeable by name.
         assert default in valid, f"{flag}: default {default!r} not in its valid set"
 
 
@@ -134,9 +134,9 @@ def test_detect_mode_consumes_every_value_flag_with_its_value(
     flag: str,
 ) -> None:
     # `func <flag> <value> <job>` must route to the job: the flag and its value
-    # are skipped, the job name is the first positional. For optional-value
-    # flags the sample comes from the grammar's own valid set so the lookahead
-    # consumes it.
+    # are skipped, the job name is the first positional. For selection-table
+    # flags the sample comes from the grammar's own valid set so it survives
+    # validation.
     argv = ["func", flag, _sample_value(flag), "job"]
     mode, effective = detect_mode(argv, job_names={"job"})
     assert mode is Mode.JOB, f"{argv}: expected JOB, got {mode}"
@@ -192,24 +192,15 @@ def test_extract_accepts_equals_spelling_for_every_value_flag(flag: str) -> None
     assert any(v is not None for v in assigned.values()), f"{flag}=value: dropped"
 
 
-@pytest.mark.parametrize("flag", sorted(GLOBAL_OPTIONS_OPTIONAL_VALUE))
-def test_optional_lookahead_follows_the_grammar_valid_set(flag: str) -> None:
-    # The optional-value lookahead is deliberately dispatch-local behaviour,
-    # but the *valid set* it consults must be the grammar's: a token inside
-    # the set is consumed as the value, a token outside is left as the first
-    # positional. Membership is read from OPTIONAL_VALUE_VALID_SET at runtime,
-    # so the two cannot drift.
-    valid, default = OPTIONAL_VALUE_VALID_SET[flag]
-    value = next(iter(valid))
-    opts, _cli = _extract_global_options(["func", flag, value, "job"])
-    assert opts.first_positional_index == 2, f"{flag} {value}: not consumed"
-    outside = "job"  # a job name is by construction not a valid value
-    assert outside not in valid
-    opts, _cli = _extract_global_options(["func", flag, outside])
-    assert opts.first_positional_index == 1, f"{flag} {outside}: consumed wrongly"
-    assert (
-        getattr(opts, "perf_report" if flag == "--perf-report" else "output") == default
-    )
+@pytest.mark.parametrize("flag", sorted(GLOBAL_OPTIONS_ALWAYS_VALUE))
+def test_no_value_flag_is_spellable_as_a_bare_flag(flag: str) -> None:
+    # A value-required flag with nothing after it is a usage error, not a
+    # routing question: extraction exits 2 with the missing-value sentence
+    # and assigns nothing. There is no spelling in which the flag stands
+    # alone — the withdrawn lookahead used to leave it bare and default it.
+    with pytest.raises(SystemExit) as exc_info:
+        _extract_global_options(["func", flag])
+    assert exc_info.value.code == 2, f"{flag}: bare flag did not exit 2"
 
 
 # ─── The click builder's flag pair agrees with the negative rule ────────────

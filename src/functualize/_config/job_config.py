@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import enum
 import types
-from typing import TYPE_CHECKING, Any, TypeVar, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, Union, get_args, get_origin
 
 from functualize._config.errors import MissingKeyError
 
@@ -51,16 +51,30 @@ class JobConfigView:
         self,
         resolution_chain: ResolutionChain,
         default_section_prefix: str = "general",
+        *,
+        scope: Literal["group", "job"] = "job",
     ) -> None:
         """Initialize with shared resolution chain and optional prefix.
 
         Args:
             resolution_chain: The app's ResolutionChain (shared, read-only).
             default_section_prefix: Initial section prefix for key lookups.
+            scope: Whether that prefix names a group or a job. One view, one
+                scope: the group path and the job name play the same role in
+                a lookup, and the scope is what tells the vault which identity
+                to encode and the environment which spelling to read.
         """
         self._chain = resolution_chain
         self._default_section_prefix = default_section_prefix
+        self._scope = scope
         self._overrides: dict[str, Any] = {}
+
+    def reject_inline_provider(self, key: str) -> None:
+        """Check every parsed file before a stronger source can hide old syntax."""
+        for source in self._chain.sources:
+            reject = getattr(source, "reject_inline_provider", None)
+            if reject is not None:
+                reject(self._default_section_prefix, key)
 
     def get(
         self,
@@ -96,7 +110,7 @@ class JobConfigView:
 
         # Step 2-3: Delegate to ResolutionChain
         try:
-            resolved = self._chain.resolve(key, effective_section)
+            resolved = self._chain.resolve(key, effective_section, scope=self._scope)
             return resolved.value
         except MissingKeyError:
             return default
@@ -128,7 +142,7 @@ class JobConfigView:
             return ("override", "set() at runtime", self._overrides[combined_key])
 
         try:
-            resolved = self._chain.resolve(key, effective_section)
+            resolved = self._chain.resolve(key, effective_section, scope=self._scope)
         except MissingKeyError:
             return None
         except Exception:
@@ -501,36 +515,30 @@ def resolve_job_config(
     job_name: str,
     config_view: JobConfigView,
     cli_values: dict[str, Any],
-    *,
-    group_scope: str | None = None,
 ) -> Any:
     """Resolve a Pydantic job config model from CLI, env, config, and defaults.
 
     Resolution precedence (highest to lowest):
     1. CLI values (non-None values from cli_values dict)
-    2. Environment variables — ``JOB_FIELD``, the one supported spelling
+    2. Environment variables — ``JOB_FIELD`` for a job, ``SCOPE__FIELD`` for a
+       group option, the spelling ``EnvSource`` builds from the view's scope
     3. Config file values (via config_view)
     4. Model field defaults
 
     2-4 are all resolved by the chain behind ``config_view``; this function only
-    layers CLI on top. There is deliberately no second env lookup here for a
-    job.
-
-    ``group_scope`` is the one exception, and it is a different question. A
-    ``GroupOptions`` model is documented to read ``SCOPE__FIELD``
-    (``DEPLOY__ENV``, ``DEPLOY_WEB__ENV``) — a spelling the chain cannot build,
-    because it derives one name from a section. Groups keep the double
-    underscore on purpose: a nested path is flattened with single underscores,
-    so ``DEPLOY_WEB_ENV`` is ambiguous with group ``deploy`` and a field named
-    ``web_env``.
+    layers CLI on top. There is deliberately no env lookup here at all — not
+    for a job, and not for a group option either. The group's ``SCOPE__FIELD``
+    used to be read directly from ``os.environ`` before the chain, which put
+    the environment *above* the vault for groups and made the two scopes obey
+    two different ladders. The view's scope is what tells ``EnvSource`` which
+    spelling to build now, so one ladder serves both.
 
     Args:
         config_class: Pydantic model class to instantiate.
         job_name: The job name (used as config section prefix).
-        config_view: JobConfigView providing env/file resolution.
+        config_view: JobConfigView providing env/file resolution. A view built
+            with ``scope="group"`` resolves a ``GroupOptions`` model.
         cli_values: Dict of CLI-provided values (None means not provided).
-        group_scope: The flattened group path when resolving a ``GroupOptions``
-            model, else ``None``.
 
     Returns:
         An instance of config_class populated with resolved values.
@@ -538,11 +546,9 @@ def resolve_job_config(
     Raises:
         ValidationError: If resolved values don't satisfy model constraints.
     """
-    import os
-
     from pydantic import BaseModel
 
-    from functualize._config.resolved_field import group_env_name_for
+    from functualize._types.redaction import is_secret_field
 
     if not (isinstance(config_class, type) and issubclass(config_class, BaseModel)):
         raise TypeError(f"Expected a Pydantic BaseModel subclass, got {config_class}")
@@ -551,6 +557,8 @@ def resolve_job_config(
 
     for field_name, field_info in config_class.model_fields.items():
         target_type = getattr(field_info, "annotation", None)
+        if is_secret_field(field_info):
+            config_view.reject_inline_provider(field_name)
 
         # 1. CLI value (if provided and not None)
         cli_val = cli_values.get(field_name)
@@ -558,10 +566,10 @@ def resolve_job_config(
             resolved[field_name] = _coerce_for_field(cli_val, target_type)
             continue
 
-        # 2-4. Environment (JOB_FIELD), config file, then the model default —
-        # all through the resolution chain, which is the only thing that knows
-        # the ranking. Two extra env forms used to be read directly from
-        # os.environ here, ahead of the chain:
+        # 2-4. Environment, config file, then the model default — all through
+        # the resolution chain, which is the only thing that knows the
+        # ranking. Extra env forms used to be read directly from os.environ
+        # here, ahead of the chain:
         #
         #   JOB__FIELD  — undocumented, and named only by an error message
         #   FIELD       — undocumented, unprefixed, and therefore captured by
@@ -569,20 +577,12 @@ def resolve_job_config(
         #                 called `user` resolved to $USER and its declared
         #                 default was unreachable; on a field called `token` or
         #                 `password` that is credential substitution.
+        #   SCOPE__FIELD (groups) — documented, but reading it here put the
+        #                 environment above the vault for group options.
         #
-        # Both outranked the documented JOB_FIELD, so the convention the guide
-        # teaches was the last of three to be consulted. Removed outright rather
-        # than deprecated: pre-1.0, and `.spec/CONSTITUTION.md` forbids compat
+        # All three moved into the chain. Removed outright rather than
+        # deprecated: pre-1.0, and `.spec/CONSTITUTION.md` forbids compat
         # shims. See ADR-008.
-        #
-        # A *group option* is the one case that still reads os.environ here: its
-        # documented name is SCOPE__FIELD, which the chain has no way to build.
-        if group_scope is not None:
-            group_env = os.environ.get(group_env_name_for(group_scope, field_name))
-            if group_env is not None:
-                resolved[field_name] = _coerce_for_field(group_env, target_type)
-                continue
-
         config_val = config_view.get(field_name)
         if config_val is not None:
             resolved[field_name] = _coerce_for_field(config_val, target_type)

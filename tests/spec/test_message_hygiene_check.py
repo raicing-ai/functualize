@@ -138,6 +138,37 @@ class TestRefused:
         body = "See https://github.com/raicing-ai/functualize/blob/HEAD/CHANGELOG.md"
         assert _refused(check, body=body) == []
 
+    def test_a_lowercase_url_path_segment_is_not_a_tracker_key(
+        self, check: Any
+    ) -> None:
+        """The URL arm stays case-sensitive: its segments are words, not keys.
+
+        `_URL_SEGMENT` shares `_KEY`'s uppercase-class shape, and with it the
+        exposure the lowercase-key test above pins for the identifier arm: an
+        `re.IGNORECASE` added there — plausibly while extending the identifier
+        arm, which is exactly the mistake that test exists to catch — would
+        make every 2-10 letter path segment a tracker-key candidate, so an
+        ordinary repository link like `/blob/master/docs/a.md` would be read
+        as a key and refused. Case is not part of a key, but a path segment
+        is a word in a link, and the arm's precision depends on that line
+        holding.
+        """
+        body = "See https://github.com/raicing-ai/functualize/blob/master/docs/a.md"
+        assert _refused(check, body=body) == []
+
+    def test_an_unpermitted_uppercase_url_segment_is_still_refused(
+        self, check: Any
+    ) -> None:
+        """The other half of the same boundary, so the pin cuts both ways.
+
+        Case-sensitivity is what makes the arm precise; if the case test
+        above were ever "fixed" by permitting the segment instead of keeping
+        the arm case-sensitive, this is the direction that must keep biting.
+        """
+        assert "QQQ" not in check.PERMITTED_URL_SEGMENTS
+        body = "Board: https://tracker.example.invalid/projects/QQQ/boards/2"
+        assert _refused(check, body=body)
+
     @pytest.mark.parametrize(
         "internal_id",
         [FAKE_RUN_ID, FAKE_FULL_ID, FAKE_RUN_ID.upper(), FAKE_FULL_ID.upper()],

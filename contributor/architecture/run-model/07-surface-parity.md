@@ -87,7 +87,7 @@ Parity is not uniformity. Three things remain per-door and should:
 |---|---|
 | **Syntax** | `--emit-format json` on a CLI, a JSON field over HTTP, a tool parameter over MCP. The vocabulary is shared ([06 §E](06-outcome-authority.md)); the spelling is not |
 | **Family choice** | a panel is not a process is not a wire. One greppable word ([06 §D](06-outcome-authority.md)) |
-| **Pre-boot-only flags** | aliases, `--exclude`, and `--perf-report`'s optional-value lookahead are *about reaching the program*, not about the run. They stay `func`-only, and `flag_grammar` says so |
+| **Pre-boot-only flags** | aliases, `--exclude`, and `--perf-report` are *about reaching the program*, not about the run. They stay `func`-only, and `flag_grammar` says so |
 
 The test for whether something belongs in the request: **does a job author's declaration
 depend on it?** `--prompt-gates` changes how a declared `Gate` behaves — request. `--exclude`

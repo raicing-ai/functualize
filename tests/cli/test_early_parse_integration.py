@@ -3,8 +3,9 @@
 Validates Requirements 1.7, 2.9, 2.10, 2.11 from the perf-report-flag-tui-fix spec.
 
 These tests exercise the full CLI stack end-to-end using the `cli_run` fixture,
-verifying that early-parse global flags interact correctly with positional routing
-after the Bug A fix (optional-value flag lookahead).
+verifying that early-parse global flags interact correctly with positional
+routing: a value-required flag consumes the token after it, and only what is
+left is a command candidate.
 """
 
 from __future__ import annotations
@@ -26,55 +27,60 @@ pytestmark = surfaces("func")
 class TestEarlyParseFlagIntegration:
     """Integration tests for early-parse flag combinations with job/builtin routing."""
 
-    def test_perf_report_followed_by_job_name_routes_to_job(
+    def test_perf_report_followed_by_job_name_is_a_usage_error(
         self, cli_run, project_tree
     ) -> None:
-        """Bug A fix: `func --perf-report forecast` routes to JOB, not BARE.
+        """`func --perf-report forecast`: the job name is the flag's value.
 
-        --perf-report without an explicit format value should default to "text"
-        and leave "forecast" as the positional argument for mode detection.
+        The flag is value-required, so "forecast" is consumed as its value —
+        an invalid one — and no command lookup happens: exit 2 naming the
+        accepted formats, never a run and never `Unknown command`.
 
-        Validates: Requirements 1.7, 2.9
+        Validates: Requirements 1.7, 2.9 (one arity per pre-boot flag)
         """
         root = project_tree(
             jobs={"forecast.py": "def forecast():\n    print('rain-output')\n"}
         )
         result = cli_run(["--perf-report", "forecast"], cwd=root)
-        assert result.exit_code == 0, (
-            f"Expected exit 0 (job ran), got {result.exit_code}.\n"
+        assert result.exit_code == 2, (
+            f"Expected exit 2 (usage error), got {result.exit_code}.\n"
             f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
         )
-        assert "rain-output" in result.stdout
+        assert "--perf-report must be one of" in result.stderr
+        assert "'forecast'" in result.stderr
+        assert "rain-output" not in result.stdout
 
-    def test_output_followed_by_job_name_routes_to_job(
+    def test_emit_format_followed_by_job_name_is_a_usage_error(
         self, cli_run, project_tree
     ) -> None:
-        """Bug A fix: `func --emit-format forecast` routes to JOB, not BARE.
+        """`func --emit-format forecast`: the job name is the flag's value.
 
-        Since "forecast" is not in {"json", "text", "none"}, --emit-format defaults
-        to "none" and "forecast" remains a positional.
+        The same rule as its --perf-report twin: the token after a
+        value-required flag is its value, invalid here, and the run never
+        starts.
 
-        Validates: Requirements 1.7, 2.9
+        Validates: Requirements 1.7, 2.9 (one arity per pre-boot flag)
         """
         root = project_tree(
             jobs={"forecast.py": "def forecast():\n    print('rain-output')\n"}
         )
         result = cli_run(["--emit-format", "forecast"], cwd=root)
-        assert result.exit_code == 0, (
-            f"Expected exit 0 (job ran), got {result.exit_code}.\n"
+        assert result.exit_code == 2, (
+            f"Expected exit 2 (usage error), got {result.exit_code}.\n"
             f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
         )
-        assert "rain-output" in result.stdout
+        assert "--emit-format must be one of" in result.stderr
+        assert "'forecast'" in result.stderr
+        assert "rain-output" not in result.stdout
 
     def test_multiple_flags_with_job(self, cli_run, project_tree) -> None:
-        """Multiple early-parse flags combined still route positional to JOB.
+        """A known global flag after a value-required flag is a missing value.
 
         `func --log-level DEBUG --perf-report --no-dotenv forecast`
         - --log-level consumes "DEBUG"
-        - --perf-report with no valid format next (--no-dotenv starts with -)
-          defaults to "text"
-        - --no-dotenv is a boolean flag
-        - "forecast" is the first positional → Mode.JOB
+        - --perf-report's value slot holds --no-dotenv, a pre-boot-owned
+          token: the value is missing, and --no-dotenv is neither swallowed
+          nor applied — exit 2, not a run of "forecast".
 
         Validates: Requirements 2.10
         """
@@ -85,11 +91,12 @@ class TestEarlyParseFlagIntegration:
             ["--log-level", "DEBUG", "--perf-report", "--no-dotenv", "forecast"],
             cwd=root,
         )
-        assert result.exit_code == 0, (
-            f"Expected exit 0 (job ran), got {result.exit_code}.\n"
+        assert result.exit_code == 2, (
+            f"Expected exit 2 (missing value), got {result.exit_code}.\n"
             f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
         )
-        assert "rain-output" in result.stdout
+        assert "--perf-report requires a value: one of {json, text}." in (result.stderr)
+        assert "rain-output" not in result.stdout
 
     def test_flags_with_builtin(self, cli_run) -> None:
         """Early-parse flags combined with builtin command route to BUILTIN.
@@ -124,9 +131,11 @@ class TestEarlyParseFlagIntegration:
         assert "rain-output" in result.stdout
 
     def test_invalid_discovery_depth(self, cli_run, project_tree) -> None:
-        """Invalid --discovery-depth value exits with error code 1.
+        """Invalid --discovery-depth value exits with error code 2.
 
-        `func --discovery-depth abc forecast` → exit 1, error on stderr.
+        `func --discovery-depth abc forecast` → exit 2, error on stderr. A
+        wrong value is a usage error for every value-required flag, so the
+        non-integer depth joins the selection-table flags at exit 2.
 
         Validates: Requirements 1.7, 2.9
         """
@@ -134,8 +143,8 @@ class TestEarlyParseFlagIntegration:
             jobs={"forecast.py": "def forecast():\n    print('rain-output')\n"}
         )
         result = cli_run(["--discovery-depth", "abc", "forecast"], cwd=root)
-        assert result.exit_code == 1, (
-            f"Expected exit 1 (validation error), got {result.exit_code}.\n"
+        assert result.exit_code == 2, (
+            f"Expected exit 2 (validation error), got {result.exit_code}.\n"
             f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
         )
         assert (
@@ -144,9 +153,10 @@ class TestEarlyParseFlagIntegration:
         )
 
     def test_invalid_perf_format(self, cli_run, project_tree) -> None:
-        """Invalid --perf-report format value exits with error code 1.
+        """Invalid --perf-report format value exits with error code 2.
 
-        `func --perf-report=yaml forecast` → exit 1, error on stderr.
+        `func --perf-report=yaml forecast` → exit 2, error on stderr — the
+        same usage family as a missing value.
 
         Validates: Requirements 1.7, 2.9
         """
@@ -154,8 +164,8 @@ class TestEarlyParseFlagIntegration:
             jobs={"forecast.py": "def forecast():\n    print('rain-output')\n"}
         )
         result = cli_run(["--perf-report=yaml", "forecast"], cwd=root)
-        assert result.exit_code == 1, (
-            f"Expected exit 1 (validation error), got {result.exit_code}.\n"
+        assert result.exit_code == 2, (
+            f"Expected exit 2 (validation error), got {result.exit_code}.\n"
             f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
         )
         assert "perf-report" in result.stderr.lower() or "perf" in result.stderr.lower()

@@ -12,7 +12,7 @@ the index forever. So the command would file this project's own former release
 under a heading saying nobody here vetted it, which is false.
 
 Renames land one per pull request (`contracts.md` §1.1), so this recurs: PR-2
-retires `functualize-aws` and PR-3 `functualize-bitwarden`. The suppression is a
+retires `functualize-secrets-aws` and PR-3 `functualize-secrets-bitwarden`. The suppression is a
 list in the manifest rather than three edits to a function.
 """
 

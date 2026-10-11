@@ -7,8 +7,8 @@ precedence rung, the ambient switch, the bound) and a boot-level test of each
 would be slow and would not say which rung broke.
 
 T5 wires this to `boot_standard`; `tests/plugins/test_declared_plugin_directories.py`
-is the end-to-end proof. Gates AC-3b and AC-3c of
-`.spec/features/declared-plugin-directories/spec.md`.
+is the end-to-end proof. Gates the AC-3b and AC-3c behaviour the declared-plugin-directories package
+landed under (2026-09-19; the decisions survive in `.spec/STATUS.md`).
 """
 
 from __future__ import annotations

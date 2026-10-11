@@ -39,6 +39,18 @@ class TestVersionFlagPositionAware:
         assert result.exit_code == 0
         assert "functualize" in result.stdout.lower()
 
+    def test_version_in_value_position_is_a_missing_value(self, cli_run) -> None:
+        """func --emit-format --version → exit 2, no version on stdout (AC6).
+
+        `--version` is a pre-boot-owned token, so it is not consumable as a
+        value: the invocation is a missing-value usage error and the version
+        fast path stays silent rather than answering a broken command line.
+        """
+        result = cli_run(["--emit-format", "--version"])
+        assert result.exit_code == 2
+        assert "functualize" not in result.stdout.lower()
+        assert "requires a value" in result.stderr
+
     def test_version_after_command_is_job_flag(self, cli_run, project_tree) -> None:
         """func deploy --version v1 → runs the job, does NOT print functualize version.
 

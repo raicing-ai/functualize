@@ -242,7 +242,7 @@ class TestConcurrentWritersOnANoOpLock:
         The residue is bounded in practice — the document is created once, and
         `lock()` is real on both shipped backends — but it is exactly the
         question a substrate whose lock does nothing has to answer, and it is
-        recorded as Q2 of `.spec/features/substrate-conformance/research.md` on
+        recorded as Q2 of the substrate-conformance research on
         `sdd/substrate-conformance`.
 
         **This test asserts the limitation, not a guarantee.** If the port grows

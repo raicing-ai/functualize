@@ -5,11 +5,11 @@ condition does NOT hold. They MUST PASS on unfixed code and serve as
 regression guards after the fix is applied.
 
 Non-buggy inputs include:
-- Always-consumes-value flags (--log-level, --config-directory, etc.) followed
-  by their value and then a positional
+- Value-required flags (--log-level, --config-directory, etc.) followed by
+  their value and then a positional
 - Boolean flags (--no-dotenv) with a positional
 - Equals-style flags (--perf-report=text, --emit-format=json) with a positional
-- Explicit valid values for optional-value flags (--perf-report text)
+- Explicit valid values for selection-table flags (--perf-report text)
 
 **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13**
 """
@@ -57,13 +57,6 @@ _job_name = st.builds(
     )  # avoid valid format values
 )
 
-# Arbitrary string values for flags (no leading dash, non-empty)
-_arbitrary_value = st.text(
-    st.sampled_from("abcdefghijklmnopqrstuvwxyz0123456789_./-"),
-    min_size=1,
-    max_size=15,
-).filter(lambda v: not v.startswith("-"))
-
 # Discovery depth values (valid integers as strings)
 _discovery_depth_value = st.integers(min_value=0, max_value=10).map(str)
 
@@ -87,29 +80,6 @@ _ALWAYS_CONSUMES_VALUE_FLAGS = [
 
 # Strategy for a single always-consumes-value flag with a safe value
 _always_value_flag_strategy = st.sampled_from(_ALWAYS_CONSUMES_VALUE_FLAGS)
-
-# Safe values per flag to avoid validation errors
-_SAFE_VALUES = {
-    "--log-level": st.sampled_from(_VALID_LOG_LEVELS),
-    "--config-directory": st.sampled_from(["./conf", "/tmp/cfg", "./mydir"]),
-    "--perf-filter": st.sampled_from(["pattern", "my_func", "test_*"]),
-    "--discovery-depth": _discovery_depth_value,
-    "--exclude": st.sampled_from(["*.tmp", "__pycache__", ".git"]),
-    "--import-libs": st.sampled_from(["./lib", "./vendor", "/opt/libs"]),
-    "--require-file-import": st.sampled_from(["functualize", "mypackage"]),
-    "--require-file-prefix": st.sampled_from(["job_", "task_", "fn_"]),
-    "--require-file-postfix": st.sampled_from(["_task", "_job", "_fn"]),
-    "--require-file-marker": st.sampled_from(["__functualize__", "__jobs__"]),
-    "--require-job-prefix": st.sampled_from(["run_", "job_", "do_"]),
-    "--require-job-postfix": st.sampled_from(["_job", "_task", "_fn"]),
-    "--require-job-decorators": st.sampled_from(["@job", "@task", "@workflow"]),
-    "--dotenv-file": st.sampled_from([".env.local", ".env.prod", ".env"]),
-}
-
-
-def _safe_value_for_flag(flag: str) -> st.SearchStrategy[str]:
-    """Return a strategy that generates safe values for the given flag."""
-    return _SAFE_VALUES.get(flag, _arbitrary_value)
 
 
 # =============================================================================
@@ -417,7 +387,7 @@ class TestPreservationEqualsStyleSyntax:
         """--perf-report text job_name → perf_report="text", first_positional_index=2.
 
         When an explicit valid format value ("text" or "json") follows --perf-report,
-        it IS consumed as the flag's value. This behavior must be preserved.
+        it is consumed as the flag's value. This behavior must be preserved.
 
         **Validates: Requirements 3.1, 3.2**
         """

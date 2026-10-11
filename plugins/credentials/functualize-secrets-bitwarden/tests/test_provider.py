@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from functualize_bitwarden import (
+from functualize_secrets_bitwarden import (
     ACCESS_TOKEN_VAR,
     AmbiguousKeyError,
     BitwardenAuthError,
@@ -23,7 +23,7 @@ from functualize_bitwarden import (
     SecretNotFoundError,
     SecretsManagerProvider,
 )
-from functualize_bitwarden import _client as client_mod
+from functualize_secrets_bitwarden import _client as client_mod
 
 from tests.conftest import (
     ORG,

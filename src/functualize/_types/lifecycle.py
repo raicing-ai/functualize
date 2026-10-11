@@ -1,6 +1,8 @@
 """The four runtime state machines, as data.
 
-`runtime-schema-migrations`/T1, from `schema.md` §1. The relational writer
+`runtime-schema-migrations`/T1, restated in
+`contributor/reference/runtime-persistence-data-model.md` §1 — the durable
+half of the schema chapter that package cleared. The relational writer
 (`sqlite-runtime-provider`) generates its `CHECK (status IN (...))` clauses from
 these state sets, the transition check (T4, `_primitives/transitions.py`) reads
 the tables, and the retention policy (T5) reads `SCOPE.evictable` — so the four
@@ -23,7 +25,7 @@ is derived here instead of declared.
 
 **States are derived; the rows are written.** Each machine's `states` comes from
 its vocabulary, so a status that exists is a state and cannot be forgotten. The
-legal pairs are written out against `schema.md` §1, and
+legal pairs are written out against that reference §1, and
 `tests/types/test_lifecycle_tables.py` is what keeps a row from naming a state
 its own vocabulary does not have.
 
@@ -52,7 +54,7 @@ from functualize._types.enums import RunStatus
 
 
 class ScopeStatus(StrEnum):
-    """What a scope row's `status` column may hold (`schema.md` §1.1)."""
+    """What a scope row's `status` column may hold (data-model reference §1.3)."""
 
     RUNNING = "running"
     BLOCKED = "blocked"
@@ -62,7 +64,7 @@ class ScopeStatus(StrEnum):
 
 
 class AttemptStatus(StrEnum):
-    """What an attempt row's `status` column may hold (`schema.md` §1.3)."""
+    """What an attempt row's `status` column may hold (data-model reference §1.1)."""
 
     RUNNING = "running"
     SUCCEEDED = "succeeded"
@@ -72,7 +74,7 @@ class AttemptStatus(StrEnum):
 
 
 class InputRequestStatus(StrEnum):
-    """What an input-request row may hold (`schema.md` §1.4)."""
+    """What an input-request row may hold (data-model reference §1.4)."""
 
     OPEN = "open"
     ACCEPTED = "accepted"
@@ -96,7 +98,7 @@ class Machine:
             machine has no absorbing state" is a sentence someone wrote rather
             than a field that was skipped.
         evictable: States a retention policy may drop, on the same terms. Scope
-            is the only machine with one (`schema.md` §1.1); the field is here
+            is the only machine with one (data-model reference §1.3); the field is here
             rather than in a scope-only type because a second machine acquiring
             one must not need a second shape.
     """
@@ -109,7 +111,7 @@ class Machine:
 
 
 # ----------------------------------------------------------------------
-# Scope (`schema.md` §1.1)
+# Scope (data-model reference §1.3)
 # ----------------------------------------------------------------------
 
 SCOPE: Final[Machine] = Machine(
@@ -157,7 +159,7 @@ SCOPE: Final[Machine] = Machine(
 
 
 # ----------------------------------------------------------------------
-# Run (`schema.md` §1.2)
+# Run (data-model reference §1.2)
 # ----------------------------------------------------------------------
 
 _RUN_STATES: Final[frozenset[str]] = frozenset(s.value.lower() for s in RunStatus)
@@ -185,7 +187,7 @@ RUN: Final[Machine] = Machine(
 
 
 # ----------------------------------------------------------------------
-# Attempt (`schema.md` §1.3)
+# Attempt (data-model reference §1.1)
 # ----------------------------------------------------------------------
 
 ATTEMPT: Final[Machine] = Machine(
@@ -214,7 +216,7 @@ ATTEMPT: Final[Machine] = Machine(
 
 
 # ----------------------------------------------------------------------
-# InputRequest (`schema.md` §1.4)
+# InputRequest (data-model reference §1.4)
 # ----------------------------------------------------------------------
 
 INPUT_REQUEST: Final[Machine] = Machine(

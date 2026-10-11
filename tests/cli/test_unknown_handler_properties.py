@@ -1,21 +1,21 @@
-"""Property-based tests for the unknown command handler.
+"""Property-based tests for the unknown-command suggestions.
+
+The error output half of the old `func` handler is gone — production prints
+the unknown-command error and its suggestions inline (`_cli/main.py`), and the
+suggestion algorithm it shares with the app entry point is
+`app.utils.suggest_similar_commands`. These properties pin that algorithm.
 
 # Feature: eliminate-fallback-group
-# Property 6: Unknown Command Error Output
 # Property 7: Suggestion Boundedness
 # Property 8: Fuzzy Match Completeness
 """
 
 from __future__ import annotations
 
-import sys
-from io import StringIO
-
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize._cli.main import _handle_unknown
 from functualize.app.utils import _levenshtein
 from functualize.app.utils import suggest_similar_commands as _fuzzy_suggest
 
@@ -29,101 +29,8 @@ _cmd_chars = st.sampled_from("abcdefghijklmnopqrstuvwxyz0123456789_-")
 # A command name: non-empty string of valid characters
 _cmd_name = st.text(_cmd_chars, min_size=1, max_size=20)
 
-# A set of job names (possibly empty)
-_job_names_set = st.frozensets(_cmd_name, min_size=0, max_size=50).map(set)
-
 # A non-empty set of job names (for suggestion tests)
 _nonempty_job_names_set = st.frozensets(_cmd_name, min_size=1, max_size=50).map(set)
-
-
-# =============================================================================
-# Property 6: Unknown Command Error Output
-# =============================================================================
-
-
-@pytest.mark.slow
-class TestUnknownCommandErrorOutput:
-    """Property 6: Unknown Command Error Output.
-
-    For any unrecognized command string, _handle_unknown SHALL produce output
-    to stderr that contains both the unrecognized command name and guidance
-    directing the user to run `func` for the full command list.
-
-    **Validates: Requirements 5.1, 5.4, 5.6**
-    """
-
-    @given(cmd=_cmd_name, job_names=_job_names_set)
-    def test_output_contains_unrecognized_command(
-        self, cmd: str, job_names: set[str]
-    ) -> None:
-        """stderr output always contains the unrecognized command name.
-
-        **Validates: Requirements 5.1, 5.4, 5.6**
-        """
-        # Remove cmd from job_names so it's genuinely unknown
-        clean_job_names = job_names - {cmd}
-
-        captured = StringIO()
-        old_stderr = sys.stderr
-        try:
-            sys.stderr = captured
-            _handle_unknown([cmd], clean_job_names)
-        finally:
-            sys.stderr = old_stderr
-
-        output = captured.getvalue()
-
-        assert cmd in output, (
-            f"Expected unrecognized command '{cmd}' to appear in stderr output, "
-            f"but got: {output!r}"
-        )
-
-    @given(cmd=_cmd_name, job_names=_job_names_set)
-    def test_output_contains_func_guidance(self, cmd: str, job_names: set[str]) -> None:
-        """stderr output always contains 'func' guidance for full command list.
-
-        **Validates: Requirements 5.1, 5.4, 5.6**
-        """
-        # Remove cmd from job_names so it's genuinely unknown
-        clean_job_names = job_names - {cmd}
-
-        captured = StringIO()
-        old_stderr = sys.stderr
-        try:
-            sys.stderr = captured
-            _handle_unknown([cmd], clean_job_names)
-        finally:
-            sys.stderr = old_stderr
-
-        output = captured.getvalue()
-
-        assert "func" in output, (
-            f"Expected 'func' guidance in stderr output, but got: {output!r}"
-        )
-
-    @given(cmd=_cmd_name, job_names=_job_names_set)
-    def test_output_contains_both_command_and_guidance(
-        self, cmd: str, job_names: set[str]
-    ) -> None:
-        """stderr output contains BOTH the command name AND func guidance.
-
-        **Validates: Requirements 5.1, 5.4, 5.6**
-        """
-        clean_job_names = job_names - {cmd}
-
-        captured = StringIO()
-        old_stderr = sys.stderr
-        try:
-            sys.stderr = captured
-            _handle_unknown([cmd], clean_job_names)
-        finally:
-            sys.stderr = old_stderr
-
-        output = captured.getvalue()
-
-        assert cmd in output and "func" in output, (
-            f"Expected both '{cmd}' and 'func' in output, got: {output!r}"
-        )
 
 
 # =============================================================================

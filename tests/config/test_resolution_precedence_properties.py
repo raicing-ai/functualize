@@ -7,7 +7,7 @@ Tests Property 4 from the design document: Resolution precedence.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from hypothesis import given
@@ -41,7 +41,13 @@ class FakeSource:
     def source_id(self) -> str:
         return self._source_id
 
-    def get(self, key: str, section: str | None = None) -> Any | None:
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
         if section is not None:
             lookup = f"{section}.{key}"
             if lookup in self._data:

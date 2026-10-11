@@ -70,7 +70,7 @@ class ScriptMetadata:
     dependencies: list[str] | None = None
     job: str | None = None
     # TRANSITIONAL(third-party-host-seams/1.2): parsed, not yet consumed;
-    # see plan.md §4 and STATUS follow-up #29.
+    # see STATUS follow-up #29.
     skill: str | None = None
 
 
