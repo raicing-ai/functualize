@@ -130,6 +130,11 @@ def test_a_refusals_reason_reaches_stderr() -> None:
 _BOUNDARY_LOGGER = "functualize.app.adapters.click_params"
 
 
+class _Domain:
+    class BadInput(Exception):
+        pass
+
+
 def _failed(exc: BaseException, *, marked: bool) -> _Result:
     result = _Result(RunStatus.FAILURE)
     result.exception = exc
@@ -163,6 +168,18 @@ def test_an_empty_message_prints_the_class_alone(
         deliver_job_result(_failed(ValueError(), marked=True), "j")
 
     assert capsys.readouterr().err == "Error: ValueError\n"
+
+
+def test_nested_exception_class_keeps_its_qualified_name_without_a_module(
+    capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger=_BOUNDARY_LOGGER)
+
+    with pytest.raises(SystemExit) as raised:
+        deliver_job_result(_failed(_Domain.BadInput("bad row"), marked=True), "j")
+
+    assert raised.value.code == ExitCode.JOB_RAISED
+    assert capsys.readouterr().err == "Error: _Domain.BadInput: bad row\n"
 
 
 def test_an_unmarked_exception_is_re_raised_untouched(

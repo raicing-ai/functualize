@@ -10,6 +10,8 @@
 | exit code | 1 | 1 — `exit_code_for_status(RunStatus.FAILURE)`, table unchanged |
 | `--emit-format` on a failure | no stdout document | unchanged; the stderr line does not vary with it |
 
+`<ExceptionClass>` is `type(exc).__qualname__`, without a module prefix.
+
 Both entry points (`func`, a project's `FunctualizeApp` + `CliAdapter` script),
 cold and warm.
 

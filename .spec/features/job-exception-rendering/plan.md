@@ -2,10 +2,26 @@
 
 ## Alignment
 
-`Shape state = not-required` on the tracking issue (set by the maintainer).
-There is no shape page, so there is nothing to cite. The user-visible surface is
-named in `spec.md` in the accepted ticket's own words: "a one-line error at the
-failure exit code, with the framework traceback behind an explicit opt-in".
+The issue points to [Shape Intent SD/15138944](https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/15138944),
+version 7, whose `Authority` is `Approved`. Its D1–D6 recommendations are the
+approved shape for this plan:
+
+| Decision | Approved wording carried into this feature |
+| --- | --- |
+| D1 | Provenance at the call site: record the identity of the exception that escaped `function(**call_kwargs)` and mark the result only when the caught exception is that same object. |
+| D2 | `Error: <Class>: <message>` on stderr, with the class alone for an empty message. |
+| D3 | Reuse `--log-level DEBUG` to restore today's full traceback. |
+| D4 | Unchanged channel split: stdout empty on a failed job, with the same stderr line for text and `--emit-format json`. |
+| D5 | Print `type(exc).__qualname__` without the module; the one-line form never shows `_functualize_sync_`. |
+| D6 | Capture provenance in `_engine/executor.py`, carry it through `JobResult.metadata`, and classify and render once in `app/adapters/click_params.py::deliver_job_result`. |
+
+In scope, in the shape's words: the `func <job>` CLI process boundary,
+"raised by the job body" provenance, one-line stderr at exit 1, the DEBUG
+opt-in, and the class name without its synthetic prefix. Out of scope:
+TUI, MCP/API/programmatic callers; a documented user-facing error type;
+re-architecting discovery's module naming; actionable next-command wording;
+and any exit-code table change. The project's own `FunctualizeApp` entry point
+uses the same boundary and is included in verification.
 
 ## Architecture gate
 

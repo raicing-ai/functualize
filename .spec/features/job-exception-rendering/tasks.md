@@ -28,18 +28,19 @@
 
 ## Wave 2 — the boundary renders it
 
-- [x] **T2 — one line at the process boundary, traceback behind DEBUG**
+- [ ] **T2 — one line at the process boundary, traceback behind DEBUG**
   - Files: `src/functualize/app/adapters/click_params.py`,
     `tests/pipeline/test_exit_code_routing.py`,
     `tests/pipeline/test_job_exception_rendering.py` (new).
-  - Do: `_renders_as_job_error(result)` and `_job_error_line(exc)`;
+  - Do: `_renders_as_job_error(result)` and `_job_error_line(exc)` using
+    `type(exc).__qualname__` as approved by shape D5;
     `deliver_job_result` echoes the line and raises
     `SystemExit(exit_code_for_status(result.status))` when the result is
     marked, before its final `raise result.exception`.
   - Invariants: `BrokenPipeError`, pydantic `ValidationError`,
     `MissingValueError` arms unchanged and checked first; click signals and
     non-`Exception` `BaseException`s re-raised; exit-code table untouched.
-  - Gate (spec AC1, AC2, AC4, AC5, AC6, AC7):
+  - Gate (spec AC1, AC2, AC4, AC5, AC6, AC7; shape D5):
     `uv run pytest -q --no-header tests/pipeline/test_job_exception_rendering.py tests/pipeline/test_exit_code_routing.py`
     green, and `rg -n "raise result.exception" src/functualize/app` returns
     exactly one hit.
@@ -48,7 +49,9 @@
     `lazy_command` callback (warm) → `deliver_job_result`. The subprocess test
     runs both doors, each cold and warm. Sabotage: remove the new arm and
     watch the subprocess frame-absence test fail.
-  - Evidence: gate 27 passed; `rg` returns one hit
+  - Reopened after rebase: shape D5 requires `__qualname__`, while the
+    implemented line used `__name__`; rerun the boundary gate and sabotage.
+    Earlier evidence: gate 27 passed; `rg` returns one hit
     (`click_params.py:1265`). Sabotage, committed first at `7fd4df9f`:
     disabling the new arm failed
     `test_a_raising_job_prints_one_line_and_no_frames[func]` and `[app]`.
@@ -58,7 +61,7 @@
 
 ## Wave 3 — record and verify
 
-- [x] **T3 — changelog and native gates**
+- [ ] **T3 — changelog and native gates**
   - Files: `CHANGELOG.md`.
   - Do: one `[Unreleased]` entry describing the new rendering, the DEBUG
     opt-in and the classification rule.
@@ -66,7 +69,8 @@
     `uv run ruff format --check src/ tests/ plugins/ examples/`,
     `uv run mypy src/`, `uv run lint-imports` (7 kept, 0 broken), and the step
     tier: `uv run pytest -n auto -q --no-header $(.agents/skills/test-tiers/scripts/tests-for-diff)`.
-  - Evidence: ruff check clean; format check clean (1599 files); mypy
+  - Reopened after rebase and alignment repair: rerun each native gate on the
+    delivered base. Earlier evidence: ruff check clean; format check clean (1599 files); mypy
     "no issues found in 388 source files"; lint-imports "7 kept, 0 broken".
     Step tier (mapper exit 0, 47 files): 650 passed, 62 skipped. Wave tier over
     `tests/pipeline tests/integration tests/skills tests/adapters tests/cli

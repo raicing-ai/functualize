@@ -72,7 +72,7 @@ and it is an ordinary `Exception`, the process boundary:
   `ExitCode.JOB_RAISED`, the documented "the job raised" code. The exit-code
   table is unchanged.
 
-`<ExceptionClass>` is the class's `__name__`, never its module path. That is a
+`<ExceptionClass>` is the class's `__qualname__`, never its module path. That is a
 deliberate choice, and it has a side effect worth naming: the synthetic
 `_functualize_sync_.<stem>_<id>` module prefix the field report saw (a job
 module loaded through the deferred provider) cannot reach this line, because

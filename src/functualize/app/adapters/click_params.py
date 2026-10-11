@@ -1341,7 +1341,7 @@ def _job_error_line(exc: BaseException) -> str:
     which means nothing to the person who wrote the job.
     """
     message = str(exc)
-    name = type(exc).__name__
+    name = type(exc).__qualname__
     return f"{name}: {message}" if message else name
 
 
