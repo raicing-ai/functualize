@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 from functualize_substrate_sqlite import SqliteRuntimeStore, SQLiteSubstratePlugin
 from functualize_substrate_sqlite._factory import SqliteRuntimeStoreFactory
+from functualize_substrate_sqlite._transaction import iso
 
 from functualize import FunctualizeApp
 from functualize._config.chain import ResolutionChain
@@ -30,6 +31,8 @@ from functualize.plugin import (
     CompleteStep,
     Conflict,
     IllegalTransition,
+    ReleaseLease,
+    RenewLease,
     ResumeWorkflow,
     RuntimeStoreConfig,
     StateBatch,
@@ -134,6 +137,29 @@ def test_the_holder_may_retake_its_own_lease(store: SqliteRuntimeStore) -> None:
 
     assert isinstance(again, Claimed)
     assert again.generation == 2
+
+
+def test_renew_and_release_are_fenced_single_updates(
+    store: SqliteRuntimeStore,
+) -> None:
+    generation = _held(store)
+    later = T0 + timedelta(seconds=5)
+    with store.transaction() as tx:
+        tx.workflows.renew(RenewLease("s1", generation, "a", later, LEASE))
+    assert _row(
+        store,
+        "SELECT lease_owner, lease_generation, lease_expires_at FROM workflow_scopes",
+    ) == [("a", generation, iso(later + timedelta(seconds=LEASE)))]
+
+    with store.transaction() as tx:
+        tx.workflows.release(ReleaseLease("s1", generation, later))
+    assert _row(
+        store,
+        "SELECT lease_owner, lease_generation, lease_expires_at FROM workflow_scopes",
+    ) == [(None, generation, iso(later))]
+    assert _claim(store, "b", at=later) == Claimed(
+        "s1", generation + 1, later + timedelta(seconds=LEASE)
+    )
 
 
 # -- the fence --------------------------------------------------------------

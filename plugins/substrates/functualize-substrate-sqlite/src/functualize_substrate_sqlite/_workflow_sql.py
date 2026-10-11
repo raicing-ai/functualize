@@ -31,6 +31,8 @@ from functualize.plugin import (
     ClaimWorkflow,
     CompleteStep,
     Conflict,
+    ReleaseLease,
+    RenewLease,
     ResumeWorkflow,
     StateBatch,
     SuspendAtGate,
@@ -127,6 +129,49 @@ class SqlWorkflowWriter:
             held_by=row.owner or "",
             held_generation=row.generation,
         )
+
+    def renew(self, cmd: RenewLease) -> None:
+        """Extend this holder's lease with one fenced conditional update."""
+        tx = self._tx
+        tx.require_fence(cmd.scope_id, cmd.generation)
+        expires = iso(cmd.now + timedelta(seconds=cmd.lease_seconds))
+        fence, fence_args = tx.fence_sql(cmd.scope_id, cmd.generation)
+        tx.stage(
+            "UPDATE workflow_scopes SET lease_expires_at = ?, updated_at = ? "
+            "WHERE namespace_id = ? AND id = ? AND lease_owner = ? "
+            f"AND {fence}",
+            (
+                expires,
+                iso(cmd.now),
+                tx.namespace,
+                cmd.scope_id,
+                cmd.owner,
+                *fence_args,
+            ),
+        )
+        tx.update_scope(cmd.scope_id, expires_at=expires)
+
+    def release(self, cmd: ReleaseLease) -> None:
+        """Expire this lease in place; its generation remains a fence."""
+        tx = self._tx
+        tx.require_fence(cmd.scope_id, cmd.generation)
+        row = tx.scope(cmd.scope_id)
+        fence, fence_args = tx.fence_sql(cmd.scope_id, cmd.generation)
+        tx.stage(
+            "UPDATE workflow_scopes SET lease_owner = NULL, "
+            "lease_expires_at = ?, updated_at = ? "
+            "WHERE namespace_id = ? AND id = ? AND lease_owner = ? "
+            f"AND {fence}",
+            (
+                iso(cmd.now),
+                iso(cmd.now),
+                tx.namespace,
+                cmd.scope_id,
+                row.owner,
+                *fence_args,
+            ),
+        )
+        tx.update_scope(cmd.scope_id, owner=None, expires_at=iso(cmd.now))
 
     def complete_step(self, cmd: CompleteStep) -> None:
         tx = self._tx

@@ -38,7 +38,7 @@ from functualize._types.gate_resolution import (
 
 # At runtime, not under TYPE_CHECKING: `claim` branches on it with
 # `isinstance`, so a type-only import would be a NameError on every claim.
-from functualize._types.persistence import Conflict
+from functualize._types.persistence import Conflict, ReleaseLease, RenewLease
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -226,6 +226,8 @@ class FrontierWalk:
         if isinstance(outcome, Conflict):
             return outcome
         self._generation = outcome.generation
+        # TRANSITIONAL(workflow-persistence-atomic W7): remaining walk writes
+        # still use ScopeStore; their hold is removed when they move to the port.
         self._store.hold(self._scope_id, outcome.generation)
         if silent is not None:
             self._record_timed_out(silent)
@@ -315,12 +317,20 @@ class FrontierWalk:
         """
         if self._generation is None:
             return
+        from functualize._primitives.lease import DEFAULT_LEASE_SECONDS
         from functualize._primitives.run_store import runner_identity
 
         try:
-            self._store.renew_scope(
-                self._scope_id, owner=runner_identity(), generation=self._generation
-            )
+            with self._runtime_store.transaction() as tx:
+                tx.workflows.renew(
+                    RenewLease(
+                        self._scope_id,
+                        self._generation,
+                        runner_identity(),
+                        datetime.now(UTC),
+                        DEFAULT_LEASE_SECONDS,
+                    )
+                )
         except Exception:  # noqa: BLE001 - the next write reports it properly
             logger.debug("could not renew the scope lease", exc_info=True)
 
@@ -333,11 +343,16 @@ class FrontierWalk:
         if self._generation is None:
             return
         try:
-            self._store.release_scope(self._scope_id, generation=self._generation)
+            with self._runtime_store.transaction() as tx:
+                tx.workflows.release(
+                    ReleaseLease(self._scope_id, self._generation, datetime.now(UTC))
+                )
         except Exception:  # noqa: BLE001 - releasing is never worth a failure
             logger.debug("could not release the scope lease", exc_info=True)
         finally:
             self._generation = None
+            # TRANSITIONAL(workflow-persistence-atomic W7): the legacy writes
+            # still use this hold until the full walk moves to the port.
             self._store.hold(self._scope_id, None)
 
     # ------------------------------------------------------------------

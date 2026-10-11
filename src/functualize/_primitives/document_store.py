@@ -68,6 +68,8 @@ from functualize._types.persistence import (
     InputReader,
     InputRequest,
     InputWriter,
+    ReleaseLease,
+    RenewLease,
     ResumeWorkflow,
     RunQuery,
     RunReader,
@@ -554,6 +556,12 @@ class _DocumentWorkflowWriter:
     def complete_step(self, cmd: CompleteStep) -> None:
         self._txn.append(cmd)
 
+    def renew(self, cmd: RenewLease) -> None:
+        self._txn.append(cmd)
+
+    def release(self, cmd: ReleaseLease) -> None:
+        self._txn.append(cmd)
+
     def suspend(self, cmd: SuspendAtGate) -> None:
         self._txn.append(cmd)
 
@@ -806,7 +814,19 @@ class _DocumentTransaction:
         raise CrossAggregateRefusedError(sorted(self.scopes_touched))
 
     def _apply_one(self, command: Any, scopes: Any, runs: Any) -> None:
-        if isinstance(command, CompleteStep):
+        if isinstance(command, RenewLease):
+            scopes().renew_scope(
+                command.scope_id,
+                owner=command.owner,
+                generation=command.generation,
+                seconds=command.lease_seconds,
+                now=command.now,
+            )
+        elif isinstance(command, ReleaseLease):
+            scopes().release_scope(
+                command.scope_id, generation=command.generation, now=command.now
+            )
+        elif isinstance(command, CompleteStep):
             self._complete_step(command, scopes())
         elif isinstance(command, SuspendAtGate):
             self._suspend(command, scopes())

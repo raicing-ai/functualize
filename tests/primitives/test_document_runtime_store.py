@@ -27,7 +27,7 @@ it instead of retrying it.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -48,6 +48,8 @@ from functualize._types.persistence import (
     Claimed,
     ClaimWorkflow,
     ConsumeInput,
+    ReleaseLease,
+    RenewLease,
     ResumeWorkflow,
     SuspendAtGate,
 )
@@ -80,6 +82,27 @@ def _claim(store: DocumentRuntimeStore, scope_id: str) -> Claimed:
                 scope_id=scope_id, owner="tester", now=NOW, lease_seconds=300.0
             )
         )
+
+
+def test_renew_and_release_use_the_command_generation(
+    store: DocumentRuntimeStore, tmp_path: Path
+) -> None:
+    first = _claim(store, "scope-a")
+    later = NOW + timedelta(seconds=5)
+    with store.transaction() as tx:
+        tx.workflows.renew(
+            RenewLease("scope-a", first.generation, "tester", later, 300)
+        )
+    renewed = _fresh(tmp_path).workflows.workflow("scope-a")
+    assert renewed is not None
+    assert renewed.expires_at == later + timedelta(seconds=300)
+
+    with store.transaction() as tx:
+        tx.workflows.release(ReleaseLease("scope-a", first.generation, later))
+    released = _fresh(tmp_path).workflows.workflow("scope-a")
+    assert released is not None
+    assert released.generation == first.generation
+    assert released.expires_at == later
 
 
 class TestTheSpanningRefusal:

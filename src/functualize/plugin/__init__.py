@@ -59,6 +59,8 @@ from functualize._types.persistence import (
     InputRequest,
     InputWriter,
     PreparedStore,
+    ReleaseLease,
+    RenewLease,
     Resumed,
     ResumeWorkflow,
     RunQuery,
@@ -224,6 +226,8 @@ __all__ = [
     # outcome, view and query values they speak.
     "StoreProfile",
     "ClaimWorkflow",
+    "RenewLease",
+    "ReleaseLease",
     "CompleteStep",
     "SuspendAtGate",
     "ResumeWorkflow",

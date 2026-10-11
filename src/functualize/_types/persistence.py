@@ -47,6 +47,8 @@ __all__ = [
     "StoreProfile",
     # Commands
     "ClaimWorkflow",
+    "RenewLease",
+    "ReleaseLease",
     "CompleteStep",
     "SuspendAtGate",
     "ResumeWorkflow",
@@ -168,6 +170,26 @@ class ClaimWorkflow:
     #: Only for an explicit reclaim, where a human has decided the holder
     #: is gone.
     force: bool = False
+
+
+@dataclass(frozen=True)
+class RenewLease:
+    """Extend the held lease without advancing its generation."""
+
+    scope_id: str
+    generation: int
+    owner: str
+    now: datetime
+    lease_seconds: float
+
+
+@dataclass(frozen=True)
+class ReleaseLease:
+    """Expire the held lease while preserving its generation."""
+
+    scope_id: str
+    generation: int
+    now: datetime
 
 
 @dataclass(frozen=True)
@@ -579,6 +601,10 @@ class WorkflowWriter(Protocol):
     """
 
     def claim(self, cmd: ClaimWorkflow) -> Claimed | Conflict: ...
+
+    def renew(self, cmd: RenewLease) -> None: ...
+
+    def release(self, cmd: ReleaseLease) -> None: ...
 
     def complete_step(self, cmd: CompleteStep) -> None: ...
 
