@@ -18,13 +18,18 @@ What each subject guards:
 - **`FromJob` inside a walk on SQLite** — the walk-scoped reference reads the
   walk's own step records through the port (ruling R-3), so a consumer inside
   a walk receives the producer's recorded value rather than going blind;
-- **a takeover records no completion time** — ruling R-2: a step that went
-  silent is recorded with `completed_at=None`, which the document store keeps
-  as `""` (byte-identical to the legacy record) and SQLite as NULL.
+- **a takeover records no completion time** — the takeover wire (`claim` →
+  `_step_that_went_silent` → `_record_timed_out`) writes the `timed_out` record
+  through the port, with ruling R-2's `completed_at=None`, which the document
+  store keeps as `""` (byte-identical to the legacy record) and SQLite as NULL;
+- **the epilogue keeps its legacy record** — `record_body`'s value lands in
+  `scope["epilogue"]` in exactly the record shape the walk wrote before the
+  port, and reads back as a usable step view (contracts §2, W-AC-4).
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -33,6 +38,7 @@ from functualize_substrate_sqlite import SQLiteSubstratePlugin
 from pydantic import BaseModel
 
 from functualize._engine.frontier import FrontierWalk, GraphModel, StepStatus
+from functualize._engine.workflow_runner import WorkflowRunner
 from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
 from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.substrate import JsonFileSubstrate
@@ -286,19 +292,20 @@ def _scope_of(app: Any, workflow_name: str) -> str:
 # -- ruling R-2: a takeover records no completion time ----------------------
 
 
-def _stored_completion(backend: str, root: Path) -> object:
+def _stored_completion(backend: str, root: Path, step_key: str) -> object:
     """The raw stored `completed_at` of the scope's one step record."""
     if backend == "documents":
         stored = JsonFileSubstrate(root).read("scopes")
         assert stored is not None
-        return stored.data["scopes"]["s1"]["steps"]["first::never"]["completed_at"]
+        return stored.data["scopes"]["s1"]["steps"][step_key]["completed_at"]
     import sqlite3
 
     connection = sqlite3.connect(f"file:{root / 'state.db'}?mode=ro", uri=True)
     try:
         [(value,)] = connection.execute(
             "SELECT completed_at FROM workflow_steps "
-            "WHERE scope_id = 's1' AND step_key = 'first::never'"
+            "WHERE scope_id = 's1' AND step_key = ?",
+            (step_key,),
         )
     finally:
         connection.close()
@@ -306,10 +313,13 @@ def _stored_completion(backend: str, root: Path) -> object:
 
 
 def test_a_takeover_records_no_completion_time(backend: str, tmp_path: Path) -> None:
-    """`completed_at=None` is `""` on documents and NULL on SQLite (R-2).
+    """The takeover wire writes its `timed_out` record with no completion time.
 
-    A stamp would make a scope taken over by a new runner look recently
-    active, and survive an age-based purge it should not.
+    `claim` → `_step_that_went_silent` → `_record_timed_out`: a step still
+    `running` when its lease expired is recorded `timed_out` through the
+    port, and ruling R-2's `completed_at=None` is `""` on documents and NULL
+    on SQLite. A stamp would make a scope taken over by a new runner look
+    recently active, and survive an age-based purge it should not.
     """
     root = tmp_path / backend
     root.mkdir()
@@ -318,11 +328,69 @@ def test_a_takeover_records_no_completion_time(backend: str, tmp_path: Path) -> 
     walk = _walk(graph, store)
     _claimed(walk)
     walk.start("flow")
-    walk.complete("first")
-    # The step the first runner never reported: recorded with no completion.
-    walk.record("first::never", StepStatus.TIMED_OUT, completed_at=None)
+    # The runner dies mid-flow: `first` is still running and nothing was
+    # stamped, so the scope is abandoned the moment the claim's lease expires
+    # (release ends a lease the way an expiry does). `complete` is deliberately
+    # never called: it would write the very record the takeover has to write.
+    assert walk.step("first::") is None
+    walk.release()
 
-    assert _stored_completion(backend, root) == ("" if backend == "documents" else None)
-    view = walk.step("first::never")
+    resumed = _walk(graph, store)
+    _claimed(resumed)  # takeover: claim finds the silent step and records it
+
+    assert _stored_completion(backend, root, "first::") == (
+        "" if backend == "documents" else None
+    )
+    view = resumed.step("first::")
     assert view is not None and view.completed_at is None and view.status == "timed_out"
+    store.close()
+
+
+# -- the epilogue keeps its legacy record (contracts §2, W-AC-4) ------------
+
+
+def test_the_epilogue_keeps_its_legacy_record(backend: str, tmp_path: Path) -> None:
+    """`record_body`'s value lands exactly where and as it always has.
+
+    On documents `scope["epilogue"]` keeps the record the walk wrote before
+    the port — `status`, `return_value`, `completed_at` and nothing else —
+    because every surface reading the body's result reads those keys off the
+    raw scope. On SQLite the epilogue is a plain step row with the same
+    content. Both read back as a usable step view.
+    """
+    root = tmp_path / backend
+    root.mkdir()
+    store = _store(backend, root)
+    runner = WorkflowRunner(run_step=None, runtime_store=store)
+    runner.record_body("the answer")
+
+    if backend == "documents":
+        stored = JsonFileSubstrate(root).read("scopes")
+        assert stored is not None
+        record = stored.data["scopes"][runner.scope_id]["epilogue"]
+        assert set(record) == {"status", "return_value", "completed_at"}
+        assert record["status"] == "success"
+        assert record["return_value"] == "the answer"
+        assert record["completed_at"]
+    else:
+        import sqlite3
+
+        connection = sqlite3.connect(f"file:{root / 'state.db'}?mode=ro", uri=True)
+        try:
+            [(status, result, completed_at)] = connection.execute(
+                "SELECT status, result, completed_at FROM workflow_steps "
+                "WHERE scope_id = ? AND step_key = '__epilogue__'",
+                (runner.scope_id,),
+            )
+        finally:
+            connection.close()
+        assert status == "success"
+        assert json.loads(result) == "the answer"
+        assert completed_at
+
+    view = store.workflows.step(runner.scope_id, "__epilogue__")
+    assert view is not None
+    assert view.result == "the answer"
+    assert view.status == "success"
+    assert view.completed_at is not None
     store.close()
