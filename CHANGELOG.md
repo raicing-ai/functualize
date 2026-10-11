@@ -124,6 +124,17 @@ is resolved in its own step and the job fails if it cannot be, because
 commits** and exits `0`; silently covering nothing is worse than either
 scanned outcome.
 
+### Added — hermetic evaluation of the decision router
+
+A frozen corpus of 40 routing scenarios can now be replayed through the
+hermetic router, a frontier comparator and a deterministic baseline under the
+same gate, rule and fallback. The evaluation harness records failures as data,
+checks the corpus lock before a run, and produces reproducible metrics,
+provenance and a boundary recommendation from the recorded ledgers. The corpus,
+method and report commands are documented in
+`contributor/reference/hermetic-evaluation.md`; measured runs remain outside
+the repository. The recommendation still requires a maintainer decision.
+
 ### Changed — the vault key is read from an unlocked keyring with or without a terminal
 
 A run that needed a stored vault secret used to get it in a terminal and be
