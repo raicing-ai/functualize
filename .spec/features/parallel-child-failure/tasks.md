@@ -77,7 +77,7 @@ this file. A fresh execution context must be prepared from that anchor.
 
 ## Wave 2 — prove the external behavior and explain it
 
-- [ ] **3.1 Add capability and application regressions.**
+- [x] **3.1 Add capability and application regressions.**
   - [F] `tests/integration/test_declared_capabilities_e2e.py`,
     `tests/test_invoke_expanded.py`, `tests/test_invoke_stub_expanded.py`.
   - Cover an ignored one-of-three child failure through public
@@ -101,7 +101,7 @@ this file. A fresh execution context must be prepared from that anchor.
     through `FunctualizeApp.execute`, not a constructed collaborator. Commit
     before sabotage and restore after the selected test fails.
 
-- [ ] **3.2 Publish the documented batch contract.**
+- [x] **3.2 Publish the documented batch contract.**
   - [F] `docs/api/context.md`, `docs/guides/run-context.md`.
   - Make `docs/api/context.md` the canonical `invoke.parallel` reference:
     default raise, explicit `raise_on_failure=False` example using injected
