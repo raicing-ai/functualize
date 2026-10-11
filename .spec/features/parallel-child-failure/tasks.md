@@ -120,7 +120,7 @@ this file. A fresh execution context must be prepared from that anchor.
 
 ## Wave 3 — checkpoint before independent review
 
-- [ ] **4.1 Verify the complete feature and hand it off.**
+- [x] **4.1 Verify the complete feature and hand it off.**
   - [F] `.spec/features/parallel-child-failure/tasks.md` (task state),
     `.spec/STATE.md` (gitignored phase state). Source fixes discovered by
     a failing gate go back into their owning earlier task before this is
