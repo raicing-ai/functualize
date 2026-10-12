@@ -107,7 +107,7 @@ it pass again and left the checkout clean.
 
 ## Wave 3
 
-### [ ] 4.1 Align lease documentation with runtime behavior
+### [x] 4.1 Align lease documentation with runtime behavior
 
 [F] `src/functualize/_primitives/lease.py`,
 `src/functualize/_engine/frontier.py`, `docs/cli/workflow.md`.
@@ -125,6 +125,15 @@ Acceptance: the edited docstrings and CLI page state the same lease semantics
 as the tests, and `uv run ruff check src/ tests/ plugins/ examples/` plus
 `uv run ruff format --check src/ tests/ plugins/ examples/` pass. No change to
 `DEFAULT_LEASE_SECONDS` or claim/fence code.
+
+Evidence: the current prose scan found four hits before editing (earlier waves
+had already changed the engine prose) and six after editing. The constant
+comment, frontier renewal and timeout docstrings, and CLI page now describe
+in-step renewal every 60 seconds, the distinction between stale generation
+and a transient storage failure, and why expiry neither proves death nor
+interrupts old work. Only prose changed. Ruff check passed; ruff format check
+reported 1,598 formatted files; mypy passed on 389 source files; all seven
+import contracts passed; the two focused engine files passed 25 tests.
 
 ## Wave 4
 
