@@ -123,6 +123,10 @@ def recorded_answer(store: ScopeStore, scope_id: str, gate_name: str) -> Any:
     record = store.get_gate(scope_id, gate_name)
     if record is None:
         return None
+    # A candidate's accepted payload is also mirrored on the legacy gate
+    # record. It is not an unrecorded deposit: replay reads its candidate.
+    if record.get("candidates"):
+        return None
     return record.get("payload")
 
 

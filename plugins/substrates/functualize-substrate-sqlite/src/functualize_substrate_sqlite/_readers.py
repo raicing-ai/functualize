@@ -120,7 +120,7 @@ class SqlWorkflowReader:
 
     _COLUMNS = (
         "id, workflow, status, position, lease_generation, lease_owner, "
-        "lease_expires_at, created_at, updated_at, terminal_at"
+        "lease_expires_at, created_at, updated_at, terminal_at, graph_digest"
     )
 
     def __init__(self, driver: SqlDriver, namespace: str) -> None:
@@ -140,6 +140,7 @@ class SqlWorkflowReader:
             created_at=_time(row[7]),
             updated_at=_time(row[8]),
             terminal_at=_time(row[9]),
+            graph_digest=row[10],
         )
 
     def workflow(self, scope_id: str) -> WorkflowView | None:

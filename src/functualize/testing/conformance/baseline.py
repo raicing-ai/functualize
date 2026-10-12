@@ -7,7 +7,8 @@ The design package's list (`08-delivery-and-tests.md`), one check each:
 3. state batch and rollback;
 4. corrupt-data policy;
 5. event sequence monotonicity;
-6. close / reopen durability.
+6. close / reopen durability;
+7. walk command and reader round trips.
 
 Every check talks to the store through the public port only — commands in,
 questions out — so a third-party backend runs exactly what the shipped ones
@@ -25,15 +26,25 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from functualize.plugin import (
+    EPILOGUE_STEP_KEY,
+    CandidateEvaluation,
     Claimed,
     ClaimWorkflow,
     CompleteStep,
     Conflict,
+    EvaluationOutcome,
     FinishAttempt,
+    GateCandidate,
     IllegalTransition,
+    MoveScope,
+    RecordBranch,
+    RecordStep,
+    ReleaseLease,
+    RenewLease,
     RunQuery,
     RuntimeStore,
     StartAttempt,
+    StartWalk,
     StateBatch,
     SuspendAtGate,
     WorkflowQuery,
@@ -331,6 +342,130 @@ def close_reopen_durability(make_store: MakeStore, root: Path) -> None:
     reopened.close()
 
 
+# -- 7: each new command is exercised through its reader --------------------
+
+
+def start_and_workflow(make_store: MakeStore, root: Path) -> None:
+    store = make_store(root)
+    gen = _claim(store, "walk")
+    with store.transaction() as tx:
+        tx.workflows.start(StartWalk("walk", gen, "flow", "entry", "digest", _at(1)))
+    view = store.workflows.workflow("walk")
+    assert view is not None
+    assert (view.workflow, view.status, view.position, view.graph_digest) == (
+        "flow",
+        "running",
+        "entry",
+        "digest",
+    ), view
+    store.close()
+
+
+def renew_and_workflow(make_store: MakeStore, root: Path) -> None:
+    store = make_store(root)
+    gen = _claim(store, "renew")
+    with store.transaction() as tx:
+        tx.workflows.renew(RenewLease("renew", gen, "runner-a", _at(10), LEASE))
+    view = store.workflows.workflow("renew")
+    assert view is not None
+    assert view.generation == gen and view.owner == "runner-a", view
+    assert view.expires_at == _at(10 + LEASE), view
+    store.close()
+
+
+def release_and_workflow(make_store: MakeStore, root: Path) -> None:
+    store = make_store(root)
+    gen = _claim(store, "release")
+    with store.transaction() as tx:
+        tx.workflows.release(ReleaseLease("release", gen, _at(1)))
+    view = store.workflows.workflow("release")
+    assert view is not None
+    assert view.generation == gen, view
+    assert view.expires_at == _at(1), view
+    # The document store retains the last holder for diagnosis. The
+    # observable release guarantee is that a different runner can claim now.
+    with store.transaction() as tx:
+        taken = tx.workflows.claim(ClaimWorkflow("release", "runner-b", _at(2), LEASE))
+    assert isinstance(taken, Claimed) and taken.generation > gen, taken
+    store.close()
+
+
+def record_step_and_steps(make_store: MakeStore, root: Path) -> None:
+    store = make_store(root)
+    gen = _claim(store, "steps")
+    with store.transaction() as tx:
+        tx.workflows.record_step(
+            RecordStep("steps", gen, "timed-out", _at(1), None, status="timed_out")
+        )
+        tx.workflows.record_step(
+            RecordStep("steps", gen, EPILOGUE_STEP_KEY, _at(1), _at(1), result="end")
+        )
+    steps = {step.step_key: step for step in store.workflows.steps("steps")}
+    assert "timed-out" in steps, steps
+    assert steps["timed-out"].completed_at is None, steps["timed-out"]
+    assert store.workflows.step("steps", "timed-out") == steps["timed-out"]
+    epilogue = store.workflows.step("steps", EPILOGUE_STEP_KEY)
+    assert epilogue is not None and epilogue.result == "end", epilogue
+    store.close()
+
+
+def record_branch_and_branch(make_store: MakeStore, root: Path) -> None:
+    store = make_store(root)
+    gen = _claim(store, "branch")
+    with store.transaction() as tx:
+        tx.workflows.record_branch(RecordBranch("branch", gen, "fork", "left", _at(1)))
+    assert store.workflows.branch("branch", "fork") == "left"
+    assert store.workflows.branch("branch", "missing") is None
+    store.close()
+
+
+def move_and_workflow(make_store: MakeStore, root: Path) -> None:
+    store = make_store(root)
+    gen = _claim(store, "move")
+    with store.transaction() as tx:
+        tx.workflows.move(MoveScope("move", gen, "blocked", "gate", _at(1)))
+    view = store.workflows.workflow("move")
+    assert view is not None and (view.status, view.position) == ("blocked", "gate"), (
+        view
+    )
+    store.close()
+
+
+def state_and_state(make_store: MakeStore, root: Path) -> None:
+    store = make_store(root)
+    gen = _claim(store, "state")
+    with store.transaction() as tx:
+        tx.workflows.write_state(StateBatch("state", gen, _at(1), {"answer": 42}))
+    assert store.workflows.state("state") == {"answer": 42}
+    store.close()
+
+
+def candidate_answer_has_no_legacy_deposit(make_store: MakeStore, root: Path) -> None:
+    store = make_store(root)
+    gen = _claim(store, "candidate")
+    with store.transaction() as tx:
+        tx.workflows.suspend(
+            SuspendAtGate("candidate", gen, "approve", "request", "approve", _at(1))
+        )
+    with store.transaction() as tx:
+        tx.inputs.append(
+            GateCandidate(
+                "accepted",
+                "request",
+                0,
+                "conformance",
+                _at(2),
+                CandidateEvaluation(EvaluationOutcome.ACCEPTED),
+                {"approved": True},
+            )
+        )
+    request = store.inputs.request("request")
+    assert request is not None and request.status == "accepted", request
+    assert len(store.inputs.candidates_for("request")) == 1
+    assert store.inputs.deposited_answer("candidate", "approve") is None
+    store.close()
+
+
 #: The checks, in the design package's order — ``(name, check)``.
 BASELINE: tuple[tuple[str, Callable[[MakeStore, Path], None]], ...] = (
     ("run tree and recent history", run_tree_and_recent_history),
@@ -342,6 +477,14 @@ BASELINE: tuple[tuple[str, Callable[[MakeStore, Path], None]], ...] = (
     ("corrupt-data policy", corrupt_data_policy),
     ("event sequence monotonicity", event_sequence_monotonicity),
     ("close/reopen durability", close_reopen_durability),
+    ("start and workflow", start_and_workflow),
+    ("renew and workflow", renew_and_workflow),
+    ("release and workflow", release_and_workflow),
+    ("record step and steps", record_step_and_steps),
+    ("record branch and branch", record_branch_and_branch),
+    ("move and workflow", move_and_workflow),
+    ("state and state", state_and_state),
+    ("candidate answer has no legacy deposit", candidate_answer_has_no_legacy_deposit),
 )
 
 

@@ -30,6 +30,11 @@ from functualize._types.errors import (
     RuntimeStoreSelectionError,
     SubstrateInstallError,
 )
+from functualize._types.gate_resolution import (
+    CandidateEvaluation,
+    EvaluationOutcome,
+    GateCandidate,
+)
 from functualize._types.host import PluginHost
 from functualize._types.input_modes import DEFAULT_SIGIL, InputMode, InputModeRegistry
 from functualize._types.interactivity import (
@@ -253,6 +258,9 @@ __all__ = [
     "CancelResult",
     "Attempt",
     "InputRequest",
+    "GateCandidate",
+    "CandidateEvaluation",
+    "EvaluationOutcome",
     "EPILOGUE_STEP_KEY",
     "RunView",
     "WorkflowView",
