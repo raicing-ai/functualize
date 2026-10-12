@@ -72,7 +72,7 @@ restoring the committed source left a clean tree and the test passed again.
 
 ## Wave 2
 
-### [ ] 3.1 Prove live-step exclusion with two runners
+### [x] 3.1 Prove live-step exclusion with two runners
 
 [F] `tests/engine/test_walk_claims_through_the_port.py`,
 `tests/engine/test_timeout_is_lease_expiry.py`.
@@ -89,6 +89,21 @@ tests/engine/test_timeout_is_lease_expiry.py
 tests/engine/test_walk_claims_through_the_port.py` passes. The test must fail
 if the walker no longer starts its heartbeat, as shown by the task 2.1
 sabotage. No production change is expected in this wave.
+
+Evidence: two `WorkflowWalker` instances use distinct `ScopeStore` objects
+over one substrate. The first blocks inside step `a`; after its original
+compressed lease expires, the second returns `HELD` without running a step.
+The first then completes `a` and `b` once, with no heartbeat thread left.
+The existing forced-reclaim test in the same file still shows a taken first
+walker returns `SUPERSEDED` and never runs `b`. The acceptance pair passed 25
+tests. Ruff check and format check, mypy on 389 source files, and all seven
+import contracts passed. The production path exercised is
+`WorkflowWalker.run()` → `LeaseHeartbeat` → `FrontierWalk.renew()` →
+`ScopeStore.renew_scope()` while another `WorkflowWalker.run()` attempts a
+claim through its runtime port. No production code changed.
+After the test commit, disabling `LeaseHeartbeat._run()` made the new test
+fail with `the live walk never renewed`; restoring the committed source made
+it pass again and left the checkout clean.
 
 ## Wave 3
 

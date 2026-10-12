@@ -19,13 +19,17 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event, Thread
+from threading import enumerate as live_threads
 from typing import Any
 
 import pytest
 from tests._support.engine_storage import port_for
 
 from functualize._app.state import AppState
-from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
+from functualize._engine.frontier import RenewalOutcome
+from functualize._engine.workflow_walker import WalkOutcome, WalkReport, WorkflowWalker
+from functualize._primitives import lease
 from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.enums import RunStatus
@@ -143,6 +147,82 @@ class TestConflictNeverStarts:
         assert WalkOutcome.HELD.value == "held"
         assert WalkOutcome.HELD is not WalkOutcome.SUPERSEDED
         assert WalkOutcome.HELD is not WalkOutcome.FAILED
+
+    def test_a_second_walker_cannot_claim_during_a_long_live_step(
+        self, store: ScopeStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The first claim survives its original expiry while its step is blocked."""
+        monkeypatch.setattr(lease, "DEFAULT_LEASE_SECONDS", 0.3)
+        entered = Event()
+        finish = Event()
+        renewed = Event()
+        first_steps: list[str] = []
+        second_steps: list[str] = []
+        first_reports: list[WalkReport] = []
+        renewals: list[RenewalOutcome] = []
+
+        def first_step(name: str) -> str:
+            first_steps.append(name)
+            if name == "a":
+                entered.set()
+                assert finish.wait(5), "the first step was not released"
+            return name
+
+        first = WorkflowWalker(
+            _linear(),
+            store,
+            "s1",
+            run_step=first_step,
+            runtime_store=port_for(store),
+            _heartbeat_interval_seconds=0.02,
+        )
+        real_renew = first._walk.renew
+
+        def observe_renewal() -> RenewalOutcome:
+            outcome = real_renew()
+            renewals.append(outcome)
+            renewed.set()
+            return outcome
+
+        first._walk.renew = observe_renewal  # type: ignore[method-assign]
+        runner = Thread(target=lambda: first_reports.append(first.run()))
+        try:
+            runner.start()
+            assert entered.wait(5), "the first walker never reached its step"
+            initial = store.get_lease("s1")
+            assert initial is not None
+            assert renewed.wait(2), "the live walk never renewed"
+            past_initial_expiry = (
+                datetime.fromisoformat(initial.expires_at) - datetime.now(UTC)
+            ).total_seconds() + 0.05
+            assert not finish.wait(max(0, past_initial_expiry))
+            assert datetime.now(UTC) > datetime.fromisoformat(initial.expires_at)
+
+            other_store = ScopeStore(store.substrate)
+            second = WorkflowWalker(
+                _linear(),
+                other_store,
+                "s1",
+                run_step=lambda name: second_steps.append(name),
+                runtime_store=port_for(other_store),
+            )
+            refused = second.run()
+            assert refused.outcome is WalkOutcome.HELD
+            assert second_steps == []
+            current = store.get_lease("s1")
+            assert current is not None
+            assert current.generation == initial.generation
+        finally:
+            finish.set()
+            runner.join(5)
+
+        assert not runner.is_alive()
+        assert len(first_reports) == 1
+        assert first_reports[0].outcome is WalkOutcome.COMPLETED
+        assert first_steps == ["a", "b"]
+        assert set(renewals) == {RenewalOutcome.RENEWED}
+        assert len(renewals) < 100, "the heartbeat spun instead of waiting"
+        assert not any(t.name == "lease-heartbeat:s1" for t in live_threads())
 
 
 # ----------------------------------------------------------------------
