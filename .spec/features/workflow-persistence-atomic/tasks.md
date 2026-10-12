@@ -278,7 +278,7 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       `test_a_stale_walk_lands_nothing_after_a_second_process_takes_over`
       fail with A's `blocked` / `a-position` overwriting B's row; restored,
       the test passed.
-- [ ] **W15** Relational durability assertions pass; resume cases remain strict xfails
+- [x] **W15** Relational durability assertions pass; resume cases remain strict xfails
       *Depends on:* W9, W11, W12.
       *Files:* `tests/integration/test_substrate_durability.py`.
       *Do:* remove the module `pytestmark` strict xfail and its `TRANSITIONAL(workflow-persistence-atomic)`
@@ -296,6 +296,11 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       verified there.
       *Sabotage:* break the relational read behind
       `test_the_substrate_is_where_the_records_actually_are` → that unmasked test fails.
+      Done (`67fd9aed`): the wave-4 gate was narrowed by the leader ruling to
+      the two relational assertions; both resume cases retain strict per-test
+      xfails until W17. The full file yielded 2 passed / 2 xfailed. Replacing
+      the scope-position read with NULL made the unmasked records test fail
+      (`('blocked', None)` versus `('blocked', 'pause')`); restored, it passed.
 
 ## Wave 5 — operator surfaces (needs D-W1; shown for D-W1 = a)
 
