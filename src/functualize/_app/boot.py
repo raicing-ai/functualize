@@ -147,18 +147,20 @@ def init_observability(app: Any) -> None:
     # run, because a scope is advanced by several runs across a resume.
     from functualize._events.walk_log import install_walk_log as _install_walk_log
 
-    def _scope_store_for_project() -> Any:
-        """The walk log, on the **engine's** substrate — `_run_store_for_project`'s
+    def _store_for_project() -> Any:
+        """The walk log, on the **engine's** selected store — `_run_store_for_project`'s
         reason, and the same store the walk itself writes its steps to, so an
-        event and the step it describes cannot land in different backends."""
-        from functualize._primitives.scope_store import ScopeStore
+        event and the step it describes cannot land in different backends.
 
-        return ScopeStore(app.substrate)
+        Resolved per call from the engine rather than captured at boot: the
+        engine can be rebuilt around a reloaded store, and this subscriber
+        outlives both it and any one walk."""
+        return app._execution_engine._runtime_store
 
     # The return is discarded: unlike the run log, nothing calls back into
     # this subscriber — it has no buffer to flush and no run to close — and the
     # bus holds the reference that keeps it alive.
-    _install_walk_log(app._event_bus, _scope_store_for_project)
+    _install_walk_log(app._event_bus, _store_for_project)
 
     from functualize._events._catalog_entries import (
         get_framework_event_catalog,

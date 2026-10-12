@@ -224,6 +224,14 @@ class SqlWorkflowReader:
         )
         return str(rows[0][0]) if rows else None
 
+    def state(self, scope_id: str) -> dict[str, Any]:
+        rows = self._driver.query(
+            "SELECT key, value FROM scope_state "
+            "WHERE namespace_id = ? AND scope_id = ?",
+            (self._namespace, scope_id),
+        )
+        return {str(key): _json(value) for key, value in rows}
+
 
 class SqlInputReader:
     """Open requests, workspace-wide waiting, and recorded candidates."""

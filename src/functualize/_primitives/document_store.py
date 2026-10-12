@@ -342,6 +342,9 @@ class _DocumentWorkflowReader:
     def branch(self, scope_id: str, decision_key: str) -> str | None:
         return self._scopes.get_branch(scope_id, decision_key)
 
+    def state(self, scope_id: str) -> dict[str, Any]:
+        return self._scopes.state_snapshot(scope_id)
+
 
 def _step_record(cmd: CompleteStep | RecordStep) -> dict[str, Any]:
     """A step command as the legacy step record the walk has always written."""
@@ -1188,7 +1191,13 @@ class _DocumentTransaction:
         `ScopeStore.state_batch` checks the hold on entry and again at the exit
         write, so a claim that lands mid-block discards the block rather than
         committing state the new holder has already invalidated.
+
+        An empty batch is applied as nothing: it names the unit's scope (the
+        walk log's event append needs one) and must not open the state file to
+        write it back unchanged.
         """
+        if not cmd.upserts and not cmd.deletes:
+            return
         with (
             self._held(scopes, cmd.scope_id, cmd.generation),
             scopes.state_batch(cmd.scope_id) as state,

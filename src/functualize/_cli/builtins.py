@@ -1170,7 +1170,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         out, arrived at by the back door.
         """
         payload = event.get("payload") or {}
-        name = str(event.get("event", "")).removeprefix("workflow.")
+        name = str(event.get("type") or event.get("event", "")).removeprefix(
+            "workflow."
+        )
         node = payload.get("node") or ""
         outcome = payload.get("outcome") or ""
         iteration = payload.get("iteration")

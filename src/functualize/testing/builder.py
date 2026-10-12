@@ -55,6 +55,49 @@ def _temp_state() -> State:
     return State(backend)
 
 
+def _walk_state(scope_id: str = "test-scope") -> State:
+    """A real walk-scoped `State` — claimed scope, real temporary document port.
+
+    The walk-step counterpart of :func:`_temp_state`, and for its reason: the
+    collaborator under test is `PortBackedState` — `StateBatch` writes under
+    the held generation and `WorkflowReader.state` reads — so the test runs the
+    real port rather than a double that would accept anything. The claim is
+    real for the same reason: the fence refuses a write under a generation the
+    scope does not hold, exactly as in production, so a fake here would make
+    the helper itself the thing being tested.
+
+    The store hands out the generation, as it does for a walk; the caller gets
+    a `State` and need not care which number it is.
+    """
+    from datetime import UTC, datetime
+
+    from functualize._engine.capabilities.state import PortBackedState
+    from functualize._engine.recording import WorkflowRecorder
+    from functualize._primitives.document_store import DocumentRuntimeStore
+    from functualize._primitives.lease import DEFAULT_LEASE_SECONDS
+    from functualize._primitives.substrate import JsonFileSubstrate
+    from functualize._types.persistence import Conflict
+
+    tmp = tempfile.TemporaryDirectory(prefix="functualize-test-walk-state-")
+    store = DocumentRuntimeStore(JsonFileSubstrate(Path(tmp.name)))
+    with store.transaction() as tx:
+        outcome = tx.workflows.claim(
+            WorkflowRecorder().claimed(
+                scope_id=scope_id,
+                owner="functualize-test-builder",
+                now=datetime.now(UTC),
+                lease_seconds=DEFAULT_LEASE_SECONDS,
+                force=False,
+            )
+        )
+    if isinstance(outcome, Conflict):
+        raise AssertionError(f"a fresh scope cannot already be held: {outcome}")
+    backend = PortBackedState(store, scope_id, outcome.generation)
+    # Keep the directory alive exactly as long as the store that needs it.
+    backend._tmp = tmp  # type: ignore[attr-defined]
+    return State(backend)
+
+
 class TestRunContext:
     """Builder for test RunContext instances with sensible defaults.
 

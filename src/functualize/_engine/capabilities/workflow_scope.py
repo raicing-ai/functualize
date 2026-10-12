@@ -44,7 +44,7 @@ class WorkflowScope:
             at construction instead of at the first lost write.
     """
 
-    __slots__ = ("_scope_id", "_state_store", "_metadata", "_closed")
+    __slots__ = ("_scope_id", "_state_store", "_metadata", "_closed", "_generation")
 
     def __init__(
         self,
@@ -57,11 +57,32 @@ class WorkflowScope:
         self._state_store: ScopeBackedStateStore | None = state_store
         self._metadata: dict[str, Any] = metadata or {}
         self._closed = False
+        self._generation: int | None = None
 
     @property
     def scope_id(self) -> str:
         """The unique identifier for this workflow scope."""
         return self._scope_id
+
+    @property
+    def generation(self) -> int | None:
+        """The walk's held generation while a walk holds this scope.
+
+        `None` means no walk is passing one — a scope outside a walk, or the
+        window after the walk released its lease. A `State` built while this is
+        set writes `StateBatch` under the generation and through the port; one
+        built while it is `None` keeps `ScopeBackedStateStore`, because
+        non-walk state is outside the change (spec §3).
+
+        The walk sets it after its claim and clears it at release. The claim
+        itself lands in the scope record through the port, where a resumed walk
+        re-claims at a new generation.
+        """
+        return self._generation
+
+    @generation.setter
+    def generation(self, value: int | None) -> None:
+        self._generation = value
 
     @property
     def state_store(self) -> ScopeBackedStateStore | None:

@@ -209,6 +209,9 @@ class WorkflowRunner:
             prompt_gates=self._prompt_gates,
             emit=self._emit,
             notifiers=self._notifiers,
+            # The scope object steps share with this run: the walk passes its
+            # held generation into it after the claim and clears it at release.
+            scope=(self._request.parent_scope if self._request is not None else None),
         ).run()
 
         if report.outcome is not WalkOutcome.COMPLETED:

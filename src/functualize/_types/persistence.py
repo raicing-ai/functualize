@@ -863,6 +863,8 @@ class WorkflowReader(Protocol):
 
     def branch(self, scope_id: str, decision_key: str) -> str | None: ...
 
+    def state(self, scope_id: str) -> Mapping[str, Any]: ...
+
 
 @runtime_checkable
 class InputReader(Protocol):

@@ -602,7 +602,12 @@ class RunContext:
         scope is consulted only to build one when the job declared no `state:`
         parameter and nothing has therefore materialised it yet.
         """
-        from functualize._engine.capabilities.state import State as _State
+        from functualize._engine.capabilities.state import (
+            State as _State,
+        )
+        from functualize._engine.capabilities.state import (
+            state_for_scope,
+        )
 
         cached = self._cap_or_none(_State)
         if cached is not None:
@@ -610,7 +615,7 @@ class RunContext:
         if self._state is not None:
             return self._state
         scope = self._workflow_scope
-        built = _State(scope.state_store if scope is not None else None)
+        built = state_for_scope(scope, self._execution_engine)
         # Cached in both places on purpose. The caps map is the shared one, and
         # is what makes `rc.state` and a `state:` parameter one object; the
         # attribute covers a context built with no map at all, where two calls

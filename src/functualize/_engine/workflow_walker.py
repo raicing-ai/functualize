@@ -63,6 +63,7 @@ from functualize._types.workflow import (
 )
 
 if TYPE_CHECKING:
+    from functualize._engine.capabilities.workflow_scope import WorkflowScope
     from functualize._types.persistence import RuntimeStore
     from functualize._types.protocols import AgentStepResult
     from functualize._types.workflow import WorkflowDeclaration
@@ -302,9 +303,11 @@ class WorkflowWalker:
         max_workflow_depth: int | None = None,
         emit: Callable[..., None] | None = None,
         notifiers: Any = None,
+        scope: WorkflowScope | None = None,
     ) -> None:
         self._declaration = declaration
         self._scope_id = scope_id
+        self._scope = scope
         self._runtime_store = runtime_store
         self._run_step = run_step
         self._run_agent_step = run_agent_step
@@ -358,6 +361,11 @@ class WorkflowWalker:
                     f"{claimed.held_generation}"
                 ),
             )
+        # The walk passes its generation into the step's scope: while the lease
+        # is held, every `State` a step builds writes `StateBatch` under this
+        # generation and through the port, and reads `WorkflowReader.state`.
+        if self._scope is not None:
+            self._scope.generation = self._walk.generation
         try:
             self._check_the_nesting_is_bounded()
             self._check_the_graph_has_not_changed()
@@ -387,6 +395,8 @@ class WorkflowWalker:
             return WalkReport(WalkOutcome.SUPERSEDED, self._scope_id)
         finally:
             self._walk.release()
+            if self._scope is not None:
+                self._scope.generation = None
 
     def _check_the_nesting_is_bounded(self) -> None:
         """Refuse a workflow nested deeper than the limit (T12, AC-18).
