@@ -137,7 +137,7 @@ import contracts passed; the two focused engine files passed 25 tests.
 
 ## Wave 4
 
-### [ ] 5.1 Validate the implemented feature
+### [x] 5.1 Validate the implemented feature
 
 [F] `.spec/features/lease-heartbeat/tasks.md`, `.spec/STATUS.md` (durable
 decision only). This is a checkpoint wave; no new production behavior.
@@ -155,6 +155,24 @@ Acceptance: all local checks pass, both-runner behavior and cleanup are covered,
 and no required gate has been waived. The phase can then move to independent
 review; clearing feature artifacts remains the deletion-only last commit after
 feature validation.
+
+Evidence: `uv run ruff check src/ tests/ plugins/ examples/` passed;
+`uv run ruff format --check src/ tests/ plugins/ examples/` reported 1,598
+formatted files; `uv run mypy src/` passed on 389 files; `uv run lint-imports`
+kept all seven contracts. The mapped step tier passed 2,082 tests with 119
+skipped; `uv run pytest -n auto -q --no-header tests/engine/` passed 144.
+Each pytest invocation completed within the 600-second cap. The production
+path is `WorkflowWalker.run()` → `LeaseHeartbeat` → `FrontierWalk.renew()` →
+`ScopeStore.renew_scope()` while a step is blocked; the second walk claims
+through its runtime port and receives `HELD`. After the implementation commit,
+disabling the heartbeat made the in-step test fail; after the two-runner test
+commit, disabling renewal made that test fail with `the live walk never
+renewed`. Both sabotages were restored before their passing reruns. The
+dead-code delta against `81cc3e8` reports `NEW_DEAD: 0`, `TESTS_ONLY: 0`,
+with three pre-existing neighbourhood findings in `frontier.py`. The durable
+lease behavior is recorded in `.spec/STATUS.md`. No gate was waived. The
+feature directory stays on the draft branch for independent review and is
+cleared by a deletion-only last commit later.
 
 ## Task Dependency Graph
 

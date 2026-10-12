@@ -608,6 +608,23 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### Lease heartbeat — implemented, review pending
+
+A claimed workflow walk renews its 300-second lease every 60 seconds, including
+while a step executes and while the walk reports its end. The per-walk heartbeat
+stops and joins before the claim is released on completion, failure, or an
+exception. Renewal extends expiry without changing the generation. A transient
+storage failure is retried at the next interval; a stale generation means
+another runner claimed the scope, even after expiry, so the old walk suppresses
+its normal end report and its next write is fenced.
+
+Expiry makes a still-`running` scope claimable but neither proves the old work
+stopped nor interrupts it. An ordinary second walker is refused while the
+first keeps renewing, including after the first claim's original expiry. The
+operator-facing account is in `docs/cli/workflow.md`; the two-walker and
+cleanup proofs are in `tests/engine/test_walk_claims_through_the_port.py` and
+`tests/engine/test_timeout_is_lease_expiry.py`.
+
 ### Gate resolution requests — behavior delivered, durable evidence open
 
 AC-1 and AC-2 are delivered on `feat/gate-resolution-model`: a gate request has
