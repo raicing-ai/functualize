@@ -39,6 +39,21 @@ failure is still a panel and a missing value still a one-line usage error, both
 exit 2. `--emit-format` still governs stdout only, so a failed job writes
 nothing there whatever the format.
 
+### Changed — failed parallel children now fail an ignoring parent
+
+`Invoke.parallel` collects every child result, then raises by default if a
+child failed. The error names each failed input position, job and status, and
+chains the first available cause. A parent that ignored the returned list used
+to finish green even when a child failed; it now fails instead.
+
+Callers that handle failures themselves can pass `raise_on_failure=False` to
+receive the complete result list in input order. `rc.invoke_parallel(jobs)`
+keeps the raising default. The top-level `func builtin parallel` command still
+reports every child because it uses the opt-out internally.
+
+Unchanged: the batch deadline returns promptly without waiting for running
+worker threads to finish.
+
 ### Changed — one arity per pre-boot flag, and one exit code for a wrong value
 
 Every flag `func` reads before boot is boolean or value-required — never
