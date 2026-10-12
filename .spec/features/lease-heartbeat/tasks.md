@@ -64,6 +64,8 @@ tests with 117 skipped, and the engine wave tier passed 143 tests. Ruff check,
 ruff format check, mypy on 389 source files, and all seven import contracts
 passed. The production path is `WorkflowWalker.run()` → `LeaseHeartbeat` →
 `FrontierWalk.renew()` → `ScopeStore.renew_scope()` while `run_step` is blocked.
+The heartbeat also remains active through end reporting and notifications,
+until the claimed run is ready to release its lease.
 After committing the implementation, stopping the helper before its first wait
 made the in-step test fail with `the walk did not renew during its live step`;
 restoring the committed source left a clean tree and the test passed again.

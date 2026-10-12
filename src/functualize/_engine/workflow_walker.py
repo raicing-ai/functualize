@@ -375,12 +375,15 @@ class WorkflowWalker:
                 self._check_the_nesting_is_bounded()
                 self._check_the_graph_has_not_changed()
                 report = self._run_walk()
+                if not heartbeat.superseded:
+                    self._say(
+                        "walk.end",
+                        node=report.failed_node or "",
+                        outcome=report.outcome.value,
+                    )
+                    self._notify(report)
             if heartbeat.superseded:
                 return WalkReport(WalkOutcome.SUPERSEDED, self._scope_id)
-            self._say(
-                "walk.end", node=report.failed_node or "", outcome=report.outcome.value
-            )
-            self._notify(report)
             return report
         except StaleGenerationError:
             # Someone took the scope while this walk was running — `cancel`
