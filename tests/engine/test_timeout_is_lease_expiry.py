@@ -21,10 +21,12 @@ claim more than it does.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event, Thread
 from threading import enumerate as live_threads
+from time import monotonic, sleep
 
 import pytest
 from tests._support.engine_storage import port_for
@@ -62,6 +64,16 @@ def _age_the_lease(store: ScopeStore, seconds: float, *, scope_id: str = "wf") -
     )
 
 
+def _wait_for(condition: Callable[[], bool], timeout: float = 2.0) -> bool:
+    """Poll ``condition`` until it holds or ``timeout`` passes."""
+    deadline = monotonic() + timeout
+    while monotonic() < deadline:
+        if condition():
+            return True
+        sleep(0.01)
+    return condition()
+
+
 class TestSilenceIsWhatExpires:
     def test_a_lapsed_lease_makes_the_scope_claimable(self, store: ScopeStore) -> None:
         walk = _walk(store)
@@ -71,23 +83,62 @@ class TestSilenceIsWhatExpires:
         assert is_expired(store.get_lease("wf"), datetime.now(UTC))
         assert derived_state(store.get_scope("wf")) == "abandoned"
 
-    def test_renewing_keeps_the_scope(self, store: ScopeStore) -> None:
+    def test_renewing_keeps_the_scope(self, tmp_path: Path) -> None:
         """The heartbeat, and the reason the lease is not a step time limit.
 
         Without renewal a step slower than `DEFAULT_LEASE_SECONDS` would watch
         its own scope go claimable while it was still working, and another
         runner could take it. Renewing says "still here", so the lease measures
-        **silence**, not duration.
+        **silence**, not duration. The step below ages its own lease until the
+        scope reads `abandoned`; the walk, not this test, brings it back.
         """
-        walk = _walk(store)
-        walk.claim()
-        _age_the_lease(store, 60)
-        assert derived_state(store.get_scope("wf")) == "abandoned"
+        from functualize._engine.workflow_walker import WorkflowWalker
+        from functualize._types.workflow import END, Edge, Step, WorkflowDeclaration
 
-        assert walk.renew() is RenewalOutcome.RENEWED
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
+        aged_until: list[datetime] = []
+        entered = Event()
+        finish = Event()
 
-        assert not is_expired(store.get_lease("wf"), datetime.now(UTC))
-        assert derived_state(store.get_scope("wf")) == "running"
+        def run_step(name: str) -> str:
+            _age_the_lease(store, 60, scope_id="kept")
+            aged = store.get_lease("kept")
+            assert aged is not None
+            aged_until.append(datetime.fromisoformat(aged.expires_at))
+            entered.set()
+            assert finish.wait(5), "the blocked step was never released"
+            return name
+
+        walker = WorkflowWalker(
+            WorkflowDeclaration(
+                nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
+            ),
+            store,
+            "kept",
+            run_step=run_step,
+            runtime_store=port_for(store),
+            _heartbeat_interval_seconds=0.02,
+        )
+        reports = []
+        runner = Thread(target=lambda: reports.append(walker.run()))
+        try:
+            runner.start()
+            assert entered.wait(5)
+            assert _wait_for(
+                lambda: (
+                    derived_state(store.get_scope("kept")) == "running"
+                    and not is_expired(store.get_lease("kept"), datetime.now(UTC))
+                )
+            ), "the walk never renewed the lease its step let lapse"
+            renewed = store.get_lease("kept")
+            assert renewed is not None
+            assert datetime.fromisoformat(renewed.expires_at) > aged_until[0]
+        finally:
+            finish.set()
+            runner.join(5)
+
+        assert not runner.is_alive()
+        assert reports[0].outcome.value == "completed"
 
     def test_renewal_does_not_move_the_generation(self, store: ScopeStore) -> None:
         """Or every heartbeat would fence the work it exists to protect."""
@@ -161,10 +212,13 @@ class TestTheWalkActuallyRenews:
         )
         entered = Event()
         finish = Event()
-        renewed = Event()
+        aged_until: list[datetime] = []
 
         def run_step(name: str) -> str:
             _age_the_lease(store, 60, scope_id="long-step")
+            aged = store.get_lease("long-step")
+            assert aged is not None
+            aged_until.append(datetime.fromisoformat(aged.expires_at))
             entered.set()
             assert finish.wait(5), "the blocked step was never released"
             return name
@@ -177,21 +231,22 @@ class TestTheWalkActuallyRenews:
             runtime_store=port_for(store),
             _heartbeat_interval_seconds=0.02,
         )
-        real_renew = walker._walk.renew
-
-        def observe_renewal() -> RenewalOutcome:
-            outcome = real_renew()
-            if outcome is RenewalOutcome.RENEWED and entered.is_set():
-                renewed.set()
-            return outcome
-
-        walker._walk.renew = observe_renewal  # type: ignore[method-assign]
         reports = []
         runner = Thread(target=lambda: reports.append(walker.run()))
         try:
             runner.start()
             assert entered.wait(5)
-            assert renewed.wait(2), "the walk did not renew during its live step"
+
+            def renewed_past_the_aged_expiry() -> bool:
+                current = store.get_lease("long-step")
+                return current is not None and (
+                    datetime.fromisoformat(current.expires_at) > aged_until[0]
+                )
+
+            assert _wait_for(renewed_past_the_aged_expiry), (
+                "the walk did not renew during its live step"
+            )
+            assert runner.is_alive(), "the step returned before the renewal"
             assert not is_expired(store.get_lease("long-step"), datetime.now(UTC))
         finally:
             finish.set()

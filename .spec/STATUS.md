@@ -610,8 +610,10 @@ Full specifications and atomized task lists for these features exist in the main
 
 ### Lease heartbeat — implemented, review pending
 
-A claimed workflow walk renews its 300-second lease every 60 seconds, including
-while a step executes and while the walk reports its end. The per-walk heartbeat
+A claimed workflow walk renews its 300-second lease once when it starts, before
+any step, and then every 60 seconds, including while a step executes and while
+the walk reports its end. A walk whose first renewal finds the scope taken runs
+nothing. The per-walk heartbeat
 stops and joins before the claim is released on completion, failure, or an
 exception. Renewal extends expiry without changing the generation. A transient
 storage failure is retried at the next interval; a stale generation means

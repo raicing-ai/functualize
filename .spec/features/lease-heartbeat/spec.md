@@ -19,6 +19,10 @@ that a Python thread has been interrupted. This change preserves that decision.
   executing, including a node that runs longer than `DEFAULT_LEASE_SECONDS`.
   The normal heartbeat interval is 60 seconds, one fifth of the current 300
   second lease. It does not depend on a node boundary or produce a busy loop.
+  The walk also renews once when it starts, on the walking thread and before
+  its first step, so time spent by the claim itself cannot leave that step on
+  a lapsed lease; a walk that learns there that the scope was taken runs
+  nothing.
 - A second ordinary runner attempting the same scope during a live step is
   refused. The running step is not interrupted or reported as timed out merely
   because it has taken longer than one lease period.

@@ -137,11 +137,12 @@ class StepStatus:
 
     SUCCESS = "success"
     FAILED = "failed"
-    #: The scope went claimable while this step still held it. There is no
-    #: preemption anywhere in this codebase — `_engine/exec_policy` refused
-    #: every mechanism that could deliver one — so a step's only budget is its
-    #: lease, and the only party that can record the expiry is whoever takes
-    #: the scope over. See `FrontierWalk._note_the_step_that_went_silent`.
+    #: The scope went claimable while this step still held it. The walk renews
+    #: during a step, so this means renewal stopped for a whole lease, not that
+    #: the step ran long. There is no preemption anywhere in this codebase —
+    #: `_engine/exec_policy` refused every mechanism that could deliver one —
+    #: so the only party that can record the expiry is whoever takes the scope
+    #: over. See `FrontierWalk._record_timed_out`.
     TIMED_OUT = "timed_out"
     #: A human stopped it. Terminal by design and **not** a failure: recorded
     #: as one, it invites exactly the retry that can never succeed.
@@ -287,8 +288,8 @@ class FrontierWalk:
         Nothing preempts a running step — `_engine/exec_policy` researched and
         rejected every mechanism that could, and
         `tests/engine/test_timeout_is_lease_expiry` holds this codebase to it.
-        The walk normally renews every 60 seconds even during a step, so the
-        lease is not a step budget. If renewal stops long enough for expiry,
+        The walk renews when it starts and then every 60 seconds, even during
+        a step, so the lease is not a step budget. If renewal stops long enough for expiry,
         another runner may claim the scope and record this unresolved step as
         timed out. The old work may still be running; its next write is fenced
         by the new generation.
@@ -312,8 +313,8 @@ class FrontierWalk:
     def renew(self) -> RenewalOutcome:
         """Try to extend this walk's claim without moving its generation.
 
-        The walk's heartbeat calls this every 60 seconds, including during a
-        step. Expiry alone does not change the generation or prove work stopped.
+        The walk's heartbeat calls this once when the walk starts and then
+        every 60 seconds, including during a step. Expiry alone does not change the generation or prove work stopped.
         A stale generation means another claim superseded this one, even after
         expiry. An ordinary storage error cannot establish a takeover: report
         it separately so the heartbeat can retry at its next interval. Direct

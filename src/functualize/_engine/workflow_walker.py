@@ -372,6 +372,10 @@ class WorkflowWalker:
                 interval_seconds=self._heartbeat_interval_seconds,
             )
             with heartbeat:
+                if heartbeat.superseded:
+                    # Taken between the claim and the walk's first renewal:
+                    # nothing has run, and nothing of ours may be written.
+                    return WalkReport(WalkOutcome.SUPERSEDED, self._scope_id)
                 self._check_the_nesting_is_bounded()
                 self._check_the_graph_has_not_changed()
                 report = self._run_walk()

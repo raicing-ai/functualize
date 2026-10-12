@@ -69,11 +69,12 @@ __all__ = [
 
 #: How long a claim is good for without a renewal.
 #:
-#: A claimed walk renews every 60 seconds, including while a step runs. This
-#: 300-second limit measures time since the last successful renewal, not step
-#: duration. Expiry makes the scope claimable; it does not prove the runner
-#: stopped or interrupt work that is still running. A later claim increments
-#: the generation and fences the old runner's next write.
+#: A claimed walk renews when it starts and then every 60 seconds, including
+#: while a step runs. This 300-second limit measures time since the last
+#: successful renewal, not step duration. Expiry makes the scope claimable; it
+#: does not prove the runner stopped or interrupt work that is still running.
+#: A later claim increments the generation and fences the old runner's next
+#: write.
 DEFAULT_LEASE_SECONDS = 300
 
 

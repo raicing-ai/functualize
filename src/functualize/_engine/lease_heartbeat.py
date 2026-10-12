@@ -12,11 +12,18 @@ HEARTBEAT_INTERVAL_SECONDS = 60.0
 
 
 class LeaseHeartbeat:
-    """Renew at most once per interval, and join before the claim is released.
+    """Renew once on entry, then at most once per interval, and join on exit.
+
+    The entry renewal runs on the walking thread, before any step. A claim's
+    expiry is computed before its durable write, and the claim path does more
+    work after that write, so by the time the walk starts some of the lease is
+    already spent. Renewing here anchors the lease to the start of the work,
+    and the renewal cannot queue for the lock behind the walk's own writes.
 
     A transient storage failure leaves the worker running so the next interval
     can retry. A stale generation is definitive: the old walk no longer owns
-    the scope, and its caller must suppress a normal end report.
+    the scope, and its caller must suppress a normal end report. If the entry
+    renewal finds that, no worker starts and the caller must run nothing.
     """
 
     def __init__(
@@ -42,6 +49,9 @@ class LeaseHeartbeat:
         return self._superseded.is_set()
 
     def __enter__(self) -> LeaseHeartbeat:
+        if self._renew() is RenewalOutcome.SUPERSEDED:
+            self._superseded.set()
+            return self
         self._thread.start()
         return self
 
@@ -52,7 +62,8 @@ class LeaseHeartbeat:
         traceback: TracebackType | None,
     ) -> None:
         self._stop.set()
-        self._thread.join()
+        if self._thread.ident is not None:
+            self._thread.join()
 
     def _run(self) -> None:
         while not self._stop.wait(self._interval_seconds):

@@ -174,6 +174,40 @@ lease behavior is recorded in `.spec/STATUS.md`. No gate was waived. The
 feature directory stays on the draft branch for independent review and is
 cleared by a deletion-only last commit later.
 
+## Wave 5
+
+### [ ] 6.1 Close the claim-to-first-renewal window found by verification
+
+[F] `src/functualize/_engine/lease_heartbeat.py`,
+`src/functualize/_engine/workflow_walker.py`,
+`src/functualize/_engine/frontier.py` (prose), `src/functualize/_primitives/lease.py`
+(prose), `docs/cli/workflow.md`, `.spec/features/lease-heartbeat/spec.md`,
+`.spec/STATUS.md`, `tests/engine/test_walk_claims_through_the_port.py`,
+`tests/engine/test_timeout_is_lease_expiry.py`.
+
+Independent verification at `92db0db` reproduced a second ordinary walker
+completing at generation 2 while the first walker's step was still blocked.
+An instrumented rerun of that probe located the window: the claim's expiry is
+computed before its durable write (measured at 0.256 s of the 0.3 s
+compressed lease on the loaded host), the heartbeat then waited a full
+interval before its first renewal, and that renewal queued for the scope lock
+behind the walk's own writes and three writes by the claimant. The claim
+lapsed before the first renewal landed.
+
+Renew once on the walking thread when the heartbeat is entered, before any
+step, and run nothing when that renewal reports a takeover. Keep the 60-second
+interval, the claim algorithm, the fence and the lease value. Align the
+remaining contradicting prose (`StepStatus.TIMED_OUT`) and replace the
+hand-called renewal in `test_renewing_keeps_the_scope` with a walker-observed
+one; make the blocked-step renewal test observe the store rather than wrapping
+`renew`.
+
+Acceptance: a deterministic test whose claim outlives its whole compressed
+lease, with a heartbeat interval longer than the test, sees the second walker
+`HELD` and the first complete once; it fails against `92db0db`. The focused
+pair and the engine wave tier pass, with ruff, format, mypy and import
+contracts. Commit before sabotaging the entry renewal.
+
 ## Task Dependency Graph
 
 ```json
@@ -183,7 +217,8 @@ cleared by a deletion-only last commit later.
     { "id": 1, "tasks": ["2.1"] },
     { "id": 2, "tasks": ["3.1"] },
     { "id": 3, "tasks": ["4.1"] },
-    { "id": 4, "tasks": ["5.1"] }
+    { "id": 4, "tasks": ["5.1"] },
+    { "id": 5, "tasks": ["6.1"] }
   ]
 }
 ```
