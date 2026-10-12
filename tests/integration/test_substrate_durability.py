@@ -36,6 +36,7 @@ this.
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -43,18 +44,6 @@ from pathlib import Path
 import pytest
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-
-# TRANSITIONAL(workflow-persistence-atomic): the selected SQL store now has
-# writers and readers, but the walk still uses the legacy ScopeStore beside
-# that port. With the SQL readers bound, the first worker currently reports
-# SUPERSEDED before it can block at the gate. The positive records assertion
-# below also still reads the old `documents` keys; it must move to relational
-# tables when the engine's scope path is unified. Strict, so a passing test
-# forces this marker's removal at that integration step.
-pytestmark = pytest.mark.xfail(
-    strict=True,
-    reason="the workflow engine still mixes legacy scope writes with the selected SQL store",
-)
 
 _JOBS = '''
 from pydantic import BaseModel, Field
@@ -170,6 +159,10 @@ def two_workers(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 @pytest.mark.slow
 class TestAGateCrossesTheProcessBoundary:
+    @pytest.mark.xfail(
+        strict=True,
+        reason="the --wf-resume flag still reads the legacy ScopeStore; W17 reads it through the port",
+    )
     def test_the_second_worker_resumes_what_the_first_blocked(
         self, two_workers: tuple[Path, Path, Path]
     ) -> None:
@@ -241,30 +234,32 @@ class TestAGateCrossesTheProcessBoundary:
         """Positive half of the falsifier: the database really holds them."""
         first, _second, db = two_workers
 
-        _run(first, "walk")
+        blocked = _run(first, "walk")
+        assert blocked.returncode == 5, blocked.stdout + blocked.stderr
+        scope = _scope_id_from(blocked.stdout + blocked.stderr)
 
-        sys.path.insert(
-            0,
-            str(
-                PROJECT_ROOT
-                / "plugins"
-                / "substrates"
-                / "functualize-substrate-sqlite"
-                / "src"
-            ),
-        )
-        from functualize_substrate_sqlite.substrate import SQLiteSubstrate
-
-        substrate = SQLiteSubstrate(db)
-        scopes = substrate.read("scopes")
-        assert scopes is not None, "no scope records reached the database"
-        assert scopes.data["scopes"], "the scope envelope is empty"
-
-        scope_id = next(iter(scopes.data["scopes"]))
-        state = substrate.read(f"scope-state/{scope_id}")
-        assert state is not None and state.data["state"]["rows"] == 500, (
-            "the record reached the database but the job state did not"
-        )
+        with sqlite3.connect(db) as connection:
+            row = connection.execute(
+                "SELECT status, position FROM workflow_scopes WHERE id = ?", (scope,)
+            ).fetchone()
+            steps = connection.execute(
+                "SELECT step_key, status FROM workflow_steps WHERE scope_id = ?",
+                (scope,),
+            ).fetchall()
+            state = connection.execute(
+                "SELECT value FROM scope_state WHERE scope_id = ? AND key = 'rows'",
+                (scope,),
+            ).fetchone()
+            request = connection.execute(
+                "SELECT status FROM input_requests WHERE scope_id = ? AND gate_key = 'pause'",
+                (scope,),
+            ).fetchone()
+        assert row == ("blocked", "pause"), row
+        assert any(
+            key.startswith("first") and status == "success" for key, status in steps
+        ), steps
+        assert state is not None and json.loads(state[0]) == 500, state
+        assert request == ("open",), request
 
 
 def _scope_id_from(output: str) -> str:
@@ -282,6 +277,10 @@ def _scope_id_from(output: str) -> str:
 
 
 @pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True,
+    reason="the --wf-resume flag still reads the legacy ScopeStore; W17 reads it through the port",
+)
 def test_the_gate_payload_survives_the_crossing(
     two_workers: tuple[Path, Path, Path],
 ) -> None:
@@ -296,23 +295,28 @@ def test_the_gate_payload_survives_the_crossing(
 
     blocked = _run(first, "walk")
     scope = _scope_id_from(blocked.stdout + blocked.stderr)
-    _run(second, "walk", "--wf-resume", scope, "--wf-input", '{"approved": "sam"}')
-
-    sys.path.insert(
-        0,
-        str(
-            PROJECT_ROOT
-            / "plugins"
-            / "substrates"
-            / "functualize-substrate-sqlite"
-            / "src"
-        ),
+    resumed = _run(
+        second, "walk", "--wf-resume", scope, "--wf-input", '{"approved": "sam"}'
     )
-    from functualize_substrate_sqlite.substrate import SQLiteSubstrate
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
 
-    stored = SQLiteSubstrate(db).read("scopes")
-    assert stored is not None
-    record = stored.data["scopes"][scope]
-    assert "sam" in json.dumps(record.get("gates", {})), (
-        f"the deposited gate payload is not in the record: {record.get('gates')}"
-    )
+    with sqlite3.connect(db) as connection:
+        request = connection.execute(
+            "SELECT id, status FROM input_requests WHERE scope_id = ? AND gate_key = 'pause'",
+            (scope,),
+        ).fetchone()
+        candidates = connection.execute(
+            "SELECT c.outcome, c.payload FROM input_candidates AS c "
+            "JOIN input_requests AS r ON r.id = c.request_id "
+            "WHERE r.scope_id = ? AND r.gate_key = 'pause' ORDER BY c.ordinal",
+            (scope,),
+        ).fetchall()
+        status = connection.execute(
+            "SELECT status FROM workflow_scopes WHERE id = ?", (scope,)
+        ).fetchone()
+    assert request is not None and request[1] == "consumed", request
+    assert any(
+        outcome == "accepted" and json.loads(payload) == {"approved": "sam"}
+        for outcome, payload in candidates
+    ), candidates
+    assert status == ("completed",), status

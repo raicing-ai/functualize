@@ -278,19 +278,24 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       `test_a_stale_walk_lands_nothing_after_a_second_process_takes_over`
       fail with A's `blocked` / `a-position` overwriting B's row; restored,
       the test passed.
-- [ ] **W15** The durability test passes and is no longer an xfail
+- [ ] **W15** Relational durability assertions pass; resume cases remain strict xfails
       *Depends on:* W9, W11, W12.
       *Files:* `tests/integration/test_substrate_durability.py`.
       *Do:* remove the module `pytestmark` strict xfail and its `TRANSITIONAL(workflow-persistence-atomic)`
-      comment; rewrite `test_the_substrate_is_where_the_records_actually_are` and
+      comment; keep strict xfail markers only on the two resume cases until W17;
+      rewrite `test_the_substrate_is_where_the_records_actually_are` and
       `test_the_gate_payload_survives_the_crossing` to read `workflow_scopes`, `workflow_steps`,
       `scope_state` and `input_requests`/`input_candidates` with `sqlite3`, never
       `SQLiteSubstrate.read`.
-      *Gate (W-AC-2):* `uv run pytest tests/integration/test_substrate_durability.py --run-slow -q`
-      all green with no xfail; `rg -n "SQLiteSubstrate|xfail|TRANSITIONAL" tests/integration/test_substrate_durability.py`
-      → nothing.
-      *Sabotage:* revert W4's `release()` to the legacy call → `test_the_second_worker_resumes_what_the_first_blocked`
-      fails (`SUPERSEDED`).
+      *Gate (W-AC-2, wave-4 half):* `uv run pytest tests/integration/test_substrate_durability.py --run-slow -q`
+      → 2 passed / 2 xfailed / 0 failed / 0 xpassed;
+      `rg -n "SQLiteSubstrate|TRANSITIONAL" tests/integration/test_substrate_durability.py`
+      → nothing; `rg -n "xfail" tests/integration/test_substrate_durability.py`
+      → the two per-test markers only, each naming W17. The rest of W-AC-2 —
+      both process-boundary cases green with no marker — belongs to W17 and is
+      verified there.
+      *Sabotage:* break the relational read behind
+      `test_the_substrate_is_where_the_records_actually_are` → that unmasked test fails.
 
 ## Wave 5 — operator surfaces (needs D-W1; shown for D-W1 = a)
 
@@ -299,7 +304,9 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       *Do:* scope reads via `workflows.workflow` / `resumable` / `steps`; cancel via `CancelWorkflow`;
       reclaim via `ClaimWorkflow(force=True)` + `ReleaseLease`.
 - [ ] **W17** The CLI and its flags
-      *Files:* `src/functualize/_cli/builtins.py` (the workflow verbs only), `src/functualize/app/adapters/workflow_flags.py`.
+      *Files:* `src/functualize/_cli/builtins.py` (the workflow verbs only), `src/functualize/app/adapters/workflow_flags.py`, `tests/integration/test_substrate_durability.py`.
+      *Do:* once `--wf-resume` reads the scope through the port, remove the two
+      per-test strict xfail markers and run both process-boundary cases green.
       *Note:* `_cli/` may import only public API, so it reads through a public app method that
       wraps the port — add it to `functualize.app` if absent, and record it in `contracts.md`.
 - [ ] **W18** The MCP workflow tools
