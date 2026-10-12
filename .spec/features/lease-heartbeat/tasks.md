@@ -37,11 +37,13 @@ each node. In-step renewal remains for wave 1.
 
 ## Wave 1
 
-### [ ] 2.1 Renew during the entire claimed walk
+### [x] 2.1 Renew during the entire claimed walk
 
 [F] `src/functualize/_engine/lease_heartbeat.py`,
 `src/functualize/_engine/workflow_walker.py`,
-`tests/engine/test_timeout_is_lease_expiry.py`.
+`tests/engine/test_timeout_is_lease_expiry.py`. The prior transitional marker
+in `src/functualize/_engine/frontier.py` was removed as a one-line scope
+addition because it became false when this task completed.
 
 Build the per-walk stop-event helper and compose it in `WorkflowWalker.run()`
 after a successful claim. Remove the boundary-only renewal. Keep the normal
@@ -56,6 +58,15 @@ tests/engine/test_timeout_is_lease_expiry.py` passes; the new test sees renewal
 while the step is blocked and no heartbeat thread after each exit. Name the
 production call path in the commit. Commit before sabotaging the helper start;
 the in-step renewal test must fail, then restore the committed source.
+
+Evidence: the focused file passed 19 tests; the mapped step tier passed 1,957
+tests with 117 skipped, and the engine wave tier passed 143 tests. Ruff check,
+ruff format check, mypy on 389 source files, and all seven import contracts
+passed. The production path is `WorkflowWalker.run()` → `LeaseHeartbeat` →
+`FrontierWalk.renew()` → `ScopeStore.renew_scope()` while `run_step` is blocked.
+After committing the implementation, stopping the helper before its first wait
+made the in-step test fail with `the walk did not renew during its live step`;
+restoring the committed source left a clean tree and the test passed again.
 
 ## Wave 2
 
