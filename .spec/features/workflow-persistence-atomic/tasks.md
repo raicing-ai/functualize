@@ -266,11 +266,18 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       and an immediate claim by another runner rather than requiring a null
       historical owner. The candidate values were exported through the plugin
       API to let third-party stores run the accepted-candidate check.
-- [ ] **W14** A stale walker lands nothing
+- [x] **W14** A stale walker lands nothing
       *Files:* `tests/integration/test_stale_walk_lands_nothing.py` (new).
       *Gate (W-AC-3):* two OS processes on SQLite; B force-claims while A is mid-walk; A's renew,
       release, `RecordStep`, `MoveScope` and `StateBatch` each land nothing; B's values survive.
       *Sabotage:* remove `fence_sql` from SQLite `move` → the test fails.
+      Done (`f6f15045`): two spawned OS processes share only the SQLite file.
+      A stages `MoveScope` before B force-claims and writes its own step,
+      state and position; A's delayed move and later stale commands land
+      nothing. Removing the generation predicate from SQLite `_move` made
+      `test_a_stale_walk_lands_nothing_after_a_second_process_takes_over`
+      fail with A's `blocked` / `a-position` overwriting B's row; restored,
+      the test passed.
 - [ ] **W15** The durability test passes and is no longer an xfail
       *Depends on:* W9, W11, W12.
       *Files:* `tests/integration/test_substrate_durability.py`.
