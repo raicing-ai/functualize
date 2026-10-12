@@ -199,11 +199,14 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
 
 ## Wave 3 — the walk's state and events
 
-- [ ] **W10** Reader `state`
+- [x] **W10** Reader `state`
       *Files:* `src/functualize/_types/persistence.py`, `src/functualize/_primitives/document_store.py`,
       `PLUGIN/_readers.py`.
       *Call path:* W11, same wave (closes together).
-- [ ] **W11** `State` inside a walk writes through the port
+      *Done:* `WorkflowReader.state(scope_id)` on the port, both stores — documents read
+      `state_snapshot` through `_DocumentWorkflowReader.state`, SQLite `SELECT key, value FROM
+      scope_state`. Closes with W11 under the B-4 gate and its sabotage.
+- [x] **W11** `State` inside a walk writes through the port
       *Depends on:* W10.
       *Files:* `src/functualize/_engine/capabilities/state.py`,
       `src/functualize/_engine/capabilities/workflow_scope.py`, `src/functualize/testing/builder.py`.
@@ -214,7 +217,18 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       walk in another process reads 500; on documents, unchanged.
       *Sabotage (ticks W10, W11):* route the walk-scoped `State` back to `ScopeBackedStateStore` →
       the `scope_state` row assertion fails.
-- [ ] **W12** The walk log through `EventWriter`
+      *Done:* `WorkflowScope.generation` (set after the walk's claim, cleared at release) carries the
+      routing discriminator; `state_for_scope` builds `PortBackedState` under a generation and keeps
+      `ScopeBackedStateStore` without one (spec §3). Each mutation outside `batch()` is its own
+      `StateBatch` (per-call durability); `batch()` buffers to the outermost clean exit and a raising
+      block discards. Unit tests `tests/engine/test_state_in_a_walk.py` (12); gate B-4 in
+      `tests/engine/test_the_walk_on_both_stores.py` on both stores: a step's `state.set("rows", 500)`
+      lands in `scope_state` (raw row read) and a resumed walk — a fresh handle, the scope re-claimed —
+      reads 500 back. The B-4 sabotage (`state_for_scope` back to `ScopeBackedStateStore`) fails the
+      `scope_state` row assertion on SQLite (`ValueError` at the raw row read — the write landed in
+      no `scope_state` row) and the documents leg fails too (`StateUnavailableError` — the walk's
+      `State` has no backing store); restored, all four gate legs green.
+- [x] **W12** The walk log through `EventWriter`
       *Files:* `src/functualize/_events/walk_log.py`, `src/functualize/_app/boot.py`.
       *Do:* inject the selected store (as `store_for` is injected today) and append in a port
       transaction.
@@ -222,6 +236,16 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       *Gate (B-5):* on SQLite a walk's events are rows of `scope_events` and no `documents['scopes']`
       key is created; on documents, unchanged.
       *Sabotage:* restore `ScopeStore.append_event` → the "no `documents['scopes']`" assertion fails.
+      *Done:* the subscriber writes on the injected selected store — boot resolves it from the
+      engine's `_runtime_store` per call — and appends in one port transaction: the unit names its
+      scope with an empty `StateBatch` (scope-affine, writes nothing) and `tx.events.append(…,
+      run_id=None)` lands the entry in the scope log. Entry shape is the port envelope
+      (`type`/`payload`/`at`/`run_id`/`seq`); `resource` rides the payload. `test_watch_stream` and
+      the `workflow watch` renderer migrate to `type`. Gate B-5 on both stores: SQLite walk events are
+      `scope_events` rows (`walk.start` … `walk.end`) with no `documents` key `scopes`; documents
+      unchanged — the events land in `scope["events"]`. The B-5 sabotage (the walk log back on
+      `ScopeStore.append_event`) creates `documents['scopes']` and fails that assertion
+      (`assert 1 == 0`); restored, all green.
 
 ## Wave 4 — the suite, the stale walker, and the xfail flip
 

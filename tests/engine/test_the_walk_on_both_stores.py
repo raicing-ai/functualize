@@ -37,6 +37,7 @@ import pytest
 from functualize_substrate_sqlite import SQLiteSubstratePlugin
 from pydantic import BaseModel
 
+from functualize._engine.capabilities.state import State  # noqa: TC001
 from functualize._engine.frontier import FrontierWalk, GraphModel, StepStatus
 from functualize._engine.workflow_runner import WorkflowRunner
 from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
@@ -394,3 +395,170 @@ def test_the_epilogue_keeps_its_legacy_record(backend: str, tmp_path: Path) -> N
     assert view.status == "success"
     assert view.completed_at is not None
     store.close()
+
+
+# -- gate B-4 (W10/W11): a walk's state lands in the selected store ----------
+
+
+def _write_rows(state: State) -> str:
+    state.set("rows", 500)
+    return "written"
+
+
+@workflow(
+    steps=[Step("writer")],
+    edges=[Edge(source="writer", target=END)],
+)
+def _stateful_flow() -> str:
+    return "done"
+
+
+def _walk_state_app(backend: str, root: Path) -> Any:
+    """An app over ``root`` whose one step writes state inside the walk."""
+    from functualize._config.chain import ResolutionChain
+    from functualize._config.sources import DefaultSource
+    from functualize.app import ConfigSources, FunctualizeApp, JobSources, PluginSources
+
+    config: dict[str, Any] = {}
+    plugins: list[Any] = []
+    if backend == "sqlite":
+        config = {"runtime_store": {"url": f"sqlite://{root / 'state.db'}"}}
+        plugins = [SQLiteSubstratePlugin()]
+    app = FunctualizeApp(
+        "walk-state",
+        job_sources=JobSources(functions=[]),
+        config_sources=ConfigSources(
+            config_resolution_chain=ResolutionChain([DefaultSource(config)])
+        ),
+        plugin_sources=PluginSources(entry_point_group="", explicit_plugins=plugins),
+    )
+    app.register_dynamic_job("writer", _write_rows)
+    app.register_dynamic_job("stateful", _stateful_flow)
+    return app
+
+
+def test_a_walk_steps_state_lands_in_the_selected_store(
+    backend: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gate B-4 (W10/W11): `state.set` inside a walk lands in the selected
+    store's scope state, and a resumed walk reads it back.
+
+    The sabotage these two waves are ticked against: route `state_for_scope`
+    back to `ScopeBackedStateStore` and the walk's writes land in the scope
+    document instead — the `scope_state` row assertion below fails.
+    """
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from functualize._engine.capabilities.state import state_for_scope
+    from functualize._engine.capabilities.workflow_scope import WorkflowScope
+    from functualize._engine.recording import WorkflowRecorder
+    from functualize._primitives.lease import DEFAULT_LEASE_SECONDS
+    from functualize.plugin import Claimed
+    from functualize.types import RunRequest
+
+    root = tmp_path / backend
+    root.mkdir()
+    # Project mode is "a `.functualize/` exists above start"; without one the
+    # substrate lands in the standalone cache instead of under this root.
+    (root / ".functualize").mkdir()
+    monkeypatch.chdir(root)
+    app = _walk_state_app(backend, root)
+
+    result = app.execute(RunRequest(job_name="stateful", surface="app.execute"))
+    assert result.exception is None, result.exception
+    scope_id = _scope_of(app, "stateful")
+
+    if backend == "sqlite":
+        import sqlite3
+
+        connection = sqlite3.connect(f"file:{root / 'state.db'}?mode=ro", uri=True)
+        try:
+            [(value,)] = connection.execute(
+                "SELECT value FROM scope_state WHERE scope_id = ? AND key = 'rows'",
+                (scope_id,),
+            )
+        finally:
+            connection.close()
+        assert json.loads(value) == 500
+
+    # A resumed walk reads the value back in another process: a fresh handle
+    # over the same store, the scope re-claimed at its new generation, the
+    # read the walk's `State` makes (`WorkflowReader.state`).
+    if backend == "documents":
+        fresh = DocumentRuntimeStore(JsonFileSubstrate.for_project(root))
+    else:
+        fresh = _store(backend, root)
+    with fresh.transaction() as tx:
+        outcome = tx.workflows.claim(
+            WorkflowRecorder().claimed(
+                scope_id=scope_id,
+                owner="another-process",
+                now=datetime.now(UTC),
+                lease_seconds=DEFAULT_LEASE_SECONDS,
+                force=True,
+            )
+        )
+    assert isinstance(outcome, Claimed)
+    scope = WorkflowScope(scope_id)
+    scope.generation = outcome.generation
+    resumed = state_for_scope(scope, SimpleNamespace(_runtime_store=fresh))
+    assert resumed.get("rows") == 500
+    fresh.close()
+
+
+# -- gate B-5 (W12): the walk log appends through the port ------------------
+
+
+def test_walk_events_land_in_the_selected_stores_events(
+    backend: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gate B-5 (W12): walk events are appended through `EventWriter`.
+
+    On SQLite the events are `scope_events` rows and no `documents['scopes']`
+    key is created — the sabotage (the walk log back on
+    `ScopeStore.append_event`) fails exactly that assertion. On documents
+    nothing changed: the events land in `scope["events"]`.
+    """
+    from functualize.types import RunRequest
+
+    root = tmp_path / backend
+    root.mkdir()
+    # Project mode is "a `.functualize/` exists above start"; without one the
+    # substrate lands in the standalone cache instead of under this root.
+    (root / ".functualize").mkdir()
+    monkeypatch.chdir(root)
+    app = _walk_state_app(backend, root)
+
+    result = app.execute(RunRequest(job_name="stateful", surface="app.execute"))
+    assert result.exception is None, result.exception
+    scope_id = _scope_of(app, "stateful")
+
+    if backend == "sqlite":
+        import sqlite3
+
+        connection = sqlite3.connect(f"file:{root / 'state.db'}?mode=ro", uri=True)
+        try:
+            [(documents,)] = connection.execute(
+                "SELECT COUNT(*) FROM documents WHERE key = 'scopes'"
+            )
+            names = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT type FROM scope_events WHERE scope_id = ? ORDER BY seq",
+                    (scope_id,),
+                )
+            ]
+        finally:
+            connection.close()
+        assert documents == 0, "the walk log created documents['scopes']"
+        assert names, "walk events are not rows of scope_events"
+        assert names[0] == "workflow.walk.start"
+        assert names[-1] == "workflow.walk.end"
+    else:
+        stored = JsonFileSubstrate.for_project(root).read("scopes")
+        assert stored is not None
+        events = stored.data["scopes"][scope_id]["events"]
+        names = [e.get("type") for e in events]
+        assert names[0] == "workflow.walk.start"
+        assert names[-1] == "workflow.walk.end"
