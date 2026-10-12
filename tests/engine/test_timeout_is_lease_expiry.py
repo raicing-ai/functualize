@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Event, Thread
+from threading import enumerate as live_threads
 
 import pytest
 from tests._support.engine_storage import port_for
@@ -50,13 +52,13 @@ def _walk(store: ScopeStore) -> FrontierWalk:
     )
 
 
-def _age_the_lease(store: ScopeStore, seconds: float) -> None:
+def _age_the_lease(store: ScopeStore, seconds: float, *, scope_id: str = "wf") -> None:
     """Move the lease's expiry into the past by ``seconds``."""
-    scope = store.get_scope("wf")
+    scope = store.get_scope(scope_id)
     past = (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
     lease = {**scope["lease"], "expires_at": past}
     store._mutate(  # noqa: SLF001
-        lambda env: env["scopes"]["wf"].__setitem__("lease", lease)
+        lambda env: env["scopes"][scope_id].__setitem__("lease", lease)
     )
 
 
@@ -142,16 +144,9 @@ class TestSilenceIsWhatExpires:
 
 
 class TestTheWalkActuallyRenews:
-    """The wiring, which the rest of this file did not reach.
+    """The walker must renew while a node is still running."""
 
-    Every other test here calls `walk.renew()` directly, so they all pass with
-    the walker's call to it deleted — verified by sabotage, which changed
-    nothing. A method that is correct and never called is the shape
-    `contributor/guides/wiring-discipline.md` exists for, and the lease would
-    have expired under every long workflow while the unit tests stayed green.
-    """
-
-    def test_a_walk_renews_at_each_node_boundary(self, tmp_path: Path) -> None:
+    def test_a_walk_renews_during_a_blocked_step(self, tmp_path: Path) -> None:
         from functualize._engine.workflow_walker import WorkflowWalker
         from functualize._types.workflow import (
             END,
@@ -162,31 +157,145 @@ class TestTheWalkActuallyRenews:
 
         store = ScopeStore(JsonFileSubstrate(tmp_path))
         declaration = WorkflowDeclaration(
-            nodes=(Step("a"), Step("b")),
-            edges=(Edge(source="a", target="b"), Edge(source="b", target=END)),
+            nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
         )
+        entered = Event()
+        finish = Event()
+        renewed = Event()
+
+        def run_step(name: str) -> str:
+            _age_the_lease(store, 60, scope_id="long-step")
+            entered.set()
+            assert finish.wait(5), "the blocked step was never released"
+            return name
+
         walker = WorkflowWalker(
             declaration,
             store,
-            "renewed",
-            run_step=lambda name: name,
+            "long-step",
+            run_step=run_step,
             runtime_store=port_for(store),
+            _heartbeat_interval_seconds=0.02,
         )
-
-        renewals: list[str] = []
         real_renew = walker._walk.renew
 
-        def _counting() -> None:
-            renewals.append("renewed")
-            real_renew()
+        def observe_renewal() -> RenewalOutcome:
+            outcome = real_renew()
+            if outcome is RenewalOutcome.RENEWED and entered.is_set():
+                renewed.set()
+            return outcome
 
-        walker._walk.renew = _counting  # type: ignore[method-assign]
-        walker.run()
+        walker._walk.renew = observe_renewal  # type: ignore[method-assign]
+        reports = []
+        runner = Thread(target=lambda: reports.append(walker.run()))
+        try:
+            runner.start()
+            assert entered.wait(5)
+            assert renewed.wait(2), "the walk did not renew during its live step"
+            assert not is_expired(store.get_lease("long-step"), datetime.now(UTC))
+        finally:
+            finish.set()
+            runner.join(5)
 
-        assert len(renewals) >= 2, (
-            f"the walk renewed {len(renewals)} times across two nodes — a step "
-            f"slower than the lease would lose its scope while still working"
+        assert not runner.is_alive()
+        assert reports[0].outcome.value == "completed"
+        assert not any(t.name == "lease-heartbeat:long-step" for t in live_threads())
+
+    @pytest.mark.parametrize("exit_case", ["completion", "exception", "timeout"])
+    def test_heartbeat_thread_stops_on_each_exit(
+        self, tmp_path: Path, exit_case: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from functualize._engine.workflow_walker import WorkflowWalker
+        from functualize._types.workflow import END, Edge, Step, WorkflowDeclaration
+
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
+        scope_id = f"exit-{exit_case}"
+
+        def run_step(name: str) -> str:
+            if exit_case == "timeout":
+                raise TimeoutError("step failed after waiting")
+            return name
+
+        walker = WorkflowWalker(
+            WorkflowDeclaration(
+                nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
+            ),
+            store,
+            scope_id,
+            run_step=run_step,
+            runtime_store=port_for(store),
+            _heartbeat_interval_seconds=0.02,
         )
+        if exit_case == "exception":
+
+            def raise_outside_step() -> None:
+                raise RuntimeError("walk setup failed")
+
+            monkeypatch.setattr(
+                walker, "_check_the_graph_has_not_changed", raise_outside_step
+            )
+
+        if exit_case == "exception":
+            with pytest.raises(RuntimeError, match="walk setup failed"):
+                walker.run()
+        else:
+            report = walker.run()
+            assert report.outcome.value == (
+                "failed" if exit_case == "timeout" else "completed"
+            )
+
+        assert not any(t.name == f"lease-heartbeat:{scope_id}" for t in live_threads())
+
+    def test_a_taken_scope_has_no_normal_walk_end(self, tmp_path: Path) -> None:
+        from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
+        from functualize._types.workflow import END, Edge, Step, WorkflowDeclaration
+
+        store = ScopeStore(JsonFileSubstrate(tmp_path))
+        entered = Event()
+        finish = Event()
+        renewal_saw_takeover = Event()
+        events: list[str] = []
+
+        def run_step(name: str) -> str:
+            entered.set()
+            assert finish.wait(5)
+            return name
+
+        walker = WorkflowWalker(
+            WorkflowDeclaration(
+                nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
+            ),
+            store,
+            "taken-step",
+            run_step=run_step,
+            runtime_store=port_for(store),
+            emit=lambda action, **kwargs: events.append(action),
+            _heartbeat_interval_seconds=0.02,
+        )
+        real_renew = walker._walk.renew
+
+        def observe_takeover() -> RenewalOutcome:
+            outcome = real_renew()
+            if outcome is RenewalOutcome.SUPERSEDED:
+                renewal_saw_takeover.set()
+            return outcome
+
+        walker._walk.renew = observe_takeover  # type: ignore[method-assign]
+        reports = []
+        runner = Thread(target=lambda: reports.append(walker.run()))
+        try:
+            runner.start()
+            assert entered.wait(5)
+            store.claim_scope("taken-step", owner="other", force=True)
+            assert renewal_saw_takeover.wait(2)
+        finally:
+            finish.set()
+            runner.join(5)
+
+        assert not runner.is_alive()
+        assert reports[0].outcome is WalkOutcome.SUPERSEDED
+        assert "workflow.walk.end" not in events
+        assert not any(t.name == "lease-heartbeat:taken-step" for t in live_threads())
 
     def test_the_lease_is_still_live_when_the_walk_ends(self, tmp_path: Path) -> None:
         """End to end, without reaching into the walker.

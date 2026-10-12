@@ -307,7 +307,6 @@ class FrontierWalk:
             },
         )
 
-    # TRANSITIONAL(lease-heartbeat/2.1): the walker still renews only between nodes.
     def renew(self) -> RenewalOutcome:
         """Try to extend this walk's claim without moving its generation.
 
