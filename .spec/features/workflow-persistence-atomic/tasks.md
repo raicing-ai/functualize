@@ -249,7 +249,7 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
 
 ## Wave 4 — the suite, the stale walker, and the xfail flip
 
-- [ ] **W13** BASELINE for the new commands
+- [x] **W13** BASELINE for the new commands
       *Files:* `src/functualize/testing/conformance/baseline.py`, `tests/conformance/test_baseline.py`.
       *Gate (S-8, W-AC-4):* a check per new writer and reader (start/renew/release/record_step/
       record_branch/move round trips, `state`, `steps`, `branch`, epilogue key, and
@@ -258,6 +258,14 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       stores and over `BatchOnlySqliteDriver` in Tier A.
       *Call path:* the shipped test library (as in the first feature).
       *Sabotage:* a store whose `release` keeps the owner → the release check fails.
+      Done (`7a846fcf`): `run_baseline` calls eight new command/reader checks through
+      `RuntimeStore`; 33 conformance and batch-only probe tests pass. With release
+      replaced by a no-op, `test_each_baseline_check[release and workflow-sqlite]`
+      failed on the unchanged lease expiry; restored, it passed. The document
+      store retains the last holder for diagnosis, so the check proves expiry
+      and an immediate claim by another runner rather than requiring a null
+      historical owner. The candidate values were exported through the plugin
+      API to let third-party stores run the accepted-candidate check.
 - [ ] **W14** A stale walker lands nothing
       *Files:* `tests/integration/test_stale_walk_lands_nothing.py` (new).
       *Gate (W-AC-3):* two OS processes on SQLite; B force-claims while A is mid-walk; A's renew,
