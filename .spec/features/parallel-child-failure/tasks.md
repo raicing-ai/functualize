@@ -100,6 +100,13 @@ this file. A fresh execution context must be prepared from that anchor.
   - Reachability: the E2E case declares jobs and observes the parent result
     through `FunctualizeApp.execute`, not a constructed collaborator. Commit
     before sabotage and restore after the selected test fails.
+  - Review follow-up, scope added to this task: `[F]`
+    `tests/context/test_parallel_and_log_properties.py`. Its Property 23
+    generator drew NFKC-unstable letters, so `def job_aaǆ` registered as
+    `job_aadž` and the invoked name missed; once failed children reach the
+    parent this turned `test-full` red. The alphabet is now NFKC-stable
+    letters only. The production name-resolution gap is tracked separately
+    and is out of scope here.
 
 - [x] **3.2 Publish the documented batch contract.**
   - [F] `docs/api/context.md`, `docs/guides/run-context.md`.

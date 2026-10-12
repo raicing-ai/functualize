@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import sys
 import textwrap
+import unicodedata
 from unittest.mock import MagicMock
 
 import pytest
@@ -71,10 +72,16 @@ def make_run_context(
 # Number of parallel jobs: 1 to 10 (keep small for test speed)
 num_jobs = st.integers(min_value=1, max_value=10)
 
-# Job names for parallel dispatch — unique lowercase identifiers
+# Job names for parallel dispatch — unique lowercase identifiers.
+# Python NFKC-normalises identifiers at parse time (PEP 3131) but not string
+# literals, so `def job_aaǆ` registers as `job_aadž` while the parent invokes
+# "job_aaǆ". Only NFKC-stable letters keep the `def` name and the invoked name
+# equal, and keep distinct draws distinct after normalisation.
 job_name_lists = st.lists(
     st.text(
-        alphabet=st.characters(whitelist_categories=("Ll",)),
+        alphabet=st.characters(whitelist_categories=("Ll",)).filter(
+            lambda c: unicodedata.normalize("NFKC", c) == c
+        ),
         min_size=3,
         max_size=8,
     ).map(lambda s: f"job_{s}"),
