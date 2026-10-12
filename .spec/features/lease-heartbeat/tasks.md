@@ -176,7 +176,7 @@ cleared by a deletion-only last commit later.
 
 ## Wave 5
 
-### [ ] 6.1 Close the claim-to-first-renewal window found by verification
+### [x] 6.1 Close the claim-to-first-renewal window found by verification
 
 [F] `src/functualize/_engine/lease_heartbeat.py`,
 `src/functualize/_engine/workflow_walker.py`,
@@ -207,6 +207,35 @@ lease, with a heartbeat interval longer than the test, sees the second walker
 `HELD` and the first complete once; it fails against `92db0db`. The focused
 pair and the engine wave tier pass, with ruff, format, mypy and import
 contracts. Commit before sabotaging the entry renewal.
+
+Evidence: `test_a_slow_claim_does_not_leave_the_first_step_claimable` failed
+against `92db0db` with the second walker `COMPLETED`, and passes after the
+change. After committing, removing the entry renewal from
+`LeaseHeartbeat.__enter__` made it fail with the same `COMPLETED is HELD`
+assertion; `git checkout --` restored the committed source and left the tree
+clean. `test_a_scope_taken_before_the_first_step_runs_nothing` also passes
+without the early return, because the walk's first fenced write already stops
+it before `a`; it pins the outcome, not the early return. The focused pair
+passed 27 tests and `uv run pytest -q --no-header tests/engine/` passed 146.
+Ruff check passed, format check reported 1,598 formatted files, mypy passed on
+389 source files and all seven import contracts were kept. The dead-code delta
+over `81cc3e8..c234984` reports `NEW_DEAD: 0`, `TESTS_ONLY: 0`, with the same
+three pre-existing neighbourhood findings in `frontier.py`. The production
+path is `WorkflowWalker.run()` → `LeaseHeartbeat.__enter__` →
+`FrontierWalk.renew()` → `ScopeStore.renew_scope()` before the first step, then
+the heartbeat thread every interval.
+
+Residual, not closed by this task: the verification probe's seam patches
+`DEFAULT_LEASE_SECONDS` after import, so `renew_scope` still grants its
+import-time 300 seconds and the probe measures only the claim-to-first-renewal
+window, which no trial in 100 reached after the change. A stricter variant
+that also gives each renewal 0.3 seconds still lets a second walker in, rarely:
+once in three trials and once in 222. Instrumented, the cause was a single
+durable renewal write taking 0.418 seconds, longer than the whole compressed
+lease, so the renewed lease landed already expired. At the production ratio a
+renewal would have to stall for more than 240 seconds. Closing that without
+timing needs a liveness signal in the claim itself, which this feature keeps
+out of scope.
 
 ## Task Dependency Graph
 
