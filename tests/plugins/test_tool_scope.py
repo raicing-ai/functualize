@@ -489,3 +489,288 @@ class TestToolScopeToToolDefs:
         assert "litellm" not in content
         assert "openai" not in content
         assert "anthropic" not in content
+
+
+# ===========================================================================
+# Tool-call approval: types, decision helper, per-filter stamping, folding
+# ===========================================================================
+
+
+def _allow_all(tool_name: str, args: dict[str, Any], ctx: Any) -> bool:
+    return True
+
+
+def _deny_all(tool_name: str, args: dict[str, Any], ctx: Any) -> bool:
+    return False
+
+
+class TestToolDefApprovalMembers:
+    """Tests for the additive approval members on ToolDef (E10)."""
+
+    def test_positional_construction_stays_valid(self) -> None:
+        tool_def = ToolDef("search", "Search things")
+        assert tool_def.requires_approval is False
+        assert tool_def.approval_gate is None
+
+    def test_keyword_construction_stays_valid(self) -> None:
+        tool_def = ToolDef(
+            name="search",
+            description="Search things",
+            parameters_schema={"type": "object"},
+            job_name="search",
+            function=None,
+            config_class=None,
+        )
+        assert tool_def.requires_approval is False
+        assert tool_def.approval_gate is None
+
+    def test_deny_all_encoding(self) -> None:
+        tool_def = ToolDef(name="delete", description="d", requires_approval=True)
+        assert tool_def.requires_approval is True
+        assert tool_def.approval_gate is None
+
+    def test_gated_encoding(self) -> None:
+        tool_def = ToolDef(
+            name="delete",
+            description="d",
+            requires_approval=True,
+            approval_gate=_allow_all,
+        )
+        assert tool_def.approval_gate is _allow_all
+
+
+class TestToolCallContext:
+    """Tests for the gate's context type."""
+
+    def test_exported_next_to_tool_def(self) -> None:
+        from functualize_ai import ToolCallContext
+
+        assert ToolCallContext is not None
+
+    def test_frozen_with_fields(self) -> None:
+        from functualize_ai import ToolCallContext
+
+        ctx = ToolCallContext(job_name="deploy", description="Deploy app")
+        assert ctx.job_name == "deploy"
+        assert ctx.description == "Deploy app"
+        import dataclasses
+
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            ctx.job_name = "other"  # type: ignore[misc]
+
+    def test_none_job_name_for_callables(self) -> None:
+        from functualize_ai import ToolCallContext
+
+        ctx = ToolCallContext(job_name=None, description="")
+        assert ctx.job_name is None
+
+
+class TestApprovalDecision:
+    """Tests for the single approval decision helper."""
+
+    def _gated(self, gate: Any = None) -> ToolDef:
+        return ToolDef(
+            name="delete",
+            description="Delete a row.",
+            requires_approval=True,
+            approval_gate=gate,
+        )
+
+    def test_ungated_runs(self) -> None:
+        from functualize_ai._approval import evaluate_tool_approval
+
+        tool_def = ToolDef(name="delete", description="d")
+        assert evaluate_tool_approval(tool_def, {"id": 1}) is None
+
+    def test_no_gate_denies_every_call(self) -> None:
+        from functualize_ai._approval import evaluate_tool_approval
+
+        refusal = evaluate_tool_approval(self._gated(), {"id": 1})
+        assert refusal == "Tool call refused: approval required for 'delete'."
+
+    def test_strict_true_admits(self) -> None:
+        from functualize_ai._approval import evaluate_tool_approval
+
+        assert evaluate_tool_approval(self._gated(_allow_all), {"id": 1}) is None
+
+    @pytest.mark.parametrize("bad_return", [False, None, 1, "yes", [True]])
+    def test_non_true_denies(self, bad_return: Any) -> None:
+        from functualize_ai._approval import evaluate_tool_approval
+
+        def gate(tool_name: str, args: dict[str, Any], ctx: Any) -> Any:
+            return bad_return
+
+        refusal = evaluate_tool_approval(self._gated(gate), {"id": 1})
+        assert refusal == "Tool call refused: approval required for 'delete'."
+
+    def test_gate_receives_positional_triple(self) -> None:
+        from functualize_ai import ToolCallContext
+        from functualize_ai._approval import evaluate_tool_approval
+
+        seen: list[tuple[Any, Any, Any]] = []
+
+        def gate(tool_name: str, args: dict[str, Any], ctx: Any) -> bool:
+            seen.append((tool_name, args, ctx))
+            return True
+
+        evaluate_tool_approval(self._gated(gate), {"id": 7})
+        assert seen == [
+            (
+                "delete",
+                {"id": 7},
+                ToolCallContext(job_name=None, description="Delete a row."),
+            )
+        ]
+
+    def test_gate_exception_propagates_marked(self) -> None:
+        from functualize_ai._approval import (
+            evaluate_tool_approval,
+            unwrap_gate_failure,
+        )
+
+        def boom(tool_name: str, args: dict[str, Any], ctx: Any) -> bool:
+            raise RuntimeError("gate exploded")
+
+        with pytest.raises(RuntimeError, match="gate exploded") as excinfo:
+            evaluate_tool_approval(self._gated(boom), {"id": 1})
+        assert unwrap_gate_failure(excinfo.value) is excinfo.value
+
+    def test_is_tool_refusal_round_trip(self) -> None:
+        from functualize_ai._approval import is_tool_refusal, refusal_message
+
+        assert is_tool_refusal(refusal_message("delete"), "delete") is True
+        assert is_tool_refusal(refusal_message("delete"), "other") is False
+        assert is_tool_refusal("deleted 1", "delete") is False
+        assert is_tool_refusal(None, "delete") is False
+
+
+class TestPerFilterApproval:
+    """Tests for per-filter approval stamping on ToolScope (D5)."""
+
+    def _fn(self, name: str) -> Any:
+        def tool(x: int) -> str:
+            """Do something."""
+            return f"{name}:{x}"
+
+        tool.__name__ = name
+        return tool
+
+    def test_stamp_marks_every_filter(self) -> None:
+        scope = (
+            ToolScope.functions([self._fn("a")]) + ToolScope.functions([self._fn("b")])
+        ).approval_required(_deny_all)
+        assert scope.requires_approval is True
+        assert scope.approval_gate is _deny_all
+        defs = {d.name: d for d in scope.to_tool_defs([])}
+        assert all(d.requires_approval for d in defs.values())
+
+    def test_union_keeps_approval_per_operand(self) -> None:
+        gated = ToolScope.functions([self._fn("a")]).approval_required(_deny_all)
+        plain = ToolScope.functions([self._fn("b")])
+        combined = gated + plain
+        defs = {d.name: d for d in combined.to_tool_defs([])}
+        assert defs["a"].requires_approval is True
+        assert defs["a"].approval_gate is _deny_all
+        assert defs["b"].requires_approval is False
+        assert defs["b"].approval_gate is None
+        # Property semantics: any tool gated -> True (union test stands).
+        assert combined.requires_approval is True
+
+    def test_double_apply_ands_gates(self) -> None:
+        scope = ToolScope.functions([self._fn("a")]).approval_required(_allow_all)
+        folded = scope.approval_required(_deny_all)
+        d = folded.to_tool_defs([])[0]
+        assert d.requires_approval is True
+        assert d.approval_gate is not _allow_all
+        assert d.approval_gate is not _deny_all
+        assert d.approval_gate("a", {}, None) is False
+
+    def test_single_gate_identity_preserved(self) -> None:
+        scope = ToolScope.functions([self._fn("a")]).approval_required(_allow_all)
+        d = scope.to_tool_defs([])[0]
+        assert d.approval_gate is _allow_all
+
+    def test_with_instructions_preserves_stamps(self) -> None:
+        scope = (
+            ToolScope.functions([self._fn("a")])
+            .approval_required(_deny_all)
+            .with_instructions("be careful")
+        )
+        assert scope.requires_approval is True
+        d = scope.to_tool_defs([])[0]
+        assert d.requires_approval is True
+        assert d.approval_gate is _deny_all
+
+    def test_approval_gate_first_in_filter_order(self) -> None:
+        gated = ToolScope.functions([self._fn("a")]).approval_required(_deny_all)
+        other = ToolScope.functions([self._fn("b")])
+        assert (gated + other).approval_gate is _deny_all
+        assert (other + gated).approval_gate is _deny_all
+
+    def test_default_no_approval(self) -> None:
+        scope = ToolScope.functions([self._fn("a")])
+        assert scope.requires_approval is False
+        assert scope.approval_gate is None
+
+
+class TestToToolDefsApprovalFolding:
+    """Tests for approval folding in to_tool_defs()."""
+
+    def _fn(self, name: str, doc: str = "Doc.") -> Any:
+        def tool(x: int) -> str:
+            return f"{name}:{x}"
+
+        tool.__name__ = name
+        tool.__doc__ = doc
+        return tool
+
+    def test_ungated_scope_defs_ungated(self) -> None:
+        scope = ToolScope.functions([self._fn("a")])
+        d = scope.to_tool_defs([])[0]
+        assert d.requires_approval is False
+        assert d.approval_gate is None
+
+    def test_no_gate_stamp_denies_all(self) -> None:
+        scope = ToolScope.functions([self._fn("a")]).approval_required()
+        d = scope.to_tool_defs([])[0]
+        assert d.requires_approval is True
+        assert d.approval_gate is None
+
+    def test_gated_wins_regardless_of_order(self) -> None:
+        gated = ToolScope.functions([self._fn("a")]).approval_required(_deny_all)
+        plain = ToolScope.functions([self._fn("a"), self._fn("b")])
+        for combined in (gated + plain, plain + gated):
+            defs = {d.name: d for d in combined.to_tool_defs([])}
+            assert defs["a"].requires_approval is True, combined
+            assert defs["b"].requires_approval is False
+
+    def test_same_name_keeps_first_seen_def_with_combined_approval(self) -> None:
+        first = ToolScope.functions([self._fn("a", "First doc.")])
+        second = ToolScope.functions([self._fn("a", "Second doc.")]).approval_required(
+            _deny_all
+        )
+        defs = (first + second).to_tool_defs([])
+        assert len(defs) == 1
+        assert defs[0].description == "First doc."
+        assert defs[0].requires_approval is True
+
+    def test_folded_gate_ands_strict_true(self) -> None:
+        seen: list[str] = []
+
+        def allow(name: str, args: dict[str, Any], ctx: Any) -> bool:
+            seen.append("allow")
+            return True
+
+        def deny(name: str, args: dict[str, Any], ctx: Any) -> bool:
+            seen.append("deny")
+            return False
+
+        scope = (
+            ToolScope.functions([self._fn("a")])
+            .approval_required(allow)
+            .approval_required(deny)
+        )
+        d = scope.to_tool_defs([])[0]
+        assert d.approval_gate is not None
+        assert d.approval_gate("a", {}, None) is False
+        assert seen == ["allow", "deny"]  # short-circuit order preserved
