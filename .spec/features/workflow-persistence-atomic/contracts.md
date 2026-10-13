@@ -310,6 +310,8 @@ selected at boot. The CLI reaches it through the public
 `functualize.app.utils.selected_workflow_store(app)` helper: document projects
 retain their established `ScopeStore` operator path, while a relational
 project uses the runtime port. The MCP workflow provider uses the same helper.
+Only list, show, cancel and reclaim take this selected operator path; other
+builtin and MCP workflow verbs retain their existing document-scope helper.
 For a relational project, list/show query `workflows.workflow`,
 `workflows.resumable` and `workflows.steps`; cancel issues `CancelWorkflow`;
 reclaim force-claims and releases the new generation. `--wf-resume` resolves
