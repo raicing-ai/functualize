@@ -123,10 +123,15 @@ class TestTheOfferReadsResolvedConfig:
     """The regression this whole dispatch exists to close."""
 
     @pytest.mark.installed_plugins
-    def test_a_configured_db_path_is_where_the_database_goes(
+    def test_a_configured_runtime_store_url_is_where_the_database_goes(
         self, project: Path
     ) -> None:
-        """Entry-point discovery, a project config file, and nothing else."""
+        """Entry-point discovery, a project config file, and nothing else.
+
+        The SQLite plugin's own ``db_path`` setting is gone: selection and
+        location are one value, ``runtime_store.url``, read at step 6.5 after
+        configuration resolves — the window this class is about.
+        """
         sqlite = pytest.importorskip(
             "functualize_substrate_sqlite",
             reason="workspace plugins not installed; run `uv sync --all-packages`",
@@ -134,7 +139,7 @@ class TestTheOfferReadsResolvedConfig:
         configured = project / "elsewhere" / "configured.db"
         configured.parent.mkdir()
         (project / "config.base.toml").write_text(
-            f'[plugin.substrate-sqlite]\ndb_path = "{configured}"\n'
+            f'[runtime_store]\nurl = "sqlite://{configured}"\n'
         )
 
         app = FunctualizeApp(
@@ -143,8 +148,8 @@ class TestTheOfferReadsResolvedConfig:
 
         assert isinstance(app.substrate, sqlite.SQLiteSubstrate)
         assert Path(app.substrate.path) == configured, (
-            "the plugin's offer did not see plugin.substrate-sqlite.db_path; "
-            "it ran before configuration resolved"
+            "runtime_store.url was not read from the project's config file; "
+            "selection ran before configuration resolved"
         )
 
 

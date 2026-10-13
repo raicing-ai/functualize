@@ -350,7 +350,7 @@ class TestHandoffExecution:
     def test_installed_substrate_write_is_visible_to_builtin_history(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The handoff writer and CLI reader use the same installed backend."""
+        """The handoff writer and CLI reader use the same selected backend."""
         import click
         from click.testing import CliRunner
         from functualize_substrate_sqlite import (
@@ -364,6 +364,8 @@ class TestHandoffExecution:
 
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".functualize").mkdir()
+        # Installing registers the store; this line selects it.
+        (tmp_path / "config.base.toml").write_text('[runtime_store]\nurl = "sqlite:"\n')
         app = FunctualizeApp(
             name="shell-history-round-trip",
             job_sources=JobSources(directories=[]),

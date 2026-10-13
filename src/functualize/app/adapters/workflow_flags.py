@@ -40,6 +40,8 @@ from typing import Any, Literal
 
 import click
 
+from functualize._types.persistence import RuntimeStore
+
 __all__ = [
     "WorkflowFlagOutcome",
     "resolve_workflow_flags",
@@ -233,9 +235,9 @@ def _store(app: Any) -> Any:
     created it had written to the database, so a perfectly valid id came back
     as "No workflow scope".
     """
-    from functualize.app.utils import ScopeStore
+    from functualize.app.utils import selected_workflow_store
 
-    return ScopeStore(app.substrate)
+    return selected_workflow_store(app)
 
 
 def _deposit(flags: dict[str, Any]) -> tuple[str | None, dict[str, Any]] | None | Any:
@@ -361,7 +363,11 @@ def _resume_target(
         if isinstance(target, WorkflowFlagOutcome):
             return target
         scope_id = target
-    elif store.get_scope(scope_id) is None:
+    elif (
+        store.workflows.workflow(scope_id) is None
+        if isinstance(store, RuntimeStore)
+        else store.get_scope(scope_id) is None
+    ):
         return WorkflowFlagOutcome(
             kind="error",
             text=(
@@ -404,21 +410,34 @@ def apply_workflow_flags(
     if outcome.deposit is not None and outcome.scope_id is not None:
         _record(app, outcome)
     if outcome.retry_epilogue and outcome.scope_id is not None:
-        _store(app).record_epilogue(outcome.scope_id, None)
+        store = _store(app)
+        if isinstance(store, RuntimeStore):
+            click.echo("Error: retrying a stored epilogue is unavailable.", err=True)
+            raise SystemExit(_usage())
+        store.record_epilogue(outcome.scope_id, None)
     return outcome.scope_id
 
 
 def _record(app: Any, outcome: WorkflowFlagOutcome) -> None:
     """Answer the gate ``--wf-input`` names, before the walk starts.
 
-    Through the same :func:`answer_gate` the other two surfaces use, so a fused
-    answer and a standalone one cannot validate differently. A refusal exits
-    here rather than letting the walk run into the gate it was meant to open.
+    The document path uses :func:`answer_gate`; the relational path appends
+    one evaluated candidate through the selected input writer. A refusal
+    exits here before the walk can re-enter its still-open gate.
     """
     from functualize.app.utils import GateNotFoundError, answer_gate, resolve_gate
 
     gate, values = outcome.deposit  # type: ignore[misc]
     store = _store(app)
+    if isinstance(store, RuntimeStore):
+        assert outcome.scope_id is not None
+        from functualize.app._workflow_control import _record_port_input
+
+        result = _record_port_input(app, store, outcome.scope_id, gate, values)
+        if "error" in result:
+            click.echo(f"Error: {result['message']}", err=True)
+            raise SystemExit(_usage() if result["error"] == "validation_error" else 1)
+        return
     try:
         resolved = resolve_gate(store, outcome.scope_id, gate)
         if isinstance(resolved, dict):

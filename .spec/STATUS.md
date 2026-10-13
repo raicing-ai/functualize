@@ -752,12 +752,17 @@ after; red-form gates give the hit count measured when the gate was written, and
 `document_store.py`'s reader returns type-incorrect until 3.2 parses strictly, so 2.1 and 3.2 share
 one completion gate and 2.1 stays unchecked until then (*Transitional Changes*).
 
-**The ordering: this typing → T11 recorder wiring → FUN-19 tables.** ADR-031 does not record it.
+**The ordering: this typing → T11 recorder wiring.** ADR-031 does not record it.
 The typing lands **before** the port's recorder wiring (T11, the gap that `step_completed`,
 `suspended` and `finished` have no caller): wiring the recorders first would create production call
-sites passing literals, which this work would then have to convert. FUN-19's relational writer lands
-after either — it inherits typed reads and settles the run-close boundary ADR-031 records. The
-runtime-schema work already landed (T1 tables, T4 refusal, T6 store writers) is untouched.
+sites passing literals, which this work would then have to convert. FUN-19's relational writer is not
+a later step: it has shipped (`sqlite-runtime-provider`, under *Recently Completed*), ahead of this
+typing, so it did not inherit typed reads. Its readers hand back the stored status strings
+(`plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_readers.py:57`, `:134`, `:196`), and its writer
+derives between the run and attempt vocabularies with tables of its own (`_run_sql.py:43-60`).
+Typing the port (2.1) therefore reaches a second implementer that the task table above does not yet
+scope; scoping it is this plan's open revision, not settled here. The runtime-schema work already
+landed (T1 tables, T4 refusal, T6 store writers) is untouched.
 
 **Declared out of scope.** The engine's own store-level scope-status writers — `workflow_walker.py`
 (`:451`, `:567`, `:757`, `:998`, and `_SCOPE_STATUS_FOR` at `:1083`), `frontier.py`'s entry stamps
@@ -765,8 +770,10 @@ runtime-schema work already landed (T1 tables, T4 refusal, T6 store writers) is 
 `"cancelled"`) — write the same stored column but never a port field; the choke point guards them.
 Their vocabulary cleanup, and retiring `WalkState`, are engine-internal work with no port surface,
 and this feature does not pay for them. `RunQuery`/`WorkflowQuery` have no construction site, so
-their typing rides the annotations alone. A run-close command for `blocked`/`timeout`/`refused` is
-the relational writer's.
+their typing rides the annotations alone. A run-close command for `blocked`/`timeout`/`refused` was
+left to the relational writer, which shipped without one: it accepts those as a run-vocabulary
+`FinishAttempt.status` and derives the attempt's status from it (`_run_sql.py:43-60`), the reverse
+direction of ADR-031's attempt→run data.
 
 **`IllegalTransition` keeps its `str` fields.** It reports the *pair* the store held, which may be
 any text, including a value no vocabulary names — so it is deliberately not typed.
@@ -776,8 +783,10 @@ any text, including a value no vocabulary names — so it is deliberately not ty
 §1.1's conflation paragraph ("`FinishAttempt.status` speaks the run-outcome vocabulary …
 `_finish_attempt` never transitions the attempt machine") gains its resolution pointer — the
 derivation lives in `_types/lifecycle.py` (`ATTEMPT_TO_RUN`) and the backend transitions the attempt
-machine — and "`ATTEMPT` is therefore enforced where the relational writer lands" (§1.1) is updated to say where
-enforcement landed. §1.2's lower-casing note gains the `RunState` pointer.
+machine. §1.1's sentence placing `ATTEMPT` enforcement "where the relational writer lands" is no
+longer part of this task: the relational writer's own record already rewrote it to name
+`_run_sql.py`'s `require_transition(ATTEMPT, …)` calls. §1.2's lower-casing note gains the
+`RunState` pointer.
 
 ## Deferred
 
@@ -880,6 +889,43 @@ validated and read by nothing — the worst of the three states, because a user
 who wrote it got neither an error nor an expansion.
 
 ## Completed
+
+### Parallel child failures reach the parent (2026-10-12, `fix/parallel-child-failure`)
+
+**The decision worth keeping.** *A failed child fails a parent that ignores the
+batch's return value.* `Invoke.parallel` raises `RuntimeError` by default, after
+the whole batch has been collected, so siblings still run. The error names every
+failed position, job and status, and chains the first available exception. The
+failure set is the existing `Family.TOOL` policy in `_types/outcome.py`, so
+`BLOCKED` and `SKIPPED` do not raise. `raise_on_failure=False` returns every
+result instead. The contract is documented in `docs/api/context.md`
+§ `invoke.parallel`.
+
+**Rules that outlive the feature:**
+
+- **The knob belongs to the batch only.** `rc.invoke_parallel(jobs)` keeps the
+  safe default and takes no option. Partial recovery injects `Invoke`. Extending
+  the facade's signature was deliberately left out.
+- **The top-level batch opts out explicitly.** `_app/impl.py:execute_parallel`,
+  behind `func builtin parallel`, passes `raise_on_failure=False` so it still
+  reports every job. Never vary the default by delivery surface.
+- **Raising adds no wait.** The pool still shuts down with `wait=False` outside
+  a `with` block. A timed-out child raises at the deadline while its thread may
+  keep running.
+
+**Surviving smells, both accepted.** **Middle Man**: `WiredInvoke.parallel`
+delegates to the private `_ParallelBatch`, and it remains the public capability
+seam. **Long Method**: `_ParallelBatch.run` keeps submission, deadline sweep and
+nonblocking shutdown together to preserve the timeout ordering. The maintainer
+approved this tradeoff with the task graph on 2026-10-11. Extracting the batch
+was what brought `WiredInvoke` back under the god-object ceiling (658 to 439
+lines).
+
+**Open.** Job-name resolution does not apply the NFKC normalisation Python
+applies to identifiers, so a job defined with an NFKC-unstable name (`def
+job_ǆ`) is registered as `job_dž` and cannot be reached by its written name.
+The input-order property test now draws only NFKC-stable names. The production
+gap is tracked as MCH-183.
 
 ### The vault key from an unlocked keyring, never a prompt from a run (2026-10-03, `sdd/vault-keyring-unlock`)
 
@@ -2607,6 +2653,8 @@ Items identified during development that are worth doing but not yet designed:
 
 | Feature | Description |
 |---------|-------------|
+| workflow-persistence-atomic | `feat/sqlite-runtime-provider`: FUN-19 waves 5–6 — **the walk's own scope IO moves onto the selected store**. Only a walk's *claim* used to travel the persistence port (`_engine/frontier.py:224`); its entry, renewal, release, step records, branches, position, status, `State` and event log still wrote the legacy `ScopeStore` — **46 `self._store.*` call sites**, in `_engine/frontier.py`, `_engine/workflow_walker.py` and `_engine/workflow_runner.py`. On a store that is not the document backend the two paths never met: the claim landed in `workflow_scopes`, the release looked in legacy `documents`, found generation 0 / owner `nobody`, raised `StaleGenerationError`, and the walk stopped `SUPERSEDED` — so a workflow parked at a gate could not be finished, or picked up by another process, on the store it had selected. Six commands join the port (`StartWalk`, `RenewLease`, `ReleaseLease`, `RecordStep`, `RecordBranch`, `MoveScope`) and `CompleteStep` is widened to carry the step's outcome and markers, the first-time branch, position, status and the events; four the port already carried become the walk's only path rather than one of two (`ClaimWorkflow`, `StateBatch` for `State` inside a step, `SuspendAtGate`/`ConsumeInput`, `EventWriter.append`); and `WorkflowReader.step`/`.steps`/`.branch`/`.state` and `WorkflowView.graph_digest` are what it reads back, every one of them added to the conformance BASELINE so a store that implements the port and omits them is non-conformant rather than quietly partial. `tests/spec/test_the_walk_writes_only_through_the_port.py` is the enforcement: an `ast` sweep of every module under `_engine/` that allows **three functions** in `executor.py` and **one module** (`capabilities/state.py` — the non-walk `State`), each with its reason in the assertion message, and a second test that refuses an allowlist entry for a function that no longer exists. The relational store needs revision **`0002`** (`result_kind`, `result_type`, `effecting` on `workflow_steps`, forward-only and additive) so a step record keeps what the document records always kept. The operator surfaces (`list`, `show`, `cancel`, `reclaim`, and their MCP counterparts) read and write the same scopes the walk wrote, which is the maintainer's answer to the feature's open decision: move them onto the port, rather than refuse them on a store a user selected. Rationale in **ADR-033**; the command-by-command contract is the reference's §4. |
+| sqlite-runtime-provider | `feat/sqlite-runtime-provider`: FUN-19 — the relational runtime store, and the first store that is not the document backend. One config key selects it, `runtime_store.url` (read at boot step 6.5, `_app/store_selection.py`), so installing the plugin no longer changes where anything lives; `functualize-substrate-sqlite` **0.4.0** registers the `sqlite` scheme and `[plugin.substrate-sqlite] db_path` is gone. Revision `0001` (`_schema/0001_runtime_schema.sql`, frozen and checksummed) creates the fourteen §2 tables plus `runtime_cutover`, name for name, and `migrate()` refuses on a checksum mismatch, a gap, a ledger ahead of the code, runtime tables with no ledger and partial state; the same boot pass applies the relational retention statement. Three deliberate behaviour changes: boot **refuses** instead of falling back to documents (S-2); the `runtime_cutover` marker with provenances `documents` and `born-relational` (precedence G-1…G-4) decides whether a legacy database may open; the `functualize-sqlite-import` CLI is the only path in. The engine still writes legacy `documents['runs']`, so `tests/integration/test_substrate_durability.py`'s strict xfail stands, and H-3's observation limit is its own issue (MCH-156). Details below. |
 | runtime-schema-migrations | `feat/runtime-schema-migrations`: FUN-18 — the four runtime state machines as data. Scope status was assigned at **thirteen production call sites across five modules** and validated in none; `_types/lifecycle.py` now holds `SCOPE`/`RUN`/`ATTEMPT`/`INPUT_REQUEST` (closed state sets, legal pairs, absorbing/evictable sets) as data with no logic, `_primitives/transitions.py` is the one refusal (`IllegalTransition`), and every stored writer calls it — `ScopeStore.set_scope_status` and `RunStore.close_run`, each reading the current value inside the batch it is already writing, plus `RunStore.open_run` on the creation edge, which checks the pair before it writes and so refuses without touching the file. Four transition pairs the table briefly needed are gone with the defect that produced them: a resumed walk left its parked status in place, so a walk that resumed and then finished wrote `COMPLETED` over a record that said `blocked`; every entry now stamps `running` (D2 = 1) and a gate resolved inline no longer parks a live walk. `_types/retention.py`'s `RetentionPolicy` replaces the three separate `500` caps. One behaviour loss is recorded rather than hidden: `completed` is evictable and `resume` accepts it, so an evicted scope's retry answers `workflow_not_found`. No public API change; the durable half landed in `contributor/reference/` because this tree is deleted at clearing. Details below. |
 | substrate-capability-probe | `spike/substrate-capability-probe`: FUN-25's Wave 0 — `StoreProfile` was a set of assertions taken from vendor documentation, and this turned it into measurements before FUN-17 freezes the port. Ten fields across **eight columns** — the seven candidate backends plus Supabase Postgres — published at [`contributor/reference/substrate-capability-matrix.md`](../contributor/reference/substrate-capability-matrix.md): 80 cells, **76 measured** and **4 explicitly `NOT MEASURED` with their reasons**, all four in D1's column, whose evidence row states the split rather than stamping the column as measured. No `src/` or `plugins/` change at all — the diff to `master` is a probe suite under `tests/substrate_probe/`, one reference document, the durable-half rows it migrated (`CHANGELOG.md` and this file), and `.env.example`. The branch also carries one separately authored commit that is **not** this spike's work: `8300682`, the member's `ci:` governance change adding the `research-artifacts-cleared` gate, riding here with its landing decision still open. **All three open questions are answered**, each in its own section rather than inferred from a neighbouring column: Q1 — R2's conditional `PutObject` is atomic (one of eight writers won); Q2 — D1's REST latency is a measured distribution (plan against the p95, 516 ms); Q3 — retired at planning time, with a regression guard for the property. *(Corrected 2026-09-23 after the credentialed waves: this row previously said seven backends, 40 measured of 80, and two questions unanswered — the detail section below had already outgrown all three.)* Details below. |
 | runtime-persistence-ports | `feat/runtime-persistence-ports`: FUN-17 — the engine is constructed *with* a `RuntimeStore` and has no path to storage it was not given. Sixteen tasks over eleven waves: the port vocabulary as values (`_types/persistence.py` — `StoreProfile`, 8 commands, 6 outcomes, 6 views, 10 protocols), the document backend that declares its real capability and refuses cross-aggregate atomicity, engine construction moved after configuration resolution, the walk claiming through the port with a lost claim as a *value* (`WalkOutcome.HELD`), and a cancel that now refuses rather than proceeding unclaimed. Four ADRs (025–028); the public API is unchanged. Merge gate at `93ecd18`: **11 103 passed / 1 601 skipped / 0 failed**. TD-1 and the durable reading are recorded below. |
@@ -2680,6 +2728,143 @@ by the new check, while `AGENTS.md` § *Git discipline* and
 feature PR. Whether a cut is allowed its own PR without a graph is a member
 decision, filed with the check rather than taken here; the check reports instead
 of blocking until that lands.
+
+### sqlite-runtime-provider
+
+`feat/sqlite-runtime-provider`: FUN-19. Recorded here for the same reason as the two entries below —
+`.spec/features/sqlite-runtime-provider/` is deleted as this branch's last commit, so the feature's
+durable half is the reference's §2 and §7 (now landed) and this record.
+
+**What landed.** A runtime store that is *selected* rather than installed. `runtime_store.url`
+(`src/functualize/_app/store_selection.py`) is read at boot step 6.5, when the store is constructed and
+before the engine is (ADR-027), so `functualize-substrate-sqlite` **0.4.0** registering the `sqlite`
+scheme changes nothing on its own; `[plugin.substrate-sqlite] db_path` is gone, and a URL that names a
+host is refused because SQLite is a local file. The store declares
+`cross_aggregate_atomicity=True`, `fencing='cross-process'`, `versioned_migrations=True`,
+`durable_outbox=True` and `multi_machine=False`. Revision `0001`
+(`_schema/0001_runtime_schema.sql`, frozen and checksummed) creates the fourteen §2 tables plus
+`runtime_cutover` under the reference's own names. `_migrations.py` applies it in one
+`BEGIN IMMEDIATE` batch with its ledger row, and refuses on a checksum mismatch, a gap in the
+sequence, a database ahead of the code, runtime tables with no ledger, and a partially applied
+revision. The same boot pass applies the relational retention statement — `max_records=500`,
+`evictable_only=True`, `max_age=None` — which is §6's target behaviour, not an eviction inside every
+write. Relational writers cover `namespaces`, `runs`/`run_attempts`/`run_events`,
+`workflow_scopes`/`workflow_steps`/`workflow_branches`/`scope_state`/`scope_events`,
+`input_requests`/`input_candidates` and `outbox`; `artifact_refs` is DDL only. Fencing is per
+statement rather than per store: every scope write carries the held generation
+(`_transaction.py`'s `fence_sql` sub-selects `workflow_scopes.lease_generation`), which is the §5
+predicate the reference had been holding open.
+
+**What changed on purpose.** Boot **refuses** when a relational store is selected and the database
+cannot serve (S-2) — there is no fallback to documents, because a silent fallback would leave half a
+project's state in each backend. A legacy database opens only through an explicit cutover: the
+`runtime_cutover` marker records a provenance of `documents` or `born-relational` (a database that
+never held runtime documents is marked on creation), and precedence G-1…G-4 decides which row wins.
+Importing is a separate CLI — `functualize-sqlite-import` (`--project`, `--db`, `--dry-run`, and
+mutually exclusive `--resume`/`--rollback`) — so migration stays offline and the store's own boot path
+never imports. `testing.conformance` gained the tier suite a store is measured by: a BASELINE tier
+every store passes, higher tiers gated on the capability they need, so a store declaring a capability
+`False` is neither run against it nor selected by a feature that needs it.
+
+**The decision worth keeping.** Selection belongs to configuration and construction follows it
+(ADR-027, exercised here by the first store that needed it), and a store that cannot keep a promise
+declares it rather than approximating it. No `contributor/adr/031-*.md` was written: the decisions this
+feature rests on are already recorded — ADR-022 (one seam), ADR-026 (module boundaries), ADR-027
+(selection before construction), ADR-028 (storage is pluggable, execution is not) — and the rest is
+contract, which is the reference's job.
+
+**Verification at this wave.** At this branch's pre-deletion head the full suite is **12 157 passed /
+1 630 skipped / 0 failed**; `ruff check` and `ruff format --check` are clean over
+`src/ tests/ plugins/ examples/`; `mypy src/` is clean across 391 files; `lint-imports` reports
+**7 kept, 0 broken**; and `mkdocs build --strict` builds. After the two deletion commits both artifact
+gates are empty (`git ls-files .spec/features/`, `git ls-files contributor/architecture/research/`).
+
+**Still open, none blocking.** The engine still writes legacy `documents['runs']` and scope records, so
+`tests/integration/test_substrate_durability.py`'s strict xfail stands and the relational store is not
+yet the only writer. H-3's atomicity observation limit — the tier reads the outcome through the ports,
+so a commit split into batches whose leading batch writes no port-visible row is not observed — is its
+own issue (MCH-156); H-7 (the fencing tier observes the outcome, not which guard held it) is reported
+rather than gated. Two items the section below recorded as open move here: the generation arm is now
+structural (above), and `INPUT_REQUEST` is still enforced by no stored writer — the relational writer
+guards a request's `status` directly rather than calling `require_transition`. FUN-20/21/22/23 (the
+outbox, the durable interaction slice, network stores, MCP) are out of scope.
+
+**Corrective deviation from shape I-8.** The invariant was *"the SQLite work lives in the plugin and
+`substrate.py`'s behaviour is unchanged"*, and contracts §6a leaned on the second half — *"the
+substrate's own DDL creates `documents`, so the next statement is always valid; `substrate.py` stays
+unchanged"*. Finding and fixing the at-rest defect (the two `CHANGELOG.md` `[Unreleased]` entries:
+a connection outliving its owner, and the fold left to whoever closed last) required the opposite, so
+`SQLiteSubstrate` now releases its connection when it dies, folds `-wal` at the end of a write that
+changed a document and at the end of every outermost lock scope, and reports a fold that a reader
+defers — a warning from the write path, plus the public retryable `checkpoint()` /
+`SqliteCheckpointBusyError`. The deviation is exactly that behaviour change and nothing else: no
+framework file changed, so the plugin boundary I-8 also states still holds. Its file-scope half was
+already disclosed as falsified by S-1 (spec §2 ↔ plan *Findings* F-2, D-1); this is the half that
+held until the defect contradicted it.
+
+The alternative — breaking the store/reader ownership cycle in core so a substrate dies at refcount
+time — was rejected: it moves `DocumentRuntimeStore`/`ScopeStore` lifetimes across ADR-022's
+substrate/store boundary and expands the delta far past the defect. The plugin's write-path fold is
+the settled design. A substrate in a reference cycle can still die at collection rather than at
+refcount time; that lifetime is a stated limitation and does not carry the at-rest guarantee. A
+concurrent transaction can defer the fold, which is warned on the write path and retryable through
+`checkpoint()`. Recorded here because the feature's durable half is this record and the reference
+(no ADR of its own — see *The decision worth keeping* above). No later step is claimed or pending.
+
+### workflow-persistence-atomic
+
+`feat/sqlite-runtime-provider`: FUN-19 waves 5–6. Recorded here for the same reason as the entry above —
+`.spec/features/workflow-persistence-atomic/` is deleted as this branch's last commit, so the feature's
+durable half is ADR-033, the reference's §4, and this record.
+
+**What landed.** A walk no longer writes its own scope anywhere but the selected store. `StartWalk`,
+`RenewLease`, `ReleaseLease`, `RecordStep`, `RecordBranch`, `MoveScope` and a widened `CompleteStep` —
+which carries the step's outcome and markers, the first-time branch, position, status and the events in
+one command — are issued as `tx.workflows.*` inside `RuntimeStore.transaction()`, one command per
+transaction, each carrying the held generation. The claim, `StateBatch` for `State` set inside a step,
+the gate request and its answer, and the walk log were already on the port and are now the walk's only
+path rather than one of two. The walk reads back through `WorkflowReader.step`/`.steps`/`.branch`/
+`.state` and `WorkflowView.graph_digest`, and every added command and reader joined the conformance
+BASELINE — so a store that implements the port and omits them is non-conformant rather than quietly
+partial. `tests/spec/test_the_walk_writes_only_through_the_port.py` holds the line: an `ast` sweep of
+every module under `_engine/` that refuses a `scope_store` import, a reach-through `.scopes`, a
+`_scope_store(...)` call and a `ScopeStore`-only method name whose receiver is not the port, with three
+`executor.py` functions and `capabilities/state.py` allowlisted, each with its reason in the assertion
+message, and a second test that refuses an allowlist entry for a function that no longer exists.
+
+**What changed on purpose.** On `runtime_store.url = "sqlite:"` a walk used to stop `SUPERSEDED`: the
+claim was relational, the release was not, so the release read generation 0 / owner `nobody` from the
+legacy document record and raised `StaleGenerationError`. A workflow parked at a gate now resumes in
+another process, from another directory, and runs to its end;
+`tests/integration/test_substrate_durability.py`'s strict xfail is deleted and the case passes. The
+operators (`func builtin workflow list`, `show`, `cancel`, `reclaim`, and their MCP counterparts) read
+and write the relational scopes when a relational store is selected, which is the maintainer's answer to
+the feature's open decision — move them onto the port rather than refuse them on a store a user chose.
+Revision `0002` (`0002_step_record_metadata.sql`) adds `result_kind`, `result_type` and `effecting` to
+`workflow_steps`, forward-only and additive, applied at boot, so a step record keeps what the document
+records always kept. With nothing configured, a document-store project writes the same files it wrote
+before.
+
+**The decision worth keeping.** One authority per scope fact — the rule ADR-022 records for storage and
+ADR-025 for the transition. Leaving the walk's steps, branches and position on the legacy records while
+its claim lived in `workflow_scopes` gave one scope two authorities, and a store-aware layer over the
+port to hide that is the seam ADR-026 refused. ADR-033 records the decision with the boundary this work
+did not cross: the `State` a job run outside a walk keeps, and `executor.py`'s close of such a run's
+scope, stay on the legacy store; `ScopeStore` stays exported from `functualize.app.utils`; and gate
+evidence, the outbox dispatcher, network stores and workspace persistence are later slices.
+
+**Verification at this wave.** `pytest tests/spec/test_the_walk_writes_only_through_the_port.py` (2
+tests) and `tests/conformance` (44) are green, and `tests/integration/test_substrate_durability.py
+--run-slow` is green with 5 tests, the resumed-parked-walk case among them. The same head carries CI's
+full matrix — lint, lint-imports, typecheck, test-fast, the three `test-full` legs, examples,
+plugin-mcp, clean-clone-examples, doc-verify and docs-build — and both artifact gates go green only
+after the deletion commit.
+
+**Still open, none blocking.** The engine still keeps non-walk state in the legacy records: the `State`
+of a job run outside a walk, run and attempt records, shell history and the freshness ledger. `State`
+written inside a step now carries the walk's generation, so a superseded walk's state write lands
+nowhere instead of on the live scope, and the rest of the engine's records stay where the store record
+above describes them.
 
 ### runtime-schema-migrations
 

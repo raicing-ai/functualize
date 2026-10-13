@@ -86,11 +86,26 @@ _SRC = _ROOT / "src" / "functualize"
 #: (`contributor/reference/public-api-example-coverage.md`) exists so that
 #: finding cannot recur as a deletion.
 #:
+#: **305 → 307, 2026-10-05** (`sqlite-runtime-provider`/task 2).
+#: `FunctualizeApp` gained `register_runtime_store_factory`, a new `PluginHost`
+#: member: every runtime store, the built-in documents store included, is now
+#: selected by `runtime_store.url` from factories registered through it, and a
+#: plugin reaches it through the app it is handed. Measured: 304 before, +3
+#: (the `def`, the lazy import, the delegating call), **to exactly 307.**
+#: The cheaper answers, tried first:
+#:
+#: 1. *The guard and the registry live in `_app/impl.py`*, as
+#:    `install_substrate`'s do — including the list itself, which `impl`
+#:    creates on first registration rather than `__init__` declaring it
+#:    (that line would have made it +4).
+#: 2. *Hoist the import to save a line* — refused for the reason recorded at
+#:    300 → 302: `core.py` imports from `impl` lazily on purpose.
+#:
 #: No headroom added on top. A tight ceiling that is raised to exactly what fits
 #: still binds the next addition; one raised to the next round number does not.
 _BUDGETS: list[tuple[str, str, int]] = [
     ("_engine/capabilities/runcontext.py", "RunContext", 500),
-    ("app/core.py", "FunctualizeApp", 305),
+    ("app/core.py", "FunctualizeApp", 307),
 ]
 
 

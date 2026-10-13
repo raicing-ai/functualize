@@ -10,11 +10,13 @@ It lives in `_primitives` because that is where the three stores it wraps
 live. Putting it in `_engine` would place storage adaptation in the layer that
 owns lifecycle meaning — the line `plan.md` draws when it rejects Candidate C.
 
-**It is a declared middle man and it is temporary.** The class carries
+**It is a declared middle man.** The class carries
 `# TRANSITIONAL(FUN-17/T7)`: it forwards to three existing stores and adds no
 behaviour of its own beyond the profile, the buffering transaction and the
 cross-aggregate refusal (T8). The standard answer to middle man — remove it —
-is what FUN-19's `SqliteRuntimeStore` does, and this file goes with it.
+is not what happened: FUN-19 made a store *selectable* from configuration
+instead of replacing this one, and with `runtime_store.url` unset this is what
+boot step 6.5 builds.
 
 ## The profile is what this store may be selected for
 
@@ -44,6 +46,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from functualize._primitives import gate_requests
+from functualize._primitives.gate_requests import recorded_answer
 from functualize._primitives.lease import LeaseHeldError
 from functualize._primitives.run_store import RunStore
 from functualize._primitives.scope_store import ScopeStore
@@ -53,6 +56,7 @@ from functualize._types.errors import (
 )
 from functualize._types.gate_resolution import GateCandidate
 from functualize._types.persistence import (
+    EPILOGUE_STEP_KEY,
     CancelWorkflow,
     Claimed,
     ClaimWorkflow,
@@ -66,6 +70,11 @@ from functualize._types.persistence import (
     InputReader,
     InputRequest,
     InputWriter,
+    MoveScope,
+    RecordBranch,
+    RecordStep,
+    ReleaseLease,
+    RenewLease,
     ResumeWorkflow,
     RunQuery,
     RunReader,
@@ -74,7 +83,9 @@ from functualize._types.persistence import (
     RunView,
     RunWriter,
     StartAttempt,
+    StartWalk,
     StateBatch,
+    StepView,
     StoreProfile,
     SuspendAtGate,
     WorkflowQuery,
@@ -306,6 +317,92 @@ class _DocumentWorkflowReader:
             for entry in self._scopes.events_for(scope_id, after=seq)
         )
 
+    def step(self, scope_id: str, step_key: str, iteration: int = 0) -> StepView | None:
+        # The document backend keys a step by its full key and keeps no
+        # iteration dimension; the walk's loop keys differ per pass, so the
+        # default iteration is the only one this store can answer for.
+        del iteration
+        if step_key == EPILOGUE_STEP_KEY:
+            record = self._scopes.get_epilogue(scope_id)
+        else:
+            record = self._scopes.get_step(scope_id, step_key)
+        return None if record is None else _step_view(scope_id, step_key, record)
+
+    def steps(self, scope_id: str) -> Sequence[StepView]:
+        record = self._scopes.get_scope(scope_id)
+        steps = record.get("steps") if record else None
+        if not isinstance(steps, dict):
+            return ()
+        return tuple(
+            _step_view(scope_id, key, entry)
+            for key, entry in steps.items()
+            if isinstance(entry, dict)
+        )
+
+    def branch(self, scope_id: str, decision_key: str) -> str | None:
+        return self._scopes.get_branch(scope_id, decision_key)
+
+    def state(self, scope_id: str) -> dict[str, Any]:
+        return self._scopes.state_snapshot(scope_id)
+
+
+def _step_record(cmd: CompleteStep | RecordStep) -> dict[str, Any]:
+    """A step command as the legacy step record the walk has always written."""
+    return {
+        "status": cmd.status,
+        "return_value": cmd.result if cmd.reusable else None,
+        "return_value_reusable": cmd.reusable,
+        "return_value_kind": cmd.result_kind,
+        "return_value_type": cmd.result_type,
+        "inputs": dict(cmd.inputs or {}),
+        "completed_at": _completed_at(cmd),
+        "effecting": cmd.effecting,
+    }
+
+
+def _epilogue_record(cmd: RecordStep) -> dict[str, Any]:
+    """The body's return value as `scope["epilogue"]` has always been written.
+
+    Exactly the keys `WorkflowRunner.record_body` wrote before the walk's
+    records came through the port (contracts §2, W-AC-4 "same content"): the
+    epilogue is the body's slot, not a step record, and surfaces read it
+    directly. The value is kept as given, as the epilogue always was.
+    """
+    return {
+        "status": cmd.status,
+        "return_value": cmd.result,
+        "completed_at": _completed_at(cmd),
+    }
+
+
+def _completed_at(cmd: CompleteStep | RecordStep) -> str:
+    """When the step finished, as the walk has always written it.
+
+    A completed step stamps its moment; a `RecordStep` carries its own, and
+    one that never finished (``None``) keeps the empty string the walk wrote.
+    """
+    if isinstance(cmd, RecordStep):
+        return "" if cmd.completed_at is None else _iso(cmd.completed_at)
+    return _iso(cmd.now)
+
+
+def _step_view(scope_id: str, key: str, record: dict[str, Any]) -> StepView:
+    """A legacy step record as a `StepView` — the same keys the walk writes."""
+    completed = record.get("completed_at")
+    return StepView(
+        scope_id=scope_id,
+        step_key=key,
+        iteration=0,
+        status=str(record.get("status", "")),
+        result=record.get("return_value"),
+        reusable=bool(record.get("return_value_reusable")),
+        result_kind=record.get("return_value_kind"),
+        result_type=record.get("return_value_type"),
+        inputs=record.get("inputs"),
+        effecting=bool(record.get("effecting")),
+        completed_at=_parse(completed) if completed else None,
+    )
+
 
 def _lease_record(record: dict[str, Any]) -> dict[str, Any]:
     """The lease sub-record, or an empty one when the scope was never claimed.
@@ -339,6 +436,7 @@ def _workflow_view(scope_id: str, record: dict[str, Any]) -> WorkflowView:
         created_at=_parse(record.get("created_at")),
         updated_at=_parse(record.get("updated_at")),
         terminal_at=_parse(record.get("terminal_at")),
+        graph_digest=record.get("graph_digest"),
     )
 
 
@@ -418,6 +516,31 @@ class _DocumentInputReader:
             for name, gate in sorted(gates.items())
             if isinstance(gate, dict)
         )
+
+    def for_gate(self, scope_id: str, gate_name: str) -> InputRequest | None:
+        """The newest request on this scope's gate, whatever its status.
+
+        Reads identity the way the walk's legacy `_request_id_for` did: the
+        gate record's own request id, or the legacy derived one — answered as
+        the projected request, so a caller never needs the document shape.
+        """
+        record = self._scopes.get_gate(scope_id, gate_name)
+        if record is None:
+            return None
+        request_id = record.get("request_id")
+        if not (isinstance(request_id, str) and request_id):
+            request_id = f"{scope_id}::{gate_name}"
+        return self.request(request_id)
+
+    # TRANSITIONAL(FUN-21): removed with the legacy deposit path (ruling R-1).
+    def deposited_answer(self, scope_id: str, gate_name: str) -> Any | None:
+        """The answer this gate's record holds that no candidate records.
+
+        Delegates to `gate_requests.recorded_answer` — the exact function the
+        walk called before this reader existed, so pre-change files answer
+        gates exactly as they did.
+        """
+        return recorded_answer(self._scopes, scope_id, gate_name)
 
 
 def _generation_of(record: dict[str, Any] | None) -> int:
@@ -550,6 +673,24 @@ class _DocumentWorkflowWriter:
         )
 
     def complete_step(self, cmd: CompleteStep) -> None:
+        self._txn.append(cmd)
+
+    def start(self, cmd: StartWalk) -> None:
+        self._txn.append(cmd)
+
+    def record_step(self, cmd: RecordStep) -> None:
+        self._txn.append(cmd)
+
+    def record_branch(self, cmd: RecordBranch) -> None:
+        self._txn.append(cmd)
+
+    def move(self, cmd: MoveScope) -> None:
+        self._txn.append(cmd)
+
+    def renew(self, cmd: RenewLease) -> None:
+        self._txn.append(cmd)
+
+    def release(self, cmd: ReleaseLease) -> None:
         self._txn.append(cmd)
 
     def suspend(self, cmd: SuspendAtGate) -> None:
@@ -804,8 +945,28 @@ class _DocumentTransaction:
         raise CrossAggregateRefusedError(sorted(self.scopes_touched))
 
     def _apply_one(self, command: Any, scopes: Any, runs: Any) -> None:
-        if isinstance(command, CompleteStep):
+        if isinstance(command, RenewLease):
+            scopes().renew_scope(
+                command.scope_id,
+                owner=command.owner,
+                generation=command.generation,
+                seconds=command.lease_seconds,
+                now=command.now,
+            )
+        elif isinstance(command, ReleaseLease):
+            scopes().release_scope(
+                command.scope_id, generation=command.generation, now=command.now
+            )
+        elif isinstance(command, CompleteStep):
             self._complete_step(command, scopes())
+        elif isinstance(command, StartWalk):
+            self._start_walk(command, scopes())
+        elif isinstance(command, RecordStep):
+            self._record_step(command, scopes())
+        elif isinstance(command, RecordBranch):
+            self._record_branch(command, scopes())
+        elif isinstance(command, MoveScope):
+            self._move_scope(command, scopes())
         elif isinstance(command, SuspendAtGate):
             self._suspend(command, scopes())
         elif isinstance(command, ResumeWorkflow):
@@ -866,21 +1027,71 @@ class _DocumentTransaction:
             scopes.hold(scope_id, previous)
 
     def _complete_step(self, cmd: CompleteStep, scopes: ScopeStore) -> None:
+        """The step record and the scope's advance, in one hold.
+
+        The record is the shape the walk has always written (`_record_step`'s),
+        so a scope advanced through this command reads exactly as one the walk
+        advanced directly — the value kept only when it is reusable.
+        """
         with self._held(scopes, cmd.scope_id, cmd.generation):
-            scopes.record_step(
-                cmd.scope_id,
-                cmd.step_key,
-                {
-                    "status": cmd.status,
-                    "result": cmd.result,
-                    "iteration": cmd.iteration,
-                    "at": _iso(cmd.now),
-                },
-            )
+            scopes.record_step(cmd.scope_id, cmd.step_key, _step_record(cmd))
             if cmd.decision_key is not None and cmd.chosen_target is not None:
                 scopes.record_branch(cmd.scope_id, cmd.decision_key, cmd.chosen_target)
             scopes.set_position(cmd.scope_id, cmd.position)
             scopes.set_scope_status(cmd.scope_id, cmd.scope_status)
+
+    def _start_walk(self, cmd: StartWalk, scopes: ScopeStore) -> None:
+        """The walk's entry write, over the methods it called directly today.
+
+        The digest is recorded once on first entry and never overwritten, and
+        the entry position is used only when the scope has none — a resume
+        keeps the position it finds, which is what replay resumes from.
+        """
+        with self._held(scopes, cmd.scope_id, cmd.generation):
+            # An empty name or digest records nothing, as the walk's direct
+            # writes never did: `ensure_scope` would overwrite a real name with
+            # "", and `set_graph_digest` keeps the first value it is given.
+            scopes.ensure_scope(cmd.scope_id, cmd.workflow or None)
+            if cmd.graph_digest:
+                scopes.set_graph_digest(cmd.scope_id, cmd.graph_digest)
+            if scopes.get_position(cmd.scope_id) is None and cmd.entry is not None:
+                scopes.set_position(cmd.scope_id, cmd.entry)
+            # D2 = 1: every entry into a walk stamps `running`.
+            scopes.set_scope_status(cmd.scope_id, "running")
+
+    def _record_step(self, cmd: RecordStep, scopes: ScopeStore) -> None:
+        """A step record that moves neither position nor status.
+
+        Same record shape as the legacy walk wrote, so files written before
+        and after this change read identically. The reserved
+        `EPILOGUE_STEP_KEY` lands where the body's return value has always
+        lived — `record_epilogue` — so every surface reading
+        ``scope["epilogue"]`` sees it unchanged (contracts §2).
+        """
+        with self._held(scopes, cmd.scope_id, cmd.generation):
+            if cmd.step_key == EPILOGUE_STEP_KEY:
+                scopes.record_epilogue(cmd.scope_id, _epilogue_record(cmd))
+            else:
+                scopes.record_step(cmd.scope_id, cmd.step_key, _step_record(cmd))
+
+    def _record_branch(self, cmd: RecordBranch, scopes: ScopeStore) -> None:
+        """An immutable decision: same target replays, a different one raises."""
+        with self._held(scopes, cmd.scope_id, cmd.generation):
+            recorded = scopes.get_branch(cmd.scope_id, cmd.decision_key)
+            if recorded is None:
+                scopes.record_branch(cmd.scope_id, cmd.decision_key, cmd.chosen_target)
+            elif recorded != cmd.chosen_target:
+                raise ValueError(
+                    f"branch {cmd.decision_key!r} on scope {cmd.scope_id!r} was "
+                    f"recorded as {recorded!r}; {cmd.chosen_target!r} would "
+                    "rewrite a decision replay depends on"
+                )
+
+    def _move_scope(self, cmd: MoveScope, scopes: ScopeStore) -> None:
+        """A status-and-position move with no step, machine-checked."""
+        with self._held(scopes, cmd.scope_id, cmd.generation):
+            scopes.set_position(cmd.scope_id, cmd.position)
+            scopes.set_scope_status(cmd.scope_id, cmd.status)
 
     def _suspend(self, cmd: SuspendAtGate, scopes: ScopeStore) -> None:
         """Open the request and set the scope status in the same unit.
@@ -980,7 +1191,13 @@ class _DocumentTransaction:
         `ScopeStore.state_batch` checks the hold on entry and again at the exit
         write, so a claim that lands mid-block discards the block rather than
         committing state the new holder has already invalidated.
+
+        An empty batch is applied as nothing: it names the unit's scope (the
+        walk log's event append needs one) and must not open the state file to
+        write it back unchanged.
         """
+        if not cmd.upserts and not cmd.deletes:
+            return
         with (
             self._held(scopes, cmd.scope_id, cmd.generation),
             scopes.state_batch(cmd.scope_id) as state,
@@ -1105,9 +1322,13 @@ def _utcnow() -> datetime:
 
 
 # TRANSITIONAL(FUN-17/T7): a declared middle man over the three document
-# stores, so this wave can land without FUN-19's `SqliteRuntimeStore`. It
-# forwards and adds no behaviour of its own beyond the profile, the buffering
-# transaction and T8's refusal. FUN-19 removes it, and this file with it.
+# stores. It forwards and adds no behaviour of its own beyond the profile, the
+# buffering transaction and T8's refusal. FUN-19 makes a store *selectable*
+# rather than replacing this one: with `runtime_store.url` unset, the document
+# store is what boot step 6.5 builds, so this class and this file stay. It is
+# now the walk's only path to the `ScopeStore` methods a walk uses
+# (`workflow-persistence-atomic`): the walk issues port commands and this class
+# maps them onto those methods, writing the records the walk always wrote.
 class DocumentRuntimeStore:
     """`RuntimeStore` over `ScopeStore`, `RunStore` and `ScopeStateStore`.
 

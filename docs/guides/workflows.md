@@ -575,29 +575,44 @@ workflow scope"** — because the process being asked never had the record.
 
 ### Configuring a durable store
 
-Install a substrate plugin. The store that ships is SQLite:
+Install a substrate plugin, then select the store it registers. The store that
+ships is SQLite:
 
 ```bash
 pip install functualize-substrate-sqlite
 ```
 
-With it installed, every runtime document — scope records, job state, the
-freshness ledger, the run log — goes to one database instead of one directory.
-Point it wherever your processes can all reach:
+Installing it registers the URL scheme `sqlite`; configuration is what picks
+the store:
 
 ```toml
 # .functualize.toml
-[plugin.substrate-sqlite]
-db_path = "/mnt/shared/functualize/state.db"
+[runtime_store]
+url = "sqlite:"
 ```
+
+`sqlite:` is the project's own `state.db` — `.functualize/state.db`, or the XDG
+cache keyed by project id — while `sqlite:///abs/path.db` and
+`sqlite:rel/path.db` name another file. With nothing configured, every project
+keeps the store it has today.
+
+Once selected, the store serves **every** runtime document — scope records, job
+state, the freshness ledger, the run log — or the boot fails: a store that
+cannot open, migrate or pass its health check aborts boot, and boot never falls
+back to the filesystem. There is no way to keep scope records in the database
+and their job state on disk, because a resumed run would come back with its
+steps intact and its variables empty, which is the failure this arrangement
+exists to prevent.
+
+**The database is one local file.** Its profile declares
+`multi_machine=False`: SQLite reaches every process on one host and no other
+machine, so where your processes run on different hosts, a shared mount is a
+filesystem question this store does not answer. Put the file on a volume that
+outlives the process and that every worker can reach, or run somewhere the
+filesystem is durable and keep the default layout.
 
 `func builtin data show` reports where each one actually is, which is the
 command to run when a resume cannot find its scope.
-
-**It moves all of them, or none.** There is no way to keep scope records in the
-database and their job state on disk: a resumed run would come back with its
-steps intact and its variables empty, which is the failure this arrangement
-exists to prevent.
 
 ### Writing your own
 

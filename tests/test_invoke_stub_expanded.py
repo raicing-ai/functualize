@@ -127,6 +127,14 @@ class TestInvokeParallel:
         with pytest.raises(NotImplementedError):
             inv.parallel([(my_fn, {})])
 
+    @pytest.mark.parametrize("raise_on_failure", [True, False])
+    def test_parallel_accepts_failure_policy_keyword(
+        self, raise_on_failure: bool
+    ) -> None:
+        inv = Invoke()
+        with pytest.raises(NotImplementedError, match="not wired"):
+            inv.parallel([("job", {})], raise_on_failure=raise_on_failure)
+
 
 class TestInvokeSchema:
     """Test Invoke.schema method."""

@@ -13,9 +13,8 @@ unplanned call is undefined. The directory is created per engine and never
 cleaned up — it is empty, and a test that leaves something in it has said
 something about a call it did not mean to make.
 
-:func:`port_for` is the other half (FUN-17/T14): a walk claims through the
-:class:`RuntimeStore` port but writes through its own ``ScopeStore``, so a
-walker test's port has to sit on that store's substrate.
+:func:`port_for` lets older test fixtures build the document runtime store
+over their existing substrate. Walk reads and writes now use that port.
 """
 
 from __future__ import annotations
@@ -51,12 +50,9 @@ def engine_storage() -> dict[str, object]:
 
 
 def port_for(store: ScopeStore) -> DocumentRuntimeStore:
-    """The port over the same substrate as a test's ``ScopeStore``.
+    """Build the document port over a test fixture's existing substrate.
 
-    FUN-17/T14, R-14.1: a walk claims through the port but writes through its
-    own ``ScopeStore``, so a test's port must sit on the **same substrate**
-    or the lease the port writes is not the lease the walk reads. This is the
-    one shared helper every walker test builds its port through, so that
-    pairing is made once rather than per file.
+    Walker tests share this constructor while they migrate from directly
+    constructing ``ScopeStore``; the walk itself uses only the returned port.
     """
     return DocumentRuntimeStore(store.substrate)

@@ -35,11 +35,20 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from functualize._types.errors import ScopeCancelledError
+from functualize._types.persistence import (
+    CancelWorkflow,
+    Claimed,
+    ClaimWorkflow,
+    ReleaseLease,
+    RuntimeStore,
+    WorkflowQuery,
+)
 from functualize.app._workflow_answer import answer_gate
 from functualize.app._workflow_resume import pending_gates
 from functualize.app._workflow_view import (
     LIVE_STATUSES,
     TERMINAL_STATES,
+    _read_scope,
     derived_state,
     describe_scope,
     tool_entries,
@@ -223,6 +232,12 @@ def advanceable_scopes(store: Any, workflow_name: str | None = None) -> list[str
     Terminal scopes never qualify — a cancelled one is refused by the engine,
     and a completed one has nothing to advance.
     """
+    if isinstance(store, RuntimeStore):
+        return [
+            view.scope_id
+            for view in store.workflows.resumable(WorkflowQuery(workflow=workflow_name))
+            if view.status in LIVE_STATUSES
+        ]
     return [
         sid
         for sid in store.scope_ids()
@@ -243,7 +258,7 @@ def resolve_advanceable(
     if it were wanted.
     """
     if scope_id is not None:
-        scope = store.get_scope(scope_id)
+        scope = _read_scope(store, scope_id)
         if scope is None:
             # The defect this replaces: `--scope-id <typo>` silently started a
             # *new* run under the typo'd id, because the runner does
@@ -395,9 +410,57 @@ def _clear_epilogue(store: Any, scope_id: str) -> None:
     store.record_epilogue(scope_id, None)
 
 
+def _record_port_input(
+    app: Any,
+    store: RuntimeStore,
+    scope_id: str,
+    gate: str | None,
+    values: dict[str, Any],
+    *,
+    source: str = "cli",
+) -> dict[str, Any]:
+    """Validate once and append a candidate to the selected input request."""
+    from functualize._engine.recording import InputRecorder
+    from functualize._gate._evaluation import evaluate_submission
+    from functualize.app._workflow_resume import _resolve_gate_model
+
+    view = store.workflows.workflow(scope_id)
+    request = store.inputs.open_for(scope_id)
+    if view is None or request is None or request.status != "open":
+        return _error(
+            "gate_not_found", f"Workflow '{scope_id}' has no gate awaiting input."
+        )
+    if gate is not None and gate not in (
+        request.gate_name,
+        request.gate_name.replace("-", "_"),
+    ):
+        return _error("gate_not_found", f"Gate '{gate}' is not awaiting input.")
+    model, error = _resolve_gate_model(
+        app, {"workflow": view.workflow}, request.gate_name
+    )
+    if error is not None:
+        return error
+    evaluation, validated = evaluate_submission(model, values)
+    candidate = InputRecorder().submitted(
+        request.request_id,
+        source,
+        evaluation,
+        validated if validated is not None else values,
+        ordinal=len(store.inputs.candidates_for(request.request_id)),
+        now=datetime.now(UTC),
+    )
+    with store.transaction() as tx:
+        tx.inputs.append(candidate)
+    if validated is None:
+        return _error(
+            "validation_error", f"Input does not satisfy gate '{request.gate_name}'."
+        )
+    return {"status": "answered", "workflow_id": scope_id, "gate": request.gate_name}
+
+
 def cancel_scope(store: Any, scope_id: str) -> dict[str, Any]:
     """Mark a scope cancelled. Terminal — the engine refuses to resume it."""
-    scope = store.get_scope(scope_id)
+    scope = _read_scope(store, scope_id)
     if scope is None:
         return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
     status = scope.get("status")
@@ -405,6 +468,23 @@ def cancel_scope(store: Any, scope_id: str) -> dict[str, Any]:
         return _error(
             "workflow_not_active", f"Workflow '{scope_id}' is already {status}."
         )
+    if isinstance(store, RuntimeStore):
+        view = store.workflows.workflow(scope_id)
+        assert view is not None
+        with store.transaction() as tx:
+            tx.workflows.cancel(
+                CancelWorkflow(
+                    scope_id=scope_id,
+                    generation=view.generation or 0,
+                    now=datetime.now(UTC),
+                    force=True,
+                )
+            )
+        return {
+            "status": "cancelled",
+            "workflow_id": scope_id,
+            "message": f"Workflow '{scope_id}' has been cancelled.",
+        }
     # **Take the lease first** (`durable-run-layer`/T7, AC-10). Setting the
     # status alone does not cancel a walk that is already running: that walk
     # holds the current generation, so its own COMPLETED stamp is a legal write
@@ -474,7 +554,7 @@ def reclaim_scope(store: Any, scope_id: str) -> dict[str, Any]:
     scope — it is one someone is using. Cancel is the verb for taking a scope
     away from a runner that is working.
     """
-    scope = store.get_scope(scope_id)
+    scope = _read_scope(store, scope_id)
     if scope is None:
         return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
 
@@ -490,6 +570,38 @@ def reclaim_scope(store: Any, scope_id: str) -> dict[str, Any]:
             f"Workflow '{scope_id}' is held by {lease.owner} until "
             f"{lease.expires_at}. Cancel it if the holder should stop.",
         )
+    if isinstance(store, RuntimeStore):
+        previous_owner = lease.owner if lease is not None else None
+        now = datetime.now(UTC)
+        with store.transaction() as tx:
+            taken = tx.workflows.claim(
+                ClaimWorkflow(
+                    scope_id=scope_id,
+                    owner=runner_identity(),
+                    now=now,
+                    lease_seconds=30,
+                    force=True,
+                )
+            )
+        if not isinstance(taken, Claimed):
+            return _error(
+                "workflow_held", f"Workflow '{scope_id}' could not be reclaimed."
+            )
+        with store.transaction() as tx:
+            tx.workflows.release(
+                ReleaseLease(scope_id=scope_id, generation=taken.generation, now=now)
+            )
+        return {
+            "status": "reclaimed",
+            "workflow_id": scope_id,
+            "generation": taken.generation,
+            "previous_owner": previous_owner,
+            "work_not_stopped": previous_owner is not None,
+            "message": (
+                f"Reclaimed '{scope_id}' at generation {taken.generation}. "
+                "Writes from the previous holder are now refused."
+            ),
+        }
 
     # Claim, then **release**. Reclaiming is not "take this scope", it is
     # "invalidate whoever had it and let someone start". Holding the lease here

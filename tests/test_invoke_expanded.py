@@ -24,6 +24,7 @@ Property 6: Parallel execution preserves input order
 from __future__ import annotations
 
 from collections.abc import Callable
+from threading import Event
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
@@ -736,3 +737,190 @@ class TestParallelExecutionPreservesInputOrder:
         jobs = [("job", {}) for _ in range(33)]
         with pytest.raises(ValueError, match="32"):
             invoke_cap.parallel(jobs)
+
+
+class TestParallelFailurePolicy:
+    """The batch reports failed children after collecting ordered results."""
+
+    @staticmethod
+    def _invoke(*names: str):
+        registered = {
+            name: RegisteredJob(
+                name=name,
+                function=lambda rc: None,
+                config_class=None,
+                group=None,
+                module_path="test",
+                job_directory=None,
+            )
+            for name in names
+        }
+        return _make_wired_invoke(registered)
+
+    def test_all_failures_report_each_position_even_with_repeated_names(self) -> None:
+        invoke_cap, engine = self._invoke("broken")
+        engine.run.side_effect = lambda request: JobResult(
+            status=RunStatus.FAILURE,
+            duration_ms=0.0,
+            return_value=None,
+            exception=None,
+            job_name=request.job_name,
+        )
+
+        with pytest.raises(RuntimeError) as error:
+            invoke_cap.parallel([("broken", {})] * 3)
+
+        assert str(error.value) == (
+            "Parallel batch failed: #1 'broken' (Failure), "
+            "#2 'broken' (Failure), #3 'broken' (Failure)"
+        )
+        assert error.value.__cause__ is None
+        assert engine.run.call_count == 3
+
+    def test_opt_out_keeps_order_and_policy_out_of_child_kwargs(self) -> None:
+        invoke_cap, engine = self._invoke("first", "broken", "last")
+        requests = []
+
+        def run(request):
+            requests.append(request)
+            status = (
+                RunStatus.FAILURE if request.job_name == "broken" else RunStatus.SUCCESS
+            )
+            return JobResult(
+                status=status,
+                duration_ms=1.0,
+                return_value=request.job_name,
+                exception=None,
+                job_name=request.job_name,
+            )
+
+        engine.run.side_effect = run
+        results = invoke_cap.parallel(
+            [("first", {"value": 1}), ("broken", {"value": 2}), ("last", {})],
+            raise_on_failure=False,
+        )
+
+        assert [result.job_name for result in results] == ["first", "broken", "last"]
+        assert [result.status for result in results] == [
+            RunStatus.SUCCESS,
+            RunStatus.FAILURE,
+            RunStatus.SUCCESS,
+        ]
+        assert {request.job_name: request.kwargs for request in requests} == {
+            "first": {"value": 1},
+            "broken": {"value": 2},
+            "last": {},
+        }
+
+    def test_first_failed_exception_is_chained_by_identity(self) -> None:
+        invoke_cap, engine = self._invoke("broken")
+        cause = ValueError("original")
+        engine.run.return_value = JobResult(
+            status=RunStatus.FAILURE,
+            duration_ms=1.0,
+            return_value=None,
+            exception=cause,
+            job_name="broken",
+        )
+
+        with pytest.raises(RuntimeError, match="#1 'broken' \\(Failure\\)") as error:
+            invoke_cap.parallel([("broken", {})])
+
+        assert error.value.__cause__ is cause
+
+    def test_completion_order_does_not_change_return_order(self) -> None:
+        invoke_cap, engine = self._invoke("slow", "fast")
+        release = Event()
+        completed: list[str] = []
+
+        def run(request):
+            if request.job_name == "slow":
+                assert release.wait(2)
+            else:
+                release.set()
+            completed.append(request.job_name)
+            return JobResult(
+                status=RunStatus.SUCCESS,
+                duration_ms=1.0,
+                return_value=request.job_name,
+                exception=None,
+                job_name=request.job_name,
+            )
+
+        engine.run.side_effect = run
+        try:
+            results = invoke_cap.parallel([("slow", {}), ("fast", {})])
+        finally:
+            release.set()
+
+        assert completed == ["fast", "slow"]
+        assert [result.job_name for result in results] == ["slow", "fast"]
+
+    @pytest.mark.parametrize("raise_on_failure", [True, False])
+    def test_deadline_keeps_nonblocking_shutdown(self, raise_on_failure: bool) -> None:
+        invoke_cap, engine = self._invoke("slow")
+        release = Event()
+        finished = Event()
+
+        def run(request):
+            try:
+                release.wait(2)
+                return JobResult(
+                    status=RunStatus.SUCCESS,
+                    duration_ms=1.0,
+                    return_value=None,
+                    exception=None,
+                    job_name=request.job_name,
+                )
+            finally:
+                finished.set()
+
+        engine.run.side_effect = run
+        try:
+            if raise_on_failure:
+                with pytest.raises(RuntimeError, match="Timeout") as error:
+                    invoke_cap.parallel([("slow", {})], timeout=0.02)
+                assert isinstance(error.value.__cause__, TimeoutError)
+            else:
+                results = invoke_cap.parallel(
+                    [("slow", {})], timeout=0.02, raise_on_failure=False
+                )
+                assert [result.status for result in results] == [RunStatus.TIMEOUT]
+            assert not finished.is_set(), "timeout waited for the running worker"
+        finally:
+            release.set()
+            finished.wait(2)
+
+    def test_skipped_and_blocked_are_reported_without_raising(self) -> None:
+        invoke_cap, engine = self._invoke("skipped", "blocked")
+        engine.run.side_effect = lambda request: JobResult(
+            status=(
+                RunStatus.SKIPPED
+                if request.job_name == "skipped"
+                else RunStatus.BLOCKED
+            ),
+            duration_ms=1.0,
+            return_value=None,
+            exception=None,
+            job_name=request.job_name,
+        )
+
+        results = invoke_cap.parallel([("skipped", {}), ("blocked", {})])
+
+        assert [result.status for result in results] == [
+            RunStatus.SKIPPED,
+            RunStatus.BLOCKED,
+        ]
+
+    def test_empty_and_32_job_bounds_keep_returning_results(self) -> None:
+        invoke_cap, engine = self._invoke("ok")
+        engine.run.side_effect = lambda request: JobResult(
+            status=RunStatus.SUCCESS,
+            duration_ms=1.0,
+            return_value=None,
+            exception=None,
+            job_name=request.job_name,
+        )
+
+        assert invoke_cap.parallel([], raise_on_failure=False) == []
+        assert len(invoke_cap.parallel([("ok", {})] * 32)) == 32

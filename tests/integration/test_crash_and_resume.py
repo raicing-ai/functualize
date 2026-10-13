@@ -71,9 +71,7 @@ declaration = WorkflowDeclaration(
 )
 
 store = ScopeStore.for_project(Path.cwd())
-# The port over the same substrate as the walk's store, as `port_for` builds
-# it in-process (FUN-17/T14): the lease the port writes is the one the walk reads.
-walk = WorkflowWalker(declaration, store, "crash-scope", run_step=_run_step,
+walk = WorkflowWalker(declaration, "crash-scope", run_step=_run_step,
                     runtime_store=DocumentRuntimeStore(store.substrate),
                     workflow_name="flow")
 walk.run()

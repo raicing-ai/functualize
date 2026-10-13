@@ -9,8 +9,8 @@ The honest version of this test is two machines and a network database, which a
 unit suite cannot run. So the property is reproduced the strongest way one
 machine allows: **the two processes have different working directories and
 different `.functualize/` directories**, and the only thing joining them is the
-substrate this project's config picks — `plugin.substrate-sqlite.db_path`,
-resolved by the shipped plugin's chooser when boot asks it.
+store this project's config selects — `runtime_store.url = "sqlite:///…"`,
+prepared by the shipped plugin's factory when boot selects it.
 
 That is the real claim. The framework's own file layout — one upward walk to a
 `.functualize/`, `scopes.json` and `scope-state/` beside each other — is what a
@@ -36,6 +36,7 @@ this.
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -92,9 +93,9 @@ from functualize.app.adapters import CliAdapter
 # No substrate is installed here, and none can be: `FunctualizeApp.__init__`
 # boots, and boot step 6.5 builds the engine *with* the store it selects — so
 # an `install_substrate` after construction is refused by design. Storage is
-# chosen the way a user chooses it: `config.base.toml` names the plugin's
-# `db_path`, the shipped `substrate-sqlite` plugin offers its chooser at
-# registration, and boot asks it at 6.5.
+# chosen the way a user chooses it: `config.base.toml` sets
+# `runtime_store.url`, the shipped `substrate-sqlite` plugin registers its
+# factory, and boot selects and prepares it at 6.5.
 app = FunctualizeApp("w", job_sources=JobSources(directories=["jobs"]))
 
 adapter = CliAdapter()
@@ -111,16 +112,15 @@ def _worker(root: Path, db: Path) -> Path:
     (root / ".functualize.toml").write_text(
         'jobs_directories = ["jobs"]\nroot = true\n'
     )
-    # The only thing naming the substrate: the plugin's own config section,
-    # read by its chooser at step 6.5. The plugin is installed in this
+    # The only thing naming the store: `runtime_store.url`, read at step 6.5. The plugin is installed in this
     # workspace's venv, so entry-point discovery loads it with nothing else
     # to declare.
     (root / "config.base.toml").write_text(
         "[general]\n"
         'app_name = "w"\n'
         "\n"
-        "[plugin.substrate-sqlite]\n"
-        f"db_path = {json.dumps(str(db))}\n"
+        "[runtime_store]\n"
+        f"url = {json.dumps('sqlite://' + str(db))}\n"
     )
     (root / ".functualize").mkdir()
     (root / "main.py").write_text(_MAIN)
@@ -159,6 +159,36 @@ def two_workers(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 @pytest.mark.slow
 class TestAGateCrossesTheProcessBoundary:
+    def test_operator_verbs_read_and_change_the_relational_scope(
+        self, two_workers: tuple[Path, Path, Path]
+    ) -> None:
+        first, second, db = two_workers
+        blocked = _run(first, "walk")
+        assert blocked.returncode == 5, blocked.stdout + blocked.stderr
+        scope = _scope_id_from(blocked.stdout + blocked.stderr)
+
+        listed = _run(second, "builtin", "workflow", "list", "--format", "json")
+        assert listed.returncode == 0, listed.stdout + listed.stderr
+        assert scope in [
+            row["workflow_id"] for row in json.loads(listed.stdout)["workflows"]
+        ]
+
+        shown = _run(second, "builtin", "workflow", "show", scope, "--format", "json")
+        assert shown.returncode == 0, shown.stdout + shown.stderr
+        detail = json.loads(shown.stdout)
+        assert detail["current_position"] == "pause"
+        assert [gate["gate"] for gate in detail["pending_gates"]] == ["pause"]
+
+        reclaimed = _run(second, "builtin", "workflow", "reclaim", scope)
+        assert reclaimed.returncode == 0, reclaimed.stdout + reclaimed.stderr
+        cancelled = _run(second, "builtin", "workflow", "cancel", scope)
+        assert cancelled.returncode == 0, cancelled.stdout + cancelled.stderr
+        with sqlite3.connect(db) as connection:
+            status = connection.execute(
+                "SELECT status FROM workflow_scopes WHERE id = ?", (scope,)
+            ).fetchone()
+        assert status == ("cancelled",)
+
     def test_the_second_worker_resumes_what_the_first_blocked(
         self, two_workers: tuple[Path, Path, Path]
     ) -> None:
@@ -230,30 +260,32 @@ class TestAGateCrossesTheProcessBoundary:
         """Positive half of the falsifier: the database really holds them."""
         first, _second, db = two_workers
 
-        _run(first, "walk")
+        blocked = _run(first, "walk")
+        assert blocked.returncode == 5, blocked.stdout + blocked.stderr
+        scope = _scope_id_from(blocked.stdout + blocked.stderr)
 
-        sys.path.insert(
-            0,
-            str(
-                PROJECT_ROOT
-                / "plugins"
-                / "substrates"
-                / "functualize-substrate-sqlite"
-                / "src"
-            ),
-        )
-        from functualize_substrate_sqlite.substrate import SQLiteSubstrate
-
-        substrate = SQLiteSubstrate(db)
-        scopes = substrate.read("scopes")
-        assert scopes is not None, "no scope records reached the database"
-        assert scopes.data["scopes"], "the scope envelope is empty"
-
-        scope_id = next(iter(scopes.data["scopes"]))
-        state = substrate.read(f"scope-state/{scope_id}")
-        assert state is not None and state.data["state"]["rows"] == 500, (
-            "the record reached the database but the job state did not"
-        )
+        with sqlite3.connect(db) as connection:
+            row = connection.execute(
+                "SELECT status, position FROM workflow_scopes WHERE id = ?", (scope,)
+            ).fetchone()
+            steps = connection.execute(
+                "SELECT step_key, status FROM workflow_steps WHERE scope_id = ?",
+                (scope,),
+            ).fetchall()
+            state = connection.execute(
+                "SELECT value FROM scope_state WHERE scope_id = ? AND key = 'rows'",
+                (scope,),
+            ).fetchone()
+            request = connection.execute(
+                "SELECT status FROM input_requests WHERE scope_id = ? AND gate_key = 'pause'",
+                (scope,),
+            ).fetchone()
+        assert row == ("blocked", "pause"), row
+        assert any(
+            key.startswith("first") and status == "success" for key, status in steps
+        ), steps
+        assert state is not None and json.loads(state[0]) == 500, state
+        assert request == ("open",), request
 
 
 def _scope_id_from(output: str) -> str:
@@ -285,23 +317,28 @@ def test_the_gate_payload_survives_the_crossing(
 
     blocked = _run(first, "walk")
     scope = _scope_id_from(blocked.stdout + blocked.stderr)
-    _run(second, "walk", "--wf-resume", scope, "--wf-input", '{"approved": "sam"}')
-
-    sys.path.insert(
-        0,
-        str(
-            PROJECT_ROOT
-            / "plugins"
-            / "substrates"
-            / "functualize-substrate-sqlite"
-            / "src"
-        ),
+    resumed = _run(
+        second, "walk", "--wf-resume", scope, "--wf-input", '{"approved": "sam"}'
     )
-    from functualize_substrate_sqlite.substrate import SQLiteSubstrate
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
 
-    stored = SQLiteSubstrate(db).read("scopes")
-    assert stored is not None
-    record = stored.data["scopes"][scope]
-    assert "sam" in json.dumps(record.get("gates", {})), (
-        f"the deposited gate payload is not in the record: {record.get('gates')}"
-    )
+    with sqlite3.connect(db) as connection:
+        request = connection.execute(
+            "SELECT id, status FROM input_requests WHERE scope_id = ? AND gate_key = 'pause'",
+            (scope,),
+        ).fetchone()
+        candidates = connection.execute(
+            "SELECT c.outcome, c.payload FROM input_candidates AS c "
+            "JOIN input_requests AS r ON r.id = c.request_id "
+            "WHERE r.scope_id = ? AND r.gate_key = 'pause' ORDER BY c.ordinal",
+            (scope,),
+        ).fetchall()
+        status = connection.execute(
+            "SELECT status FROM workflow_scopes WHERE id = ?", (scope,)
+        ).fetchone()
+    assert request is not None and request[1] == "consumed", request
+    assert any(
+        outcome == "accepted" and json.loads(payload) == {"approved": "sam"}
+        for outcome, payload in candidates
+    ), candidates
+    assert status == ("completed",), status
