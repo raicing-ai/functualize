@@ -30,6 +30,7 @@ Detailed module catalog with responsibilities and dependencies. See `dependencie
 ### `plugin/` — Plugin Author API
 
 Core protocols: `EventBus`, `HookEvent`, `StructuredEvent`, `JobProvider`, `JobTransform`, `Job`, `AdapterPlugin`, `Surface`, `PromptCollector`, `LiveConstruct`, `PromptRequest`, `PluginMetadata`, `PluginWithShutdown`, `Source`, `FormatProvider`.
+Runtime-store seam: `RuntimeStore`, `RuntimeStoreFactory`, `RuntimeStoreConfig`, `PreparedStore`, `StoreProfile`, `RuntimeStoreSelectionError`, `RuntimeStoreCapabilityError` — a plugin registers a factory under one URL scheme, and boot step 6.5 prepares the single selected store.
 Domain/UI extension protocols: `discover_domains`, `scan_domain_providers`, `BarRenderer`, `DisplayProvider`, `HeaderItemProvider`, `InteractiveContent`, `PanelProvider`, `PostRunStampProvider`, `SessionState`, `SignatureProvider`, `StatusBarItemProvider`, `ThemeProvider`, `validate_extension_id`.
 
 ### `ui/` — Job-Owned / Display UI Building Blocks (`[cli]` extra)
@@ -150,7 +151,7 @@ See `contributor/guides/tui-panels.md` for the hard rule every panel widget must
 | `functualize-ai-pydantic` | Implementation | PydanticAI-backed AI plugin |
 | `functualize-inline` | Implementation | Textual inline interactivity (prompts within terminal flow) |
 | `functualize-flow-viz` | Implementation | Inline flow visualization during job execution |
-| `functualize-substrate-sqlite` | Implementation | SQLite-backed state persistence |
+| `functualize-substrate-sqlite` | Implementation | SQLite runtime store, selected by configuration |
 | `functualize-tasks` | Domain SDK (protocols) | Task management capabilities |
 | `functualize-tasks-local` | Implementation | Local state-backed task storage |
 | `functualize-http` | Delivery adapter | HTTP server adapter (asyncio-based) |

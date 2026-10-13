@@ -402,7 +402,7 @@ class TestTheIterationKeyingIsRightBothWays:
         runner = _Recorder()
 
         report = WorkflowWalker(
-            self._graph(), store, "s1", run_step=runner, runtime_store=port_for(store)
+            self._graph(), "s1", run_step=runner, runtime_store=port_for(store)
         ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED, report
@@ -439,7 +439,6 @@ class TestTheBound:
         runner = _Recorder()
         WorkflowWalker(
             self._counting(bound),
-            store,
             "s1",
             run_step=runner,
             runtime_store=port_for(store),
@@ -453,7 +452,6 @@ class TestTheBound:
         runner = _Recorder()
         WorkflowWalker(
             self._counting(1),
-            store,
             "s1",
             run_step=runner,
             runtime_store=port_for(store),
@@ -492,7 +490,7 @@ class TestTheBound:
             ),
         )
         WorkflowWalker(
-            graph, store, "s1", run_step=runner, runtime_store=port_for(store)
+            graph, "s1", run_step=runner, runtime_store=port_for(store)
         ).run()
         assert runner.count("work") == 4
 
@@ -513,7 +511,7 @@ class TestTheCondition:
             ),
         )
         WorkflowWalker(
-            graph, store, "s1", run_step=runner, runtime_store=port_for(store)
+            graph, "s1", run_step=runner, runtime_store=port_for(store)
         ).run()
         assert runner.count("work") == 2
 
@@ -534,7 +532,6 @@ class TestTheCondition:
         )
         WorkflowWalker(
             graph,
-            store,
             "s1",
             run_step=lambda n: f"{n}-value",
             runtime_store=port_for(store),
@@ -576,7 +573,6 @@ class TestResumeContinuesTheIteration:
         runner = _Recorder()
         first = WorkflowWalker(
             self._gated_loop(),
-            store,
             "s1",
             run_step=runner,
             runtime_store=port_for(store),
@@ -586,7 +582,6 @@ class TestResumeContinuesTheIteration:
         store.deposit_gate_payload("s1", "approve", {"text": "go"})
         resumed = WorkflowWalker(
             self._gated_loop(),
-            ScopeStore(store.substrate),
             "s1",
             run_step=runner,
             runtime_store=port_for(store),
@@ -607,7 +602,6 @@ class TestResumeContinuesTheIteration:
         runner = _Recorder()
         WorkflowWalker(
             self._gated_loop(),
-            store,
             "s1",
             run_step=runner,
             runtime_store=port_for(store),
@@ -615,7 +609,6 @@ class TestResumeContinuesTheIteration:
         store.deposit_gate_payload("s1", "approve", {"text": "go"})
         resumed = WorkflowWalker(
             self._gated_loop(),
-            ScopeStore(store.substrate),
             "s1",
             run_step=runner,
             runtime_store=port_for(store),
@@ -643,7 +636,6 @@ class TestResumeContinuesTheIteration:
         runner = _Recorder()
         WorkflowWalker(
             self._gated_loop(),
-            store,
             "s1",
             run_step=runner,
             runtime_store=port_for(store),
@@ -652,7 +644,6 @@ class TestResumeContinuesTheIteration:
 
         resumed = WorkflowWalker(
             self._gated_loop(),
-            ScopeStore(store.substrate),
             "s1",
             run_step=runner,
             runtime_store=port_for(store),
@@ -672,7 +663,6 @@ class TestResumeContinuesTheIteration:
         """
         WorkflowWalker(
             TestTheBound._counting(3),
-            store,
             "s1",
             run_step=lambda n: n,
             runtime_store=port_for(store),
@@ -698,7 +688,7 @@ class TestAGraphWithNoLoopIsUntouched:
             edges=(Edge(source="a", target="b"), Edge(source="b", target=END)),
         )
         WorkflowWalker(
-            graph, store, "s1", run_step=lambda n: n, runtime_store=port_for(store)
+            graph, "s1", run_step=lambda n: n, runtime_store=port_for(store)
         ).run()
 
         for name in ("a", "b"):
@@ -718,6 +708,6 @@ class TestAGraphWithNoLoopIsUntouched:
             ),
         )
         WorkflowWalker(
-            graph, store, "s1", run_step=runner, runtime_store=port_for(store)
+            graph, "s1", run_step=runner, runtime_store=port_for(store)
         ).run()
         assert runner.count("join") == 1

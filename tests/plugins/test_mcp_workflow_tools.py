@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 from functualize_mcp._workflow_tools import WorkflowToolProvider
+from functualize_substrate_sqlite import SQLiteSubstratePlugin
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
@@ -64,10 +65,30 @@ def _store() -> ScopeStore:
     return ScopeStore.for_project(Path.cwd())
 
 
-def _gated_app(calls: list[str] | None = None) -> FunctualizeApp:
+def _gated_app(
+    calls: list[str] | None = None, *, sqlite: bool = False
+) -> FunctualizeApp:
     """An app with one workflow that blocks at a gate between two steps."""
     seen = calls if calls is not None else []
-    app = FunctualizeApp(name="testapp")
+    if sqlite:
+        from functualize._config.chain import ResolutionChain
+        from functualize._config.sources import DefaultSource
+        from functualize.app import ConfigSources, JobSources, PluginSources
+
+        app = FunctualizeApp(
+            name="testapp",
+            job_sources=JobSources(functions=[]),
+            config_sources=ConfigSources(
+                config_resolution_chain=ResolutionChain(
+                    [DefaultSource({"runtime_store": {"url": "sqlite:"}})]
+                )
+            ),
+            plugin_sources=PluginSources(
+                entry_point_group="", explicit_plugins=[SQLiteSubstratePlugin()]
+            ),
+        )
+    else:
+        app = FunctualizeApp(name="testapp")
 
     def forecast() -> str:
         seen.append("forecast")
@@ -101,6 +122,33 @@ def _gated_app(calls: list[str] | None = None) -> FunctualizeApp:
 
 def _provider(app: FunctualizeApp) -> WorkflowToolProvider:
     return WorkflowToolProvider(app, store=_store())
+
+
+async def test_sqlite_operator_tools_use_the_selected_runtime_store() -> None:
+    app = _gated_app(sqlite=True)
+    app.execute(
+        RunRequest(
+            job_name="trip_planner",
+            surface="app.execute",
+            workflow_scope_id="sql-run",
+        )
+    )
+    provider = WorkflowToolProvider(app)
+
+    listing = await provider._list_workflows()
+    assert [item["workflow_id"] for item in listing["workflows"]] == ["sql-run"]
+    shown = await provider._get_workflow_state("sql-run")
+    assert shown["current_position"] == "preferences"
+    assert [gate["gate"] for gate in shown["pending_gates"]] == ["preferences"]
+    assert shown["results"]["forecast"]["return_value"] == "sunny"
+
+    reclaimed = await provider._reclaim_workflow("sql-run")
+    assert reclaimed["status"] == "reclaimed"
+    cancelled = await provider._cancel_workflow("sql-run")
+    assert cancelled["status"] == "cancelled"
+    assert (
+        app.workflow_runtime_store().workflows.workflow("sql-run").status == "cancelled"
+    )
 
 
 class TestGetWorkflowState:

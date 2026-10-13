@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from functualize._types.descriptors import JobDescriptor, JobResult
+    from functualize._types.persistence import RuntimeStoreFactory
     from functualize._types.protocols import StoreSubstrate
     from functualize._types.run_request import RunRequest
 
@@ -350,6 +351,19 @@ class PluginHost(Protocol):
         aborts boot — step 6.5 is deliberately uncaught — and more than one
         claim (offers and installs alike) is refused with
         ``SubstrateInstallError`` naming every claimant.
+        """
+        ...
+
+    def register_runtime_store_factory(self, factory: RuntimeStoreFactory) -> None:
+        """Make a runtime store selectable by ``runtime_store.url``.
+
+        Called from a plugin's registration call; boot registers the built-in
+        ``documents`` factory the same way, first. Installing a backend no
+        longer selects it: boot step 6.5 reads ``runtime_store.url`` and
+        prepares the one factory whose ``scheme`` it names. Two factories for
+        one scheme are both kept here and refused at selection, naming both,
+        so plugin load order never decides storage. Refused with
+        ``SubstrateInstallError`` once step 6.5 has run, as an offer is.
         """
         ...
 

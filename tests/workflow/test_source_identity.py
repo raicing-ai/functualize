@@ -76,7 +76,6 @@ def store(tmp_path: Path) -> ScopeStore:
 def _walk(declaration: WorkflowDeclaration, store: ScopeStore) -> WorkflowWalker:
     return WorkflowWalker(
         declaration,
-        store,
         "wf",
         run_step=lambda name: name,
         runtime_store=port_for(store),
@@ -181,7 +180,6 @@ class TestAnUnrelatedChangeInTheSameFileIsFine:
 
         rebuilt = WorkflowWalker(
             _two_steps(),
-            store,
             "wf",
             run_step=lambda name: f"{name}-rewritten-implementation",
             runtime_store=port_for(store),

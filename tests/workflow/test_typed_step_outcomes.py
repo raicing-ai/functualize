@@ -154,7 +154,14 @@ class TestNoConsumerSpellsTheOutcomeItself:
 
     @staticmethod
     def _status_literal_comparisons(path: Path) -> list[str]:
-        """Every `<something>.get("status") == "<literal>"` in a file."""
+        """Every equality on a status in a file — the record's or the view's.
+
+        Both spellings: `<something>.get("status") == …` on a legacy record,
+        and `<something>.status == …` on a port view (`StepView`,
+        `WorkflowView`), which is how the walk reads since it left
+        `ScopeStore`. Matching only the first would leave this guard blind to
+        exactly the comparison it exists to catch.
+        """
         found: list[str] = []
         for node in ast.walk(ast.parse(path.read_text())):
             if not isinstance(node, ast.Compare):
@@ -162,11 +169,15 @@ class TestNoConsumerSpellsTheOutcomeItself:
             if not any(isinstance(op, ast.Eq) for op in node.ops):
                 continue
             source = ast.unparse(node)
-            if '"status"' not in source and "'status'" not in source:
-                continue
-            if "['status']" not in source and ".get" not in source:
-                continue
-            found.append(source)
+            on_view = any(
+                isinstance(side, ast.Attribute) and side.attr == "status"
+                for side in (node.left, *node.comparators)
+            )
+            on_record = ('"status"' in source or "'status'" in source) and (
+                "['status']" in source or ".get" in source
+            )
+            if on_view or on_record:
+                found.append(source)
         return found
 
     @pytest.mark.parametrize("relative", CONSUMERS)
@@ -214,7 +225,7 @@ class TestOnlySuccessIsSkippedOnReplay:
         runner = _Runner()
 
         WorkflowWalker(
-            _line(), store, "s1", run_step=runner, runtime_store=port_for(store)
+            _line(), "s1", run_step=runner, runtime_store=port_for(store)
         ).run()
 
         assert runner.count("first") == 1, (
@@ -232,7 +243,7 @@ class TestOnlySuccessIsSkippedOnReplay:
         runner = _Runner()
 
         WorkflowWalker(
-            _line(), store, "s1", run_step=runner, runtime_store=port_for(store)
+            _line(), "s1", run_step=runner, runtime_store=port_for(store)
         ).run()
 
         assert runner.count("first") == 0, runner.calls
@@ -256,7 +267,7 @@ class TestAnAbandonedStepTimedOut:
         _abandon(store, "s1", at="first")
 
         FrontierWalk(
-            GraphModel(entry="first"), store, "s1", runtime_store=port_for(store)
+            GraphModel(entry="first"), "s1", runtime_store=port_for(store)
         ).claim()
 
         assert _status_of(store, "s1", "first") == StepStatus.TIMED_OUT
@@ -270,7 +281,7 @@ class TestAnAbandonedStepTimedOut:
         """
         _abandon(store, "s1", at="first")
         FrontierWalk(
-            GraphModel(entry="first"), store, "s1", runtime_store=port_for(store)
+            GraphModel(entry="first"), "s1", runtime_store=port_for(store)
         ).claim()
         assert store.get_scope("s1")["status"] == "running"
 
@@ -279,7 +290,7 @@ class TestAnAbandonedStepTimedOut:
         runner = _Runner()
 
         WorkflowWalker(
-            _line(), store, "s1", run_step=runner, runtime_store=port_for(store)
+            _line(), "s1", run_step=runner, runtime_store=port_for(store)
         ).run()
 
         assert runner.count("first") == 1, (
@@ -301,14 +312,14 @@ class TestAnAbandonedStepTimedOut:
         )
 
         FrontierWalk(
-            GraphModel(entry="first"), store, "s1", runtime_store=port_for(store)
+            GraphModel(entry="first"), "s1", runtime_store=port_for(store)
         ).claim()
 
         assert _status_of(store, "s1", "first") == StepStatus.FAILED
 
     def test_a_fresh_scope_records_nothing(self, store: ScopeStore) -> None:
         walk = FrontierWalk(
-            GraphModel(entry="first"), store, "s1", runtime_store=port_for(store)
+            GraphModel(entry="first"), "s1", runtime_store=port_for(store)
         )
         walk.claim()
         assert store.get_scope("s1")["steps"] == {}
@@ -327,14 +338,14 @@ class TestAnAbandonedStepTimedOut:
         store.ensure_scope("s1", "demo")
         store.set_position("s1", "first")
         walk = FrontierWalk(
-            GraphModel(entry="first"), store, "s1", runtime_store=port_for(store)
+            GraphModel(entry="first"), "s1", runtime_store=port_for(store)
         )
         walk.claim()
         store.set_scope_status("s1", "blocked")
         walk.release()
 
         FrontierWalk(
-            GraphModel(entry="first"), store, "s1", runtime_store=port_for(store)
+            GraphModel(entry="first"), "s1", runtime_store=port_for(store)
         ).claim()
 
         assert _status_of(store, "s1", "first") is None, (
@@ -346,14 +357,14 @@ class TestAnAbandonedStepTimedOut:
         store.ensure_scope("s1", "demo")
         store.set_position("s1", "first")
         walk = FrontierWalk(
-            GraphModel(entry="first"), store, "s1", runtime_store=port_for(store)
+            GraphModel(entry="first"), "s1", runtime_store=port_for(store)
         )
         walk.claim()
         store.set_scope_status("s1", "completed")
         walk.release()
 
         FrontierWalk(
-            GraphModel(entry="first"), store, "s1", runtime_store=port_for(store)
+            GraphModel(entry="first"), "s1", runtime_store=port_for(store)
         ).claim()
 
         assert _status_of(store, "s1", "first") is None
@@ -376,7 +387,7 @@ class TestACancelledChildIsNotAFailedParent:
     @staticmethod
     def _walk(store: ScopeStore, runner: _Runner) -> Any:
         return WorkflowWalker(
-            _line(), store, "s1", run_step=runner, runtime_store=port_for(store)
+            _line(), "s1", run_step=runner, runtime_store=port_for(store)
         ).run()
 
     def test_the_step_is_recorded_cancelled(self, store: ScopeStore) -> None:
@@ -411,7 +422,7 @@ class TestACancelledChildIsNotAFailedParent:
         from functualize._engine.workflow_runner import WorkflowRunner
 
         again = WorkflowRunner(
-            store, run_step=_Runner(), scope_id="s1", runtime_store=port_for(store)
+            run_step=_Runner(), scope_id="s1", runtime_store=port_for(store)
         )
         with pytest.raises(ScopeCancelledError):
             again.prelude("parent", _line())
@@ -423,7 +434,7 @@ class TestAnOrdinaryFailureIsUnchanged:
     def test_a_raising_step_is_still_failed(self, store: ScopeStore) -> None:
         runner = _Runner(first=RuntimeError("boom"))
         report = WorkflowWalker(
-            _line(), store, "s1", run_step=runner, runtime_store=port_for(store)
+            _line(), "s1", run_step=runner, runtime_store=port_for(store)
         ).run()
 
         assert report.outcome is WalkOutcome.FAILED
@@ -433,7 +444,7 @@ class TestAnOrdinaryFailureIsUnchanged:
     def test_a_clean_walk_records_success(self, store: ScopeStore) -> None:
         runner = _Runner()
         report = WorkflowWalker(
-            _line(), store, "s1", run_step=runner, runtime_store=port_for(store)
+            _line(), "s1", run_step=runner, runtime_store=port_for(store)
         ).run()
 
         assert report.outcome is WalkOutcome.COMPLETED

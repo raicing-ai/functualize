@@ -36,7 +36,10 @@ migrated and a graph that never loops cannot notice this feature happened.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from functualize._types.persistence import WorkflowReader
 
 from functualize._engine.frontier import step_key
 
@@ -56,10 +59,12 @@ def iteration_step_key(name: str, iteration: int) -> str:
     return str(step_key(name, "" if iteration == 0 else f"loop{iteration}"))
 
 
-def current_iteration(store: Any, scope_id: str, name: str, bound: int) -> int:
+def current_iteration(
+    reader: WorkflowReader, scope_id: str, name: str, bound: int
+) -> int:
     """How many times ``name`` has already completed, capped at ``bound``.
 
-    Derived by asking the store for each iteration's record in turn, stopping
+    Derived by asking the reader for each iteration's record in turn, stopping
     at the first one absent. Linear in the bound, which is a number a human
     wrote and is therefore small; a binary search would be faster and would
     also find a *gap* and call it the end, which is the wrong answer for a
@@ -69,7 +74,7 @@ def current_iteration(store: Any, scope_id: str, name: str, bound: int) -> int:
     at all is on iteration 0.
     """
     for iteration in range(bound):
-        record = store.get_step(scope_id, iteration_step_key(name, iteration))
-        if record is None or record.get("status") != "success":
+        record = reader.step(scope_id, iteration_step_key(name, iteration))
+        if record is None or record.status != "success":
             return iteration
     return bound

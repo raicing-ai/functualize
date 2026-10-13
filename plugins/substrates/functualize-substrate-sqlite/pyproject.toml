@@ -1,7 +1,7 @@
 [project]
 name = "functualize-substrate-sqlite"
 version = "0.4.0"
-description = "SQLite-backed state persistence and execution tracking plugin for functualize"
+description = "SQLite runtime store plugin for functualize — a local file, selected by configuration"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
@@ -19,6 +19,9 @@ classifiers = [
 dependencies = [
     "functualize>=0.1.0,<1.0.0",
 ]
+
+[project.scripts]
+functualize-sqlite-import = "functualize_substrate_sqlite._import_cli:main"
 
 [project.entry-points."functualize.plugins"]
 substrate-sqlite = "functualize_substrate_sqlite:SQLiteSubstratePlugin"

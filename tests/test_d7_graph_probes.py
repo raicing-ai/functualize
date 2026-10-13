@@ -43,7 +43,7 @@ def store(tmp_path) -> ScopeStore:
 
 
 def _walk(store: ScopeStore, scope: str = "s1") -> FrontierWalk:
-    return FrontierWalk(CONDITIONAL_GRAPH, store, scope, runtime_store=port_for(store))
+    return FrontierWalk(CONDITIONAL_GRAPH, scope, runtime_store=port_for(store))
 
 
 class TestD7aFrontierExpansion:
@@ -145,7 +145,6 @@ class TestD7cBlockedPersistence:
 
         resumed = FrontierWalk(
             CONDITIONAL_GRAPH,
-            ScopeStore(store.substrate),
             "s1",
             runtime_store=port_for(store),
         )
@@ -159,7 +158,6 @@ class TestD7cBlockedPersistence:
 
         resumed = FrontierWalk(
             CONDITIONAL_GRAPH,
-            ScopeStore(store.substrate),
             "s1",
             runtime_store=port_for(store),
         )
@@ -178,12 +176,10 @@ class TestD7dPerScopeRecords:
         assert record["return_value"] == {"n": 1}
 
     def test_records_are_scoped(self, store) -> None:
-        FrontierWalk(
-            CONDITIONAL_GRAPH, store, "s1", runtime_store=port_for(store)
-        ).complete("check", choice="ok")
-        other = FrontierWalk(
-            CONDITIONAL_GRAPH, store, "s2", runtime_store=port_for(store)
+        FrontierWalk(CONDITIONAL_GRAPH, "s1", runtime_store=port_for(store)).complete(
+            "check", choice="ok"
         )
+        other = FrontierWalk(CONDITIONAL_GRAPH, "s2", runtime_store=port_for(store))
         assert not other.should_replay_skip("check")
 
     def test_replay_skips_a_completed_step(self, store) -> None:
@@ -192,7 +188,6 @@ class TestD7dPerScopeRecords:
         walk.complete("check", choice="ok", args_hash="h1")
         resumed = FrontierWalk(
             CONDITIONAL_GRAPH,
-            ScopeStore(store.substrate),
             "s1",
             runtime_store=port_for(store),
         )
@@ -227,7 +222,6 @@ class TestD7dPerScopeRecords:
         # changed file). The walk must still follow the branch it took.
         resumed = FrontierWalk(
             CONDITIONAL_GRAPH,
-            ScopeStore(store.substrate),
             "s1",
             runtime_store=port_for(store),
         )
