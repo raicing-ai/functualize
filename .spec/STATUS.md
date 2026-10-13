@@ -856,6 +856,13 @@ the maintainer's P-1 (downstream task list), P-2 (verdict constants) and S-1
 same branch and pull request; the spec artifacts are cleared in that branch's
 last commit (T16), when the delivered state is recorded under its own entry.
 
+The package review at `d34b70d3` required four repairs. The revised package
+unwraps the native provider's `output` and pins its three-turn call config,
+prices native USD from the provider's reported cost, locks the selection rule
+and measuring code along with the corpus, and records the Plan retrieval over
+the reviewed commit. These are specification repairs only; P-1, P-2 and S-1
+remain open for the maintainer, and Execute remains unauthorised.
+
 ## Deferred
 
 Specified work that is not being picked up yet, and what it is waiting on.

@@ -2,7 +2,12 @@
 
 **Drafted 2026-10-13, awaiting the maintainer's confirmation**, together with
 `spec.md`. Authored against `36eaeabf` (`origin/master`, re-fetched
-2026-10-13).
+2026-10-13). **Revised 2026-10-13** after the package review of `d34b70d3`:
+the Plan 3a retrieval was re-run with all three tools on the committed region
+at `d34b70d3`, and its evidence changed the native adapter, the cost row and the
+freeze (record and *Iteration* below). Shape SD/16515075 was re-read live for
+this revision: still version 3, `Authority: Approved`, updated
+2026-10-13T07:57:49Z.
 
 ## Alignment
 
@@ -21,7 +26,7 @@ points at it, and `Shape state = approved`.
   T8. The reused parts are listed in `contracts.md`.
 - "`evals/`: one downstream suite and the harness option it needs to mount a
   chosen subset of skills, or to inline all bodies. This is contributor tooling,
-  on demand, never in CI". This plan covers T5 (`skill-router.yaml`, C-10,
+  on demand, never in CI". This plan covers T2 (`skill-router.yaml`, C-10,
   C-11). Its offline test, `tests/evals/test_skill_router_arms.py`, sits beside
   the existing `tests/evals/test_suite_contracts.py`, which is where tests of
   `evals/` already live. It is the test half of that same surface, not a new
@@ -77,12 +82,17 @@ below.
 
 ## Retrieval record
 
+Re-run 2026-10-13 on the committed region at `d34b70d3` (the previous record
+skipped serena and relied on a graph 55 commits stale; it is replaced, not
+amended).
+
 | pass | tool | what it answered |
 |---|---|---|
-| prior art | `zg query --mode direct` (worktree index, root `~/orca/workspaces/functualize/sdd-skill-router`) | `skills/functualize-skill/SKILL.md:84-93`: the description is the whole activation surface, so agents already load skills progressively. ADR-006 §5: frontmatter stays on the portable six fields. ADR-030 §Decision: one `Protocol`, one method, a provider proposes. ADR-009: skills ship in the distribution. `evals/README.md` § *Relationship to `tests/skills/`*: a rule decidable without a model belongs in pytest |
-| premises | `rg`, `find`, `wc`, frontmatter parse, `claude --help`, `ls`, file reads | F-1…F-14 in `spec.md` §1.1. Two premises are **unmeasured** and become step 0 of their tasks: per-message `usage` in claude's stream (F-10 → T5) and Jev's acceptance of 2.5 kB of option meanings (F-14 → T3) |
-| 3a shape | graphify (`graph_stats`, `get_neighbors`); `rg` import scan; function bodies read | graphify's graph was built at `2269b8d3`, **54 commits** behind HEAD. It has no node for `FrontierRouter` or anything under `tests/hermetic_eval/`, so dependency direction is read from imports instead: `tests/hermetic_eval/{replay,metrics,report}.py` import `tests.hermetic_eval.corpus`, and nothing outside that package imports it (`rg -l 'from tests\.hermetic_eval' tests` returns 9 files, all inside the package). serena was not used: the region is a test-tree instrument with no product symbol, and the reference questions were answered by that exhaustive `rg` |
-| 3b blast radius | `rg`, `git diff` | Product symbols touched: **0**. `evals/providers/_harness.py` gains keyword-only parameters with defaults, and its callers are `claude_agent.py`, `claude_router.py`, `claude_grader.py` and `evals/scripts/{doctor,preflight,case}.py` (`rg -l _harness`). None passes the new keywords, so all keep today's argv (AC-11) |
+| prior art | **zvec-grep**: `zg query --mode direct` (CLI at `/usr/local/bin/zg`; the MCP server refused the connection), worktree index root `~/orca/workspaces/functualize/sdd-skill-router`, `zg status` 868/868 files, 0 pending | Unchanged from the first pass: `skills/functualize-skill/SKILL.md:84-93`, ADR-006 §5, ADR-030 §Decision, ADR-009, `evals/README.md` § *Relationship to `tests/skills/`*. **New**: `contributor/reference/hermetic-evaluation.md:34-68` — Phase 3's own method says "changing … a comparator's model, prompt, schema or rule table needs a new corpus version", which this package's first lock did not enforce (finding 3). `evals/README.md:330-356` — `FZ_EVAL_SANDBOX` "beats the `sandbox:` key in a suite, in both directions"; the same precedence holds for `FZ_EVAL_MODEL` (`claude_router.py:69`, `claude_agent.py:103`). `evals/README.md:608-620` — the routing probe "stops the agent after its first step", the basis for treating a turn-budget stop as a selection, not a failure. ADR-030 §Addendum — the fallback is "fenced by the graph digest like the rest of the rule" |
+| premises | `rg`, `find`, `wc`, frontmatter parse, `claude --help`, `ls`, file reads | F-1…F-17 in `spec.md` §1.1. Unmeasured, each step 0 of its task: per-message `usage`, the `init` event's `model` and the turn-budget `result` subtype (F-8, F-10 → T2); Jev's acceptance of 2.5 kB of option meanings (F-14 → T5) |
+| 3a shape | **serena** (project activated by absolute path `~/orca/workspaces/functualize/sdd-skill-router`): `get_symbols_overview` on `tests/hermetic_eval/metrics.py` and `evals/providers/claude_router.py`; `find_referencing_symbols` on `metrics.cost`, `claude_router.call_api`, `app._decision_record.decision_record` | `metrics.cost` is referenced by `report._block` and one test only, and its body prices nothing (F-15). `claude_router.call_api` has **no Python referrer**: promptfoo loads it by file, and `rg -n claude_router` finds one consumer, `triggering.yaml:23`, so adding an output key reaches no other code. `decision_record` is public through `app/utils.py:122,222`, and Phase 3's `replay_cell` already reads the rule digest from it (`replay.py:290`, F-16) |
+| 3a shape | **graphify**: the committed `graphify-out/graph.json` was built at `2269b8d3`, 55 commits behind `d34b70d3` (`git log --oneline 2269b8d3..d34b70d3 \| wc -l`), **and** `.graphifyignore` excludes `tests/` and `evals/` by design, so no rebuild of the committed graph can see this region. Two graphs were therefore built with `graphify extract --code-only` from `git archive d34b70d3` exports outside the checkout (the committed graph is untouched): the configured product scope (10 303 nodes), and a region scope of `src/` + `tests/hermetic_eval/` + `evals/providers/` with the `tests/`/`evals/` exclusions dropped (10 094 nodes, 21 243 edges). `graphify explain` on the region graph | Dependency direction, now from extracted edges instead of an import scan: `claude_router.call_api → build_workspace, resolve_sandbox_mode, run_claude`, with no inbound edge; `run_claude ←` the three providers' `call_api`; `_absorb ← run_claude` only; `metrics.cost ← report._block` + its test; `check_lock ← replay.main` + six tests; `FrontierRouter ← replay._default_factories` + tests; `decision_record ← tests/hermetic_eval/replay.replay_cell` (INFERRED). Product graph: `decision_digest ← build_decision_evidence` only, inside `functualize._gate`, so the instrument reads the digest from evidence, never imports it. Nothing outside `tests/hermetic_eval/` points into it (same answer as the earlier `rg -l 'from tests\.hermetic_eval' tests`: 9 files, all inside the package) |
+| 3b blast radius | `rg`, `git diff`, serena references above | Product symbols touched: **0**. `evals/providers/_harness.py` gains keyword-only parameters with defaults and one `AgentRun` field; its callers are `claude_agent.py`, `claude_router.py`, `claude_grader.py` and `evals/scripts/{doctor,preflight,case}.py` (`rg -l _harness`). None passes the new keywords, so all keep today's argv (AC-11). `claude_router.py` gains one output key (`model`); its only consumer's grader reads `selected`/`skills_loaded`/`any_fired` (`evals/asserts/skill_selected.py`) |
 
 Codemaps (`contributor/architecture/codemaps/`) describe `src/` only. As in
 Phase 3, an instrument outside the package graph adds no codemap node.
@@ -112,6 +122,8 @@ Phase 3, an instrument outside the package graph adds no codemap node.
    corpus.py (ROUTES) ◀── metrics.py ◀── report.py
         ▲                    ▲
    replay.py ── by path ──▶ examples/standalone/hermetic_router/router.py (4 routes, fallback=human_review)
+             row.rule_digest ◀── decision_record(...)["evidence"]["rule"]["digest"]  (one digest per ledger, tested)
+   metrics.cost: tokens only; usd_total = None if frontier else 0.0 — prices nothing
    comparators.py: identity_sha256 · hermetic() ─lazy─▶ functualize_decision_jev
                    FrontierRouter ─subprocess─▶ codex exec   ·   DeterministicBaseline (route RULES)
 
@@ -119,7 +131,9 @@ Phase 3, an instrument outside the package graph adds no codemap node.
         │ copied whole (all or none)
  evals/providers/_harness.py ◀── claude_agent.py  (with_skills: true|false)
                              ◀── claude_router.py (native routing; triggering.yaml, 21 cases)
-   AgentRun: turns, cost, skills_loaded — no token usage
+        claude_router.call_api → {"error"} on setup | {"output": {selected, error, …}, "cost"} on a run
+        model = $FZ_EVAL_MODEL or config · max_turns = config or 4 · sandbox = $FZ_EVAL_SANDBOX or config or host
+   AgentRun: turns, cost, skills_loaded — no token usage, no model (init event only logged)
 
  nothing selects a skill before the agent starts · nothing mounts one skill ·
  nothing measures context size
@@ -133,6 +147,11 @@ Smells the BEFORE already carries in this region:
   must either copy the module or edit a frozen one. This is the root of S-1.
 - **Missing measurement, not a catalogue smell**: the harness cannot mount a
   subset of skills or report context tokens (F-9).
+- **Configuration in two places, not a catalogue smell**: the native probe's
+  model, sandbox and turn budget come from env, then suite config, then a
+  code default (4 turns), so the provider file alone does not say which call
+  is made (F-8). A consumer that does not pass the config, or runs with the
+  env set, measures a different question.
 
 ## Candidate AFTERs considered
 
@@ -155,6 +174,28 @@ Iteration that changed the spec:
    escalation" has no `human_review` label to key on. B-13 replaces it with the
    four selection errors, unsafe `none` among them.
 
+Iteration from the package review and the re-run retrieval (no change of
+candidate; D stays, and its dependency direction is unchanged):
+
+4. **The native adapter read a shape the provider does not return.** The
+   graph shows `claude_router.call_api`'s only outputs are a setup `{"error"}`
+   and the `{"output", "cost"}` envelope, and serena shows no Python caller to
+   copy a reading from. B-8 now states the envelope rules, both error
+   locations and cost, and C-5 makes `NATIVE_CONFIG` the single source of the
+   call and of the identity, so the provider's 4-turn default never applies.
+5. **Phase 3's `cost` cannot price a native cell** (serena: one caller, body
+   reads no price). B-16 gives native its own `native_cost`; `cost` stays for
+   tokens. The AFTER now shows that ownership.
+6. **The freeze fenced the corpus, not the question.** Prior art
+   (`hermetic-evaluation.md:34-68`) already counts prompt and rule as part of
+   the question; the graph shows the rule digest is produced only inside
+   `functualize._gate`, so the AFTER reads it from evidence (as Phase 3 does)
+   and pins it in the lock via a keyword-comparator probe, plus a file digest
+   over the measuring code. Env overrides that change the native model or
+   sandbox are refused, and the observed model is recorded and checked.
+7. Editorial: T-number references for the stream probe and the `evals/`
+   harness corrected to T2.
+
 ## AFTER
 
 ```
@@ -167,16 +208,26 @@ Iteration that changed the spec:
    corpus.py  ── corpus/v1/{scenarios.jsonl, LABELING.md, corpus.lock.json}
    selection.py  SELECT = ChoiceDecision(5 options, 0.70/0.10, fallback=None) · build_selection · select()
    comparators.py  KeywordTable (Strategy, no I/O) · NativeRouter (Adapter) ── by path ──▶ evals/providers/claude_router.py
+                     NativeRouter: NATIVE_CONFIG (model, max_turns 3, timeout, sandbox) passed on every call;
+                     refuses FZ_EVAL_MODEL/FZ_EVAL_SANDBOX overrides; unwraps {"output", "cost"} / top-level {"error"}
                    re-exports hermetic(), FrontierRouter ◀── import ── tests/hermetic_eval/comparators.py (UNCHANGED)
-   replay.py  (command) per cell: fresh app → build_selection → DecisionGateResolver(cmp) → execute
-              → decision_record → <run-dir>/cells.jsonl     (native: NativeRouter.select → row)
-   select.py  (command) 5 task prompts → hermetic → selections.json (outside the repo)
-   metrics.py five-option metrics + static context bytes ── imports ──▶ tests/hermetic_eval/metrics.py
-              (accepts, agreement, variance, latency, cost — UNCHANGED)
+   replay.py  (command) --freeze / start / resume: check_lock(scenarios, catalog, selection rule_digest,
+              instrument sha256, identities) ── rule probe: select(PROBE_STATE, KeywordTable)
+              per cell: fresh app → build_selection → DecisionGateResolver(cmp) → execute
+              → decision_record → row (rule_digest == lock, else exit 2) → <run-dir>/cells.jsonl
+              (native: NativeRouter.select → row.native {selected, error, model, cost_usd})
+   select.py  (command) same check_lock · 5 task prompts → hermetic → selections.json (outside the repo)
+   metrics.py five-option metrics + static context bytes + native_cost ── imports ──▶ tests/hermetic_eval/metrics.py
+              (accepts, agreement, variance, latency, cost[tokens only] — UNCHANGED)
    report.py  (command) 4 ledgers + selections + promptfoo results ──▶ benchmark.md finding.md metrics.json verdict.json
+              exit 2 on a foreign/mixed rule_digest or a mixed observed model
+   corpus/v1/corpus.lock.json  pins the question: scenarios · catalog · selection rule (+ gate rule_digest)
+              · instrument sha256 (10 measuring files) · comparator identities (native config) · verdict constants
 
- evals/providers/_harness.py   build_workspace(…, skills=) · run_claude(…, append_system_prompt=) · AgentRun.first_turn_input_tokens
+ evals/providers/_harness.py   build_workspace(…, skills=) · run_claude(…, append_system_prompt=) · AgentRun.first_turn_input_tokens, .model
+ evals/providers/claude_router.py  output gains "model" (one key; triggering.yaml's grader ignores it)
  evals/providers/claude_agent.py   config arm ∈ {load-everything, native, router}; router ◀── $FZ_SKILL_ROUTER_SELECTIONS
+                                   with arm set: env model/sandbox override refused; output gains "model"
  evals/suites/skill-router.yaml    d1…d5 (copied cases) × 3 arms × --repeat 3
  tests/evals/test_skill_router_arms.py   offline harness tests (fake Sandbox.popen)
 
@@ -226,6 +277,15 @@ tree. `uv run lint-imports` stays in every task's checks.
 - **R-6 — drafter bias in labels.** The owner waived label review. A
   rubric-cited rationale per scenario and a reviewer check (T7) are the only
   guards, and the finding says so.
+- **R-8 — the turn-budget subtype is unmeasured (F-8).** If T2 step 0 shows
+  that a turn-budget stop is not reported as an error subtype at all, the
+  `MAX_TURNS_SUBTYPE` row of C-5 never fires and nothing else changes. If it
+  is reported under a different string, that string is recorded in C-5's
+  constant before the freeze; it is pinned by the instrument digest.
+- **R-9 — the instrument digest is file-coarse.** Any byte change to a pinned
+  file after T10, a comment included, voids v1. That is deliberate (cheaper
+  than arguing which edits are behavioural); T15 says a fix to a pinned file
+  after the freeze is a stop-and-report, never an edited lock.
 - **R-7 — `triggering.yaml` drift.** If a triggering case changes after the
   freeze, AC-2's seeded-label check fails loudly. The corpus stays frozen, and
   a v2 is cut.
@@ -235,7 +295,7 @@ tree. `uv run lint-imports` stays in every task's checks.
 | # | smell (catalogue name) | where | why accepted | maintainer review? |
 |---|---|---|---|---|
 | S-1 | **Duplicate Code**: the replay loop (header, chunking, rate-limit pause, time box, resume), the five-option confusion, calibration and sweep, and the report renderer parallel Phase 3's four-route versions | `tests/skill_router_eval/{replay,metrics,report}.py` vs `tests/hermetic_eval/{replay,metrics,report}.py` | The alternative (candidate A) edits a frozen, published instrument outside the shape's in-scope list. Only the parts already generic are imported (`contracts.md` header). Rule of three: a third question is the moment to extract a shared `Question`, and the reference page records that | **yes**: it fixes where the next refactor lands |
-| S-2 | **Inappropriate Intimacy (mild)**: the instrument loads `evals/providers/claude_router.py` by path | `comparators.NativeRouter` | Native routing *is* that provider. Copying it would let the measured native arm drift from the one `triggering.yaml` runs. Its file digest is in the native identity, so an edit voids the lock | no |
+| S-2 | **Inappropriate Intimacy (mild)**: the instrument loads `evals/providers/claude_router.py` by path and knows its response envelope | `comparators.NativeRouter` | Native routing *is* that provider. Copying it would let the measured native arm drift from the one `triggering.yaml` runs. The envelope rules are written once (C-5) and tested against the provider's real shapes (AC-6); the file's digest is in the native identity and the instrument digest, so an edit voids the lock | no |
 | S-3 | **Duplicate Code (pinned)**: five downstream cases copied verbatim from their source suites | `evals/suites/skill-router.yaml` | promptfoo cannot include individual tests from another suite file. AC-11 fails the build when a copy drifts from its source | no |
 | S-4 | **Primitive Obsession**: ledger rows, selections and verdict as JSON mappings | `cells.jsonl`, `selections.json`, `verdict.json` | Same reason as Phase 3's S-2: an append-only interchange file, with its shape pinned by C-8/C-9 and the tests | no |
 

@@ -9,7 +9,9 @@ fixed task subset. It compares three arms: load everything, native routing, and
 the pre-context router. It ends in a computed verdict that the maintainer then
 rules on.
 
-**Status: drafted 2026-10-13, awaiting the maintainer's confirmation.**
+**Status: drafted 2026-10-13, revised 2026-10-13 after the package review
+(four blocking findings: the native response shape, native cost, the freeze's
+reach, the Plan 3a retrieval), awaiting the maintainer's confirmation.**
 Shape intent: [SD/16515075](https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/16515075)
 v3, `Authority: Approved`, last reviewed 2026-10-13, read live on 2026-10-13
 from the issue's `Shape intent` property (authored against v2; v3 records the
@@ -53,13 +55,16 @@ context without costing downstream success (shape H1).
 | F-5 | `ChoiceDecision(fallback=None)` is legal. A proposal below the thresholds then **blocks the gate for a person**: the run returns `RunStatus.BLOCKED`, the decision rung's evidence is recorded with a verdict such as `below_threshold`, and nothing is accepted. | `src/functualize/_types/decision.py:158-186`; `tests/integration/test_decision_fallback_e2e.py:179-199` |
 | F-6 | `decision_record(store, scope, gate)` reads `decided_by` ∈ `decision`/`fallback`/`person`/`None` plus the decision evidence. It is public as `functualize.app.utils.decision_record`. `RunStatus` is public from `functualize.types`. | `src/functualize/app/_decision_record.py:37-80`; `src/functualize/app/utils.py:123,223`; `src/functualize/types/__init__.py:28,73` |
 | F-7 | These Phase 3 parts take any `ChoiceRequest` and contain no route literal: `comparators.identity_sha256`, `hermetic()`, `hermetic_identity()`, `FrontierRouter` (schema and prompt built from `request.options`), `corpus.corpus_sha256`, `corpus.ordered_cells`, and `metrics.accepts`, `agreement`, `variance`, `latency`, `cost`. Route-coupled parts: `corpus.ROUTES`/`check_v1_shape`, `comparators.RULES`/`DeterministicBaseline`, `metrics` confusion/escalation/errors/boundary/verdict and `_brier` (sums over `ROUTES`), `replay` (loads the Phase 2 router by path), and `report`. | `rg -n 'ROUTES\|human_review' tests/hermetic_eval/{metrics,comparators}.py`; function bodies read |
-| F-8 | Native routing is already a provider: `evals/providers/claude_router.py::call_api(prompt, options, context)` mounts all skills, runs `claude -p` (pinned `claude-sonnet-5`, tools `Skill Read Glob Grep`, ≤3 turns) and returns `selected` (first `functualize*` skill loaded, else `None`) and `cost`. | file read |
+| F-8 | Native routing is already a provider: `evals/providers/claude_router.py::call_api(prompt, options, context)` mounts all skills and runs `claude -p` with tools `Skill Read Glob Grep`. It returns **two shapes**. A setup failure (workspace or sandbox) is a top-level `{"error": <str>}` (`:60-61`). A completed call is an envelope `{"output": {"skills_loaded", "selected", "any_fired", "text", "error"}, "cost": <float>}` (`:75-84`): `selected` is the first `functualize*` skill loaded, else `None`; `output.error` is the run's own error (`None`, `timeout after <n>s`, a `claude` exit message, or the stream's `result` subtype when `is_error`, `_harness.py:715,744,753,758,842-843`). The subtype string a turn-budget stop produces is **not yet measured** here (no file in the repository names one); T2 step 0 records it, and this spec calls it `<max-turns subtype>` (expected `error_max_turns`); `cost` is the stream's `total_cost_usd`. Nothing in the file pins the model or the turn budget: the model is `FZ_EVAL_MODEL` **over** `config["model"]` (`:69`), and `max_turns` defaults to **4** unless the config says otherwise (`:70`). `triggering.yaml` supplies `model: claude-sonnet-5`, `max_turns: 3` and `timeout_s: 180` in its provider config (`triggering.yaml:23-35`). | file read; `rg -n claude_router` (one consumer: `triggering.yaml:23`) |
 | F-9 | The downstream harness mounts **all skills or none** (`build_workspace(fixture, with_skills, …)` copies `SKILLS_DIR` whole). `AgentRun` records `num_turns`, `cost_usd` and `skills_loaded`, but **no token usage**: `_absorb` reads no `usage` block. | `evals/providers/_harness.py:567-631,788-845` |
-| F-10 | `claude` 2.1.281 on this host offers `--append-system-prompt <prompt>`. Whether its stream-json `assistant` events carry a per-message `usage` block (input, cache-creation and cache-read tokens) is **not yet measured**. T5 step 0 measures it. | `claude --help`, `claude --version` |
+| F-10 | `claude` 2.1.281 on this host offers `--append-system-prompt <prompt>`. Whether its stream-json `assistant` events carry a per-message `usage` block (input, cache-creation and cache-read tokens) is **not yet measured**. T2 step 0 measures it, and records the `model` string the `system`/`init` event reports for `--model claude-sonnet-5` (`_absorb` reads that event today only to log it, `_harness.py:814-818`). | `claude --help`, `claude --version` |
 | F-11 | The five downstream candidates chosen for D3 are graded only by deterministic asserts (no `llm-rubric`), and their task prompts are 138–291 characters long (§4.6). | `awk` over the three suites; `yaml.safe_load` lengths |
 | F-12 | `functualize-cli` has **no** downstream suite: `evals/suites/` holds `functualize`, `functualize-app`, `functualize-skill` and `triggering` only. | `ls evals/suites` |
 | F-13 | `tests/evals/test_suite_contracts.py` parametrises over `evals/suites/*.yaml`, so a new suite is checked for the var-expansion and worker-timeout rules automatically. | file read (`SUITES = sorted(EVALS.glob("suites/*.yaml"))`) |
-| F-14 | Whether Jev accepts a request whose five option meanings total about 2.5 kB is **not yet measured**. The longest state the capability matrix records is +288 characters. | `contributor/reference/jev-system-one-capability-matrix.md:217` |
+| F-14 | Whether Jev accepts a request whose five option meanings total about 2.5 kB is **not yet measured**. The longest state the capability matrix records is +288 characters. T5 step 0 measures it. | `contributor/reference/jev-system-one-capability-matrix.md:217` |
+| F-15 | Phase 3's `metrics.cost(rows)` sums `input_tokens`/`output_tokens` and two usage sub-fields, and sets `usd_total` to `None` when any row has a `frontier` block, **else `0.0`**. It never reads a price from a row, so over native rows it would report `$0` whatever `claude` charged. Its callers are `report._block` and one test. | `tests/hermetic_eval/metrics.py:231-252`; serena `find_referencing_symbols cost` |
+| F-16 | The gate records the declared rule as a digest in every cell's decision evidence: `evidence["rule"]["digest"]` is a SHA-256 over the decision's `field`, `instructions`, `options`, `state` step, `accept_at`, `min_margin`, `model` and (when declared) `fallback`. It reaches the instrument through the public `decision_record(...)["evidence"]`; the digest function itself is private. Phase 3 copies it into every row (`rule_digest`) and tests one digest across a ledger. | `src/functualize/_gate/decision_evidence.py:71-75`; `src/functualize/_types/decision.py:198-231`; `tests/hermetic_eval/replay.py:290`; `tests/hermetic_eval/test_replay.py:333-339` |
+| F-17 | The downstream provider has the same precedence: `claude_agent.py` runs `model=os.environ.get("FZ_EVAL_MODEL") or config.get("model")`. | `evals/providers/claude_agent.py:103` |
 
 ## 2. Users
 
@@ -122,16 +127,44 @@ context without costing downstream success (shape H1).
   equals a downstream task prompt (§4.6).** The owner waived label review
   (2026-10-13); a reviewer checks every rationale against the rubric instead
   (T7).
-- **B-4.** **Freeze.** `corpus/v1/corpus.lock.json` pins the scenarios'
-  SHA-256, the counts of B-3, seed `20261013`, repeats `5`, a 72-hour time box,
-  the catalog JSON and its digest, each comparator's identity digest, the
-  verdict constants (B-24) and `frozen_at`. It is committed before the first
-  live cell.
-- **B-5.** **No tuning after the first measurement.** The replay refuses to
-  start or resume (exit 2, nothing written) when the lock is missing, or when
-  the scenario digest, **the catalog digest re-derived from `skills/`**, or a
-  comparator's identity digest differs from the lock. A `SKILL.md` edit after
-  the freeze therefore voids the corpus (shape Risk 2).
+- **B-4.** **Freeze: the whole question, not just the corpus.**
+  `corpus/v1/corpus.lock.json` pins:
+  - the scenarios' SHA-256, the counts of B-3, seed `20261013`, repeats `5`
+    and a 72-hour time box;
+  - the catalog JSON and its digest (what the options *say*);
+  - **the selection rule**: the B-6 `field`, `instructions`, the five option
+    meanings, `accept_at`, `min_margin` and `fallback`, plus the gate's own
+    `rule_digest` for that rule (F-16), obtained at freeze time by running one
+    probe selection through the real workflow with the keyword comparator;
+  - **the instrument digest**: one SHA-256 over the bytes of every file whose
+    code decides what a cell asks or how its answer is read: the six measuring
+    modules of `tests/skill_router_eval/` (`catalog`, `corpus`, `selection`,
+    `comparators`, `replay`, `select`), `evals/providers/{_harness,claude_router,claude_agent}.py`
+    and `evals/suites/skill-router.yaml`. `metrics.py` and `report.py` are
+    **not** pinned: they derive numbers from ledgers and can be re-run;
+  - each comparator's identity digest, the native identity carrying the full
+    native call config (B-8: model, `max_turns: 3`, tools, timeout, sandbox);
+  - the verdict constants (B-24) and `frozen_at`.
+  It is committed before the first live cell.
+- **B-5.** **No tuning after the first measurement.** The replay and `select`
+  refuse to start or resume (exit 2, nothing written) when the lock is missing,
+  or when any of these re-derived values differs from the lock: the scenario
+  digest, **the catalog digest re-derived from `skills/`**, the selection
+  rule and its probe `rule_digest`, the instrument digest, or a comparator's
+  identity digest. A `SKILL.md`, `SELECT_INSTRUCTIONS`, option-meaning,
+  threshold or workflow-code edit after the freeze therefore voids the corpus
+  (shape Risk 2); the remedy is `v2/`.
+  - **Per cell**, a gated row whose recorded `rule_digest` differs from the
+    lock's is not appended; the invocation exits 2.
+  - **Model overrides are refused, not obeyed.** `FZ_EVAL_MODEL` and
+    `FZ_EVAL_SANDBOX` override a provider's config (F-8, F-17). When either is
+    set to a value other than the pinned one, the native replay (and, in the
+    `evals/` suite, any `arm` run) refuses before spending anything: replay
+    exit 2, the arm returns `{"error": …}`.
+  - **Observed model.** Each native cell and each downstream run records the
+    model the `claude` stream reported (T2). The report exits 2 when a native
+    ledger or the downstream results carry more than one observed model, so one
+    lock can never cover a mixed-model ledger.
 
 ### 4.3 The selection: one request, one gate, no fallback
 
@@ -161,8 +194,26 @@ context without costing downstream success (shape H1).
     `0.20` distribution, which the margin rule refuses, so the cell escalates.
   - **native** (accuracy only, shape D6): `claude_router.call_api` from
     `evals/providers/`, loaded by path. It is **not** a `DecisionProvider` and
-    not judged by the gate. Its cell records `selected` (or `none` when no
-    `functualize*` skill fired), cost and wall-clock latency, with no
+    not judged by the gate. It is called with the **pinned config**
+    `{"model": "claude-sonnet-5", "max_turns": 3, "timeout_s": 180,
+    "sandbox": "host"}`, the same values `triggering.yaml` uses, so the
+    provider's 4-turn default never applies (F-8). Its answer is read by these
+    rules, in order:
+    1. no `output` key: a **setup failure**. The top-level `error` is the
+       failure; the cell is `failed`, cost `null`.
+    2. otherwise the envelope is unwrapped: `out = response["output"]`,
+       `cost_usd = response["cost"]` (recorded on **every** completed call,
+       failed or not: spend is spend).
+    3. `out["error"]` not `None` and not the `<max-turns subtype>` (F-8): the
+       cell is `failed` with that message. A turn-budget stop is the probe's designed
+       stop (its instruction is "do your normal first step, then stop"), not a
+       routing failure, and `triggering.yaml`'s grader ignores it too
+       (`evals/asserts/skill_selected.py`), so the selection stands.
+    4. `out["selected"]` ∈ the four skills: that skill; `None`: `none`; any
+       other `functualize*` name: `failed` (`unknown_skill`).
+    A failed native cell routes to no option (`route = "escalated"`, so it
+    counts as wrong, B-12). The cell also records `selected`, `error` and the
+    observed model for diagnosis, and wall-clock latency; there is no
     distribution.
 - **B-9.** **A provider failure is data.** Phase 3's rules carry over: a rate
   limit, refusal, malformed answer or timeout is recorded, never retried and
@@ -213,10 +264,14 @@ comparator, overall and per stratum.
 - **B-16. Variance, agreement, latency, cost.** These reuse Phase 3's generic
   functions (F-7) unchanged: modal agreement and flips per scenario (the
   deterministic comparator must show zero flips); Cohen's κ between every pair
-  of comparators, native included; latency p50/p95/max; and cost. Cost is `$0`
-  for deterministic, `$0` for hermetic on the free tier (tokens reported),
-  tokens only for frontier (*subscription, unpriced*), and `cost_usd` as
-  reported by `claude` for native.
+  of comparators, native included; latency p50/p95/max; and token cost. Cost is
+  `$0` for deterministic, `$0` for hermetic on the free tier (tokens reported)
+  and tokens only for frontier (*subscription, unpriced*), all from Phase 3's
+  `cost`. **Native USD is the instrument's own calculation**, never Phase 3's
+  `cost` (which prices nothing, F-15): `native_cost(rows)` sums
+  `row["native"]["cost_usd"]` over attempted native cells and reports
+  `usd_total`, `usd_per_cell`, `usd_per_correct` and the count of cells with no
+  price (setup failures).
 - **B-17. Threshold sweep and conformance.** Recomputed offline over Phase 3's
   grid (`accept_at` 0.50…0.95 × `min_margin` 0.00…0.20) using
   `metrics.accepts`, with a failed cell treated as escalated. **Conformance**:
@@ -274,7 +329,8 @@ comparator, overall and per stratum.
 - **B-22. What each run records.** Pass/fail per the case's asserts,
   `cost_usd`, `num_turns`, wall-clock duration, `skills_loaded`, and
   **`first_turn_input_tokens`**: the first `assistant` event's `usage`,
-  `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`. If T5
+  `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`; and
+  the observed `model` (B-5). If T2
   step 0 shows that the stream carries no per-message usage, the field is
   `null`, the finding says so as a deviation, and E3 rests on B-18's bytes
   alone.
@@ -349,9 +405,15 @@ root. `tasks.md` binds each to its task.
   `triggering:` origins whose labels equal `triggering.yaml`'s `expect`, and
   that no `state` equals a `skill-router.yaml` task prompt.
 - **AC-3** (B-4, B-5). `test_replay.py`: replay exits 2 and writes nothing when
-  the lock is absent, when one byte of `scenarios.jsonl` differs, and when the
+  the lock is absent, when one byte of `scenarios.jsonl` differs, when the
   catalog derived from a scratch `skills/` with one changed byte differs from
-  the lock.
+  the lock, when `SELECT_INSTRUCTIONS` is monkeypatched to another string (the
+  probe `rule_digest` moves), when the instrument digest is computed over a
+  scratch copy with one changed byte in a pinned file, and, for `--comparator
+  native`, when `FZ_EVAL_MODEL=claude-other` or `FZ_EVAL_SANDBOX=docker` is
+  set. A fake provider whose cell records a different `rule_digest` stops the
+  replay with exit 2 and no row appended. `select` exits 2 on the same lock
+  mismatches.
 - **AC-4** (B-6, B-7). `test_selection.py`: with a fake provider proposing
   `functualize-cli` at 0.90 the record reads `decided_by == "decision"` and
   outcome `functualize-cli`. At 0.55 the run is `BLOCKED`, `decided_by is None`
@@ -363,10 +425,26 @@ root. `tasks.md` binds each to its task.
   `stratum`, `rationale` or `origin` text.
 - **AC-6** (B-8). `test_comparators.py`: the keyword table is deterministic over
   100 calls, one-hot on a match and uniform `0.20` on no match; its identity
-  digest equals the lock's. The native adapter, driven through an injected
-  `call_api` fake, maps `{"selected": "functualize-app"}` to
-  `functualize-app`, `{"selected": None}` to `none`, and `{"error": …}` to a
-  failed cell.
+  digest equals the lock's. The native adapter is driven through an injected
+  `call_api` fake whose responses are **the provider's real shapes** (fixture
+  `tests/skill_router_eval/fixtures/native_responses.json`, built from
+  `claude_router.py:60-61,75-84`):
+  - the fake receives `options["config"] == {"model": "claude-sonnet-5",
+    "max_turns": 3, "timeout_s": 180, "sandbox": "host"}`;
+  - `{"output": {"selected": "functualize-app", "error": None, …}, "cost":
+    0.0421}` → `functualize-app`, `cost_usd == 0.0421`;
+  - `{"output": {"selected": None, "error": None, …}, "cost": 0.0187}` →
+    `none`, cost kept;
+  - `{"output": {"selected": "functualize-cli", "error": <max-turns subtype>,
+    …}, "cost": 0.05}` → `functualize-cli` (the subtype string T2 step 0
+    recorded);
+  - `{"output": {"selected": "functualize", "error": "timeout after 180s",
+    …}, "cost": 0.031}` → failed, `route == "escalated"`, cost kept;
+  - `{"error": "no such fixture"}` (top level) → failed, cost `None`;
+  - `{"output": {"selected": "functualize-extra", …}, "cost": 0.01}` →
+    failed `unknown_skill`;
+  - a response with a top-level `selected` and no `output` (the shape the
+    previous draft specified) → failed, never `functualize-app`.
 - **AC-7** (B-9, B-10). `test_replay.py`: a fake provider raising `rate_limited`
   on cell 2 yields a 2-line ledger, exit 0, a printed reopen time and no
   `time.sleep` call. Resuming continues at cell 3. A run interrupted by
@@ -374,8 +452,11 @@ root. `tasks.md` binds each to its task.
   timestamps and latencies.
 - **AC-8** (B-12…B-17). `uv run pytest tests/skill_router_eval/test_metrics.py -q`
   passes against hand-computed fixtures for every metric: each of the four
-  errors, the five-option Brier score, and a deterministic ledger with zero
-  flips.
+  errors, the five-option Brier score, a deterministic ledger with zero
+  flips, and **native cost**: three native rows with `cost_usd` 0.0421,
+  0.0187 and `null` give `native_cost(...)["usd_total"] == 0.0608` and one
+  unpriced cell, while Phase 3's `cost(...)["usd_total"]` over the same rows
+  is `0.0` (the test pins why it is not used).
 - **AC-9** (B-17). `test_metrics.py`: at (0.70, 0.10) the offline rule
   reproduces every outcome of a ledger produced through the real selection
   workflow (`test_replay.py` fixture), and a doctored ledger makes the report
@@ -397,7 +478,11 @@ root. `tasks.md` binds each to its task.
   on each verdict branch yield `promote to Phase 5`, `negative result`,
   `continue research` (naming the failed conditions) and, with one unsafe
   `none`, `continue research` even when every other condition holds. The Wilson
-  interval for 12/15 matches a hand-computed value to 4 decimals.
+  interval for 12/15 matches a hand-computed value to 4 decimals. The native
+  routing row of `benchmark.md` and `metrics.json` shows the fixture's
+  **nonzero** `usd_total`. The report exits 2 when one gated ledger holds two
+  `rule_digest` values or a value other than the lock's, and when the native
+  ledger or the downstream results carry two observed models.
 - **AC-13** (B-25, B-26). `test_report.py`: two runs over the same inputs are
   byte-identical, `--check` exits 0, and exits 1 after one byte of
   `benchmark.md` changes. Every output carries the corpus SHA-256 and the
