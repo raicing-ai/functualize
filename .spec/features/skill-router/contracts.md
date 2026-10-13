@@ -24,7 +24,10 @@ Consumed unchanged from Phase 3 (`tests/hermetic_eval/`): `comparators.identity_
 `comparators.hermetic`, `comparators.hermetic_identity`, `comparators.FrontierRouter`
 (with `FrontierCall`), `corpus.corpus_sha256`, `corpus.ordered_cells`,
 `metrics.accepts`, `metrics.agreement`, `metrics.variance`, `metrics.latency`,
-`metrics.cost`.
+`metrics.cost`. **`metrics.cost` is used for token columns only.** It prices
+nothing (`usd_total` is `0.0` for every non-frontier ledger,
+`tests/hermetic_eval/metrics.py:231-252`), so native USD comes from this
+instrument's `metrics.native_cost` (C-9).
 
 ## C-1 — the catalog declaration
 
@@ -94,16 +97,42 @@ One JSON object per line, UTF-8, keys in this order, no others:
   "catalog": {"...": "catalog_json(...) as in C-1"},
   "catalog_sha256": "<hex>",
   "comparators": {"hermetic": "<hex>", "frontier": "<hex>", "deterministic": "<hex>", "native": "<hex>"},
+  "selection": {"field": "skill", "instructions": "<SELECT_INSTRUCTIONS>",
+                "options": {"functualize": "<meaning>", "...": "...", "none": "No functualize skill applies; answer without loading one."},
+                "accept_at": 0.70, "min_margin": 0.10, "fallback": null,
+                "rule_digest": "sha256:<hex>"},
+  "instrument": {"files": ["evals/providers/_harness.py", "evals/providers/claude_agent.py",
+                           "evals/providers/claude_router.py", "evals/suites/skill-router.yaml",
+                           "tests/skill_router_eval/catalog.py", "tests/skill_router_eval/comparators.py",
+                           "tests/skill_router_eval/corpus.py", "tests/skill_router_eval/replay.py",
+                           "tests/skill_router_eval/select.py", "tests/skill_router_eval/selection.py"],
+                 "sha256": "<hex>"},
   "declared": {"accept_at": 0.70, "min_margin": 0.10},
   "verdict": {"min_lead": 0.05, "max_unsafe_none": 0},
   "frozen_at": "2026-10-XXT00:00:00Z"
 }
 ```
 
-There is no tracker key, person or machine identity in it. Native identity:
-`{"comparator": "native", "provider": "evals/providers/claude_router.py",
-"model": "claude-sonnet-5", "max_turns": 3, "tools": ["Skill","Read","Glob","Grep"],
-"provider_sha256": <sha256 of that file's bytes>}`.
+There is no tracker key, person or machine identity in it.
+
+- **Native identity**: `{"comparator": "native", "provider":
+  "evals/providers/claude_router.py", "config": NATIVE_CONFIG, "tools":
+  ["Skill","Read","Glob","Grep"], "env_overrides": "refused",
+  "provider_sha256": <sha256 of that file's bytes>}`. `config` is the very
+  dict `NativeRouter` passes (C-5), so the identity and the call cannot
+  diverge.
+- **`selection.rule_digest`** is `decision_record(...)["evidence"]["rule"]["digest"]`
+  of one probe selection run at `--freeze`: `select("func: command not found",
+  KeywordTable(), …)` in a scratch project (no network, no process). The other
+  `selection` fields are `select_decision(entries)`'s values, written so a
+  reader sees the rule without decoding the digest.
+- **`instrument.sha256`** is computed like a skill digest (C-1) over the
+  listed files, sorted by repository-relative path. `metrics.py` and
+  `report.py` are deliberately absent: they derive, they do not measure.
+- **`check_lock(version_dir, catalog, identities, *, rule_digest,
+  instrument_sha256)`** raises `CorpusError` naming the first mismatch among:
+  missing lock, scenario digest, count, catalog digest, selection
+  `rule_digest`, instrument digest, comparator identity.
 
 ## C-4 — the selection workflow and its result
 
@@ -133,7 +162,9 @@ def select(text: str, provider: DecisionProvider, *, entries, project: Path, sco
 ```
 
 `outcome` is `record["route"]` when `decided_by == "decision"`, and `ESCALATED`
-otherwise. `SkillChoice` is a pydantic model with one required field `skill:
+otherwise. `Selection.rule_digest` is `record["evidence"]["rule"]["digest"]`
+(public via `decision_record`; `functualize._types.decision_digest` is never
+imported, AC-16). `SkillChoice` is a pydantic model with one required field `skill:
 Literal[...]` over `OPTIONS`, with no default (the gate refuses a default on a
 decided field).
 
@@ -146,20 +177,50 @@ class KeywordTable:                      # satisfies DecisionProvider
     def choose(self, request: ChoiceRequest) -> DecisionResult[str]: ...
     def identity(self) -> dict[str, object]:   # {"comparator": "deterministic", "keywords_sha256": ...}
 
+NATIVE_CONFIG: Mapping[str, object] = MappingProxyType(
+    {"model": "claude-sonnet-5", "max_turns": 3, "timeout_s": 180, "sandbox": "host"})
+MAX_TURNS_SUBTYPE: str      # the `result` subtype T2 step 0 recorded for a turn-budget stop
+
+class NativeOverrideError(RuntimeError): ...   # FZ_EVAL_MODEL / FZ_EVAL_SANDBOX set to a non-pinned value
+
+@dataclass(frozen=True)
+class NativeCell:
+    route: str                  # an OPTIONS value, or "escalated" when failed
+    failed: Mapping[str, str] | None   # {"kind": "setup_error"|"run_error"|"unknown_skill", "message": ...}
+    selected: str | None        # out["selected"] verbatim (diagnosis)
+    error: str | None           # out["error"] or the top-level error, verbatim
+    model: str | None           # out["model"] (observed, T2)
+    cost_usd: float | None      # response["cost"]; None only on a setup failure
+    latency_seconds: float
+
 class NativeRouter:                      # NOT a DecisionProvider
     name = "native"
     def __init__(self, *, call_api: Callable[[str, dict, dict], dict] | None = None,
-                 model: str = "claude-sonnet-5") -> None: ...   # default: loaded by path from evals/providers/claude_router.py
-    def select(self, state: str) -> NativeCell: ...   # NativeCell(selected: str | None, failed: str | None, cost_usd, latency_seconds)
+                 environ: Mapping[str, str] | None = None) -> None: ...
+        # default call_api: loaded by path from evals/providers/claude_router.py
+        # raises NativeOverrideError on a non-pinned FZ_EVAL_MODEL / FZ_EVAL_SANDBOX in `environ` (default os.environ)
+    def select(self, state: str) -> NativeCell: ...   # call_api(state, {"config": dict(NATIVE_CONFIG)}, {})
     def identity(self) -> dict[str, object]: ...      # C-3 native identity
 ```
 
 On a match, `KeywordTable` returns `DecisionResult(value=opt, provider="deterministic",
 model="keywords-v1", distribution=one-hot, confidence=None, provenance=…)`. On no
-match it returns `value="none"` with every option at `0.20`. `NativeRouter` maps
-`selected` ∈ `SKILLS` to itself, `None` to `none`, any other `functualize*` name
-to `failed="unknown_skill"`, and an `error` key to `failed=<message>`.
-Constructing it spawns nothing.
+match it returns `value="none"` with every option at `0.20`.
+
+`NativeRouter.select` reads the provider's two response shapes
+(`claude_router.py:60-61` and `:75-84`), in this order:
+
+| response | cell |
+|---|---|
+| no `"output"` key | `failed={"kind": "setup_error", "message": response["error"]}` (a missing `error` too), `cost_usd=None` |
+| `out = response["output"]`; always | `cost_usd = float(response["cost"])`, `selected = out["selected"]`, `error = out["error"]`, `model = out.get("model")` |
+| `out["error"]` not `None` and `!= MAX_TURNS_SUBTYPE` | `failed={"kind": "run_error", "message": out["error"]}` |
+| `out["selected"]` ∈ `SKILLS` | `route = selected` |
+| `out["selected"] is None` | `route = "none"` |
+| any other `selected` | `failed={"kind": "unknown_skill", "message": selected}` |
+
+A failed cell has `route = "escalated"`. A top-level `selected` is never read.
+Constructing `NativeRouter` spawns nothing.
 
 ## C-6 — the replay command
 
@@ -174,10 +235,21 @@ uv run python -m tests.skill_router_eval.replay --freeze --corpus v1 [--corpus-r
 | exit | meaning |
 |---|---|
 | 0 | budget reached, run complete, or rate-limit pause (`resume after <UTC>`) |
-| 2 | refused before any write: `--freeze` over an existing lock; lock missing; scenario, catalog or identity digest ≠ lock; `CatalogError`; a header mismatch in an existing run directory |
+| 2 | refused before any write: `--freeze` over an existing lock; lock missing; scenario, catalog, selection `rule_digest`, instrument or identity digest ≠ lock; `CatalogError`; `NativeOverrideError` (native only); a header mismatch in an existing run directory. **Also mid-run**: a gated cell whose recorded `rule_digest` ≠ the lock's is not appended, and the invocation exits 2 |
 | 3 | frontier `invalid_model` |
 
-`<run-id>` is `<comparator>-<UTC yyyymmddThhmmssZ>`. Repeats and seed come from
+`<run-id>` is `<comparator>-<UTC yyyymmddThhmmssZ>`.
+
+```python
+# replay.py — the freeze probe lives here, not in selection.py, so T4 and T5 stay independent
+PROBE_STATE = "func: command not found"
+def probe_rule_digest(entries: Sequence[Entry], project: Path) -> str: ...
+    # selection.select(PROBE_STATE, comparators.KeywordTable(), ...).rule_digest
+def instrument_sha256(repo_root: Path) -> str: ...   # over INSTRUMENT_FILES, as C-3
+```
+
+`--freeze` and every start or resume compute both and pass them to
+`check_lock`. Repeats and seed come from
 the lock only.
 
 ## C-7 — the `select` command and `selections.json`
@@ -187,11 +259,13 @@ uv run python -m tests.skill_router_eval.select --tasks evals/suites/skill-route
     [--comparator hermetic] [--skills-root PATH]
 ```
 
-It checks the catalog against the v1 lock (exit 2 on mismatch), runs each case's
+It runs the same `check_lock` as C-6 (catalog, selection `rule_digest`,
+instrument, identities; exit 2 on mismatch), runs each case's
 `task` once through C-4, and writes:
 
 ```json
 {"catalog_sha256": "<hex>", "comparator": "hermetic", "identity_sha256": "<hex>", "repo_commit": "<sha>",
+ "rule_digest": "sha256:<hex>", "instrument_sha256": "<hex>",
  "cases": {"d1": {"outcome": "functualize", "expected": "functualize", "decided_by": "decision",
                   "latency_seconds": 0.0, "evidence": {"...": "decision-evidence/1"}}, "...": {}}}
 ```
@@ -206,13 +280,20 @@ It checks the catalog against the v1 lock (exit 2 on mismatch), runs each case's
 
 A row has these keys, in this order: `cell repeat scenario expected stratum
 comparator status route decided_by proposal distribution probability margin
-confidence verdict failure latency_seconds input_tokens output_tokens frontier
-native started_at`.
+confidence verdict failure rule_digest latency_seconds input_tokens
+output_tokens frontier native started_at`.
 
 - `status` ∈ `routed | failed | invalid_model | not_attempted`.
 - `route` ∈ `OPTIONS ∪ {"escalated"}`. The name is kept so that Phase 3's
   `agreement`/`variance` read it unchanged.
-- `native` is `{"selected", "cost_usd"}` or `null`.
+- `rule_digest` is the cell's `evidence["rule"]["digest"]` for a gated cell
+  (equal to the lock's, C-6) and `null` for native.
+- `native` is `{"selected", "error", "model", "cost_usd"}` (C-5's
+  `NativeCell` fields, verbatim) for a native row and `null` otherwise. A native
+  row's `failure` is `NativeCell.failed`.
+- `run.json` (the header) carries the lock's `scenarios_sha256`,
+  `catalog_sha256`, `selection.rule_digest`, `instrument.sha256` and the
+  comparator's identity digest; a resume with a different header exits 2.
 
 ## C-9 — the report command and `verdict.json`
 
@@ -226,7 +307,7 @@ uv run python -m tests.skill_router_eval.report
 |---|---|
 | 0 | written, or `--check` identical |
 | 1 | `--check` difference |
-| 2 | inputs disagree on corpus or catalog digest; a comparator missing or duplicated |
+| 2 | inputs disagree on corpus, catalog, selection `rule_digest` or instrument digest; a gated ledger holding a `rule_digest` other than the lock's; the native ledger, or the downstream results, holding more than one observed `model`; a comparator missing or duplicated |
 | 4 | conformance failure (spec B-17) |
 
 ```json
@@ -239,6 +320,19 @@ uv run python -m tests.skill_router_eval.report
         "wilson95": {"native": [0.0, 0.0], "router": [0.0, 0.0]}, "holds": false},
  "verdict": "negative result", "failed_conditions": ["..."]}
 ```
+
+`metrics.json` carries, per comparator, `cost` (Phase 3's, tokens) and, for
+native only, `native_cost`:
+
+```python
+def native_cost(rows: Sequence[Row]) -> dict[str, Any]:
+    # over rows with status != "not_attempted":
+    # {"usd_total": Σ native.cost_usd (None counted as 0), "usd_per_cell": usd_total / priced cells,
+    #  "usd_per_correct": usd_total / cells with route == expected (None if 0), "unpriced_cells": count of None}
+```
+
+The native row of `benchmark.md`'s cost table prints `native_cost`'s
+`usd_total`; it never prints Phase 3's `usd_total` for native.
 
 `verdict` is one of `promote to Phase 5`, `negative result` or `continue
 research`. The values above only illustrate the shape. Output is deterministic:
@@ -258,14 +352,20 @@ def run_claude(sandbox, prompt, *, model=None, max_turns=..., allowed_tools=None
 class AgentRun:
     first_turn_input_tokens: int | None = None   # first assistant event's usage: input + cache_creation_input + cache_read_input
     duration_s: float = 0.0
+    model: str | None = None                     # the `system`/`init` event's `model`, as reported
 def skill_bodies(names: Sequence[str]) -> str: ...  # SKILL.md files joined, each under "## Skill: <name>"
 
 # claude_agent.py — provider config `arm` (absent = today's behaviour, unchanged):
 #   "load-everything" | "native" | "router"
 # router reads JSON at env FZ_SKILL_ROUTER_SELECTIONS, key = test var `case`.
+# with `arm` set, FZ_EVAL_MODEL / FZ_EVAL_SANDBOX set to a value other than the
+# config's returns {"error": "override refused: ..."} before any workspace is built.
 # output: the existing "arm" key (today "with-skills" | "baseline", claude_agent.py:119) carries the
 # config arm when one is set, else today's value; output gains "first_turn_input_tokens",
-# "duration_s" and "router_outcome" (router arm only).
+# "duration_s", "model" and "router_outcome" (router arm only).
+
+# claude_router.py — output gains one key, "model" (AgentRun.model); nothing else
+# changes, and triggering.yaml's grader reads only selected / skills_loaded / any_fired.
 ```
 
 Existing suites set no `arm`, so their behaviour and argv are unchanged

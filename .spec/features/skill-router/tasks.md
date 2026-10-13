@@ -1,8 +1,10 @@
 # skill-router — Tasks
 
-Authored 2026-10-13 against `36eaeabf` (`origin/master`). There are sixteen
-tasks in twelve waves. Every `now:` below was produced by running its command
-on this branch at authoring time.
+Authored 2026-10-13 against `36eaeabf` (`origin/master`); revised the same day
+after the package review of `d34b70d3` (native response shape, native cost, the
+freeze's reach, the Plan retrieval). There are sixteen tasks in twelve waves.
+Every `now:` below was produced by running its command on this branch at
+authoring time.
 
 **Execute is NOT yet authorised.** `spec.md` and `plan.md` await the
 maintainer's confirmation of P-1 (downstream task list), P-2 (verdict
@@ -116,7 +118,8 @@ passes. Commit: `test(skill-router): derive the bounded skill catalog`.
 ### [ ] T2 — the `evals/` harness arms and the downstream suite
 
 *Files:* `evals/providers/_harness.py` (modify), `evals/providers/claude_agent.py`
-(modify), `evals/suites/skill-router.yaml` (new),
+(modify), `evals/providers/claude_router.py` (modify: one output key),
+`evals/suites/skill-router.yaml` (new),
 `tests/evals/test_skill_router_arms.py` (new), `evals/README.md` (modify: one
 section, *The skill-router suite*)
 
@@ -126,11 +129,18 @@ section, *The skill-router suite*)
    claude -p "Say OK." --output-format stream-json --verbose --max-turns 1 --model claude-sonnet-5 > /tmp/functualize-claude-stream.jsonl
    ```
    Record whether `assistant` events carry `message.usage` with
-   `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`.
-   Save one redacted `assistant` line as the test fixture
-   `tests/evals/fixtures/assistant_usage.jsonl`. If there is no usage block,
-   implement the field as always `null` and note it in the commit body (spec
-   B-22).
+   `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`,
+   and the `model` string of the `system`/`init` event.
+   Save one redacted `assistant` line and the redacted `init` line as the test
+   fixture `tests/evals/fixtures/assistant_usage.jsonl`. If there is no usage
+   block, implement the field as always `null` and note it in the commit body
+   (spec B-22). Then measure the **turn-budget stop** with one more cheap call
+   that needs a tool:
+   ```
+   claude -p "List the files here with Glob, then read one." --output-format stream-json --verbose --max-turns 1 --allowed-tools Glob Read --model claude-sonnet-5 > /tmp/functualize-claude-maxturns.jsonl
+   ```
+   Record the `result` event's `is_error` and `subtype` in the commit body. T5
+   copies that subtype string into `MAX_TURNS_SUBTYPE` (spec F-8; plan R-8).
 1. `_harness.py`, exactly C-10:
    - `build_workspace(..., *, skills=None)`: a `skills` list copies exactly
      those `SKILLS_DIR/<name>` directories, and an unknown name raises
@@ -139,6 +149,8 @@ section, *The skill-router suite*)
    - `AgentRun.first_turn_input_tokens`, set by `_absorb` from the **first**
      `assistant` event's usage only;
    - `AgentRun.duration_s`;
+   - `AgentRun.model`, set by `_absorb` from the `system`/`init` event's
+     `model` (today that event is only logged, `_harness.py:814-818`);
    - `skill_bodies(names)`.
    With no new keyword passed, the argv and the workspace are byte-for-byte
    today's.
@@ -150,9 +162,15 @@ section, *The skill-router suite*)
      `cases[vars.case].outcome`. A skill means `skills=[skill]` plus its body.
      `none` means `skills=[]`. `escalated` means native. A missing env var,
      file or case returns `{"error": ...}`.
+   - With `arm` set, `FZ_EVAL_MODEL` or `FZ_EVAL_SANDBOX` set to a value other
+     than the config's returns `{"error": "override refused: …"}` before any
+     workspace is built (spec B-5; today the env wins, `claude_agent.py:103`).
    - The output `arm` is the config arm when set. The output adds
-     `first_turn_input_tokens`, `duration_s` and `router_outcome`.
+     `first_turn_input_tokens`, `duration_s`, `model` and `router_outcome`.
    - With no `arm`, the output is unchanged.
+2a. `claude_router.py`: the `output` dict gains `"model": run.model`. Nothing
+   else changes: no default, no precedence, no key removed. Its one consumer's
+   grader reads only `selected`, `skills_loaded` and `any_fired`.
 3. `skill-router.yaml`, exactly C-11. Copy the five cases of spec B-19 verbatim
    from `functualize.yaml`, `functualize-app.yaml` and `functualize-skill.yaml`
    by their `description`, adding `vars.case` (`d1`…`d5`) and `vars.expect`.
@@ -166,6 +184,9 @@ section, *The skill-router suite*)
    - `first_turn_input_tokens` is the first usage's sum, ignoring a second
      `assistant` event;
    - the router arm with a missing case errors;
+   - with `arm` set and `FZ_EVAL_MODEL=claude-other`, the provider returns an
+     `error` and the fake `popen` was never called;
+   - `AgentRun.model` comes from the `init` fixture line;
    - each `skill-router.yaml` case equals its source case on `vars` and
      `assert`, ignoring `case` and `expect`.
 5. `evals/README.md`: the run command of C-11, the env var, and that the suite
@@ -188,8 +209,14 @@ ls evals/suites/skill-router.yaml 2>/dev/null | wc -l
 ```
 now: `0` · after: `1`
 
+```bash
+rg -c '"model": run\.model' evals/providers/claude_router.py
+```
+now: `0` · after: `1`
+
 Closes when `uv run pytest tests/evals -q > /tmp/functualize-t2.log 2>&1`
 passes (AC-11; the existing contracts now also cover the new suite).
+Also run `uv run ruff check evals/providers` and `uv run ruff format --check evals/providers`.
 Commit: `build(evals): mount a chosen skill subset and report first-turn tokens`.
 
 ## Wave 1
@@ -214,11 +241,16 @@ Commit: `build(evals): mount a chosen skill subset and report first-turn tokens`
      `triggering:<n>` origin's `expected` equals case `n`'s `vars.expect`,
      with exactly 21 such origins;
    - `check_disjoint_from_tasks(scenarios, suite_yaml)`;
-   - `write_lock(version_dir, catalog, identities, *, frozen_at)`, which
-     refuses when a lock exists;
-   - `check_lock(version_dir, catalog, identities)`, which raises
-     `CorpusError` on a missing lock, a scenario-digest mismatch, a catalog
-     digest mismatch or an identity mismatch, naming which.
+   - `INSTRUMENT_FILES`: the ten repository-relative paths of C-3
+     `instrument.files`, sorted;
+   - `write_lock(version_dir, catalog, identities, *, selection, rule_digest,
+     instrument_sha256, frozen_at)`, which refuses when a lock exists.
+     `selection` is the C-3 `selection` block without `rule_digest`;
+   - `check_lock(version_dir, catalog, identities, *, rule_digest,
+     instrument_sha256)`, which raises `CorpusError` on a missing lock, a
+     scenario-digest mismatch, a count mismatch, a catalog digest mismatch, a
+     selection `rule_digest` mismatch, an instrument digest mismatch or an
+     identity mismatch, naming which (spec B-5).
    - `corpus_sha256` and `ordered_cells` are **imported** from
      `tests.hermetic_eval.corpus`.
 2. `LABELING.md`, with exactly seven `##` sections:
@@ -228,7 +260,8 @@ Commit: `build(evals): mount a chosen skill subset and report first-turn tokens`
    - `§7 two-skill requests`: such a request is **not labelled**. It is
      listed in `corpus/v1/TWO_SKILL.md` for the finding (spec §6).
 3. `test_corpus.py`, using fixtures in `tmp_path`: every `CorpusError`
-   branch, the lock's round trip, and the refusal on an existing lock.
+   branch (one test per mismatch kind above), the lock's round trip, and the
+   refusal on an existing lock.
 
 Gate:
 
@@ -290,21 +323,47 @@ passes. Commit: `test(skill-router): add the gated skill selection workflow`.
    - `KEYWORDS`, written **from the five meanings only, before any corpus
      scenario exists**;
    - `KeywordTable`;
+   - `NATIVE_CONFIG = {"model": "claude-sonnet-5", "max_turns": 3,
+     "timeout_s": 180, "sandbox": "host"}` (a `MappingProxyType`; the values
+     `triggering.yaml:23-35` uses) and `MAX_TURNS_SUBTYPE` (the string T2 step
+     0 recorded);
+   - `NativeOverrideError`, `NativeCell` (C-5 fields);
    - `NativeRouter`, which loads `evals/providers/claude_router.py` by path
      under the module name `skill_router_native_reference` and caches it in
      `sys.modules`, the same mechanism as `tests/hermetic_eval/_router.py`;
-     `call_api` is injectable;
+     `call_api` and `environ` are injectable. The constructor raises
+     `NativeOverrideError` when `FZ_EVAL_MODEL` or `FZ_EVAL_SANDBOX` is set to
+     a value other than `NATIVE_CONFIG`'s. `select` calls `call_api(state,
+     {"config": dict(NATIVE_CONFIG)}, {})` and reads the response by the C-5
+     table, **in its order**: a missing `output` is a setup failure with cost
+     `None`; otherwise unwrap `output` and take `cost`; then `output.error`
+     (a non-`MAX_TURNS_SUBTYPE` error fails the cell); then `selected`. A
+     top-level `selected` is never read. `identity()` embeds
+     `dict(NATIVE_CONFIG)`;
    - re-exports of `hermetic`, `hermetic_identity`, `FrontierRouter` and
      `identity_sha256` from `tests.hermetic_eval.comparators`;
    - `identities() -> dict[str, str]` for the four comparators.
-2. `test_comparators.py` (AC-6): the keyword table's determinism, one-hot and
-   uniform-0.20 cases; the `NativeRouter` mappings through a fake `call_api`;
-   and that constructing `NativeRouter` and `FrontierRouter` spawns nothing.
+2. `tests/skill_router_eval/fixtures/native_responses.json`: the eight AC-6
+   responses, each **in the provider's real shape** (`claude_router.py:60-61`
+   for the setup error, `:75-84` for the envelope, with every `output` key the
+   provider emits), plus the legacy top-level-`selected` shape.
+3. `test_comparators.py` (AC-6): the keyword table's determinism, one-hot and
+   uniform-0.20 cases; every `NativeRouter` row of the fixture, including the
+   config the fake received (`max_turns == 3`), the kept cost on a failed run,
+   `None` cost on a setup failure and the legacy shape failing; the
+   `NativeOverrideError` on `FZ_EVAL_MODEL=claude-other` and on
+   `FZ_EVAL_SANDBOX=docker` with the fake never called; and that constructing
+   `NativeRouter` and `FrontierRouter` spawns nothing.
 
 Gate:
 
 ```bash
 rg -c '^KEYWORDS' tests/skill_router_eval/comparators.py
+```
+now: `0` (file absent) · after: `1`
+
+```bash
+rg -c '"max_turns": 3' tests/skill_router_eval/comparators.py
 ```
 now: `0` (file absent) · after: `1`
 
@@ -329,18 +388,31 @@ passes. Commit: `test(skill-router): add the keyword and native comparators`.
      is `escalated`), `sweep` and `conformance`;
    - `context_bytes(row, catalog)` per arm and `context_summary` (spec B-18);
    - `wilson(successes, n)`;
-   - `downstream_summary(promptfoo_results)`;
+   - `downstream_summary(promptfoo_results)`, which also returns the set of
+     observed `model` values;
+   - `native_cost(rows)` (C-9): sums `row["native"]["cost_usd"]`, counts
+     `None` as unpriced;
    - `verdict(...)` (spec B-24).
    **Import, do not copy**, `accepts`, `agreement`, `variance`, `latency` and
-   `cost` from `tests.hermetic_eval.metrics`.
+   `cost` from `tests.hermetic_eval.metrics`. `cost` is for token columns only;
+   **never** use its `usd_total` for native (it is `0.0` for every
+   non-frontier ledger, `tests/hermetic_eval/metrics.py:231-252`).
 2. `test_metrics.py` (AC-8, AC-10, AC-12 Wilson): hand-computed fixtures for
    every function. Include a zero-flip deterministic ledger, a five-option
-   Brier case, and each verdict branch including the unsafe-`none` override.
+   Brier case, each verdict branch including the unsafe-`none` override, and
+   the native-cost case of AC-8: rows priced 0.0421, 0.0187 and `None` give
+   `usd_total == 0.0608` and `unpriced_cells == 1`, while the imported `cost`
+   gives `usd_total == 0.0` on the same rows.
 
 Gate:
 
 ```bash
 rg -c '^from tests\.hermetic_eval\.metrics import' tests/skill_router_eval/metrics.py
+```
+now: `0` (file absent) · after: `1`
+
+```bash
+rg -c '^def native_cost' tests/skill_router_eval/metrics.py
 ```
 now: `0` (file absent) · after: `1`
 
@@ -359,17 +431,33 @@ passes. Commit: `test(skill-router): add selection and context metrics`.
    → `not_attempted`, resume). Gated comparators go through
    `selection.select`. `native` goes through `NativeRouter.select`, with
    `route` = selected-or-`none` and `decided_by = "native"`.
-   - `--freeze` derives the catalog and writes the lock with the four
-     identities.
-   - Every start or resume calls `check_lock` with the **re-derived**
-     catalog.
+   - `PROBE_STATE`, `probe_rule_digest(entries, project)` (one
+     `selection.select` with `KeywordTable()` in a scratch project under
+     `tmp`; returns `Selection.rule_digest`) and `instrument_sha256(repo_root)`
+     over `corpus.INSTRUMENT_FILES` (C-3, C-6).
+   - `--freeze` derives the catalog, computes both, and writes the lock with
+     the four identities and the `selection` block.
+   - Every start or resume calls `check_lock` with the **re-derived** catalog,
+     probe `rule_digest` and instrument digest; `run.json` carries them, and a
+     resume with a different header exits 2.
+   - Each gated row carries `rule_digest` (C-8). A row whose `rule_digest`
+     differs from the lock's is **not appended**; exit 2.
+   - `--comparator native` constructs `NativeRouter` before any write; a
+     `NativeOverrideError` exits 2. The row's `native` block is the
+     `NativeCell` fields, its `failure` is `NativeCell.failed`, its `route` is
+     `NativeCell.route`.
    - The default run dir is
      `$XDG_STATE_HOME|~/.local/state/functualize-skill-router-eval/<run-id>`.
-2. `select.py`, exactly C-7. It refuses an `--out` path inside the
-   repository.
+2. `select.py`, exactly C-7. It runs the same `check_lock` as `replay`, writes
+   `rule_digest` and `instrument_sha256` into `selections.json`, and refuses
+   an `--out` path inside the repository.
 3. `test_replay.py` (AC-3, AC-5, AC-7, plus the AC-9 fixture ledger). Use
    fakes only, with a 3-scenario corpus under `tmp_path` and `--corpus-root`
-   / `--skills-root` seams.
+   / `--skills-root` seams. AC-3 now includes: a monkeypatched
+   `SELECT_INSTRUCTIONS`; a changed byte in a scratch copy of a pinned file
+   (pass the repo-root seam); `FZ_EVAL_MODEL=claude-other` and
+   `FZ_EVAL_SANDBOX=docker` for `native`; a cell whose recorded `rule_digest`
+   differs (no row appended, exit 2); and `select` on a mismatched lock.
 
 Gate:
 
@@ -377,6 +465,11 @@ Gate:
 ls tests/skill_router_eval/replay.py tests/skill_router_eval/select.py 2>/dev/null | wc -l
 ```
 now: `0` · after: `2`
+
+```bash
+rg -c '^def probe_rule_digest' tests/skill_router_eval/replay.py
+```
+now: `0` (file absent) · after: `1`
 
 Closes when `uv run pytest tests/skill_router_eval/test_replay.py -q > /tmp/functualize-t7.log 2>&1`
 passes. Commit: `test(skill-router): add the replay, freeze and select commands`,
@@ -394,11 +487,20 @@ app.execute → decision_record`.
    comparator (native as an accuracy-only row), the four errors, the sweep
    table at `min_margin = 0.10`, context per arm (bytes, ratio to native first,
    load-everything beside it), downstream per arm (success, Wilson interval,
-   tokens, cost, turns, duration, `skills_loaded`), and provenance.
+   tokens, cost, turns, duration, `skills_loaded`, observed model), and
+   provenance (including the selection `rule_digest` and the instrument
+   digest). The native routing row's USD is `metrics.native_cost`, never
+   Phase 3's `cost`. Exit 2 (C-9) when the inputs disagree on the corpus,
+   catalog, `rule_digest` or instrument digest, when a gated ledger holds a
+   `rule_digest` other than the lock's, or when the native ledger or the
+   downstream results carry more than one observed model.
    `finding.md` states the verdict, the failed conditions, the gaps
    (`functualize-cli`/`none` have no downstream task; the single-skill label
    set and `TWO_SKILL.md` entries) and the deviations.
-2. `test_report.py` (AC-9 doctored ledger → exit 4, AC-12, AC-13).
+2. `test_report.py` (AC-9 doctored ledger → exit 4, AC-12, AC-13): the
+   native fixture ledger's nonzero `usd_total` appears in `metrics.json` and
+   `benchmark.md`; a gated ledger with a second `rule_digest` exits 2; a
+   native ledger or downstream file with two observed models exits 2.
 
 Gate:
 
@@ -460,9 +562,12 @@ No live cell has run.
    ```
 2. `test_v1_lock_matches_corpus_catalog_and_comparators`: `check_lock` with
    the re-derived catalog and `comparators.identities()` returns a lock with
-   `count == 40`, `repeats == 5` and `seed == 20261013`. From here on, an edit
-   to `scenarios.jsonl`, `comparators.py`, `claude_router.py` or **any file in
-   `skills/`** fails this test. The remedy is `v2/`, never an edited lock.
+   `count == 40`, `repeats == 5` and `seed == 20261013`, with the re-computed
+   probe `rule_digest` and instrument digest. From here on, an edit to
+   `scenarios.jsonl`, **any of the ten `INSTRUMENT_FILES`** (the selection
+   instructions, option meanings and thresholds included, through the
+   `rule_digest`) or **any file in `skills/`** fails this test. The remedy is
+   `v2/`, never an edited lock.
 
 Gate:
 
@@ -484,7 +589,9 @@ remote before any measurement. Commit: `test(skill-router): freeze the version 1
 Preconditions:
 - the maintainer's Codex login is live (`codex login status`);
 - `OPENCODE_API_KEY` is exported in the same shell call (never printed);
-- the eval credential for `claude` is present (`cd evals && npm run doctor`).
+- the eval credential for `claude` is present (`cd evals && npm run doctor`);
+- `FZ_EVAL_MODEL` and `FZ_EVAL_SANDBOX` are unset (the native replay and the
+  `arm` runs refuse them otherwise).
 
 1. In foreground calls, one invocation per tool call, re-invoke each with the
    same `--run-dir` until it prints `run complete`:
@@ -625,7 +732,9 @@ rg -l "^import subprocess|^from subprocess" tests/skill_router_eval tests/evals/
 now: `0` · after: `0` · invariant
 
 Closes when all of the above hold. Commit nothing unless a check needed a
-fix; such a fix lands before T16.
+fix; such a fix lands before T16. **A fix to a file in `INSTRUMENT_FILES`
+after T10 voids corpus v1** (the lock test fails, by design): stop and report
+it instead of committing it; never edit the lock.
 
 ## Wave 11
 
