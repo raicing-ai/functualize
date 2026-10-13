@@ -1,18 +1,24 @@
 """The shipped skills must actually ship, and be findable at runtime.
 
-Two failure modes this guards, both of which are silent:
+Three failure modes this guards, all of which are silent:
 
 1. The build config stops carrying ``skills/`` into the distribution. Every
    test above still passes — they read the repo — while every *installed*
    functualize answers "no skills found".
 2. The runtime resolver stops agreeing with where the build puts them, so
    ``func builtin skills path`` points at nothing on a real install.
+3. The shipped reference teaches a ``sh(...)`` form the capability rejects —
+   the reader hits the error the document caused.
 """
 
 from __future__ import annotations
 
+import ast
+import re
 import tomllib
 from pathlib import Path
+
+import pytest
 
 from functualize._cli.skills import (
     SKILLS_PACKAGE_DIRNAME,
@@ -21,8 +27,9 @@ from functualize._cli.skills import (
     materialized_root,
     resolve_skills_dir,
 )
+from functualize._engine.capabilities.shell import WiredShell
 
-from .conftest import REPO_ROOT, SKILLS_ROOT, skill_dirs
+from .conftest import REPO_ROOT, SKILLS_ROOT, backticked, markdown_files, skill_dirs
 
 
 def _pyproject() -> dict:
@@ -142,3 +149,112 @@ def test_materialize_keeps_other_versions_by_default(xdg_dirs):
     old, _ = materialize_skills(SKILLS_ROOT, "0.0.1")
     materialize_skills(SKILLS_ROOT, "9.9.9")
     assert old.is_dir()
+
+
+# ── Documented `sh(...)` command forms ──────────────────────────────────────
+#
+# The reference teaches `sh(...)` forms and the capability accepts exactly
+# three: a list of argv tokens (the common case), a raw string with
+# ``shell=True``, and a template string with params. A bare raw string raises.
+# Every literal call the skills show is resolved through the capability's own
+# contract here, so an example that would fail in front of a reader fails in
+# the suite first.
+
+_PYTHON_FENCE = re.compile(r"```python\n(.*?)```", re.DOTALL)
+
+_MISSING = object()
+
+
+def _literal(node: ast.expr) -> object:
+    """``node``'s value, or ``_MISSING`` when it is a placeholder."""
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, TypeError):
+        return _MISSING
+
+
+def _sh_calls(source: str) -> list[tuple[str, object, dict[str, object]]]:
+    """``(call text, command, kwargs)`` for each literal ``sh(...)`` in source.
+
+    Parsed, not pattern-matched: `sh(...)` signature prose and attribute calls
+    (`sh.cd(...)`, `sh.prefix(...)`) are not command invocations, and a
+    placeholder like `sh(cmd)` carries nothing the resolver can check — both
+    are skipped rather than guessed at.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    found: list[tuple[str, object, dict[str, object]]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not (isinstance(node.func, ast.Name) and node.func.id == "sh"):
+            continue
+        if any(kw.arg is None for kw in node.keywords):
+            continue  # `**spread` — the command form cannot be known.
+        args = [_literal(a) for a in node.args]
+        kwargs = {kw.arg: _literal(kw.value) for kw in node.keywords}
+        if not args or args[0] is _MISSING:
+            continue
+        if any(value is _MISSING for value in kwargs.values()):
+            continue
+        if not isinstance(args[0], (str, list)):
+            continue  # `sh(...)` placeholder, not an example.
+        text = ast.get_source_segment(source, node) or "sh(...)"
+        found.append((text, args[0], kwargs))
+    return found
+
+
+def _documented_sh_examples() -> list[tuple[str, object, dict[str, object]]]:
+    """Every literal ``sh(...)`` example the shipped skills show a reader.
+
+    Python fences and inline backticked spans alike — both are copied.
+    """
+    examples: list[tuple[str, object, dict[str, object]]] = []
+    for path in markdown_files():
+        relative = str(path.relative_to(SKILLS_ROOT))
+        text = path.read_text(encoding="utf-8")
+        sources = [(relative, block) for block in _PYTHON_FENCE.findall(text)]
+        sources += [
+            (f"{relative} (inline)", span)
+            for span in backticked(text)
+            if re.search(r"\bsh\(", span)
+        ]
+        for where, source in sources:
+            for call, command, kwargs in _sh_calls(source):
+                examples.append((f"{where}: {call}", command, kwargs))
+    return examples
+
+
+SHELL_EXAMPLES = _documented_sh_examples()
+
+
+@pytest.mark.parametrize(
+    ("command", "kwargs"),
+    [(command, kwargs) for _, command, kwargs in SHELL_EXAMPLES],
+    ids=[where for where, _, _ in SHELL_EXAMPLES],
+)
+def test_every_documented_shell_example_is_an_accepted_form(command, kwargs):
+    """A `sh(...)` example the capability rejects teaches by error.
+
+    The bare raw string is the documented trap: the reference showed one, the
+    capability raises for exactly it, and the reader hit the error the
+    reference caused. Resolution runs through the real contract, so the
+    document cannot drift from the guard.
+    """
+    shell = bool(kwargs.get("shell", False))
+    template = {k: v for k, v in kwargs.items() if k != "shell"}
+    WiredShell()._resolve_command(command, shell=shell, template_params=template)
+
+
+def test_the_shell_example_scan_actually_finds_examples():
+    """The falsifier. An empty scan passes the test above vacuously."""
+    assert len(SHELL_EXAMPLES) >= 3, SHELL_EXAMPLES
+    forms = [(command, kwargs) for _, command, kwargs in SHELL_EXAMPLES]
+    assert any(isinstance(command, list) for command, _ in forms), (
+        "no list-form example — the common case is untaught"
+    )
+    assert any(isinstance(command, str) and kwargs for command, kwargs in forms), (
+        "no raw-string example with shell=True or template params"
+    )
