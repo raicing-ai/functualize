@@ -30,6 +30,7 @@ without importing the framework.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any, Final
 
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
@@ -139,12 +140,37 @@ def status_from_wire(value: str) -> RunStatus | None:
     return None
 
 
+#: The ``JobResult.metadata`` key the engine sets when the exception on a
+#: failed result is **the job's own** — the very object that escaped the call
+#: to the job function. Decided by identity where the call happens, not from
+#: the exception's type, message or frames, because only the engine saw the
+#: call. Its absence means the failure came from somewhere else — execution
+#: middleware, a refusal before the body ran, an engine-synthesised error —
+#: and a process boundary must not dress that up as a job error.
+RAISED_BY_JOB: Final = "raised_by_job"
+
+
+def raised_by_job(result: Any) -> bool:
+    """Did the exception on ``result`` escape the job function call itself?
+
+    Duck-typed on ``exception`` and ``metadata`` so a boundary can ask it of a
+    ``JobResult`` without importing the engine. Only an explicit ``True`` from
+    the engine counts.
+    """
+    if getattr(result, "exception", None) is None:
+        return False
+    metadata = getattr(result, "metadata", None) or {}
+    return metadata.get(RAISED_BY_JOB) is True
+
+
 __all__ = [
+    "RAISED_BY_JOB",
     "ExitCode",
     "Family",
     "exit_code_for_status",
     "http_status_for_status",
     "is_failure",
+    "raised_by_job",
     "report_line",
     "status_from_wire",
     "wire_value",

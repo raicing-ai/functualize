@@ -35,6 +35,38 @@ secret source; the plugin README documents the grammar, the refusal table,
 the session-expiry operational reality, and which product each scheme
 speaks.
 
+### Fixed — a job's own exception is one line, not a framework traceback
+
+A job that raised printed the whole call stack: the console script, the CLI
+dispatcher, click, the adapter and the executor, with the author's message as
+the last of about forty lines. It now prints one line on stderr and exits 1,
+the code the table already gave it:
+
+```
+$ func boom
+Error: RuntimeError: boom
+```
+
+The class is named without its module, so a job module imported from the
+discovery cache no longer shows up as `_functualize_sync_.<stem>_<id>.DemoError`.
+`--log-level DEBUG` brings the full traceback back, on `func` and on a
+project's own entry point alike.
+
+Only the job's *own* exception is shortened, and the engine decides which
+one that is at the single call that runs the job function. It compares the
+exception object itself, never its type or message. Anything else still
+prints its traceback: an exception raised by execution middleware, by a hook
+or by the framework. That keeps the traceback for a functualize bug, which is
+what whoever reports it needs. One limit: an exception raised inside a
+capability the job calls (`invoke`, `sh`) and not caught by the job leaves
+through the job's own call, so it counts as the job's.
+
+Unchanged: `click.ClickException`, `Abort` and `Exit` raised by a job are still
+rendered by click; a closed pipe is still a quiet exit 0; a config validation
+failure is still a panel and a missing value still a one-line usage error, both
+exit 2. `--emit-format` still governs stdout only, so a failed job writes
+nothing there whatever the format.
+
 ### Changed — one arity per pre-boot flag, and one exit code for a wrong value
 
 Every flag `func` reads before boot is boolean or value-required — never
@@ -109,21 +141,31 @@ Reprovision direct values and run `vault sync` for provider entries afterward.
 JSON refusal reasons include `scope_required`, `unknown_group`, and
 `vault_format_unsupported`.
 
+### Changed — credential plugins join the release upload; AWS becomes opt-in
+
+The release workflow now includes `functualize-secrets-aws` and
+`functualize-secrets-bitwarden` in the PyPI upload. AWS is no longer in
+`functualize[all]`: install `functualize-secrets-aws` separately for the
+`aws-sm://` and `aws-ssm://` providers. The standalone binary bakes `[all]`
+and therefore no longer includes those providers by default; add them with
+`func builtin plugin install functualize-secrets-aws`. Bitwarden remains
+outside `[all]`.
+
 ### Changed — the deferred credentials plugins are renamed with a secrets prefix
 
-The two credentials plugins that have not launched yet are renamed before their
-first release: distribution and directory `functualize-aws` becomes
-`functualize-secrets-aws`, `functualize-bitwarden` becomes
-`functualize-secrets-bitwarden`, and the import packages `functualize_aws` /
-`functualize_bitwarden` become `functualize_secrets_aws` /
-`functualize_secrets_bitwarden` to match.
+The two credentials plugins were renamed before their first release:
+distribution and directory `functualize-aws` became
+`functualize-secrets-aws`; `functualize-bitwarden` became
+`functualize-secrets-bitwarden`. Their import packages changed from
+`functualize_aws` and `functualize_bitwarden` to `functualize_secrets_aws`
+and `functualize_secrets_bitwarden`.
 
-**Neither package was ever published to PyPI**, so no released artifact, index
-name or install instruction changes. What deliberately stays as it was: the URL
+**Neither package had been published to PyPI at the time of the rename**, so
+no released artifact, index name or install instruction changed. The URL
 schemes `aws-sm://`, `aws-ssm://` and `bws://`, the `functualize.remote_providers`
-entry-point group and its keys, and the provider class names. Both plugins
-remain deferred — the release workflow still strips them from the upload until
-their intentional one-per-release launch.
+entry-point group and its keys, and the provider class names stayed the same.
+The release workflow still excluded both distributions from its PyPI upload at
+that point.
 
 ### Fixed — the secret scan no longer fails a pull request for another branch's finding
 
@@ -141,6 +183,17 @@ is resolved in its own step and the job fails if it cannot be, because
 `gitleaks` reports a range `git` cannot resolve as a **clean scan of zero
 commits** and exits `0`; silently covering nothing is worse than either
 scanned outcome.
+
+### Added — hermetic evaluation of the decision router
+
+A frozen corpus of 40 routing scenarios can now be replayed through the
+hermetic router, a frontier comparator and a deterministic baseline under the
+same gate, rule and fallback. The evaluation harness records failures as data,
+checks the corpus lock before a run, and produces reproducible metrics,
+provenance and a boundary recommendation from the recorded ledgers. The corpus,
+method and report commands are documented in
+`contributor/reference/hermetic-evaluation.md`; measured runs remain outside
+the repository. The recommendation still requires a maintainer decision.
 
 ### Changed — the vault key is read from an unlocked keyring with or without a terminal
 
