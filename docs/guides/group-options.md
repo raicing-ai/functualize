@@ -254,7 +254,8 @@ def release(invoke: Invoke) -> None:
             os.environ["DEPLOY__ENV"] = previous
 ```
 
-The flag layer is the one that is **not** inherited, for the reason above:
+The flag layer is the one that is **not** inherited across a job author's
+boundary, for the reason above:
 
 ```python
 # The workflow job is given env="prod". Its steps are not.
@@ -264,6 +265,18 @@ app.execute("deploy.release", group_option_values={"env": "prod"})
 A step that should receive one is given it, explicitly, by the job that drives
 it — `rc.invoke(..., group_option_values=...)`. The environment approach above
 remains the way to steer a *whole* run, including steps nobody names.
+
+A `Deps` upstream is the exception, and it is not a job author's boundary at
+all: the engine schedules it before the dependent's pre-flight, as part of
+fulfilling the request that carried the flag. Every upstream a run reaches —
+at any depth of the declared graph — resolves the same flag layer the invoked
+job sees, scoped as always to the fields each upstream's own `GroupOptions`
+class declares, so a group the flag never named picks up nothing:
+
+```python
+# report depends on build (and build on prepare): all three read env="prod".
+app.execute("deploy.report", group_option_values={"env": "prod"})
+```
 
 For a value that should always apply, prefer the config file section or an
 explicit `ConfigSources(config_resolution_chain=...)` over mutating the
