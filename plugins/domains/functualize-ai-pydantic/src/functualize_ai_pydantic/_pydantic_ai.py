@@ -18,6 +18,7 @@ from functualize_ai import (
     ToolDef,
     ToolScope,
 )
+from functualize_ai._approval import is_tool_refusal, unwrap_gate_failure
 
 from functualize_ai_pydantic._async_bridge import run_sync
 from functualize_ai_pydantic._tool_translator import ToolScopeTranslator
@@ -109,6 +110,11 @@ class PydanticAI(AI):
             )
         except Exception as exc:
             duration_ms = (time.time() - start_time) * 1000
+            gate_failure = unwrap_gate_failure(exc)
+            if gate_failure is not None:
+                # An approval gate that raised ends the run with its own
+                # exception — never relabelled AINotAvailableError.
+                raise gate_failure from exc
             if isinstance(exc, AINotAvailableError):
                 raise
             raise AINotAvailableError(str(exc)) from exc
@@ -125,7 +131,11 @@ class PydanticAI(AI):
                     tool_name=tc.tool_name,
                     args=tc.args,
                     duration_ms=tc.duration_ms,
-                    status="success",
+                    status=(
+                        "denied"
+                        if is_tool_refusal(tc.result, tc.tool_name)
+                        else "success"
+                    ),
                 )
 
         return AIResult(
@@ -185,6 +195,11 @@ class PydanticAI(AI):
             )
         except Exception as exc:
             duration_ms = (time.time() - start_time) * 1000
+            gate_failure = unwrap_gate_failure(exc)
+            if gate_failure is not None:
+                # An approval gate that raised ends the run with its own
+                # exception — never relabelled AINotAvailableError.
+                raise gate_failure from exc
             if isinstance(exc, AINotAvailableError):
                 raise
             raise AINotAvailableError(str(exc)) from exc
@@ -201,7 +216,11 @@ class PydanticAI(AI):
                     tool_name=tc.tool_name,
                     args=tc.args,
                     duration_ms=tc.duration_ms,
-                    status="success",
+                    status=(
+                        "denied"
+                        if is_tool_refusal(tc.result, tc.tool_name)
+                        else "success"
+                    ),
                 )
 
         return AIResult(
@@ -267,7 +286,7 @@ class PydanticAI(AI):
         usage = _extract_usage(result)
 
         return AIResult(
-            output=result.data,
+            output=result.output,
             tool_calls=tool_calls,
             usage=usage,
             duration_ms=0.0,  # Duration tracked by caller
@@ -339,7 +358,7 @@ class PydanticAI(AI):
         usage = _extract_usage(result)
 
         return AIResult(
-            output=result.data,
+            output=result.output,
             tool_calls=tool_calls,
             usage=usage,
             duration_ms=0.0,  # Duration tracked by caller
