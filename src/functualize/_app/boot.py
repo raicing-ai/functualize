@@ -1286,7 +1286,7 @@ def build_vault_source(app: Any) -> Any:
             "This app selects remote_first(), but no remote configuration "
             "provider is registered, so nothing could resolve remotely.\n\n"
             "Install a provider plugin — for example `pip install "
-            "functualize-aws` — or register one through the "
+            "functualize-secrets-aws` — or register one through the "
             "'functualize.remote_providers' entry-point group.\n\n"
             "Refusing rather than falling back to local files: resolving from "
             "config while you believe you are reading a secret store is the "

@@ -2,7 +2,7 @@
 
 One idiom, one place, used by every measurement module after it. The idiom is
 not invented here — it is lifted from
-`plugins/credentials/functualize-aws/tests/test_integration_floci.py:41-64`,
+`plugins/credentials/functualize-secrets-aws/tests/test_integration_floci.py:41-64`,
 which already had to solve exactly this: a suite that must stay green for a
 contributor with no AWS account, without ever quietly substituting a fake for
 the service it claims to have measured.

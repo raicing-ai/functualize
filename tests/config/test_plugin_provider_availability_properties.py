@@ -32,7 +32,7 @@ _extensions = st.text(
 #: and the test then reports a defect that is the system working: the warning
 #: it produces says so — "Remote provider for identifier 'bws' overridden".
 #:
-#: Found by hypothesis generating `bws`, which `functualize-bitwarden` claims.
+#: Found by hypothesis generating `bws`, which `functualize-secrets-bitwarden` claims.
 #: Latent for as long as that plugin has been in the workspace; a property test
 #: whose generator can collide with the environment fails on a schedule nobody
 #: controls.

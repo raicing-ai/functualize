@@ -2,6 +2,24 @@
 
 Functualize is pre-release (Alpha). Breaking changes are free until v1.0.0.
 
+## Credential plugins and the portable bundle
+
+The next release publishes all fourteen built distributions, including
+`functualize-secrets-aws` and `functualize-secrets-bitwarden`. Each project,
+along with `functualize-decision-jev`, needs an ordinary PyPI trusted publisher
+for the `raicing-ai/functualize` `release.yml` workflow and `pypi` environment
+before tagging. The old `functualize-aws` and `functualize-bitwarden` names
+are not published; already released `functualize[all]` metadata at 0.3.0 and
+0.4.0 remains immutable. The next resolution anchor is 0.5.0.
+
+`functualize[all]` contains the CLI and keychain extras plus eleven plugins.
+Both credential plugins are opt-in. This keeps AWS's boto3 footprint out of
+the default bundle and avoids Bitwarden SDK wheel gaps on musl targets. The
+standalone binary bakes `[all]`, so it does not include the `aws-sm://` and
+`aws-ssm://` providers by default. Users can add AWS with
+`func builtin plugin install functualize-secrets-aws`. An optional `[aws]`
+extra remains undecided.
+
 ## Next Cut — 0.1.1
 
 A patch cut. Scope is one correctness bug found while reviewing an examples
@@ -671,6 +689,20 @@ Still open after the hermetic router:
   gate record (`TRANSITIONAL(FUN-21)`); its `input_candidates.evidence` column
   waits for FUN-18's tables and FUN-21's interaction/evidence slice.
 - **Margin comparison is still exact**, as above — unchanged by this work.
+
+### Hermetic evaluation — delivered
+
+Phase 3 of the decision-layer experiment. The instrument is `tests/hermetic_eval/`:
+one frozen corpus replayed through three comparators over the same gate, rule and
+fallback, ending in a boundary and a computed verdict. The method, the protocol
+and both commands are `contributor/reference/hermetic-evaluation.md`. Corpus `v1`
+is `tests/hermetic_eval/corpus/v1/` — 40 scenarios, 10 per route, frozen in
+`corpus.lock.json` at digest
+`466245291d9b94428a4984f216e57f654d946764522cbef6fc09ab694cf21872`, with the
+maintainer's label approval (D-4) recorded before the freeze. The measurements
+themselves are held by the maintainer, outside the repository (B-25); the
+computed verdict is a recommendation. Still open: the verdict's disposition is
+the maintainer's, and Phases 4–5 remain.
 
 ### Gate-name resolution — delivered
 
@@ -1873,7 +1905,7 @@ Items identified during development that are worth doing but not yet designed:
     than degrading to `classic()`. `parse_annotation` has a production caller
     (`_config/annotations.py`), the encrypted per-project vault and its key
     seam exist, `func builtin vault sync|list|status|clear|keygen` fill and
-    inspect it, and `functualize-aws` / `functualize-bitwarden` provide
+    inspect it, and `functualize-secrets-aws` / `functualize-secrets-bitwarden` provide
     `aws-sm`, `aws-ssm` and `bws`. The decision the entry asked for was made
     the "wire it" way; see `contributor/adr/016-remote-source-activation.md`.
 
@@ -2164,13 +2196,13 @@ Items identified during development that are worth doing but not yet designed:
 
     - The docstring tells an implementor to raise `RemoteKeyNotFoundError` and
       `RemoteConnectionError`. **Neither exists.** Only `RemoteTimeoutError`
-      does, and none of the three is publicly exported, so `functualize-aws`
-      and `functualize-bitwarden` each define their own `SecretNotFoundError`.
+      does, and none of the three is publicly exported, so `functualize-secrets-aws`
+      and `functualize-secrets-bitwarden` each define their own `SecretNotFoundError`.
       Two plugins, two private hierarchies, and a caller cannot catch "not
       found" generically. Either export the family or delete the promise.
     - *"Credentials MUST be resolved from environment variables only, following
-      12-Factor App principles."* `functualize-bitwarden` honours it;
-      `functualize-aws` cannot, because the maintainer's per-value override
+      12-Factor App principles."* `functualize-secrets-bitwarden` honours it;
+      `functualize-secrets-aws` cannot, because the maintainer's per-value override
       requirement (`?profile=`, `?role=`, `?account=`, `?region=`) is
       something environment variables cannot express — different secrets in one
       config file may need different accounts. The clause is now half-false by

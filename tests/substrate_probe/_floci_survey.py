@@ -34,7 +34,7 @@ Run it::
 
 `-s` because the verdict is printed. Without a reachable endpoint the module
 skips at import time, naming the endpoint it wanted. It does **not** fall back
-to a fake — `plugins/credentials/functualize-aws/tests/test_integration_floci.py:17-19`,
+to a fake — `plugins/credentials/functualize-secrets-aws/tests/test_integration_floci.py:17-19`,
 whose emulator idiom, `docker run` invocation and reachability probe this module
 reuses rather than reinvents:
 
