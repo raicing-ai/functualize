@@ -308,7 +308,7 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       *Files:* `src/functualize/app/_workflow_control.py`, `src/functualize/app/_workflow_view.py`.
       *Do:* scope reads via `workflows.workflow` / `resumable` / `steps`; cancel via `CancelWorkflow`;
       reclaim via `ClaimWorkflow(force=True)` + `ReleaseLease`.
-      Done (`54f2ac2c`): CLI and MCP operator calls reach the selected workflow
+      Done (`54f2ac2c`, `9c95fbad`): CLI and MCP operator calls reach the selected workflow
       readers and fenced writers. The SQLite operator test lists, shows,
       reclaims and cancels a scope from another project directory. Replacing
       the CLI selection with `ScopeStore(app.substrate)` made its listing
@@ -330,7 +330,7 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
       by `func builtin workflow …` and the MCP tools; on documents, unchanged.
       *Call path:* the CLI verb / MCP tool itself. *Sabotage:* restore one `ScopeStore(app.substrate)`
       read → the SQLite listing test sees nothing.
-      Done (`54f2ac2c`): MCP list/show/reclaim/cancel use the same selected
+      Done (`54f2ac2c`, `9c95fbad`): MCP list/show/reclaim/cancel use the same selected
       store. Restoring `ScopeStore(app.substrate)` inside the provider made
       `test_sqlite_operator_tools_use_the_selected_runtime_store` fail with
       `[]` instead of `['sql-run']`; restored, it passed.
