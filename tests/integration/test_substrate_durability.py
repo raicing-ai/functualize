@@ -159,10 +159,34 @@ def two_workers(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 @pytest.mark.slow
 class TestAGateCrossesTheProcessBoundary:
-    @pytest.mark.xfail(
-        strict=True,
-        reason="the --wf-resume flag still reads the legacy ScopeStore; W17 reads it through the port",
-    )
+    def test_operator_verbs_read_and_change_the_relational_scope(
+        self, two_workers: tuple[Path, Path, Path]
+    ) -> None:
+        first, second, db = two_workers
+        blocked = _run(first, "walk")
+        assert blocked.returncode == 5, blocked.stdout + blocked.stderr
+        scope = _scope_id_from(blocked.stdout + blocked.stderr)
+
+        listed = _run(second, "builtin", "workflow", "list", "--format", "json")
+        assert listed.returncode == 0, listed.stdout + listed.stderr
+        assert scope in [
+            row["workflow_id"] for row in json.loads(listed.stdout)["workflows"]
+        ]
+
+        shown = _run(second, "builtin", "workflow", "show", scope, "--format", "json")
+        assert shown.returncode == 0, shown.stdout + shown.stderr
+        assert json.loads(shown.stdout)["current_position"] == "pause"
+
+        reclaimed = _run(second, "builtin", "workflow", "reclaim", scope)
+        assert reclaimed.returncode == 0, reclaimed.stdout + reclaimed.stderr
+        cancelled = _run(second, "builtin", "workflow", "cancel", scope)
+        assert cancelled.returncode == 0, cancelled.stdout + cancelled.stderr
+        with sqlite3.connect(db) as connection:
+            status = connection.execute(
+                "SELECT status FROM workflow_scopes WHERE id = ?", (scope,)
+            ).fetchone()
+        assert status == ("cancelled",)
+
     def test_the_second_worker_resumes_what_the_first_blocked(
         self, two_workers: tuple[Path, Path, Path]
     ) -> None:
@@ -277,10 +301,6 @@ def _scope_id_from(output: str) -> str:
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    reason="the --wf-resume flag still reads the legacy ScopeStore; W17 reads it through the port",
-)
 def test_the_gate_payload_survives_the_crossing(
     two_workers: tuple[Path, Path, Path],
 ) -> None:

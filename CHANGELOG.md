@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — workflow operators follow the selected runtime store
+
+With `sqlite:` selected, `func builtin workflow list`, `show`, `cancel`
+and `reclaim`, and their MCP counterparts, now use the relational workflow
+records. The job's `--wf-resume` flag reads that same scope and records gate
+input in the relational input tables, so a second process can continue a
+parked walk. Document projects keep their existing operator behavior.
+
 ### Added — the SQLite runtime store is selected by configuration, not by installation
 
 Installing `functualize-substrate-sqlite` used to choose storage: the plugin

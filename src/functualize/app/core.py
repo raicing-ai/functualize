@@ -63,7 +63,7 @@ if TYPE_CHECKING:
         RegisteredJob,
     )
     from functualize._types.host import SubstrateOffer
-    from functualize._types.persistence import RuntimeStoreFactory
+    from functualize._types.persistence import RuntimeStore, RuntimeStoreFactory
     from functualize._types.protocols import StoreSubstrate
     from functualize.job._workflow_scope import WorkflowScope
 
@@ -280,6 +280,10 @@ class FunctualizeApp:
     def execution_engine(self) -> JobExecutionEngine:
         """The job execution engine (read-only property)."""
         return self._execution_engine
+
+    def workflow_runtime_store(self) -> RuntimeStore:
+        """The runtime store selected at boot for workflow operator commands."""
+        return self._execution_engine._runtime_store
 
     # ─── Engine Host ─────────────────────────────────────────────────────
     #

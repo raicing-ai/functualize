@@ -301,4 +301,17 @@ three columns when a legacy step record carries them (`return_value_kind`, `retu
 | `sqlite:` | claim in `workflow_scopes`, everything else in `documents` | everything the walk reads and writes in the relational tables; `documents` holds only `fresh`, `shell-history`, the run log, and non-walk state |
 | a `sqlite:` file at schema version 1 | — | migrated to 2 at boot |
 | code constructing `FrontierWalk(graph, store, scope_id, runtime_store=…)` | worked | `TypeError`; engine-internal, no public caller (`rg -n "FrontierWalk\(" src plugins` lists only `workflow_walker.py`) |
-| operator surfaces on `sqlite:` | read `documents` | D-W1 |
+| operator surfaces on `sqlite:` | read `documents` | workflow list, show, cancel and reclaim read and write the selected runtime store |
+
+### 5.1 Public operator store access
+
+`FunctualizeApp.workflow_runtime_store() -> RuntimeStore` returns the store
+selected at boot. The CLI reaches it through the public
+`functualize.app.utils.selected_workflow_store(app)` helper: document projects
+retain their established `ScopeStore` operator path, while a relational
+project uses the runtime port. The MCP workflow provider uses the same helper.
+For a relational project, list/show query `workflows.workflow`,
+`workflows.resumable` and `workflows.steps`; cancel issues `CancelWorkflow`;
+reclaim force-claims and releases the new generation. `--wf-resume` resolves
+the selected scope and records a validated candidate through `inputs.append`
+before the engine resumes the walk.

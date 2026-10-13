@@ -1138,9 +1138,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         `workflow list` was empty and `--wf-resume` refused an id that existed.
         Caught by the no-shared-disk test, which is what it is for.
         """
-        from functualize.app.utils import ScopeStore
+        from functualize.app.utils import selected_workflow_store
 
-        return ScopeStore(_workflow_app_ref(ctx).substrate)
+        return selected_workflow_store(_workflow_app_ref(ctx))
 
     @contextlib.contextmanager
     def _workflow_refusal() -> Any:
@@ -1839,7 +1839,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         where it is; only the generation moves, which is what stops the
         previous holder writing.
         """
-        from functualize.app._workflow_control import reclaim_scope
+        from functualize.app.utils import reclaim_scope
 
         store = _workflow_store(ctx)
         with _workflow_refusal():

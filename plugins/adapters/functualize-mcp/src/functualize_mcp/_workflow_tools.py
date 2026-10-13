@@ -40,7 +40,6 @@ from functualize.app.utils import (
 )
 from functualize.app.utils import (
     RUN_STATES,
-    ScopeStore,
     answer_gate,
     call_gate_tool,
     cancel_scope,
@@ -157,7 +156,7 @@ class WorkflowToolProvider:
         self,
         app: PluginHost,
         *,
-        store: ScopeStore | None = None,
+        store: Any | None = None,
         run_store: Any | None = None,
     ) -> None:
         self._app = app
@@ -165,10 +164,12 @@ class WorkflowToolProvider:
         self._run_store = run_store
 
     @property
-    def store(self) -> ScopeStore:
-        """The scope store, resolved from the cwd on first use."""
+    def store(self) -> Any:
+        """The selected workflow store, resolved on first use."""
         if self._store is None:
-            self._store = ScopeStore(self._app.substrate)
+            from functualize.app.utils import selected_workflow_store
+
+            self._store = selected_workflow_store(self._app)
         return self._store
 
     @property
