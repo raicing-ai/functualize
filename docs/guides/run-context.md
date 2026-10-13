@@ -458,7 +458,7 @@ Returns a `JobResult` with status, duration, return value, and any exception.
 
 ### `rc.invoke_parallel(jobs)`
 
-Invoke multiple jobs concurrently (1-32 jobs). Each child gets an independent `RunContext` with its own `FreshStore`:
+Invoke multiple jobs concurrently (up to 32 jobs). Each child gets an independent `RunContext` with its own `FreshStore`:
 
 ```python
 def fan_out(rc: RunContext) -> None:
@@ -468,18 +468,22 @@ def fan_out(rc: RunContext) -> None:
         ("process-shard", {"shard_id": 2}),
     ]
     results = rc.invoke_parallel(jobs)  # (1)!
-
-    failures = [r for r in results if r.status != RunStatus.SUCCESS]
-    if failures:
-        rc.log(f"{len(failures)} shards failed", level="error")
+    rc.log(f"Processed {len(results)} shards")
 ```
 
-1. Returns `list[JobResult]` in the same positional order as the input list.
+1. Returns `list[JobResult]` in input order when the batch has no failed child.
+   Otherwise it raises after collecting the batch, so an ignored return value
+   cannot silently make the parent succeed.
+
+To handle failed results yourself, inject `Invoke` and call
+`invoke.parallel(jobs, raise_on_failure=False)`. See the
+[parallel batch reference](../api/context.md#invokeparallel)
+for the failure statuses, deadline behavior, and opt-out example.
 
 !!! note "Constraints"
 
-    - 1-32 jobs per call (raises `ValueError` outside this range)
-    - Each job has a 300-second per-job timeout
+    - Empty input returns an empty list; more than 32 jobs raises `ValueError`
+    - The batch has a 300-second deadline by default
     - `INVOKE_START` / `INVOKE_END` hooks fire for each child job
 
 ## Job Introspection

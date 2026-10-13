@@ -569,7 +569,7 @@ actually work on.
 ```bash
 # 1. Install a provider plugin.
 pip install functualize-secrets-aws          # aws-sm, aws-ssm (opt-in)
-pip install functualize-secrets-bitwarden    # bws (separate: its SDK has no musl build)
+pip install functualize-secrets-bitwarden    # bws, bwpm (separate: its SDK has no musl build)
 
 # If using the standalone binary, add AWS to its bundled Python instead:
 func builtin plugin install functualize-secrets-aws

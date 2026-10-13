@@ -149,7 +149,7 @@ recommended = false
 name = "bws"
 distribution = "functualize-secrets-bitwarden"
 group = "functualize.remote_providers"
-description = "Bitwarden Secrets Manager"
+description = "Bitwarden Secrets Manager (bws) and Password Manager (bwpm, via the bw CLI)"
 # NOT recommended, and not an oversight. `bitwarden-sdk` publishes wheels for
 # glibc, macOS and Windows only, with no sdist, so including it makes
 # `functualize[all]` UNRESOLVABLE on both musl targets — and `[all]` is what
