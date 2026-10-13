@@ -286,11 +286,11 @@ class TestASilentPipeResolvesNothing:
         with real_pipe_stdin(None):
             worker = threading.Thread(target=_resolve, daemon=True)
             worker.start()
-            worker.join(timeout=5.0)
+            worker.join(timeout=1.0)
         elapsed = time.monotonic() - started
 
         assert not worker.is_alive(), "resolution blocked on a silent pipe"
-        assert elapsed < 5.0
+        assert elapsed < 1.0
         assert result == {}
 
 

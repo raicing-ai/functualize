@@ -309,11 +309,11 @@ class TestNothingPipedKeepsTheDefault:
         with real_pipe_stdin(None):
             worker = threading.Thread(target=_go, daemon=True)
             worker.start()
-            worker.join(timeout=5.0)
+            worker.join(timeout=1.0)
         elapsed = time.monotonic() - started
 
         assert not worker.is_alive(), "the run blocked on a silent pipe"
-        assert elapsed < 5.0
+        assert elapsed < 1.0
         assert outcome == {"status": RunStatus.SUCCESS, "value": "the default"}
 
     def test_a_required_param_with_an_empty_stream_fails_as_missing_argument(
