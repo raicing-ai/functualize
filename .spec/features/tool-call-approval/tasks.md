@@ -8,7 +8,7 @@ green against the code as it stands.
 
 ### 1.1 Types and exports
 
-- [ ] Add `ToolCallContext` (frozen dataclass: `job_name`, `description`)
+- [x] Add `ToolCallContext` (frozen dataclass: `job_name`, `description`)
   to `_types.py`; add `requires_approval: bool = False` and
   `approval_gate: … | None = None` to `ToolDef` after `config_class`
   (contracts C1, C2). Export `ToolCallContext` from `__init__.py`
@@ -21,7 +21,7 @@ green against the code as it stands.
 
 ### 1.2 Approval decision module
 
-- [ ] Create `_approval.py`: `refusal_message`, `is_tool_refusal`,
+- [x] Create `_approval.py`: `refusal_message`, `is_tool_refusal`,
   `evaluate_tool_approval` (strict `is True`; deny-all on missing gate;
   marks + re-raises gate failures), `mark_gate_failure`,
   `unwrap_gate_failure` (schema.md §"Gate-failure marker").
@@ -35,7 +35,7 @@ green against the code as it stands.
 
 ### 1.3 Per-filter approval on `ToolScope`
 
-- [ ] `_FilterApproval` + `_ScopeFilter.approval`; `approval_required()`
+- [x] `_FilterApproval` + `_ScopeFilter.approval`; `approval_required()`
   stamps every filter (append gate; no gate ⇒ stamped with empty tuple);
   `__add__` concatenates filters unchanged and drops the scope-level
   merge; `requires_approval`/`approval_gate` computed per contracts C4
@@ -53,7 +53,7 @@ green against the code as it stands.
 
 ### 1.4 `to_tool_defs` folding
 
-- [ ] Keep first-seen-wins for the def; AND-fold approval from every
+- [x] Keep first-seen-wins for the def; AND-fold approval from every
   matching filter; gated wins regardless of filter order; fold gate tuples
   via `_fold_gates` (schema.md) into `ToolDef.requires_approval` /
   `approval_gate`.
@@ -70,7 +70,7 @@ green against the code as it stands.
 
 ### 2.1 Translator enforcement (D7a choke point)
 
-- [ ] `_wrapper` calls `evaluate_tool_approval(tool_def, kwargs)` before
+- [x] `_wrapper` calls `evaluate_tool_approval(tool_def, kwargs)` before
   `original_fn`; refusal → return the message; gate failure → propagate.
 - Files: `functualize_ai_pydantic/_tool_translator.py`.
 - Gate: new tests in
@@ -81,7 +81,7 @@ green against the code as it stands.
 
 ### 2.2 `PydanticAI` loops: events + exception surfacing
 
-- [ ] `run_agent_loop` and `run_with_history`: `AI_TOOL_CALLED` status
+- [x] `run_agent_loop` and `run_with_history`: `AI_TOOL_CALLED` status
   via `is_tool_refusal`; relabel arm re-raises `unwrap_gate_failure(exc)`
   before the `AINotAvailableError` wrap (contracts C6, C7).
 - Files: `functualize_ai_pydantic/_pydantic_ai.py`.
@@ -92,7 +92,7 @@ green against the code as it stands.
 
 ### 2.3 `AI.run`: events + exception surfacing
 
-- [ ] Same two changes at `_ai.py` `run()`'s emission and generic
+- [x] Same two changes at `_ai.py` `run()`'s emission and generic
   relabel sites.
 - Files: `functualize_ai/_ai.py`.
 - Gate: E9 leg via `AI(provider=PydanticAIProvider(cfg))`.run(tools=…)
@@ -104,7 +104,7 @@ green against the code as it stands.
 
 ### 3.1 Docs and docstrings agree with the code
 
-- [ ] Replace `docs/guides/ai.md:101-104` example block with shape D8's
+- [x] Replace `docs/guides/ai.md:101-104` example block with shape D8's
   exact block (real gate, no-gate deny-all form) + the three prose
   sentences; update docstrings: `approval_required` (typed contract),
   `requires_approval` (any-filter semantics), `approval_gate` (first
@@ -119,7 +119,7 @@ green against the code as it stands.
 
 ### 3.2 Full verification + reachability sabotage
 
-- [ ] Run: `uv run ruff check src/ tests/ plugins/`, `uv run ruff format
+- [x] Run: `uv run ruff check src/ tests/ plugins/`, `uv run ruff format
   --check src/ tests/ plugins/`, `uv run mypy src/`, `uv run
   lint-imports`; step tier via
   `.agents/skills/test-tiers/scripts/tests-for-diff --run`; plugin tests
@@ -136,7 +136,7 @@ green against the code as it stands.
 
 ### 3.3 Delivery
 
-- [ ] Dead-code delta `uv run python .github/scripts/dead_code_delta.py
+- [x] Dead-code delta `uv run python .github/scripts/dead_code_delta.py
   c75a476e <head>`; migrate the durable half to `.spec/STATUS.md`;
   final deletion-only commit removing `.spec/features/tool-call-approval/`;
   push branch `feat/tool-call-approval` (conventional-commit title/body,
