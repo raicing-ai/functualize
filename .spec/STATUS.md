@@ -779,6 +779,25 @@ derivation lives in `_types/lifecycle.py` (`ATTEMPT_TO_RUN`) and the backend tra
 machine — and "`ATTEMPT` is therefore enforced where the relational writer lands" (§1.1) is updated to say where
 enforcement landed. §1.2's lower-casing note gains the `RunState` pointer.
 
+### Skill router — specified, not implemented
+
+Phase 4 of the decision-layer experiment. The package is
+`.spec/features/skill-router/` on `sdd/skill-router`: `spec.md` (behaviour and
+the scope guard), `contracts.md` (C-1…C-11, including the catalog declaration
+and the selection result), `plan.md` (alignment to the approved shape page,
+BEFORE/AFTER, surviving smells) and `tasks.md` — 16 atomized tasks in 12
+binding waves — with `research.md` carrying the measured reality. Scope after
+the approved shape page: everything is contributor tooling —
+`tests/skill_router_eval/` holds the instrument and `evals/` the downstream
+arms, no shipped file and no `examples/` change — and the selection proposes
+exactly one of `functualize`, `functualize-app`, `functualize-cli`,
+`functualize-skill` or `none`, one `ChoiceRequest` through the unchanged seam.
+Nothing in `src/` has changed. Execute is not yet authorised: wave 0 waits on
+the maintainer's P-1 (downstream task list), P-2 (verdict constants) and S-1
+(Duplicate Code instead of editing Phase 3). The implementation lands on the
+same branch and pull request; the spec artifacts are cleared in that branch's
+last commit (T16), when the delivered state is recorded under its own entry.
+
 ## Deferred
 
 Specified work that is not being picked up yet, and what it is waiting on.
