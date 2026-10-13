@@ -339,12 +339,18 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
 
 ## Wave 6 — documentation
 
-- [ ] **W19** Record the walk's write path
+- [x] **W19** Record the walk's write path
       *Files:* `CHANGELOG.md`, `contributor/reference/runtime-persistence-data-model.md` (§4 tense:
       the walk's transitions are landed), `contributor/architecture/codemaps/data-flow.md` (the walk's
       writes), `src/functualize/_primitives/document_store.py` (marker comment only).
       *Gate:* the CHANGELOG states that a parked SQLite workflow now resumes in another process, and
       the schema revision `0002`.
+      *Done (`5698e088`):* `CHANGELOG.md` opens `[Unreleased]` with "a workflow parked on the SQLite
+      store resumes in another process" and records revision `0002` (`result_kind`, `result_type`,
+      `effecting` on `workflow_steps`, applied at boot); the data-model reference's §4 says the
+      walk's transitions are landed and names their commands and readers; `data-flow.md` gains §8,
+      the walk's write path; `document_store.py`'s marker comment says it is now the walk's only path
+      to the `ScopeStore` methods (comment only, no code line changed).
 
 ## Wave 7 — pre-merge (not implementation)
 
