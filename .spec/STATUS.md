@@ -881,6 +881,43 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### Parallel child failures reach the parent (2026-10-12, `fix/parallel-child-failure`)
+
+**The decision worth keeping.** *A failed child fails a parent that ignores the
+batch's return value.* `Invoke.parallel` raises `RuntimeError` by default, after
+the whole batch has been collected, so siblings still run. The error names every
+failed position, job and status, and chains the first available exception. The
+failure set is the existing `Family.TOOL` policy in `_types/outcome.py`, so
+`BLOCKED` and `SKIPPED` do not raise. `raise_on_failure=False` returns every
+result instead. The contract is documented in `docs/api/context.md`
+§ `invoke.parallel`.
+
+**Rules that outlive the feature:**
+
+- **The knob belongs to the batch only.** `rc.invoke_parallel(jobs)` keeps the
+  safe default and takes no option. Partial recovery injects `Invoke`. Extending
+  the facade's signature was deliberately left out.
+- **The top-level batch opts out explicitly.** `_app/impl.py:execute_parallel`,
+  behind `func builtin parallel`, passes `raise_on_failure=False` so it still
+  reports every job. Never vary the default by delivery surface.
+- **Raising adds no wait.** The pool still shuts down with `wait=False` outside
+  a `with` block. A timed-out child raises at the deadline while its thread may
+  keep running.
+
+**Surviving smells, both accepted.** **Middle Man**: `WiredInvoke.parallel`
+delegates to the private `_ParallelBatch`, and it remains the public capability
+seam. **Long Method**: `_ParallelBatch.run` keeps submission, deadline sweep and
+nonblocking shutdown together to preserve the timeout ordering. The maintainer
+approved this tradeoff with the task graph on 2026-10-11. Extracting the batch
+was what brought `WiredInvoke` back under the god-object ceiling (658 to 439
+lines).
+
+**Open.** Job-name resolution does not apply the NFKC normalisation Python
+applies to identifiers, so a job defined with an NFKC-unstable name (`def
+job_ǆ`) is registered as `job_dž` and cannot be reached by its written name.
+The input-order property test now draws only NFKC-stable names. The production
+gap is tracked as MCH-183.
+
 ### The vault key from an unlocked keyring, never a prompt from a run (2026-10-03, `sdd/vault-keyring-unlock`)
 
 **The decision worth keeping.** *A run never asks the keyring to unlock.* The

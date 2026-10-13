@@ -1441,6 +1441,7 @@ def execute_parallel(
         [(name, {}) for name in job_names],
         timeout=timeout,
         observer=observer,
+        raise_on_failure=False,
     )
 
 

@@ -111,7 +111,7 @@ result = rc.invoke("slow-job", timeout=30.0, batch_size=100)
 
 #### `rc.invoke_parallel(jobs)`
 
-Invoke multiple jobs concurrently. Delegates to `Invoke.parallel()`.
+Invoke multiple jobs concurrently through `Invoke.parallel()`.
 
 ```python
 jobs = [
@@ -122,7 +122,42 @@ jobs = [
 results = rc.invoke_parallel(jobs)
 ```
 
-**Returns:** `list[JobResult]` in the same positional order as the input.
+The default raises `RuntimeError` after collecting the batch if a child fails.
+The error names every failed input position, job, and status, and chains the first
+failed child's exception when one exists. A parent that ignores the call's return
+value therefore still fails. When all children finish without a failure, it
+returns `list[JobResult]` in input order.
+
+#### `invoke.parallel`
+
+Signature: `invoke.parallel(jobs, *, timeout=None, raise_on_failure=True)`.
+This is the batch API on an injected `Invoke`. Set `raise_on_failure=False` when
+the parent needs to inspect every result and decide how to handle failures:
+
+```python
+from functualize.job import Invoke
+
+def fan_out(invoke: Invoke):
+    jobs = [("process-shard", {"shard_id": i}) for i in range(3)]
+    results = invoke.parallel(jobs, raise_on_failure=False)
+    for result in results:
+        print(f"{result.job_name}: {result.status.value}")
+    return results
+```
+
+The returned list always follows input order, even when children finish in a
+different order. Empty input returns an empty list; more than 32 jobs raises
+`ValueError`. `SUCCESS`, `SKIPPED`, and `BLOCKED` do not trigger the default
+raise. Other terminal statuses, including `FAILURE` and `TIMEOUT`, do.
+
+`timeout=None` gives the batch 300 seconds; a nonpositive timeout waits without
+a deadline. At the deadline, unfinished jobs receive `TIMEOUT` results. The
+default raises for those results; the opt-out returns them. Running threads
+cannot be interrupted and may finish after the batch call returns.
+
+`raise_on_failure` belongs to `Invoke.parallel` only. `rc.invoke_parallel(jobs)`
+uses the safe default and does not accept the option; `Invoke.__call__` invokes
+one child and returns its `JobResult`.
 
 ---
 
