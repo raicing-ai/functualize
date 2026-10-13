@@ -43,6 +43,7 @@ from functualize._primitives import DIRegistry, MissingProviderError
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
+from functualize._types.outcome import RAISED_BY_JOB
 from functualize._types.redaction import Secret, redacted_snapshot
 from functualize._types.run_request import SURFACE_POLICY
 
@@ -103,6 +104,45 @@ def _result_failure(result: Any) -> BaseException | None:
     if isinstance(exception, BaseException):
         return exception
     return RuntimeError(f"job failed with status {getattr(result, 'status', None)}")
+
+
+def _call_recording_escape(
+    function: Callable[..., Any],
+    call_kwargs: dict[str, Any],
+    escaped: list[BaseException],
+) -> Any:
+    """Call the job function, remembering any exception that leaves the call.
+
+    This is the one place a job body runs, so it is the one place that *knows*
+    an exception is the job's own. Everything around it — execution
+    middleware, hooks, the engine — raises into the same ``except`` in
+    :meth:`JobExecutionEngine._execute_with_lifecycle`, where the exception
+    alone cannot say where it came from. A list rather than one slot because a
+    middleware may call the job more than once.
+    """
+    try:
+        return function(**call_kwargs)
+    except BaseException as exc:
+        escaped.append(exc)
+        raise
+
+
+def _mark_raised_by_job(
+    metadata: dict[str, Any],
+    exception: BaseException,
+    escaped: list[BaseException],
+) -> None:
+    """Set ``RAISED_BY_JOB`` iff ``exception`` is one the job call let escape.
+
+    Identity, not equality or type: a middleware that substitutes its own
+    exception, or raises one of the same class, is not the job. Otherwise the
+    key is *removed*, so a value carried in from ``RunContext`` metadata cannot
+    claim a failure the job did not raise.
+    """
+    if any(exception is e for e in escaped):
+        metadata[RAISED_BY_JOB] = True
+    else:
+        metadata.pop(RAISED_BY_JOB, None)
 
 
 def _missing_required_fields(error: ValidationError) -> tuple[str, ...]:
@@ -2685,9 +2725,10 @@ class JobExecutionEngine:
 
         result_value: Any = None
         exception: BaseException | None = None
+        escaped: list[BaseException] = []
 
         def _execute_job() -> Any:
-            return function(**call_kwargs)
+            return _call_recording_escape(function, call_kwargs, escaped)
 
         try:
             if self._middleware_chain.has_middleware:
@@ -2745,6 +2786,7 @@ class JobExecutionEngine:
                     result_metadata[k] = v
 
         if exception is not None:
+            _mark_raised_by_job(result_metadata, exception, escaped)
             return JobResult(
                 status=RunStatus.FAILURE,
                 return_value=None,
