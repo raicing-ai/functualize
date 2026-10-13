@@ -19,8 +19,9 @@ tables are no longer a target: revision `0001` creates them name for name, and �
 predicate the relational writer actually runs (`_transaction.py`'s `fence_sql`). What FUN-17 landed is
 the vocabulary and the ports that
 carry them (`_types/persistence.py`), the honest `StoreProfile` of the document backend
-(`_primitives/document_store.py`), and the first transition that goes
-through the port — the walk's claim. FUN-18 landed the machines, the check and the retention policy;
+(`_primitives/document_store.py`), and the first transition that went
+through the port — the walk's claim, which since FUN-19 is one of the walk's own commands rather than
+the only one (`contributor/adr/033-the-walks-scope-io-goes-through-the-selected-store.md`). FUN-18 landed the machines, the check and the retention policy;
 FUN-19 landed the tables, the migration runner and the relational retention statement (§7, §6).
 Anything below that reads as present tense has been re-read against the tree at `3110c6ae`; a
 still-forward-looking item says so.
@@ -361,7 +362,7 @@ no transaction open.
 | acknowledge effect | published_at / last_error / next attempt | — |
 
 **The walk's transitions are landed.** A workflow walk issues every one of its writes as a port
-command on the selected store (`workflow-persistence-atomic`): `StartWalk` on entry, `CompleteStep`
+command on the selected store (`workflow-persistence-atomic`; the reasoning is ADR-033): `StartWalk` on entry, `CompleteStep`
 for a node (with its first-time branch as `RecordBranch` in the same unit), `RecordStep` for a
 step record that moves nothing (a step timed out on takeover, a failure routed onward, the body's
 return value under `EPILOGUE_STEP_KEY`), `MoveScope` for a status and position with no step,
@@ -535,4 +536,5 @@ here, and the discipline binds every later revision in the relational provider.
 - [`substrate-capability-matrix.md`](substrate-capability-matrix.md) — the measurements the profile
   fields are read from.
 - `contributor/adr/025-engine-owns-transition-meaning.md`, `026-persistence-ports-need-no-new-layer.md`,
-  `027-engine-construction-moves-after-config.md`, `028-storage-is-pluggable-execution-is-not.md`.
+  `027-engine-construction-moves-after-config.md`, `028-storage-is-pluggable-execution-is-not.md`,
+  `033-the-walks-scope-io-goes-through-the-selected-store.md`.

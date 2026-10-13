@@ -2616,6 +2616,7 @@ Items identified during development that are worth doing but not yet designed:
 
 | Feature | Description |
 |---------|-------------|
+| workflow-persistence-atomic | `feat/sqlite-runtime-provider`: FUN-19 waves 5–6 — **the walk's own scope IO moves onto the selected store**. Only a walk's *claim* used to travel the persistence port (`_engine/frontier.py:224`); its entry, renewal, release, step records, branches, position, status, `State` and event log still wrote the legacy `ScopeStore` — **46 `self._store.*` call sites**, in `_engine/frontier.py`, `_engine/workflow_walker.py` and `_engine/workflow_runner.py`. On a store that is not the document backend the two paths never met: the claim landed in `workflow_scopes`, the release looked in legacy `documents`, found generation 0 / owner `nobody`, raised `StaleGenerationError`, and the walk stopped `SUPERSEDED` — so a workflow parked at a gate could not be finished, or picked up by another process, on the store it had selected. Six commands join the port (`StartWalk`, `RenewLease`, `ReleaseLease`, `RecordStep`, `RecordBranch`, `MoveScope`) and `CompleteStep` is widened to carry the step's outcome and markers, the first-time branch, position, status and the events; four the port already carried become the walk's only path rather than one of two (`ClaimWorkflow`, `StateBatch` for `State` inside a step, `SuspendAtGate`/`ConsumeInput`, `EventWriter.append`); and `WorkflowReader.step`/`.steps`/`.branch`/`.state` and `WorkflowView.graph_digest` are what it reads back, every one of them added to the conformance BASELINE so a store that implements the port and omits them is non-conformant rather than quietly partial. `tests/spec/test_the_walk_writes_only_through_the_port.py` is the enforcement: an `ast` sweep of every module under `_engine/` that allows **three functions** in `executor.py` and **one module** (`capabilities/state.py` — the non-walk `State`), each with its reason in the assertion message, and a second test that refuses an allowlist entry for a function that no longer exists. The relational store needs revision **`0002`** (`result_kind`, `result_type`, `effecting` on `workflow_steps`, forward-only and additive) so a step record keeps what the document records always kept. The operator surfaces (`list`, `show`, `cancel`, `reclaim`, and their MCP counterparts) read and write the same scopes the walk wrote, which is the maintainer's answer to the feature's open decision: move them onto the port, rather than refuse them on a store a user selected. Rationale in **ADR-033**; the command-by-command contract is the reference's §4. |
 | sqlite-runtime-provider | `feat/sqlite-runtime-provider`: FUN-19 — the relational runtime store, and the first store that is not the document backend. One config key selects it, `runtime_store.url` (read at boot step 6.5, `_app/store_selection.py`), so installing the plugin no longer changes where anything lives; `functualize-substrate-sqlite` **0.4.0** registers the `sqlite` scheme and `[plugin.substrate-sqlite] db_path` is gone. Revision `0001` (`_schema/0001_runtime_schema.sql`, frozen and checksummed) creates the fourteen §2 tables plus `runtime_cutover`, name for name, and `migrate()` refuses on a checksum mismatch, a gap, a ledger ahead of the code, runtime tables with no ledger and partial state; the same boot pass applies the relational retention statement. Three deliberate behaviour changes: boot **refuses** instead of falling back to documents (S-2); the `runtime_cutover` marker with provenances `documents` and `born-relational` (precedence G-1…G-4) decides whether a legacy database may open; the `functualize-sqlite-import` CLI is the only path in. The engine still writes legacy `documents['runs']`, so `tests/integration/test_substrate_durability.py`'s strict xfail stands, and H-3's observation limit is its own issue (MCH-156). Details below. |
 | runtime-schema-migrations | `feat/runtime-schema-migrations`: FUN-18 — the four runtime state machines as data. Scope status was assigned at **thirteen production call sites across five modules** and validated in none; `_types/lifecycle.py` now holds `SCOPE`/`RUN`/`ATTEMPT`/`INPUT_REQUEST` (closed state sets, legal pairs, absorbing/evictable sets) as data with no logic, `_primitives/transitions.py` is the one refusal (`IllegalTransition`), and every stored writer calls it — `ScopeStore.set_scope_status` and `RunStore.close_run`, each reading the current value inside the batch it is already writing, plus `RunStore.open_run` on the creation edge, which checks the pair before it writes and so refuses without touching the file. Four transition pairs the table briefly needed are gone with the defect that produced them: a resumed walk left its parked status in place, so a walk that resumed and then finished wrote `COMPLETED` over a record that said `blocked`; every entry now stamps `running` (D2 = 1) and a gate resolved inline no longer parks a live walk. `_types/retention.py`'s `RetentionPolicy` replaces the three separate `500` caps. One behaviour loss is recorded rather than hidden: `completed` is evictable and `resume` accepts it, so an evicted scope's retry answers `workflow_not_found`. No public API change; the durable half landed in `contributor/reference/` because this tree is deleted at clearing. Details below. |
 | substrate-capability-probe | `spike/substrate-capability-probe`: FUN-25's Wave 0 — `StoreProfile` was a set of assertions taken from vendor documentation, and this turned it into measurements before FUN-17 freezes the port. Ten fields across **eight columns** — the seven candidate backends plus Supabase Postgres — published at [`contributor/reference/substrate-capability-matrix.md`](../contributor/reference/substrate-capability-matrix.md): 80 cells, **76 measured** and **4 explicitly `NOT MEASURED` with their reasons**, all four in D1's column, whose evidence row states the split rather than stamping the column as measured. No `src/` or `plugins/` change at all — the diff to `master` is a probe suite under `tests/substrate_probe/`, one reference document, the durable-half rows it migrated (`CHANGELOG.md` and this file), and `.env.example`. The branch also carries one separately authored commit that is **not** this spike's work: `8300682`, the member's `ci:` governance change adding the `research-artifacts-cleared` gate, riding here with its landing decision still open. **All three open questions are answered**, each in its own section rather than inferred from a neighbouring column: Q1 — R2's conditional `PutObject` is atomic (one of eight writers won); Q2 — D1's REST latency is a measured distribution (plan against the p95, 516 ms); Q3 — retired at planning time, with a regression guard for the property. *(Corrected 2026-09-23 after the credentialed waves: this row previously said seven backends, 40 measured of 80, and two questions unanswered — the detail section below had already outgrown all three.)* Details below. |
@@ -2772,6 +2773,61 @@ refcount time; that lifetime is a stated limitation and does not carry the at-re
 concurrent transaction can defer the fold, which is warned on the write path and retryable through
 `checkpoint()`. Recorded here because the feature's durable half is this record and the reference
 (no ADR of its own — see *The decision worth keeping* above). No later step is claimed or pending.
+
+### workflow-persistence-atomic
+
+`feat/sqlite-runtime-provider`: FUN-19 waves 5–6. Recorded here for the same reason as the entry above —
+`.spec/features/workflow-persistence-atomic/` is deleted as this branch's last commit, so the feature's
+durable half is ADR-033, the reference's §4, and this record.
+
+**What landed.** A walk no longer writes its own scope anywhere but the selected store. `StartWalk`,
+`RenewLease`, `ReleaseLease`, `RecordStep`, `RecordBranch`, `MoveScope` and a widened `CompleteStep` —
+which carries the step's outcome and markers, the first-time branch, position, status and the events in
+one command — are issued as `tx.workflows.*` inside `RuntimeStore.transaction()`, one command per
+transaction, each carrying the held generation. The claim, `StateBatch` for `State` set inside a step,
+the gate request and its answer, and the walk log were already on the port and are now the walk's only
+path rather than one of two. The walk reads back through `WorkflowReader.step`/`.steps`/`.branch`/
+`.state` and `WorkflowView.graph_digest`, and every added command and reader joined the conformance
+BASELINE — so a store that implements the port and omits them is non-conformant rather than quietly
+partial. `tests/spec/test_the_walk_writes_only_through_the_port.py` holds the line: an `ast` sweep of
+every module under `_engine/` that refuses a `scope_store` import, a reach-through `.scopes`, a
+`_scope_store(...)` call and a `ScopeStore`-only method name whose receiver is not the port, with three
+`executor.py` functions and `capabilities/state.py` allowlisted, each with its reason in the assertion
+message, and a second test that refuses an allowlist entry for a function that no longer exists.
+
+**What changed on purpose.** On `runtime_store.url = "sqlite:"` a walk used to stop `SUPERSEDED`: the
+claim was relational, the release was not, so the release read generation 0 / owner `nobody` from the
+legacy document record and raised `StaleGenerationError`. A workflow parked at a gate now resumes in
+another process, from another directory, and runs to its end;
+`tests/integration/test_substrate_durability.py`'s strict xfail is deleted and the case passes. The
+operators (`func builtin workflow list`, `show`, `cancel`, `reclaim`, and their MCP counterparts) read
+and write the relational scopes when a relational store is selected, which is the maintainer's answer to
+the feature's open decision — move them onto the port rather than refuse them on a store a user chose.
+Revision `0002` (`0002_step_record_metadata.sql`) adds `result_kind`, `result_type` and `effecting` to
+`workflow_steps`, forward-only and additive, applied at boot, so a step record keeps what the document
+records always kept. With nothing configured, a document-store project writes the same files it wrote
+before.
+
+**The decision worth keeping.** One authority per scope fact — the rule ADR-022 records for storage and
+ADR-025 for the transition. Leaving the walk's steps, branches and position on the legacy records while
+its claim lived in `workflow_scopes` gave one scope two authorities, and a store-aware layer over the
+port to hide that is the seam ADR-026 refused. ADR-033 records the decision with the boundary this work
+did not cross: the `State` a job run outside a walk keeps, and `executor.py`'s close of such a run's
+scope, stay on the legacy store; `ScopeStore` stays exported from `functualize.app.utils`; and gate
+evidence, the outbox dispatcher, network stores and workspace persistence are later slices.
+
+**Verification at this wave.** `pytest tests/spec/test_the_walk_writes_only_through_the_port.py` (2
+tests) and `tests/conformance` (44) are green, and `tests/integration/test_substrate_durability.py
+--run-slow` is green with 5 tests, the resumed-parked-walk case among them. The same head carries CI's
+full matrix — lint, lint-imports, typecheck, test-fast, the three `test-full` legs, examples,
+plugin-mcp, clean-clone-examples, doc-verify and docs-build — and both artifact gates go green only
+after the deletion commit.
+
+**Still open, none blocking.** The engine still keeps non-walk state in the legacy records: the `State`
+of a job run outside a walk, run and attempt records, shell history and the freshness ledger. `State`
+written inside a step now carries the walk's generation, so a superseded walk's state write lands
+nowhere instead of on the live scope, and the rest of the engine's records stay where the store record
+above describes them.
 
 ### runtime-schema-migrations
 
