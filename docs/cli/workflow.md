@@ -73,8 +73,14 @@ A running walk holds a **lease** on its scope. Its heartbeat renews once when
 the walk starts, before any step runs, then every 60 seconds, including while
 a step runs, and stops when the walk ends. A walk that finds its scope already
 taken at that first renewal runs nothing. The lease
-expires 300 seconds after the last successful renewal. A slow step therefore
-does not become claimable simply because it runs longer than 300 seconds.
+expires 300 seconds after the last successful renewal. A slow step remains
+unclaimable past 300 seconds while successful renewals finish before expiry.
+A renewal whose own durable write outlasts the lease can land already expired:
+an ordinary second walker may then claim the scope while the first step still
+runs. In a compressed test, one renewal write took 0.418 seconds against a
+0.3-second lease. With a 300-second lease and 60-second interval, the write
+would have to stall for more than 240 seconds. The generation fence rejects
+the old runner's stored writes, but effects outside the store can repeat.
 If renewal stops or keeps failing, the lease may lapse while the scope's stored
 status is still `running`; nothing reaps it automatically.
 

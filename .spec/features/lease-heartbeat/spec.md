@@ -42,7 +42,13 @@ that a Python thread has been interrupted. This change preserves that decision.
 ## Acceptance criteria
 
 1. A step can run past one full lease period while its scope remains unclaimable
-   to a second ordinary runner; the original runner completes once.
+   to a second ordinary runner if successful renewals finish before expiry. A
+   renewal whose own durable write outlasts the lease can land already expired,
+   allowing an ordinary second walker to claim while the first step still runs.
+   One measured renewal write took 0.418 seconds against a compressed
+   0.3-second lease; with a 300-second lease and 60-second interval, the write
+   would have to stall for more than 240 seconds. The generation fence rejects
+   the old runner's stored writes, but effects outside the store can repeat.
 2. A two-runner test observes the refusal during the live step and verifies
    that the first runner's generation remains current until a legitimate
    takeover or release.
