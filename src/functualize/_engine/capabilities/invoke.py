@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from functualize._engine.capabilities.spec import CapabilitySpec
+from functualize._types.outcome import Family, is_failure
 from functualize._types.run_request import nested_request
 
 if TYPE_CHECKING:
@@ -91,6 +92,9 @@ class Invoke:
     until wired.
 
     The engine replaces this stub with a fully-wired instance at runtime.
+    ``parallel`` raises after collecting failed children by default;
+    ``parallel(..., raise_on_failure=False)`` returns every result instead.
+    This option belongs to ``parallel``, not to a single ``__call__``.
     """
 
     def __call__(
@@ -119,6 +123,10 @@ class Invoke:
             gate_strategy: Override configured gate strategy for this invocation.
             timeout: Optional timeout in seconds.
             **kwargs: Arguments to pass to the job.
+
+        A single invocation returns its JobResult. For a batch, use
+        ``parallel``; it raises on failed children by default and accepts
+        ``raise_on_failure=False`` to return all results.
 
         Returns:
             A JobResult with status, return_value, exception, metadata.
@@ -163,20 +171,24 @@ class Invoke:
         jobs: Sequence[tuple[str | Callable[..., Any], dict[str, Any]]],
         *,
         timeout: float | None = None,
+        raise_on_failure: bool = True,
     ) -> list[JobResult]:
-        """Invoke 1-32 jobs concurrently, returning results in input order.
+        """Invoke 1-32 jobs concurrently, raising after failed children by default.
 
         Args:
             jobs: List of (job_or_fn, kwargs) tuples to execute concurrently.
             timeout: Seconds the batch may run before unfinished jobs are
                 reported as timed out. ``None`` uses
                 :data:`DEFAULT_PARALLEL_TIMEOUT`; ``<= 0`` waits indefinitely.
+            raise_on_failure: Raise after collection if any child failed. Set
+                to ``False`` to receive every result in input order.
 
         Returns:
             List of JobResult objects in the same order as input.
 
         Raises:
             ValueError: If more than 32 jobs are specified.
+            RuntimeError: If a child failed and ``raise_on_failure`` is true.
         """
         if len(jobs) > 32:
             raise ValueError(
@@ -539,8 +551,9 @@ class WiredInvoke(Invoke):
         *,
         timeout: float | None = None,
         observer: ParallelObserver | None = None,
+        raise_on_failure: bool = True,
     ) -> list[JobResult]:
-        """Invoke 1-32 jobs concurrently, returning results in input order.
+        """Invoke 1-32 jobs concurrently, raising after failed children by default.
 
         Resolves function references to job names and executes each job
         with independent context via the engine.
@@ -555,256 +568,36 @@ class WiredInvoke(Invoke):
                 binding is the whole basis of per-job output attribution
                 (``func builtin parallel --output grouped|prefixed``); a caller
                 cannot reconstruct it from the returned results.
+            raise_on_failure: Raise after collection when a child has a failed
+                tool status. Set to ``False`` to receive all ordered results.
 
         Returns:
-            One JobResult per input, in input order.
+            One JobResult per input, in input order, when no child failed or
+            ``raise_on_failure`` is false.
+
+        Raises:
+            RuntimeError: Names every failed position, job and status; chains
+                the first failed child's exception when available.
         """
-        from functualize._types.descriptors import JobResult as _JobResult
-        from functualize._types.enums import RunStatus
-        from functualize._types.errors import RecursionLimitError
-
-        if len(jobs) == 0:
-            return []
-
-        if len(jobs) > 32:
-            raise ValueError(
-                f"Invoke.parallel accepts at most 32 jobs, got {len(jobs)}"
-            )
-
-        child_depth = self._invoke_depth + 1
-        budget = DEFAULT_PARALLEL_TIMEOUT if timeout is None else timeout
-
-        def _execute_single(
-            index: int, job_or_fn: str | Callable[..., Any], kwargs: dict[str, Any]
-        ) -> tuple[int, JobResult]:
-            """Execute a single job in its own thread."""
-            # Resolve job name
-            try:
-                job_name = self._resolve_job_name(job_or_fn)
-            except Exception as e:
-                return (
-                    index,
-                    _JobResult(
-                        status=RunStatus.FAILURE,
-                        duration_ms=0.0,
-                        return_value=None,
-                        exception=e,
-                        job_name=str(job_or_fn),
-                    ),
+        results = _ParallelBatch(self).run(jobs, timeout=timeout, observer=observer)
+        if raise_on_failure:
+            failed = [
+                (index, result)
+                for index, result in enumerate(results, start=1)
+                if is_failure(result.status, family=Family.TOOL)
+            ]
+            if failed:
+                details = ", ".join(
+                    f"#{index} {result.job_name or str(jobs[index - 1][0])!r} "
+                    f"({result.status.value})"
+                    for index, result in failed
                 )
-
-            # From here on the job has a name, so its output can be attributed.
-            # Wrapped in try/finally rather than paired by hand: every remaining
-            # return path below is an *error* path, and an observer left holding
-            # a claimed thread would swallow that job's output entirely — the
-            # one case where seeing the output matters most.
-            if observer is not None:
-                observer.claim(job_name)
-            outcome: tuple[int, JobResult] | None = None
-            try:
-                outcome = _run(index, job_or_fn, job_name, kwargs)
-                return outcome
-            finally:
-                if observer is not None:
-                    # The **status**, not a verdict on it. Deciding here would
-                    # be the engine making a delivery decision: this callback is
-                    # reached only through an observer, the only observer is
-                    # `_cli/parallel_output.py`, and the thing it controls is a
-                    # `::error::` annotation in a CI log. An engine function
-                    # whose sole purpose is to answer a CLI question.
-                    #
-                    # It had its own copy of the not-a-failure set, and the copy
-                    # disagreed with the one `func builtin parallel` uses for
-                    # its exit code — so a batch where a job paused at a gate
-                    # exited 5 *and* logged no `::error::` for the job that
-                    # paused. Two answers about BLOCKED inside one command,
-                    # which is the divergence this feature exists to end.
-                    #
-                    # `None` means `_run` raised, which nothing below is
-                    # supposed to do. It is reported as UNKNOWN rather than
-                    # swallowed, and every family reads UNKNOWN as a failure.
-                    observer.release(
-                        job_name,
-                        status=(
-                            outcome[1].status
-                            if outcome is not None
-                            else RunStatus.UNKNOWN
-                        ),
-                    )
-
-        def _run(
-            index: int,
-            job_or_fn: str | Callable[..., Any],
-            job_name: str,
-            kwargs: dict[str, Any],
-        ) -> tuple[int, JobResult]:
-            """The body of one parallel job, once its name is known."""
-
-            # Check recursion limit
-            if child_depth > self._max_invoke_depth:
-                return (
-                    index,
-                    _JobResult(
-                        status=RunStatus.FAILURE,
-                        duration_ms=0.0,
-                        return_value=None,
-                        exception=RecursionLimitError(
-                            child_depth, self._max_invoke_depth, job_name
-                        ),
-                        job_name=job_name,
-                    ),
+                cause = next(
+                    (result.exception for _, result in failed if result.exception),
+                    None,
                 )
-
-            try:
-                registered_job = self._engine.get_job(job_name)
-            except Exception as e:
-                return (
-                    index,
-                    _JobResult(
-                        status=RunStatus.FAILURE,
-                        duration_ms=0.0,
-                        return_value=None,
-                        exception=e,
-                        job_name=job_name,
-                    ),
-                )
-
-            try:
-                # Surface `invoke.parallel` (contracts §5).
-                #
-                # **The scope object travels; the scope id does not.** An
-                # earlier spec pinned "parallel jobs are independent — no
-                # shared scope" and implemented it by passing
-                # `parent_scope=None`, which conflated two things that
-                # capability-duality/T3 had to separate anyway: the *id* names
-                # which step records and gates a walk replays, and the *object*
-                # is where the run's shared state lives. Independence is about
-                # the records — two batch items must not memoize each other's
-                # steps or resume into one another's gates — and it is fully
-                # preserved by `nested_request` resetting `workflow_scope_id`,
-                # which it does by default.
-                #
-                # Withholding the object as well meant a batch item had nowhere
-                # to write. Under the old in-memory store that was invisible:
-                # the item got a private dict, wrote to it, and the data went
-                # nowhere with no error. Once state became durable the same
-                # code raised instead — which is the bug becoming honest, not a
-                # new one. A batch item is part of the run the user started, so
-                # it stores state there.
-                result = self._engine.run(
-                    nested_request(
-                        self._parent_request,
-                        job_name=job_name,
-                        surface=self._parallel_item_surface,
-                        kwargs=kwargs,
-                        parent_scope=self._workflow_scope,
-                        # Independent *scopes*, one parent *run*: the batch
-                        # items are the children the run log most needs to
-                        # place, and they run on worker threads where a
-                        # ContextVar would be empty.
-                        parent_run_id=self._parent_run_id,
-                        invoke_depth=child_depth,
-                        cwd=self._cwd,
-                        job_directory=registered_job.job_directory,
-                    )
-                )
-                return (index, result)
-            except Exception as e:
-                return (
-                    index,
-                    _JobResult(
-                        status=RunStatus.FAILURE,
-                        duration_ms=0.0,
-                        return_value=None,
-                        exception=e,
-                        job_name=job_name,
-                    ),
-                )
-
-        results: list[tuple[int, JobResult]] = []
-        seen: set[int] = set()
-
-        def _collect(idx: int, job_or_fn: Any, future: Any) -> None:
-            """Record a finished future's outcome under ``idx``."""
-            seen.add(idx)
-            try:
-                results.append(future.result())
-            except Exception as exc:
-                results.append(
-                    (
-                        idx,
-                        _JobResult(
-                            status=RunStatus.FAILURE,
-                            duration_ms=0.0,
-                            return_value=None,
-                            exception=exc,
-                            job_name=str(job_or_fn),
-                        ),
-                    )
-                )
-
-        # Not a `with` block: `ThreadPoolExecutor.__exit__` shuts down with
-        # `wait=True`, so a timed-out batch would block here until the very job
-        # it gave up on finished — the timeout would report correctly and then
-        # not return. Shutting down with `wait=False` lets the call return on
-        # time. Threads cannot be interrupted, so a job already running still
-        # runs to completion in the background; that is a Python limitation,
-        # not a choice, and it is why `cancel_futures` (which only stops jobs
-        # that never started) is passed alongside.
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=32)
-        try:
-            futures: dict[
-                concurrent.futures.Future[tuple[int, Any]],
-                tuple[int, str | Callable[..., Any]],
-            ] = {}
-
-            for idx, (job_or_fn, kwargs) in enumerate(jobs):
-                future = executor.submit(_execute_single, idx, job_or_fn, kwargs)
-                futures[future] = (idx, job_or_fn)
-
-            started = time.monotonic()
-            try:
-                # The timeout belongs on `as_completed`, not on `future.result()`.
-                # It used to sit on the latter, inside this loop — where it could
-                # never fire, because `as_completed` only ever yields futures that
-                # have *already* finished. `--timeout` would have been decorative.
-                for future in concurrent.futures.as_completed(
-                    futures, timeout=budget if budget > 0 else None
-                ):
-                    idx, job_or_fn = futures[future]
-                    _collect(idx, job_or_fn, future)
-            except concurrent.futures.TimeoutError:
-                elapsed_ms = (time.monotonic() - started) * 1000
-                for future, (idx, job_or_fn) in futures.items():
-                    if idx in seen:
-                        continue
-                    # A future can finish between the timeout firing and this
-                    # sweep. Its real result is better than a timeout we would
-                    # be inventing, so it is collected rather than overwritten.
-                    if future.done():
-                        _collect(idx, job_or_fn, future)
-                        continue
-                    future.cancel()
-                    results.append(
-                        (
-                            idx,
-                            _JobResult(
-                                status=RunStatus.TIMEOUT,
-                                duration_ms=elapsed_ms,
-                                return_value=None,
-                                exception=TimeoutError(
-                                    f"Job '{job_or_fn}' exceeded the "
-                                    f"{budget:g}s parallel timeout"
-                                ),
-                                job_name=str(job_or_fn),
-                            ),
-                        )
-                    )
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
-
-        results.sort(key=lambda x: x[0])
-        return [r for _, r in results]
+                raise RuntimeError(f"Parallel batch failed: {details}") from cause
+        return results
 
     def schema(self, job_or_fn: str | Callable[..., Any]) -> JobDescriptor:
         """Retrieve the JobDescriptor for a job by name or function reference."""
@@ -912,6 +705,286 @@ class WiredInvoke(Invoke):
                     ),
                     job_name=job_name,
                 )
+
+
+class _ParallelBatch:
+    """Execute one parallel batch using a wired invocation's run context."""
+
+    def __init__(self, invoke: WiredInvoke) -> None:
+        self._invoke = invoke
+
+    def run(
+        self,
+        jobs: Sequence[tuple[str | Callable[..., Any], dict[str, Any]]],
+        *,
+        timeout: float | None = None,
+        observer: ParallelObserver | None = None,
+    ) -> list[JobResult]:
+        """Invoke 1-32 jobs concurrently, returning results in input order.
+
+        Resolves function references to job names and executes each job
+        with independent context via the engine.
+
+        Args:
+            jobs: ``(job_or_fn, kwargs)`` pairs, at most 32.
+            timeout: Seconds the batch may run before unfinished jobs are
+                reported as :attr:`RunStatus.TIMEOUT`. ``None`` uses
+                :data:`DEFAULT_PARALLEL_TIMEOUT`; ``<= 0`` waits indefinitely.
+            observer: Notified **on the worker thread**, around each job. Only
+                this method knows which thread is running which job, and that
+                binding is the whole basis of per-job output attribution
+                (``func builtin parallel --output grouped|prefixed``); a caller
+                cannot reconstruct it from the returned results.
+
+        Returns:
+            One JobResult per input, in input order.
+        """
+        from functualize._types.descriptors import JobResult as _JobResult
+        from functualize._types.enums import RunStatus
+        from functualize._types.errors import RecursionLimitError
+
+        if len(jobs) == 0:
+            return []
+
+        if len(jobs) > 32:
+            raise ValueError(
+                f"Invoke.parallel accepts at most 32 jobs, got {len(jobs)}"
+            )
+
+        child_depth = self._invoke._invoke_depth + 1
+        budget = DEFAULT_PARALLEL_TIMEOUT if timeout is None else timeout
+
+        def _execute_single(
+            index: int, job_or_fn: str | Callable[..., Any], kwargs: dict[str, Any]
+        ) -> tuple[int, JobResult]:
+            """Execute a single job in its own thread."""
+            # Resolve job name
+            try:
+                job_name = self._invoke._resolve_job_name(job_or_fn)
+            except Exception as e:
+                return (
+                    index,
+                    _JobResult(
+                        status=RunStatus.FAILURE,
+                        duration_ms=0.0,
+                        return_value=None,
+                        exception=e,
+                        job_name=str(job_or_fn),
+                    ),
+                )
+
+            # From here on the job has a name, so its output can be attributed.
+            # Wrapped in try/finally rather than paired by hand: every remaining
+            # return path below is an *error* path, and an observer left holding
+            # a claimed thread would swallow that job's output entirely — the
+            # one case where seeing the output matters most.
+            if observer is not None:
+                observer.claim(job_name)
+            outcome: tuple[int, JobResult] | None = None
+            try:
+                outcome = _run(index, job_or_fn, job_name, kwargs)
+                return outcome
+            finally:
+                if observer is not None:
+                    # The **status**, not a verdict on it. Deciding here would
+                    # be the engine making a delivery decision: this callback is
+                    # reached only through an observer, the only observer is
+                    # `_cli/parallel_output.py`, and the thing it controls is a
+                    # `::error::` annotation in a CI log. An engine function
+                    # whose sole purpose is to answer a CLI question.
+                    #
+                    # It had its own copy of the not-a-failure set, and the copy
+                    # disagreed with the one `func builtin parallel` uses for
+                    # its exit code — so a batch where a job paused at a gate
+                    # exited 5 *and* logged no `::error::` for the job that
+                    # paused. Two answers about BLOCKED inside one command,
+                    # which is the divergence this feature exists to end.
+                    #
+                    # `None` means `_run` raised, which nothing below is
+                    # supposed to do. It is reported as UNKNOWN rather than
+                    # swallowed, and every family reads UNKNOWN as a failure.
+                    observer.release(
+                        job_name,
+                        status=(
+                            outcome[1].status
+                            if outcome is not None
+                            else RunStatus.UNKNOWN
+                        ),
+                    )
+
+        def _run(
+            index: int,
+            job_or_fn: str | Callable[..., Any],
+            job_name: str,
+            kwargs: dict[str, Any],
+        ) -> tuple[int, JobResult]:
+            """The body of one parallel job, once its name is known."""
+
+            # Check recursion limit
+            if child_depth > self._invoke._max_invoke_depth:
+                return (
+                    index,
+                    _JobResult(
+                        status=RunStatus.FAILURE,
+                        duration_ms=0.0,
+                        return_value=None,
+                        exception=RecursionLimitError(
+                            child_depth, self._invoke._max_invoke_depth, job_name
+                        ),
+                        job_name=job_name,
+                    ),
+                )
+
+            try:
+                registered_job = self._invoke._engine.get_job(job_name)
+            except Exception as e:
+                return (
+                    index,
+                    _JobResult(
+                        status=RunStatus.FAILURE,
+                        duration_ms=0.0,
+                        return_value=None,
+                        exception=e,
+                        job_name=job_name,
+                    ),
+                )
+
+            try:
+                # Surface `invoke.parallel` (contracts §5).
+                #
+                # **The scope object travels; the scope id does not.** An
+                # earlier spec pinned "parallel jobs are independent — no
+                # shared scope" and implemented it by passing
+                # `parent_scope=None`, which conflated two things that
+                # capability-duality/T3 had to separate anyway: the *id* names
+                # which step records and gates a walk replays, and the *object*
+                # is where the run's shared state lives. Independence is about
+                # the records — two batch items must not memoize each other's
+                # steps or resume into one another's gates — and it is fully
+                # preserved by `nested_request` resetting `workflow_scope_id`,
+                # which it does by default.
+                #
+                # Withholding the object as well meant a batch item had nowhere
+                # to write. Under the old in-memory store that was invisible:
+                # the item got a private dict, wrote to it, and the data went
+                # nowhere with no error. Once state became durable the same
+                # code raised instead — which is the bug becoming honest, not a
+                # new one. A batch item is part of the run the user started, so
+                # it stores state there.
+                result = self._invoke._engine.run(
+                    nested_request(
+                        self._invoke._parent_request,
+                        job_name=job_name,
+                        surface=self._invoke._parallel_item_surface,
+                        kwargs=kwargs,
+                        parent_scope=self._invoke._workflow_scope,
+                        # Independent *scopes*, one parent *run*: the batch
+                        # items are the children the run log most needs to
+                        # place, and they run on worker threads where a
+                        # ContextVar would be empty.
+                        parent_run_id=self._invoke._parent_run_id,
+                        invoke_depth=child_depth,
+                        cwd=self._invoke._cwd,
+                        job_directory=registered_job.job_directory,
+                    )
+                )
+                return (index, result)
+            except Exception as e:
+                return (
+                    index,
+                    _JobResult(
+                        status=RunStatus.FAILURE,
+                        duration_ms=0.0,
+                        return_value=None,
+                        exception=e,
+                        job_name=job_name,
+                    ),
+                )
+
+        results: list[tuple[int, JobResult]] = []
+        seen: set[int] = set()
+
+        def _collect(idx: int, job_or_fn: Any, future: Any) -> None:
+            """Record a finished future's outcome under ``idx``."""
+            seen.add(idx)
+            try:
+                results.append(future.result())
+            except Exception as exc:
+                results.append(
+                    (
+                        idx,
+                        _JobResult(
+                            status=RunStatus.FAILURE,
+                            duration_ms=0.0,
+                            return_value=None,
+                            exception=exc,
+                            job_name=str(job_or_fn),
+                        ),
+                    )
+                )
+
+        # Not a `with` block: `ThreadPoolExecutor.__exit__` shuts down with
+        # `wait=True`, so a timed-out batch would block here until the very job
+        # it gave up on finished — the timeout would report correctly and then
+        # not return. Shutting down with `wait=False` lets the call return on
+        # time. Threads cannot be interrupted, so a job already running still
+        # runs to completion in the background; that is a Python limitation,
+        # not a choice, and it is why `cancel_futures` (which only stops jobs
+        # that never started) is passed alongside.
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=32)
+        try:
+            futures: dict[
+                concurrent.futures.Future[tuple[int, Any]],
+                tuple[int, str | Callable[..., Any]],
+            ] = {}
+
+            for idx, (job_or_fn, kwargs) in enumerate(jobs):
+                future = executor.submit(_execute_single, idx, job_or_fn, kwargs)
+                futures[future] = (idx, job_or_fn)
+
+            started = time.monotonic()
+            try:
+                # The timeout belongs on `as_completed`, not on `future.result()`.
+                # It used to sit on the latter, inside this loop — where it could
+                # never fire, because `as_completed` only ever yields futures that
+                # have *already* finished. `--timeout` would have been decorative.
+                for future in concurrent.futures.as_completed(
+                    futures, timeout=budget if budget > 0 else None
+                ):
+                    idx, job_or_fn = futures[future]
+                    _collect(idx, job_or_fn, future)
+            except concurrent.futures.TimeoutError:
+                elapsed_ms = (time.monotonic() - started) * 1000
+                for future, (idx, job_or_fn) in futures.items():
+                    if idx in seen:
+                        continue
+                    # A future can finish between the timeout firing and this
+                    # sweep. Its real result is better than a timeout we would
+                    # be inventing, so it is collected rather than overwritten.
+                    if future.done():
+                        _collect(idx, job_or_fn, future)
+                        continue
+                    future.cancel()
+                    results.append(
+                        (
+                            idx,
+                            _JobResult(
+                                status=RunStatus.TIMEOUT,
+                                duration_ms=elapsed_ms,
+                                return_value=None,
+                                exception=TimeoutError(
+                                    f"Job '{job_or_fn}' exceeded the "
+                                    f"{budget:g}s parallel timeout"
+                                ),
+                                job_name=str(job_or_fn),
+                            ),
+                        )
+                    )
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+        results.sort(key=lambda x: x[0])
+        return [r for _, r in results]
 
 
 # ── Registry entry (ADR-014) ───────────────────────────────────────────────
