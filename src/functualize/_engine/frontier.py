@@ -31,7 +31,6 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from functualize._engine.recording import InputRecorder
-from functualize._primitives.gate_requests import recorded_answer
 from functualize._types.gate_resolution import (
     EvaluationOutcome,
     GateResolution,
@@ -39,14 +38,27 @@ from functualize._types.gate_resolution import (
 
 # At runtime, not under TYPE_CHECKING: `claim` branches on it with
 # `isinstance`, so a type-only import would be a NameError on every claim.
-from functualize._types.persistence import Conflict
+from functualize._types.persistence import (
+    CompleteStep,
+    Conflict,
+    MoveScope,
+    RecordBranch,
+    RecordStep,
+    ReleaseLease,
+    RenewLease,
+    StartWalk,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from functualize._primitives.scope_store import ScopeStore
     from functualize._types.gate_resolution import GateCandidate
-    from functualize._types.persistence import Claimed, RuntimeStore
+    from functualize._types.persistence import (
+        Claimed,
+        RuntimeStore,
+        StepView,
+        WorkflowView,
+    )
 
 __all__ = [
     "END",
@@ -178,13 +190,11 @@ class FrontierWalk:
     def __init__(
         self,
         graph: GraphModel,
-        store: ScopeStore,
         scope_id: str,
         *,
         runtime_store: RuntimeStore,
     ) -> None:
         self._graph = graph
-        self._store = store
         self._scope_id = scope_id
         self._runtime_store = runtime_store
         #: Builds the input commands this walk issues — the id minter.
@@ -208,12 +218,9 @@ class FrontierWalk:
         ``Conflict``, someone else's name for the same moment. Losing a claim
         is an outcome the caller branches on, never an exception.
 
-        On ``Claimed`` the walk installs the hold **on its own store**: the
-        port claims through the ``ScopeStore`` inside its own
-        ``DocumentRuntimeStore`` and a hold fences only the object it is set
-        on, so the generation is carried across by hand. Skip that line and
-        the walk writes with ``held is None`` — the generation fence silently
-        off, and the interleaving the lease exists to prevent back.
+        On ``Claimed`` the walk keeps the generation it was handed, and every
+        command it issues afterwards carries it, so the store's fence refuses
+        a write from a walk whose claim was taken over.
         """
         from datetime import UTC, datetime
 
@@ -238,7 +245,6 @@ class FrontierWalk:
         if isinstance(outcome, Conflict):
             return outcome
         self._generation = outcome.generation
-        self._store.hold(self._scope_id, outcome.generation)
         if silent is not None:
             self._record_timed_out(silent)
         return outcome
@@ -265,20 +271,15 @@ class FrontierWalk:
         reason for the observation that it stopped — which is true of every
         failure ever recorded.
         """
-        from datetime import UTC, datetime
-
-        from functualize._primitives.lease import is_expired, read_lease
-
-        scope = self._store.get_scope(self._scope_id)
-        if not scope or scope.get("status") != WalkState.RUNNING:
+        view = self.view()
+        if view is None or view.status != WalkState.RUNNING:
             return None
-        lease = read_lease(scope)
-        if lease is None or not is_expired(lease, datetime.now(UTC)):
+        if view.expires_at is None or view.expires_at > datetime.now(UTC):
             return None
-        position = scope.get("position")
+        position = view.position
         if not isinstance(position, str) or not position:
             return None
-        if self._store.get_step(self._scope_id, step_key(position, "")) is not None:
+        if self.step(step_key(position, "")) is not None:
             return None
         return position
 
@@ -299,16 +300,9 @@ class FrontierWalk:
         under-report rather than a wrong one: the pass is re-run either way,
         because nothing about it is terminal-success.
         """
-        self._store.record_step(
-            self._scope_id,
-            step_key(node, ""),
-            {
-                "status": StepStatus.TIMED_OUT,
-                "return_value": None,
-                "return_value_reusable": False,
-                "completed_at": "",
-            },
-        )
+        # The runner that overran never finished, so there is no completion
+        # time to record (ruling R-2): the store keeps it empty, not stamped.
+        self.record(step_key(node, ""), StepStatus.TIMED_OUT, completed_at=None)
 
     def renew(self) -> RenewalOutcome:
         """Try to extend this walk's claim without moving its generation.
@@ -323,13 +317,23 @@ class FrontierWalk:
         """
         if self._generation is None:
             return RenewalOutcome.NO_CLAIM
-        from functualize._primitives.lease import StaleGenerationError
+        from functualize._primitives.lease import (
+            DEFAULT_LEASE_SECONDS,
+            StaleGenerationError,
+        )
         from functualize._primitives.run_store import runner_identity
 
         try:
-            self._store.renew_scope(
-                self._scope_id, owner=runner_identity(), generation=self._generation
-            )
+            with self._runtime_store.transaction() as tx:
+                tx.workflows.renew(
+                    RenewLease(
+                        self._scope_id,
+                        self._generation,
+                        runner_identity(),
+                        datetime.now(UTC),
+                        DEFAULT_LEASE_SECONDS,
+                    )
+                )
         except StaleGenerationError:
             logger.debug("scope lease was superseded", exc_info=True)
             return RenewalOutcome.SUPERSEDED
@@ -347,18 +351,22 @@ class FrontierWalk:
         if self._generation is None:
             return
         try:
-            self._store.release_scope(self._scope_id, generation=self._generation)
+            with self._runtime_store.transaction() as tx:
+                tx.workflows.release(
+                    ReleaseLease(self._scope_id, self._generation, datetime.now(UTC))
+                )
         except Exception:  # noqa: BLE001 - releasing is never worth a failure
             logger.debug("could not release the scope lease", exc_info=True)
         finally:
             self._generation = None
-            self._store.hold(self._scope_id, None)
 
     # ------------------------------------------------------------------
     # Walk control
     # ------------------------------------------------------------------
 
-    def start(self, workflow: str | None = None) -> list[str]:
+    def start(
+        self, workflow: str | None = None, *, graph_digest: str = ""
+    ) -> list[str]:
         """Begin (or resume) the walk, returning the nodes now runnable.
 
         Resuming is *replay*: a scope with a persisted position resumes there
@@ -379,16 +387,22 @@ class FrontierWalk:
         stamp overwrites whatever is stored, and ``WorkflowRunner.prelude``
         refuses a cancelled scope before calling this.
         """
-        with self._store.batch():
-            self._store.ensure_scope(self._scope_id, workflow)
-            position = self._store.get_position(self._scope_id)
-            if position is not None:
-                # D2 = 1: a resumed walk is live, not parked.
-                self._store.set_scope_status(self._scope_id, WalkState.RUNNING)
-                return [position]
-            self._store.set_scope_status(self._scope_id, WalkState.RUNNING)
-            self._store.set_position(self._scope_id, self._graph.entry)
-        return [self._graph.entry]
+        # D2 = 1: every entry, first or resumed, stamps `running`; the store
+        # keeps a persisted position and only a fresh scope takes the entry.
+        with self._runtime_store.transaction() as tx:
+            tx.workflows.start(
+                StartWalk(
+                    self._scope_id,
+                    self._generation or 0,
+                    workflow or "",
+                    self._graph.entry,
+                    graph_digest,
+                    datetime.now(UTC),
+                )
+            )
+        view = self.view()
+        position = view.position if view is not None else None
+        return [position] if position is not None else [self._graph.entry]
 
     def complete(
         self,
@@ -417,44 +431,53 @@ class FrontierWalk:
         from functualize._primitives.fingerprint import classify_return_value
 
         reusable, kind, type_name, stored = classify_return_value(return_value)
-        # One locked write for the node, not three. Everything inside is
-        # in-memory — `classify_return_value` and the graph lookups touch no
-        # disk — so the lock is held for microseconds. An exception in here
-        # discards the node's writes rather than leaving two of three applied.
-        with self._store.batch():
-            self._store.record_step(
-                self._scope_id,
-                step_key(node, args_hash),
-                {
-                    "status": status,
-                    "return_value": stored if reusable else None,
-                    "return_value_reusable": reusable,
-                    "return_value_kind": kind,
-                    "return_value_type": type_name,
-                    "inputs": dict(inputs or {}),
-                    "completed_at": completed_at,
+
+        # The branch is resolved before the write: a choice already recorded
+        # for this scope wins, so replay follows the branch the walk took
+        # (§D.7d), and only a first evaluation is recorded.
+        decision: str | None = None
+        if self._graph.is_conditional(node):
+            recorded = self.branch(node)
+            if recorded is not None:
+                choice = recorded
+            elif choice is not None:
+                decision = node
+
+        successors = self._graph.successors(node, choice)
+        runnable = [n for n in successors if n != END]
+        finished = not successors or successors == [END]
+
+        # One unit for the node: its record, its branch, and the scope's
+        # advance land together or not at all.
+        now = (
+            datetime.fromisoformat(completed_at) if completed_at else datetime.now(UTC)
+        )
+        with self._runtime_store.transaction() as tx:
+            if decision is not None and choice is not None:
+                tx.workflows.record_branch(
+                    RecordBranch(self._scope_id, self.generation, decision, choice, now)
+                )
+            tx.workflows.complete_step(
+                CompleteStep(
+                    scope_id=self._scope_id,
+                    generation=self._generation or 0,
+                    step_key=step_key(node, args_hash),
+                    now=now,
+                    status=status,
+                    result=stored if reusable else None,
+                    position=None if finished else (runnable[0] if runnable else None),
+                    scope_status=WalkState.COMPLETED if finished else WalkState.RUNNING,
+                    reusable=reusable,
+                    result_kind=kind,
+                    result_type=type_name,
+                    inputs=dict(inputs or {}),
                     # Recorded on the step, not looked up from the declaration
-                    # on resume (`durable-run-layer`/T9). A resume may happen in
-                    # another process against a declaration that has since
-                    # changed; what mattered is what the step *was* when it ran.
-                    # The record is the only witness to that.
-                    "effecting": self._graph.is_effecting(node),
-                },
+                    # on resume (`durable-run-layer`/T9): a resume may meet a
+                    # declaration that has since changed.
+                    effecting=self._graph.is_effecting(node),
+                )
             )
-
-            if self._graph.is_conditional(node):
-                choice = self._resolve_branch(node, choice)
-
-            successors = self._graph.successors(node, choice)
-            runnable = [n for n in successors if n != END]
-
-            if not successors or successors == [END]:
-                self._store.set_position(self._scope_id, None)
-                self._store.set_scope_status(self._scope_id, WalkState.COMPLETED)
-                return []
-
-            self._store.set_position(self._scope_id, runnable[0] if runnable else None)
-        return runnable
+        return [] if finished else runnable
 
     def block(
         self,
@@ -500,7 +523,9 @@ class FrontierWalk:
                     return candidate.payload
             return None
         # TRANSITIONAL(FUN-21): legacy deposits still answer from the document record.
-        return recorded_answer(self._store, self._scope_id, gate_name)
+        # TRANSITIONAL(FUN-21): the legacy deposit path, read through the port
+        # (ruling R-1) — an accepted candidate first, the deposited answer second.
+        return self._runtime_store.inputs.deposited_answer(self._scope_id, gate_name)
 
     # ------------------------------------------------------------------
     # Gate requests — the input port, one transaction unit per verb
@@ -608,24 +633,18 @@ class FrontierWalk:
         opened as. The status and the candidates it holds are the reader
         port's business; this is only how the question is addressed.
         """
-        scope = self._store.get_scope(self._scope_id)
-        gates = scope.get("gates") if scope is not None else None
-        if isinstance(gates, dict):
-            gate = gates.get(gate_name)
-            if isinstance(gate, dict):
-                stored = gate.get("request_id")
-                if isinstance(stored, str) and stored:
-                    return stored
+        request = self._runtime_store.inputs.for_gate(self._scope_id, gate_name)
+        if request is not None:
+            return request.request_id
         return f"{self._scope_id}::{gate_name}"
 
     def is_blocked(self) -> bool:
-        scope = self._store.get_scope(self._scope_id)
-        return bool(scope and scope.get("status") == WalkState.BLOCKED)
+        view = self.view()
+        return view is not None and view.status == WalkState.BLOCKED
 
-    def completed_steps(self) -> dict[str, Any]:
-        """Every step recorded in this scope (drives replay-skip)."""
-        scope = self._store.get_scope(self._scope_id)
-        return dict(scope.get("steps", {})) if scope else {}
+    def completed_steps(self) -> dict[str, StepView]:
+        """Every step recorded in this scope, by key (drives replay-skip)."""
+        return {view.step_key: view for view in self.steps()}
 
     def should_replay_skip(self, node: str, args_hash: str = "") -> bool:
         """True when this step already completed in this scope (§D.7d).
@@ -638,26 +657,98 @@ class FrontierWalk:
         that the day a second success-like outcome exists, it becomes
         replayable by a decision instead of by a comparison nobody re-read.
         """
-        record = self._store.get_step(self._scope_id, step_key(node, args_hash))
-        return bool(record and record.get("status") in TERMINAL_SUCCESS)
+        record = self.step(step_key(node, args_hash))
+        return record is not None and record.status in TERMINAL_SUCCESS
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
-    def _resolve_branch(self, node: str, choice: str | None) -> str | None:
-        """Return the branch to take, preferring the one already recorded.
+    # ------------------------------------------------------------------
+    # The walk's other reads and writes, through the port
+    #
+    # The walker and the runner write through these rather than reaching for a
+    # store: each command carries this walk's held generation, so the store's
+    # fence — not the caller — is what refuses a walk whose claim was taken.
+    # ------------------------------------------------------------------
 
-        Recording on first evaluation and *reading* on replay is what stops a
-        non-deterministic condition (a clock, a random, a changed file) from
-        moving a resumed walk onto a different branch than it paused on.
+    @property
+    def generation(self) -> int:
+        """The generation this walk holds, or 0 (fences nothing) before a claim."""
+        return self._generation or 0
+
+    def view(self) -> WorkflowView | None:
+        """The scope as a reader finds it — status, position, lease, digest."""
+        return self._runtime_store.workflows.workflow(self._scope_id)
+
+    def step(self, key: str) -> StepView | None:
+        """One step record of this scope, by its key."""
+        return self._runtime_store.workflows.step(self._scope_id, key)
+
+    def steps(self) -> Sequence[StepView]:
+        """Every step record of this scope."""
+        return self._runtime_store.workflows.steps(self._scope_id)
+
+    def branch(self, decision_key: str) -> str | None:
+        """The target recorded for ``decision_key``, or None."""
+        return self._runtime_store.workflows.branch(self._scope_id, decision_key)
+
+    def record_branch(self, decision_key: str, target: str) -> None:
+        """Record an immutable decision; the same target again is a replay."""
+        with self._runtime_store.transaction() as tx:
+            tx.workflows.record_branch(
+                RecordBranch(
+                    self._scope_id,
+                    self.generation,
+                    decision_key,
+                    target,
+                    datetime.now(UTC),
+                )
+            )
+
+    def record(
+        self,
+        key: str,
+        status: str,
+        *,
+        completed_at: datetime | None,
+        result: Any = None,
+        reusable: bool = False,
+        result_kind: str | None = None,
+        result_type: str | None = None,
+        inputs: Mapping[str, Any] | None = None,
+    ) -> None:
+        """A step record that moves neither position nor status.
+
+        ``completed_at`` is required (ruling R-2): ``None`` for a step that
+        never finished, so the store records no completion time for it.
         """
-        recorded = self._store.get_branch(self._scope_id, node)
-        if recorded is not None:
-            return recorded
-        if choice is not None:
-            self._store.record_branch(self._scope_id, node, choice)
-        return choice
+        with self._runtime_store.transaction() as tx:
+            tx.workflows.record_step(
+                RecordStep(
+                    self._scope_id,
+                    self.generation,
+                    key,
+                    datetime.now(UTC),
+                    completed_at,
+                    status=status,
+                    result=result if reusable else None,
+                    reusable=reusable,
+                    result_kind=result_kind,
+                    result_type=result_type,
+                    inputs=inputs,
+                )
+            )
+
+    def move(self, status: str, position: str | None) -> None:
+        """Set the scope's status and position with no step: a nested gate's
+        block, or END reached without a node completing."""
+        with self._runtime_store.transaction() as tx:
+            tx.workflows.move(
+                MoveScope(
+                    self._scope_id, self.generation, status, position, datetime.now(UTC)
+                )
+            )
 
 
 def step_key(job_name: str, args_hash: str = "") -> str:

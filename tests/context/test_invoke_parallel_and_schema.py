@@ -191,20 +191,18 @@ class TestInvokeParallel:
         assert results[0].status == RunStatus.SUCCESS
         assert results[0].return_value == "done"
 
-    def test_job_not_found_returns_failure(self) -> None:
-        """JobNotFoundError captured as FAILURE result."""
+    def test_job_not_found_raises_after_failure(self) -> None:
+        """A missing job fails the batch and retains its cause."""
         engine = MagicMock()
         engine.get_job.side_effect = JobNotFoundError("missing-job")
 
         rc, _ = make_run_context(execution_engine=engine)
-        results = rc.invoke_parallel([("missing-job", {})])
+        with pytest.raises(RuntimeError, match="missing-job.*Failure") as error:
+            rc.invoke_parallel([("missing-job", {})])
+        assert isinstance(error.value.__cause__, JobNotFoundError)
 
-        assert len(results) == 1
-        assert results[0].status == RunStatus.FAILURE
-        assert isinstance(results[0].exception, JobNotFoundError)
-
-    def test_recursion_limit_returns_failure(self) -> None:
-        """Exceeding max_invoke_depth returns FAILURE with RecursionLimitError."""
+    def test_recursion_limit_raises_after_failure(self) -> None:
+        """Exceeding max_invoke_depth fails the batch with its cause."""
         from functualize._engine.errors import RecursionLimitError
 
         engine = MagicMock()
@@ -212,14 +210,12 @@ class TestInvokeParallel:
         rc, _ = make_run_context(
             execution_engine=engine, invoke_depth=10, max_invoke_depth=10
         )
-        results = rc.invoke_parallel([("job", {})])
+        with pytest.raises(RuntimeError, match="job.*Failure") as error:
+            rc.invoke_parallel([("job", {})])
+        assert isinstance(error.value.__cause__, RecursionLimitError)
 
-        assert len(results) == 1
-        assert results[0].status == RunStatus.FAILURE
-        assert isinstance(results[0].exception, RecursionLimitError)
-
-    def test_exception_in_job_captured_without_interrupting_others(self) -> None:
-        """Unhandled exception in one job doesn't interrupt siblings."""
+    def test_exception_in_job_raises_after_siblings_finish(self) -> None:
+        """Unhandled exception fails the batch after siblings finish."""
         from functualize._engine.result import JobResult, RegisteredJob
 
         call_count = [0]
@@ -247,13 +243,11 @@ class TestInvokeParallel:
         engine.run.side_effect = mock_execute
 
         rc, _ = make_run_context(execution_engine=engine)
-        results = rc.invoke_parallel([("good1", {}), ("bad", {}), ("good2", {})])
-
-        assert len(results) == 3
-        assert results[0].status == RunStatus.SUCCESS
-        assert results[1].status == RunStatus.FAILURE
-        assert isinstance(results[1].exception, RuntimeError)
-        assert results[2].status == RunStatus.SUCCESS
+        with pytest.raises(RuntimeError, match="#2 'bad' \\(Failure\\)") as error:
+            rc.invoke_parallel([("good1", {}), ("bad", {}), ("good2", {})])
+        assert isinstance(error.value.__cause__, RuntimeError)
+        assert str(error.value.__cause__) == "boom"
+        assert call_count[0] == 3
 
     def test_32_jobs_accepted(self) -> None:
         """Exactly 32 jobs is within the valid range."""

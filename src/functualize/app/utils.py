@@ -153,6 +153,19 @@ from functualize.app._workflow_view import (
 from functualize.app.config import JobSources
 
 
+def selected_workflow_store(app: Any) -> Any:
+    """Use the selected runtime port for relational workflows.
+
+    Document projects retain their established scope helper while their
+    operator commands are migrated; a relational project must never consult
+    the document substrate for a workflow scope.
+    """
+    runtime_store = app.workflow_runtime_store()
+    if runtime_store.profile.name == "documents":
+        return ScopeStore(app.substrate)
+    return runtime_store
+
+
 def job_config_fields(app: Any, job_name: str) -> list[Any]:
     """A job's config as ``ResolvedField`` rows — the one resolution seam.
 

@@ -80,7 +80,7 @@ class TestClaimedKeepsTheFenceOn:
             return name
 
         report = WorkflowWalker(
-            _linear(), store, "s1", run_step=run_step, runtime_store=port_for(store)
+            _linear(), "s1", run_step=run_step, runtime_store=port_for(store)
         ).run()
 
         assert report.outcome is WalkOutcome.SUPERSEDED
@@ -100,7 +100,6 @@ class TestClaimedKeepsTheFenceOn:
         """
         report = WorkflowWalker(
             _linear(),
-            store,
             "s1",
             run_step=lambda name: name,
             runtime_store=port_for(store),
@@ -130,7 +129,6 @@ class TestConflictNeverStarts:
 
         report = WorkflowWalker(
             _linear(),
-            store,
             "s1",
             run_step=lambda name: ran.append(name),
             runtime_store=port_for(store),
@@ -170,7 +168,6 @@ class TestConflictNeverStarts:
 
         first = WorkflowWalker(
             _linear(),
-            store,
             "s1",
             run_step=first_step,
             runtime_store=port_for(store),
@@ -211,7 +208,6 @@ class TestConflictNeverStarts:
             other_store = ScopeStore(store.substrate)
             second = WorkflowWalker(
                 _linear(),
-                other_store,
                 "s1",
                 run_step=lambda name: second_steps.append(name),
                 runtime_store=port_for(other_store),
@@ -263,7 +259,6 @@ class TestConflictNeverStarts:
 
         first = WorkflowWalker(
             _linear(),
-            store,
             "s1",
             run_step=first_step,
             runtime_store=port_for(store),
@@ -291,7 +286,6 @@ class TestConflictNeverStarts:
             other_store = ScopeStore(store.substrate)
             second = WorkflowWalker(
                 _linear(),
-                other_store,
                 "s1",
                 run_step=lambda name: second_steps.append(name),
                 runtime_store=port_for(other_store),
@@ -319,7 +313,6 @@ class TestConflictNeverStarts:
         steps: list[str] = []
         walker = WorkflowWalker(
             _linear(),
-            store,
             "s1",
             run_step=lambda name: steps.append(name),
             runtime_store=port_for(store),

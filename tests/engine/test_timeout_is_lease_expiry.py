@@ -49,9 +49,7 @@ def store(tmp_path: Path) -> ScopeStore:
 
 
 def _walk(store: ScopeStore) -> FrontierWalk:
-    return FrontierWalk(
-        GraphModel(entry="n1"), store, "wf", runtime_store=port_for(store)
-    )
+    return FrontierWalk(GraphModel(entry="n1"), "wf", runtime_store=port_for(store))
 
 
 def _age_the_lease(store: ScopeStore, seconds: float, *, scope_id: str = "wf") -> None:
@@ -113,7 +111,6 @@ class TestSilenceIsWhatExpires:
             WorkflowDeclaration(
                 nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
             ),
-            store,
             "kept",
             run_step=run_step,
             runtime_store=port_for(store),
@@ -165,8 +162,10 @@ class TestSilenceIsWhatExpires:
 
         from functualize._primitives.lease import StaleGenerationError
 
+        # The walk's own next write, through the port with the generation it
+        # still holds, is what reports the takeover.
         with pytest.raises(StaleGenerationError):
-            store.record_step("wf", "n1", {"status": "success"})
+            walk.record("n1", "success", completed_at=None)
 
     def test_renewing_without_a_claim_is_harmless(self, store: ScopeStore) -> None:
         assert _walk(store).renew() is RenewalOutcome.NO_CLAIM
@@ -190,7 +189,10 @@ class TestSilenceIsWhatExpires:
         def fail_renewal(*args: object, **kwargs: object) -> None:
             raise OSError("storage unavailable")
 
-        monkeypatch.setattr(store, "renew_scope", fail_renewal)
+        # The walk renews through the port, which owns its own store over the
+        # shared substrate, so the failure is injected at the port boundary:
+        # the renewal transaction itself cannot reach storage.
+        monkeypatch.setattr(walk._runtime_store, "transaction", fail_renewal)  # noqa: SLF001
         assert walk.renew() is RenewalOutcome.TRANSIENT_ERROR
 
 
@@ -225,7 +227,6 @@ class TestTheWalkActuallyRenews:
 
         walker = WorkflowWalker(
             declaration,
-            store,
             "long-step",
             run_step=run_step,
             runtime_store=port_for(store),
@@ -275,7 +276,6 @@ class TestTheWalkActuallyRenews:
             WorkflowDeclaration(
                 nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
             ),
-            store,
             scope_id,
             run_step=run_step,
             runtime_store=port_for(store),
@@ -320,7 +320,6 @@ class TestTheWalkActuallyRenews:
             WorkflowDeclaration(
                 nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
             ),
-            store,
             "taken-step",
             run_step=run_step,
             runtime_store=port_for(store),
@@ -372,7 +371,6 @@ class TestTheWalkActuallyRenews:
         )
         WorkflowWalker(
             declaration,
-            store,
             "done",
             run_step=lambda name: name,
             runtime_store=port_for(store),

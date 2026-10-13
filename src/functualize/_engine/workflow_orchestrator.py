@@ -183,7 +183,6 @@ class WorkflowOrchestrator:
             )
 
         runner = WorkflowRunner(
-            self._engine._scope_store(),
             run_step=run_step,
             # The store boot selected, handed down to the walk's claim
             # (FUN-17/T14, R-14.1): the engine holds it, the orchestrator is

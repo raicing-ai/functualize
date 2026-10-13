@@ -53,9 +53,10 @@ def store(tmp_path: Path) -> ScopeStore:
 
 @pytest.fixture
 def bus(store: ScopeStore) -> EventBus:
-    """A bus with the walk log installed, writing to ``store``."""
+    """A bus with the walk log installed, writing to ``store``'s port."""
     b = EventBus()
-    install_walk_log(b, lambda: store)
+    runtime_store = port_for(store)
+    install_walk_log(b, lambda: runtime_store)
     return b
 
 
@@ -91,7 +92,6 @@ def _walk(
 ) -> Any:
     return WorkflowWalker(
         declaration or _line(),
-        store,
         scope_id,
         run_step=runner or _Runner(),
         emit=bus.emit if bus is not None else None,
@@ -100,7 +100,7 @@ def _walk(
 
 
 def _names(events: list[dict[str, Any]]) -> list[str]:
-    return [str(e["event"]).removeprefix("workflow.") for e in events]
+    return [str(e.get("type", "")).removeprefix("workflow.") for e in events]
 
 
 def _nodes(events: list[dict[str, Any]]) -> list[str]:
@@ -273,7 +273,7 @@ class TestTheWalkerEmits:
         outcomes = [
             (e.get("payload") or {}).get("outcome")
             for e in store.events_for("s1", after=before)
-            if e["event"] == "workflow.step.end"
+            if e.get("type") == "workflow.step.end"
         ]
         assert outcomes == ["replayed", "replayed"], outcomes
 
@@ -282,7 +282,7 @@ class TestTheWalkerEmits:
     ) -> None:
         _walk(store, bus, runner=_Runner("second"))
         end = store.events_for("s1")[-1]
-        assert end["event"] == "workflow.walk.end"
+        assert end["type"] == "workflow.walk.end"
         assert (end.get("payload") or {}).get("outcome") == "failed"
         assert (end.get("payload") or {}).get("node") == "second"
 
@@ -306,7 +306,7 @@ class TestTheWalkerEmits:
         passes = [
             (e.get("payload") or {}).get("iteration")
             for e in store.events_for("loop")
-            if e["event"] == "workflow.step.start"
+            if e.get("type") == "workflow.step.start"
         ]
         assert passes == [0, 1, 2], passes
 

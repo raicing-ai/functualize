@@ -666,6 +666,18 @@ class CrossAggregateRefusedError(Exception):
         )
 
 
+class RuntimeStoreSelectionError(Exception):
+    """Boot step 6.5 cannot select one runtime store from the configuration.
+
+    Raised for a scheme no registered factory serves, for two factories
+    claiming one scheme, and when nothing is configured but a registered
+    backend holds runtime data the default store would not see. **Uncaught**:
+    boot aborts rather than coming up on a store nobody chose. The message
+    names the setting to change and the remedy, because the reader's next
+    question is always which line of configuration to edit.
+    """
+
+
 class RuntimeStoreCapabilityError(Exception):
     """A required capability is absent from the selected store's profile.
 

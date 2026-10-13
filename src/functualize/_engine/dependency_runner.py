@@ -79,13 +79,10 @@ class DependencyRunner:
         the string: one answer means one *definition*, and a second consumer
         spelling the outcome itself is how the two drift apart.
         """
-        store = self._engine._scope_store()
-        if store is None:
-            return False
-        scope = store.get_scope(scope_id)
-        for key, record in ((scope or {}).get("steps") or {}).items():
-            if key.split("::", 1)[0] == node and isinstance(record, dict):
-                return bool(record.get("status") in TERMINAL_SUCCESS)
+        reader = self._engine._runtime_store.workflows
+        for step in reader.steps(scope_id):
+            if step.step_key.split("::", 1)[0] == node:
+                return step.status in TERMINAL_SUCCESS
         return False
 
     def run_for(
@@ -142,9 +139,10 @@ class DependencyRunner:
             # through. Reading the registry entry directly here worked cold and
             # failed warm with "dependencies failed"; naming the node and
             # letting the one entry resolve it is what makes that unrepeatable.
+            parent_request = getattr(context, "request", None)
             result = self._engine.run(
                 nested_request(
-                    getattr(context, "request", None),
+                    parent_request,
                     job_name=node,
                     surface="engine.dependency",
                     invoke_depth=invoke_depth + 1,
@@ -162,6 +160,20 @@ class DependencyRunner:
                     # recorded one cannot be reused, so freshness must not
                     # stand in for it (resolved Q19, T32b).
                     force_fresh=node in unreusable_upstreams,
+                    # A dependency is part of fulfilling the request that
+                    # carried the group flags, not a job reached by code that
+                    # might mean another path — so the group-CLI layer
+                    # travels to every upstream this run schedules, at any
+                    # depth (each node's request is built from this same
+                    # parent). Stated here rather than left to inherit:
+                    # `nested_request` still resets the field by default,
+                    # which is the boundary workflow steps and `rc.invoke`
+                    # children keep. `_resolve_group_options` scopes the map
+                    # to the fields each dependency's own class declares, so
+                    # a group the flags never named picks up nothing.
+                    group_option_values=getattr(
+                        parent_request, "group_option_values", None
+                    ),
                 )
             )
             # Keep the value of any upstream that just ran for this job's

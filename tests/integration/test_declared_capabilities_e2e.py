@@ -770,6 +770,39 @@ class TestInvokeHonoursDeclarations:
         assert got == ["artifact"], "a skipped-as-fresh job returned no value"
 
 
+class TestParallelChildFailure:
+    """A declared fan-out failure reaches the parent through the public app."""
+
+    def test_ignored_failed_child_fails_parent_after_siblings_finish(self) -> None:
+        completed: list[str] = []
+
+        @job
+        def first() -> None:
+            completed.append("first")
+
+        @job
+        def broken() -> None:
+            completed.append("broken")
+            raise ValueError("child failed")
+
+        @job
+        def last() -> None:
+            completed.append("last")
+
+        @job
+        def parent(rc: RunContext) -> None:
+            rc.invoke_parallel([("first", {}), ("broken", {}), ("last", {})])
+
+        result = _app(first=first, broken=broken, last=last, parent=parent).execute(
+            request_for("parent")
+        )
+
+        assert result.status is RunStatus.FAILURE
+        assert isinstance(result.exception, RuntimeError)
+        assert "#2 'broken' (Failure)" in str(result.exception)
+        assert set(completed) == {"first", "broken", "last"}
+
+
 class TestWorkflowFromJobIsARead:
     """Inside a workflow, `FromJob` reads the walk; it does not order (T31).
 
