@@ -175,7 +175,9 @@ class TestAGateCrossesTheProcessBoundary:
 
         shown = _run(second, "builtin", "workflow", "show", scope, "--format", "json")
         assert shown.returncode == 0, shown.stdout + shown.stderr
-        assert json.loads(shown.stdout)["current_position"] == "pause"
+        detail = json.loads(shown.stdout)
+        assert detail["current_position"] == "pause"
+        assert [gate["gate"] for gate in detail["pending_gates"]] == ["pause"]
 
         reclaimed = _run(second, "builtin", "workflow", "reclaim", scope)
         assert reclaimed.returncode == 0, reclaimed.stdout + reclaimed.stderr

@@ -304,22 +304,36 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
 
 ## Wave 5 — operator surfaces (needs D-W1; shown for D-W1 = a)
 
-- [ ] **W16** Workflow control reads and cancels through the port
+- [x] **W16** Workflow control reads and cancels through the port
       *Files:* `src/functualize/app/_workflow_control.py`, `src/functualize/app/_workflow_view.py`.
       *Do:* scope reads via `workflows.workflow` / `resumable` / `steps`; cancel via `CancelWorkflow`;
       reclaim via `ClaimWorkflow(force=True)` + `ReleaseLease`.
-- [ ] **W17** The CLI and its flags
+      Done (`54f2ac2c`): CLI and MCP operator calls reach the selected workflow
+      readers and fenced writers. The SQLite operator test lists, shows,
+      reclaims and cancels a scope from another project directory. Replacing
+      the CLI selection with `ScopeStore(app.substrate)` made its listing
+      assertion fail (`[]`); restored, the test passed.
+- [x] **W17** The CLI and its flags
       *Files:* `src/functualize/_cli/builtins.py` (the workflow verbs only), `src/functualize/app/adapters/workflow_flags.py`, `tests/integration/test_substrate_durability.py`.
       *Do:* once `--wf-resume` reads the scope through the port, remove the two
       per-test strict xfail markers and run both process-boundary cases green.
       *Note:* `_cli/` may import only public API, so it reads through a public app method that
       wraps the port — add it to `functualize.app` if absent, and record it in `contracts.md`.
-- [ ] **W18** The MCP workflow tools
+      Done (`54f2ac2c`): both process-boundary resume tests now pass without
+      xfail, including the accepted gate candidate and scope state in SQLite.
+      The public app method and its operator helper are recorded in
+      `contracts.md`; the CLI listing sabotage above proves the selected
+      store call is reached.
+- [x] **W18** The MCP workflow tools
       *Files:* `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py` and its tests.
       *Gate (W16–W18):* on SQLite, a walk parked at a gate is listed, shown, cancelled and reclaimed
       by `func builtin workflow …` and the MCP tools; on documents, unchanged.
       *Call path:* the CLI verb / MCP tool itself. *Sabotage:* restore one `ScopeStore(app.substrate)`
       read → the SQLite listing test sees nothing.
+      Done (`54f2ac2c`): MCP list/show/reclaim/cancel use the same selected
+      store. Restoring `ScopeStore(app.substrate)` inside the provider made
+      `test_sqlite_operator_tools_use_the_selected_runtime_store` fail with
+      `[]` instead of `['sql-run']`; restored, it passed.
       If D-W1 = b, these three become: refuse the verb on a non-document store with a named error
       and a test; if c, they are dropped and the CHANGELOG states the limitation.
 

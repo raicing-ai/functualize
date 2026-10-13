@@ -139,6 +139,7 @@ async def test_sqlite_operator_tools_use_the_selected_runtime_store() -> None:
     assert [item["workflow_id"] for item in listing["workflows"]] == ["sql-run"]
     shown = await provider._get_workflow_state("sql-run")
     assert shown["current_position"] == "preferences"
+    assert [gate["gate"] for gate in shown["pending_gates"]] == ["preferences"]
     assert shown["results"]["forecast"]["return_value"] == "sunny"
 
     reclaimed = await provider._reclaim_workflow("sql-run")
