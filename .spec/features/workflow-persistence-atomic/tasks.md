@@ -354,13 +354,21 @@ PLUGIN_TESTS = `plugins/substrates/functualize-substrate-sqlite/tests/`.
 
 ## Wave 7 — pre-merge (not implementation)
 
-- [ ] **W20** Clear this feature for the merge
+- [x] **W20** Clear this feature for the merge
       *Do:* migrate the durable half (the new commands' rationale) to `contributor/reference/` or an
       ADR; then, as the deletion-only **last** commit, `git rm -r .spec/features/workflow-persistence-atomic`.
       *Gate:* `spec-artifacts-cleared` green after the two-push sequence
       (`.claude/rules/spec-workflow.md` → *Version control lifecycle*); PR title and body carry no
       tracker key; the tip tier (`HYPOTHESIS_PROFILE=ci uv run pytest --run-slow -n auto -q`) has no
       failure that is ours.
+      *Done (`eb369a04`):* the durable half is
+      `contributor/adr/033-the-walks-scope-io-goes-through-the-selected-store.md` — why a walk's scope
+      reads and writes are the selected store's, the failure that motivated it, the boundary this work
+      did not cross and the alternatives — carried by `.spec/STATUS.md`'s row and section and by the
+      data-model reference's pointer to it. `origin/master` is merged first (one conflict, in
+      `CHANGELOG.md`, both sides kept) because the pull request is otherwise unmergeable and no check
+      runs on it. The deletion is this branch's last commit, pushed once the merge's validation jobs
+      are green, so the required `spec-artifacts-cleared` has an all-green parent to read.
 
 ## Task Dependency Graph
 
