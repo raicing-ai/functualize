@@ -48,7 +48,6 @@ class TestFrontierWritesOncePerCall:
     def test_block_writes_once_not_three_times(self, tmp_path, counting_saves):
         walk = FrontierWalk(
             LINEAR_GRAPH,
-            ScopeStore(JsonFileSubstrate(tmp_path)),
             "s1",
             runtime_store=port_for(ScopeStore(JsonFileSubstrate(tmp_path))),
         )
@@ -64,7 +63,6 @@ class TestFrontierWritesOncePerCall:
     def test_start_writes_once(self, tmp_path, counting_saves):
         walk = FrontierWalk(
             LINEAR_GRAPH,
-            ScopeStore(JsonFileSubstrate(tmp_path)),
             "s1",
             runtime_store=port_for(ScopeStore(JsonFileSubstrate(tmp_path))),
         )
@@ -81,7 +79,7 @@ class TestOutcomeIsUnchanged:
 
     def test_block_records_the_same_thing_it_always_did(self, tmp_path):
         store = ScopeStore(JsonFileSubstrate(tmp_path))
-        walk = FrontierWalk(LINEAR_GRAPH, store, "s1", runtime_store=port_for(store))
+        walk = FrontierWalk(LINEAR_GRAPH, "s1", runtime_store=port_for(store))
 
         walk.start("release")
         walk.block("approve", "approve_gate", model="gpt", input_schema={"a": 1})

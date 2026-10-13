@@ -40,7 +40,6 @@ from functualize.app.utils import (
 )
 from functualize.app.utils import (
     RUN_STATES,
-    ScopeStore,
     answer_gate,
     call_gate_tool,
     cancel_scope,
@@ -157,19 +156,31 @@ class WorkflowToolProvider:
         self,
         app: PluginHost,
         *,
-        store: ScopeStore | None = None,
+        store: Any | None = None,
         run_store: Any | None = None,
     ) -> None:
         self._app = app
         self._store = store
+        self._operator_store = store
         self._run_store = run_store
 
     @property
-    def store(self) -> ScopeStore:
-        """The scope store, resolved from the cwd on first use."""
+    def store(self) -> Any:
+        """The legacy scope helper for tools outside the operator slice."""
         if self._store is None:
+            from functualize.app.utils import ScopeStore
+
             self._store = ScopeStore(self._app.substrate)
         return self._store
+
+    @property
+    def operator_store(self) -> Any:
+        """The selected store for list, show, cancel and reclaim."""
+        if self._operator_store is None:
+            from functualize.app.utils import selected_workflow_store
+
+            self._operator_store = selected_workflow_store(self._app)
+        return self._operator_store
 
     @property
     def run_store(self) -> Any:
@@ -212,7 +223,7 @@ class WorkflowToolProvider:
 
     @_refuse_unreadable_scopes
     async def _get_workflow_state(self, workflow_id: str) -> dict[str, Any]:
-        view = describe_scope(self._app, self.store, workflow_id)
+        view = describe_scope(self._app, self.operator_store, workflow_id)
         if view is None:
             return _error("workflow_not_found", f"No workflow scope '{workflow_id}'.")
         return view
@@ -272,7 +283,7 @@ class WorkflowToolProvider:
         return {
             "workflows": list_scopes(
                 self._app,
-                self.store,
+                self.operator_store,
                 workflow_name=workflow_name,
                 state=state,
                 blocked_on=blocked_on,
@@ -505,7 +516,7 @@ class WorkflowToolProvider:
 
     @_refuse_unreadable_scopes
     async def _cancel_workflow(self, workflow_id: str) -> dict[str, Any]:
-        return cancel_scope(self.store, workflow_id)
+        return cancel_scope(self.operator_store, workflow_id)
 
     _cancel_workflow.__name__ = "cancel_workflow"
     _cancel_workflow.__qualname__ = "cancel_workflow"
@@ -542,7 +553,7 @@ class WorkflowToolProvider:
     async def _reclaim_workflow(self, workflow_id: str) -> dict[str, Any]:
         from functualize.app.utils import reclaim_scope
 
-        return reclaim_scope(self.store, workflow_id)
+        return reclaim_scope(self.operator_store, workflow_id)
 
     _reclaim_workflow.__name__ = "reclaim_workflow"
     _reclaim_workflow.__qualname__ = "reclaim_workflow"

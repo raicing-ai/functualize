@@ -35,14 +35,25 @@ one "for compatibility" would reintroduce it.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from functualize._engine.capabilities.spec import CapabilitySpec
+from functualize._types.persistence import StateBatch
 
 if TYPE_CHECKING:
     from functualize._primitives.scope_store import ScopeStore
+    from functualize._types.persistence import RuntimeStore
 
-__all__ = ["ScopeBackedStateStore", "State", "StateUnavailableError"]
+__all__ = [
+    "PortBackedState",
+    "ScopeBackedStateStore",
+    "State",
+    "StateUnavailableError",
+    "state_for_scope",
+]
 
 
 class StateUnavailableError(RuntimeError):
@@ -147,6 +158,150 @@ class ScopeBackedStateStore:
         return self._scopes.state_batch(self._scope_id)
 
 
+class PortBackedState:
+    """A walk step's `State` backend: `StateBatch` in, `state()` out.
+
+    Built only for a scope carrying a walk generation (`WorkflowScope.generation`
+    while a walk holds it). Every write is a `StateBatch` under that generation
+    through the port — the same command the fence speaks, so a write from a walk
+    whose lease was superseded matches no row instead of clobbering the new
+    holder's state. Reads are `WorkflowReader.state`: one snapshot per call,
+    merged with what a `batch()` block has buffered but not yet written.
+
+    A mutation outside `batch()` is its own `StateBatch` — one write per call,
+    which is what `ScopeBackedStateStore` does today and why an unbatched
+    sequence stays durable per call rather than per block.
+
+    `ScopeBackedStateStore` stays the backend for a scope with no walk
+    generation: non-walk state is outside the change (spec §3).
+    """
+
+    __slots__ = (
+        "_store",
+        "_scope_id",
+        "_generation",
+        "_upserts",
+        "_deletes",
+        "_cleared",
+        "_depth",
+        "_tmp",
+    )
+
+    def __init__(self, store: RuntimeStore, scope_id: str, generation: int) -> None:
+        self._store = store
+        self._scope_id = scope_id
+        self._generation = generation
+        self._upserts: dict[str, Any] = {}
+        self._deletes: set[str] = set()
+        self._cleared = False
+        self._depth = 0
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._read().get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        """Store ``value``, refusing anything that cannot reach the store.
+
+        Validated here, like `ScopeBackedStateStore.set` — the check runs
+        before the write so the traceback names the offending call while it is
+        still on the stack.
+        """
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                f"state value for {key!r} is not JSON-serializable: {exc}"
+            ) from exc
+        if self._depth:
+            self._upserts[key] = value
+            self._deletes.discard(key)
+        else:
+            self._write({key: value}, ())
+
+    def delete(self, key: str) -> None:
+        if self._depth:
+            self._upserts.pop(key, None)
+            self._deletes.add(key)
+        else:
+            self._write({}, (key,))
+
+    def keys(self) -> list[str]:
+        return list(self._read().keys())
+
+    def to_dict(self) -> dict[str, Any]:
+        return self._read()
+
+    def clear(self) -> None:
+        if self._depth:
+            self._cleared = True
+            self._upserts.clear()
+            self._deletes.clear()
+            return
+        names = tuple(self._store.workflows.state(self._scope_id))
+        if names:
+            self._write({}, names)
+
+    @contextmanager
+    def batch(self) -> Iterator[None]:
+        """Buffer the block's writes into one `StateBatch`, written at the end.
+
+        An exception inside the block discards the block's writes rather than
+        persisting some of them — the same contract `ScopeStore.state_batch`
+        gives on documents. Nested blocks join the outer one.
+        """
+        self._depth += 1
+        try:
+            yield
+        except BaseException:
+            self._depth -= 1
+            if self._depth == 0:
+                self._upserts.clear()
+                self._deletes.clear()
+                self._cleared = False
+            raise
+        else:
+            self._depth -= 1
+            if self._depth == 0:
+                self._flush()
+
+    def _write(self, upserts: dict[str, Any], deletes: tuple[str, ...]) -> None:
+        with self._store.transaction() as tx:
+            tx.workflows.write_state(
+                StateBatch(
+                    self._scope_id,
+                    self._generation,
+                    datetime.now(UTC),
+                    upserts,
+                    deletes,
+                )
+            )
+
+    def _flush(self) -> None:
+        deletes = self._deletes
+        if self._cleared:
+            live = self._store.workflows.state(self._scope_id)
+            deletes = deletes | {name for name in live if name not in self._upserts}
+        if not self._upserts and not deletes:
+            self._cleared = False
+            return
+        # The mapping is copied on hand-over and cleared after: `StateBatch`
+        # buffers until the transaction commits, and a caller that kept the
+        # same dict would change what commits.
+        self._write(dict(self._upserts), tuple(deletes))
+        self._upserts.clear()
+        self._deletes.clear()
+        self._cleared = False
+
+    def _read(self) -> dict[str, Any]:
+        base = dict(self._store.workflows.state(self._scope_id))
+        if self._cleared:
+            base.clear()
+        for name in self._deletes:
+            base.pop(name, None)
+        base.update(self._upserts)
+        return base
+
+
 class State:
     """A run's key-value store, shared by every job in the run.
 
@@ -168,10 +323,10 @@ class State:
 
     __slots__ = ("_backend",)
 
-    def __init__(self, backend: ScopeBackedStateStore | None) -> None:
+    def __init__(self, backend: ScopeBackedStateStore | PortBackedState | None) -> None:
         self._backend = backend
 
-    def _bound(self) -> ScopeBackedStateStore:
+    def _bound(self) -> ScopeBackedStateStore | PortBackedState:
         if self._backend is None:
             raise StateUnavailableError(
                 "State has no backing store. Every run the engine starts has a "
@@ -272,6 +427,28 @@ CAPABILITY = CapabilitySpec(
 )
 
 
+def state_for_scope(scope: Any, engine: Any = None) -> State:
+    """One `State` for this scope, through whichever door asked (ADR-021).
+
+    A scope carrying a walk generation — set by the walk after its claim,
+    cleared at release — gets a `PortBackedState`: `StateBatch` under the held
+    generation, read back through `WorkflowReader.state`. A scope with no walk
+    generation keeps `ScopeBackedStateStore` (spec §3: non-walk state is
+    outside the change).
+
+    `engine` is the run's execution engine, for the selected port; a scope
+    carrying a generation but no engine (a context built by hand without one)
+    keeps the document-backed store rather than losing the write.
+    """
+    if scope is None:
+        return State(None)
+    generation = getattr(scope, "generation", None)
+    store = getattr(engine, "_runtime_store", None)
+    if generation is not None and store is not None:
+        return State(PortBackedState(store, scope.scope_id, generation))
+    return State(scope.state_store)
+
+
 def _make_state(ctx: Any) -> State:
     """Bind `State` to the run's scope.
 
@@ -279,7 +456,6 @@ def _make_state(ctx: Any) -> State:
     all reach one object — which is what makes state travel across a workflow
     instead of evaporating per job.
     """
-    scope = getattr(ctx.context, "parent_scope", None)
-    if scope is None:
-        return State(None)
-    return State(scope.state_store)
+    return state_for_scope(
+        getattr(ctx.context, "parent_scope", None), getattr(ctx, "engine", None)
+    )

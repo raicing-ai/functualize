@@ -128,7 +128,6 @@ class TestTheRuleIsInTheDigest:
 
         walker = WorkflowWalker(
             loosened,
-            store,
             "wf",
             run_step=lambda name: name,
             runtime_store=port_for(store),

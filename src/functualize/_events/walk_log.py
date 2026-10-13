@@ -43,7 +43,10 @@ this, which is what every walker test does today.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+
+from functualize._types.persistence import StateBatch
 
 if TYPE_CHECKING:
     from functualize._events.bus import EventBus, StructuredEvent
@@ -71,10 +74,10 @@ class WalkLogSubscriber:
     def __init__(self, store_for: Any) -> None:
         """
         Args:
-            store_for: Called with no arguments for the `ScopeStore` to write
-                to. A callable rather than a store, for `run_log`'s reason: the
-                store resolves from the engine's substrate and this object
-                outlives any one walk.
+            store_for: Called with no arguments for the `RuntimeStore` to write
+                through. A callable rather than a store, for `run_log`'s
+                reason: the store resolves from the engine's substrate and
+                this object outlives any one walk.
         """
         self._store_for = store_for
 
@@ -96,15 +99,21 @@ class WalkLogSubscriber:
             return
         try:
             payload = {k: v for k, v in event.payload.items() if k != "scope_id"}
-            self._store_for().append_event(
-                scope_id,
-                {
-                    "event": event.event_name,
-                    "resource": event.resource,
-                    "at": event.timestamp,
-                    "payload": payload,
-                },
-            )
+            with self._store_for().transaction() as tx:
+                # The port routes a scope event by the unit's one scope —
+                # `EventWriter` appends to a run's log when a run is named and
+                # to the log of the scope this unit wrote otherwise — so the
+                # unit names its scope: an empty state write is the one
+                # command that is scope-affine and writes nothing (generation
+                # 0 fences nothing; both writers ignore an empty batch).
+                tx.workflows.write_state(
+                    StateBatch(scope_id, 0, datetime.now(UTC), {}, ())
+                )
+                tx.events.append(
+                    event.event_name,
+                    {"resource": event.resource, **payload},
+                    run_id=None,
+                )
         except Exception:  # noqa: BLE001 - an observation never disturbs a walk
             logger.debug("could not append a walk event", exc_info=True)
 
