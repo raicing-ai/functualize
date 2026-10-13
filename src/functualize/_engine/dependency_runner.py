@@ -79,13 +79,10 @@ class DependencyRunner:
         the string: one answer means one *definition*, and a second consumer
         spelling the outcome itself is how the two drift apart.
         """
-        store = self._engine._scope_store()
-        if store is None:
-            return False
-        scope = store.get_scope(scope_id)
-        for key, record in ((scope or {}).get("steps") or {}).items():
-            if key.split("::", 1)[0] == node and isinstance(record, dict):
-                return bool(record.get("status") in TERMINAL_SUCCESS)
+        reader = self._engine._runtime_store.workflows
+        for step in reader.steps(scope_id):
+            if step.step_key.split("::", 1)[0] == node:
+                return step.status in TERMINAL_SUCCESS
         return False
 
     def run_for(

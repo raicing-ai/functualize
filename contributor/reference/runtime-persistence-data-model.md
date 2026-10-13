@@ -1,8 +1,10 @@
 # Runtime Persistence Data Model Reference
 
 **Audience:** contributors working on runtime storage, the persistence ports, or workflow resumption.
-**Status:** the state machines are the rule and the two stored writers enforce them; the normalized
-tables and the SQL that will carry them are still the target.
+**Status:** the state machines are the rule and the stored writers enforce them; the normalized
+tables and the SQL that carry them **landed** in the relational provider (`sqlite-runtime-provider`,
+revision `0001`), and the `sqlite` store remains an opt-in selection (`runtime_store.url`) beside the
+built-in document backend.
 
 Migrated from the data-model chapter of the `runtime-persistence-engine-owned` research study
 (`06-data-model.md`, written 2026-09-24 at commit `93ecd18`). That research tree does not reach
@@ -13,14 +15,16 @@ Migrated from the data-model chapter of the `runtime-persistence-engine-owned` r
 evictable sets are data (`_types/lifecycle.py`, no logic), `_primitives/transitions.py` refuses a
 pair no table carries, and every stored writer calls it — `ScopeStore.set_scope_status` (`SCOPE`),
 `RunStore.open_run` for the run's creation edge, and `RunStore.close_run` (`RUN`) for its moves. §2's
-tables and the SQL in §5 are the target: the names a normalized schema will use, the DDL contract,
-and the retention statement's semantics. What FUN-17 landed is the vocabulary and the ports that
-carry them (`_types/persistence.py`), the honest `StoreProfile` of today's document backend
-(`_primitives/document_store.py`), and the first transition that goes
-through the port — the walk's claim. FUN-18 landed the machines, the check and the retention policy;
-FUN-19 owns the tables, the migration runner and the relational retention statement. Anything below
-that reads as present tense has been re-read against the tree at `1a0a679`; a still-forward-looking
-item says so.
+tables are no longer a target: revision `0001` creates them name for name, and §5's fence is the
+predicate the relational writer actually runs (`_transaction.py`'s `fence_sql`). What FUN-17 landed is
+the vocabulary and the ports that
+carry them (`_types/persistence.py`), the honest `StoreProfile` of the document backend
+(`_primitives/document_store.py`), and the first transition that went
+through the port — the walk's claim, which since FUN-19 is one of the walk's own commands rather than
+the only one (`contributor/adr/033-the-walks-scope-io-goes-through-the-selected-store.md`). FUN-18 landed the machines, the check and the retention policy;
+FUN-19 landed the tables, the migration runner and the relational retention statement (§7, §6).
+Anything below that reads as present tense has been re-read against the tree at `3110c6ae`; a
+still-forward-looking item says so.
 
 ## 1. State machines, before any table
 
@@ -66,15 +70,17 @@ what makes "how many times did this fail before it worked" answerable, which it 
 one. **Forward-looking:** nothing renders an attempt sequence yet — `Attempt` is vocabulary, and
 what a twice-failed-then-succeeded run shows a user is D-6, which needs its own ADR.
 
-**Δ from this chapter's own tables: the `attempt` machine has no stored writer.** `Attempt` is a
+**Δ from this chapter's own tables: the document backend stores no attempt row.** `Attempt` is a
 port value and `FinishAttempt` a command, but the document backend's `finish_attempt`
 (`_primitives/document_store.py:464-465`) appends the command and writes no attempt row, and no run
 record carries an independent one. The nested `attempts[].status` such a run log does hold
 (`_primitives/document_store.py:932`, `:959-970`) is not that row: `FinishAttempt.status` speaks the
 run-outcome vocabulary (`running`, `success`) while `ATTEMPT` is `succeeded`, so the nested value
 records what the run ended as, and `_finish_attempt` never transitions the attempt machine.
-`ATTEMPT` is therefore enforced where the relational writer lands, and until then
-it is exercised directly by `tests/primitives/test_transitions.py`.
+`ATTEMPT` is enforced by the relational writer — `_run_sql.py` calls
+`require_transition(ATTEMPT, …)` on the opening edge (`:84`) and again when an attempt settles
+(`:138`, `:151`) — while the document backend writes no attempt row at all, so there the machine is
+exercised directly by `tests/primitives/test_transitions.py`.
 
 ### 1.2 Run
 
@@ -198,8 +204,9 @@ Two things that table settles which the code used to leave open, and where each 
   (`_primitives/scope_store.py:415-421`) reads the current value inside the batch it is writing and
   assigns `require_transition(SCOPE, scope["status"], status)`, so a `completed` scope can only go to
   `completed` or back to `running` (the retry edge) — not to `failed`, `blocked` or `cancelled`.
-  The lease predicate that makes the *generation* arm structural is still FUN-19's tables; what
-  landed here is the pair rule.
+  What the pair rule does not check is the *generation*: that arm is structural in the relational
+  store, where every `scope_state` statement carries the fence (`_transaction.py`'s `fence_sql`
+  sub-selects the parent `workflow_scopes.lease_generation`).
 - **Cancel requires the generation or an explicit force.** **Landed in behaviour (FUN-17/T16):** the
   cancel takes its claim with `force=True` and the claim is deliberately uncaught
   (`app/_workflow_control.py:421-437`), so a claim that fails propagates and the cancel is
@@ -224,8 +231,9 @@ gets reintroduced.
 **Δ — this status is derived, never stored.** In the document backend there is no request row: the
 gate→`InputRequest` projection reads `consumed_at` for `consumed`, an accepted
 candidate or legacy deposited payload for `accepted`, and `open` otherwise —
-`cancelled` and `expired` have no document shape yet. So `INPUT_REQUEST` is
-enforced where the relational writer lands, and until then it is exercised directly by
+`cancelled` and `expired` have no document shape yet. So `INPUT_REQUEST` is not yet
+enforced by a stored writer — the relational writer guards the request's `status` directly rather
+than calling `require_transition(INPUT_REQUEST, …)` — and the machine is exercised directly by
 `tests/primitives/test_transitions.py`. What the `(None, "open")` edge means for a legacy record is
 deliberate: absent is a state, so an unstatused gate record cannot jump to `consumed` without passing
 through `open`.
@@ -243,7 +251,8 @@ guard. The durable interaction slice will replace this nested representation.
 
 ## 2. Schema
 
-Names are conceptual; FUN-18 may shorten them. **Constraints and ownership are the contract.**
+These are the shipped names: revision `0001` creates exactly these tables, column for column.
+**Constraints and ownership are the contract.**
 
 ### 2.1 Runtime identity
 
@@ -281,9 +290,11 @@ group.
 | `scope_state` | scope_id, key, value JSON, version, updated_at | unique (scope_id, key); **every write carries the fence** |
 | `scope_events` | scope_id, seq, type, payload JSON, occurred_at, run_id | unique (scope_id, seq); append only |
 
-**`scope_state` is where a fenced write becomes structural.** Today it is a separate JSON document
-with no generation column and no predicate; as a table whose predicate carries the held generation,
-the stale writer's `UPDATE` matches zero rows and cannot be forgotten by a future contributor. That
+**`scope_state` is where a fenced write becomes structural.** In the document backend it is still a
+separate JSON document with no generation column and no predicate; in the relational store it is the
+table above, and every statement against it carries the held generation
+(`_workflow_sql.py:294-315`), so the stale writer's write matches zero rows and cannot be forgotten
+by a future contributor. That
 is the same reasoning the document backend already uses at its single fencing point — one
 `_mutate` seam, and `write(..., expect=revision)` on every write regardless of any local hold
 (`_primitives/scope_store.py`).
@@ -306,9 +317,10 @@ readable as its own candidate. The legacy direct payload helper is the remaining
 
 **Landed at the port on the document backend:** `InputRequest` carries request identity,
 `InputWriter` appends candidates with recorded evaluations, and the walk is the single writer of
-consumption. Their current representation is nested under each gate in `scopes.json`; the
-`input_requests` and `input_candidates` tables above remain pending the durable schema and
-interaction work. `EffectWriter` carries the intended effect shape, and
+consumption. Their representation on the document backend is nested under each gate in `scopes.json`; the
+`input_requests` and `input_candidates` tables above exist in the relational store (revision `0001`,
+written by `_run_sql.py`), so what is still pending is the document backend catching up, not the
+schema. `EffectWriter` carries the intended effect shape, and
 `EffectWriter` says plainly that recording the intent is all that happens inside the transaction —
 claiming a row, calling the provider and acknowledging the result run outside it. The document
 backend declares `durable_outbox=False`, so its `EffectWriter.append` **refuses with**
@@ -348,6 +360,18 @@ no transaction open.
 | lease renewal | conditional generation/owner update | — |
 | dispatch effect | claim one outbox row | the provider call |
 | acknowledge effect | published_at / last_error / next attempt | — |
+
+**The walk's transitions are landed.** A workflow walk issues every one of its writes as a port
+command on the selected store (`workflow-persistence-atomic`; the reasoning is ADR-033): `StartWalk` on entry, `CompleteStep`
+for a node (with its first-time branch as `RecordBranch` in the same unit), `RecordStep` for a
+step record that moves nothing (a step timed out on takeover, a failure routed onward, the body's
+return value under `EPILOGUE_STEP_KEY`), `MoveScope` for a status and position with no step,
+`RenewLease` / `ReleaseLease` for the lease, `StateBatch` for `State` inside a step, and
+`EventWriter.append` for the walk log. It reads back through `WorkflowReader` (`workflow`,
+`step`, `steps`, `branch`, `state`) and `InputReader` (`for_gate`, and the `TRANSITIONAL(FUN-21)`
+`deposited_answer`). No module under `_engine/` reaches the legacy `ScopeStore` outside the four
+allowlisted non-walk sites, which `tests/spec/test_the_walk_writes_only_through_the_port.py`
+holds. Effect dispatch and acknowledgement remain FUN-21's.
 
 **Consumption is a write on the live path.** `GateService.service` calls
 `FrontierWalk.consume`, which issues `tx.inputs.consume(ConsumeInput(...))`;
@@ -454,13 +478,15 @@ Two more consequences:
 - **Migration.** Records already evicted are gone. An import must report what it found rather than
   implying completeness, and a cutover's "verify counts" step must compare against the source's
   *current* contents, not a user's expectation.
-- **Target behaviour.** In a relational store the cap becomes an explicit retention policy — age and
-  count, applied to evictable rows by a maintenance operation — not an eviction that runs inside
-  every write. Writing a step record should not be able to delete someone else's run. Concretely: the
-  statement deletes evictable `workflow_scopes` rows and terminal `runs` rows beyond the count or
-  older than `max_age` (using the scope's `terminal_at`), cascading children; it never touches a
-  `running` or `blocked` scope, and never runs inside a step write. It is `sqlite-runtime-provider`'s
-  (D3 = B), which is why the policy carries `max_age` before anything reads it.
+- **Landed.** In the relational store the cap is an explicit retention policy — age and
+  count, applied to evictable rows by a maintenance pass — not an eviction that runs inside
+  every write. Writing a step record cannot delete someone else's run. Concretely:
+  `_retention.py`'s `apply_retention` deletes evictable `workflow_scopes` rows and absorbing `runs`
+  rows beyond the count or older than `max_age` (the scope's `terminal_at`, the run's `ended_at`),
+  cascading children in one batch; it never touches a `running` or `blocked` scope, and no step writer
+  calls it. `sqlite-runtime-provider` (D3 = B) landed it as one pass at boot (step 6.5) with the
+  default policy — `max_records=500`, `evictable_only=True`, and `max_age=None`, the age arm being the
+  reason the policy carries `max_age` before anything reads it.
 
 Deletion rules:
 
@@ -471,6 +497,9 @@ Deletion rules:
 
 ## 7. Migration discipline
 
+These are the rules the shipped runner implements — `_migrations.py` in `functualize-substrate-sqlite`,
+whose `tests/test_migrations.py` is the evidence for each refusal below:
+
 - Ordered, checksummed, idempotent at the runner level, serialized by a lock. A revision is
   `(version: int, name: str, sql: str)` and its checksum is `sha256(sql)`.
 - Each revision applies in its own transaction — or its own batch, on a substrate with no `BEGIN` —
@@ -480,18 +509,23 @@ Deletion rules:
 - Run during boot step 6.5, **before any job can execute** — which is possible because selection now
   happens before engine construction (ADR-027, landed).
 - A partially applied revision is a **boot refusal with repair steps**, never a silent continue.
-- Tests start from every supported historical schema, not only an empty database.
+- Tests start from every supported historical schema, not only an empty database — today that is
+  empty → `0001` plus the refusal cases in `tests/test_migrations.py`; the rule binds a second
+  revision.
 - `create_all()` is acceptable only for a brand-new empty database. It is not an upgrade mechanism —
   which is precisely the defect `CREATE TABLE IF NOT EXISTS` produced in the substrate plugin.
 - Revision `0001` is the one that creates the schema; every later revision is an ordered upgrade, and
   the runner **refuses** on a checksum mismatch, a gap in the sequence, or a database ahead of the
   code — it never repairs by guessing.
 
-**Forward-looking:** the document backend declares `versioned_migrations=False` and has no schema
-version at all, so none of the above runs today. The runner arrives with FUN-19's tables, in the
-relational provider (`sqlite-runtime-provider`), which owns the DDL, revision `0001` and the
-relational retention statement. What this chapter keeps is the contract those have to satisfy — the
-list above — and the tables in §2 that the DDL has to match.
+**Landed.** The runner exists in the relational provider (`sqlite-runtime-provider`): revision `0001`
+(`_schema/0001_runtime_schema.sql`, frozen and checksummed) creates the schema, `migrate()` applies it
+during boot step 6.5 before the store is built or a job can run, and it refuses on a checksum
+mismatch, a gap in the sequence, a database ahead of the code, runtime tables with no ledger, and
+partial state. The document backend still declares `versioned_migrations=False` and has no schema
+version at all, so none of the above runs for it — it remains the built-in store when no
+`runtime_store.url` is configured. What §2's tables and the list above were waiting for is therefore
+here, and the discipline binds every later revision in the relational provider.
 
 ## See also
 
@@ -502,4 +536,5 @@ list above — and the tables in §2 that the DDL has to match.
 - [`substrate-capability-matrix.md`](substrate-capability-matrix.md) — the measurements the profile
   fields are read from.
 - `contributor/adr/025-engine-owns-transition-meaning.md`, `026-persistence-ports-need-no-new-layer.md`,
-  `027-engine-construction-moves-after-config.md`, `028-storage-is-pluggable-execution-is-not.md`.
+  `027-engine-construction-moves-after-config.md`, `028-storage-is-pluggable-execution-is-not.md`,
+  `033-the-walks-scope-io-goes-through-the-selected-store.md`.

@@ -123,7 +123,6 @@ def _walk(
 
     return WorkflowWalker(
         declaration,
-        store,
         scope_id,
         run_step=run_step,
         notifiers=registry,
@@ -380,7 +379,6 @@ class TestTheRunnerRefusesBeforeTheWalk:
         from functualize._engine.workflow_runner import WorkflowRunner
 
         runner = WorkflowRunner(
-            store,
             run_step=lambda name: name,
             scope_id="s1",
             notifiers=NotifierRegistry(),
@@ -395,7 +393,6 @@ class TestTheRunnerRefusesBeforeTheWalk:
         from functualize._engine.workflow_runner import WorkflowRunner
 
         runner = WorkflowRunner(
-            store,
             run_step=lambda name: name,
             scope_id="s1",
             notifiers=_registry(_Recorder()),
@@ -431,7 +428,6 @@ class TestTheStatusComesFromTheScope:
 
         WorkflowWalker(
             self._cancelling(*notify),
-            store,
             "s1",
             run_step=run_step,
             notifiers=registry,

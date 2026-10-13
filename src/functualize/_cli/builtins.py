@@ -1126,21 +1126,16 @@ def register_builtin_commands(cli_group: Any) -> None:
     }
 
     def _workflow_store(ctx: Any) -> Any:
-        """The store the `builtin workflow` subcommands read.
-
-        One place, so an unreadable scope store refuses identically for
-        `list`, `show`, `resume` and `cancel` — the alternative is four
-        opinions about the same records.
-
-        **From the app's substrate, never from the cwd** (`store-substrate`/T7).
-        Resolving independently meant that with a database plugin installed the
-        CLI read `.functualize/scopes.json` while the run wrote to SQLite, so
-        `workflow list` was empty and `--wf-resume` refused an id that existed.
-        Caught by the no-shared-disk test, which is what it is for.
-        """
+        """The legacy scope helper for verbs outside the operator slice."""
         from functualize.app.utils import ScopeStore
 
         return ScopeStore(_workflow_app_ref(ctx).substrate)
+
+    def _workflow_operator_store(ctx: Any) -> Any:
+        """The selected store for list, show, cancel and reclaim."""
+        from functualize.app.utils import selected_workflow_store
+
+        return selected_workflow_store(_workflow_app_ref(ctx))
 
     @contextlib.contextmanager
     def _workflow_refusal() -> Any:
@@ -1170,7 +1165,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         out, arrived at by the back door.
         """
         payload = event.get("payload") or {}
-        name = str(event.get("event", "")).removeprefix("workflow.")
+        name = str(event.get("type") or event.get("event", "")).removeprefix(
+            "workflow."
+        )
         node = payload.get("node") or ""
         outcome = payload.get("outcome") or ""
         iteration = payload.get("iteration")
@@ -1281,7 +1278,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import list_scopes
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store(ctx)
+        store = _workflow_operator_store(ctx)
         with _workflow_refusal():
             items = list_scopes(
                 app,
@@ -1330,7 +1327,7 @@ def register_builtin_commands(cli_group: Any) -> None:
 
         app = _workflow_app_ref(ctx)
         with _workflow_refusal():
-            detail = describe_scope(app, _workflow_store(ctx), workflow_id)
+            detail = describe_scope(app, _workflow_operator_store(ctx), workflow_id)
         if detail is None:
             click.echo(f"Error: no workflow scope '{workflow_id}'.", err=True)
             raise SystemExit(1)
@@ -1781,7 +1778,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import cancel_scope
 
         with _workflow_refusal():
-            result = cancel_scope(_workflow_store(ctx), workflow_id)
+            result = cancel_scope(_workflow_operator_store(ctx), workflow_id)
         if "error" in result:
             click.echo(f"Error: {result['message']}", err=True)
             raise SystemExit(_workflow_exits.get(result["error"], 1))
@@ -1837,9 +1834,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         where it is; only the generation moves, which is what stops the
         previous holder writing.
         """
-        from functualize.app._workflow_control import reclaim_scope
+        from functualize.app.utils import reclaim_scope
 
-        store = _workflow_store(ctx)
+        store = _workflow_operator_store(ctx)
         with _workflow_refusal():
             result = reclaim_scope(store, workflow_id)
         if "error" in result:

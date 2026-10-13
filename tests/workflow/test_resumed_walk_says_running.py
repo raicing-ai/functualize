@@ -110,7 +110,7 @@ def _walk(
     store: ScopeStore, declaration: WorkflowDeclaration, scope_id: str, run_step: Any
 ) -> Any:
     return WorkflowWalker(
-        declaration, store, scope_id, run_step=run_step, runtime_store=port_for(store)
+        declaration, scope_id, run_step=run_step, runtime_store=port_for(store)
     ).run()
 
 
@@ -398,7 +398,6 @@ class TestAResumedWalkSaysRunning:
 
         walk = FrontierWalk(
             GraphModel(entry="first"),
-            engine_store,
             "s1",
             runtime_store=port_for(engine_store),
         )
@@ -452,7 +451,6 @@ class TestASilentResumedWalkIsDiagnosed:
 
         FrontierWalk(
             GraphModel(entry="first"),
-            engine_store,
             "s1",
             runtime_store=port_for(engine_store),
         ).claim()
@@ -473,7 +471,6 @@ class TestASilentResumedWalkIsDiagnosed:
 
         FrontierWalk(
             GraphModel(entry="first"),
-            engine_store,
             "s1",
             runtime_store=port_for(engine_store),
         ).claim()

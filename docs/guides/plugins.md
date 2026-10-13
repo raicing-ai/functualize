@@ -497,7 +497,7 @@ For projects maintaining multiple plugins alongside the core framework, a `plugi
 functualize/
 ├── src/functualize/        # Core framework
 ├── plugins/
-│   ├── functualize-substrate-sqlite/       # SQLite-backed state persistence
+│   ├── functualize-substrate-sqlite/       # SQLite runtime store, selected by configuration
 │   ├── functualize-inline/             # Textual inline PromptCollector
 │   └── functualize-flow-viz/           # Inline flow tree Surface
 └── pyproject.toml
@@ -516,12 +516,11 @@ Each plugin directory contains its own `pyproject.toml` with entry point declara
 | `functualize-http` | HTTP delivery adapter plugin for functualize using asyncio |
 | `functualize-lambda` | AWS Lambda adapter plugin for functualize - supports fat and thin Lambda deployment patterns |
 | `functualize-mcp` | MCP delivery adapter plugin for functualize — exposes jobs as MCP tools via FastMCP |
-| `functualize-substrate-sqlite` | Installs a SQLite `StoreSubstrate`, so every store keeps its documents in one database |
+| `functualize-substrate-sqlite` | SQLite runtime store plugin for functualize — one local file, selected by `[runtime_store] url`/`sqlite:` |
 | `functualize-tasks` | Tasks Domain SDK for functualize — task management capabilities |
 | `functualize-tasks-local` | Local state-backed task storage plugin for functualize |
 | `functualize-flow-viz` | Inline flow visualization plugin for functualize job execution |
 | `functualize-inline` | Textual inline interactivity plugin for functualize prompts (full-screen support is now in `functualize[cli]` via `functualize.ui.TextualApp`) |
-| `functualize-substrate-sqlite` | SQLite-backed state persistence and execution tracking plugin for functualize |
 
 ---
 

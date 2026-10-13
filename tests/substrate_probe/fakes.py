@@ -130,6 +130,29 @@ class BatchOnlySqliteDriver:
                 applied.append(self._connection.execute(sql, parameters).rowcount)
         return tuple(applied)
 
+    def query(
+        self, sql: str, parameters: Sequence[object] = ()
+    ) -> list[tuple[object, ...]]:
+        """One read, outside any unit — and only a read.
+
+        Added so a store whose writes are batches (AC-5) can ask its questions
+        over this instrument; everything that changes data still has exactly
+        one way in, :meth:`batch`. A statement that would write is refused
+        rather than run, so this cannot become a second, non-atomic door.
+        """
+        if not sql.lstrip().upper().startswith(("SELECT", "WITH", "EXPLAIN", "PRAGMA")):
+            raise NoInteractiveTransactionError(
+                f"query() reads; send writes as one batch(): {sql[:60]!r}"
+            )
+        return list(self._connection.execute(sql, parameters).fetchall())
+
+    def close(self) -> None:
+        """Nothing to release: the instance *is* the database, in memory.
+
+        A store over this instrument may close and be rebuilt over the same
+        instance, which is how close/reopen durability is asked of it.
+        """
+
     def read(self, key: str) -> str | None:
         """The document under `key`, or `None`."""
         row = self._connection.execute(

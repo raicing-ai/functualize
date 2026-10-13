@@ -16,8 +16,8 @@ verifies is just another copy). The test is
 
 **Read-only.** Nothing here runs a job, writes a record, or takes a lock.
 Side-effecting workflow verbs live in ``_workflow_control``; answering a gate
-lives in ``_workflow_answer``. Keeping the read half separate is what lets
-``func builtin workflow list`` stay a store read with no app boot.
+lives in ``_workflow_answer``. Keeping the read half separate lets
+``func builtin workflow list`` remain a store read after boot selects it.
 
 **``state`` is derived, never stored.** Adding a stored field would mean a
 format bump for something recomputable from what is already there — the exact
@@ -29,6 +29,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from functualize._types.errors import GateNotFoundError
+from functualize._types.persistence import (
+    EPILOGUE_STEP_KEY,
+    RuntimeStore,
+    WorkflowQuery,
+    WorkflowView,
+)
 from functualize.app._workflow_resume import _canonical_gate, pending_gates
 
 if TYPE_CHECKING:
@@ -181,14 +187,26 @@ def watch_scope(
     seen = after
     quiet_since = clock()
     while True:
-        events = store.events_for(scope_id, after=seen)
+        if isinstance(store, RuntimeStore):
+            events = [
+                {
+                    "seq": event.seq,
+                    "type": event.type,
+                    "at": event.occurred_at.isoformat(),
+                    "payload": event.payload,
+                    "run_id": event.run_id,
+                }
+                for event in store.workflows.events_after(scope_id, seen)
+            ]
+        else:
+            events = store.events_for(scope_id, after=seen)
         if events:
             for event in events:
                 seen = max(seen, int(event.get("seq", seen)))
                 yield event
             quiet_since = clock()
             continue
-        scope = store.get_scope(scope_id)
+        scope = _read_scope(store, scope_id)
         if not walk_is_live(scope):
             return
         if timeout is not None and clock() - quiet_since >= timeout:
@@ -253,7 +271,7 @@ def describe_scope(app: Any, store: Any, scope_id: str) -> dict[str, Any] | None
     Returns None when no such scope exists, so a caller renders its own
     not-found message with its own exit code.
     """
-    scope = store.get_scope(scope_id)
+    scope = _read_scope(store, scope_id)
     if scope is None:
         return None
     return _describe(app, store, scope_id, scope)
@@ -345,10 +363,88 @@ def _awaits_gate(sid: str, scope: dict[str, Any], blocked_on: str) -> bool:
 
 def _scopes(store: Any) -> Iterator[tuple[str, dict[str, Any]]]:
     """Every known scope, as ``(scope_id, record)``."""
+    if isinstance(store, RuntimeStore):
+        for view in store.workflows.resumable(WorkflowQuery()):
+            yield view.scope_id, _port_record(store, view)
+        return
     for scope_id in store.scope_ids():
         scope = store.get_scope(scope_id)
         if scope is not None:
             yield scope_id, scope
+
+
+def _read_scope(store: Any, scope_id: str) -> dict[str, Any] | None:
+    if isinstance(store, RuntimeStore):
+        view = store.workflows.workflow(scope_id)
+        return _port_record(store, view) if view is not None else None
+    record: dict[str, Any] | None = store.get_scope(scope_id)
+    return record
+
+
+def _port_record(store: RuntimeStore, view: WorkflowView) -> dict[str, Any]:
+    """Project port values into the established operator rendering shape."""
+    steps = {
+        step.step_key: {
+            "status": step.status,
+            "return_value": step.result if step.reusable else None,
+            "inputs": dict(step.inputs or {}),
+            "completed_at": (
+                step.completed_at.isoformat() if step.completed_at is not None else None
+            ),
+        }
+        for step in store.workflows.steps(view.scope_id)
+        if step.step_key != EPILOGUE_STEP_KEY
+    }
+    epilogue = store.workflows.step(view.scope_id, EPILOGUE_STEP_KEY)
+    request = store.inputs.open_for(view.scope_id)
+    gates: dict[str, Any] = {}
+    if request is not None:
+        accepted = next(
+            (
+                candidate.payload
+                for candidate in store.inputs.candidates_for(request.request_id)
+                if candidate.evaluation.outcome.value == "accepted"
+            ),
+            None,
+        )
+        gates[request.gate_name] = {
+            "input_schema": request.schema,
+            "model": (request.schema or {}).get("title")
+            if isinstance(request.schema, dict)
+            else None,
+            "payload": accepted,
+            "blocked_at": request.created_at.isoformat(),
+        }
+    lease = (
+        {
+            "owner": view.owner,
+            "generation": view.generation,
+            "expires_at": view.expires_at.isoformat() if view.expires_at else None,
+        }
+        if view.owner is not None and view.generation is not None
+        else None
+    )
+    return {
+        "workflow": view.workflow,
+        "status": view.status,
+        "position": view.position,
+        "lease": lease,
+        "steps": steps,
+        "gates": gates,
+        "branches": {},
+        "epilogue": (
+            {
+                "status": epilogue.status,
+                "completed_at": (
+                    epilogue.completed_at.isoformat()
+                    if epilogue.completed_at is not None
+                    else None
+                ),
+            }
+            if epilogue is not None
+            else None
+        ),
+    }
 
 
 def _describe(

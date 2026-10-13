@@ -108,7 +108,6 @@ class TestTheWalkRefusesBeforeItWrites:
     def test_a_too_deep_walk_raises(self, store: ScopeStore) -> None:
         walker = WorkflowWalker(
             _graph(),
-            store,
             "a::b::c::d",
             run_step=lambda name: name,
             max_workflow_depth=2,
@@ -126,7 +125,6 @@ class TestTheWalkRefusesBeforeItWrites:
         executed: list[str] = []
         walker = WorkflowWalker(
             _graph(),
-            store,
             "a::b::c::d",
             run_step=lambda name: executed.append(name) or name,
             max_workflow_depth=2,
@@ -142,7 +140,6 @@ class TestTheWalkRefusesBeforeItWrites:
     def test_a_walk_within_the_limit_runs(self, store: ScopeStore) -> None:
         walker = WorkflowWalker(
             _graph(),
-            store,
             "a::b",
             run_step=lambda name: name,
             max_workflow_depth=2,
@@ -154,7 +151,6 @@ class TestTheWalkRefusesBeforeItWrites:
         """The overwhelmingly common case must not pay for the guard."""
         walker = WorkflowWalker(
             _graph(),
-            store,
             "plain",
             run_step=lambda name: name,
             max_workflow_depth=0,
@@ -194,7 +190,6 @@ class TestNoSecondVocabulary:
         """
         walker = WorkflowWalker(
             _graph(),
-            None,
             "x",
             run_step=lambda n: n,
             runtime_store=engine_storage()["runtime_store"],

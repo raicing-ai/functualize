@@ -83,7 +83,7 @@ class TestBlockedStatus:
 
 class TestPrelude:
     def test_a_completed_walk_lets_the_body_run(self, store: ScopeStore) -> None:
-        runner = WorkflowRunner(store, run_step=_noop, runtime_store=port_for(store))
+        runner = WorkflowRunner(run_step=_noop, runtime_store=port_for(store))
         run = runner.prelude("wf", _linear())
 
         assert run.outcome is WalkOutcome.COMPLETED
@@ -92,9 +92,9 @@ class TestPrelude:
 
     def test_a_blocked_walk_does_not_let_the_body_run(self, store: ScopeStore) -> None:
         """The body runs only on END — a gate-blocked walk never reaches it."""
-        run = WorkflowRunner(
-            store, run_step=_noop, runtime_store=port_for(store)
-        ).prelude("wf", _gated())
+        run = WorkflowRunner(run_step=_noop, runtime_store=port_for(store)).prelude(
+            "wf", _gated()
+        )
 
         assert run.outcome is WalkOutcome.BLOCKED
         assert run.blocked_on == "preferences"
@@ -104,9 +104,9 @@ class TestPrelude:
         def boom(name: str) -> Any:
             raise RuntimeError("no network")
 
-        run = WorkflowRunner(
-            store, run_step=boom, runtime_store=port_for(store)
-        ).prelude("wf", _linear())
+        run = WorkflowRunner(run_step=boom, runtime_store=port_for(store)).prelude(
+            "wf", _linear()
+        )
 
         assert run.outcome is WalkOutcome.FAILED
         assert not run.should_run_body
@@ -115,18 +115,17 @@ class TestPrelude:
 
 class TestScopeLifecycle:
     def test_each_invocation_gets_a_fresh_scope(self, store: ScopeStore) -> None:
-        first = WorkflowRunner(store, run_step=_noop, runtime_store=port_for(store))
-        second = WorkflowRunner(store, run_step=_noop, runtime_store=port_for(store))
+        first = WorkflowRunner(run_step=_noop, runtime_store=port_for(store))
+        second = WorkflowRunner(run_step=_noop, runtime_store=port_for(store))
         assert first.scope_id != second.scope_id
 
     def test_passing_a_scope_id_resumes_that_scope(self, store: ScopeStore) -> None:
         """This is the whole resume mechanism: same scope id, replayed walk."""
-        first = WorkflowRunner(store, run_step=_noop, runtime_store=port_for(store))
+        first = WorkflowRunner(run_step=_noop, runtime_store=port_for(store))
         first.prelude("wf", _gated())
         store.deposit_gate_payload(first.scope_id, "preferences", {"budget": "hi"})
 
         resumed = WorkflowRunner(
-            store,
             run_step=_noop,
             scope_id=first.scope_id,
             runtime_store=port_for(store),
@@ -144,12 +143,11 @@ class TestBodyOncePerScope:
     """§A.7: the body runs once per scope, however often the scope replays."""
 
     def test_a_recorded_body_is_not_run_again(self, store: ScopeStore) -> None:
-        runner = WorkflowRunner(store, run_step=_noop, runtime_store=port_for(store))
+        runner = WorkflowRunner(run_step=_noop, runtime_store=port_for(store))
         runner.prelude("wf", _linear())
         runner.record_body("the answer")
 
         replay = WorkflowRunner(
-            store,
             run_step=_noop,
             scope_id=runner.scope_id,
             runtime_store=port_for(store),
@@ -167,12 +165,11 @@ class TestBodyOncePerScope:
         A replay that skipped the body and returned None would be a silent
         wrong answer for anything consuming the workflow's result.
         """
-        runner = WorkflowRunner(store, run_step=_noop, runtime_store=port_for(store))
+        runner = WorkflowRunner(run_step=_noop, runtime_store=port_for(store))
         runner.prelude("wf", _linear())
         runner.record_body({"deployed": True})
 
         replay = WorkflowRunner(
-            store,
             run_step=_noop,
             scope_id=runner.scope_id,
             runtime_store=port_for(store),
@@ -181,15 +178,15 @@ class TestBodyOncePerScope:
 
     def test_a_fresh_scope_runs_the_body_again(self, store: ScopeStore) -> None:
         """Once-per-*scope*, not once ever."""
-        first = WorkflowRunner(store, run_step=_noop, runtime_store=port_for(store))
+        first = WorkflowRunner(run_step=_noop, runtime_store=port_for(store))
         first.prelude("wf", _linear())
         first.record_body("x")
 
-        second = WorkflowRunner(store, run_step=_noop, runtime_store=port_for(store))
+        second = WorkflowRunner(run_step=_noop, runtime_store=port_for(store))
         assert second.prelude("wf", _linear()).should_run_body
 
     def test_a_failed_body_is_recorded_as_failed(self, store: ScopeStore) -> None:
-        runner = WorkflowRunner(store, run_step=_noop, runtime_store=port_for(store))
+        runner = WorkflowRunner(run_step=_noop, runtime_store=port_for(store))
         runner.prelude("wf", _linear())
         runner.record_body(None, status="failed")
 

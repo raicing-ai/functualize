@@ -90,7 +90,7 @@ registry.register(FileNotifier())
 
 store = ScopeStore.for_project(Path.cwd())
 WorkflowWalker(
-    declaration, store, "notify-scope", run_step=lambda name: name,
+    declaration, "notify-scope", run_step=lambda name: name,
     runtime_store=DocumentRuntimeStore(store.substrate),
     workflow_name="flow", notifiers=registry,
 ).run()

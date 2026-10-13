@@ -246,7 +246,6 @@ class TestAnExecutorThatCannotHonourTheStepIsRefused:
         )
 
         runner = WorkflowRunner(
-            store,
             run_step=recorder,
             agent_step_registry=_registry(executor),
             runtime_store=port_for(store),
@@ -268,7 +267,6 @@ class TestAnExecutorThatCannotHonourTheStepIsRefused:
     ) -> None:
         executor = _Executor("ai", frozenset({AgentCapability.ENFORCES_TOOL_ALLOWLIST}))
         runner = WorkflowRunner(
-            store,
             run_step=_Recorder(),
             agent_step_registry=_registry(executor),
             runtime_store=port_for(store),
@@ -318,7 +316,6 @@ class TestAStepWithNoExecutorIsRefused:
         self, store: ScopeStore
     ) -> None:
         runner = WorkflowRunner(
-            store,
             run_step=_Recorder(),
             agent_step_registry=_registry(_Executor("cli-prompt")),
             runtime_store=port_for(store),
@@ -346,7 +343,6 @@ class TestAStepWithNoExecutorIsRefused:
         """
         cli_prompt = _Executor("cli-prompt")
         runner = WorkflowRunner(
-            store,
             run_step=_Recorder(),
             agent_step_registry=_registry(cli_prompt),
             runtime_store=port_for(store),
@@ -364,7 +360,6 @@ class TestAStepWithNoExecutorIsRefused:
 
     def test_no_executor_registered_at_all_refuses(self, store: ScopeStore) -> None:
         runner = WorkflowRunner(
-            store,
             run_step=_Recorder(),
             agent_step_registry=_registry(),
             runtime_store=port_for(store),
@@ -387,7 +382,6 @@ class TestAStepWithNoExecutorIsRefused:
     ) -> None:
         """ "The single registered one" is a unique answer, or it is a refusal."""
         runner = WorkflowRunner(
-            store,
             run_step=_Recorder(),
             agent_step_registry=_registry(_Executor("cli-prompt"), _Executor("ai")),
             runtime_store=port_for(store),
@@ -493,7 +487,6 @@ class TestAPreviouslyAnsweredCheckpoint:
         """First invocation: the agent answers the checkpoint, then the gate blocks."""
         executor = _Executor("agent-x", capability)
         report = WorkflowRunner(
-            store,
             run_step=_Recorder(),
             scope_id="parity-4",
             agent_step_registry=_registry(executor),
@@ -525,7 +518,6 @@ class TestAPreviouslyAnsweredCheckpoint:
         # plugin without the flag, or lost it to an upgrade, hands the walk.
         weaker = _Executor("agent-x")
         runner = WorkflowRunner(
-            store,
             run_step=_Recorder(),
             scope_id="parity-4",
             agent_step_registry=_registry(weaker),
@@ -558,7 +550,6 @@ class TestAPreviouslyAnsweredCheckpoint:
         )
 
         report = WorkflowRunner(
-            store,
             run_step=_Recorder(),
             scope_id="parity-4",
             agent_step_registry=_registry(capable),
