@@ -1,4 +1,4 @@
-# Rise / RiseKit foundation — external contracts (revision 5)
+# Rise / RiseKit foundation — external contracts (revision 6)
 
 These are the surfaces that a provider author, an environment author, or a CI
 script depends on. Every Python name is **provisional**: SD/5407068 v18
@@ -16,16 +16,9 @@ are to `spec.md`.
 | `functualize-risekit` | `functualize_risekit` | `plugins/domains/functualize-risekit/` | `functualize-rise`, `functualize` (public API only) | the reference toolkit: substrate bases, typed observation models, contract-test helper. **No provider inside** (B5) |
 | `functualize-rise-cloudflare` | `functualize_rise_cloudflare` | `plugins/substrates/functualize-rise-cloudflare/` | `functualize-risekit`, `functualize-rise`, `functualize` (public API only) | provider package; owns the `cloudflare` namespace |
 
-**[5]** All three require `functualize>=0.5.0,<1.0.0`, which is the public API
-the 0.5.0 cut ships (spec §0). They release in lockstep with the repository,
-in the first release after 0.5.0 (spec R-1).
-
-- None of the three goes into `functualize[all]` in this feature, because all
-  three are experimental.
-- The directory groups are an organizing convention, not a loader:
-  `tests/spec/test_every_declared_group_has_a_reader.py` globs `plugins/*/*`.
-- The provider lives in this repository only so that FUN-8's proof runs in this
-  repository's CI. It uses nothing a third-party author could not use.
+**[6]** All three require `functualize>=0.5.0,<1.0.0`, where 0.5.0 is the
+**released** version that contains core class discovery (MCH-184) and scoped
+vault v3 (MCH-185) (spec §0). They follow the repository's lockstep release.
 
 ## C2. Entry points
 
@@ -34,7 +27,6 @@ in the first release after 0.5.0 (spec R-1).
 | Group (existing) | Name | Value | Distribution |
 |---|---|---|---|
 | `functualize.plugins` | `rise` | `functualize_rise.plugin:RisePlugin` | `functualize-rise` |
-| `functualize.plugins` | `rise-cloudflare` | `functualize_rise_cloudflare.plugin:plugin` | `functualize-rise-cloudflare` **[5]**: binds its own subject classes (spec B6, A-1) |
 
 **[4.1]** `RisePlugin` registers Rise's own three commands, and nothing else,
 with `app.extensions.add_job_provider(StaticProvider([Job(fn, name=<verb>,
@@ -77,40 +69,8 @@ class D1Database(RemoteResource):                # abstract: this IS the contrac
 ```python
 # functualize_rise_cloudflare/providers.py — one implementation (one candidate)
 class CloudflareApiD1(D1Database):
-    candidate = "api"          # [5] required: canonical group cloudflare.d1.api (C5)
     def diagnose(self) -> RemoteResourceObservation: ...
     def up(self) -> D1Database.Realized: ...
-```
-
-```python
-# functualize_rise_cloudflare/plugin.py — [5] the provider binds its own classes (spec B6, A-1)
-from functualize.plugin import StaticProvider
-from functualize_rise import bind
-
-from .providers import CloudflareApiD1, CloudflareApiWorker
-
-
-class _Plugin:
-    name = "rise-cloudflare"
-    version = "…"
-    description = "Bind the Cloudflare Rise subjects as jobs"
-
-    def __call__(self, app) -> None:
-        app.extensions.add_job_provider(
-            StaticProvider(bind(CloudflareApiD1, CloudflareApiWorker))
-        )
-
-
-plugin = _Plugin()
-```
-
-```python
-# a project's local subjects: .functualize/plugins/subjects.py — [5] same helper
-from functualize.plugin import StaticProvider
-from functualize_rise import bind
-from modules.multica import MulticaStack   # a local subject: no contract ancestor
-
-plugin = ...  # same shape as above, calling bind(MulticaStack)
 ```
 
 ```python
@@ -180,14 +140,10 @@ These tags are generated from the declaration and written through
 Functualize's public job-declaration surface, so they appear in
 `func builtin info` like any other tag. An author never writes them.
 
-**[5] Canonical job produced by `bind()`** (spec S4):
-
-| Part | Contract implementation | Local subject |
-|---|---|---|
-| `group` | `<namespace>.<name>.<candidate>`, e.g. `cloudflare.d1.api` | the class's `group`, else `local.<snake_class_name>` |
-| `name` | `<group>.<verb>`, e.g. `cloudflare.d1.api.up` | `<group>.<verb>` |
-| parameters | `subject: <implementing class>` (the job config model, F-2) and `address: str` | same |
-| declaration | the method's own `JobDeclaration` (read from the documented `__functualize_job__`, `docs/guides/jobs-discovery.md:377`), with the generated tags appended through `dataclasses.replace` | same |
+**[6] Canonical job.** Core class discovery (P-1) produces the canonical job
+for each (subject class, operation). Its name and group scheme belong to P-1.
+Rise's requirements on it are in C11, and the tags above are carried in its
+`JobDeclaration`.
 
 ## C6. Descriptor (S5)
 
@@ -281,33 +237,48 @@ provisional; the precedent is `$XDG_CACHE_HOME/functualize/<project_id>/`,
 - The commands are ordinary jobs, so they reach MCP and the TUI through the
   existing surfaces.
 
-## C11. Required of Functualize
+## C11. Required of Functualize — inside 0.5.0 [6]
 
-**[5] Rise v1 requires nothing beyond Functualize 0.5.0's public API.** The
-seams it uses were all exercised by the spec §0 probe on `4e816a0f`:
+These are **requirements**, written at capability level, for the two
+prerequisite tickets. They are not API designs: each ticket owns its interface
+and its own spec, and Rise adapts to the released 0.5.0. Where a requirement
+comes from a measured 0.5.0 behaviour, the spec §0 probe row is cited.
 
-- `functualize.plugin.Job` and `StaticProvider`, and
-  `app.extensions.add_job_provider`;
-- `functualize.job.Invoke`, `job` and `JobDeclaration`;
-- `functualize.types.RunRequest`, `Secret` and `ExitCode`;
-- pydantic models as job config;
-- `.functualize/plugins/` and `functualize.plugins` discovery.
+### P-1 — core class discovery (MCH-184)
 
-What a **later** core release would let Rise drop or improve. These are the
-migration triggers of spec §6, and none of them is required:
+| # | Requirement | Why Rise needs it | Evidence |
+|---|---|---|---|
+| R1.1 | A subject class's operation methods become jobs through Functualize discovery, the same way module functions do today. Directories, entry points and plugins all reach them, with no per-project plugin and no hand-listed verbs | D14, D16 ("one generic class-discovery path"); B6 | `docs/guides/subjects.md`: "Directory discovery ignores classes entirely" |
+| R1.2 | Exactly **one canonical job per (class, operation)**, never one per instance, with a stable identity that survives a restart and a cache | D23; spec S4 | — |
+| R1.3 | Canonical job names are **globally unique**. A collision is reported or refused, never resolved by silently dropping a job | spec S4, S15.13 | F-1: two `up` jobs in different groups, one silently dropped |
+| R1.4 | Invoking the canonical job accepts a **subject address**, and the operation runs on the instance configured for that address | D22, D23; spec S4, S21, S23 | — |
+| R1.5 | The instance's fields resolve through Functualize's config chain, with the subject's typed configuration as the job's config. Secret-marked fields stay masked in run records | D17; spec S6, S8 | F-2: a frozen pydantic subject resolves as job config, and a `Secret[str]` field is masked `•••` |
+| R1.6 | A value the environment declaration sets for an address is **fixed** for that invocation. No flag, environment variable, file or vault value overrides it | D24; spec S6 | F-4: on 0.5.0 an explicit field argument outranks vault, env and file; a whole model instance does not |
+| R1.7 | **All operations of one subject class share one configuration section.** What `info` and `env` report as a job's section equals what the run reads | spec S6; the owner's decision 3 | F-7: a plugin job reads only its job-name section, while `get_job_config_section` reports the group (`_app/configuration_facade.py:59-80`) |
+| R1.8 | A class (or its Rise base) can contribute declaration metadata (tags) for its operations, and that metadata **merges** with an author's own `@job(...)`. It never replaces it | D16; spec S3 | F-5: re-applying `@job` replaced an author's `category` |
+| R1.9 | A class that is not a subject (no marker the ticket defines) is ignored, as today | B1: ordinary Functualize is unchanged | — |
+| R1.10 | `docs/guides/subjects.md` is revised to the new discovery path and to D17's configured instances | spec PC-1 | the guide's rules 3 and *A subject class, bound* |
 
-- **P-1 class discovery.** One canonical job per (subject class, method),
-  invoked with an address. Tags contributed by the class merge with the
-  author's `@job`. Literal values are fixed per address. With it, providers
-  delete their `bind()` plugin, and job identities (C5) are kept.
-- **P-8 shared section for plugin jobs.** A grouped plugin job reads its
-  group's section, and `get_job_config_section` agrees with the run. With it,
-  one `[<ns>.<name>.<candidate>]` section serves every operation of a subject.
-- **Vault v3 implemented** (SD/12779576 v3). Subject address as the vault
-  group, and environment-qualified entries. With it, per-operation vault
-  entries are no longer needed.
-- **P-2 to P-6.** Not consumed. Instance routes (D23), `Setting()` (D24), route
-  provenance, and Gate-backed choice (D20) stay deferred.
+### P-7 v3 — scoped vault v3 (MCH-185)
+
+SD/12779576 v3 is the contract, and the ticket implements it as written. Rise
+relies on these points of it:
+
+| # | Requirement (v3's own terms) | Why Rise needs it |
+|---|---|---|
+| R7.1 | "A Rise subject address can be the `--group` value (and the `group` of a `[[vault_secret]]` declaration)" | a subject's secret is named once, by address (spec S7; decision 3) |
+| R7.2 | "Resolution walks from the full address up through its ancestors and binds the first entry that exists", for the active environment and then for shared entries | spec S7 |
+| R7.3 | An entry's identity is "(scope, target, field, environment)", with the environment taken from Functualize's active environment and no vault flag | D25 (no Rise `--env`); spec S6 |
+| R7.4 | A canonical operation job (P-1) resolves a secret-marked subject field through R7.1–R7.3 **for the address it was invoked with** | joins P-1 R1.4 to the vault; spec S7 |
+| R7.5 | "`list`, `inspect`, and errors never print secret bytes" | spec S8, AC-13 |
+
+R7.4 is the one point where the two prerequisites meet. It belongs to whichever
+ticket lands second, and the release must contain both.
+
+### Not consumed
+
+P-2 (lazy instance routes), P-3 (`Setting()`), P-4 (route provenance), and P-5
+and P-6 (Gate-backed choice, person-required) stay deferred (spec §6).
 
 ## C12. Live tier
 

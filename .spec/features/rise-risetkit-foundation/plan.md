@@ -1,12 +1,18 @@
 # Rise / RiseKit foundation — plan
 
-Plan for `spec.md` **revision 5: Rise v1 on the 0.5.0 cut** (the owner's
-directive of 2026-10-10). Revision 4 was confirmed on 2026-10-05T17:27Z. The
-4.1 and 5 changes are put to the owner with this task list (spec §11).
+Plan for `spec.md` **revision 6: Rise v1 on 0.5.0 as released, including core
+class discovery (MCH-184) and scoped vault v3 (MCH-185)**. These are the
+owner's decisions of 2026-10-13. Revision 4 was confirmed on 2026-10-05T17:27Z;
+the open items are in spec §11.
 
-Base: `origin/master` at `4e816a0f`, the base of the 0.5.0 release PR #99.
-Every count below was produced by the command printed beside it, on that base.
-Counts first taken on `ba36b859` were re-checked and are unchanged.
+Base: `origin/master` at `c75a476e`. Revision 5's counts were taken on
+`4e816a0f`. The negatives this revision rests on were re-run on `c75a476e`
+(spec header).
+
+**Execute is gated** on a released 0.5.0 that contains both prerequisites and
+meets contracts C11 (T14, wave 0). Discovery-dependent tasks are stated against
+the C11 requirements, not against an interface that does not exist yet. Their
+exact call shapes are fixed when 0.5.0 is released.
 
 ## Alignment
 
@@ -16,16 +22,12 @@ the owner decisions below (v17)". It was re-read live on 2026-10-05, with the
 content unchanged from the confirmed read. It was re-read again on 2026-10-10:
 version 18, same content hash.
 
-**[5] Pending shape amendment A-1** (spec §0). This is provider-owned binding
-through Functualize's public plugin seam until core class discovery ships. It
-departs from D16's "Functualize discovers the methods through one generic
-class-discovery path". The departure is only in *who calls the binding*: the
-execution model is unchanged, and no Rise loader is added. Execute does not
-start until the owner approves A-1 on the page.
+**[6] No shape amendment.** Revision 5's A-1 is withdrawn, because the owner
+declined it. D16's "one generic class-discovery path" is consumed as written.
+SD/5407068 was re-read live on 2026-10-13: v18, same content hash.
 
-**Vault.** SD/12779576 is now **v3, `Authority: Approved`** (2026-10-09), and
-is **not implemented in 0.5.0**. Rise v1 uses the shipped v2 behaviour
-(settled OD-1). Moving to v3 is a later migration.
+**Vault.** SD/12779576 **v3**, `Authority: Approved` (2026-10-09), re-read on
+2026-10-13. It is consumed in 0.5.0 through MCH-185, and OD-1 is superseded.
 
 **In scope, in the shape's own words.** Each item names where it lands.
 
@@ -48,8 +50,9 @@ is **not implemented in 0.5.0**. Rise v1 uses the shipped v2 behaviour
 
 - "Approver authentication, GitHub Merge/Deploy authority, OAuth acquisition
   and refresh, and generic Functualize class/Gate/adapter machinery have owners
-  outside this Rise page." These are spec §6 P-1 to P-6. **[5] None of them
-  gates v1.** P-1, P-8 and vault v3 are triggers for a later migration.
+  outside this Rise page." These are spec §6 P-1 to P-6. **[6]** P-1 (MCH-184)
+  and P-7 v3 (MCH-185) ship in 0.5.0 and gate Execute (T14). P-2 to P-6 are
+  not consumed.
 - "Until that amendment is approved, SD/12779576 v2 remains the vault contract
   and no Rise spec may assume the group rule." (owner decision A1). This is
   settled OD-1.
@@ -149,9 +152,6 @@ catalogue.
  plugins/substrates/functualize-rise-cloudflare   (provider; owns `cloudflare` ns)
    contracts.py  D1Database(RemoteResource) @contract("cloudflare.d1@1"), WorkerScript
    providers.py  CloudflareApiD1, CloudflareApiWorker      transport.py  (real + fake)
-   plugin.py     [5] plugin = bind-and-register its OWN classes:
-                 add_job_provider(StaticProvider(bind(CloudflareApiD1, CloudflareApiWorker)))
-                 registered under functualize.plugins (existing group)
         │ depends on (public symbols only)
         ▼
  plugins/domains/functualize-risekit              (toolkit; NO provider — B5)
@@ -166,8 +166,6 @@ catalogue.
    environment.py  Environment tree, scope, root            → subject, identity
    descriptor.py   generate + cache                         → subject, roles
    realization.py  RealizationStore (Protocol) + LocalRealizationStore → identity
-   binding.py      [5] bind(*classes) -> list[Job]: canonical job per (class, op),
-                   group <ns>.<name>.<candidate>, merged JobDeclaration    → subject, roles
    validate.py     findings                                 → environment, descriptor
    diagnose.py     traversal, assessment, NDJSON            → environment, subject
    up.py           candidates, ordering, dispatch, record   → diagnose, realization
@@ -176,11 +174,10 @@ catalogue.
         │ public API only:  functualize.job (job, Invoke) · functualize.plugin (Job,
         │ StaticProvider) · functualize.types (Secret, ExitCode) · functualize.app
         ▼
- functualize 0.5.0 (core) — UNCHANGED by this feature (B1, AC-2)
-   plugin discovery (functualize.plugins, .functualize/plugins/) loads the provider plugin;
-   StaticProvider registers the bound jobs; Invoke runs them; JobConfig chain resolves
-   the subject model (explicit kwargs = environment literals > vault > env > file).
-   later, NOT required: P-1 class discovery → providers delete plugin.py; jobs keep names
+ functualize 0.5.0 (released) — UNCHANGED by this feature (B1, AC-2)
+   P-1 class discovery (MCH-184) ──discovers──► subject classes in providers/projects
+        one canonical job per (class, op), invoked with an address (contracts C11 R1.x)
+   P-7 vault v3 (MCH-185) ── subject address as vault group, env-qualified (C11 R7.x)
 ```
 
 **Dependency direction.** Every arrow points down, and nothing points up into a
@@ -192,12 +189,11 @@ also applies to the plugins' own tests, under `tests/plugins/rise/`.
 
 **What crosses a boundary.**
 
-- Rise → core: only `job`, `Invoke`, `Job`, `JobDeclaration`, `StaticProvider`,
-  `RunRequest`, `Secret`, `ExitCode`, `FunctualizeApp` and pydantic. All are
-  public; `__all__` checked by an `ast` walk. The one attribute convention
-  used is `__functualize_job__`, which `docs/guides/jobs-discovery.md:377`
-  documents.
-- Provider → core: its own plugin calls `add_job_provider` once (public).
+- Rise → core: public API only. That is `job`, `Invoke`, `Job`,
+  `StaticProvider` (for Rise's own three commands), `Secret`, `ExitCode`,
+  `FunctualizeApp` and pydantic, plus whatever public surface the released
+  P-1 and P-7 v3 add. **[6]** Rise does not read `__functualize_job__`.
+- Provider → core: none beyond being discovered (P-1).
 - Provider → RiseKit → Rise: only symbols each package exports.
 - Core → plugins: nothing.
 
@@ -235,23 +231,12 @@ also applies to the plugins' own tests, under `tests/plugins/rise/`.
    now spec S6 [4.1] (fixed literal; chain only for unset fields) and S15.12
    (no secret literals). Neither changes scope; both are put to the owner at
    step 11.
-6. **[5] The 0.5.0 directive: Candidate E, provider-owned binding.** Wave 9 of
-   revision 4.1 was a hard stop on P-1, which 0.5.0 does not have. The
-   candidates for running without it were:
-   - **Candidate B again** (Rise binds other packages' classes): still
-     rejected, because it is a Rise loader.
-   - **Candidate E:** each provider's *own* Functualize plugin calls a pure
-     `bind()`. **Accepted, subject to A-1.** Discovery stays Functualize's
-     plugin discovery, Rise scans nothing, and execution is unchanged. The
-     guide's **Shotgun Surgery** (verbs listed twice) is removed, because
-     `bind()` derives the verbs from the class. That is the improvement over
-     the documented `SubjectsPlugin`.
-
-   It introduces two new smells, declared below: a repeated ~10-line plugin per
-   provider, and a read-and-replace of a documented declaration attribute. The
-   probe (spec §0) settled the two seams it rests on. Literal kwargs win the
-   explicit tier (F-4), and global job names force a group-qualified `name`
-   (F-1).
+6. **[5] Candidate E, provider-owned binding: withdrawn [6].** Revision 5
+   accepted it subject to shape amendment A-1. The owner declined A-1 on
+   2026-10-13, so the class-discovery path stays in core (P-1). The revision 5
+   probe is kept: its rows are now the measured basis of the P-1 requirements
+   (contracts C11, R1.3, R1.6, R1.7 and R1.8). The AFTER shape returns to
+   revision 4.1's, and Rise adds no binding module.
 
 ### Design skills consulted
 
@@ -270,10 +255,7 @@ also applies to the plugins' own tests, under `tests/plugins/rise/`.
 |---|---|---|---|
 | **Parallel Inheritance Hierarchies** | every contract (`D1Database`) has a nested `Realized(Realization)` and an observation subtype | Canon requires it: "Each contract declares a realization type" (D18), and the observation is the typed diagnosis contract (D3, D5). Collapsing them would put untyped dicts back. | No |
 | **Speculative Generality** | `realization.py`: a `RealizationStore` Protocol with one backend, plus the `shared` flag | The port is canon (D27: "supports local or remote lock backends"), and the second backend is the settled OD-2 follow-up. A Protocol, not an ABC, per *Forbidden Patterns*. | No |
-| **Duplicate Code** (transitional) | every provider's `plugin.py`, about 10 lines (`StaticProvider(bind(...))`), and each project's `.functualize/plugins/` file for local subjects | Stands in for P-1 on 0.5.0 (spec §0, A-1). Rule of Three: a shared plugin *factory* is not worth it with one provider. Each file carries `# TRANSITIONAL(P-1): delete when core class discovery ships`. | **Yes.** It is shape amendment A-1. |
-| **Inappropriate Intimacy** | `binding.py` reads `__functualize_job__` and writes a merged `JobDeclaration` back onto the wrapper | Re-applying `@job(...)` *replaces* an author's declaration (spec §0, F-5), so merging needs the existing value. The attribute is documented user surface (`docs/guides/jobs-discovery.md:377`), and `JobDeclaration` is public. It is confined to one function, `binding._merged_declaration`. | No |
-| **Shotgun Surgery** (operator-facing, v1) | rotating a subject's token means one vault entry per operation job (`…api.up`, `…api.diagnose`) | 0.5.0 gives a plugin job only its job-name section (spec §0, F-7), and vault v3 is not implemented. It goes away with P-8 or vault v3. | **Yes**, as a v1 limitation (spec §11) |
-| **Incomplete Library Class** (core) | P-1 to P-6, P-8, and the `get_job_config_section` disagreement (spec §0, F-7) | Owned outside this feature (B1). The F-7 disagreement is recommended as its own core ticket. | No (already decided, spec §6) |
+| **Incomplete Library Class** (core) | P-1 and P-7 v3, until a released 0.5.0 contains them | Owned by MCH-184 and MCH-185 (B1). Rise does not patch core and does not work around it. Execute waits (T14). | No (the owner's decision, 2026-10-13) |
 
 None of the *Forbidden Patterns* entries appears:
 
@@ -310,40 +292,37 @@ None of the *Forbidden Patterns* entries appears:
      abstract method of a contract or local subject; any other placement is a
      validation finding. Implementations inherit it. A role never comes from a
      tag string.
-4. **Binding** (T14, wave 6, revised in [5]). `bind(*classes) -> list[Job]`:
-   - the canonical group and name of spec S4 / contracts C5;
-   - `subject: <class>` as the config parameter, and `address: str`;
-   - the generated tags merged into the method's own declaration;
-   - refusal of a duplicate name within one call.
+4. **Entry gate** (T14, wave 0) [6]. Before any code task:
+   - a released 0.5.0 exists and contains MCH-184 and MCH-185;
+   - each C11 requirement (R1.1–R1.10, R7.1–R7.5) is checked against it;
+   - each discovery-dependent task below gets its concrete call shape recorded
+     from the released API.
 
-   The wrapper calls the unbound method on the resolved subject.
+   If any requirement is unmet, the feature returns to Specify.
 5. **The first production path** (T9, T11). `rise validate` is registered
-   through `RisePlugin`, with findings 1–10 and 12.
-   - Findings 11 and 13 need the bound jobs, and land in T16.
+   through `RisePlugin`, with findings 1–10 and 12. Findings 11 and 13 need
+   discovered canonical jobs, and land in T16.
 6. **Diagnosis and realization engines** (T8, T10). Pure, and unit tested with
    an injected `observe(address)`. The traversal is a topological walk over
    ordering edges, memoized by address. Acyclicity is guaranteed by S15.9;
    research.md § R-1 is honoured.
 7. **The toolkit and the provider** (T12, T13). The RiseKit remote-resource
    substrate and conformance helper. The provider's contracts,
-   implementations, fake transport, and its **own binding plugin**. It is
-   tested offline through the bound jobs, not by calling methods directly.
-8. **Dispatch** (T15, wave 9; no checkpoint since [5]). `rise diagnose` and
-   `rise up` run through `Invoke(<canonical job>, address=…, **literal
-   fields)`. Literal fields are the instance's `model_fields_set`, which is the
-   explicit tier (spec §0, F-4). The step also covers single-candidate
-   selection, the realization append, and the `TRANSITIONAL(T15)` markers
-   removed.
+   implementations and fake transport. The provider is reached through core
+   class discovery (C11 R1.1), and ships **no** binding plugin.
+8. **Dispatch** (T15). `rise diagnose` and `rise up` invoke each subject's
+   canonical job with its address (R1.4), with declaration literals fixed
+   (R1.6). The step also covers single-candidate selection and the realization
+   append.
 9. **Findings 11 and 13, then the forcing case** (T16, T17). The descriptor is
-   checked against the bound declaration, and every in-scope operation must
-   have a registered job. Then the example project and the live tier (S32,
-   C12).
+   checked against the discovered job's declaration (R1.8), and a missing
+   canonical job is reported (R1.3). Then the example project, with the token
+   stored **once** under the subject address (R7.1), and the live tier.
 10. **Closing checkpoint** (T18). Covers:
     - the traceability check (AC-14);
     - the B1/B5/B6 gates;
     - the five-command quality run;
-    - the dead-code delta;
-    - the per-operation vault-entry documentation for S7.
+    - the dead-code delta.
 
 ## Files to change
 
@@ -353,28 +332,27 @@ touched. The task list holds the per-task file sets.
 
 ## Dependencies
 
-- **[5] None on unreleased core.** Every seam is in 0.5.0's public API, and the
-  spec §0 probe exercised each one on `4e816a0f` (contracts C11).
-- **Shape amendment A-1** must be approved on SD/5407068 before Execute.
-- **Release R-1.** The three distributions ship in the first release after
-  0.5.0. At release time, each new PyPI project needs a trusted publisher
-  (`.spec/STATUS.md`, *Credential plugins and the portable bundle*, states the
-  same for every published project).
-- MCH-147 (Workers spike) proceeds independently. Vault v3 implementation, P-1
-  and P-8 are later migration triggers, not dependencies.
+- **[6] MCH-184 (core class discovery) and MCH-185 (scoped vault v3)**, both
+  inside 0.5.0 (children of MCH-157). Execute waits for a **released** 0.5.0
+  containing both (T14). Their requirements are contracts C11.
+- **Release.** The three Rise distributions follow the repository's lockstep
+  release, after 0.5.0. Each new PyPI project needs a trusted publisher before
+  its first tag (`.spec/STATUS.md`).
+- MCH-147 (Workers spike) proceeds independently.
 
 ## Risks
 
-- **A-1 is not approved**, or is approved differently. Then waves 6–8 change
-  shape. Mitigation: Execute waits for A-1. Waves 0–5 do not depend on it.
+- **The prerequisites ship differently from C11.** A requirement may be met
+  with a different shape than the plan assumes. Mitigation: T14 records the
+  released call shapes before code. An unmet requirement returns this feature
+  to Specify rather than being worked around.
+- **0.5.0's timing is outside this feature.** Execute cannot start until it is
+  released; waves 1+ wait in full.
 - **ADR number race.** T1 re-checks `ls contributor/adr` and takes the next
   free number.
 - **Installing `functualize-rise` changes every workspace app**, by adding a
   `rise` group. The distributions stay out of `[all]` (C1), and the root suite
   hides them (T2).
-- **A cross-plugin job-name collision is silent in core** (spec §0, F-1).
-  `bind()` catches collisions within one call, and `rise validate` finding 13
-  catches the rest. A core fix is outside B1.
 - **Future annotations.** A module with `from __future__ import annotations`
   stores `-> Environment` as a string. T6 resolves it with
   `typing.get_type_hints`, and has a test for both forms.
