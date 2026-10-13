@@ -1325,7 +1325,10 @@ def _utcnow() -> datetime:
 # stores. It forwards and adds no behaviour of its own beyond the profile, the
 # buffering transaction and T8's refusal. FUN-19 makes a store *selectable*
 # rather than replacing this one: with `runtime_store.url` unset, the document
-# store is what boot step 6.5 builds, so this class and this file stay.
+# store is what boot step 6.5 builds, so this class and this file stay. It is
+# now the walk's only path to the `ScopeStore` methods a walk uses
+# (`workflow-persistence-atomic`): the walk issues port commands and this class
+# maps them onto those methods, writing the records the walk always wrote.
 class DocumentRuntimeStore:
     """`RuntimeStore` over `ScopeStore`, `RunStore` and `ScopeStateStore`.
 

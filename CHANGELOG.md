@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a workflow parked on the SQLite store resumes in another process
+
+With `runtime_store.url = "sqlite:"`, only a walk's claim used to reach the
+relational store; its steps, branches, position, state and event log still went
+to the legacy document records. A walk could therefore not finish on the store
+it had selected: its lease release looked in the wrong place, it stopped as
+superseded, and a second process could not pick up a workflow parked at a gate.
+
+Every write and read a walk makes now goes through the selected runtime store —
+claim, entry, renewal and release, each completed or failed step, branch and
+failure-route decisions, the body's return value, the gate request and its
+answer, `State` inside a step, and the walk's event log. A workflow parked at a
+gate on SQLite resumes in another process, from another directory, and runs to
+its end; the cross-process durability test that recorded the gap as an expected
+failure is now an ordinary passing test. Document-store projects write the same
+files they wrote before.
+
+The SQLite schema gains revision `0002` (`0002_step_record_metadata.sql`): three
+columns on `workflow_steps` (`result_kind`, `result_type`, `effecting`), so a
+step record keeps what the document records always kept. It is forward-only and
+additive, and boot applies it to a version-1 database automatically.
+
 ### Changed — workflow operators follow the selected runtime store
 
 With `sqlite:` selected, `func builtin workflow list`, `show`, `cancel`

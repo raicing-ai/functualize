@@ -360,6 +360,18 @@ no transaction open.
 | dispatch effect | claim one outbox row | the provider call |
 | acknowledge effect | published_at / last_error / next attempt | — |
 
+**The walk's transitions are landed.** A workflow walk issues every one of its writes as a port
+command on the selected store (`workflow-persistence-atomic`): `StartWalk` on entry, `CompleteStep`
+for a node (with its first-time branch as `RecordBranch` in the same unit), `RecordStep` for a
+step record that moves nothing (a step timed out on takeover, a failure routed onward, the body's
+return value under `EPILOGUE_STEP_KEY`), `MoveScope` for a status and position with no step,
+`RenewLease` / `ReleaseLease` for the lease, `StateBatch` for `State` inside a step, and
+`EventWriter.append` for the walk log. It reads back through `WorkflowReader` (`workflow`,
+`step`, `steps`, `branch`, `state`) and `InputReader` (`for_gate`, and the `TRANSITIONAL(FUN-21)`
+`deposited_answer`). No module under `_engine/` reaches the legacy `ScopeStore` outside the four
+allowlisted non-walk sites, which `tests/spec/test_the_walk_writes_only_through_the_port.py`
+holds. Effect dispatch and acknowledgement remain FUN-21's.
+
 **Consumption is a write on the live path.** `GateService.service` calls
 `FrontierWalk.consume`, which issues `tx.inputs.consume(ConsumeInput(...))`;
 the document backend records `consumed_at` under the same scope transaction
