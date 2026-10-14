@@ -63,6 +63,13 @@ object. This is a duplicate reference, but no duplicated mutable state remains.
 It needs no maintainer review because the attribute and inspection operations
 were explicitly called out for preservation in the accepted task.
 
+The dead-code delta reports both boot aliases as `TESTS_ONLY`. This is known:
+the private alias exists for the inspection tests and refers to the production
+chain. It also reports the nested `parameterized` test middleware as
+`NEW_DEAD`; that callable is consumed dynamically by the decorator and the
+job-run assertion proves it executed. These are advisory tool findings, not
+unconnected production code.
+
 ## Risk
 
 Code that checks the private attribute with `isinstance(...,
