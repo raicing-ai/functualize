@@ -182,9 +182,9 @@ class ToolScope:
 
         Stamps the approval on every filter already in the scope, so after
         a ``+`` union only the operand it was called on stays gated. When
-        called again on an already-gated scope the new gate is appended —
-        both gates must then admit the call, so a later call can never
-        weaken an earlier one.
+        called again on an already-gated scope, supplied gates are AND-ed.
+        A call without a gate denies every call, regardless of whether a
+        gate was supplied before or after it.
 
         Args:
             gate: Callable that performs the approval check, called as
@@ -252,7 +252,8 @@ class ToolScope:
         itself. Approval is the exception: it combines from **every**
         filter that matched the name, so a tool reached through both a
         gated and an ungated filter is gated regardless of filter order,
-        and multiple gates all have to admit the call.
+        multiple gates all have to admit the call, and a no-gate stamp
+        denies every call even when another filter supplies a gate.
 
         Args:
             job_registry: A duck-typed registry providing job descriptors.
@@ -263,6 +264,7 @@ class ToolScope:
         defs_by_name: dict[str, ToolDef] = {}
         gates_by_name: dict[str, list[ApprovalGate]] = {}
         gated_names: set[str] = set()
+        deny_all_names: set[str] = set()
 
         for filt in self._filters:
             if filt.kind == "functions":
@@ -278,9 +280,12 @@ class ToolScope:
                     defs_by_name[tool_def.name] = tool_def
                 if filt.approval is not None:
                     gated_names.add(tool_def.name)
-                    gates_by_name.setdefault(tool_def.name, []).extend(
-                        filt.approval.gates
-                    )
+                    if not filt.approval.gates:
+                        deny_all_names.add(tool_def.name)
+                    else:
+                        gates_by_name.setdefault(tool_def.name, []).extend(
+                            filt.approval.gates
+                        )
 
         tool_defs: list[ToolDef] = []
         for name, tool_def in defs_by_name.items():
@@ -291,7 +296,11 @@ class ToolScope:
                     replace(
                         tool_def,
                         requires_approval=True,
-                        approval_gate=_fold_gates(gates_by_name[name]),
+                        approval_gate=(
+                            None
+                            if name in deny_all_names
+                            else _fold_gates(gates_by_name[name])
+                        ),
                     )
                 )
         return tool_defs
@@ -303,15 +312,15 @@ class ToolScope:
 
 
 def _stamp_filter(filt: _ScopeFilter, gate: ApprovalGate | None) -> _ScopeFilter:
-    """Return ``filt`` with approval stamped on — gate appended if given.
+    """Return ``filt`` with approval stamped on.
 
-    Stamping an already-stamped filter appends, so applying
-    ``approval_required`` twice leaves both gates in force (AND). Stamping
-    without a gate marks the filter's tools deny-every-call.
+    A missing gate marks the filter deny-every-call, and that decision
+    survives later stamps. Otherwise, gates are appended and AND-ed.
     """
+    if gate is None or (filt.approval is not None and not filt.approval.gates):
+        return replace(filt, approval=_FilterApproval())
     existing = filt.approval.gates if filt.approval is not None else ()
-    gates = existing if gate is None else (*existing, gate)
-    return replace(filt, approval=_FilterApproval(gates=gates))
+    return replace(filt, approval=_FilterApproval(gates=(*existing, gate)))
 
 
 def _fold_gates(gates: list[ApprovalGate]) -> ApprovalGate | None:

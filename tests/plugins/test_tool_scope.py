@@ -736,6 +736,34 @@ class TestToToolDefsApprovalFolding:
         assert d.requires_approval is True
         assert d.approval_gate is None
 
+    def test_no_gate_then_gate_remains_deny_all(self) -> None:
+        scope = (
+            ToolScope.functions([self._fn("a")])
+            .approval_required()
+            .approval_required(_allow_all)
+        )
+        d = scope.to_tool_defs([])[0]
+        assert d.requires_approval is True
+        assert d.approval_gate is None
+
+    def test_gate_then_no_gate_remains_deny_all(self) -> None:
+        scope = (
+            ToolScope.functions([self._fn("a")])
+            .approval_required(_allow_all)
+            .approval_required()
+        )
+        d = scope.to_tool_defs([])[0]
+        assert d.requires_approval is True
+        assert d.approval_gate is None
+
+    def test_no_gate_dominates_matching_filter_in_both_orders(self) -> None:
+        deny_all = ToolScope.functions([self._fn("a")]).approval_required()
+        allow = ToolScope.functions([self._fn("a")]).approval_required(_allow_all)
+        for combined in (deny_all + allow, allow + deny_all):
+            d = combined.to_tool_defs([])[0]
+            assert d.requires_approval is True
+            assert d.approval_gate is None
+
     def test_gated_wins_regardless_of_order(self) -> None:
         gated = ToolScope.functions([self._fn("a")]).approval_required(_deny_all)
         plain = ToolScope.functions([self._fn("a"), self._fn("b")])
