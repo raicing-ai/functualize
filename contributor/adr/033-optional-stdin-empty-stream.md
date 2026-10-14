@@ -34,7 +34,7 @@ stream's emptiness assumes.
 
 The mechanism is one readiness gate, `is_stdin_available()` — stdin is a pipe
 *and* already carries content or has reached end-of-stream — over a zero-width
-`select` probe (`_stdin_data_ready`; a test double answers through
+`select.poll` probe (`_stdin_data_ready`; a test double answers through
 `data_ready()`). The parameter door projects the rule as:
 
 - A pipe that already carries content (or has reached end-of-stream) is read:
@@ -55,9 +55,10 @@ The prompt door keeps its own check (`StdinCollector.is_available()`: both
 streams TTY) and states the same rule from the other side: a run blocks on a
 human or on data only when the human or the data is actually there.
 
-Unprobeable streams (no usable `fileno()`, a platform whose `select` refuses
-pipes) answer `True` to readiness and keep the eager rule this probe refines:
-the read itself decides.
+An unprobeable stream raises a readiness error instead of being declared ready
+and entering a potentially blocking read. On platforms without `select.poll`,
+the eager stdin path fails loudly; the iterator-typed streaming opt-in is
+unchanged.
 
 ## Consequences
 
@@ -73,11 +74,11 @@ the read itself decides.
 
 ### Negative
 
-- The probe is `select.select` with a zero timeout, and `select` carries a hard
-  FD_SETSIZE ceiling (and is sockets-only on Windows): a stream it cannot
-  probe answers `True`, and the silent-pipe hang can return in that corner
-  behind the historical read-to-EOF contract. `select.poll` on POSIX and
-  `PeekNamedPipe` on Windows are the named follow-ups.
+- POSIX `select.poll` has no FD_SETSIZE ceiling, so a held-open silent pipe at
+  fd 1024 or higher resolves the default. It reports EOF through `POLLHUP`,
+  preserving the empty-stream rule. Platforms without `poll` fail loudly on
+  eager stdin resolution; supporting their pipe readiness needs a separate
+  platform-specific probe.
 
 ### Neutral
 

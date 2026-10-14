@@ -46,20 +46,26 @@ def _stdin_data_ready(timeout: float = 0.0) -> bool:
     """Return ``True`` when the process stdin already carries data or EOF.
 
     The single readiness probe behind the rule that a non-interactive stdin
-    never blocks a run: a zero-width ``select`` poll instead of a read that
-    waits for writers to close. A stream that cannot be polled — no usable
-    ``fileno()``, or a platform whose ``select`` refuses pipes (Windows) —
-    answers ``True``, which keeps the historical read-to-EOF contract there.
-    A test double may answer through a ``data_ready()`` attribute.
+    never blocks a run: a zero-timeout ``poll`` instead of a read that waits
+    for writers to close. ``poll`` handles descriptors above FD_SETSIZE and
+    reports EOF as POLLHUP. An unprobeable stream raises instead of silently
+    entering a potentially blocking read. A test double may answer through a
+    ``data_ready()`` attribute.
     """
-    poll = getattr(sys.stdin, "data_ready", None)
-    if callable(poll):
-        return bool(poll())
-    try:
-        ready, _, _ = select.select([sys.stdin.fileno()], [], [], timeout)
-    except (AttributeError, OSError, TypeError, ValueError):
-        return True
-    return bool(ready)
+    data_ready = getattr(sys.stdin, "data_ready", None)
+    if callable(data_ready):
+        return bool(data_ready())
+    if not hasattr(select, "poll"):
+        msg = "stdin readiness requires select.poll on this platform"
+        raise RuntimeError(msg)
+    poller = select.poll()
+    poller.register(sys.stdin.fileno(), select.POLLIN | select.POLLHUP)
+    events = poller.poll(int(timeout * 1000))
+    for _, event in events:
+        if event & (select.POLLERR | select.POLLNVAL):
+            msg = "stdin readiness probe failed"
+            raise OSError(msg)
+    return any(event & (select.POLLIN | select.POLLHUP) for _, event in events)
 
 
 def is_stdin_available() -> bool:

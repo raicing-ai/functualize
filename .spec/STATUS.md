@@ -943,9 +943,9 @@ data passes through unchanged — multi-line and non-default `encoding` intact.
 
 - **"Pipe present" is not "data available".** `is_stdin_available()` means
   "non-TTY and content ready (or EOF)"; readiness is one zero-width probe
-  (`_stdin_data_ready`: a test double's `data_ready()`, else a zero-width
-  `select` poll), and an unprobeable stream keeps the historical read-to-EOF
-  contract — Windows `select` included.
+  (`_stdin_data_ready`: a test double's `data_ready()`, else a zero-timeout
+  `select.poll` probe). The POSIX probe handles fds above FD_SETSIZE and EOF;
+  an unprobeable stream fails loudly instead of entering a blocking read.
 - **A streaming annotation is the documented opt-in to waiting.** `list[...]`
   / `Iterator[...]` parameters keep the ungated lazy hand-over: row-wise
   pipelines must deliver first rows however late the upstream starts.

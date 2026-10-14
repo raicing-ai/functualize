@@ -13,6 +13,8 @@ A unit test of the helper is not a test of the wiring.
 
 from __future__ import annotations
 
+import os
+import sys
 import threading
 import time
 from typing import Annotated
@@ -315,6 +317,48 @@ class TestNothingPipedKeepsTheDefault:
         assert not worker.is_alive(), "the run blocked on a silent pipe"
         assert elapsed < 1.0
         assert outcome == {"status": RunStatus.SUCCESS, "value": "the default"}
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX high-fd pipe probe")
+    def test_a_high_fd_silent_pipe_keeps_the_default(
+        self, engine: JobExecutionEngine
+    ) -> None:
+        """A held-open pipe above FD_SETSIZE must not block engine.run()."""
+        scratch_fds: list[int] = []
+        try:
+            while not scratch_fds or scratch_fds[-1] < 1023:
+                scratch_fds.append(os.open(os.devnull, os.O_RDONLY))
+
+            outcome: dict[str, object] = {}
+            started = time.monotonic()
+
+            def _go() -> None:
+                result = _run(engine, "func.job")
+                outcome["status"] = result.status
+                outcome["value"] = result.return_value
+
+            read_fd, write_fd = os.pipe()
+            stream = os.fdopen(read_fd, "r", encoding="utf-8")
+            previous_stdin = sys.stdin
+            sys.stdin = stream  # type: ignore[assignment]
+            try:
+                assert stream.fileno() >= 1024
+                worker = threading.Thread(target=_go, daemon=True)
+                worker.start()
+                worker.join(timeout=1.0)
+                elapsed = time.monotonic() - started
+                blocked = worker.is_alive()
+            finally:
+                os.close(write_fd)
+                worker.join(timeout=1.0)
+                sys.stdin = previous_stdin
+                stream.close()
+
+            assert not blocked, "engine.run blocked on a silent high-fd pipe"
+            assert elapsed < 1.0
+            assert outcome == {"status": RunStatus.SUCCESS, "value": "the default"}
+        finally:
+            for fd in scratch_fds:
+                os.close(fd)
 
     def test_a_required_param_with_an_empty_stream_fails_as_missing_argument(
         self, engine: JobExecutionEngine

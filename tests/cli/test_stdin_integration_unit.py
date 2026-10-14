@@ -11,6 +11,7 @@ Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
 
 from __future__ import annotations
 
+import select
 import threading
 import time
 from typing import Any
@@ -292,6 +293,14 @@ class TestASilentPipeResolvesNothing:
         assert not worker.is_alive(), "resolution blocked on a silent pipe"
         assert elapsed < 1.0
         assert result == {}
+
+    def test_a_missing_poll_probe_fails_loudly(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unsupported platform must not guess that a silent pipe is ready."""
+        monkeypatch.delattr(select, "poll", raising=False)
+        with real_pipe_stdin(None), pytest.raises(RuntimeError, match="select.poll"):
+            resolve_stdin_params({"data": Stdin()}, {})
 
 
 class TestAnEmptyStreamResolvesNothing:
