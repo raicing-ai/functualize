@@ -73,7 +73,7 @@ reader is `failed`, and the walk can be resumed like any other failed step).
 The failure message contains the literal `FromStep(<name>)`, the reader, the
 parameter, the scope id (when there is one), and the reason:
 
-- *did not run in this walk* (branch not taken) — subject to spec D2;
+- *did not run in this walk* (branch not taken) **and the parameter declares no default** — with a default the reader is called with it (spec D2);
 - *recorded value could not be carried and is not held by this process*;
 - *not running inside a workflow walk* (job executed directly) — the message
   says to pass the argument explicitly or run the job as a step.
@@ -87,10 +87,14 @@ is not a public module) and surfaces to users as the run's error text.
 
 The in-core gate-tool path (`app/_workflow_control.py`) and the MCP adapter
 (`functualize-mcp`, `_workflow_tools.py`) produce **identical** results for the
-same scope and binding: the node's recorded value, or the §3 failure. The
+same scope and binding: the node's recorded value, or the §3 failure — because
+both call one internal function (`plan.md` names it; the plugin already
+imports `functualize._primitives` and `functualize._types` for this path, so no
+public name is added). The
 `None`-for-not-run result pinned at
-`tests/integration/test_part_i_remaining_cells.py:286` is replaced by §3
-(subject to spec D2).
+`tests/integration/test_part_i_remaining_cells.py:285-286` and
+`tests/plugins/test_gate_tool_narrowing.py:661-669` is replaced by §3
+(spec D2: a binding has no default, so a skipped node always fails).
 
 ## 5. Unchanged surfaces (pinned by AC12)
 
