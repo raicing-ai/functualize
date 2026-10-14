@@ -347,6 +347,40 @@ def test_a_takeover_records_no_completion_time(backend: str, tmp_path: Path) -> 
     store.close()
 
 
+def test_a_renewal_overtaken_before_its_commit_is_superseded(tmp_path: Path) -> None:
+    """The heartbeat's verdict follows what was stored, not what was attempted.
+
+    SQLite checks the fence when the renewal is staged and again in the
+    statement's predicate. A forced claim that commits between the two leaves
+    the renewal matching no row, so the walk no longer owns the scope —
+    `renew()` must say `SUPERSEDED`, or the heartbeat waits a whole interval
+    believing it still holds a scope another runner is walking.
+    """
+    from unittest.mock import patch
+
+    from functualize_substrate_sqlite._workflow_sql import SqlWorkflowWriter
+
+    from functualize._engine.frontier import RenewalOutcome
+
+    store = _store("sqlite", tmp_path)
+    walk = _walk(GraphModel(entry="a"), store)
+    generation = _claimed(walk)
+    real_renew = SqlWorkflowWriter.renew
+
+    def overtaken(writer: SqlWorkflowWriter, cmd: Any) -> None:
+        real_renew(writer, cmd)  # the fence check passes; the update is staged
+        rival = _walk(GraphModel(entry="a"), store).claim(owner="rival", force=True)
+        assert isinstance(rival, Claimed)  # committed before the renewal is
+
+    with patch.object(SqlWorkflowWriter, "renew", overtaken):
+        assert walk.renew() is RenewalOutcome.SUPERSEDED
+
+    view = store.workflows.workflow("s1")
+    assert view is not None
+    assert (view.owner, view.generation) == ("rival", generation + 1)
+    store.close()
+
+
 # -- the epilogue keeps its legacy record (contracts §2, W-AC-4) ------------
 
 

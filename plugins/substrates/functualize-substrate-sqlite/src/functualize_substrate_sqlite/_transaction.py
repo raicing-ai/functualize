@@ -14,13 +14,17 @@ the same errors the document store raises, before anything is buffered. Every
 statement it stages then *carries* the same conditions in its predicate (the
 held generation, the legal predecessor states), so a writer that slipped in
 between the check and the commit makes the statement match zero rows: the
-stale write cannot land (data model §5), it is only not reported.
+stale write cannot land (data model §5), it is only not reported. The one
+exception is a statement whose *caller* decides from its outcome — a lease
+renewal, which the heartbeat reads as "this walk still owns the scope". Such a
+statement is staged with a refusal, and ``commit`` raises it when the
+statement matched no row, so the outcome reported is the one stored.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -126,6 +130,9 @@ class BufferedTransaction:
         self.driver = driver
         self.namespace = namespace
         self._statements: list[Statement] = []
+        #: Batch positions whose zero-row match must be reported, with the
+        #: error that reports it.
+        self._refusals: dict[int, Callable[[], BaseException]] = {}
         self._scopes: dict[str, ScopeRow] = {}
         self._requests: dict[str, RequestRow] = {}
         self._runs: dict[str, str] = {}
@@ -142,15 +149,38 @@ class BufferedTransaction:
 
     # -- staging ----------------------------------------------------
 
-    def stage(self, sql: str, parameters: Sequence[object] = ()) -> None:
-        """Append one statement to this transition's batch. Issues nothing."""
+    def stage(
+        self,
+        sql: str,
+        parameters: Sequence[object] = (),
+        *,
+        refused: Callable[[], BaseException] | None = None,
+    ) -> None:
+        """Append one statement to this transition's batch. Issues nothing.
+
+        ``refused`` builds the error ``commit`` raises if this statement
+        matches no row — for a write whose caller acts on whether it landed.
+        """
+        if refused is not None:
+            self._refusals[len(self._statements)] = refused
         self._statements.append((sql, tuple(parameters)))
 
     def commit(self, driver: SqlDriver) -> None:
-        """Send everything staged as one batch; an empty transaction sends nothing."""
-        if self._statements:
-            driver.batch(self._statements)
-        self._statements = []
+        """Send everything staged as one batch; an empty transaction sends nothing.
+
+        Raises the refusal of the first refusable statement that matched no
+        row. The batch has committed by then, but every statement in it
+        carried the same fence, so a takeover that stopped one stopped all of
+        them: nothing this unit staged under the lost generation landed.
+        """
+        statements, refusals = self._statements, self._refusals
+        self._statements, self._refusals = [], {}
+        if not statements:
+            return
+        counts = driver.batch(statements)
+        for index, refused in refusals.items():
+            if counts[index] == 0:
+                raise refused()
 
     # -- the pending view: committed rows, overlaid by this unit ------
 
@@ -252,6 +282,22 @@ class BufferedTransaction:
                 owner=row.owner or "nobody",
             )
         self._held_generations[scope_id] = generation
+
+    def lost_fence(self, scope_id: str, generation: int) -> StaleGenerationError:
+        """The refusal for a fenced write that matched no row at commit.
+
+        Reads the committed row, not this unit's overlay: the overlay still
+        holds what the unit staged, and the point is who holds the scope now.
+        """
+        rows = self.driver.query(
+            "SELECT lease_generation, lease_owner FROM workflow_scopes "
+            "WHERE namespace_id = ? AND id = ?",
+            (self.namespace, scope_id),
+        )
+        held, owner = (int(rows[0][0]), rows[0][1]) if rows else (0, None)
+        return StaleGenerationError(
+            scope_id, held=held, offered=generation, owner=owner or "nobody"
+        )
 
     def held_generation(self, scope_id: str) -> int:
         """The generation this unit checked for a scoped transition, if any."""

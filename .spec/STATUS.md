@@ -618,7 +618,11 @@ stops and joins before the claim is released on completion, failure, or an
 exception. Renewal extends expiry without changing the generation. A transient
 storage failure is retried at the next interval; a stale generation means
 another runner claimed the scope, even after expiry, so the old walk suppresses
-its normal end report and its next write is fenced.
+its normal end report and its next write is fenced. On the SQLite store that
+holds for a takeover that commits between the renewal's fence check and its
+conditional update too: the update matches no row and the transaction raises
+the stale generation at commit, so the walk is told at once rather than one
+interval later.
 
 Expiry makes a still-`running` scope claimable but neither proves the old work
 stopped nor interrupts it. An ordinary second walker is refused while the

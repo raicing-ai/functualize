@@ -308,9 +308,11 @@ class FrontierWalk:
         """Try to extend this walk's claim without moving its generation.
 
         The walk's heartbeat calls this once when the walk starts and then
-        every 60 seconds, including during a step. Expiry alone does not change the generation or prove work stopped.
-        A stale generation means another claim superseded this one, even after
-        expiry. An ordinary storage error cannot establish a takeover: report
+        every 60 seconds, including during a step. Expiry alone does not change
+        the generation or prove work stopped. A stale generation means another
+        claim superseded this one, even after expiry — whether the store
+        refuses the renewal before staging it or its fenced write matches no
+        row at commit. An ordinary storage error cannot establish a takeover: report
         it separately so the heartbeat can retry at its next interval. Direct
         calls remain best-effort; the next fenced write still reports a lost
         claim with its holder named.
