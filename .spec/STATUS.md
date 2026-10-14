@@ -921,6 +921,14 @@ docstring.
 - **`Exec(run="once")` deduplication keys the same way.** Two calls differing
   only in a resolved group option are no longer duplicates — the same defect
   through a second consumer.
+- **Secret group options hash by their resolved value, not their display
+  mask.** `Secret[str]` intentionally serializes to the same mask for every
+  value in JSON mode (ADR-008 §A3). The key derivation keeps the JSON shape
+  for ordinary option fields, overlays secret leaves from the Python-mode
+  model only in transient memory, and stores only the resulting SHA-256
+  digest. Both the writer and `FromJob` readers use it; the regression checks
+  changed-secret misses, same-secret hits, dependent values, a read-only
+  consumer, and absence of plaintext in the stored fingerprint record.
 
 **Surviving smells, accepted.** *Parallel derivation*: `for_run` and `for_job`
 both assemble "config + args + options" (one reads live values, the other

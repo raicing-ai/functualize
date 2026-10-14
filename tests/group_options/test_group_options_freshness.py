@@ -37,7 +37,7 @@ from functualize.job import (
     RunStatus,
     job,
 )
-from functualize.types import RunRequest
+from functualize.types import RunRequest, Secret
 
 if TYPE_CHECKING:
     from functualize._types import JobResult
@@ -49,6 +49,10 @@ class DemoOptions(GroupOptions, group="demo"):
     """The `demo` group's flags — the group the report types at."""
 
     target: Annotated[str, Option("--target", help="Which target to scan")] = "a"
+
+
+class SecretOptions(GroupOptions, group="secrets"):
+    token: Secret[str] = Secret("default")
 
 
 @pytest.fixture(autouse=True)
@@ -200,6 +204,93 @@ class TestFromJobNeverCrossesOptionValues:
         _run(app, "peek", "a")
 
         assert reports == [("b", None), ("a", "a")]
+
+
+class TestSecretGroupOptions:
+    """A masked display value must still distinguish resolved key inputs."""
+
+    @staticmethod
+    def _app(scans: list[str], reports: list[tuple[str, str | None]]) -> FunctualizeApp:
+        app = FunctualizeApp(name="freshness-secret-group-options")
+
+        @job(cache=Fingerprint(sources=["input.txt"]))
+        def scan(opts: SecretOptions = None) -> str:
+            token = opts.token.get_secret_value()
+            scans.append(token)
+            return token[0]
+
+        @job
+        def report(
+            scanned: Annotated[str, FromJob("scan")],
+            opts: SecretOptions = None,
+        ) -> None:
+            reports.append((opts.token.get_secret_value(), scanned))
+
+        @job
+        def peek(
+            scanned: Annotated[str | None, FromJob("scan", run=False)] = None,
+            opts: SecretOptions = None,
+        ) -> None:
+            reports.append((opts.token.get_secret_value(), scanned))
+
+        app.register_dynamic_job("scan", scan)
+        app.register_dynamic_job("report", report)
+        app.register_dynamic_job("peek", peek)
+        return app
+
+    @staticmethod
+    def _run(app: FunctualizeApp, job_name: str, token: str) -> JobResult:
+        return app._execution_engine.run(
+            RunRequest(
+                job_name=job_name,
+                surface="app.execute",
+                group_option_values={"token": token},
+            )
+        )
+
+    def test_a_changed_secret_misses_and_the_same_secret_hits(self) -> None:
+        scans: list[str] = []
+        app = self._app(scans, [])
+
+        first = self._run(app, "scan", "alpha")
+        changed = self._run(app, "scan", "beta")
+        same = self._run(app, "scan", "beta")
+
+        assert first.status is RunStatus.SUCCESS
+        assert changed.status is RunStatus.SUCCESS
+        assert same.status is RunStatus.SKIPPED
+        assert scans == ["alpha", "beta"]
+
+        engine = app._execution_engine
+        key = engine.fingerprint_key_for(
+            "scan", "checksum", group_option_values={"token": "alpha"}
+        )
+        record = engine._state_store().get_fingerprint(key)
+        assert record is not None
+        assert "alpha" not in repr(record)
+        assert "beta" not in repr(record)
+
+    def test_from_job_receives_the_value_for_its_secret(self) -> None:
+        scans: list[str] = []
+        reports: list[tuple[str, str | None]] = []
+        app = self._app(scans, reports)
+
+        self._run(app, "scan", "alpha")
+        result = self._run(app, "report", "beta")
+
+        assert result.status is RunStatus.SUCCESS
+        assert scans == ["alpha", "beta"]
+        assert reports == [("beta", "b")]
+
+    def test_read_only_consumer_uses_the_secret_record_key(self) -> None:
+        reports: list[tuple[str, str | None]] = []
+        app = self._app([], reports)
+
+        self._run(app, "scan", "alpha")
+        self._run(app, "peek", "beta")
+        self._run(app, "peek", "alpha")
+
+        assert reports == [("beta", None), ("alpha", "a")]
 
 
 class TestTheKeyFormula:
