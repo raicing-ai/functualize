@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a warm-cache parallel batch no longer fails to materialise a module
+
+Two jobs living in the same module, run concurrently through
+`invoke.parallel` on a warm cache, could race on first use: the lazy
+import wrapper inserted the module's directory into `sys.path`, imported,
+and removed it with no process-wide guard, so one job could read the
+module while the other's import was still in flight and fail with
+`JobMaterializationError` — either because the directory had been removed
+underneath it, or because it saw the module before the import had bound
+the job it wanted. First materialisation of the wrapper's import region is
+now serialised across the process with a re-entrant lock, so both jobs of
+a shared module always materialise. Cold boots, single-job batches and
+batches spanning different modules behave exactly as before, and
+`sys.path` is left exactly as found on success and failure alike.
+
 ### Fixed — a workflow parked on the SQLite store resumes in another process
 
 With `runtime_store.url = "sqlite:"`, only a walk's claim used to reach the
