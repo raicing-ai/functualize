@@ -223,6 +223,16 @@ vault, environment and defaults.
     So the answer is the same as everywhere else in the framework: explicit
     beats implicit. Nothing is inherited; anything passed is passed on purpose.
 
+## Caching follows the resolved value
+
+A job's freshness record is keyed on what the run actually used: its resolved
+config, the caller's arguments, **and the resolved group options** — whichever
+layer supplied them. Changing a group option therefore re-runs a cached job
+(`func demo --target a scan` then `--target b scan` builds twice), while the
+same resolved value hits the record and skips as before. A `FromJob` consumer
+is keyed the same way, so a job reading `scan` under `--target b` receives the
+value recorded under `b`, never the one recorded under `a`.
+
 ## Steering a whole run from code
 
 The file, environment and default layers are re-read on **every** job

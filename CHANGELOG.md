@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a changed group option re-runs a cached job instead of replaying the previous result
+
+A job's freshness key was computed from its resolved config plus the caller's
+explicit arguments. A `GroupOptions` parameter is neither: it is injected, and
+it resolves against the group's config scope rather than the job's config
+model. So `func demo --target a scan` followed by `--target b scan` skipped
+the second run and handed back the record written under `a`, and a `FromJob`
+consumer under `--target b` received the value `scan` recorded under `a` —
+exit 0, nothing reported. The reader side (`FromJob` lookups, the dependency
+pass, `func builtin why`) reconstructed the same option-blind key, so reader
+and writer agreed on a key that was wrong for both.
+
+The resolved group options now hash into the key as their own payload field,
+whichever layer supplied them — flag, vault, environment, config file or
+default. A changed option misses the record and re-runs; the same resolved
+value hits it and skips, as before. Every reader derives the key through the
+same resolver, using the option layer its own run carries, so a `FromJob`
+consumer never receives a value recorded under a different option value. Jobs
+that declare no `GroupOptions` parameter keep byte-identical keys, so their
+existing records still match; jobs that do declare one miss once, deliberately,
+because their previous records could not tell option values apart.
+
 ### Fixed — a workflow parked on the SQLite store resumes in another process
 
 With `runtime_store.url = "sqlite:"`, only a walk's claim used to reach the

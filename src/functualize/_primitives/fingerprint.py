@@ -116,14 +116,20 @@ def config_payload(config: Any) -> Any:
         return config
 
 
-def compute_args_hash(resolved_config: Any = None, call_args: Any = None) -> str:
-    """Hash the resolved config + call args (§D.3 Fix 1).
+def compute_args_hash(
+    resolved_config: Any = None,
+    call_args: Any = None,
+    group_options: Any = None,
+) -> str:
+    """Hash the resolved config, call args, and any resolved group options.
 
     Pass the *resolved* config (post-precedence, post-env, post-prompt) as a
     plain mapping — pydantic models should be dumped by the caller, which owns
     the model's serialization rules. :func:`config_payload` is that dump.
     """
     payload = {"config": resolved_config, "args": call_args}
+    if group_options:
+        payload["group_options"] = group_options
     return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
 

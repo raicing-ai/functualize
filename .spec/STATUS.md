@@ -890,6 +890,50 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### The freshness key counts resolved group options (2026-10-14, `fix/freshness-key-group-options`)
+
+**The decision worth keeping.** *A resolved `GroupOptions` value belongs in the
+fingerprint key, as its own payload field.* It is injected, so the
+injected-set subtraction dropped it, and it resolves against the **group's**
+config scope — never the job's config model — so nothing about `config`
+carried it either. Both halves of the key (writer and reader) were option-blind
+in agreement: a changed option replayed the previous run's record, and a
+`FromJob` consumer received a value recorded under a different option
+(`REPORT target=b scanned=a`, exit 0). The derivation now lives in
+`_engine/freshness_key.py` (`FreshnessKeys.for_run` writer,
+`for_job` reader) with the corrected five-kind design table in its module
+docstring.
+
+**Rules that outlive the feature:**
+
+- **`compute_args_hash(config, args, group_options)` gains its payload field
+  only when the job declares options.** A job without `GroupOptions` keeps a
+  byte-identical key, so records written before the change still match. Jobs
+  *with* options miss once, deliberately — the old records were written under a
+  key that could not tell options apart.
+- **A reader that cannot resolve an option hashes `None` into its slot**, never
+  an option-blind key: the option-blind key is the one pre-change records
+  answer under, and falling back to it would resurrect this defect.
+- **Every reader uses the consumer's option layer** — the same
+  `RunRequest.group_option_values` the dependencies ran under (after the
+  delivery fix, `206e42de`). `func builtin why` explains the flagless run,
+  matching its standing behavior for job config.
+- **`Exec(run="once")` deduplication keys the same way.** Two calls differing
+  only in a resolved group option are no longer duplicates — the same defect
+  through a second consumer.
+
+**Surviving smells, accepted.** *Parallel derivation*: `for_run` and `for_job`
+both assemble "config + args + options" (one reads live values, the other
+re-resolves); they sit side by side in one module and a test asserts the
+reader's key equals the writer's. *Middle Man / Inappropriate Intimacy* on
+`FreshnessKeys`' engine back-reference, per the `DependencyRunner` extraction
+precedent. None need maintainer review.
+
+**Open.** `func builtin why` accepts no group-CLI layer, so it explains the run
+a plain `func <job>` would make; a run launched with typed flags records under
+a key `why` does not reconstruct — the same limitation `why` already has for
+job-config CLI flags.
+
 ### Parallel child failures reach the parent (2026-10-12, `fix/parallel-child-failure`)
 
 **The decision worth keeping.** *A failed child fails a parent that ignores the
