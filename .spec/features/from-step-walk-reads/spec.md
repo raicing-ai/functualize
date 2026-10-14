@@ -13,7 +13,7 @@ everywhere: step, gate, epilogue)*, Confluence SD page 16777218, version 3,
 `Authority: Approved` (read live 2026-10-13). The chosen model is the page's
 option (i). This spec is the behaviour that option promises; where the page's
 own experiment disagrees with option (i), the disagreement is stated in
-§ *Open decisions* rather than silently resolved.
+§ *Decisions*, settled by the maintainer and recorded there.
 
 Words used below:
 
@@ -164,7 +164,7 @@ A reference that passed boot validation can still be unsatisfiable in one
 particular walk. In each case the reader is **not** called and the walk
 records a failure whose message names `FromStep`, the node, the parameter and
 the scope — never a Python arity error, and never a silently substituted
-value except as § *Open decisions* D2 allows:
+value except as § *Decisions* D2 allows:
 
 - the named node is ordered before the reader but did not run in this walk
   (a conditional edge took another branch);
@@ -198,15 +198,14 @@ is `master` at `c03dfb72`.
 | AC6 | Two walks of one workflow; the first ran `plan`, the second is parked before `plan`; a fingerprint record for `plan` exists | a `FromStep("plan")` read in the second walk never yields the first walk's value or the fingerprint's (B3) | not measured |
 | AC7 | The `act` job run directly, outside any walk, without the argument | fails with the B5 message naming `FromStep`; not `missing 1 required positional argument` | fails |
 | AC8 | `Tool(read_file, allowed=FromStep("setup-vfs"))` with `setup-vfs` a prior step; and with a prior **gate** | resolves to the step's result / the gate's answer, on both the in-core and MCP tool surfaces | passes |
-| AC9 | A conditional walk where the read node is on the branch not taken | B5 behaviour, as settled by D2 | not measured |
+| AC9 | A conditional walk where the read node is on the branch not taken | with a declared default the reader gets the default; without one, the B5 failure (D2) | not measured |
 | AC10 | A depositing answer for a node that is a step (`deposit … gate="act"`) | refused (`GateNotFoundError`) — unchanged | passes |
 | AC11 | AC1–AC5 with the fixture module compiled with and without `from __future__ import annotations` | identical outcomes | n/a |
 | AC12 | `FromJob` behaviour suites (`tests/test_from_job.py`, the workflow-as-job, dependency and fingerprint suites) | unchanged, green | passes |
 | AC13 | The documentation surfaces named in B6 | contain no statement contradicting B1–B5 (checked by `rg` for the old phrases) | fails |
 
 AC1, AC2 and AC3 are the shape page's experiment steps 1–3; AC10 is its step 4
-(measured: already refused); AC4 is its step 6. The page's step 5 is § *Open
-decisions* D1.
+(measured: already refused); AC4 is its step 6. The page's step 5 is superseded by D1.
 
 ## Non-goals
 
@@ -231,41 +230,31 @@ decisions* D1.
   failing at boot. A project carrying such an annotation today, with a default,
   will fail to boot after upgrading if the name is wrong; that is the point.
 - A `Tool` binding whose `FromStep` names a node that did not run in this walk
-  currently receives `None` (`tests/integration/test_part_i_remaining_cells.py:286`
-  pins it). Under B5 it fails with the named error instead, unless D2 says
-  otherwise. That assertion changes deliberately.
+  currently receives `None`. Two tests pin that, both on the MCP surface:
+  `tests/integration/test_part_i_remaining_cells.py:285-286` and
+  `tests/plugins/test_gate_tool_narrowing.py:661-669`. Under B5 and D2 it fails
+  with the named error instead; both assertions change deliberately.
 
-## Open decisions — need the maintainer before Plan
+## Decisions (settled 2026-10-13)
 
-These are places where the approved shape page and option (i) — or the page and
-the measured code — disagree. They are not resolved here.
+The maintainer confirmed this spec and settled both open decisions in one
+answer (issue comment `01a136fd-9871-73a2-8afe-7cdcefbb417f`,
+2026-10-13T20:39:11Z, verbatim: *"Confirm, D-1 allow it, D-2 (b)"*). Both
+**supersede** the shape page's experiment steps 5 and 6, which say the
+opposite; `plan.md` → *Alignment* records the supersession.
 
-- **D1 — the shape page's experiment step 5 contradicts option (i).** Step 5
-  says `Tool(read_file, allowed=FromStep("approve"))` naming a *gate* "is
-  refused — a binding narrows to a step's value". Option (i), the page's chosen
-  model, says a `FromStep` reads "any node `x` — step or gate — wherever it is
-  written: a `Tool(...)` binding, …". And today a binding naming an answered
-  gate already resolves to its answer (measured). **Recommendation: follow
-  option (i)** — a binding may name any node ordered before its gate; a binding
-  naming its *own* gate, or a later one, is refused at boot (B4.3, which is
-  what step 5 most plausibly meant). Refusing gates in bindings would make one
-  name obey two rules, which is the outcome option (ii) was rejected for.
-- **D2 — a node on a branch not taken, when the parameter has a default.** The
-  page's step 6 says a name that "has not run yet" raises "and no default is
-  substituted". In a conditional workflow a node ordered before the epilogue
-  may legitimately never run in a given walk (the example
-  `examples/standalone/hermetic_router/` has four routes). Options:
-  (a) always raise — authors of conditional workflows cannot read a branch-only
-  node from the epilogue at all;
-  (b) use the parameter's declared default if it has one, raise otherwise —
-  the same rule `FromJob(run=False)` documents today
-  (`src/functualize/_types/from_job.py`, `FromJob` docstring: "falls back to its
-  default; a parameter with no default raises"). Boot-time errors (B4) never
-  fall back, default or not. **Recommendation: (b).**
+- **D1 — a gate tool binding may name an earlier gate.**
+  `Tool(read_file, allowed=FromStep("approve"))` resolves to the answer of an
+  `approve` gate ordered before the binding's gate. A binding naming its own
+  gate, or a node not ordered before its gate, is refused at boot (B4.3).
+- **D2 — a node a conditional branch skipped yields the parameter's declared
+  default; with no default the read fails (B5).** Only the
+  "ordered before but did not run in this walk" case falls back. Every boot
+  error (B4) fails regardless of a default, and so do the other two B5 cases
+  (value not carriable; outside a walk). In a `Tool` binding there is no
+  default, so a skipped node always fails.
 
 ## Out of scope, recorded
 
-- Two readers of a step record exist today — the executor reads through the
-  runtime-store port, the two tool-binding resolvers read the raw scope
-  document (`research.md`). Whether this feature unifies them is a Plan
-  question (architecture gate), not a behaviour question.
+- Two readers of a step record exist today; `plan.md` settles that the
+  feature replaces them with one (architecture gate).
