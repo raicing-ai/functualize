@@ -49,8 +49,12 @@ class StdinCollector:
     def is_available() -> bool:
         """Return ``True`` only when both stdin and stdout are TTYs.
 
-        Mirrors the ``_cli/stdin_reader`` TTY idiom. Any failure probing the
-        streams is treated as "not available".
+        The prompt half of the shared rule with ``_engine/stdin_reader``: a run
+        blocks on a human or on data only when the human or the data is
+        actually there. A non-interactive stdin never blocks a run — the reader
+        resolves nothing instead of waiting on data that may never come, and
+        this collector declines to prompt. Any failure probing the streams is
+        treated as "not available".
         """
         try:
             return bool(sys.stdin.isatty() and sys.stdout.isatty())

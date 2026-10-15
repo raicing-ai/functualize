@@ -184,6 +184,23 @@ rendered by click; a closed pipe is still a quiet exit 0; a config validation
 failure is still a panel and a missing value still a one-line usage error, both
 exit 2. `--emit-format` still governs stdout only, so a failed job writes
 nothing there whatever the format.
+### Fixed — an optional Stdin parameter no longer hangs or overruns its default on a silent pipe
+
+An optional `Stdin` parameter used to block forever when stdin was a pipe
+carrying nothing yet — `sleep 30 | func s` hung until the writer died — and
+an empty stream (`func s < /dev/null`) wrote `""` over the parameter's
+default. Resolution now reads stdin only when it is a pipe that already
+carries data or has reached end-of-stream: a silent pipe resolves nothing
+here and now, an empty stream is read and found empty, and in both cases the
+parameter's default is what the job receives. The two "nothing there" shapes
+stay distinguishable in the reader's own accounting (the first is never read,
+the second is read and found empty), and a deliberately empty flag —
+`--data ""` — is still an explicit value that wins over the default. Real
+piped data passes through unchanged, multiline and UTF-8 included, and the
+rule is the same on the agent-run path's `StdinCollector`. Streaming a
+`list[...]`- or `Iterator[...]`-typed parameter stays the documented opt-in
+to waiting: those parameters read the stream to end by design.
+
 
 ### Changed — failed parallel children now fail an ignoring parent
 
