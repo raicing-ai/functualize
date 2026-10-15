@@ -890,6 +890,45 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### Lazy job imports serialise on sys.path, process-wide (2026-10-14, `fix/lazy-import-sys-path-race`)
+
+**The decision worth keeping.** The lazy wrapper's insert → import → remove
+region on `sys.path` is guarded by one module-level re-entrant lock in
+`_discovery/lazy_wrapper.py` (`_IMPORT_LOCK`). Two jobs of one module are
+two `LazyJobFunction` proxies with two per-instance locks, so only a
+process-wide guard can stop a warm-cache `invoke.parallel` batch from
+reading a half-initialized module (CPython publishes it to `sys.modules`
+before its body runs) or importing against a directory another thread just
+removed. Failure mode filed three times; the deterministic reproduction
+paces the two threads with marker files and fails on master.
+
+**Rules that outlive the feature:**
+
+- **The lock is not state.** The Constitution bans global mutable state
+  because it breaks testability and DI; a lock has no value to reset, no
+  data to read, and resolves through no registry. The argument lives at
+  its definition site — a future edit that widens it into state must
+  re-argue it, not inherit it.
+- **The guarded resource decides the guard's scope.** `sys.path` is
+  interpreter-global; no instance-scoped owner spans every caller
+  (proxies are per-descriptor, and the entry-point provider calls
+  `_import_real_function` with no proxy at all). A guard narrower than
+  its resource is the bug, not the design.
+- **The synthetic-source branch stays outside the lock.**
+  `<entry_point>`/`<dynamic>` descriptors never touch `sys.path`; keep
+  their loads parallel.
+- **Adjacent same-shape regions are not covered.** `_discovery/registry.py`
+  and `_discovery/sync.py` insert/remove on the cold scan path, where no
+  engine worker threads exist. If either ever becomes reachable
+  concurrently with lazy materialisation, take the same lock there rather
+  than adding a second one.
+
+**Surviving smells, both accepted.** **Mutable Data (Global Data)**:
+`sys.path` itself remains a shared global; the lock removes the race, not
+the global, and the global is the interpreter's. Serialised first imports
+across *different* modules (a throughput ceiling, not a correctness one):
+paid once per module per process.
+
 ### Parallel child failures reach the parent (2026-10-12, `fix/parallel-child-failure`)
 
 **The decision worth keeping.** *A failed child fails a parent that ignores the
