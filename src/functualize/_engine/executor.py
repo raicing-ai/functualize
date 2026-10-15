@@ -52,6 +52,7 @@ NoneType = type(None)
 if TYPE_CHECKING:
     from functualize._engine.middleware import ExecutionMiddlewareChain
     from functualize._engine.result import RegisteredJob
+    from functualize._types.group_options import GroupOptions
     from functualize._types.persistence import RuntimeStore
     from functualize._types.protocols import EngineHost, StoreSubstrate
     from functualize._types.run_request import RunRequest
@@ -286,6 +287,9 @@ class JobExecutionEngine:
         # `issubclass` against the real base (see group_options_detection): the
         # engine must not import `_types.group_options` to answer this.
         self._group_options_cache: dict[int, tuple[tuple[str, Any], ...]] = {}
+        from functualize._engine.freshness_key import FreshnessKeys
+
+        self._freshness_keys = FreshnessKeys(self)
         self._config_view_factory = config_view_factory
         self._config_resolver = config_resolver
         self._arg_validator = ArgValidator()
@@ -434,87 +438,26 @@ class JobExecutionEngine:
             )
         return config_class()
 
-    # ── The one fingerprint-key derivation ────────────────────────────────
-    #
-    # There were three conventions across six call sites, and the writer used
-    # a fourth thing again: `compute_args_hash(config, context.call_kwargs)`
-    # with the *whole* kwargs mapping. By the time the pre-flight runs, that
-    # mapping holds five different kinds of thing, and only one of them
-    # belongs in the key:
-    #
-    #   DI-injected capabilities   no — unreconstructable, and `repr` carries
-    #                              a memory address, so a job with a `Log`
-    #                              parameter got a new key every single run
-    #                              and could never report fresh
-    #   the resolved config model  no — already passed as `config`
-    #   resolved GroupOptions      no — same, via config resolution
-    #   FromJob upstream values    no — derived from an upstream whose own
-    #                              freshness is separately checked, and
-    #                              circular for a reader to reconstruct
-    #   what the CALLER passed     yes
-    #
-    # Hence: config + (call_kwargs - everything the executor injected). The
-    # subtraction is exact rather than a type-sniffing heuristic because the
-    # executor recorded each of its own injections in `context.injected`.
-    #
-    # And because the engine passes no explicit args when it triggers a run
-    # itself — a dependency, a `FromJob` upstream, a plain `func <job>` — the
-    # explicit half is `{}` there, which is what lets a reader holding only a
-    # job name reconstruct the key. See `fingerprint_key_for`.
-
     def _args_hash_for(self, context: Any) -> str:
-        """The args hash for an in-flight run: config + caller-passed args."""
-        from functualize._primitives.fingerprint import (
-            compute_args_hash,
-            config_payload,
-        )
+        """The args hash for an in-flight run, including resolved group options."""
+        return self._freshness_keys.for_run(context)
 
-        rc = self._run_context_of(context)
-        config = getattr(rc, "job_config", None) if rc is not None else None
-        injected = getattr(context, "injected", None) or set()
-        explicit = {
-            name: value
-            for name, value in context.call_kwargs.items()
-            if name not in injected
-        }
-        return compute_args_hash(config_payload(config), explicit)
+    def fingerprint_args_hash_for(
+        self, job_name: str, group_option_values: dict[str, Any] | None = None
+    ) -> str:
+        """The hash a named engine-triggered run would write under."""
+        return self._freshness_keys.for_job(job_name, group_option_values)
 
-    def fingerprint_key_for(self, job_name: str, method: str) -> str:
-        """The key an **engine-triggered** run of ``job_name`` writes under.
+    def fingerprint_key_for(
+        self,
+        job_name: str,
+        method: str,
+        group_option_values: dict[str, Any] | None = None,
+    ) -> str:
+        """The fingerprint record key for an engine-triggered run."""
+        from functualize._primitives.fingerprint import fingerprint_key
 
-        The reader-side counterpart of :meth:`_args_hash_for`. It resolves
-        config through :meth:`resolve_config_model`, which is the same
-        ``_config_resolver`` execution uses — so reader and writer agree by
-        construction rather than by convention.
-
-        The explicit-args half is ``{}`` because that is what an
-        engine-triggered run has: a dependency, a `FromJob` upstream and a
-        plain ``func <job>`` all pass no arguments of their own.
-
-        Propagates nothing: an unresolvable config degrades to ``None`` here,
-        because every caller is a *read* path (`why`, a `FromJob` lookup) that
-        must not turn a missing config field into a crash.
-        """
-        from functualize._primitives.fingerprint import (
-            compute_args_hash,
-            config_payload,
-            fingerprint_key,
-        )
-
-        try:
-            config = self.resolve_config_model(job_name)
-        except Exception as exc:
-            # `resolve_config_model` deliberately propagates ValidationError.
-            # A read path degrades — but says so, rather than silently
-            # answering as though the job declared no config.
-            logger.debug(
-                "config for %r could not be resolved while deriving its "
-                "fingerprint key (%s); using no config",
-                job_name,
-                exc,
-            )
-            config = None
-        args_hash = compute_args_hash(config_payload(config), {})
+        args_hash = self.fingerprint_args_hash_for(job_name, group_option_values)
         return fingerprint_key(job_name, args_hash, method)
 
     def _ensure_materialized(self, entry: RegisteredJob) -> RegisteredJob:
@@ -2158,7 +2101,11 @@ class JobExecutionEngine:
                 context.call_kwargs[param] = live[ref.name]
                 context.injected.add(param)
                 continue
-            value = self._from_job_value(ref, scope_id, wanted.get(param))
+            request = getattr(context, "request", None)
+            group_option_values = getattr(request, "group_option_values", None)
+            value = self._from_job_value(
+                ref, scope_id, wanted.get(param), group_option_values
+            )
             if value is not None:
                 context.call_kwargs[param] = value
                 context.injected.add(param)
@@ -2183,7 +2130,11 @@ class JobExecutionEngine:
         self._live_step_values.pop(scope_id, None)
 
     def _from_job_value(
-        self, ref: Any, scope_id: str | None, expected_type: Any = None
+        self,
+        ref: Any,
+        scope_id: str | None,
+        expected_type: Any = None,
+        group_option_values: dict[str, Any] | None = None,
     ) -> Any:
         """The recorded value for one ``FromJob`` reference, or None.
 
@@ -2230,7 +2181,9 @@ class JobExecutionEngine:
                     return self._live_step_value(scope_id, ref.name)
 
         for method in ("checksum", "timestamp", "none"):
-            record = store.get_fingerprint(self.fingerprint_key_for(ref.name, method))
+            record = store.get_fingerprint(
+                self.fingerprint_key_for(ref.name, method, group_option_values)
+            )
             if record is not None:
                 return reusable_return_value(
                     record, job_name=ref.name, expected_type=expected_type
@@ -2426,33 +2379,18 @@ class JobExecutionEngine:
                 if cli_values
                 else {}
             )
-            # The env key is built from this name by the resolver, so the
-            # dotted path is flattened first: `deploy.web` -> `DEPLOY_WEB__ENV`.
-            # The *config view* keeps the dotted path, so the file section
-            # stays `[deploy.web]`.
             env_scope = group_path.replace(".", "_")
-            config_view = self._make_config_view(group_path, scope="group")
-
-            def _build(
-                values: dict[str, Any],
-                _cls: type = options_class,
-                _scope: str = env_scope,
-                _view: Any = config_view,
-            ) -> Any:
-                if self._config_resolver is not None:
-                    return self._config_resolver(
-                        config_class=_cls,
-                        job_name=_scope,
-                        config_view=_view,
-                        cli_values=values,
-                    )
-                return _cls(**values)
 
             # A required group option resolves through the same ladder as a
             # required job-config field, so it gets the same T45 treatment.
             # Prompting for one and not the other would make "is this field
             # asked for?" depend on which *kind* of field it is — the exact
             # distinction users cannot see and should not have to.
+            def _build(
+                values: dict[str, Any], _cls: type[GroupOptions] = options_class
+            ) -> Any:
+                return self._build_group_options(_cls, values)
+
             instance = self._resolve_with_prompt(
                 _build,
                 options_class,
@@ -2462,6 +2400,27 @@ class JobExecutionEngine:
             )
             context.call_kwargs[param_name] = instance
             context.injected.add(param_name)
+
+    def _build_group_options(
+        self, options_class: type[GroupOptions], cli_values: dict[str, Any] | None
+    ) -> Any:
+        """Resolve one group's options for both a run and a read-only key lookup."""
+        group_path: str = options_class.__group_path__
+        scoped_values = {
+            name: value
+            for name, value in (cli_values or {}).items()
+            if name in options_class.model_fields
+        }
+        if self._config_resolver is None:
+            return options_class(**scoped_values)
+        # Env variable names flatten a dotted group path; the config view
+        # retains the dots so a section such as [deploy.web] still resolves.
+        return self._config_resolver(
+            config_class=options_class,
+            job_name=group_path.replace(".", "_"),
+            config_view=self._make_config_view(group_path, scope="group"),
+            cli_values=scoped_values,
+        )
 
     def _resolve_with_prompt(
         self,
