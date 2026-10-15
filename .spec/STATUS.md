@@ -3853,6 +3853,64 @@ invalidation.
   reason and failed for the wrong reason too: editing the module mid-run made
   `linecache` return a neighbouring function's source.
 
+## tool-call-approval — completed 2026-10-13
+
+`ToolScope.approval_required()` was documented as a safety control and
+consumed by nothing: the scope marked itself, `to_tool_defs()` never
+looked, and the pydantic translator ran every tool ungated. A user who
+marked a destructive tool believed it was gated.
+
+### Decisions worth not re-litigating
+
+- **Approval is per filter, not per scope.** `approval_required()` stamps
+  every filter already in the scope; `+` concatenates filters unchanged,
+  so gating one operand does not gate the other's tools. Double
+  application ANDs the gates (a later call can never weaken an earlier
+  one), and a tool name reached through a gated and an ungated filter is
+  gated regardless of order — `to_tool_defs()` combines approval from
+  every matching filter. The old scope-level merge fields were removed,
+  not deprecated; `requires_approval` now means "any filter gated" and
+  `approval_gate` returns the first gate, documented as not authoritative
+  for mixed scopes.
+- **The gate contract is strict and synchronous:**
+  `gate(tool_name, args, ToolCallContext) -> bool`, called positionally;
+  only `is True` admits (`False`, `None`, truthy non-bools deny — a gate
+  that forgets to `return` fails closed). No gate ⇒ every call refused.
+  `ToolCallContext` carries only `job_name` and `description` — what the
+  wrapper holds; nothing provider-private.
+- **A denial is a result, not an error.** The tool returns the fixed
+  refusal text `Tool call refused: approval required for '<name>'.`, the
+  loop continues, and `AI_TOOL_CALLED` reports `status="denied"` (the
+  refusal predicate lives in `functualize_ai._approval`, one producer one
+  matcher). `ToolCallRecord` was deliberately left unchanged.
+- **A raising gate ends the run with its own exception.** The wrapper
+  marks it, and the three generic relabelers (`AI.run`,
+  `run_agent_loop`, `run_with_history`) unwrap and re-raise it instead of
+  manufacturing `AINotAvailableError`. Verified on the locked
+  pydantic-ai 1.107.0: a tool exception escapes `agent.run_sync`
+  unwrapped.
+- **Enforcement sits in the translator wrapper** (`_tool_translator.py`),
+  the one choke point every in-tree entry path crosses; the approval
+  state travels on `ToolDef` (`requires_approval`, `approval_gate` —
+  additive members, a called-out plugin-API change), so the translator
+  never reaches back into `ToolScope`. Third-party `AIProvider`s see the
+  members but are not forced to check — recorded as an open risk with
+  wrap-`ToolDef.function` as the alternative.
+- **Deferred/pydantic-ai native approval and core's `awaits_input` gate
+  machinery are follow-ups**, not part of this change; the interactive
+  "pause for a human" shape is a different, larger design.
+
+### Leftovers, disclosed
+
+- `run_agent_loop`/`run_with_history` read `result.data`, which the
+  locked pydantic-ai renamed to `output` — those two entry points had
+  never run against 1.107.0; fixed here because the approval tests drive
+  them. `_extract_usage` still triggers two upstream deprecation
+  warnings per run (handled both-forms); harmless, left alone.
+- The step-tier mapper selecting both AI plugin test dirs in one pytest
+  invocation dies on an `ImportPathMismatchError`: both plugin `tests`
+  packages are named `tests`. Pre-existing for any change touching both
+  plugins; run them per-directory.
 ## self-update-checksum-prefix — completed 2026-10-14
 
 Every standalone `self update` since 0.2.2 was refused with "<asset> is not
