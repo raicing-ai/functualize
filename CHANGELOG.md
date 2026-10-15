@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — decorated run middleware executes around jobs
+
+Run middleware registered with `@app.hooks.run_middleware`, with or without a
+priority, now uses the same execution chain as
+`app.hooks.register_run_middleware`. Both forms wrap job runs in priority order,
+and middleware inspection reflects the chain the engine actually runs.
 ### Fixed — a warm-cache parallel batch no longer fails to materialise a module
 
 Two jobs living in the same module, run concurrently through

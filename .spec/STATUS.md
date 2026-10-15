@@ -890,6 +890,45 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### Decorated run middleware runs (2026-10-14, `fix/run-middleware-registration`)
+
+**The decision worth keeping.** *One run-middleware store, read by the engine.*
+`@app.hooks.run_middleware` (bare and `priority=` forms) and
+`app.hooks.register_run_middleware(fn)` now all register through
+`register_run_middleware` into `ExecutionMiddlewareChain`, the chain
+`build_engine` hands to `JobExecutionEngine`. Before, the decorator wrote only a
+`MiddlewareRegistry` that no runtime code read, so the same middleware ran or
+was silently inert depending on how it was spelled. The inert registry is no
+longer constructed: both boot paths in `_app/boot.py` bind
+`_middleware_registry` to the same object as `_execution_middleware_chain`.
+
+**Rules that outlive the feature:**
+
+- **Priority is ascending.** Lower priority runs first; equal priorities keep
+  registration order; post-yield code unwinds in reverse
+  (`ExecutionMiddlewareChain.get_sorted()` sorts by `(priority,
+  registration order)`). The `register_run_middleware` docstring said the
+  opposite and was corrected.
+- **Inspection is an alias, never a second store.** `_middleware_registry`
+  stays as a private name for `has_middleware`/`get_sorted()` inspection; it is
+  the chain itself. Code asserting `isinstance(..., MiddlewareRegistry)` on it
+  now sees `ExecutionMiddlewareChain` — the repository's own inspection test
+  was migrated deliberately.
+- **Prove registration by a run, not by the registry.** The integration test in
+  `tests/integration/test_plugin_config_flow.py` registers bare, parameterized
+  and function-form middleware, runs a real job and asserts the observed state
+  and order; it failed on the old code with `decorator_state=None` and again
+  when the decorator's registration call was removed.
+- **Unchanged on purpose.** The decorator still rejects a non-generator
+  function (`_app/decorators.py`); job middleware in
+  `_engine/job_middleware.py` is a different registry and was not touched.
+
+**Surviving smells, accepted.** `_middleware_registry` is a duplicate
+reference to one object, not duplicated state. The dead-code delta reports the
+two boot aliases `TESTS_ONLY` (read by the inspection test) and the
+dynamically registered `parameterized` test middleware `NEW_DEAD`; the run
+assertion proves it executes. Advisory findings, not unconnected production
+code.
 ### Lazy job imports serialise on sys.path, process-wide (2026-10-14, `fix/lazy-import-sys-path-race`)
 
 **The decision worth keeping.** The lazy wrapper's insert → import → remove

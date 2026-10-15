@@ -598,7 +598,7 @@ def make_run_middleware_decorator(app: Any) -> Callable[..., Any]:
     from functualize._app.decorators import _make_middleware_decorator
 
     return _make_middleware_decorator(
-        lambda fn, priority: app._middleware_registry.register(fn, priority)
+        lambda fn, priority: register_run_middleware(app, fn, priority)
     )
 
 
@@ -615,7 +615,7 @@ def register_run_middleware(
     Args:
         app: The FunctualizeApp instance.
         middleware: Callable accepting RunContext, returning Generator.
-        priority: Middleware priority (higher = runs first).
+        priority: Middleware priority (lower = runs first).
 
     Raises:
         TypeError: If middleware is not callable.
@@ -626,8 +626,6 @@ def register_run_middleware(
             f"RunContextMiddleware must be a callable that accepts a RunContext "
             f"and returns a Generator."
         )
-    app._middleware_registry.register(middleware, priority)
-    # Also register in the execution middleware chain so the engine applies it
     app._execution_middleware_chain.register(middleware, priority)
 
 
