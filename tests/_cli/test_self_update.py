@@ -11,6 +11,9 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
+import shutil
+import subprocess
 import tarfile
 import zipfile
 from pathlib import Path
@@ -162,11 +165,63 @@ class TestVerification:
         with pytest.raises(ChecksumMismatchError, match="not listed"):
             self_update.verify(archive, _sums(archive, "other.tar.gz"), "a.tar.gz")
 
-    def test_a_binary_marker_in_the_sums_line_is_tolerated(self) -> None:
-        """`sha256sum -b` writes ` *name`, and releases do get built that way."""
+    @pytest.mark.parametrize(
+        "listed",
+        [
+            pytest.param("a.tar.gz", id="bare"),
+            pytest.param("./a.tar.gz", id="dot-slash"),
+            pytest.param("*a.tar.gz", id="binary-marker"),
+            pytest.param("*./a.tar.gz", id="binary-marker-and-dot-slash"),
+        ],
+    )
+    def test_every_name_sha256sum_writes_for_the_asset_is_accepted(
+        self, listed: str
+    ) -> None:
+        """`sha256sum ./*` writes `./name` -- every release up to 0.4.0 did --
+        and `-b` adds a `*`. Each names the same file, and `sha256sum -c`
+        accepts each, so the updater must too."""
         archive = b"payload"
-        line = f"{hashlib.sha256(archive).hexdigest()} *a.tar.gz\n"
+        line = f"{hashlib.sha256(archive).hexdigest()}  {listed}\n"
         self_update.verify(archive, line, "a.tar.gz")
+
+    def test_the_published_release_line_verifies(self) -> None:
+        """The shape of a real published line, for the asset `perform` asks
+        for by its bare name."""
+        archive = _tar_with(b"NEW-BINARY")
+        line = _sums(archive, f"./{_SOURCE.archive_name}")
+        self_update.verify(archive, line, _SOURCE.archive_name)
+
+    def test_a_prefixed_line_with_another_digest_is_still_a_mismatch(self) -> None:
+        """Tolerating the prefix finds the line; it does not pass the line."""
+        published = hashlib.sha256(b"the real thing").hexdigest()
+        served = hashlib.sha256(b"something else entirely").hexdigest()
+        with pytest.raises(ChecksumMismatchError) as caught:
+            self_update.verify(
+                b"something else entirely",
+                f"{published}  ./a.tar.gz\n",
+                "a.tar.gz",
+            )
+        assert published in str(caught.value)
+        assert served in str(caught.value)
+
+    @pytest.mark.parametrize(
+        "listed",
+        [
+            pytest.param("x-a.tar.gz", id="longer-name"),
+            pytest.param("dir/a.tar.gz", id="other-directory"),
+            pytest.param("../a.tar.gz", id="parent-directory"),
+            pytest.param("**a.tar.gz", id="two-markers"),
+        ],
+    )
+    def test_a_name_that_only_ends_with_the_asset_is_not_the_asset(
+        self, listed: str
+    ) -> None:
+        """One marker and one `./` are all that is removed. A `basename` would
+        let another file's line vouch for this one."""
+        archive = b"payload"
+        line = f"{hashlib.sha256(archive).hexdigest()}  {listed}\n"
+        with pytest.raises(ChecksumMismatchError, match="not listed"):
+            self_update.verify(archive, line, "a.tar.gz")
 
 
 class TestExtraction:
@@ -345,6 +400,130 @@ class TestPerform:
         joined = "\n".join(said)
         assert "This will replace" in joined
         assert "https://dl/archive" in joined
+
+
+_RELEASE_WORKFLOW = (
+    Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
+)
+
+_needs_sha256sum = pytest.mark.skipif(
+    shutil.which("sha256sum") is None or shutil.which("bash") is None,
+    reason="needs GNU sha256sum and bash, as the release job has",
+)
+
+
+def _release_dir(root: Path) -> tuple[Path, bytes]:
+    """A release as the `checksums` job sees it: every platform's archive in
+    one directory. Returns the directory and the bytes of our target's archive."""
+    release = root / "release"
+    release.mkdir()
+    ours = _tar_with(b"NEW-BINARY")
+    (release / _SOURCE.archive_name).write_bytes(ours)
+    (release / "functualize-aarch64-apple-darwin.tar.gz").write_bytes(b"other")
+    (release / "functualize-x86_64-pc-windows-msvc.zip").write_bytes(b"zip")
+    return release, ours
+
+
+def _workflow_checksum_command() -> str:
+    """The one line of the release workflow that writes `SHA256SUMS`."""
+    found = re.findall(
+        r"^\s*(sha256sum\s.*>\s*SHA256SUMS)\s*$",
+        _RELEASE_WORKFLOW.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    assert len(found) == 1, found
+    return str(found[0])
+
+
+def _checksum(release: Path, command: str) -> str:
+    subprocess.run(  # noqa: S603 - fixed argv; the command is the workflow's own
+        ["bash", "-euo", "pipefail", "-c", command],  # noqa: S607
+        cwd=release,
+        check=True,
+    )
+    return (release / "SHA256SUMS").read_text(encoding="utf-8")
+
+
+@_needs_sha256sum
+class TestThePublishedChecksumFile:
+    """The writer is the release workflow and the reader is `verify`; nothing
+    but these tests holds them to the same idea of a line. Every update from
+    0.2.2 to 0.4.0 was refused because they disagreed about `./`."""
+
+    def test_the_release_workflow_writes_what_the_updater_reads(
+        self, tmp_path: Path
+    ) -> None:
+        """Runs the checksum line out of `release.yml` itself, so an edit to
+        either side that breaks the agreement fails here."""
+        release, _ = _release_dir(tmp_path)
+        sums = _checksum(release, _workflow_checksum_command())
+
+        for asset in sorted(p.name for p in release.iterdir()):
+            if asset == "SHA256SUMS":
+                continue
+            self_update.verify((release / asset).read_bytes(), sums, asset)
+
+    def test_the_release_workflow_writes_bare_names(self, tmp_path: Path) -> None:
+        """Bare names are what a binary still carrying the old, strict reader
+        can match -- and those binaries update by reading the *next* release."""
+        release, _ = _release_dir(tmp_path)
+        sums = _checksum(release, _workflow_checksum_command())
+        names = [line.split()[1] for line in sums.splitlines()]
+        assert _SOURCE.archive_name in names
+        assert not [n for n in names if n.startswith(("./", "*"))], names
+
+    def test_a_release_checksummed_with_dot_slash_updates_end_to_end(
+        self, tmp_path: Path
+    ) -> None:
+        """Every release up to 0.4.0 published `./<asset>` lines. Through
+        `perform`, the function `func builtin self update` calls, with only
+        the network replaced."""
+        release, ours = _release_dir(tmp_path)
+        sums = _checksum(release, "sha256sum ./* > SHA256SUMS")
+        assert f"./{_SOURCE.archive_name}" in sums
+
+        listing = json.dumps(
+            {
+                "tag_name": "v9.9.9",
+                "assets": [
+                    {"name": p.name, "browser_download_url": f"https://dl/{p.name}"}
+                    for p in release.iterdir()
+                ],
+            }
+        ).encode()
+
+        def opener(url: str) -> bytes:
+            if url.endswith("releases/latest"):
+                return listing
+            return (release / url.rsplit("/", 1)[1]).read_bytes()
+
+        install = tmp_path / "install"
+        install.mkdir()
+        (install / "standalone-release.json").write_text(
+            json.dumps(
+                {
+                    "repo": _SOURCE.repo,
+                    "asset_prefix": _SOURCE.asset_prefix,
+                    "target": _SOURCE.target,
+                }
+            )
+        )
+        binary = install / "func"
+        binary.write_bytes(b"OLD-BINARY")
+        said: list[str] = []
+        code = self_update.perform(
+            binary=binary,
+            prefix=install,
+            current_version="0.4.0",
+            assume_yes=True,
+            echo=said.append,
+            confirm=lambda _p: True,
+            opener=opener,
+        )
+
+        assert code == int(ExitCode.OK), said
+        assert binary.read_bytes() == b"NEW-BINARY"
+        assert hashlib.sha256(ours).hexdigest() in sums
 
 
 class TestVersionComparison:

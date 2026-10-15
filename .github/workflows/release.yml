@@ -501,11 +501,16 @@ jobs:
           path: release/
           merge-multiple: true
 
+      # Bare names, not `./*`: sha256sum writes the path it is given, and the
+      # updater in every standalone binary up to 0.4.0 matches a line only by
+      # the bare asset name. `./<asset>` lines left those binaries unable to
+      # update at all. tests/_cli/test_self_update.py runs this line and checks
+      # the updater accepts what it writes.
       - name: Compute checksums
         run: |
           set -euo pipefail
           cd release
-          sha256sum ./* > SHA256SUMS
+          sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
       - name: Upload the release bundle

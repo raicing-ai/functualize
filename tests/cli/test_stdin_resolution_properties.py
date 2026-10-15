@@ -10,7 +10,6 @@ from piped content when no CLI flag is provided (Property 13).
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from hypothesis import given
@@ -18,6 +17,7 @@ from hypothesis import strategies as st
 
 from functualize._engine.stdin_reader import resolve_stdin_params
 from functualize.job.markers import Stdin
+from tests._support.stdin_fakes import fake_stdin
 
 # =============================================================================
 # Strategies
@@ -89,16 +89,7 @@ class TestStdinExplicitWins:
         stdin_markers = {param_name: marker}
         cli_values = {param_name: cli_value}
 
-        # Mock stdin as piped (non-TTY) with content available
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value=stdin_content,
-            ),
-        ):
+        with fake_stdin(tty=False, data=stdin_content):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         # CLI value wins: resolve_stdin_params returns empty dict
@@ -126,10 +117,7 @@ class TestStdinExplicitWins:
         stdin_markers = {param_name: marker}
         cli_values = {param_name: cli_value}
 
-        # Mock stdin as TTY (no piped data)
-        with patch(
-            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-        ):
+        with fake_stdin(tty=True):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         # CLI value wins: returns empty dict
@@ -166,16 +154,7 @@ class TestStdinExplicitWins:
         stdin_markers = {param_name: marker, extra_name: extra_marker}
         cli_values = {param_name: cli_value, extra_name: "other_value"}
 
-        # Mock stdin as piped (non-TTY)
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value=stdin_content,
-            ),
-        ):
+        with fake_stdin(tty=False, data=stdin_content):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         # All params have CLI values → empty dict
@@ -218,16 +197,7 @@ class TestStdinResolutionFromPipe:
         stdin_markers = {param_name: marker}
         cli_values: dict[str, Any] = {}  # No CLI value provided
 
-        # Mock stdin as piped (non-TTY) with content
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value=stdin_content,
-            ),
-        ):
+        with fake_stdin(tty=False, data=stdin_content):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         assert result == {param_name: stdin_content}, (
@@ -253,16 +223,7 @@ class TestStdinResolutionFromPipe:
         stdin_markers = {param_name: marker}
         cli_values: dict[str, Any] = {param_name: None}  # None = not provided
 
-        # Mock stdin as piped (non-TTY) with content
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value=stdin_content,
-            ),
-        ):
+        with fake_stdin(tty=False, data=stdin_content):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         assert result == {param_name: stdin_content}, (
@@ -299,16 +260,7 @@ class TestStdinResolutionFromPipe:
         # First param has CLI value, second does not
         cli_values: dict[str, Any] = {param_name: cli_value}
 
-        # Mock stdin as piped (non-TTY) with content
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value=stdin_content,
-            ),
-        ):
+        with fake_stdin(tty=False, data=stdin_content):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         # Only the unresolved param (extra_name) gets stdin content
@@ -335,15 +287,7 @@ class TestStdinResolutionFromPipe:
         stdin_markers = {param_name: marker}
         cli_values: dict[str, Any] = {}
 
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value=stdin_content,
-            ),
-        ):
+        with fake_stdin(tty=False, data=stdin_content):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         # Content should be byte-for-byte identical

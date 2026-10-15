@@ -4,6 +4,11 @@ Provides a composable, provider-agnostic mechanism for restricting which
 tools an AI call can access. ToolScope instances are immutable builders:
 each method returns a new ToolScope or a modified copy.
 
+Approval is a second, independent gate on *execution*: marking a scope
+``approval_required()`` stamps the approval on each filter already in the
+scope, so when scopes are combined with ``+`` approval follows the tools
+it was declared on instead of spreading to the whole union.
+
 Zero dependencies on any AI implementation plugin.
 """
 
@@ -11,10 +16,26 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
-from functualize_ai._types import ToolDef
+from functualize_ai._types import ToolCallContext, ToolDef
+
+# The gate contract an approval-required tool enforces before it runs:
+# gate(tool_name, args, context) -> bool, called positionally; only a
+# strict True admits the call.
+ApprovalGate = Callable[[str, dict[str, Any], ToolCallContext], bool]
+
+
+@dataclass(frozen=True)
+class _FilterApproval:
+    """Approval stamped on one scope filter.
+
+    An empty ``gates`` tuple means approval is required with no gate —
+    every call to the filter's tools is refused (fail closed).
+    """
+
+    gates: tuple[ApprovalGate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -26,6 +47,7 @@ class _ScopeFilter:
     tags: list[str] = field(default_factory=list)
     group_name: str = ""
     functions: list[Callable[..., Any]] = field(default_factory=list)
+    approval: _FilterApproval | None = None
 
 
 class ToolScope:
@@ -44,13 +66,9 @@ class ToolScope:
         *,
         _filters: list[_ScopeFilter] | None = None,
         _instructions: str | None = None,
-        _approval_required: bool = False,
-        _approval_gate: Callable[..., Any] | None = None,
     ) -> None:
         self._filters: list[_ScopeFilter] = _filters or []
         self._instructions: str | None = _instructions
-        self._approval_required: bool = _approval_required
-        self._approval_gate: Callable[..., Any] | None = _approval_gate
 
     # ------------------------------------------------------------------
     # Factory class methods
@@ -112,8 +130,9 @@ class ToolScope:
         """Produce a new ToolScope representing the union of both scopes.
 
         The resulting scope includes tools from both operands. Instructions
-        from both scopes are concatenated (if both present). Approval is
-        required if either scope requires it.
+        from both scopes are concatenated (if both present). Filters are
+        concatenated unchanged, so approval stays with the tools it was
+        declared on: gating one operand does not gate the other's tools.
 
         Args:
             other: Another ToolScope to combine with.
@@ -133,16 +152,9 @@ class ToolScope:
         elif other._instructions:
             instructions = other._instructions
 
-        # Merge approval: required if either requires it
-        approval_required = self._approval_required or other._approval_required
-        # Use the first non-None gate
-        approval_gate = self._approval_gate or other._approval_gate
-
         return ToolScope(
             _filters=self._filters + other._filters,
             _instructions=instructions,
-            _approval_required=approval_required,
-            _approval_gate=approval_gate,
         )
 
     # ------------------------------------------------------------------
@@ -151,6 +163,8 @@ class ToolScope:
 
     def with_instructions(self, text: str) -> ToolScope:
         """Attach usage instructions shown to the AI alongside the tools.
+
+        Per-filter approval is carried over unchanged.
 
         Args:
             text: Instruction text for the AI.
@@ -161,24 +175,35 @@ class ToolScope:
         return ToolScope(
             _filters=self._filters,
             _instructions=text,
-            _approval_required=self._approval_required,
-            _approval_gate=self._approval_gate,
         )
 
-    def approval_required(self, gate: Callable[..., Any] | None = None) -> ToolScope:
+    def approval_required(self, gate: ApprovalGate | None = None) -> ToolScope:
         """Mark that tool calls from this scope require approval.
 
+        Stamps the approval on every filter already in the scope, so after
+        a ``+`` union only the operand it was called on stays gated. When
+        called again on an already-gated scope, supplied gates are AND-ed.
+        A call without a gate denies every call, regardless of whether a
+        gate was supplied before or after it.
+
         Args:
-            gate: Optional callable that performs the approval check.
+            gate: Callable that performs the approval check, called as
+                ``gate(tool_name, args, context) -> bool`` with
+                ``tool_name`` the tool's name, ``args`` the call's
+                arguments dict, and ``context`` a
+                :class:`~functualize_ai.ToolCallContext`. Only a strict
+                ``True`` return admits the call; everything else denies
+                it. A gate that raises ends the run with its own
+                exception. Omitted — ``None`` — means every call from
+                this scope is refused.
 
         Returns:
             A new ToolScope with approval required.
         """
+        stamped = [_stamp_filter(filt, gate) for filt in self._filters]
         return ToolScope(
-            _filters=self._filters,
+            _filters=stamped,
             _instructions=self._instructions,
-            _approval_required=True,
-            _approval_gate=gate,
         )
 
     # ------------------------------------------------------------------
@@ -192,13 +217,23 @@ class ToolScope:
 
     @property
     def requires_approval(self) -> bool:
-        """Whether tool calls from this scope require approval."""
-        return self._approval_required
+        """Whether any tool resolved from this scope requires approval."""
+        return any(filt.approval is not None for filt in self._filters)
 
     @property
-    def approval_gate(self) -> Callable[..., Any] | None:
-        """The approval gate callable, if any."""
-        return self._approval_gate
+    def approval_gate(self) -> ApprovalGate | None:
+        """The first approval gate in filter order, if any.
+
+        Not authoritative for scopes whose filters carry different gates:
+        per-tool gating is decided by the gates carried on each resolved
+        ``ToolDef``, where multiple gates are combined. This property
+        reports the first one for a quick single-filter read.
+        """
+        for filt in self._filters:
+            if filt.approval:
+                for gate in filt.approval.gates:
+                    return gate
+        return None
 
     # ------------------------------------------------------------------
     # Resolution
@@ -213,36 +248,100 @@ class ToolScope:
           ``metadata`` (with optional ``tags`` attribute), and
           ``config_fields`` or ``parameters`` (list of field descriptors).
 
+        Tool names are de-duplicated first-seen-wins for the definition
+        itself. Approval is the exception: it combines from **every**
+        filter that matched the name, so a tool reached through both a
+        gated and an ungated filter is gated regardless of filter order,
+        multiple gates all have to admit the call, and a no-gate stamp
+        denies every call even when another filter supplies a gate.
+
         Args:
             job_registry: A duck-typed registry providing job descriptors.
 
         Returns:
             A list of ToolDef instances representing the resolved tools.
         """
-        tool_defs: list[ToolDef] = []
-        seen_names: set[str] = set()
+        defs_by_name: dict[str, ToolDef] = {}
+        gates_by_name: dict[str, list[ApprovalGate]] = {}
+        gated_names: set[str] = set()
+        deny_all_names: set[str] = set()
 
         for filt in self._filters:
             if filt.kind == "functions":
-                for fn in filt.functions:
-                    tool_def = _callable_to_tool_def(fn)
-                    if tool_def.name not in seen_names:
-                        tool_defs.append(tool_def)
-                        seen_names.add(tool_def.name)
+                matched = [_callable_to_tool_def(fn) for fn in filt.functions]
             else:
                 descriptors = _get_descriptors(job_registry)
-                matching = _filter_descriptors(descriptors, filt)
-                for desc in matching:
-                    if desc.name not in seen_names:
-                        tool_defs.append(_descriptor_to_tool_def(desc))
-                        seen_names.add(desc.name)
+                matched = [
+                    _descriptor_to_tool_def(desc)
+                    for desc in _filter_descriptors(descriptors, filt)
+                ]
+            for tool_def in matched:
+                if tool_def.name not in defs_by_name:
+                    defs_by_name[tool_def.name] = tool_def
+                if filt.approval is not None:
+                    gated_names.add(tool_def.name)
+                    if not filt.approval.gates:
+                        deny_all_names.add(tool_def.name)
+                    else:
+                        gates_by_name.setdefault(tool_def.name, []).extend(
+                            filt.approval.gates
+                        )
 
+        tool_defs: list[ToolDef] = []
+        for name, tool_def in defs_by_name.items():
+            if name not in gated_names:
+                tool_defs.append(tool_def)
+            else:
+                tool_defs.append(
+                    replace(
+                        tool_def,
+                        requires_approval=True,
+                        approval_gate=(
+                            None
+                            if name in deny_all_names
+                            else _fold_gates(gates_by_name[name])
+                        ),
+                    )
+                )
         return tool_defs
 
 
 # ===========================================================================
 # Internal helpers
 # ===========================================================================
+
+
+def _stamp_filter(filt: _ScopeFilter, gate: ApprovalGate | None) -> _ScopeFilter:
+    """Return ``filt`` with approval stamped on.
+
+    A missing gate marks the filter deny-every-call, and that decision
+    survives later stamps. Otherwise, gates are appended and AND-ed.
+    """
+    if gate is None or (filt.approval is not None and not filt.approval.gates):
+        return replace(filt, approval=_FilterApproval())
+    existing = filt.approval.gates if filt.approval is not None else ()
+    return replace(filt, approval=_FilterApproval(gates=(*existing, gate)))
+
+
+def _fold_gates(gates: list[ApprovalGate]) -> ApprovalGate | None:
+    """Fold the gates collected for one tool name into a single callable.
+
+    ``None`` means approval is required with no gate — deny every call.
+    A single gate is returned as-is; several are strict-AND-ed, each
+    having to return exactly ``True``. Evaluation short-circuits, and a
+    raising gate's exception propagates untouched.
+    """
+    if not gates:
+        return None
+    if len(gates) == 1:
+        return gates[0]
+
+    def _combined(
+        tool_name: str, args: dict[str, Any], context: ToolCallContext
+    ) -> bool:
+        return all(gate(tool_name, args, context) is True for gate in gates)
+
+    return _combined
 
 
 def _get_descriptors(job_registry: Any) -> list[Any]:

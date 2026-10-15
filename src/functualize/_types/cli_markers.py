@@ -103,8 +103,12 @@ class Option:
 class Stdin:
     """Mark a parameter as stdin-aware.
 
-    When stdin is piped and no explicit CLI value provided, reads from stdin.
-    Flag value always wins over stdin (explicit > implicit).
+    When stdin is a pipe that carries data and no explicit CLI value is
+    provided, the parameter's value is read from it. A pipe with nothing on it
+    — silent or empty — resolves nothing, so the parameter's default stands.
+    The flag value always wins over stdin (explicit > implicit). An
+    iterator-typed parameter opts into streaming the rows as they arrive and
+    waits for them by design.
 
     Usage::
 

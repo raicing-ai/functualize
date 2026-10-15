@@ -11,13 +11,16 @@ Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
 
 from __future__ import annotations
 
+import select
+import threading
+import time
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
 from functualize._engine.stdin_reader import resolve_stdin_params
 from functualize.job.markers import Stdin
+from tests._support.stdin_fakes import fake_stdin, real_pipe_stdin
 
 # =============================================================================
 # Test: Pipe scenario — stdin piped, no flag → param populated from stdin
@@ -35,15 +38,7 @@ class TestPipePopulatesParam:
         stdin_markers = {"data": Stdin()}
         cli_values: dict[str, Any] = {}
 
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value="piped data",
-            ),
-        ):
+        with fake_stdin(tty=False, data="piped data"):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         assert result == {"data": "piped data"}
@@ -53,15 +48,7 @@ class TestPipePopulatesParam:
         stdin_markers = {"content": Stdin(encoding="utf-8")}
         cli_values: dict[str, Any] = {"content": None}
 
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value="hello world",
-            ),
-        ):
+        with fake_stdin(tty=False, data="hello world"):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         assert result == {"content": "hello world"}
@@ -72,15 +59,7 @@ class TestPipePopulatesParam:
         cli_values: dict[str, Any] = {}
         content = "line1\nline2\nline3\n"
 
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value=content,
-            ),
-        ):
+        with fake_stdin(tty=False, data=content):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         assert result == {"payload": content}
@@ -102,15 +81,7 @@ class TestExplicitFlagWins:
         stdin_markers = {"data": Stdin()}
         cli_values: dict[str, Any] = {"data": "explicit value"}
 
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value="piped data",
-            ),
-        ):
+        with fake_stdin(tty=False, data="piped data"):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         # Empty dict = nothing resolved from stdin, CLI value wins
@@ -121,15 +92,7 @@ class TestExplicitFlagWins:
         stdin_markers = {"data": Stdin()}
         cli_values: dict[str, Any] = {"data": ""}
 
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value="piped data",
-            ),
-        ):
+        with fake_stdin(tty=False, data="piped data"):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         assert result == {}
@@ -139,9 +102,7 @@ class TestExplicitFlagWins:
         stdin_markers = {"data": Stdin()}
         cli_values: dict[str, Any] = {"data": "flag value"}
 
-        with patch(
-            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-        ):
+        with fake_stdin(tty=True):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         assert result == {}
@@ -183,9 +144,7 @@ class TestATerminalResolvesNothing:
         stdin_markers = {"data": Stdin()}
         cli_values: dict[str, Any] = {}
 
-        with patch(
-            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-        ):
+        with fake_stdin(tty=True):
             resolved = resolve_stdin_params(stdin_markers, cli_values)
 
         assert resolved == {}
@@ -195,9 +154,7 @@ class TestATerminalResolvesNothing:
         stdin_markers = {"content": Stdin()}
         cli_values: dict[str, Any] = {"content": None}
 
-        with patch(
-            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-        ):
+        with fake_stdin(tty=True):
             resolved = resolve_stdin_params(stdin_markers, cli_values)
 
         assert resolved == {}
@@ -212,9 +169,7 @@ class TestATerminalResolvesNothing:
         """
         stdin_markers = {"payload": Stdin()}
 
-        with patch(
-            "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-        ):
+        with fake_stdin(tty=True):
             resolved = resolve_stdin_params(stdin_markers, {})
 
         assert resolved == {}
@@ -241,9 +196,7 @@ class TestMultipleStdinParams:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
+            fake_stdin(tty=False, ready=False),
             pytest.raises(ValueError, match="Multiple Stdin-marked parameters"),
         ):
             resolve_stdin_params(stdin_markers, cli_values)
@@ -258,9 +211,7 @@ class TestMultipleStdinParams:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
+            fake_stdin(tty=False, ready=False),
             pytest.raises(ValueError, match="Multiple Stdin-marked parameters"),
         ):
             resolve_stdin_params(stdin_markers, cli_values)
@@ -271,9 +222,7 @@ class TestMultipleStdinParams:
         cli_values: dict[str, Any] = {}
 
         with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=True
-            ),
+            fake_stdin(tty=True),
             pytest.raises(ValueError, match="Multiple Stdin-marked parameters"),
         ):
             resolve_stdin_params(stdin_markers, cli_values)
@@ -283,15 +232,7 @@ class TestMultipleStdinParams:
         stdin_markers = {"data": Stdin(), "content": Stdin()}
         cli_values: dict[str, Any] = {"data": "explicit"}
 
-        with (
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.read",
-                return_value="piped value",
-            ),
-        ):
+        with fake_stdin(tty=False, data="piped value"):
             result = resolve_stdin_params(stdin_markers, cli_values)
 
         assert result == {"content": "piped value"}
@@ -302,9 +243,97 @@ class TestMultipleStdinParams:
         cli_values: dict[str, Any] = {}
 
         with (
+            fake_stdin(tty=False, ready=False),
             pytest.raises(ValueError, match="alpha.*beta|beta.*alpha"),
-            patch(
-                "functualize._engine.stdin_reader.sys.stdin.isatty", return_value=False
-            ),
         ):
             resolve_stdin_params(stdin_markers, cli_values)
+
+
+# =============================================================================
+# Test: A silent pipe or an empty stream never replaces the default
+# =============================================================================
+
+
+class TestASilentPipeResolvesNothing:
+    """`sleep 30 | func s` must return with the default instead of hanging.
+
+    A pipe nobody has written to yet is not "data piped in": waiting on it
+    blocks forever when the writer never closes (the reported case), so
+    resolution treats it as nothing here and now, and the parameter's default
+    stands.
+    """
+
+    def test_a_probe_says_not_ready_so_nothing_is_read(self) -> None:
+        with fake_stdin(tty=False, ready=False) as fake:
+            result = resolve_stdin_params({"data": Stdin()}, {})
+
+        assert result == {}
+        assert fake.read_calls == 0, "a silent pipe is never read"
+
+    def test_a_real_pipe_held_open_returns_within_the_wall_clock(self) -> None:
+        """Wall clock over a real OS pipe: write end held open, nothing written.
+
+        If resolution regresses to a blocking read, the join times out and this
+        test fails instead of hanging the suite. The worker is a daemon thread,
+        so even the failure case cannot block interpreter exit.
+        """
+        result: dict[str, Any] = {}
+        started = time.monotonic()
+
+        def _resolve() -> None:
+            nonlocal result
+            result = resolve_stdin_params({"data": Stdin()}, {})
+
+        with real_pipe_stdin(None):
+            worker = threading.Thread(target=_resolve, daemon=True)
+            worker.start()
+            worker.join(timeout=1.0)
+        elapsed = time.monotonic() - started
+
+        assert not worker.is_alive(), "resolution blocked on a silent pipe"
+        assert elapsed < 1.0
+        assert result == {}
+
+    def test_a_missing_poll_probe_fails_loudly(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unsupported platform must not guess that a silent pipe is ready."""
+        monkeypatch.delattr(select, "poll", raising=False)
+        with real_pipe_stdin(None), pytest.raises(RuntimeError, match="select.poll"):
+            resolve_stdin_params({"data": Stdin()}, {})
+
+
+class TestAnEmptyStreamResolvesNothing:
+    """`func s < /dev/null` must not write "" over the parameter default.
+
+    The two "nothing there" shapes stay distinguishable — a silent pipe is
+    never read, an empty stream is read and found empty — and the pinned
+    decision is the same for both: resolve nothing, so the default stands. A
+    deliberately empty *flag* is a third thing: an explicit value, which wins
+    (pinned in `TestExplicitFlagWins`).
+    """
+
+    def test_an_empty_stream_is_read_and_resolves_nothing(self) -> None:
+        with fake_stdin(tty=False, data="", ready=True) as fake:
+            result = resolve_stdin_params({"note": Stdin()}, {})
+
+        assert result == {}
+        assert fake.read_calls == 1, "an empty stream is read — that distinguishes it"
+
+    def test_a_real_empty_pipe_resolves_nothing(self) -> None:
+        """The same over a real pipe whose writer closed without writing."""
+        with real_pipe_stdin(""):
+            result = resolve_stdin_params({"note": Stdin()}, {})
+
+        assert result == {}
+
+
+class TestRealPipedDataStaysIntact:
+    """The rule is about the *absence* of data — real data passes through whole."""
+
+    def test_multiline_unicode_content_survives_a_real_pipe(self) -> None:
+        content = "héllo\nwörld ✓\nthird line\n"
+        with real_pipe_stdin(content):
+            result = resolve_stdin_params({"payload": Stdin(encoding="utf-8")}, {})
+
+        assert result == {"payload": content}
