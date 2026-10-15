@@ -13,6 +13,20 @@ Run middleware registered with `@app.hooks.run_middleware`, with or without a
 priority, now uses the same execution chain as
 `app.hooks.register_run_middleware`. Both forms wrap job runs in priority order,
 and middleware inspection reflects the chain the engine actually runs.
+### Fixed — a warm-cache parallel batch no longer fails to materialise a module
+
+Two jobs living in the same module, run concurrently through
+`invoke.parallel` on a warm cache, could race on first use: the lazy
+import wrapper inserted the module's directory into `sys.path`, imported,
+and removed it with no process-wide guard, so one job could read the
+module while the other's import was still in flight and fail with
+`JobMaterializationError` — either because the directory had been removed
+underneath it, or because it saw the module before the import had bound
+the job it wanted. First materialisation of the wrapper's import region is
+now serialised across the process with a re-entrant lock, so both jobs of
+a shared module always materialise. Cold boots, single-job batches and
+batches spanning different modules behave exactly as before, and
+`sys.path` is left exactly as found on success and failure alike.
 
 ### Fixed — a workflow parked on the SQLite store resumes in another process
 
@@ -164,6 +178,24 @@ reports every child because it uses the opt-out internally.
 
 Unchanged: the batch deadline returns promptly without waiting for running
 worker threads to finish.
+
+### Fixed — `self update` on a standalone binary can verify a release again
+
+Every standalone update since 0.2.2 was refused with
+`functualize-<target>.tar.gz is not listed in SHA256SUMS`. The release
+workflow wrote the checksum file with `sha256sum ./*`, so each line named its
+asset `./functualize-<target>.tar.gz`, and the updater compared against the
+bare name. Nothing was ever installed unverified — the refusal is the
+fail-closed path — but nothing could be installed at all.
+
+Both sides changed. The release workflow now writes bare names
+(`sha256sum *`), which is what the updater in the 0.2.2–0.4.0 binaries can
+match: those binaries update by reading the *next* release's file, so this
+release is the first they can update to. And the updater now accepts every
+name `sha256sum` writes for an asset — `<asset>`, `./<asset>`, `*<asset>` and
+`*./<asset>`, as `sha256sum -c` and both install scripts already did — and
+nothing wider: `dir/<asset>` or `other-<asset>` is still "not listed", and a
+differing digest is still refused with both digests named.
 
 ### Changed — one arity per pre-boot flag, and one exit code for a wrong value
 

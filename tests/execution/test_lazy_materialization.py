@@ -319,6 +319,219 @@ class TestEngineMaterialization:
 
 
 # ---------------------------------------------------------------------------
+# Warm-cache parallel materialization (same-module sys.path race)
+# ---------------------------------------------------------------------------
+
+
+def _wait_for_file(path: Path, timeout: float = 10.0) -> None:
+    """Block until ``path`` exists, on a deadline."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"timed out waiting for {path}")
+        time.sleep(0.005)
+
+
+def _write_paced_two_job_module(
+    tmp_path: Path,
+    *,
+    started: Path | None = None,
+    release: Path | None = None,
+    body_sleep: float = 0.0,
+    names: tuple[str, str] = ("alpha", "beta"),
+) -> tuple[list[JobDescriptor], str]:
+    """A module with two jobs whose body can be paced mid-import.
+
+    The body writes ``started`` (if given), optionally sleeps, then blocks
+    until ``release`` exists (if given), and only then binds both job
+    functions — so a concurrent importer that reads the module before the
+    release file appears sees a half-initialized module with neither job
+    bound. That is exactly what a second warm-cache proxy does today when
+    the first proxy's import is still in flight.
+    """
+    module_name = f"lazymod_{uuid.uuid4().hex[:12]}"
+    source = tmp_path / f"{module_name}.py"
+    lines = ["import time", "from pathlib import Path"]
+    if started is not None:
+        lines.append(f"Path({str(started)!r}).touch()")
+    if body_sleep:
+        lines.append(f"time.sleep({body_sleep!r})")
+    if release is not None:
+        lines.append(
+            f"while not Path({str(release)!r}).exists():\n    time.sleep(0.005)"
+        )
+    for name in names:
+        lines.append(f"def {name}(x: int = 1):")
+        lines.append("    return x")
+    source.write_text("\n".join(lines) + "\n")
+
+    descriptors = [
+        JobDescriptor(
+            name=name,
+            group=None,
+            module_path=module_name,
+            source_file=str(source),
+        )
+        for name in names
+    ]
+    return descriptors, module_name
+
+
+class TestWarmParallelMaterialization:
+    """Two same-module jobs, warm cache, concurrent first materialization.
+
+    Warm boot registers one LazyJobFunction proxy per job
+    (``register_descriptors``, function=None), so two jobs of one module
+    are two proxies with two per-instance locks. A parallel batch hits
+    both at once; the shared ``sys.path`` region must not let one proxy
+    read the module while the other's import is still in flight.
+    """
+
+    def test_same_module_concurrent_first_materialization_both_succeed(
+        self, tmp_path: Path
+    ) -> None:
+        started = tmp_path / "started.marker"
+        release = tmp_path / "release.marker"
+        descriptors, _ = _write_paced_two_job_module(
+            tmp_path, started=started, release=release
+        )
+        engine = _make_engine()
+        for descriptor in descriptors:
+            engine.register_job(_lazy_entry(descriptor))
+        path_before = list(sys.path)
+
+        outcomes: dict[str, BaseException | None] = {}
+
+        def _materialize(name: str) -> None:
+            try:
+                engine.get_job(name)
+                outcomes[name] = None
+            except BaseException as exc:  # noqa: BLE001 - recorded, asserted below
+                outcomes[name] = exc
+
+        thread_a = threading.Thread(target=_materialize, args=("alpha",))
+        thread_a.start()
+        # Thread A is now provably mid-import: its module body has run far
+        # enough to touch the marker and is blocked before either job is
+        # bound, with the directory still inserted by A.
+        _wait_for_file(started)
+
+        thread_b = threading.Thread(target=_materialize, args=("beta",))
+        thread_b.start()
+        thread_b.join(timeout=2.0)
+        # Pre-fix, B has already failed on the half-initialized module by
+        # now (nothing blocks it). Post-fix, B is waiting at the region
+        # for A to finish — either way, releasing A lets both complete.
+        release.touch()
+        thread_a.join(timeout=10.0)
+        thread_b.join(timeout=10.0)
+
+        assert outcomes["alpha"] is None, repr(outcomes["alpha"])
+        assert outcomes["beta"] is None, repr(outcomes["beta"])
+        assert sys.path == path_before
+
+    def test_parallel_batches_same_module_never_fail_materialization(
+        self, tmp_path: Path
+    ) -> None:
+        from functualize._engine.capabilities.invoke import WiredInvoke
+
+        engine = _make_engine()
+        path_before = list(sys.path)
+
+        for _ in range(30):
+            descriptors, _ = _write_paced_two_job_module(tmp_path, body_sleep=0.005)
+            for descriptor in descriptors:
+                engine.register_job(_lazy_entry(descriptor))
+            invoke = WiredInvoke(
+                execution_engine=engine,
+                run_context=MagicMock(),
+                invoke_depth=0,
+                max_invoke_depth=10,
+            )
+            results = invoke.parallel([("alpha", {}), ("beta", {})])
+            for result in results:
+                # A spurious JobMaterializationError from the race lands
+                # here; repr names it in the failure output.
+                assert result.exception is None, repr(result.exception)
+
+        assert sys.path == path_before
+
+    def test_warm_single_and_repeat_and_different_module_batches(
+        self, tmp_path: Path
+    ) -> None:
+        from functualize._engine.capabilities.invoke import WiredInvoke
+
+        engine = _make_engine()
+        invoke = WiredInvoke(
+            execution_engine=engine,
+            run_context=MagicMock(),
+            invoke_depth=0,
+            max_invoke_depth=10,
+        )
+
+        # Same module, warm: single-job batches, then a repeat batch.
+        descriptors, _ = _write_paced_two_job_module(tmp_path)
+        for descriptor in descriptors:
+            engine.register_job(_lazy_entry(descriptor))
+        for name in ("alpha", "beta"):
+            result = invoke.parallel([(name, {"x": 41})])
+            assert result[0].exception is None, repr(result[0].exception)
+            assert result[0].return_value == 41
+        repeat = invoke.parallel([("alpha", {}), ("beta", {})])
+        assert all(r.exception is None for r in repeat)
+
+        # A second module in another directory, its own job names: one
+        # batch mixing both modules behaves exactly as today.
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+        other_descriptors, _ = _write_paced_two_job_module(
+            other_dir, names=("gamma", "delta")
+        )
+        for descriptor in other_descriptors:
+            engine.register_job(_lazy_entry(descriptor))
+        mixed = invoke.parallel([("alpha", {}), ("gamma", {})])
+        assert all(r.exception is None for r in mixed)
+
+    def test_sys_path_restored_on_success_and_failure(self, tmp_path: Path) -> None:
+        # Success path.
+        descriptors, _ = _write_paced_two_job_module(tmp_path)
+        path_before = list(sys.path)
+        engine = _make_engine()
+        engine.register_job(_lazy_entry(descriptors[0]))
+        engine.get_job("alpha")
+        assert sys.path == path_before
+
+        # Import-time exception in the module body.
+        module_name = f"lazymod_{uuid.uuid4().hex[:12]}"
+        source = tmp_path / f"{module_name}.py"
+        source.write_text("raise RuntimeError('boom during import')\n")
+        broken = JobDescriptor(
+            name="broken",
+            group=None,
+            module_path=module_name,
+            source_file=str(source),
+        )
+        engine.register_job(_lazy_entry(broken))
+        with pytest.raises(JobMaterializationError):
+            engine.get_job("broken")
+        assert sys.path == path_before
+
+        # Missing module.
+        missing = JobDescriptor(
+            name="ghost",
+            group=None,
+            module_path=f"lazymod_{uuid.uuid4().hex[:12]}",
+            source_file=str(tmp_path / "ghost.py"),
+        )
+        engine.register_job(_lazy_entry(missing))
+        with pytest.raises(JobMaterializationError):
+            engine.get_job("ghost")
+        assert sys.path == path_before
+
+
+# ---------------------------------------------------------------------------
 # invoke-by-callable metadata fallback
 # ---------------------------------------------------------------------------
 
