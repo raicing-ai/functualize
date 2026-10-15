@@ -422,6 +422,59 @@ class TestMiddlewareChainIntegration:
         assert "state_val=from_middleware" in result.output
 
     @patch("functualize._plugins.loader.entry_points")
+    def test_decorator_middleware_runs_with_function_registration(
+        self, mock_entry_points: Any, tmp_path: Path
+    ) -> None:
+        """Both decorator forms wrap a job in the same priority-ordered chain."""
+        mock_entry_points.return_value = []
+        jobs_dir = tmp_path / "jobs"
+        jobs_dir.mkdir()
+        (jobs_dir / "decorated_job.py").write_text(
+            textwrap.dedent("""\
+            from functualize.job.context import RunContext
+
+            def decorated_job(rc: RunContext):
+                print(f"decorator_state={rc.state.get('decorator_key')}")
+            """)
+        )
+        app = FunctualizeApp(
+            name="testapp", job_sources=JobSources(directories=[str(jobs_dir)])
+        )
+        order: list[str] = []
+
+        @app.hooks.run_middleware
+        def bare(rc: Any) -> Generator[None]:
+            order.append("bare_pre")
+            rc.state.set("decorator_key", "observed")
+            yield
+            order.append("bare_post")
+
+        @app.hooks.run_middleware(priority=1)
+        def parameterized(rc: Any) -> Generator[None]:
+            order.append("parameterized_pre")
+            yield
+            order.append("parameterized_post")
+
+        def registered(rc: Any) -> Generator[None]:
+            order.append("registered_pre")
+            yield
+            order.append("registered_post")
+
+        app.hooks.register_run_middleware(registered, priority=10)
+
+        result = runner.invoke(app.cli_command, ["decorated_job"])
+        assert result.exit_code == 0, result.output
+        assert "decorator_state=observed" in result.output
+        assert order == [
+            "bare_pre",
+            "parameterized_pre",
+            "registered_pre",
+            "registered_post",
+            "parameterized_post",
+            "bare_post",
+        ]
+
+    @patch("functualize._plugins.loader.entry_points")
     def test_middleware_priority_ordering(
         self, mock_entry_points: Any, tmp_path: Path
     ) -> None:

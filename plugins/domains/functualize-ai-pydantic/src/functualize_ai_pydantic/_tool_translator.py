@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from functualize_ai._approval import evaluate_tool_approval
 from pydantic_ai import Tool
 
 if TYPE_CHECKING:
@@ -76,9 +77,16 @@ class ToolScopeTranslator:
 
         # Create a wrapper function that receives **kwargs and calls the
         # original function. Tool.from_schema passes args as keyword arguments.
+        # A gated ToolDef is decided here, before the function runs: a denial
+        # becomes the tool's result (the refusal text) so the agent loop
+        # continues, and a gate that raises ends the run with its own
+        # exception.
         original_fn = tool_def.function
 
         def _wrapper(**kwargs: Any) -> Any:
+            refusal = evaluate_tool_approval(tool_def, kwargs)
+            if refusal is not None:
+                return refusal
             return original_fn(**kwargs)
 
         # Give the wrapper a useful name for debugging
