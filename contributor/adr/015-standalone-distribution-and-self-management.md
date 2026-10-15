@@ -201,6 +201,24 @@ detection resolves an owning distribution rather than assuming `functualize`: an
 application that builds its own PyApp binary points its users at its own
 releases. Its absence refuses cleanly.
 
+**Addendum (2026-10-14).** The refusal rule above held and still holds — it is
+why every standalone update between 0.2.2 and 0.4.0 was refused — but it did
+not say how a line spells its name, and that gap is what those refusals turned
+on: the release workflow wrote `sha256sum ./* > SHA256SUMS`, every line named
+its asset `./<asset>`, and the reader compared the bare asset name, so no line
+ever matched. **Both sides changed, for different reasons.** The reader
+tolerates the names `sha256sum` writes for an asset — `<asset>`, `./<asset>`,
+`*<asset>`, `*./<asset>` — as `sha256sum -c` and both install scripts already
+did; it was the format's one strict consumer. The writer emits bare names
+(`sha256sum *`), because a reader fix only helps binaries built after it:
+every installed 0.2.2–0.4.0 binary carries the old reader and verifies the
+*next* release's file, so a file that still said `./<asset>` would leave them
+unable to update for ever. The tolerance is bounded to those spellings — a
+name that merely ends with the asset name (`dir/<asset>`) does not match, and
+no `basename`-style path normalisation is applied — so the refusal rule above
+is not widened. Why each one-sided alternative was rejected alone is in the
+Alternatives Considered table below.
+
 **Reconciliation is not the in-process kind.** Replacing the executable means
 the next launch unpacks a different distribution at a different path, so
 packages added to the old one were not "removed by an upgrade" — they are in a
@@ -279,6 +297,9 @@ trades real functionality for tidiness.
 | Dropping unrenderable uv receipt keys | Always succeeds | Silently changes what is installed | A clear refusal plus an escape hatch is strictly better |
 | *Guidance-only* `self update` — prints the install-script one-liner and exits; the binary never rewrites itself | Simplest and most honest; matches what a fresh binary should do until self-replace exists | The user still has to run a second command by hand instead of one that "just updates" | Self-replacing (chosen; see Correction above) was judged worth the added surface — release-channel knowledge, checksum verification, atomic replace-on-Windows — because `self update` is expected to actually update |
 | Re-enabling PyApp's own updater (`PYAPP_EXPOSE_UPDATE=1`, drop `PYAPP_SKIP_INSTALL`) | Cheapest to build — no new code | Discards the entire reason the pre-baked binary exists: it `pip install --upgrade`s from an index, so the first run after an update would need a package index again | Defeats the offline-complete guarantee this ADR is built around |
+| Normalising the writer only (`sha256sum *`, reader unchanged) | The next release becomes verifiable by every installed binary at once | The reader stays the format's one strict consumer; any future writer change (a `-b` flag, a subdirectory) re-breaks it silently | The reader is brought in line with the three consumers that already tolerate the prefixes, not preserved as the exception |
+| Normalising the reader only (tolerate `./`, `*`; writer unchanged) | No release-process change | Fixes only binaries built after it: the installed 0.2.2–0.4.0 binaries carry the old reader and verify the *next* release's file, so a `./`-prefixed file leaves them unable to update for ever | The next release must be verifiable by the field, not only by new builds |
+| Generalised path normalisation (`basename`/`normpath` in the reader) | Tolerates any writer layout | `dir/<asset>` and `../<asset>` would match, widening what passes verification | Tolerance is bounded to the forms `sha256sum` itself writes |
 
 **Addendum (2026-09-16).** The two `self update` rows above were migrated from
 `.spec/shape-intents/standalone-self-management.md` when that file was retired
@@ -286,6 +307,11 @@ trades real functionality for tidiness.
 reasoning the shape intent existed to preserve, for the two of three shapes
 that were considered and not taken. Self-replacing, the third shape, is what
 shipped; it is documented above under *Correction*.
+
+**Addendum (2026-10-14).** The three checksum-name rows above were migrated
+from `.spec/features/self-update-checksum-prefix/` when that tree was cleared
+— the "why not" for the normalisation decision in the *Correction* addendum
+above. Both sides changing is what shipped.
 
 ## Verification
 

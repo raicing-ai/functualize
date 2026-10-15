@@ -449,7 +449,6 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     """
     from functualize._config.registry import ProviderRegistry
     from functualize._discovery.registry import JobRegistry
-    from functualize._engine.job_middleware import MiddlewareRegistry
     from functualize._events import HookRegistry
     from functualize._plugins.loader import PluginLoader
     from functualize._primitives.di import DIRegistry
@@ -513,8 +512,8 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     from functualize._plugins.config import PluginConfigRegistry
 
     app.plugin_config_registry = PluginConfigRegistry()
-    app._middleware_registry = MiddlewareRegistry()
     app._execution_middleware_chain = ExecutionMiddlewareChain()
+    app._middleware_registry = app._execution_middleware_chain
     app._scope_registry = {}
     app._plugin_commands_list = []
     app._plugin_command_names = {}
@@ -691,7 +690,6 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     from functualize._config.providers.toml import TomlFormatProvider
     from functualize._config.registry import ProviderRegistry
     from functualize._discovery.registry import JobRegistry
-    from functualize._engine.job_middleware import MiddlewareRegistry
     from functualize._events import HookRegistry
     from functualize._events.hooks import ConfigHookEvent
     from functualize._plugins.config import PluginConfigRegistry
@@ -784,8 +782,8 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     from functualize._engine.middleware import ExecutionMiddlewareChain
 
     app.plugin_config_registry = PluginConfigRegistry()
-    app._middleware_registry = MiddlewareRegistry()
     app._execution_middleware_chain = ExecutionMiddlewareChain()
+    app._middleware_registry = app._execution_middleware_chain
     app._scope_registry = {}
     app._plugin_commands_list = []
     app._plugin_command_names = {}

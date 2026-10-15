@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,27 @@ from functualize._primitives.config_class_detection import detect_config_class
 
 if TYPE_CHECKING:
     from functualize._types.descriptors import JobDescriptor
+
+#: Mutual exclusion over the ``sys.path`` insert → import → remove region
+#: of :func:`_import_real_function`, process-wide.
+#:
+#: This is a lock, not state, so the Constitution's "global mutable state
+#: / module-level singletons" ban does not reach it: it holds no data, has
+#: no observable value, is never reset between tests, and resolves through
+#: no DI registry — the two reasons that rule gives cannot arise. What it
+#: guards *is* interpreter-global (``sys.path``/``sys.modules``, like the
+#: module locks CPython's own import machinery holds), and the per-instance
+#: ``LazyJobFunction._lock`` cannot stand in: warm boot registers one proxy
+#: per job, so two jobs of one module are two proxies with two locks while
+#: sharing one directory entry on ``sys.path``. No instance-scoped owner
+#: spans every caller (the entry-point provider and tests call
+#: ``_import_real_function`` with no proxy in sight); the one owner that
+#: spans all of them is this module.
+#:
+#: Re-entrant deliberately: the region executes arbitrary module code, and
+#: a job module whose import nests another lazy materialisation on the
+#: same thread must not self-deadlock.
+_IMPORT_LOCK = threading.RLock()
 
 
 def _detect_config_class(func: Callable[..., Any]) -> type | None:
@@ -45,9 +67,13 @@ def _import_real_function(descriptor: JobDescriptor) -> Callable[..., Any]:
     For descriptors backed by a real source file, temporarily inserts the
     module's directory into sys.path and handles sys.modules collisions
     (a same-named module loaded from a different file is re-executed from
-    the descriptor's source file). For synthetic sources
+    the descriptor's source file). That whole insert → import → remove
+    region is serialised process-wide by ``_IMPORT_LOCK`` — concurrent
+    first materialisation of same-module jobs (a warm-cache
+    ``invoke.parallel`` batch) would otherwise race on sys.path and read
+    half-initialized modules. For synthetic sources
     (``<entry_point>``/``<dynamic>``), falls back to a plain import of
-    ``module_path``.
+    ``module_path`` outside the lock.
 
     Args:
         descriptor: A JobDescriptor with module_path, func_name, source_file.
@@ -66,35 +92,42 @@ def _import_real_function(descriptor: JobDescriptor) -> Callable[..., Any]:
 
     if source_file and source_file != "<entry_point>" and source_file != "<dynamic>":
         module_dir = str(Path(source_file).parent)
-        path_added = False
-        if module_dir not in sys.path:
-            sys.path.insert(0, module_dir)
-            path_added = True
-        try:
-            existing = sys.modules.get(module_path)
-            if existing is not None:
-                existing_file = getattr(existing, "__file__", None)
-                if existing_file and str(Path(existing_file).resolve()) != str(
-                    Path(source_file).resolve()
-                ):
-                    import importlib.util as _importlib_util
+        # One region, one process: while a directory sits on sys.path, no
+        # other thread may import against it, remove it, or read a module
+        # that another thread's in-flight import has published to
+        # sys.modules half-initialized (CPython binds the module there
+        # before its body runs). Warm-cache parallel batches of same-module
+        # jobs hit all three through one proxy per job.
+        with _IMPORT_LOCK:
+            path_added = False
+            if module_dir not in sys.path:
+                sys.path.insert(0, module_dir)
+                path_added = True
+            try:
+                existing = sys.modules.get(module_path)
+                if existing is not None:
+                    existing_file = getattr(existing, "__file__", None)
+                    if existing_file and str(Path(existing_file).resolve()) != str(
+                        Path(source_file).resolve()
+                    ):
+                        import importlib.util as _importlib_util
 
-                    spec = _importlib_util.spec_from_file_location(
-                        module_path, source_file
-                    )
-                    if spec and spec.loader:
-                        module = _importlib_util.module_from_spec(spec)
-                        spec.loader.exec_module(module)
-                        sys.modules[module_path] = module
+                        spec = _importlib_util.spec_from_file_location(
+                            module_path, source_file
+                        )
+                        if spec and spec.loader:
+                            module = _importlib_util.module_from_spec(spec)
+                            spec.loader.exec_module(module)
+                            sys.modules[module_path] = module
+                        else:
+                            module = importlib.import_module(module_path)
                     else:
-                        module = importlib.import_module(module_path)
+                        module = existing
                 else:
-                    module = existing
-            else:
-                module = importlib.import_module(module_path)
-        finally:
-            if path_added and module_dir in sys.path:
-                sys.path.remove(module_dir)
+                    module = importlib.import_module(module_path)
+            finally:
+                if path_added and module_dir in sys.path:
+                    sys.path.remove(module_dir)
     else:
         module = importlib.import_module(module_path)
 
@@ -122,8 +155,6 @@ class LazyJobFunction:
     __functualize_lazy__: bool = True
 
     def __init__(self, descriptor: JobDescriptor) -> None:
-        import threading
-
         self.descriptor = descriptor
         self.config_class: type | None = None
         # The stand-in mimics the *function*, so it carries the function's
