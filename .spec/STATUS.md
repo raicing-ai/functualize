@@ -3723,3 +3723,35 @@ invalidation.
   `inspect.getsource(_dispatch_group)` for a function name passed for the wrong
   reason and failed for the wrong reason too: editing the module mid-run made
   `linecache` return a neighbouring function's source.
+
+## self-update-checksum-prefix — completed 2026-10-14
+
+Every standalone `self update` since 0.2.2 was refused with "<asset> is not
+listed in SHA256SUMS": the release workflow wrote the file with
+`sha256sum ./*`, so every line named its asset `./<asset>`, and the updater
+compared against the bare name it took from the release's asset list. The
+fail-closed half did its job — nothing was ever installed unverified — but the
+verifying half could never succeed.
+
+**Which side is normalised: both, for different reasons, and neither alone
+fixes the field.** The *reader* tolerates the names `sha256sum` writes for an
+asset — `<asset>`, `./<asset>`, `*<asset>`, `*./<asset>` — exactly as
+`sha256sum -c` and both install scripts already did; the Python updater was
+the format's one strict consumer and is brought in line rather than made the
+exception the writer caters to. The *writer* emits bare names
+(`sha256sum *`), because a reader fix only helps binaries built after it:
+the 0.2.2–0.4.0 binaries already installed carry the old reader and verify
+the *next* release's file, so a `SHA256SUMS` that still said `./<asset>`
+would leave them unable to update for ever. The two halves agree — the writer
+emits the form every reader accepts, the reader accepts every form the writer
+has ever emitted — and a test that runs the workflow's checksum command and
+verifies its output through `verify` keeps that agreement checked.
+
+Tolerance is bounded to those spellings. A name that merely *ends* with the
+asset name (`dir/<asset>`, `other-<asset>`) does not match, and no
+`basename`-style path normalisation is applied — either would widen what
+passes. A differing digest still fails naming both digests, and an unlisted
+asset still fails as "not listed".
+
+The rejected one-sided and generalised alternatives, with their reasons, are
+ADR-015's **Addendum (2026-10-14)** and its Alternatives Considered rows.
