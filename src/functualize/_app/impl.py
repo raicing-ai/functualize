@@ -598,7 +598,7 @@ def make_run_middleware_decorator(app: Any) -> Callable[..., Any]:
     from functualize._app.decorators import _make_middleware_decorator
 
     return _make_middleware_decorator(
-        lambda fn, priority: app._middleware_registry.register(fn, priority)
+        lambda fn, priority: register_run_middleware(app, fn, priority)
     )
 
 
@@ -615,7 +615,7 @@ def register_run_middleware(
     Args:
         app: The FunctualizeApp instance.
         middleware: Callable accepting RunContext, returning Generator.
-        priority: Middleware priority (higher = runs first).
+        priority: Middleware priority (lower = runs first).
 
     Raises:
         TypeError: If middleware is not callable.
@@ -626,8 +626,6 @@ def register_run_middleware(
             f"RunContextMiddleware must be a callable that accepts a RunContext "
             f"and returns a Generator."
         )
-    app._middleware_registry.register(middleware, priority)
-    # Also register in the execution middleware chain so the engine applies it
     app._execution_middleware_chain.register(middleware, priority)
 
 
@@ -1115,7 +1113,12 @@ def explain_verdicts(app: Any, job_name: str) -> tuple[Any, list[Any], str, str 
         dep_declaration = getattr(dep_entry.function, "__functualize_job__", None)
         if dep_declaration is None:
             return GuardVerdict(GuardState.RUN, "no @job declaration")
-        return preflight.check(name, dep_declaration, config=config_for(name)).verdict
+        return preflight.check(
+            name,
+            dep_declaration,
+            config=config_for(name),
+            args_hash=app.execution_engine.fingerprint_args_hash_for(name),
+        ).verdict
 
     # A dependency's own verdict matters: a fresh target with a stale dep
     # still runs, and a user staring at the target alone cannot see why.
@@ -1126,7 +1129,12 @@ def explain_verdicts(app: Any, job_name: str) -> tuple[Any, list[Any], str, str 
     # The *target's* verdict needs the same config as the dependencies'.
     # It produces the headline, so getting this one wrong is the visible
     # half of the contradiction.
-    target = preflight.check(job_name, declaration, config=config_for(job_name)).verdict
+    target = preflight.check(
+        job_name,
+        declaration,
+        config=config_for(job_name),
+        args_hash=app.execution_engine.fingerprint_args_hash_for(job_name),
+    ).verdict
 
     # Resolved Q19: a recorded value that cannot be handed to a `FromJob`
     # dependent is a reason the upstream keeps re-running, and it is

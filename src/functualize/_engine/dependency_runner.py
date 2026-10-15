@@ -38,7 +38,9 @@ class DependencyRunner:
     def __init__(self, engine: JobExecutionEngine) -> None:
         self._engine = engine
 
-    def _unreusable_upstreams(self, function: Any) -> set[str]:
+    def _unreusable_upstreams(
+        self, function: Any, group_option_values: dict[str, Any] | None
+    ) -> set[str]:
         """Upstreams a `FromJob` needs whose recorded value cannot be reused.
 
         Those must actually run: the dependent asked for a value, and the only
@@ -61,7 +63,9 @@ class DependencyRunner:
                 continue
             for method in ("checksum", "timestamp", "none"):
                 record = store.get_fingerprint(
-                    self._engine.fingerprint_key_for(ref.name, method)
+                    self._engine.fingerprint_key_for(
+                        ref.name, method, group_option_values
+                    )
                 )
                 if record is None:
                     continue
@@ -116,7 +120,9 @@ class DependencyRunner:
         deps = getattr(declaration, "deps", None) if declaration else None
         from functualize._types.from_job import from_job_names
 
-        unreusable_upstreams = self._unreusable_upstreams(function)
+        parent_request = getattr(context, "request", None)
+        group_option_values = getattr(parent_request, "group_option_values", None)
+        unreusable_upstreams = self._unreusable_upstreams(function, group_option_values)
         from_job_upstreams = set(from_job_names(function))
         live_values: dict[str, Any] = {}
 

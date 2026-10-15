@@ -890,6 +890,135 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### The freshness key counts resolved group options (2026-10-14, `fix/freshness-key-group-options`)
+
+**The decision worth keeping.** *A resolved `GroupOptions` value belongs in the
+fingerprint key, as its own payload field.* It is injected, so the
+injected-set subtraction dropped it, and it resolves against the **group's**
+config scope — never the job's config model — so nothing about `config`
+carried it either. Both halves of the key (writer and reader) were option-blind
+in agreement: a changed option replayed the previous run's record, and a
+`FromJob` consumer received a value recorded under a different option
+(`REPORT target=b scanned=a`, exit 0). The derivation now lives in
+`_engine/freshness_key.py` (`FreshnessKeys.for_run` writer,
+`for_job` reader) with the corrected five-kind design table in its module
+docstring.
+
+**Rules that outlive the feature:**
+
+- **`compute_args_hash(config, args, group_options)` gains its payload field
+  only when the job declares options.** A job without `GroupOptions` keeps a
+  byte-identical key, so records written before the change still match. Jobs
+  *with* options miss once, deliberately — the old records were written under a
+  key that could not tell options apart.
+- **A reader that cannot resolve an option hashes `None` into its slot**, never
+  an option-blind key: the option-blind key is the one pre-change records
+  answer under, and falling back to it would resurrect this defect.
+- **Every reader uses the consumer's option layer** — the same
+  `RunRequest.group_option_values` the dependencies ran under (after the
+  delivery fix, `206e42de`). `func builtin why` explains the flagless run,
+  matching its standing behavior for job config.
+- **`Exec(run="once")` deduplication keys the same way.** Two calls differing
+  only in a resolved group option are no longer duplicates — the same defect
+  through a second consumer.
+- **Secret group options hash by their resolved value, not their display
+  mask.** `Secret[str]` intentionally serializes to the same mask for every
+  value in JSON mode (ADR-008 §A3). The key derivation keeps the JSON shape
+  for ordinary option fields, overlays secret leaves from the Python-mode
+  model only in transient memory, and stores only the resulting SHA-256
+  digest. Both the writer and `FromJob` readers use it; the regression checks
+  changed-secret misses, same-secret hits, dependent values, a read-only
+  consumer, and absence of plaintext in the stored fingerprint record.
+
+**Surviving smells, accepted.** *Parallel derivation*: `for_run` and `for_job`
+both assemble "config + args + options" (one reads live values, the other
+re-resolves); they sit side by side in one module and a test asserts the
+reader's key equals the writer's. *Middle Man / Inappropriate Intimacy* on
+`FreshnessKeys`' engine back-reference, per the `DependencyRunner` extraction
+precedent. None need maintainer review.
+
+**Open.** `func builtin why` accepts no group-CLI layer, so it explains the run
+a plain `func <job>` would make; a run launched with typed flags records under
+a key `why` does not reconstruct — the same limitation `why` already has for
+job-config CLI flags.
+### Decorated run middleware runs (2026-10-14, `fix/run-middleware-registration`)
+
+**The decision worth keeping.** *One run-middleware store, read by the engine.*
+`@app.hooks.run_middleware` (bare and `priority=` forms) and
+`app.hooks.register_run_middleware(fn)` now all register through
+`register_run_middleware` into `ExecutionMiddlewareChain`, the chain
+`build_engine` hands to `JobExecutionEngine`. Before, the decorator wrote only a
+`MiddlewareRegistry` that no runtime code read, so the same middleware ran or
+was silently inert depending on how it was spelled. The inert registry is no
+longer constructed: both boot paths in `_app/boot.py` bind
+`_middleware_registry` to the same object as `_execution_middleware_chain`.
+
+**Rules that outlive the feature:**
+
+- **Priority is ascending.** Lower priority runs first; equal priorities keep
+  registration order; post-yield code unwinds in reverse
+  (`ExecutionMiddlewareChain.get_sorted()` sorts by `(priority,
+  registration order)`). The `register_run_middleware` docstring said the
+  opposite and was corrected.
+- **Inspection is an alias, never a second store.** `_middleware_registry`
+  stays as a private name for `has_middleware`/`get_sorted()` inspection; it is
+  the chain itself. Code asserting `isinstance(..., MiddlewareRegistry)` on it
+  now sees `ExecutionMiddlewareChain` — the repository's own inspection test
+  was migrated deliberately.
+- **Prove registration by a run, not by the registry.** The integration test in
+  `tests/integration/test_plugin_config_flow.py` registers bare, parameterized
+  and function-form middleware, runs a real job and asserts the observed state
+  and order; it failed on the old code with `decorator_state=None` and again
+  when the decorator's registration call was removed.
+- **Unchanged on purpose.** The decorator still rejects a non-generator
+  function (`_app/decorators.py`); job middleware in
+  `_engine/job_middleware.py` is a different registry and was not touched.
+
+**Surviving smells, accepted.** `_middleware_registry` is a duplicate
+reference to one object, not duplicated state. The dead-code delta reports the
+two boot aliases `TESTS_ONLY` (read by the inspection test) and the
+dynamically registered `parameterized` test middleware `NEW_DEAD`; the run
+assertion proves it executes. Advisory findings, not unconnected production
+code.
+### Lazy job imports serialise on sys.path, process-wide (2026-10-14, `fix/lazy-import-sys-path-race`)
+
+**The decision worth keeping.** The lazy wrapper's insert → import → remove
+region on `sys.path` is guarded by one module-level re-entrant lock in
+`_discovery/lazy_wrapper.py` (`_IMPORT_LOCK`). Two jobs of one module are
+two `LazyJobFunction` proxies with two per-instance locks, so only a
+process-wide guard can stop a warm-cache `invoke.parallel` batch from
+reading a half-initialized module (CPython publishes it to `sys.modules`
+before its body runs) or importing against a directory another thread just
+removed. Failure mode filed three times; the deterministic reproduction
+paces the two threads with marker files and fails on master.
+
+**Rules that outlive the feature:**
+
+- **The lock is not state.** The Constitution bans global mutable state
+  because it breaks testability and DI; a lock has no value to reset, no
+  data to read, and resolves through no registry. The argument lives at
+  its definition site — a future edit that widens it into state must
+  re-argue it, not inherit it.
+- **The guarded resource decides the guard's scope.** `sys.path` is
+  interpreter-global; no instance-scoped owner spans every caller
+  (proxies are per-descriptor, and the entry-point provider calls
+  `_import_real_function` with no proxy at all). A guard narrower than
+  its resource is the bug, not the design.
+- **The synthetic-source branch stays outside the lock.**
+  `<entry_point>`/`<dynamic>` descriptors never touch `sys.path`; keep
+  their loads parallel.
+- **Adjacent same-shape regions are not covered.** `_discovery/registry.py`
+  and `_discovery/sync.py` insert/remove on the cold scan path, where no
+  engine worker threads exist. If either ever becomes reachable
+  concurrently with lazy materialisation, take the same lock there rather
+  than adding a second one.
+
+**Surviving smells, both accepted.** **Mutable Data (Global Data)**:
+`sys.path` itself remains a shared global; the lock removes the race, not
+the global, and the global is the interpreter's. Serialised first imports
+across *different* modules (a throughput ceiling, not a correctness one):
+paid once per module per process.
+
 ### Parallel child failures reach the parent (2026-10-12, `fix/parallel-child-failure`)
 
 **The decision worth keeping.** *A failed child fails a parent that ignores the
@@ -3782,3 +3911,34 @@ marked a destructive tool believed it was gated.
   invocation dies on an `ImportPathMismatchError`: both plugin `tests`
   packages are named `tests`. Pre-existing for any change touching both
   plugins; run them per-directory.
+## self-update-checksum-prefix — completed 2026-10-14
+
+Every standalone `self update` since 0.2.2 was refused with "<asset> is not
+listed in SHA256SUMS": the release workflow wrote the file with
+`sha256sum ./*`, so every line named its asset `./<asset>`, and the updater
+compared against the bare name it took from the release's asset list. The
+fail-closed half did its job — nothing was ever installed unverified — but the
+verifying half could never succeed.
+
+**Which side is normalised: both, for different reasons, and neither alone
+fixes the field.** The *reader* tolerates the names `sha256sum` writes for an
+asset — `<asset>`, `./<asset>`, `*<asset>`, `*./<asset>` — exactly as
+`sha256sum -c` and both install scripts already did; the Python updater was
+the format's one strict consumer and is brought in line rather than made the
+exception the writer caters to. The *writer* emits bare names
+(`sha256sum *`), because a reader fix only helps binaries built after it:
+the 0.2.2–0.4.0 binaries already installed carry the old reader and verify
+the *next* release's file, so a `SHA256SUMS` that still said `./<asset>`
+would leave them unable to update for ever. The two halves agree — the writer
+emits the form every reader accepts, the reader accepts every form the writer
+has ever emitted — and a test that runs the workflow's checksum command and
+verifies its output through `verify` keeps that agreement checked.
+
+Tolerance is bounded to those spellings. A name that merely *ends* with the
+asset name (`dir/<asset>`, `other-<asset>`) does not match, and no
+`basename`-style path normalisation is applied — either would widen what
+passes. A differing digest still fails naming both digests, and an unlisted
+asset still fails as "not listed".
+
+The rejected one-sided and generalised alternatives, with their reasons, are
+ADR-015's **Addendum (2026-10-14)** and its Alternatives Considered rows.

@@ -8,9 +8,9 @@ from typing import Any
 import pytest
 
 from functualize._app.state import AppState
+from functualize._engine.middleware import ExecutionMiddlewareChain
 from functualize._plugins.config import PluginConfigRegistry
 from functualize.app.core import FunctualizeApp
-from functualize.job._middleware import MiddlewareRegistry
 from functualize.job._workflow_scope import WorkflowScope
 
 
@@ -48,7 +48,8 @@ class TestMiddlewareRegistry:
         assert hasattr(app, "_middleware_registry")
 
     def test_middleware_registry_is_instance(self, app: FunctualizeApp) -> None:
-        assert isinstance(app._middleware_registry, MiddlewareRegistry)
+        assert isinstance(app._middleware_registry, ExecutionMiddlewareChain)
+        assert app._middleware_registry is app._execution_middleware_chain
 
     def test_no_middleware_initially(self, app: FunctualizeApp) -> None:
         assert not app._middleware_registry.has_middleware
