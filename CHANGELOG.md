@@ -46,8 +46,15 @@ underneath it, or because it saw the module before the import had bound
 the job it wanted. First materialisation of the wrapper's import region is
 now serialised across the process with a re-entrant lock, so both jobs of
 a shared module always materialise. Cold boots, single-job batches and
-batches spanning different modules behave exactly as before, and
+batches spanning different modules keep their results, and
 `sys.path` is left exactly as found on success and failure alike.
+
+The first guard still held a separate proxy mutex while importing arbitrary
+module code. If that import materialized another proxy while a second thread
+held the other proxy mutex, both threads could wait forever. First
+materialization now uses the process-wide re-entrant import mutex as its sole
+guard, including publication of the callable, so nested materialization has
+one lock order. Already-materialized calls retain their fast path.
 
 ### Fixed — a workflow parked on the SQLite store resumes in another process
 

@@ -31,17 +31,17 @@ if TYPE_CHECKING:
 #: no observable value, is never reset between tests, and resolves through
 #: no DI registry — the two reasons that rule gives cannot arise. What it
 #: guards *is* interpreter-global (``sys.path``/``sys.modules``, like the
-#: module locks CPython's own import machinery holds), and the per-instance
-#: ``LazyJobFunction._lock`` cannot stand in: warm boot registers one proxy
-#: per job, so two jobs of one module are two proxies with two locks while
-#: sharing one directory entry on ``sys.path``. No instance-scoped owner
+#: module locks CPython's own import machinery holds). It also guards the
+#: first-materialization state of every ``LazyJobFunction``. A second proxy
+#: lock would create an opposite-order cycle when imported module code
+#: materializes another proxy on a different thread. No instance-scoped owner
 #: spans every caller (the entry-point provider and tests call
 #: ``_import_real_function`` with no proxy in sight); the one owner that
 #: spans all of them is this module.
 #:
-#: Re-entrant deliberately: the region executes arbitrary module code, and
-#: a job module whose import nests another lazy materialisation on the
-#: same thread must not self-deadlock.
+#: Re-entrant deliberately: module import may materialize another proxy on
+#: the same thread. All proxies acquire this lock before their first import,
+#: so no thread can hold a proxy lock while waiting for it.
 _IMPORT_LOCK = threading.RLock()
 
 
@@ -92,12 +92,9 @@ def _import_real_function(descriptor: JobDescriptor) -> Callable[..., Any]:
 
     if source_file and source_file != "<entry_point>" and source_file != "<dynamic>":
         module_dir = str(Path(source_file).parent)
-        # One region, one process: while a directory sits on sys.path, no
-        # other thread may import against it, remove it, or read a module
-        # that another thread's in-flight import has published to
-        # sys.modules half-initialized (CPython binds the module there
-        # before its body runs). Warm-cache parallel batches of same-module
-        # jobs hit all three through one proxy per job.
+        # Every source-backed helper call holds this region until import is
+        # complete. It also protects direct callers without a lazy proxy;
+        # proxies take the same re-entrant lock before checking their state.
         with _IMPORT_LOCK:
             path_added = False
             if module_dir not in sys.path:
@@ -165,12 +162,11 @@ class LazyJobFunction:
         self.__module__ = descriptor.module_path
         self.__doc__ = descriptor.docstring or ""
         self._real_fn: Callable[..., Any] | None = None
-        self._lock = threading.Lock()
 
     def materialize(self) -> tuple[Callable[..., Any], type | None]:
         """Import the module (once) and return (real_fn, config_class).
 
-        Idempotent and thread-safe (double-checked lock). Uses the
+        Idempotent and thread-safe (double-checked import lock). Uses the
         descriptor's attached live function when present (cold boot /
         static providers) instead of importing.
 
@@ -180,7 +176,11 @@ class LazyJobFunction:
         """
         if self._real_fn is not None:
             return self._real_fn, self.config_class
-        with self._lock:
+        # One lock guards both proxy publication and the process-wide import
+        # region. Import runs arbitrary module code, which may materialize a
+        # second proxy; a separate per-proxy lock would permit a cross-thread
+        # lock-order cycle.
+        with _IMPORT_LOCK:
             if self._real_fn is not None:
                 return self._real_fn, self.config_class
             attached = getattr(self.descriptor, "function", None)
