@@ -143,7 +143,12 @@ class SqlWorkflowWriter:
         )
 
     def renew(self, cmd: RenewLease) -> None:
-        """Extend this holder's lease with one fenced conditional update."""
+        """Extend this holder's lease with one fenced conditional update.
+
+        Refusable: a claim that commits between the fence check and this
+        update leaves it matching no row, and the transaction then raises
+        `StaleGenerationError` rather than letting the renewal read as done.
+        """
         tx = self._tx
         tx.require_fence(cmd.scope_id, cmd.generation)
         expires = iso(cmd.now + timedelta(seconds=cmd.lease_seconds))
@@ -160,6 +165,7 @@ class SqlWorkflowWriter:
                 cmd.owner,
                 *fence_args,
             ),
+            refused=lambda: tx.lost_fence(cmd.scope_id, cmd.generation),
         )
         tx.update_scope(cmd.scope_id, expires_at=expires)
 

@@ -19,13 +19,17 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event, Thread
+from threading import enumerate as live_threads
 from typing import Any
 
 import pytest
 from tests._support.engine_storage import port_for
 
 from functualize._app.state import AppState
-from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
+from functualize._engine.frontier import RenewalOutcome
+from functualize._engine.workflow_walker import WalkOutcome, WalkReport, WorkflowWalker
+from functualize._primitives import lease
 from functualize._primitives.scope_store import ScopeStore
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.enums import RunStatus
@@ -141,6 +145,191 @@ class TestConflictNeverStarts:
         assert WalkOutcome.HELD.value == "held"
         assert WalkOutcome.HELD is not WalkOutcome.SUPERSEDED
         assert WalkOutcome.HELD is not WalkOutcome.FAILED
+
+    def test_a_second_walker_cannot_claim_during_a_long_live_step(
+        self, store: ScopeStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The first claim survives its original expiry while its step is blocked."""
+        monkeypatch.setattr(lease, "DEFAULT_LEASE_SECONDS", 0.3)
+        entered = Event()
+        finish = Event()
+        renewed = Event()
+        first_steps: list[str] = []
+        second_steps: list[str] = []
+        first_reports: list[WalkReport] = []
+        renewals: list[RenewalOutcome] = []
+
+        def first_step(name: str) -> str:
+            first_steps.append(name)
+            if name == "a":
+                entered.set()
+                assert finish.wait(5), "the first step was not released"
+            return name
+
+        first = WorkflowWalker(
+            _linear(),
+            "s1",
+            run_step=first_step,
+            runtime_store=port_for(store),
+            _heartbeat_interval_seconds=0.02,
+        )
+        real_claim = first._walk.claim
+        real_renew = first._walk.renew
+        claimed: list[lease.Lease] = []
+
+        def record_claim(**kwargs: Any) -> Any:
+            outcome = real_claim(**kwargs)
+            held = store.get_lease("s1")
+            assert held is not None
+            claimed.append(held)
+            return outcome
+
+        def observe_renewal() -> RenewalOutcome:
+            outcome = real_renew()
+            renewals.append(outcome)
+            if entered.is_set():
+                renewed.set()
+            return outcome
+
+        first._walk.claim = record_claim  # type: ignore[method-assign]
+        first._walk.renew = observe_renewal  # type: ignore[method-assign]
+        runner = Thread(target=lambda: first_reports.append(first.run()))
+        try:
+            runner.start()
+            assert entered.wait(5), "the first walker never reached its step"
+            initial = claimed[0]
+            assert renewed.wait(2), "the live walk never renewed during its step"
+            past_initial_expiry = (
+                datetime.fromisoformat(initial.expires_at) - datetime.now(UTC)
+            ).total_seconds() + 0.05
+            assert not finish.wait(max(0, past_initial_expiry))
+            assert datetime.now(UTC) > datetime.fromisoformat(initial.expires_at)
+
+            other_store = ScopeStore(store.substrate)
+            second = WorkflowWalker(
+                _linear(),
+                "s1",
+                run_step=lambda name: second_steps.append(name),
+                runtime_store=port_for(other_store),
+            )
+            refused = second.run()
+            assert refused.outcome is WalkOutcome.HELD
+            assert second_steps == []
+            current = store.get_lease("s1")
+            assert current is not None
+            assert current.generation == initial.generation
+        finally:
+            finish.set()
+            runner.join(5)
+
+        assert not runner.is_alive()
+        assert len(first_reports) == 1
+        assert first_reports[0].outcome is WalkOutcome.COMPLETED
+        assert first_steps == ["a", "b"]
+        assert set(renewals) == {RenewalOutcome.RENEWED}
+        assert len(renewals) < 100, "the heartbeat spun instead of waiting"
+        assert not any(t.name == "lease-heartbeat:s1" for t in live_threads())
+
+    def test_a_slow_claim_does_not_leave_the_first_step_claimable(
+        self, store: ScopeStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The walk confirms its claim before its first step, not one interval in.
+
+        The claim's expiry is computed before its durable write, and the claim
+        path does bookkeeping after it. Measured on a loaded host, the write
+        alone took 0.256 s of a 0.3 s compressed lease, and the first renewal
+        then waited a full interval and queued for the lock behind the walk's
+        own writes — a second walker claimed the scope while step `a` ran.
+        Here the claim is made to outlive its whole lease, and the heartbeat
+        interval is longer than the test, so only the walk's start can renew.
+        """
+        monkeypatch.setattr(lease, "DEFAULT_LEASE_SECONDS", 0.3)
+        entered = Event()
+        finish = Event()
+        first_steps: list[str] = []
+        second_steps: list[str] = []
+        first_reports: list[WalkReport] = []
+
+        def first_step(name: str) -> str:
+            first_steps.append(name)
+            if name == "a":
+                entered.set()
+                assert finish.wait(5), "the first step was not released"
+            return name
+
+        first = WorkflowWalker(
+            _linear(),
+            "s1",
+            run_step=first_step,
+            runtime_store=port_for(store),
+            _heartbeat_interval_seconds=30,
+        )
+        real_claim = first._walk.claim
+        claimed_until: list[datetime] = []
+
+        def slow_claim(**kwargs: Any) -> Any:
+            outcome = real_claim(**kwargs)
+            held = store.get_lease("s1")
+            assert held is not None
+            claimed_until.append(datetime.fromisoformat(held.expires_at))
+            while datetime.now(UTC) <= claimed_until[0]:
+                finish.wait(0.01)
+            return outcome
+
+        first._walk.claim = slow_claim  # type: ignore[method-assign]
+        runner = Thread(target=lambda: first_reports.append(first.run()))
+        try:
+            runner.start()
+            assert entered.wait(5), "the first walker never reached its step"
+            assert datetime.now(UTC) > claimed_until[0]
+
+            other_store = ScopeStore(store.substrate)
+            second = WorkflowWalker(
+                _linear(),
+                "s1",
+                run_step=lambda name: second_steps.append(name),
+                runtime_store=port_for(other_store),
+            )
+            assert second.run().outcome is WalkOutcome.HELD
+            assert second_steps == []
+        finally:
+            finish.set()
+            runner.join(5)
+
+        assert not runner.is_alive()
+        assert first_reports[0].outcome is WalkOutcome.COMPLETED
+        assert first_steps == ["a", "b"]
+        assert not any(t.name == "lease-heartbeat:s1" for t in live_threads())
+
+    def test_a_scope_taken_before_the_first_step_runs_nothing(
+        self, store: ScopeStore
+    ) -> None:
+        """A claim lost before any work starts runs no step.
+
+        Another runner takes the scope between this walk's claim and its first
+        step. The renewal that confirms the claim at walk start reports the
+        takeover, and the walk returns before `a` or any other write.
+        """
+        steps: list[str] = []
+        walker = WorkflowWalker(
+            _linear(),
+            "s1",
+            run_step=lambda name: steps.append(name),
+            runtime_store=port_for(store),
+            _heartbeat_interval_seconds=30,
+        )
+        real_claim = walker._walk.claim
+
+        def claim_then_lose_it(**kwargs: Any) -> Any:
+            outcome = real_claim(**kwargs)
+            ScopeStore(store.substrate).claim_scope("s1", owner="other", force=True)
+            return outcome
+
+        walker._walk.claim = claim_then_lose_it  # type: ignore[method-assign]
+
+        assert walker.run().outcome is WalkOutcome.SUPERSEDED
+        assert steps == []
+        assert not any(t.name == "lease-heartbeat:s1" for t in live_threads())
 
 
 # ----------------------------------------------------------------------

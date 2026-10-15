@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from functualize._engine.recording import InputRecorder
@@ -64,6 +65,7 @@ __all__ = [
     "TERMINAL_SUCCESS",
     "FrontierWalk",
     "GraphModel",
+    "RenewalOutcome",
     "StepStatus",
     "WalkState",
 ]
@@ -122,6 +124,15 @@ class WalkState:
     COMPLETED = "completed"
 
 
+class RenewalOutcome(StrEnum):
+    """What happened when a walk tried to extend its current claim."""
+
+    RENEWED = "renewed"
+    SUPERSEDED = "superseded"
+    TRANSIENT_ERROR = "transient_error"
+    NO_CLAIM = "no_claim"
+
+
 class StepStatus:
     """Outcome markers for one **step record**.
 
@@ -138,11 +149,12 @@ class StepStatus:
 
     SUCCESS = "success"
     FAILED = "failed"
-    #: The scope went claimable while this step still held it. There is no
-    #: preemption anywhere in this codebase — `_engine/exec_policy` refused
-    #: every mechanism that could deliver one — so a step's only budget is its
-    #: lease, and the only party that can record the expiry is whoever takes
-    #: the scope over. See `FrontierWalk._note_the_step_that_went_silent`.
+    #: The scope went claimable while this step still held it. The walk renews
+    #: during a step, so this means renewal stopped for a whole lease, not that
+    #: the step ran long. There is no preemption anywhere in this codebase —
+    #: `_engine/exec_policy` refused every mechanism that could deliver one —
+    #: so the only party that can record the expiry is whoever takes the scope
+    #: over. See `FrontierWalk._record_timed_out`.
     TIMED_OUT = "timed_out"
     #: A human stopped it. Terminal by design and **not** a failure: recorded
     #: as one, it invites exactly the retry that can never succeed.
@@ -277,9 +289,11 @@ class FrontierWalk:
         Nothing preempts a running step — `_engine/exec_policy` researched and
         rejected every mechanism that could, and
         `tests/engine/test_timeout_is_lease_expiry` holds this codebase to it.
-        So a step's only budget is its lease, expiring is the only way it can
-        be exceeded, and the runner that overran is by definition not the one
-        that can write it down.
+        The walk renews when it starts and then every 60 seconds, even during
+        a step, so the lease is not a step budget. If renewal stops long enough for expiry,
+        another runner may claim the scope and record this unresolved step as
+        timed out. The old work may still be running; its next write is fenced
+        by the new generation.
 
         Recorded at the iteration-0 key. A step that went silent on a later
         loop pass is under a different key and gets no record, which is an
@@ -290,26 +304,25 @@ class FrontierWalk:
         # time to record (ruling R-2): the store keeps it empty, not stamped.
         self.record(step_key(node, ""), StepStatus.TIMED_OUT, completed_at=None)
 
-    def renew(self) -> None:
-        """Extend this walk's claim. The generation does not move.
+    def renew(self) -> RenewalOutcome:
+        """Try to extend this walk's claim without moving its generation.
 
-        **The heartbeat, and without it the lease is a step time limit.** A walk
-        claims once and the lease runs for `DEFAULT_LEASE_SECONDS`; any step
-        slower than that would see its scope become claimable while it was
-        still working, and another runner could take it. Renewing between nodes
-        says "still here" — so the lease measures *silence*, not duration.
-
-        Moving the generation on renewal would be the opposite of the point: it
-        would fence this walk's own in-flight writes, so every heartbeat would
-        invalidate the work it exists to protect.
-
-        Best-effort. A renewal that fails means the scope has been taken, and
-        the next write will say so with the holder named — raising here would
-        report it in the middle of a step that is still running fine.
+        The walk's heartbeat calls this once when the walk starts and then
+        every 60 seconds, including during a step. Expiry alone does not change
+        the generation or prove work stopped. A stale generation means another
+        claim superseded this one, even after expiry — whether the store
+        refuses the renewal before staging it or its fenced write matches no
+        row at commit. An ordinary storage error cannot establish a takeover: report
+        it separately so the heartbeat can retry at its next interval. Direct
+        calls remain best-effort; the next fenced write still reports a lost
+        claim with its holder named.
         """
         if self._generation is None:
-            return
-        from functualize._primitives.lease import DEFAULT_LEASE_SECONDS
+            return RenewalOutcome.NO_CLAIM
+        from functualize._primitives.lease import (
+            DEFAULT_LEASE_SECONDS,
+            StaleGenerationError,
+        )
         from functualize._primitives.run_store import runner_identity
 
         try:
@@ -323,8 +336,13 @@ class FrontierWalk:
                         DEFAULT_LEASE_SECONDS,
                     )
                 )
-        except Exception:  # noqa: BLE001 - the next write reports it properly
+        except StaleGenerationError:
+            logger.debug("scope lease was superseded", exc_info=True)
+            return RenewalOutcome.SUPERSEDED
+        except Exception:  # noqa: BLE001 - a storage error is not a takeover
             logger.debug("could not renew the scope lease", exc_info=True)
+            return RenewalOutcome.TRANSIENT_ERROR
+        return RenewalOutcome.RENEWED
 
     def release(self) -> None:
         """Give up the claim, leaving the scope immediately claimable.

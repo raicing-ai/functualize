@@ -225,7 +225,9 @@ status only ...... tx.workflows.move(MoveScope)             → nested-gate bloc
 gate ............. tx.workflows.suspend / tx.inputs.append / tx.inputs.consume
 State in a step .. PortBackedState → tx.workflows.write_state(StateBatch)
 walk log ......... WalkLogSubscriber → tx.events.append
-lease ............ tx.workflows.renew(RenewLease) between nodes; release(ReleaseLease) at the end
+lease ............ tx.workflows.renew(RenewLease) from LeaseHeartbeat: once at walk start, then
+                   every 60 s from its thread, during steps too; a takeover → SUPERSEDED.
+                   release(ReleaseLease) at the end
   │
   ▼
 DocumentRuntimeStore (_primitives/document_store.py) → ScopeStore / RunStore / ScopeStateStore

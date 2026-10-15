@@ -45,6 +45,10 @@ from functualize._engine.frontier import (
     step_key,
 )
 from functualize._engine.gate_service import GateService
+from functualize._engine.lease_heartbeat import (
+    HEARTBEAT_INTERVAL_SECONDS,
+    LeaseHeartbeat,
+)
 from functualize._engine.loop_state import current_iteration, iteration_step_key
 from functualize._primitives.graph import descendants
 from functualize._types.errors import ScopeCancelledError
@@ -304,6 +308,7 @@ class WorkflowWalker:
         emit: Callable[..., None] | None = None,
         notifiers: Any = None,
         scope: WorkflowScope | None = None,
+        _heartbeat_interval_seconds: float = HEARTBEAT_INTERVAL_SECONDS,
     ) -> None:
         self._declaration = declaration
         self._scope_id = scope_id
@@ -323,6 +328,7 @@ class WorkflowWalker:
         self._gates = GateService()
         self._emit = emit
         self._notifiers = notifiers
+        self._heartbeat_interval_seconds = _heartbeat_interval_seconds
         #: None means "the default" — resolved in `workflow_validation` rather
         #: than here, so the number lives in one place.
         self._max_workflow_depth = max_workflow_depth
@@ -367,13 +373,28 @@ class WorkflowWalker:
         if self._scope is not None:
             self._scope.generation = self._walk.generation
         try:
-            self._check_the_nesting_is_bounded()
-            self._check_the_graph_has_not_changed()
-            report = self._run_walk()
-            self._say(
-                "walk.end", node=report.failed_node or "", outcome=report.outcome.value
+            heartbeat = LeaseHeartbeat(
+                self._walk.renew,
+                self._scope_id,
+                interval_seconds=self._heartbeat_interval_seconds,
             )
-            self._notify(report)
+            with heartbeat:
+                if heartbeat.superseded:
+                    # Taken between the claim and the walk's first renewal:
+                    # nothing has run, and nothing of ours may be written.
+                    return WalkReport(WalkOutcome.SUPERSEDED, self._scope_id)
+                self._check_the_nesting_is_bounded()
+                self._check_the_graph_has_not_changed()
+                report = self._run_walk()
+                if not heartbeat.superseded:
+                    self._say(
+                        "walk.end",
+                        node=report.failed_node or "",
+                        outcome=report.outcome.value,
+                    )
+                    self._notify(report)
+            if heartbeat.superseded:
+                return WalkReport(WalkOutcome.SUPERSEDED, self._scope_id)
             return report
         except StaleGenerationError:
             # Someone took the scope while this walk was running — `cancel`
@@ -550,14 +571,6 @@ class WorkflowWalker:
             else:
                 ledger.executed.append(name)
             ledger.results[name] = run.value
-            # Say "still here" at every node boundary. Without this the lease
-            # becomes a step time limit: a step slower than the lease would see
-            # its own scope go claimable while it was still working.
-            #
-            # Between nodes rather than during one, because that is where the
-            # walk is between two committed states — and because nothing here
-            # can interrupt a step anyway (`exec_policy` §1).
-            self._walk.renew()
             if run.failure_route is not None:
                 # A routed failure does not advance the frontier: the node did
                 # not succeed, so nothing downstream of it is unblocked. Only
