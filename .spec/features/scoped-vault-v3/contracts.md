@@ -13,7 +13,15 @@ func builtin vault list
 func builtin vault sync
 ```
 
-`TARGET` for `--group` accepts a command group or subject address, with dots preserved. The active process environment applies to every command, for example `FUNCTUALIZE_ENV=prod func builtin vault put --group prod.apps.web --field tls_crt`. `FUNCTUALIZE_ENV=base` selects the shared slot. There is no vault environment flag. `inspect` and `list` show metadata and exact resolved identity without values; `remove` acts on the exact active-environment identity.
+`TARGET` for `--job` is the full registered job name: all parent group segments followed by the job leaf, joined with dots. Thus `func deploy infra app` is addressed as `--job deploy.infra.app`, assuming the registered group is `deploy.infra` and the job is `app`. Do not pass CLI words separated by spaces, the leaf `app` alone, or the final dot segment as a field. The `--field` value separately names a secret-marked field of that job's config model. Registered names use the normal canonical segment spelling (for example, `run_etl` becomes `run-etl`). Job lookup uses the exact job target; ancestor lookup belongs to group scope.
+
+```text
+FUNCTUALIZE_ENV=prod func builtin vault put --job deploy.infra.app --field api_token
+FUNCTUALIZE_ENV=prod func builtin vault inspect --job deploy.infra.app --field api_token
+FUNCTUALIZE_ENV=prod func builtin vault remove --job deploy.infra.app --field api_token
+```
+
+`TARGET` for `--group` accepts a command group or subject address, with dots preserved. A secret-marked option declared for the `deploy.infra` group uses `--group deploy.infra --field FIELD`; that is a distinct scope from the nested job's config field. The active process environment applies to every command, for example `FUNCTUALIZE_ENV=prod func builtin vault put --group prod.apps.web --field tls_crt`. `FUNCTUALIZE_ENV=base` selects the shared slot. There is no vault environment flag. `inspect` and `list` show metadata and exact resolved identity without values; `remove` acts on the exact active-environment identity.
 
 ## Config declaration
 
@@ -23,6 +31,11 @@ func builtin vault sync
 group = "prod.apps.web"
 field = "tls_crt"
 source = "provider://reference"
+
+[[vault_secret]]
+job = "deploy.infra.app"
+field = "api_token"
+source = "provider://app-token"
 ```
 
 `group` and `job` are mutually exclusive. `field` and `source` are required. A `config.base.*` or unslotted declaration is shared; `config.<env>.*` has that file's environment. An `environment` key in a declaration is unsupported. Sync processes only shared and active-overlay declarations.
