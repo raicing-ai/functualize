@@ -268,7 +268,7 @@ Write nowhere else.
 
 ## Wave 2
 
-- [ ] **3.1** Docs, changelog, codemap
+- [x] **3.1** Docs, changelog, codemap
   - *Inputs:* B8, B9; D2.
   - *Depends on:* 2.1, 2.2, 2.3, 2.4.
   - *Files:* `docs/guides/jobs-discovery.md`, `CHANGELOG.md`,
@@ -293,6 +293,12 @@ Write nowhere else.
       must hit all three files;
     - `rg -n "strip non-alphanumeric" contributor/architecture/group-trie.md`
       must return nothing.
+  - *Evidence:* `rg -n 'NFKC'` returned one hit in each required document, and
+    `rg -n 'strip non-alphanumeric'` returned none. After committing, removing
+    the codemap's NFKC mention made its required positive search miss; the
+    committed text was restored. The docs describe the production path through
+    registration, CLI resolution, invoke and config-file lookup, including the
+    TOML quoting required for non-ASCII table keys.
 
 ## Wave 3
 
