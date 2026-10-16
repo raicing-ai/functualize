@@ -197,7 +197,7 @@ Write nowhere else.
     collision; committed source was restored. Every booting test isolates
     `XDG_CACHE_HOME`.
 
-- [ ] **2.4** Cost gate for the naming policy (AC10, test-only)
+- [x] **2.4** Cost gate for the naming policy (AC10, test-only)
   - *Inputs:* B10; the member's 2026-10-16 ask that `normalize_segment` stay
     performant because it runs for every job.
   - *Depends on:* 1.1.
@@ -255,6 +255,16 @@ Write nowhere else.
   - *Reachability:* `normalize_segment` is the function every registration
     and lookup reaches (`ExecutionEngine.get_job` → `resolve_name` →
     `_canonical` → `normalize_segment`, `_engine/executor.py:776-818`).
+  - *Evidence:* `/tmp/functualize-t24.log`: 17 passed, 2 slow skipped;
+    `/tmp/functualize-t24-slow.log`: 19 passed. After committing, removing the
+    ASCII fast path made 12 deterministic rows fail in
+    `/tmp/functualize-t24-sabotage.log`; committed source was restored.
+    `uv run python tests/perf/bench_naming.py` reported on Python 3.13.15,
+    host vmi3464921, in ns/call (pre → post, ratio):
+    `deploy-web` 1921.6 → 1940.1 (1.010×), `myJobName` 2211.5 → 2175.1
+    (0.984×), `job_aaǆ` 1439.3 → 2109.0 (1.465×), `naïve_x` 1470.4 →
+    1662.8 (1.131×). The script at `tests/perf/bench_naming.py` reproduces
+    these measurements; the deterministic call counter is the fast-tier gate.
 
 ## Wave 2
 
