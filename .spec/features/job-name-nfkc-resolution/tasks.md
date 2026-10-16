@@ -83,7 +83,7 @@ Write nowhere else.
 
 ## Wave 1
 
-- [ ] **2.1** Warm-boot cache version 22
+- [x] **2.1** Warm-boot cache version 22
   - *Inputs:* B6, D2; `contracts.md` § *Persisted formats*.
   - *Depends on:* 1.1.
   - *Files:* `src/functualize/_primitives/cache_format.py`,
@@ -102,6 +102,13 @@ Write nowhere else.
   - *Reachability:* `_discovery/cached_provider.py:329`
     (`data.get("version") != CACHE_VERSION`). Set it back to 21 and watch the
     new test go red.
+  - *Evidence:* `/tmp/functualize-t21-red.log` recorded 1 failed, 36 passed:
+    the old cache name survived when version 21 was accepted.
+    `/tmp/functualize-t21-green.log` recorded 37 passed after the bump.
+    After committing, setting `CACHE_VERSION` back to 21 made the new test fail
+    in `/tmp/functualize-t21-sabotage.log`; the committed version was restored.
+    The production path is provider construction → `_load_cache` → version
+    comparison → `list_jobs` → source reimport → persisted version 22.
 
 - [ ] **2.2** Config-file sections through the shared naming rule
   - *Inputs:* B7, D1; `contracts.md` § *Config-file sections*.
