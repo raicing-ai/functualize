@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 from functualize._config.errors import (
     AnnotationResolutionError,
     AnnotationResolutionFailure,
+    ConfigurationError,
     RemoteTimeoutError,
     SourceAnnotation,
     UnregisteredProviderError,
@@ -30,6 +31,7 @@ from functualize._config.merge import deep_merge
 from functualize._config.roles import classify, parse_slot
 from functualize._types.descriptors import ConfigFileInfo
 from functualize._types.enums import ConfigFileRole
+from functualize._types.naming import normalize_name
 
 if TYPE_CHECKING:
     from functualize._events import EventBus
@@ -525,6 +527,57 @@ class RemoteSource:
         return key
 
 
+def _find_section(config: dict[str, Any], section: str) -> dict[str, Any] | None:
+    """Find a config table by the registered name and its written spellings."""
+
+    def find_level(table: dict[str, Any], name: str) -> dict[str, Any] | None:
+        data = table.get(name)
+        if isinstance(data, dict):
+            return data
+
+        for candidate in (name.replace("-", "_"), name.replace("_", "-")):
+            if candidate == name:
+                continue
+            data = table.get(candidate)
+            if isinstance(data, dict):
+                return data
+
+        canonical = normalize_name(name)
+        matches = sorted(
+            key
+            for key, value in table.items()
+            if isinstance(value, dict) and normalize_name(key) == canonical
+        )
+        if len(matches) > 1:
+            raise ConfigurationError(
+                f"Config section {section!r} is ambiguous: keys {matches}"
+            )
+        return table[matches[0]] if matches else None
+
+    # Preserve flat exact and legacy spellings before walking dotted TOML
+    # tables. A flat key with a literal dot has always won over a nested one.
+    data = config.get(section)
+    if isinstance(data, dict):
+        return data
+    for candidate in (section.replace("-", "_"), section.replace("_", "-")):
+        if candidate == section:
+            continue
+        data = config.get(candidate)
+        if isinstance(data, dict):
+            return data
+
+    if "." in section:
+        walked: dict[str, Any] | None = config
+        for part in section.split("."):
+            if walked is None:
+                break
+            walked = find_level(walked, part)
+        if walked is not None:
+            return walked
+
+    return find_level(config, section)
+
+
 class FileSource:
     """Discovers, parses, and deep-merges configuration files.
 
@@ -657,32 +710,7 @@ class FileSource:
 
         The canonical spelling is preferred when a file somehow carries both.
         """
-        data = self._merged_config.get(section)
-        if isinstance(data, dict):
-            return data
-
-        for candidate in (section.replace("-", "_"), section.replace("_", "-")):
-            if candidate == section:
-                continue
-            data = self._merged_config.get(candidate)
-            if isinstance(data, dict):
-                return data
-
-        # A dotted section is a *nested* table: TOML parses `[deploy.web]` into
-        # `{"deploy": {"web": {...}}}`, which no flat lookup above can reach.
-        # Group option paths are dotted (`deploy.web`), and `[deploy.web]` is
-        # how anyone would write that section — silently resolving nothing is
-        # exactly the failure this file warns about a few lines up. A flat key
-        # spelled with a literal dot still wins, so this is purely additive.
-        if "." in section:
-            walked: Any = self._merged_config
-            for part in section.split("."):
-                if not isinstance(walked, dict):
-                    return None
-                walked = walked.get(part)
-            if isinstance(walked, dict):
-                return walked
-        return None
+        return _find_section(self._merged_config, section)
 
     def reject_inline_provider(self, section: str, key: str) -> None:
         """Refuse a legacy provider URI in any file for a secret field.
@@ -692,25 +720,19 @@ class FileSource:
         """
         from functualize._config.annotations import scan_annotations
 
-        spellings = (section, section.replace("-", "_"), section.replace("_", "-"))
         for path, config in self._per_file_configs:
-            for spelling in spellings:
-                data: Any = config.get(spelling)
-                if not isinstance(data, dict) and "." in spelling:
-                    data = config
-                    for part in spelling.split("."):
-                        data = data.get(part) if isinstance(data, dict) else None
-                if not isinstance(data, dict):
-                    continue
-                value = data.get(key)
-                if isinstance(value, str) and scan_annotations(
-                    {key: value}, self._remote_providers
-                ):
-                    raise ValueError(
-                        f"{path}: secret field {section}.{key} uses legacy inline "
-                        "provider syntax; move it to [[vault_secret]] with group "
-                        "or job, field, and source"
-                    )
+            data = _find_section(config, section)
+            if data is None:
+                continue
+            value = data.get(key)
+            if isinstance(value, str) and scan_annotations(
+                {key: value}, self._remote_providers
+            ):
+                raise ValueError(
+                    f"{path}: secret field {section}.{key} uses legacy inline "
+                    "provider syntax; move it to [[vault_secret]] with group "
+                    "or job, field, and source"
+                )
 
     def get(
         self,

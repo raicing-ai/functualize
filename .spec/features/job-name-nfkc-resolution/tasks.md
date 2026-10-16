@@ -114,7 +114,7 @@ Write nowhere else.
     The production path is provider construction → `_load_cache` → version
     comparison → `list_jobs` → source reimport → persisted version 22.
 
-- [ ] **2.2** Config-file sections through the shared naming rule
+- [x] **2.2** Config-file sections through the shared naming rule
   - *Inputs:* B7, D1; `contracts.md` § *Config-file sections*.
   - *Depends on:* 1.1.
   - *Files:* `src/functualize/_config/sources.py`,
@@ -152,6 +152,13 @@ Write nowhere else.
   - *Reachability:* `FileSource.get` → `_section_data` → `_find_section`
     (`_config/sources.py:723`). Remove step 4 and watch the `[job_aaǆ]` case
     go red.
+  - *Evidence:* Valid TOML quotes the non-ASCII table key (`["job_aaǆ"]`);
+    the first red run exposed that syntax requirement. With valid TOML,
+    `/tmp/functualize-t22-red2.log` recorded 4 failed and 46 passed. The final
+    gate `/tmp/functualize-t22-green2.log` recorded 51 passed. After committing,
+    disabling the normalized fallback made four new behavior tests fail in
+    `/tmp/functualize-t22-sabotage.log`; the committed source was restored.
+    `FileSource.get` and `reject_inline_provider` both reach `_find_section`.
 
 - [ ] **2.3** End-to-end surfaces (test-only)
   - *Inputs:* B2, B4, B5; AC3, AC4, AC5.
