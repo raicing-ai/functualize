@@ -160,7 +160,7 @@ Write nowhere else.
     `/tmp/functualize-t22-sabotage.log`; the committed source was restored.
     `FileSource.get` and `reject_inline_provider` both reach `_find_section`.
 
-- [ ] **2.3** End-to-end surfaces (test-only)
+- [x] **2.3** End-to-end surfaces (test-only)
   - *Inputs:* B2, B4, B5; AC3, AC4, AC5.
   - *Depends on:* 1.1.
   - *Files:* `tests/integration/test_nfkc_job_names.py` (new).
@@ -190,6 +190,12 @@ Write nowhere else.
     Sabotage by reverting 1.1's `_nfkc` wrap and watching every AC3/AC4 case go
     red. If AC5 fails after 1.1, stop: report it as a finding against
     `_discovery/collisions.py` and do not weaken the assertion (plan R3).
+  - *Evidence:* `/tmp/functualize-t23-first.log` recorded 8 passed through
+    booted app/CLI and cached-provider collision paths. After committing,
+    replacing `_nfkc` with the identity function made all 8 cases fail in
+    `/tmp/functualize-t23-sabotage.log`, including AC3/AC4 and the AC5
+    collision; committed source was restored. Every booting test isolates
+    `XDG_CACHE_HOME`.
 
 - [ ] **2.4** Cost gate for the naming policy (AC10, test-only)
   - *Inputs:* B10; the member's 2026-10-16 ask that `normalize_segment` stay
