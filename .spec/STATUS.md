@@ -626,7 +626,9 @@ interval later.
 
 Expiry makes a still-`running` scope claimable but neither proves the old work
 stopped nor interrupts it. An ordinary second walker is refused while the
-first keeps renewing, including after the first claim's original expiry. The
+first keeps renewing, including after the first claim's original expiry. This
+also holds for two walks with the same process owner on SQLite; the second may
+claim once the lease expires. The
 operator-facing account is in `docs/cli/workflow.md`; the two-walker and
 cleanup proofs are in `tests/engine/test_walk_claims_through_the_port.py` and
 `tests/engine/test_timeout_is_lease_expiry.py`.

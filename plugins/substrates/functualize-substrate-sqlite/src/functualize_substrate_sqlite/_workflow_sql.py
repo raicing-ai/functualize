@@ -9,8 +9,9 @@ by its legal predecessor states in the statement itself.
 ``claim`` is the one writer that commits on the spot — data model §5's
 conditional update, one batch of its own, then a read — because it is the one
 that answers with a value: losing is ``Conflict``, never an exception. The
-lease rule is §5's: free when unclaimed or expired, re-takeable by its own
-holder, and taken regardless on ``force``.
+lease rule is §5's: free when unclaimed or expired, including to the prior
+owner after expiry, and taken regardless on ``force``. A live claim is held
+even against another walk from the same process; ``renew`` extends it.
 
 The engine decides what a transition *means* (ADR-025); this module only
 records the status a command carries, which is why no branch here depends on
@@ -112,7 +113,7 @@ class SqlWorkflowWriter:
                     "lease_expires_at = excluded.lease_expires_at, "
                     "lease_generation = workflow_scopes.lease_generation + 1, "
                     "updated_at = excluded.updated_at "
-                    "WHERE ? OR workflow_scopes.lease_owner = excluded.lease_owner "
+                    "WHERE ? OR workflow_scopes.lease_owner IS NULL "
                     "OR workflow_scopes.lease_expires_at IS NULL "
                     "OR workflow_scopes.lease_expires_at <= ?",
                     (
