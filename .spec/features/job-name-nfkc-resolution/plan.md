@@ -221,6 +221,8 @@ The hit set of the retrieval above, and nothing else:
 | `src/functualize/_config/sources.py` | 2.2 | `_section_data` `:650-685`, `reject_inline_provider` `:687-712` |
 | `tests/config/test_config_section_spelling.py` | 2.2 | existing spelling tests, extended |
 | `tests/integration/test_nfkc_job_names.py` (new) | 2.3 | E1, E3: invoke, parallel, CLI, deps, group, collision |
+| `tests/discovery/test_naming_cost.py` (new) | 2.4 | AC10 counter gate and slow ratio |
+| `tests/perf/bench_naming.py` (new, script) | 2.4 | AC10 harness, the evidence line |
 | `docs/guides/jobs-discovery.md` | 3.1 | user-facing naming rule, `:30-62` |
 | `CHANGELOG.md` | 3.1 | D2 note |
 | `contributor/architecture/group-trie.md` | 3.1 | stale codemap, `:75-77` |
@@ -244,6 +246,20 @@ trusting this table.
   `build-wheel` when no exact or swapped key exists. The shape asks for config
   to "go through the shared naming rule", and this is that rule. Pinned by
   AC7's "existing cases still pass".
+- **R4: the AC10 ratio is a timing measurement.** The repository has already
+  replaced one wall-clock ratio with a deterministic count:
+  `tests/primitives/test_scope_state_store.py:222-232` measured "the
+  scheduler, not the store" under host load. So the counter gate is AC10's
+  enforcing half. The ratio is limited to ASCII input, runs PRE and POST
+  interleaved in one process, takes the minimum of 15 rounds per side, is a
+  ratio rather than an absolute, and is `slow`-marked so only the tip tier
+  runs it. The measured margin is 1.05–1.06× against a 1.25× bound. If it ever
+  flakes, demote it to report-only; do not widen the bound.
+- **R5: AC7's ambiguity fixture has been wrong twice.** `[Job_AAǆ]` is
+  `job-a-adž`, which never collides. `[job_aadž]` is reached by step 2's
+  swap, so it never reaches step 4. Task 2.2 now names the pair that does
+  reach step 4 (`[job-aaǆ]` + `[job_aaǆ]`) and pins `[job_aadž]`'s step-2
+  precedence as a separate case. Both were measured on `fbb66f7e`.
 - **R3: collision reporting across string-set groups.** AC5 asserts
   `_discovery/collisions.py` reports `ǆ_ops`/`dž_ops`. If that registration
   path bypasses the collision rule, task 2.3 fails. That is a finding to report,

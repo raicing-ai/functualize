@@ -85,6 +85,20 @@ records keyed by a pre-change string-set name are orphaned: that job re-runs
 once and caches normally afterwards. `CHANGELOG.md` says so. The census for
 this repo finds **0** such names (§ *Evidence baseline*).
 
+**B10. The policy stays cheap on the common path** (the member's ask,
+2026-10-16: "normalize_segment is something run for every job, it needs to
+be performant"):
+
+- `normalize_segment`, `normalize_name` and `resolve_name` make **no** call
+  into `unicodedata.normalize` for ASCII input;
+- otherwise they make at most one call per non-ASCII segment, plus one for a
+  non-ASCII whole dotted name;
+- NFKC-stable input comes back from the private `_nfkc` as the identical
+  object.
+
+Cost is pinned by call counts, not by wall-clock. A same-process ratio on
+ASCII input is reported as supporting evidence only (AC10).
+
 ## Acceptance criteria
 
 Each criterion is an executable gate. The gate commands, the test files they
@@ -100,6 +114,7 @@ name and their expected red/green states are in `tasks.md`.
 | AC6 | B6: `CACHE_VERSION == 22`; a v21 cache holding `ǆ-ops.run-it` is rebuilt, and the job is listed as `dž-ops.run-it` | E4 |
 | AC7 | B7: `[job_aaǆ]` supplies a config value to `job-aadž`; a secret field written there with inline provider syntax is refused; two non-exact keys normalising to one section raise `ConfigurationError`; every existing case in `tests/config/test_config_section_spelling.py` and `test_dotted_config_sections.py` still passes | — |
 | AC8 | B8: `env_name_for("job-aadž", "field") == "JOB_AADŽ_FIELD"`, unchanged; `docs/guides/jobs-discovery.md` states the exclusion | — |
+| AC10 | B10: exact `unicodedata.normalize` call counts (0 for ASCII; `[n non-ASCII] + non-ASCII segments of NFKC(n)` for `normalize_name`; 0 for `resolve_name` over ASCII names), identity for stable input, a committed µs/call harness (`tests/perf/bench_naming.py`), and a `slow`-marked same-process ratio `post <= 1.25 × pre` on ASCII input | — |
 | AC9 | All five repository checks pass: `ruff check`, `ruff format --check`, `mypy src/`, `lint-imports`, `pytest` (fast tier locally, tip tier dispatched) | — |
 
 ## Out of scope

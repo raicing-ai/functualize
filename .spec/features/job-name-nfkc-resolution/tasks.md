@@ -77,7 +77,11 @@ Write nowhere else.
     `ExecutionEngine.get_job` → `resolve_name` → `_canonical` →
     `normalize_segment`; wave 1's integration task proves that path end to end.
     The five-name benchmark's median over three rounds of 500,000 calls was
-    1.423 s before and 1.298 s after the ASCII fast path. The task diff covered
+    1.423 s before and 1.298 s after the ASCII fast path. *(Design note,
+    2026-10-16: this figure is not evidence of a speed-up. The fast path's
+    whole effect is about 10 ns of a ~2 µs call, so a −9% result is noise at
+    this scale. The cost evidence of record is task 2.4's counter gate and
+    its committed harness.)* The task diff covered
     this file, `src/functualize/_types/naming.py`, and
     `tests/discovery/test_naming.py`.
 
@@ -129,8 +133,19 @@ Write nowhere else.
     - `[job_aaǆ] x = 1` supplies `x` for section `job-aadž`;
     - a secret field there with legacy inline provider syntax raises the
       existing `ValueError`;
-    - `[Job_AAǆ]` plus `[job_aaǆ]` for section `job-aadž` raises
-      `ConfigurationError`;
+    - `[job-aaǆ]` plus `[job_aaǆ]` for section `job-aadž` raises
+      `ConfigurationError` naming both keys. Neither key is reached by steps
+      1–3, and both normalise to `job-aadž`;
+    - `[job_aadž]` plus `[job_aaǆ]` for section `job-aadž` returns the
+      `[job_aadž]` table **without** raising. Step 2's `-`→`_` swap reaches it
+      first, so step 4 never runs (B7: steps 1–3 unchanged);
+    - *Fixture history:* the first draft named `[Job_AAǆ]`, which cannot
+      collide (`normalize_name('Job_AAǆ') == 'job-a-adž'`, from the
+      acronym-aware camel split). The correction routed on 2026-10-16,
+      `[job_aadž]`, cannot reach step 4 either, because step 2 matches it.
+      Both were measured with `uv run python` on `fbb66f7e`. The pair above is
+      the one that reaches step 4. This is a fixture repair inside AC7's own
+      words; AC7 is unchanged;
     - `[env_cfg]` and `[env-cfg]` precedence is unchanged (existing cases);
     - `env_name_for("job-aadž", "field") == "JOB_AADŽ_FIELD"`.
   - *Gate:* `uv run pytest -q --no-header tests/config/test_config_section_spelling.py tests/config/test_dotted_config_sections.py tests/config/test_env_name_rule_parity.py > /tmp/functualize-t22.log 2>&1`.
@@ -169,11 +184,70 @@ Write nowhere else.
     red. If AC5 fails after 1.1, stop: report it as a finding against
     `_discovery/collisions.py` and do not weaken the assertion (plan R3).
 
+- [ ] **2.4** Cost gate for the naming policy (AC10, test-only)
+  - *Inputs:* B10; the member's 2026-10-16 ask that `normalize_segment` stay
+    performant because it runs for every job.
+  - *Depends on:* 1.1.
+  - *Files:* `tests/discovery/test_naming_cost.py` (new) and
+    `tests/perf/bench_naming.py` (new, a runnable script, not collected:
+    no `test_` prefix).
+  - *Deterministic gate (fast tier):* wrap `functualize._types.naming.unicodedata`
+    in a counting proxy with `monkeypatch.setattr` and assert these exact
+    counts of `normalize` calls:
+    - `normalize_segment(s)` → **0** for every ASCII `s` in a fixed list:
+      `deploy-web`, `myJobName`, `HTTPServer`, `build_wheel`, `a`, and the
+      empty string. → **1** for each non-ASCII `s`: `job_aaǆ`, `naïve_x`,
+      `ｄｅｐｌｏｙ`;
+    - `normalize_name(n)` → `[n is not ASCII] + (number of non-ASCII segments
+      of NFKC(n))`. Pin the rows measured on `fbb66f7e`: `web.deploy` → 0,
+      `ǆ_ops.run_it` → 2, `ｄｅｐｌｏｙ．ｗｅｂ` → 1, `naïve.x` → 2,
+      `a.ǆ.b` → 2;
+    - `resolve_name` with an ASCII candidate over ASCII known names → **0**
+      (`resolve_name("build_wheel", ["build-wheel", "x.y"])`);
+    - **identity:** `naming._nfkc(s) is s` for `deploy` and for the
+      NFKC-stable non-ASCII `naïve_x`.
+
+    A future edit that normalises per character, builds a table per call or
+    drops the ASCII fast path changes a count and goes red.
+  - *Harness (evidence, not a gate):* `tests/perf/bench_naming.py`
+    - holds `PRE`, a frozen copy of the pre-change loop. Import `_pre_nfkc_segment` from
+      `tests/discovery/test_naming.py:14` rather than writing a second copy.
+      If importing a test module is awkward, move that function into
+      `tests/discovery/_naming_reference.py` and import it from both places;
+    - holds `POST = normalize_segment`;
+    - runs interleaved PRE/POST rounds (15 rounds × 50,000 calls, minimum per
+      side) over the four inputs in the 2026-10-16 measurement table:
+      `deploy-web`, `myJobName`, `job_aaǆ`, `naïve_x`;
+    - prints ns/call per side and the ratio, plus the interpreter version and
+      host name.
+
+    Run it with `uv run python tests/perf/bench_naming.py`. The task evidence
+    pastes its output.
+  - *Ratio gate (`@pytest.mark.slow`, tip tier only):* in
+    `test_naming_cost.py`, call the harness's measuring function in-process
+    and assert `post <= 1.25 * pre` for the two **ASCII** inputs only.
+    - It is a ratio, never an absolute.
+    - NFKC-unstable input is excluded by design: it measured 1.62×, and that
+      extra cost buys a correct result, which is the point of the change.
+    - The failure message prints both ns figures and the ratio.
+  - *Gate:*
+    - `uv run pytest -q --no-header tests/discovery/test_naming_cost.py > /tmp/functualize-t24.log 2>&1`
+      (counts and identity; must pass);
+    - `uv run pytest --run-slow -q --no-header tests/discovery/test_naming_cost.py > /tmp/functualize-t24-slow.log 2>&1`
+      (adds the ratio).
+  - *Red evidence:* the implementation already exists (1.1), so red comes from
+    sabotage. Commit, then replace `_nfkc`'s body with
+    `unicodedata.normalize("NFKC", value)`, which drops the ASCII fast path.
+    The ASCII count rows go red. Restore.
+  - *Reachability:* `normalize_segment` is the function every registration
+    and lookup reaches (`ExecutionEngine.get_job` → `resolve_name` →
+    `_canonical` → `normalize_segment`, `_engine/executor.py:776-818`).
+
 ## Wave 2
 
 - [ ] **3.1** Docs, changelog, codemap
   - *Inputs:* B8, B9; D2.
-  - *Depends on:* 2.1, 2.2, 2.3.
+  - *Depends on:* 2.1, 2.2, 2.3, 2.4.
   - *Files:* `docs/guides/jobs-discovery.md`, `CHANGELOG.md`,
     `contributor/architecture/group-trie.md`.
   - *Change:*
@@ -207,6 +281,8 @@ Write nowhere else.
       `uv run mypy src/` and `uv run lint-imports`, each redirected to
       `/tmp/functualize-<cmd>.log`;
     - `uv run pytest -x -q --no-header > /tmp/functualize-fast.log 2>&1`;
+    - `uv run pytest --run-slow -q --no-header tests/discovery/test_naming_cost.py > /tmp/functualize-cost-slow.log 2>&1`
+      and `uv run python tests/perf/bench_naming.py`, both pasted (AC10);
     - `uv run python .github/scripts/dead_code_delta.py c03dfb72 HEAD`. Classify
       each finding KNOWN or UNMARKED. The phase is advisory.
     - Tip tier: dispatch `gh workflow run CI --ref sdd/job-name-nfkc-resolution`
@@ -219,7 +295,7 @@ Write nowhere else.
 {
   "waves": [
     {"id": 0, "tasks": ["1.1"]},
-    {"id": 1, "tasks": ["2.1", "2.2", "2.3"]},
+    {"id": 1, "tasks": ["2.1", "2.2", "2.3", "2.4"]},
     {"id": 2, "tasks": ["3.1"]},
     {"id": 3, "tasks": ["3.2"]}
   ]

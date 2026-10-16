@@ -18,6 +18,12 @@ not change. Their return values do:
 
 No new public symbol. No new exception type.
 
+**Cost contract (B10, AC10).** For ASCII input, none of the three functions
+calls `unicodedata.normalize`. `normalize_segment` calls it once for non-ASCII
+input. `normalize_name(n)` calls it `[n non-ASCII] + (non-ASCII segments of NFKC(n))`
+times. NFKC-stable input is returned as the identical object. The contract
+counts calls; it does not set a time budget.
+
 ## Registered identity
 
 - A job or group name that comes from a Python identifier: **unchanged**,
