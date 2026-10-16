@@ -16,6 +16,7 @@ recorded even with no key (R-3).
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -143,6 +144,13 @@ class TestNothingStoredNeverAsks:
         resolver = _ExplodingResolver()
         source = VaultSource(vault, key=resolver)
         assert source.get("port", "database") is None
+        assert resolver.calls == 0
+
+    def test_no_candidate_in_any_environment_never_asks(self, vault: Path) -> None:
+        resolver = _ExplodingResolver()
+        source = VaultSource(vault, key=resolver, environment="prod")
+
+        assert source.get("missing", "deploy.web", scope="group") is None
         assert resolver.calls == 0
 
     def test_a_missing_vault_file_never_asks(self, tmp_path: Path) -> None:
@@ -335,3 +343,25 @@ class TestAMissIsRecordedWithNoKey:
         source.get("port", "database")
         assert source.misses == ["database.port"]
         assert resolver.calls == 0
+
+
+def test_boot_source_uses_the_apps_selected_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from functualize._app.boot import _lazy_vault_source
+
+    path = tmp_path / "vault.db"
+    SecretsVault(path).put(
+        VaultIdentity("job", "database", "password", "prod").encode(),
+        "selected",
+        encryption_key=_KEY,
+    )
+    monkeypatch.setattr(
+        VaultKeyResolver,
+        "for_app",
+        lambda project_id, app: VaultKeyResolver.fixed(_KEY, "test"),
+    )
+
+    source = _lazy_vault_source(SimpleNamespace(_environment="PROD"), path)
+
+    assert source.get("password", "database") == "selected"

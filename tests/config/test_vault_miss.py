@@ -616,6 +616,63 @@ class TestScopedIdentity:
 
         assert _source(path).get("api_token", "deploy", scope="job") == "job-value"
 
+    def test_group_read_prefers_active_ancestor_over_shared_exact(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "vault.db"
+        vault = SecretsVault(path)
+        vault.put(
+            VaultIdentity("group", "deploy.web", "token").encode(),
+            "shared-exact",
+            encryption_key=_KEY,
+        )
+        vault.put(
+            VaultIdentity("group", "deploy", "token", "prod").encode(),
+            "active-ancestor",
+            encryption_key=_KEY,
+        )
+        source = VaultSource(path, key=_resolver(_KEY), environment="PROD")
+
+        chain = _chain(source, _StaticSource("file", "config.toml", {}))
+        assert chain.resolve("token", "deploy.web", scope="group").value == (
+            "active-ancestor"
+        )
+        assert source.has("token", "deploy.web", scope="group")
+        assert source.keys("deploy.web", scope="group") == {"token"}
+
+    def test_job_read_is_exact_and_falls_back_to_shared(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.db"
+        vault = SecretsVault(path)
+        vault.put(
+            VaultIdentity("job", "deploy", "token", "prod").encode(),
+            "parent-job",
+            encryption_key=_KEY,
+        )
+        vault.put(
+            VaultIdentity("job", "deploy.web", "token").encode(),
+            "shared-exact",
+            encryption_key=_KEY,
+        )
+        source = VaultSource(path, key=_resolver(_KEY), environment="prod")
+
+        assert source.get("token", "deploy.web", scope="job") == "shared-exact"
+        assert source.keys("deploy.web", scope="job") == {"token"}
+
+    def test_present_active_candidate_refuses_before_shared_fallback(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "vault.db"
+        vault = SecretsVault(path)
+        for identity in (
+            VaultIdentity("group", "deploy", "token", "prod"),
+            VaultIdentity("group", "deploy.web", "token"),
+        ):
+            vault.put(identity.encode(), "stored", encryption_key=_KEY)
+        source = VaultSource(path, key=_resolver(None), environment="prod")
+
+        with pytest.raises(VaultEntryUnreadableError):
+            source.get("token", "deploy.web", scope="group")
+
     def test_the_same_text_under_two_scopes_is_two_entries(
         self, tmp_path: Path
     ) -> None:
@@ -667,7 +724,7 @@ class TestScopedIdentity:
 
         assert source.keys("deploy", scope="group") == {"token"}
         assert source.keys("deploy", scope="job") == {"token"}
-        assert source.keys("deploy.web", scope="group") == {"other"}
+        assert source.keys("deploy.web", scope="group") == {"other", "token"}
 
     def test_has_is_scope_aware(self, tmp_path: Path) -> None:
         path = tmp_path / "vault.db"

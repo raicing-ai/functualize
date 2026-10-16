@@ -1317,7 +1317,9 @@ def _lazy_vault_source(app: Any, path: Path, *, max_age: Any = None) -> Any:
     from functualize._primitives.locator import compute_project_id
 
     resolver = VaultKeyResolver.for_app(compute_project_id(Path.cwd()), app)
-    return VaultSource(path, key=resolver, max_age=max_age)
+    return VaultSource(
+        path, key=resolver, max_age=max_age, environment=app._environment
+    )
 
 
 def _build_dormant_vault_source(app: Any) -> Any:

@@ -41,19 +41,19 @@ class VaultIdentity:
 
     @classmethod
     def lookup_candidates(
-        cls, scope: VaultScope, target: str, field: str, environment: str
+        cls, scope: VaultScope, target: str, field: str, environment: str | None
     ) -> tuple[VaultIdentity, ...]:
         """Try active entries before shared entries, nearest group first."""
-        # TRANSITIONAL(T1.2): VaultSource will consume this order after environment wiring.
         if scope not in ("group", "job"):
             raise ValueError(f"Unknown vault scope: {scope!r}")
         targets: tuple[str, ...] = (target,)
         if scope == "group":
             parts = target.split(".")
             targets = tuple(".".join(parts[:end]) for end in range(len(parts), 0, -1))
+        slots = (environment, None) if environment is not None else (None,)
         return tuple(
             cls(scope, candidate, field, slot)
-            for slot in (environment, None)
+            for slot in slots
             for candidate in targets
         )
 
