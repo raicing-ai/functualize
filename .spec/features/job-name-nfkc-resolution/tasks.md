@@ -302,7 +302,7 @@ Write nowhere else.
 
 ## Wave 3
 
-- [ ] **3.2** Full verification and handoff
+- [x] **3.2** Full verification and handoff
   - *Depends on:* 3.1.
   - *Files:* none (verification only).
   - *Gate:*
@@ -317,6 +317,23 @@ Write nowhere else.
     - Tip tier: dispatch `gh workflow run CI --ref sdd/job-name-nfkc-resolution`
       and do not wait on it.
   - *Evidence:* every log's tail line, the dead-code output, and the CI run URL.
+    `ruff check`: All checks passed; `ruff format --check`: 1663 files already
+    formatted; `mypy src/`: no issues in 393 source files; `lint-imports`:
+    7 contracts kept, 0 broken. The exact unpartitioned fast command exceeded
+    the repository's 570-second cap at 98% with no reported failure. Its first
+    run stopped at a stale test assertion expecting cache version 21; the
+    corrected assertion is committed, passed in its focused test and went red
+    when sabotaged back to 21. To complete the same fast selection within the
+    command cap, `/tmp/functualize-fast-a.log` covered seven named directories
+    (6150 passed, 1017 skipped), and `/tmp/functualize-fast-b.log` covered
+    `tests/` excluding those directories (6427 passed, 610 skipped). Both used
+    six workers and exited 0. AC10: the slow cost test passed (19 passed) and
+    `tests/perf/bench_naming.py` output is recorded under task 2.4.
+    Dead-code delta `c03dfb72..f02994e5`: NEW_DEAD 0, TESTS_ONLY 0; two
+    pre-existing neighbourhood findings (`ProviderRegistry.get_format_provider`,
+    `TrieResolution.is_group_listing`). The tip CI workflow was dispatched at
+    https://github.com/raicing-ai/functualize/actions/runs/38944198080; it is
+    not awaited by this task.
 
 ## Task Dependency Graph
 
