@@ -15,7 +15,7 @@ The current phase is Plan. These tasks are unchecked until the maintainer review
 ## Wave 2 — public mutation and sync
 
 - [x] **T2.1 — Validate composed targets and inspect the winner.** Files: `src/functualize/app/vault.py`, `tests/app/test_vault_paths.py`, `tests/app/test_vault_seam.py`. Acceptance: `--group G --job J` resolves exactly `G.J`; dotted job and misplaced leaf refuse before input; direct mutation uses the active environment; remove acts on its exact key; inspect reports the candidate used without decrypting a secret; v2 shared entries remain inspectable. Production path: public vault API → validation → SecretsVault and the same candidate order used by the run source.
-- [ ] **T2.2 — Sync only selected declarations.** Files: `src/functualize/app/utils.py`, `tests/app/test_remote_first.py`. Acceptance: a prod sync validates and fetches base+prod declarations and never contacts a staging-only provider; canonical duplicate/origin conflict checks run before fetch; provider failure reports contain no secret bytes. Production path: public `vault_sync` → active FileSource values → parser → provider → SecretsVault.
+- [x] **T2.2 — Sync only selected declarations.** Files: `src/functualize/app/utils.py`, `tests/app/test_remote_first.py`. Acceptance: a prod sync validates and fetches base+prod declarations and never contacts a staging-only provider; canonical duplicate/origin conflict checks run before fetch; provider failure reports contain no secret bytes. Production path: public `vault_sync` → active FileSource values → parser → provider → SecretsVault.
 
 ## Wave 3 — delivery and documentation
 

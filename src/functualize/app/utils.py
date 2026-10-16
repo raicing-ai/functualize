@@ -1977,16 +1977,26 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
         resolve_vault_key,
     )
     from functualize._primitives.locator import compute_project_id
-    from functualize.app.vault import resolve_vault_identity
+    from functualize._types.enums import ConfigFileRole
+    from functualize.app.vault import VaultIdentity, resolve_vault_identity
 
     registry = app.config_registry
     registered = registry.list_remote_providers()
-    files = [
-        item
-        for source in getattr(app._resolution_chain, "sources", ())
-        if getattr(source, "source_type", None) == "file"
-        for item in source.per_file_values
-    ]
+    files: list[tuple[str, Mapping[str, Any]]] = []
+    for source in getattr(app._resolution_chain, "sources", ()):
+        if getattr(source, "source_type", None) != "file":
+            continue
+        infos = getattr(source, "file_infos", None)
+        selected = (
+            {info.path for info in infos if info.role is not ConfigFileRole.INERT}
+            if infos is not None
+            else None
+        )
+        files.extend(
+            item
+            for item in source.per_file_values
+            if selected is None or item[0] in selected
+        )
     _reject_legacy_inline(app, files, registered)
     declarations = parse_vault_declarations(files)
     # Resolve every target and spot every duplicate before fetching anything.
@@ -1995,16 +2005,26 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
     for declaration in declarations:
         identity = declaration.identity
         try:
+            if identity.scope == "job" and "." in identity.target:
+                group, job = identity.target.rsplit(".", 1)
+                target = {"group": group, "job": job}
+            else:
+                target = {identity.scope: identity.target}
             validated = resolve_vault_identity(
                 app,
-                **{identity.scope: identity.target},
+                **target,
                 field=identity.field,
             )
         except ValueError as exc:
             from functualize._config.vault_declarations import VaultDeclarationError
 
             raise VaultDeclarationError(f"{declaration.location}: {exc}") from exc
-        encoded = validated.encode()
+        encoded = VaultIdentity(
+            validated.scope,
+            validated.target,
+            validated.field,
+            identity.environment,
+        ).encode()
         if encoded in canonical:
             from functualize._config.vault_declarations import VaultDeclarationError
 
@@ -2070,18 +2090,19 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
         raise VaultKeyMismatchError(msg, orphans=tuple(orphans))
 
     synced: list[tuple[str, str]] = []
-    failed: list[tuple[str, str]] = []
     direct_keys = {
         entry.key
         for entry in vault.list_entries()
         if entry.origin is VaultOrigin.DIRECT
     }
+    failed: list[tuple[str, str]] = [
+        (key, "direct entry already exists; remove it before syncing")
+        for key in scan.annotations
+        if key in direct_keys
+    ]
 
     for key, chain in scan.annotations.items():
         if key in direct_keys:
-            failed.append(
-                (key, "direct entry already exists; remove it before syncing")
-            )
             continue
         outcome = _fetch_first(chain, registered)
         if isinstance(outcome, str):

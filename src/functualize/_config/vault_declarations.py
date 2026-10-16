@@ -90,7 +90,6 @@ def parse_vault_declarations(
             )
             assert isinstance(target, str)
             try:
-                # TRANSITIONAL(T2.2): sync must retain this slot through validation.
                 identity = VaultIdentity(
                     "job" if job is not None else "group", target, field, environment
                 )
