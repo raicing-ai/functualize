@@ -1,6 +1,6 @@
 # Scoped vault v3 — external contracts
 
-Authority: [SD/12779576](https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/12779576) **version 4**, read 2026-10-16 01:19 UTC, Authority **Proposed**. The v4 amendment, composed `--group` / `--job` targeting, awaits maintainer approval, and these contracts stay a draft until it is approved. The subject-address capability required by the Rise foundation is included here, unchanged from v3.
+Authority: [SD/12779576](https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/12779576), page version **5**, read 2026-10-16, `Authority: Approved`. The maintainer confirmed these contracts on the issue at 2026-10-16 11:59 UTC. The page's Status and Last reviewed prose still describe the preceding proposal; its Authority field and the explicit confirmation establish the gate. The subject-address capability required by the Rise foundation is included here, unchanged from v3.
 
 ## CLI
 

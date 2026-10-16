@@ -2,7 +2,7 @@
 
 ## Authority and problem
 
-Shape intent: [SD/12779576](https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/12779576) **version 4**, read 2026-10-16 01:19 UTC. Version 4 carries the v4 amendment (composed `--group` / `--job` targeting, from the maintainer's inline comment of 2026-10-16) and its Authority is **Proposed**. This draft follows v4 and cannot be confirmed until the maintainer sets Authority to Approved. v4 keeps v3's subject-address and environment rules unchanged; v3 was approved 2026-10-09 (page version 3). This feature implements the subject-address and environment amendment to the scoped local vault, plus v4's target grammar. The current three-part identity cannot distinguish `prod` from `staging`, and a group target limited to declared command groups cannot name a Rise subject address.
+Shape intent: [SD/12779576](https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/12779576), page version **5**, read 2026-10-16. Its v4 composed-target amendment has `Authority: Approved`; the maintainer confirmed this spec on the issue at 2026-10-16 11:59 UTC. The page's Status and Last reviewed prose still describe the preceding proposal; the Authority field and explicit confirmation establish the gate. This feature implements the subject-address and environment amendment to the scoped local vault, plus v4's target grammar. The current three-part identity cannot distinguish `prod` from `staging`, and a group target limited to declared command groups cannot name a Rise subject address.
 
 The vault remains one store per project. The active Functualize environment selects entries; there is no vault-only environment flag or second vault.
 
