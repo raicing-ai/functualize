@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a second SQLite walk in one process cannot take a live lease
+
+Two walks in one process use the same runner identity. SQLite previously let
+the second claim replace the first walk's still-live lease, advancing the
+generation and fencing the first walk during its step. An ordinary second
+walk is now held until the lease expires, as on the document store. A forced
+takeover and a claim after expiry still advance the generation.
+
 ### Fixed — a changed group option re-runs a cached job instead of replaying the previous result
 
 A job's freshness key was computed from its resolved config plus the caller's

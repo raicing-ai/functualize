@@ -139,11 +139,22 @@ def test_force_takes_a_live_lease(store: SqliteRuntimeStore) -> None:
     assert isinstance(_claim(store, "b", force=True), Claimed)
 
 
-def test_the_holder_may_retake_its_own_lease(store: SqliteRuntimeStore) -> None:
-    """Data model §5's rule: ``lease_owner = :runner OR expired``."""
+def test_a_live_same_owner_claim_is_conflict(store: SqliteRuntimeStore) -> None:
+    """A second walk in this process must renew, not claim over the first."""
     _held(store, "a")
 
-    again = _claim(store, "a")
+    assert _claim(store, "a", at=T0 + timedelta(seconds=1)) == Conflict(
+        "s1", held_by="a", held_generation=1
+    )
+    assert _row(store, "SELECT lease_owner, lease_generation FROM workflow_scopes") == [
+        ("a", 1)
+    ]
+
+
+def test_the_same_owner_may_reclaim_after_expiry(store: SqliteRuntimeStore) -> None:
+    _held(store, "a")
+
+    again = _claim(store, "a", at=T0 + timedelta(seconds=LEASE))
 
     assert isinstance(again, Claimed)
     assert again.generation == 2
