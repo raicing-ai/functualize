@@ -14,6 +14,7 @@ Covers Phase 1 of the true-lazy registration refactor:
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import threading
 import uuid
@@ -126,6 +127,72 @@ def _restore_sys_modules():
 
 
 class TestLazyJobFunction:
+    def test_nested_materialization_does_not_deadlock_across_threads(
+        self, tmp_path: Path
+    ) -> None:
+        """Import code may materialize a proxy another worker is opening."""
+        (tmp_path / "nested_probe_a.py").write_text(
+            "import nested_probe_bridge\n"
+            "nested_probe_bridge.a_entered.set()\n"
+            "assert nested_probe_bridge.b_started.wait(2)\n"
+            "nested_probe_bridge.b_helper_entered.wait(1)\n"
+            "nested_probe_bridge.proxy_b.materialize()\n"
+            "def alpha():\n    return 'a'\n"
+        )
+        (tmp_path / "nested_probe_b.py").write_text("def beta():\n    return 'b'\n")
+        probe = tmp_path / "probe.py"
+        probe.write_text(
+            "import sys\n"
+            "import threading\n"
+            "from concurrent.futures import ThreadPoolExecutor\n"
+            "from pathlib import Path\n"
+            "from types import ModuleType\n"
+            "from functualize._discovery import lazy_wrapper\n"
+            "from functualize._types.descriptors import JobDescriptor\n"
+            "root = Path(__file__).parent\n"
+            "bridge = ModuleType('nested_probe_bridge')\n"
+            "bridge.a_entered = threading.Event()\n"
+            "bridge.b_started = threading.Event()\n"
+            "bridge.b_helper_entered = threading.Event()\n"
+            "sys.modules[bridge.__name__] = bridge\n"
+            "proxy_a = lazy_wrapper.LazyJobFunction(JobDescriptor(\n"
+            "    name='alpha', group=None, module_path='nested_probe_a',\n"
+            "    source_file=str(root / 'nested_probe_a.py')))\n"
+            "bridge.proxy_b = lazy_wrapper.LazyJobFunction(JobDescriptor(\n"
+            "    name='beta', group=None, module_path='nested_probe_b',\n"
+            "    source_file=str(root / 'nested_probe_b.py')))\n"
+            "real_import = lazy_wrapper._import_real_function\n"
+            "def mark_import(descriptor):\n"
+            "    if descriptor.module_path == 'nested_probe_b':\n"
+            "        bridge.b_helper_entered.set()\n"
+            "    return real_import(descriptor)\n"
+            "lazy_wrapper._import_real_function = mark_import\n"
+            "def materialize_b():\n"
+            "    bridge.b_started.set()\n"
+            "    return bridge.proxy_b.materialize()\n"
+            "before = sys.path.copy()\n"
+            "with ThreadPoolExecutor(max_workers=2) as pool:\n"
+            "    first = pool.submit(proxy_a.materialize)\n"
+            "    assert bridge.a_entered.wait(2)\n"
+            "    second = pool.submit(materialize_b)\n"
+            "    assert first.result(timeout=5)[0]() == 'a'\n"
+            "    assert second.result(timeout=5)[0]() == 'b'\n"
+            "assert sys.path == before\n"
+            "print('a=ok b=ok', flush=True)\n"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, str(probe)],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            pytest.fail("nested lazy materialization deadlocked across threads")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "a=ok b=ok"
+
     def test_construction_does_not_import(self, tmp_path: Path) -> None:
         descriptor, marker = _write_job_module(tmp_path, "myjob")
         proxy = LazyJobFunction(descriptor)

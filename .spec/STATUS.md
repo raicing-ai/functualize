@@ -1003,17 +1003,26 @@ two boot aliases `TESTS_ONLY` (read by the inspection test) and the
 dynamically registered `parameterized` test middleware `NEW_DEAD`; the run
 assertion proves it executes. Advisory findings, not unconnected production
 code.
-### Lazy job imports serialise on sys.path, process-wide (2026-10-14, `fix/lazy-import-sys-path-race`)
+### Lazy job imports serialise on sys.path, process-wide (corrected 2026-10-15)
 
 **The decision worth keeping.** The lazy wrapper's insert → import → remove
 region on `sys.path` is guarded by one module-level re-entrant lock in
 `_discovery/lazy_wrapper.py` (`_IMPORT_LOCK`). Two jobs of one module are
-two `LazyJobFunction` proxies with two per-instance locks, so only a
-process-wide guard can stop a warm-cache `invoke.parallel` batch from
+two `LazyJobFunction` proxies, so only a process-wide guard can stop a
+warm-cache `invoke.parallel` batch from
 reading a half-initialized module (CPython publishes it to `sys.modules`
 before its body runs) or importing against a directory another thread just
 removed. Failure mode filed three times; the deterministic reproduction
-paces the two threads with marker files and fails on master.
+paces the two threads with marker files and fails on the pre-guard code.
+
+The initial guard was nested inside each proxy's separate mutex. Importing
+module code could materialize another proxy while a second thread held that
+proxy mutex and waited for the import mutex: a cross-thread lock-order cycle.
+The correction uses `_IMPORT_LOCK` as the sole first-materialization guard,
+including publication of the resolved callable and config class. An already
+materialized proxy keeps its lock-free fast path. The nested-import test runs
+in a timed child process, so the former deadlock fails without hanging the
+test runner.
 
 **Rules that outlive the feature:**
 
@@ -1027,9 +1036,12 @@ paces the two threads with marker files and fails on master.
   (proxies are per-descriptor, and the entry-point provider calls
   `_import_real_function` with no proxy at all). A guard narrower than
   its resource is the bug, not the design.
-- **The synthetic-source branch stays outside the lock.**
-  `<entry_point>`/`<dynamic>` descriptors never touch `sys.path`; keep
-  their loads parallel.
+- **The synthetic-source helper branch does not edit `sys.path`.**
+  `<entry_point>`/`<dynamic>` direct helper calls remain outside the mutex;
+  first publication through a lazy proxy is serialized by the common guard.
+- **One acquisition order.** Every proxy takes the import mutex before its
+  first import. No second proxy mutex exists, so imported module code can
+  materialize another proxy on the same thread without a cross-thread cycle.
 - **Adjacent same-shape regions are not covered.** `_discovery/registry.py`
   and `_discovery/sync.py` insert/remove on the cold scan path, where no
   engine worker threads exist. If either ever becomes reachable
