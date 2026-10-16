@@ -29,7 +29,7 @@ Write nowhere else.
 
 ## Wave 0
 
-- [ ] **1.1** NFKC first in the naming policy
+- [x] **1.1** NFKC first in the naming policy
   - *Inputs:* B1, B3; `contracts.md` § *Public API surface*.
   - *Files:* `src/functualize/_types/naming.py`, `tests/discovery/test_naming.py`.
   - *Change:*
@@ -49,8 +49,9 @@ Write nowhere else.
     - `normalize_segment("job_aaǆ") == "job-aadž"`; `normalize_segment("ǆ_ops") == "dž-ops"`.
     - **Stability sweep (AC1, E2):** keep a frozen private copy of the pre-change
       loop inside the test module. For every code point `c` with
-      `("a" + c).isidentifier()` and `NFKC(c) == c`, assert the new result on
-      `"a" + c + "_b"` equals the frozen one.
+      `("a" + c).isidentifier()` and `NFKC("a" + c + "_b") == "a" + c + "_b"`,
+      assert the new result on `"a" + c + "_b"` equals the frozen one.
+      Separately assert that U+0301 composes with the preceding `a`.
     - **Idempotence:** `normalize_segment(normalize_segment(x)) == normalize_segment(x)`
       over all identifier-continue `c` in `"a" + c`.
     - **AC2:** `normalize_name("ｄｅｐｌｏｙ．ｗｅｂ") == "deploy.web"` and
@@ -67,6 +68,18 @@ Write nowhere else.
     (`_engine/executor.py:776-818`). That is proven end to end in 2.3. Here,
     delete the `_nfkc(...)` wrap and watch the new cases go red.
   - *Evidence:* red and green logs, the sabotage run, and `git diff --stat`.
+    Red: `/tmp/functualize-t11-red.log` (4 failed, 19 passed). Green:
+    `/tmp/functualize-t11-fastpath.log` (23 passed); step tier:
+    `/tmp/functualize-t11-step.log` (140 passed, 58 skipped). After committing,
+    replacing `_nfkc` with the identity function made the four new behavior
+    cases fail in `/tmp/functualize-t11-sabotage.log`; the committed function
+    was restored. Production reaches the policy through
+    `ExecutionEngine.get_job` → `resolve_name` → `_canonical` →
+    `normalize_segment`; wave 1's integration task proves that path end to end.
+    The five-name benchmark's median over three rounds of 500,000 calls was
+    1.423 s before and 1.298 s after the ASCII fast path. The task diff covered
+    this file, `src/functualize/_types/naming.py`, and
+    `tests/discovery/test_naming.py`.
 
 ## Wave 1
 
