@@ -4,7 +4,7 @@ The current phase is Plan. These tasks are unchecked until the maintainer review
 
 ## Wave 0 — refresh and identity
 
-- [ ] **T0.1 — Refresh the branch against current master.** Files: the confirmed `.spec/features/scoped-vault-v3/spec.md` and `contracts.md` plus any paths Git reports as conflicts. Preserve their approved behavior; do not import unrelated implementation into this feature. Acceptance: the branch contains current `origin/master`, its diff still describes the confirmed contract, and `git diff --check` passes.
+- [x] **T0.1 — Refresh the branch against current master.** Files: the confirmed `.spec/features/scoped-vault-v3/spec.md` and `contracts.md` plus any paths Git reports as conflicts. Preserve their approved behavior; do not import unrelated implementation into this feature. Acceptance: the branch contains current `origin/master`, its diff still describes the confirmed contract, and `git diff --check` passes.
 - [ ] **T0.2 — Encode the full identity and lookup candidates.** Files: `src/functualize/_primitives/vault_identity.py`, `tests/config/test_vault_identity.py`. Acceptance: shared keys retain byte-for-byte v2 encoding; environment keys are distinct and case-folded; group candidates are active environment then shared, nearest address first within each; job candidates are exact; malformed keys refuse. Production path: booted `VaultSource.get` and public vault operations consume this type. This is a foundation task; it remains transitional until those consumers are wired in later waves.
 
 ## Wave 1 — declaration and run resolution
