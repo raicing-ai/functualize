@@ -813,6 +813,32 @@ longer part of this task: the relational writer's own record already rewrote it 
 `_run_sql.py`'s `require_transition(ATTEMPT, …)` calls. §1.2's lower-casing note gains the
 `RunState` pointer.
 
+### Skill router — specified, not implemented
+
+Phase 4 of the decision-layer experiment. The package is
+`.spec/features/skill-router/` on `sdd/skill-router`: `spec.md` (behaviour and
+the scope guard), `contracts.md` (C-1…C-11, including the catalog declaration
+and the selection result), `plan.md` (alignment to the approved shape page,
+BEFORE/AFTER, surviving smells) and `tasks.md` — 16 atomized tasks in 12
+binding waves — with `research.md` carrying the measured reality. Scope after
+the approved shape page: everything is contributor tooling —
+`tests/skill_router_eval/` holds the instrument and `evals/` the downstream
+arms, no shipped file and no `examples/` change — and the selection proposes
+exactly one of `functualize`, `functualize-app`, `functualize-cli`,
+`functualize-skill` or `none`, one `ChoiceRequest` through the unchanged seam.
+Nothing in `src/` has changed. Execute is not yet authorised: wave 0 waits on
+the maintainer's P-1 (downstream task list), P-2 (verdict constants) and S-1
+(Duplicate Code instead of editing Phase 3). The implementation lands on the
+same branch and pull request; the spec artifacts are cleared in that branch's
+last commit (T16), when the delivered state is recorded under its own entry.
+
+The package review at `d34b70d3` required four repairs. The revised package
+unwraps the native provider's `output` and pins its three-turn call config,
+prices native USD from the provider's reported cost, locks the selection rule
+and measuring code along with the corpus, and records the Plan retrieval over
+the reviewed commit. These are specification repairs only; P-1, P-2 and S-1
+remain open for the maintainer, and Execute remains unauthorised.
+
 ## Deferred
 
 Specified work that is not being picked up yet, and what it is waiting on.
