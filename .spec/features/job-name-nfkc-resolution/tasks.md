@@ -289,6 +289,27 @@ Write nowhere else.
     script remains runnable by hand. No production source or deterministic
     assertion changed.
 
+- [x] **2.5** Resolve B2 names on info and workflow listing surfaces
+  - *Inputs:* B2; post-review verification of the builtin info and MCP workflow filters.
+  - *Depends on:* 1.1, 2.3.
+  - *Files:* `src/functualize/_cli/info.py`, `src/functualize/app/_workflow_view.py`,
+    `tests/cli/test_info_subcommands.py`, `tests/plugins/test_mcp_workflow_tools.py`.
+  - *Change:* resolve the info job against registered names through the public
+    `app.utils.resolve_name`; compare stored and requested workflow names through
+    `normalize_name`. Keep one identity policy and no alias table.
+  - *Gate:* run both new regressions through the real CLI and real MCP provider,
+    then the focused naming, discovery, and config tests.
+  - *Red evidence:* the two new parameterized regressions produced 4 failed,
+    2 passed on `b218f2f6`; the written info spelling returned exit 2 and
+    opposite workflow filter spellings returned zero rows.
+  - *Reachability:* `func builtin info jobs` → `job_detail` → `resolve_name`;
+    `WorkflowToolProvider._list_workflows` → `list_scopes` → `normalize_name`.
+  - *Green evidence:* the new cases and focused naming, discovery, config,
+    CLI, and MCP suite recorded 1,802 passed, 191 skipped. Ruff check,
+    format check, mypy (395 files), and all seven import contracts passed.
+    After committing, bypassing both naming-policy calls made the new
+    regressions fail (4 failed, 2 passed); committed source was restored.
+
 ## Wave 2
 
 - [x] **3.1** Docs, changelog, codemap
@@ -366,7 +387,7 @@ Write nowhere else.
 {
   "waves": [
     {"id": 0, "tasks": ["1.1"]},
-    {"id": 1, "tasks": ["2.1", "2.2", "2.3", "2.4"]},
+    {"id": 1, "tasks": ["2.1", "2.2", "2.3", "2.4", "2.5"]},
     {"id": 2, "tasks": ["3.1"]},
     {"id": 3, "tasks": ["3.2"]}
   ]
