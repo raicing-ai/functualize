@@ -202,6 +202,9 @@ class VaultSource:
     @staticmethod
     def _remove_flags(identity: VaultIdentity) -> str:
         """What follows ``vault remove`` for this entry: its scoped flags."""
+        if identity.scope == "job" and "." in identity.target:
+            group, job = identity.target.rsplit(".", 1)
+            return f"--group {group} --job {job} --field {identity.field}"
         flag = "--group" if identity.scope == "group" else "--job"
         return f"{flag} {identity.target} --field {identity.field}"
 
