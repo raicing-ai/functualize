@@ -221,7 +221,7 @@ The hit set of the retrieval above, and nothing else:
 | `src/functualize/_config/sources.py` | 2.2 | `_section_data` `:650-685`, `reject_inline_provider` `:687-712` |
 | `tests/config/test_config_section_spelling.py` | 2.2 | existing spelling tests, extended |
 | `tests/integration/test_nfkc_job_names.py` (new) | 2.3 | E1, E3: invoke, parallel, CLI, deps, group, collision |
-| `tests/discovery/test_naming_cost.py` (new) | 2.4 | AC10 counter gate and slow ratio |
+| `tests/discovery/test_naming_cost.py` (new) | 2.4 | AC10 counter and identity gates, report-only timing |
 | `tests/perf/bench_naming.py` (new, script) | 2.4 | AC10 harness, the evidence line |
 | `docs/guides/jobs-discovery.md` | 3.1 | user-facing naming rule, `:30-62` |
 | `CHANGELOG.md` | 3.1 | D2 note |
@@ -246,15 +246,18 @@ trusting this table.
   `build-wheel` when no exact or swapped key exists. The shape asks for config
   to "go through the shared naming rule", and this is that rule. Pinned by
   AC7's "existing cases still pass".
-- **R4: the AC10 ratio is a timing measurement.** The repository has already
-  replaced one wall-clock ratio with a deterministic count:
+- **R4: timing is supporting evidence, not an acceptance threshold.** The
+  repository already replaced one wall-clock ratio with a deterministic count:
   `tests/primitives/test_scope_state_store.py:222-232` measured "the
-  scheduler, not the store" under host load. So the counter gate is AC10's
-  enforcing half. The ratio is limited to ASCII input, runs PRE and POST
-  interleaved in one process, takes the minimum of 15 rounds per side, is a
-  ratio rather than an absolute, and is `slow`-marked so only the tip tier
-  runs it. The measured margin is 1.05–1.06× against a 1.25× bound. If it ever
-  flakes, demote it to report-only; do not widen the bound.
+  scheduler, not the store" under host load. The first cost test nevertheless
+  gated an ASCII ratio at 1.25×. On the same production bytes, the 3.11 CI
+  runner measured 1.450× (`deploy-web`, 4141.3 → 6004.9 ns/call) and 1.253×
+  (`myJobName`, 5060.3 → 6338.6 ns/call), whereas same-process contabo runs
+  measured 1.017–1.068×. The bound is demoted to report-only as planned:
+  the slow test calls `tests/perf/bench_naming.py` and warns with the measured
+  ratios, making them visible in CI without a timing verdict. The script keeps
+  the reproducible standalone measurement; the deterministic call counter and
+  object-identity checks enforce B10/AC10.
 - **R5: AC7's ambiguity fixture has been wrong twice.** `[Job_AAǆ]` is
   `job-a-adž`, which never collides. `[job_aadž]` is reached by step 2's
   swap, so it never reaches step 4. Task 2.2 now names the pair that does
