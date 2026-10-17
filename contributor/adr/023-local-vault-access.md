@@ -16,6 +16,15 @@ the exact active-environment entry and needs no vault key. A grouped job is
 spelled `--group deploy --job web`, never `--job deploy.web`. The earlier
 exactly-one-target and three-part-key wording below is historical.
 
+The canonical subject-operation check is a joint release gate with class
+discovery. Once a canonical subject operation is available, its secret-marked
+subject field must pass through the booted
+`ResolutionChain.resolve(field, subject_address, scope="group")` path. The
+check must exercise an active-environment ancestor, then shared fallback, and
+show a wrong key stops resolution. Vault-side address lookup is covered before
+that operation exists; the prerequisite that lands second owns this joint
+check before release.
+
 **Amended 2026-10-04 — scoped identities.** Presence is checked for the
 encoded `(scope, target, field)` identity. Group and job entries with the
 same target and field remain distinct. `put`, `inspect`, and `remove` use
