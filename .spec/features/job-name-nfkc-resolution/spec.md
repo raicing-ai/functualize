@@ -75,6 +75,10 @@ way. If step 4 finds more than one distinct key, lookup raises
 one. Because step 4 uses the shared rule, `[Build_Wheel]` now also configures
 `build-wheel`, the same way `func Build_Wheel` already runs it.
 
+That precedence selects values only. The secret-field guard inspects every
+equivalent section in each parsed file, including a legacy or NFKC spelling
+shadowed by an exact table, and rejects inline provider syntax found there.
+
 **B8. Environment-variable keys are excluded, and the docs say so** (D1). The
 variable name stays derived from the registered (rewritten) name:
 `JOB_AADŽ_FIELD`, not `JOB_AAǄ_FIELD`. `EnvSource` and `env_name_for` do not
@@ -112,7 +116,7 @@ name and their expected red/green states are in `tasks.md`.
 | AC4 | B2: `@job(deps=Deps("job_aaǆ"))` resolves in the job graph, and `func ǆ_ops run-it` runs the job grouped under `JOB_GROUP = "ǆ_ops"` | E1 |
 | AC5 | B5: the `ǆ_ops`/`dž_ops` pair produces a job-name-collision discovery finding | E3 |
 | AC6 | B6: `CACHE_VERSION == 22`; a v21 cache holding `ǆ-ops.run-it` is rebuilt, and the job is listed as `dž-ops.run-it` | E4 |
-| AC7 | B7: `[job_aaǆ]` supplies a config value to `job-aadž`; a secret field written there with inline provider syntax is refused; two non-exact keys normalising to one section raise `ConfigurationError`; every existing case in `tests/config/test_config_section_spelling.py` and `test_dotted_config_sections.py` still passes | — |
+| AC7 | B7: `[job_aaǆ]` supplies a config value to `job-aadž`; inline provider syntax is refused even in an exact, legacy, or NFKC table shadowed by the selected section; two non-exact keys normalising to one section raise `ConfigurationError`; every existing case in `tests/config/test_config_section_spelling.py` and `test_dotted_config_sections.py` still passes | — |
 | AC8 | B8: `env_name_for("job-aadž", "field") == "JOB_AADŽ_FIELD"`, unchanged; `docs/guides/jobs-discovery.md` states the exclusion | — |
 | AC10 | B10: exact `unicodedata.normalize` call counts (0 for ASCII; `[n non-ASCII] + non-ASCII segments of NFKC(n)` for `normalize_name`; 0 for `resolve_name` over ASCII names), identity for stable input, and a committed µs/call harness (`tests/perf/bench_naming.py`) whose same-process ASCII ratios appear in the slow test's report without a time bound | — |
 | AC9 | All five repository checks pass: `ruff check`, `ruff format --check`, `mypy src/`, `lint-imports`, `pytest` (fast tier locally, tip tier dispatched) | — |

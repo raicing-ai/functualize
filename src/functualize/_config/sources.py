@@ -16,6 +16,7 @@ import concurrent.futures
 import os
 import re
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
@@ -578,6 +579,32 @@ def _find_section(config: dict[str, Any], section: str) -> dict[str, Any] | None
     return find_level(config, section)
 
 
+def _matching_sections(
+    config: dict[str, Any], section: str
+) -> Iterator[dict[str, Any]]:
+    """Visit every equivalent table so a shadowed secret cannot escape validation."""
+    canonical = normalize_name(section)
+    assert canonical is not None
+
+    for spelling, data in config.items():
+        if isinstance(data, dict) and normalize_name(spelling) == canonical:
+            yield data
+
+    parts = canonical.split(".")
+    if len(parts) == 1:
+        return
+
+    tables = [config]
+    for part in parts:
+        tables = [
+            value
+            for table in tables
+            for spelling, value in table.items()
+            if isinstance(value, dict) and normalize_name(spelling) == part
+        ]
+    yield from tables
+
+
 class FileSource:
     """Discovers, parses, and deep-merges configuration files.
 
@@ -721,18 +748,16 @@ class FileSource:
         from functualize._config.annotations import scan_annotations
 
         for path, config in self._per_file_configs:
-            data = _find_section(config, section)
-            if data is None:
-                continue
-            value = data.get(key)
-            if isinstance(value, str) and scan_annotations(
-                {key: value}, self._remote_providers
-            ):
-                raise ValueError(
-                    f"{path}: secret field {section}.{key} uses legacy inline "
-                    "provider syntax; move it to [[vault_secret]] with group "
-                    "or job, field, and source"
-                )
+            for data in _matching_sections(config, section):
+                value = data.get(key)
+                if isinstance(value, str) and scan_annotations(
+                    {key: value}, self._remote_providers
+                ):
+                    raise ValueError(
+                        f"{path}: secret field {section}.{key} uses legacy inline "
+                        "provider syntax; move it to [[vault_secret]] with group "
+                        "or job, field, and source"
+                    )
 
     def get(
         self,

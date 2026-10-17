@@ -35,9 +35,7 @@ counts calls; it does not set a time budget.
 
 ## Config-file sections — `FileSource` (`_config/sources.py`)
 
-`_section_data(section)` (`:650-685`) and `reject_inline_provider(section, key)`
-(`:687-712`) stop carrying separate copies of the spelling list. They share one
-private lookup with the order in `spec.md` B7:
+`_section_data(section)` uses the ordered private lookup in `spec.md` B7:
 
 1. exact;
 2. `-`↔`_` swaps;
@@ -48,8 +46,11 @@ private lookup with the order in `spec.md` B7:
 - More than one distinct key at step 4 raises
   `functualize._config.errors.ConfigurationError` (existing type,
   `_config/errors.py:14`). The message names the section and the sorted keys.
-- `reject_inline_provider` keeps raising `ValueError` for an inline provider;
-  only the set of spellings it inspects grows.
+- `reject_inline_provider` applies the same normalization rule to **every**
+  equivalent flat or dotted table in each parsed file. Value lookup precedence
+  does not suppress validation of a shadowed table. It keeps raising
+  `ValueError` for an inline provider; only the set of spellings it inspects
+  grows.
 
 ## Environment variables — unchanged by design
 

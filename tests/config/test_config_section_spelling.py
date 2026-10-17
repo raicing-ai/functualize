@@ -35,6 +35,38 @@ def test_written_section_rejects_inline_secret_provider(tmp_path: Path) -> None:
         source.reject_inline_provider("job-aadž", "token")
 
 
+@pytest.mark.parametrize(
+    ("section", "document"),
+    [
+        (
+            "env-cfg",
+            '[env-cfg]\ntoken = "safe"\n[env_cfg]\ntoken = "aws-sm://secret"\n',
+        ),
+        (
+            "job-aadž",
+            '["job-aadž"]\ntoken = "safe"\n["job_aadž"]\ntoken = "safe"\n'
+            '["job_aaǆ"]\ntoken = "aws-sm://secret"\n',
+        ),
+        (
+            "job-aadž",
+            '["job_aadž"]\ntoken = "safe"\n["job_aaǆ"]\ntoken = "aws-sm://secret"\n',
+        ),
+        (
+            "group.job-aadž",
+            '["group"."job-aadž"]\ntoken = "safe"\n'
+            '["group"."job_aaǆ"]\ntoken = "aws-sm://secret"\n',
+        ),
+    ],
+)
+def test_shadowed_inline_provider_is_rejected(
+    tmp_path: Path, section: str, document: str
+) -> None:
+    source = _source(tmp_path, document)
+    assert source.get("token", section=section) == "safe"
+    with pytest.raises(ValueError, match="legacy inline provider syntax"):
+        source.reject_inline_provider(section, "token")
+
+
 def test_normalized_collision_names_both_keys(tmp_path: Path) -> None:
     source = _source(tmp_path, '["job-aaǆ"]\nx = 1\n["job_aaǆ"]\nx = 2\n')
     with pytest.raises(ConfigurationError) as error:

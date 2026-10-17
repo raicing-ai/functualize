@@ -123,8 +123,10 @@ Write nowhere else.
     - Extract a private `_find_section(config, section)` with steps 1–3
       verbatim, then step 4: the unique key whose `normalize_name` equals
       `normalize_name(section)`, at top level and per level of a dotted walk.
-    - `_section_data` and `reject_inline_provider` both call it, and the
-      duplicated spelling tuple (`:695`) goes away.
+    - `_section_data` uses the ordered lookup. `reject_inline_provider` uses
+      the same `normalize_name` policy but scans every equivalent flat or
+      dotted table per file, even when value lookup selects an earlier table.
+      The duplicated spelling tuple (`:695`) goes away.
     - Several distinct step-4 matches raise `ConfigurationError` naming the
       section and the sorted keys.
   - *Must not touch:* `EnvSource`, `env_name_for`, `group_env_name_for`,
@@ -133,6 +135,8 @@ Write nowhere else.
     - `[job_aaǆ] x = 1` supplies `x` for section `job-aadž`;
     - a secret field there with legacy inline provider syntax raises the
       existing `ValueError`;
+    - exact, legacy and NFKC tables can coexist; a provider URI in a
+      shadowed table still raises `ValueError`, including for a dotted table;
     - `[job-aaǆ]` plus `[job_aaǆ]` for section `job-aadž` raises
       `ConfigurationError` naming both keys. Neither key is reached by steps
       1–3, and both normalise to `job-aadž`;
@@ -150,15 +154,27 @@ Write nowhere else.
     - `env_name_for("job-aadž", "field") == "JOB_AADŽ_FIELD"`.
   - *Gate:* `uv run pytest -q --no-header tests/config/test_config_section_spelling.py tests/config/test_dotted_config_sections.py tests/config/test_env_name_rule_parity.py > /tmp/functualize-t22.log 2>&1`.
   - *Reachability:* `FileSource.get` → `_section_data` → `_find_section`
-    (`_config/sources.py:723`). Remove step 4 and watch the `[job_aaǆ]` case
-    go red.
+    for values; `JobConfigView.reject_inline_provider` →
+    `FileSource.reject_inline_provider` → `_matching_sections` for secret
+    validation. Remove the NFKC match and watch the `[job_aaǆ]` case go red;
+    select only the first match and watch shadowed-provider cases go red.
   - *Evidence:* Valid TOML quotes the non-ASCII table key (`["job_aaǆ"]`);
     the first red run exposed that syntax requirement. With valid TOML,
     `/tmp/functualize-t22-red2.log` recorded 4 failed and 46 passed. The final
     gate `/tmp/functualize-t22-green2.log` recorded 51 passed. After committing,
     disabling the normalized fallback made four new behavior tests fail in
     `/tmp/functualize-t22-sabotage.log`; the committed source was restored.
-    `FileSource.get` and `reject_inline_provider` both reach `_find_section`.
+    The initial implementation used `_find_section` in both paths.
+  - *Review correction (2026-10-17):* the first-match lookup suppressed a
+    legacy provider URI in a shadowed spelling. With valid TOML, four new
+    coexistence cases failed (`4 failed, 7 passed`) before the repair and the
+    focused config/integration selection passed afterward (`63 passed`).
+    `_matching_sections` now scans all equivalent tables per parsed file while
+    `_find_section` retains value precedence. The broader config, integration
+    and spec selection passed (`1198 passed, 122 skipped`). After committing,
+    restoring the first-match guard made all four new cases fail (`4 failed,
+    7 deselected`); the committed source was restored. Ruff check/format,
+    mypy and all seven import contracts passed.
 
 - [x] **2.3** End-to-end surfaces (test-only)
   - *Inputs:* B2, B4, B5; AC3, AC4, AC5.
