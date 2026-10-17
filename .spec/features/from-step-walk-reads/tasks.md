@@ -115,7 +115,7 @@ fingerprint fallthrough for `FromJob` kept.
 - Call path: `JobExecutionEngine.execute` → (`:1456`) `inject_from_step`.
   Sabotage: remove the call; AC2 and AC3 go red.
 
-## Wave 5 — the tool surfaces (disjoint files)
+## Wave 5 — the tool surfaces (5.2 precedes 5.3)
 
 - [ ] **5.1 Core gate-tool path**
 
@@ -125,22 +125,40 @@ Delete `_resolve_bound` (`app/_workflow_control.py:836-870`); `_bound_values`
 - Files: `src/functualize/app/_workflow_control.py`
 - Gate: `rg -c "def _resolve_bound" src/functualize/app/_workflow_control.py`
   → 0; the core `call_gate_tool` tests green
-  (`uv run pytest tests -q -k "gate_tool or call_gate_tool"`).
+  (`uv run pytest tests/workflow/test_workflow_control.py -q`).
 
-- [ ] **5.2 MCP gate-tool path**
+- [ ] **5.2 MCP resolver test migration**
 
-Delete `WorkflowToolProvider._resolve_bound`
-(`functualize_mcp/_workflow_tools.py:439-473`); `_bound_values` (`:508`)
-calls `resolve_bound_values`. Update the four test call sites that used
+Update the four test call sites that used
 `tools._resolve_bound` to call `resolve_bound_values` directly, and change
 the two `None` pins to assert the §3 failure (spec *Deliberate behaviour
 changes*); add a binding naming an earlier gate (AC8, D1).
 
-- Files: `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py`, `tests/plugins/test_gate_tool_narrowing.py`, `tests/integration/test_part_i_remaining_cells.py`
-- Gate: `rg -n "_resolve_bound" src plugins tests` → 0 hits (8 today);
-  `uv run pytest tests/plugins/test_gate_tool_narrowing.py tests/integration/test_part_i_remaining_cells.py -q` green.
-- Call path: MCP `_call_gate_tool` → `_bound_values` → `resolve_bound_values`.
-  Sabotage: return `dict(bound)` instead; `test_the_marker_is_replaced_not_passed_through` goes red.
+- Files: `tests/plugins/test_gate_tool_narrowing.py`, `tests/integration/test_part_i_remaining_cells.py`
+- Gate: `uv run pytest tests/plugins/test_gate_tool_narrowing.py tests/integration/test_part_i_remaining_cells.py -q` green; the four test calls use `resolve_bound_values` and no test calls `tools._resolve_bound`.
+- Dependency: 5.3 deletes the old plugin resolver only after these tests
+  exercise the shared reader.
+
+- [ ] **5.3 Fold the unused MCP declaration lookup into the live core path**
+
+Before deletion, add tests in `tests/plugins/test_gate_tool_narrowing.py` that
+invoke both the MCP `_call_gate_tool` and core `call_gate_tool` on the same
+fixture. Pin the successful bound-value result and the exact error envelopes
+for a missing scope and a forced declaration-load exception, including
+`tool_unresolvable`'s `error` and `message`. Run these tests green before
+editing plugin source. Then delete the plugin's unused `_bound_values`
+(`_workflow_tools.py:475-515`), its now-unused `cast` import, and the plugin's
+`_resolve_bound` (`:439-473`). Keep `_call_gate_tool`'s delegation to core
+`call_gate_tool` (`:423-427`). Core `_bound_values` remains the sole declaration
+lookup and keeps its `({}, None)` no-match return. Do not add a `PluginHost`
+member: the live plugin path never accesses `execution_engine`.
+
+- Files: `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py`, `tests/plugins/test_gate_tool_narrowing.py`
+- Gate: `rg -n '_resolve_bound|_bound_values|cast\("Any", self\._app\)' plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py` → 0 hits (four now: two definitions, one call, one cast); `rg -n 'def _bound_values' src/functualize/app/_workflow_control.py` → one hit; `uv run pytest tests/plugins/test_gate_tool_narrowing.py tests/integration/test_part_i_remaining_cells.py -q` green, including the pre-deletion parity tests; `uv run pytest tests/spec/test_the_plugin_host_cannot_be_bypassed.py -q` green.
+- Call path: MCP `_call_gate_tool` → core `call_gate_tool` → core
+  `_bound_values` → `resolve_bound_values`. Sabotage the core
+  `_bound_values` call in `call_gate_tool` after committing and verify the
+  parity test fails, then restore it.
 
 ## Wave 6 — witnesses
 
@@ -201,7 +219,7 @@ the deletion-only clearing commit follows on a second push.
     {"id": 2, "tasks": ["1.2"]},
     {"id": 3, "tasks": ["3.1", "3.2"]},
     {"id": 4, "tasks": ["4.1"]},
-    {"id": 5, "tasks": ["5.1", "5.2"]},
+    {"id": 5, "tasks": ["5.1", "5.2", "5.3"]},
     {"id": 6, "tasks": ["6.1"]},
     {"id": 7, "tasks": ["7.1"]},
     {"id": 8, "tasks": ["8.1"]}

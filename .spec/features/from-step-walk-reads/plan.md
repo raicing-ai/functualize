@@ -7,7 +7,7 @@ Base: `master` at `c03dfb72`. Spec: `spec.md` (confirmed by the maintainer,
 
 Shape: *Shape Intent — FromStep Resolution Across a Walk (one rule
 everywhere: step, gate, epilogue)*, Confluence SD page 16777218, **version 3,
-`Authority: Approved`**, read live 2026-10-13.
+`Authority: Approved`**, re-read live 2026-10-17.
 
 In scope, in the shape's own words (its *Candidate models*, option (i), chosen):
 
@@ -47,7 +47,7 @@ the issue); verification reads this table, not the page's steps 5–6.
 | 3a surface | serena `get_symbols_overview` / `find_referencing_symbols` on `FromStep` | 14 referencing files; two `_resolve_bound` bodies; `ChoiceDecision.state` (`_types/decision.py:166`) is a `FromStep` holder this feature must not validate |
 | 3a direction | graphify `get_neighbors` on `FromStep`, `_validate_workflow_from_job_refs()` (graph 60 commits behind HEAD — used for shape only) | `FromStep` ← `app/_workflow_control.py`, `workflow/__init__.py`, MCP `WorkflowToolProvider`; validation → `from_job_refs`, `descendants` |
 | 3a codemaps | `contributor/architecture/codemaps/{overview,modules,dependencies}.md` | `_engine/` is a peer layer; `JobExecutionEngine` is the execution entry (`entry-points.md:87`) |
-| 3b blast radius | serena refs + `rg` | below, per task |
+| 3b blast radius | serena refs + `rg` | below, per task; `rg -n 'self\._bound_values\(|_bound_values\(' src/functualize/app/_workflow_control.py plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py tests` finds only core's call/definition and the plugin definition — no plugin call (2026-10-17) |
 | probes | `research.md` | gate answer stored as `steps['<gate>::']`; duplicate names refused; invoked children run outside the walk (`workflow_scope_id` reset by `nested_request`, `_engine/capabilities/invoke.py:855-866`) |
 
 ## Skills consulted
@@ -87,6 +87,7 @@ the issue); verification reads this table, not the page's steps 5–6.
  PLUGIN functualize-mcp                                                   │
    _workflow_tools.py  WorkflowToolProvider._resolve_bound ────────────────┘
         copy #2, byte-for-byte the same body
+   _call_gate_tool ─► core call_gate_tool; local _bound_values has no caller
 ```
 
 Smells the BEFORE carries:
@@ -104,6 +105,10 @@ Smells the BEFORE carries:
 - **Large Class** — `JobExecutionEngine`, `executor.py` 2 813 lines. Growing it
   further is a *Forbidden Pattern* (god-object growth), so the AFTER must not
   add the new injection there.
+- **Dead Code** — the plugin's `_bound_values` repeats core's declaration
+  lookup but has no caller (`rg` hit set in *Retrieval performed*). Its
+  `cast("Any", self._app).execution_engine` is the only apparent plugin need
+  for the engine, not a live dependency.
 
 ## Candidate AFTERs considered
 
@@ -114,9 +119,10 @@ Smells the BEFORE carries:
 2. **Route `FromStep` through `_from_job_value`.** Rejected: inherits the
    fingerprint fallthrough (`executor.py:2229-2235`) — R1, and B3 forbids it.
 3. **One pure reader in `_primitives/`, one injection module in `_engine/`,
-   both tool surfaces calling the reader.** Chosen (below). Smells introduced:
-   none new; it removes two of the three copies and puts no logic in the
-   executor beyond a call line.
+   both tool surfaces using core `call_gate_tool`.** Chosen (below). Smells
+   introduced: none new; it removes the duplicate resolver and the dead
+   plugin declaration lookup, and puts no logic in the executor beyond a call
+   line.
 
 ## AFTER
 
@@ -146,7 +152,9 @@ Smells the BEFORE carries:
        + _validate_workflow_from_step_refs: step jobs, the epilogue, gate tool bindings
  ─────────────────────────────────────────────────────────────────────────────────
  PUBLIC app/_workflow_control.py   _resolve_bound deleted → resolve_bound_values(scope["steps"].items(), bound)
- PLUGIN functualize-mcp            _resolve_bound deleted → resolve_bound_values(...)
+ PLUGIN functualize-mcp            _call_gate_tool ─► core call_gate_tool
+                                  _resolve_bound and dead _bound_values deleted
+ _types/host.py                    PluginHost unchanged (no engine access)
 ```
 
 Boundaries crossed, against the seven import-linter contracts:
@@ -195,10 +203,13 @@ Boundaries crossed, against the seven import-linter contracts:
    epilogue, so only B4.1 and B4.5 apply), and every `Tool` binding of every
    `Gate` (ancestors of the gate, excluding the gate). `ChoiceDecision.state`
    is deliberately not checked (non-goal). Module stays < 500 lines.
-6. **Tool surfaces.** Both `_resolve_bound` bodies are deleted; `_bound_values`
-   in each surface calls `resolve_bound_values(scope["steps"].items(), …)`.
-   Their existing `except Exception` already turns the raised error into the
-   `tool_unresolvable` response, whose message carries the §3 text.
+6. **Tool surfaces.** Both `_resolve_bound` bodies are deleted. Core's
+   `_bound_values` calls `resolve_bound_values(scope["steps"].items(), …)`;
+   MCP's `_call_gate_tool` already delegates to core `call_gate_tool`, so its
+   uncalled `_bound_values` is deleted. Core's existing `except Exception`
+   turns a raised error into the `tool_unresolvable` response, whose message
+   carries the §3 text. No `PluginHost` member is needed: the live plugin path
+   never materializes a declaration itself.
 7. **Docs** (B6), last, against the shipped behaviour.
 
 ## Files to change (hit sets of the 3b queries)
@@ -212,8 +223,8 @@ Boundaries crossed, against the seven import-linter contracts:
 | `src/functualize/_engine/walk_reads.py` | new |
 | `src/functualize/_engine/executor.py` | `_inject_from_job` call `:1456`; `_from_job_value` `:2185-2236` |
 | `src/functualize/_engine/workflow_validation.py` | `validate_workflow_declarations` `:184`; ancestor walk `:52-66` |
-| `src/functualize/app/_workflow_control.py` | `_resolve_bound` `:836-870`, caller `:892` |
-| `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py` | `_resolve_bound` `:439-473`, caller `:508` |
+| `src/functualize/app/_workflow_control.py` | `_resolve_bound` `:836-870`, caller `:892`; live `_bound_values` `:872-899` |
+| `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py` | `_resolve_bound` `:439-473`, caller in dead `_bound_values` `:508`; remove both, plus now-unused `cast` import |
 | tests (not gated) | `tests/test_from_job.py`, `tests/primitives/test_walk_reads.py` (new), `tests/engine/test_walk_reads.py` (new), `tests/engine/test_the_walk_on_both_stores.py`, `tests/integration/test_from_step_reads_e2e.py` (new), `tests/integration/test_part_i_remaining_cells.py:285-286`, `tests/plugins/test_gate_tool_narrowing.py:650-675` |
 | docs (not gated) | `docs/guides/workflows.md:437-458,495-511`, `contributor/reference/workflow-walker.md:44-50,89,127`, `skills/functualize/references/workflows.md:58,98`, `skills/functualize/references/idiomatic.md:162-166` |
 
@@ -235,25 +246,24 @@ Boundaries crossed, against the seven import-linter contracts:
 
 ## Surviving smells
 
-1. **Duplicate Code — the MCP plugin's gate-tool call path.**
-   `WorkflowToolProvider._call_gate_tool` / `_bound_values`
-   (`functualize_mcp/_workflow_tools.py`) parallel the core `call_gate_tool` /
-   `_bound_values` (`app/_workflow_control.py`). This plan removes the
-   duplicated *resolver* they share but leaves the two call paths. Why
-   accepted: folding the plugin onto `call_gate_tool` changes the plugin's
-   error envelope and its `PluginHost` boundary — a refactor of its own, not
-   needed to make `FromStep` truthful. **Needs maintainer review:** yes —
-   whether to file it as follow-up work.
+1. **Duplicate Code and Dead Code — resolved by task 5.3.** The plugin's
+   `_call_gate_tool` already calls core `call_gate_tool` (`:423-427`); only
+   its uncalled `_bound_values` duplicates core's live `_bound_values`.
+   `rg -n 'self\._bound_values\(|_bound_values\('` over both source files and
+   tests finds the plugin definition but no plugin call. Delete that method
+   after pinning the core and MCP result/error envelopes. The `PluginHost`
+   port stays narrow and no error shape changes. **Needs maintainer review:**
+   no — the maintainer approved folding S1 in on 2026-10-17.
 2. **Large Class — `JobExecutionEngine` (2 813 lines).** Pre-existing. This
    plan adds no logic to it (one call line and a `try`), and moves the in-walk
    record lookup out, so its line count must not rise (T5 gate). Not
    reduced further here. **Needs maintainer review:** no.
 
 No *Forbidden Pattern* survives: no peer cross-import, no growth of the
-executor, no global state, no new port.
+executor, no global state, no widened port.
 
 ## Waves
 
-See `tasks.md`. Summary: W1 vocabulary (refs helper, error, pure reader) →
-W2 engine (validation; injection + executor) → W3 tool surfaces → W4
-end-to-end and both-stores witnesses → W5 docs.
+See `tasks.md`. Wave 5 removes both resolver copies and the unused MCP
+declaration lookup, after pinning the shared call path's envelopes. The nine
+approved waves remain unchanged.
