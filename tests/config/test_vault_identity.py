@@ -29,6 +29,40 @@ def test_dots_belong_to_the_target_and_round_trip() -> None:
     assert VaultIdentity.decode(original.encode()) == original
 
 
+def test_environment_identity_is_distinct_and_normalized() -> None:
+    shared = VaultIdentity("job", "deploy.web", "token")
+    active = VaultIdentity("job", "deploy.web", "token", " PrOd ")
+
+    assert shared.encode() == '["job","deploy.web","token"]'
+    assert active.encode() == '["job","deploy.web","token","prod"]'
+    assert VaultIdentity.decode(active.encode()) == active
+    assert active != shared
+
+
+def test_group_candidates_try_all_active_ancestors_before_shared() -> None:
+    candidates = VaultIdentity.lookup_candidates(
+        "group", "deploy.web.api", "token", "PROD"
+    )
+
+    assert [(item.target, item.environment) for item in candidates] == [
+        ("deploy.web.api", "prod"),
+        ("deploy.web", "prod"),
+        ("deploy", "prod"),
+        ("deploy.web.api", None),
+        ("deploy.web", None),
+        ("deploy", None),
+    ]
+
+
+def test_job_candidates_stay_exact() -> None:
+    candidates = VaultIdentity.lookup_candidates("job", "deploy.web", "token", "prod")
+
+    assert [(item.target, item.environment) for item in candidates] == [
+        ("deploy.web", "prod"),
+        ("deploy.web", None),
+    ]
+
+
 @pytest.mark.parametrize(
     "key",
     [
@@ -36,7 +70,9 @@ def test_dots_belong_to_the_target_and_round_trip() -> None:
         '["other","deploy","token"]',
         '["group","","token"]',
         '["group","deploy",""]',
-        '["group","deploy","token","extra"]',
+        '["group","deploy","token",""]',
+        '["group","deploy","token",null]',
+        '["group","deploy","token","prod","extra"]',
     ],
 )
 def test_malformed_or_legacy_keys_are_not_guessed_into_a_scope(key: str) -> None:
