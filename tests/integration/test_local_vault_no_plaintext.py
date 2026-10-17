@@ -240,3 +240,7 @@ class TestTheSweep:
         ):
             payload = json.loads(_run(args, app=app).stdout)
             assert _SECRET not in _leaves(payload), args
+            if args[0] == "inspect":
+                assert payload["environment"] == "dev"
+                assert payload["active_environment"] == "dev"
+                assert payload["environment_source"] == "default"
