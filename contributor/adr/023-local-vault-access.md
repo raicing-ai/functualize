@@ -5,6 +5,17 @@
 **Deciders**: maintainer, during the `local-vault-access` Plan phase
 **Amends**: [ADR-016](016-remote-source-activation.md) §7
 
+**Amended 2026-10-17 — candidate presence and exact removal.** A group read
+checks the active environment at its full address and each ancestor, nearest
+first, then repeats that order for shared entries. A job read checks only its
+exact target, active before shared. The first present entry is authoritative:
+if its key is unavailable or wrong, the run refuses and never tries a later
+candidate or plaintext source. A missing entry may fall through. `inspect`
+reports the winning identity without decrypting its value; `remove` addresses
+the exact active-environment entry and needs no vault key. A grouped job is
+spelled `--group deploy --job web`, never `--job deploy.web`. The earlier
+exactly-one-target and three-part-key wording below is historical.
+
 **Amended 2026-10-04 — scoped identities.** Presence is checked for the
 encoded `(scope, target, field)` identity. Group and job entries with the
 same target and field remain distinct. `put`, `inspect`, and `remove` use

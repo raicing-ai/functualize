@@ -19,8 +19,8 @@ The current phase is Plan. These tasks are unchecked until the maintainer review
 
 ## Wave 3 — delivery and documentation
 
-- [ ] **T3.1 — Expose composed flags and redacted environment metadata.** Files: `src/functualize/_cli/vault_cmd.py`, `tests/cli/test_vault_commands.py`. Acceptance: put/inspect/remove accept the three approved target forms; output spells grouped jobs with both flags and names selected/defaulted environment; list and inspect identify exact stored/resolved identities; errors and JSON contain no secret bytes. Production path: `func builtin vault` → public `app.vault` / `app.utils`. Cover both `func` and an app where the command is exposed.
-- [ ] **T3.2 — Update durable and user documentation.** Files: `docs/guides/configuration.md`, `CHANGELOG.md`, `contributor/adr/016-remote-source-activation.md`, `contributor/adr/023-local-vault-access.md`. Acceptance: examples use composed grouped-job flags, explain `base` and active environment, ancestor order and exact removal, preserve offline runs, and remove the unreleased old dotted-job instruction. No plaintext appears in examples.
+- [x] **T3.1 — Expose composed flags and redacted environment metadata.** Files: `src/functualize/_cli/vault_cmd.py`, `tests/cli/test_vault_commands.py`. Acceptance: put/inspect/remove accept the three approved target forms; output spells grouped jobs with both flags and names selected/defaulted environment; list and inspect identify exact stored/resolved identities; errors and JSON contain no secret bytes. Production path: `func builtin vault` → public `app.vault` / `app.utils`. Cover both `func` and an app where the command is exposed.
+- [x] **T3.2 — Update durable and user documentation.** Files: `docs/guides/configuration.md`, `CHANGELOG.md`, `contributor/adr/016-remote-source-activation.md`, `contributor/adr/023-local-vault-access.md`. Acceptance: examples use composed grouped-job flags, explain `base` and active environment, ancestor order and exact removal, preserve offline runs, and remove the unreleased old dotted-job instruction. No plaintext appears in examples.
 
 ## Wave 4 — integration and handoff
 
