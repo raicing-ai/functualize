@@ -88,9 +88,14 @@ is not a public module) and surfaces to users as the run's error text.
 The in-core gate-tool path (`app/_workflow_control.py`) and the MCP adapter
 (`functualize-mcp`, `_workflow_tools.py`) produce **identical** results for the
 same scope and binding: the node's recorded value, or the §3 failure — because
-both call one internal function (`plan.md` names it; the plugin already
-imports `functualize._primitives` and `functualize._types` for this path, so no
-public name is added). The
+the MCP `_call_gate_tool` already delegates to core `call_gate_tool`, which
+calls core `_bound_values`. The plugin's own `_bound_values` has no caller and
+is deleted in task 5.3. `PluginHost` gains no member; in particular it does
+not expose `execution_engine` or `materialize_job`. The core helper keeps its
+existing declaration lookup and `({}, None)` no-match result. Both surfaces
+retain the same `tool_unresolvable` envelope when declaration loading or
+binding resolution raises, including `error` and `message`; the successful
+bound-value result remains identical as well. The
 `None`-for-not-run result pinned at
 `tests/integration/test_part_i_remaining_cells.py:285-286` and
 `tests/plugins/test_gate_tool_narrowing.py:661-669` is replaced by §3
