@@ -1,18 +1,18 @@
 # effecting-step-recovery — specification
 
-**Phase:** Specify. Awaiting member confirmation before Plan.
+**Phase:** Plan. Specify was confirmed on 2026-10-17 (Q-1, Q-2 as recommended). Revisions S-R1 to S-R4, forced by the architecture pass (`plan.md`), are marked *[S-Rn]* and await re-confirmation.
 **Shape:** *Shape Intent — Effecting Steps Across a Crash* (Confluence SD/15007820),
 `Authority: Approved` (v9, 2026-10-13). Decisions of record: D1 = A, D2 = 2a′,
 D3 = 3a, D4 = 4a, D5 = 5a. "The matrix" means the Part I composition matrix.
-**Baseline:** `origin/master` at `c75a476e`. Findings that shaped this file are in
+**Baseline:** `origin/master` at `d1c7e40a` (rebased; the lease-heartbeat change has landed). Findings that shaped this file are in
 `research.md` (R1–R10).
 
 ## Problem
 
 `Step(effecting=True)` promises that a step "must run **exactly once** across a crash
-and a resume" (`_types/workflow.py:131-133`, `_engine/frontier.py:85-88`). Today the
+and a resume" (`_types/workflow.py:131-133`, `_engine/frontier.py:99-107`). Today the
 flag is recorded and never read. `rg -n is_effecting src plugins` returns two lines:
-the definition (`frontier.py:85`) and one write into the step record (`frontier.py:427`).
+the definition (`frontier.py:99`) and one write into the step record (`frontier.py:479`).
 
 A step has no record until its job returns and `complete()` commits. If the process
 dies after the job has caused its effect and before that commit, a resume finds no
@@ -58,8 +58,10 @@ re-run without a decision, and it is exactly-once once that decision is made.*
 
 Before the engine hands control to an effecting step's job, it durably records that
 an attempt has begun: status `attempting`. That record carries the attempt number,
-an attempt key (scope, step key including loop pass, attempt number), the start
-time, the walk's lease generation, and `effecting: true`.
+the start time, and `effecting: true`. The attempt key is derived from the scope,
+the step key (including loop pass) and the attempt number, and is not stored.
+Writes are fenced by the walk's lease generation, which is not stored either.
+*[S-R2]*
 
 Every way the attempt ends replaces `attempting` with that ending, exactly as
 today's records do:
@@ -69,7 +71,7 @@ today's records do:
 | returns | `success` |
 | raises | `failed` (D5 = 5a) |
 | is cancelled | `cancelled` |
-| blocks inside a nested workflow | today's blocked-in-child handling. This is not doubt |
+| ends `BLOCKED` (a guard block, or a nested gate) | `blocked`. This is an ending, not doubt, and a resume re-runs the step as today *[S-R3]* |
 | takes a routed failure (`OnFailure`) | `failed`, then the declared route |
 | is skipped as fresh (fingerprint) | `success` |
 
@@ -90,7 +92,8 @@ The decision follows the **record**, not the current declaration. What the step
 *was* when it started is what counts.
 
 A takeover of an abandoned scope (`reclaim`) whose position holds an `attempting`
-record marks the step `in_doubt`, not `timed_out`. A resume then stops as above.
+record leaves it untouched; it never writes `timed_out` over it. The walk that next
+reaches the step records `in_doubt` and stops as above. *[S-R1]*
 
 ### B3 — The recovery gate
 
@@ -132,10 +135,17 @@ It is **never** answered by:
 
 Ctrl+C or the absence of a TTY leaves it pending (Northstar D-3, Q-8).
 
-### B5 — Loops
+### B5 — One answer per doubt
 
-Doubt, and its answer, are per loop pass. An answer given for pass *n* never
-resolves a doubt on pass *m* ≠ *n*.
+Each doubt is asked and answered once. An answer given for one doubt never resolves
+another:
+
+- a different loop pass: an answer for pass *n* never resolves a doubt on pass *m* ≠ *n*;
+- a later attempt: after `did_not_run`, a second crash in attempt *n+1* asks again
+  and never replays the first answer. *[S-R4]*
+
+The question shown to whoever answers names the step, the attempt, the loop pass
+and the attempt's start time.
 
 ### B6 — Composition (the Part I matrix, E axis)
 
@@ -182,7 +192,7 @@ interval between the attempt committing and the completion committing.
 | AC-2 | `effecting=True`, killed before the attempt commits, then resumed: the step runs once and is never `in_doubt` | 2 / E5 |
 | AC-3 | AC-1, then answer `{"outcome": "ran"}` (with and without `value`): the effect still shows once; the walk completes; downstream ran once; without `value`, a downstream `FromJob` on the step fails loudly | E2 |
 | AC-4 | AC-1, then answer `{"outcome": "did_not_run"}`: the effect shows twice, by explicit choice; the step's record shows attempt 2; the walk completes | E3 |
-| AC-5 | With no crash, each exit in B1 (return, raise, cancel, nested-workflow block, routed failure, fingerprint skip) leaves no `attempting` record, and the recovery gate is never opened | 2 / E6 |
+| AC-5 | With no crash, each exit in B1 (return, raise, cancel, `BLOCKED` ending, routed failure, fingerprint skip) leaves no `attempting` record, and the recovery gate is never opened | 2 / E6 |
 | AC-6 | A scope abandoned with `attempting` at its position, then reclaimed and resumed: the step is `in_doubt`, never `timed_out`, and the job does not run | E7 |
 | AC-7 | `effecting=False`, the same kill: the step re-runs as today; no attempt record is written; a scope with no effecting step is byte-identical in the store to today; that workflow's graph digest equals today's | 4 / E4, E10 |
 | AC-8 | The recovery gate is resolvable by name through status, `answer`, `--wf-resume --wf-input`, and the MCP gate tools; an answer outside the schema is refused and the gate stays open | D2 = 2a′ |
@@ -190,7 +200,7 @@ interval between the attempt committing and the completion committing.
 | AC-10 | A graph with one effecting step digests differently from today's, and the difference is exactly the effecting flag and the recovery gate. A scope parked under the old digest refuses to resume with the existing graph-changed error | E10 |
 | AC-11 | Declaring a node named `<effecting step>-in-doubt` fails at declaration time | B7 |
 | AC-12 | `effecting=True` on a step whose job is a workflow fails boot validation with `WorkflowDeclarationError` | E9 / Risk 8 |
-| AC-13 | In a `Loop`, a doubt on pass 2 is not resolved by an answer recorded for pass 1 | B5 |
+| AC-13 | In a `Loop`, a doubt on pass 2 is not resolved by an answer recorded for pass 1; and after `did_not_run`, a second crash in attempt 2 stops in doubt again instead of replaying the first answer, on both storage backends | B5 *[S-R4]* |
 | AC-14 | A kill while one of the step's `Deps` runs, and a kill inside an `inv()` child, each leave the step `in_doubt` | E9 |
 | AC-15 | `rg -n "exactly once\|exactly-once\|at-most-once\|at most once"` over `_types/workflow.py`, `_engine/frontier.py` and `docs/guides/workflows.md` returns only lines that carry the approved qualified wording | 6 |
 | AC-16 | A watcher subscribed to the walk's events sees the in-doubt stop: `step.end` with the blocked outcome for the step, and the stop's `blocked_on` is the recovery gate | B2 |
@@ -216,7 +226,7 @@ and scope, and `_notify` skips a key the scope has already sent
 (Northstar M-1 (a)) closes this. Until then the stop is visible through status and
 `blocked_reason`.
 
-## Questions for confirmation
+## Questions for confirmation (answered 2026-10-17: both as recommended)
 
 - **Q-1 — the recovery gate's name: `<step>-in-doubt`.** The shape's example was
   `refund.in_doubt`. A `.` is the group separator, so that name would read as a job
