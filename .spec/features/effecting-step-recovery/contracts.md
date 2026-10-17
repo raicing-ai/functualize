@@ -67,6 +67,16 @@ The same gate is answerable through `answer_gate(...)` and the MCP gate tools.
 `decision`, a default, a cancelled prompt, or a timeout. Its only automatic rung is
 reserved for a future reconciler (shape D3) and is not part of this feature.
 
+**The question** (the request's `prompt`, shown by every surface) *[S-R4]*:
+
+```json
+{"step": "refund", "attempt": 1, "iteration": 0, "started_at": "2026-10-17T03:00:00+00:00"}
+```
+
+A request answered for one `(attempt, iteration)` never answers another. A stale
+answered request is archived on the gate's existing `superseded` history, and a
+fresh request is opened.
+
 **Effect of each outcome:**
 
 | `outcome` | Step record afterwards | Walk |
@@ -76,12 +86,13 @@ reserved for a future reconciler (shape D3) and is not part of this feature.
 
 ## C3 — The step record (stored; read by status, API/MCP and auditors)
 
-The `status` vocabulary gains two values. Neither is a terminal success.
+The `status` vocabulary gains three values. None is a terminal success.
 
 | `status` | Meaning | Written when |
 |---|---|---|
 | `attempting` | The job of an effecting step was handed control, and its ending is not yet recorded | immediately before an effecting step's job runs |
-| `in_doubt` | A walk found `attempting` and stopped. Whether the effect happened is unknown | on resume, or on reclaim of an abandoned scope |
+| `in_doubt` | A walk found `attempting` and stopped. Whether the effect happened is unknown | by the walk that next reaches the step, including after a reclaim *[S-R1]* |
+| `blocked` | An effecting step's run ended `BLOCKED` (a guard block or a nested gate). This is not doubt; a resume re-runs the step | when the run returns blocked *[S-R3]* |
 
 Fields carried by an `attempting` record, and kept on the `in_doubt` record that
 replaces it:
@@ -89,10 +100,12 @@ replaces it:
 | Field | Type | Meaning |
 |---|---|---|
 | `effecting` | `true` | what the step was when it started (already written today on completion) |
-| `attempt` | int ≥ 1 | which attempt this is. Starts at 1 and increases on `did_not_run` |
-| `attempt_key` | string | a stable identity built from scope id, step key (including loop pass) and attempt number. Recorded for a future reconciler; not exposed to jobs here |
+| `attempt` | int ≥ 1 | which attempt this is. Starts at 1 and increases on `did_not_run`. Kept on the completion record too |
 | `started_at` | ISO-8601 string | when the attempt was recorded |
-| `generation` | int | the lease generation of the walk that recorded it |
+
+The attempt key is **derived** as `"<scope_id>:<step_key>:<attempt>"`. It is not
+stored, so a future reconciler needs no migration. Lease generation is not stored,
+because every write is already fenced by it. *[S-R2]*
 
 Records of pure steps carry none of these fields. They are unchanged byte-for-byte.
 
