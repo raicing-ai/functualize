@@ -13,7 +13,7 @@ Commit first, because `git checkout -- <file>` reverts everything uncommitted.
 Wave 0 deliberately preserves the red baseline. Wave 1 closes only the
 independent declaration change; its focused pytest gate excludes wave 0's
 projection tests, which remain red until wave 2. Tasks 1.1, 2.1, 3.1 and 4.2
-are one integration wave: the already-written readers remain transitional and
+join 1.3 in one integration wave: the already-written readers remain transitional and
 unchecked until 3.1 supplies the relational production caller and 4.2
 supplies a public caller for the documents port. Run each named task
 gate against the integrated wave 2 code before checking any of those tasks or
@@ -80,9 +80,9 @@ contracts §7, beside each existing empty-name refusal.
 
 ## Wave 2 — integrate the reader, encoding owner and projection
 
-**Status at `38328d83`: integrated, BLOCKED on one premise, no task checked.**
-The four tasks' code is committed. Every gate below is green except one test of
-the deferred 3.1 gate:
+**Status at `11710023`: integrated; ordering A approved; no wave 2 task checked.**
+The four original tasks' code is committed. Every gate below was green except
+one test of the deferred 3.1 gate:
 `test_choices_and_failure_routes_are_separate_and_ordered[documents]`, the
 AC-11 recording-order case on the documents store. The cause is a false plan
 premise, not the projection. `atomic_write_json`
@@ -91,8 +91,11 @@ calls `json.dump(..., sort_keys=True)`, so `scopes.json` stores `branches` in
 key order and recording order is gone before any reader runs. Plan *Approach*
 2 claimed "the JSON object keeps insertion order across a `scopes.json` round
 trip". It does not. SQLite keeps rowid order and passes. Settling contracts
-§2.6/§4.3 against §8.1 (identical bytes) is a design decision, so wave 2 stays
-open and wave 3 has not started.
+§2.6/§4.3 against §8.1 was a design decision. The member chose ordering A in
+comment `01a15671` at `2026-10-19T23:13:37Z`: preserve recording order by
+stopping the shared document writer from sorting keys. Task 1.3 and the
+revised contracts §8.1 and plan *Approach* 2 carry that decision. Wave 2
+remains open until its full gate is green; wave 3 has not started.
 
 Evidence at `38328d83`:
 
@@ -115,6 +118,26 @@ Evidence at `38328d83`:
   - `_describe` emits raw records in place of `recorded_route(...)`: the AC-2,
     AC-4 and walk cases fail on both stores.
   - The `Failure routes:` echo is removed: both CLI text tests fail.
+
+- [ ] **1.3 Documents store writes in recording order**
+
+Remove `sort_keys=True` from `atomic_write_json`. Preserve mapping insertion
+order across document writes so raw workflow branches retain recording order
+and scope retention drops the oldest finished scope. The same payload still
+writes identical bytes on repetition. Existing documents keep their stored
+order; there is no migration or backfill.
+
+- Files: `src/functualize/_primitives/fresh_format.py`,
+  `tests/primitives/test_scope_cap.py`
+- Gate: the new document round-trip, eviction, and repeat-write assertions
+  pass; 0.1's AC-11 passes on documents and sqlite; the deferred 3.1 gate and
+  the step tier pass.
+- Call path: `RecordBranch` → `ScopeStore.record_branch` →
+  `JsonFileSubstrate.write` → `atomic_write_json` → reloaded
+  `_DocumentWorkflowReader.branches` → `describe_scope`. Scope retention uses
+  the same write/read path before `_trim`. After committing, restore
+  `sort_keys=True` once and confirm both ordering and eviction tests fail;
+  then restore the committed implementation.
 
 - [ ] **1.1 `WorkflowReader.branches` on the port and both stores**
 
@@ -280,7 +303,7 @@ on a second push.
   "waves": [
     {"id": 0, "tasks": ["0.1"]},
     {"id": 1, "tasks": ["1.2"]},
-    {"id": 2, "tasks": ["1.1", "2.1", "3.1", "4.2"]},
+    {"id": 2, "tasks": ["1.3", "1.1", "2.1", "3.1", "4.2"]},
     {"id": 3, "tasks": ["2.2", "3.2"]},
     {"id": 4, "tasks": ["4.1"]},
     {"id": 5, "tasks": ["5.1"]}

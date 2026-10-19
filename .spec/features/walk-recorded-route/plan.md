@@ -182,7 +182,10 @@ deprecation shim, and no hard-coded path. Nothing on the list is present.
 2. **Stores.**
    - Documents (`_DocumentWorkflowReader`, `_primitives/document_store.py`,
      beside `branch` at `:342`) returns `dict(scope["branches"])`. The JSON
-     object keeps insertion order across a `scopes.json` round trip.
+     object keeps insertion order across a `scopes.json` round trip once
+     `atomic_write_json` stops sorting members. Member-approved ordering A
+     makes this premise true for newly written records; existing records keep
+     their stored order, with no backfill or schema migration.
    - SQLite (`SqlWorkflowReader`, `_readers.py`, beside `branch` at `:220`)
      runs `SELECT decision_key, chosen_target FROM workflow_branches WHERE
      namespace_id = ? AND scope_id = ? ORDER BY rowid`. The table is a rowid

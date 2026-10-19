@@ -61,6 +61,37 @@ def _write(substrate: JsonFileSubstrate, records: dict[str, str]) -> dict[str, o
 
 
 class TestTheCapBounds:
+    def test_document_round_trip_preserves_recording_order_for_eviction(
+        self, tmp_path: Path
+    ) -> None:
+        substrate = JsonFileSubstrate(tmp_path)
+        policy = RetentionPolicy(max_records=2)
+        first = {"zzz-oldest": "completed", "aaa-newest": "completed"}
+        substrate.write(SCOPES_KEY, stamp_scopes(_envelope(first), policy))
+
+        stored = substrate.read(SCOPES_KEY)
+        assert stored is not None
+        assert list(stored.data["scopes"]) == ["zzz-oldest", "aaa-newest"]
+
+        stored.data["scopes"]["mmm-middle"] = {"status": "completed"}
+        substrate.write(SCOPES_KEY, stamp_scopes(stored.data, policy))
+        reloaded = substrate.read(SCOPES_KEY)
+        assert reloaded is not None
+        assert list(reloaded.data["scopes"]) == ["aaa-newest", "mmm-middle"]
+
+    def test_writing_the_same_payload_twice_keeps_identical_bytes(
+        self, tmp_path: Path
+    ) -> None:
+        substrate = JsonFileSubstrate(tmp_path)
+        payload = stamp_scopes(
+            _envelope({"zzz-first": "completed", "aaa-second": "completed"})
+        )
+        substrate.write(SCOPES_KEY, payload)
+        first_bytes = substrate.path_for(SCOPES_KEY).read_bytes()
+
+        substrate.write(SCOPES_KEY, payload)
+        assert substrate.path_for(SCOPES_KEY).read_bytes() == first_bytes
+
     def test_a_file_under_the_cap_is_untouched(self, tmp_path: Path) -> None:
         path = JsonFileSubstrate(tmp_path)
         records = {f"done-{i:04d}": "completed" for i in range(SCOPES_LIMIT)}

@@ -197,7 +197,7 @@ Step("publish\x00onfailure")
 
 | # | Surface | Guarantee |
 | --- | --- | --- |
-| 8.1 | What a walk records (`RecordBranch`, its keys and values), `workflow_branches`, `scopes.json` | identical bytes; no migration |
+| 8.1 | What a walk records (`RecordBranch`, its keys and values), `workflow_branches`, `scopes.json` | Recorded values and schema stay identical; no migration. Document members are written in insertion order. Existing records retain their stored key order, so recording order is exact for entries written after this change; document bytes change on their next write. |
 | 8.2 | Replay of pinned choices on resume | unchanged |
 | 8.3 | `edges`, `steps`, `results`, `pending_gates`, `epilogue`, `state`, `status` in the projection | unchanged |
 | 8.4 | Every CLI verb's and MCP tool's parameters | unchanged (verb-parity test unaffected) |
