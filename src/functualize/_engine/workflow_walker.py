@@ -35,6 +35,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from functualize._engine.decision_keys import ROUTED_TO_END, failure_key, notify_key
 from functualize._engine.frontier import END as _FRONTIER_END
 from functualize._engine.frontier import (
     TERMINAL_SUCCESS,
@@ -60,7 +61,6 @@ from functualize._types.workflow import (
     Gate,
     Loop,
     Notification,
-    Notify,
     OnFailure,
     Step,
     _EndSentinel,
@@ -577,7 +577,7 @@ class WorkflowWalker:
                 # the declared route is queued, and the step keeps its `failed`
                 # record so a resume replays to the same place.
                 self._record_routed_failure(name)
-                if run.failure_route != _ROUTED_TO_END:
+                if run.failure_route != ROUTED_TO_END:
                     pending.append((run.failure_route, iteration))
                 continue
             pending.extend(
@@ -639,13 +639,13 @@ class WorkflowWalker:
         a second thing to keep in agreement.
 
         Returns:
-            The node to continue at; :data:`_ROUTED_TO_END` when the failure is
+            The node to continue at; :data:`ROUTED_TO_END` when the failure is
             routed to `END`; or None when nothing routed it and the walk should
             stop. **Three answers, not two** — "routed, and the route was to
             finish" and "no route" are different, and collapsing them made a
             declared `OnFailure(..., target=END)` fail the walk.
         """
-        recorded = self._walk.branch(_failure_branch(name))
+        recorded = self._walk.branch(failure_key(name))
         if recorded is not None:
             return str(recorded)
 
@@ -654,8 +654,8 @@ class WorkflowWalker:
                 continue
             if edge.when is not None and not edge.when(exc):
                 continue
-            target = _ROUTED_TO_END if _is_end(edge.target) else str(edge.target)
-            self._walk.record_branch(_failure_branch(name), target)
+            target = ROUTED_TO_END if _is_end(edge.target) else str(edge.target)
+            self._walk.record_branch(failure_key(name), target)
             return target
 
         # Nothing routed it. **Not recorded**: a node with no `OnFailure` has
@@ -932,7 +932,7 @@ class WorkflowWalker:
         view = self._walk.view()
         status = view.status if view is not None else ""
         for declared in self._declaration.notifications_for(status):
-            key = _notify_key(declared)
+            key = notify_key(declared)
             if self._walk.branch(key) is not None:
                 continue
             self._walk.record_branch(key, "sent")
@@ -1085,18 +1085,6 @@ _NODE_HANDLERS: dict[type, _NodeHandler] = {
 }
 
 
-#: Recorded when an `OnFailure` routes to `END`.
-#:
-#: A sentinel string rather than `None`, because the branch record has to tell
-#: "this failure was routed, and the route was to finish" apart from "no route
-#: was ever recorded" — and a resume reads that record instead of calling the
-#: predicate again. Collapsing the two made a declared `OnFailure(target=END)`
-#: fail the walk, which the test for it caught.
-#:
-#: A NUL prefix so it cannot collide with a node name: node names are
-#: identifier-ish, and nothing that reaches a graph can contain one.
-_ROUTED_TO_END = "\x00end"
-
 #: The scope status a *stopped* step implies.
 #:
 #: A table rather than reusing the step outcome directly, even though these two
@@ -1109,28 +1097,6 @@ _SCOPE_STATUS_FOR: dict[str, str] = {
     StepStatus.FAILED: "failed",
     StepStatus.CANCELLED: "cancelled",
 }
-
-
-def _notify_key(declared: Notify) -> str:
-    """The branch-record key one notification's delivery is recorded under.
-
-    NUL-namespaced away from node names for `_failure_branch`'s reason, and
-    keyed by the declaration's **content** rather than its position: a workflow
-    that gains a second `Notify` must not make the first one fire again by
-    shifting an index.
-    """
-    return f"\x00notify\x00{declared.key}"
-
-
-def _failure_branch(name: str) -> str:
-    """The branch-record key a node's failure route is stored under.
-
-    Namespaced away from the node's own name so a node that has *both* a
-    `ConditionalEdge` and an `OnFailure` keeps two distinct records — one for
-    which branch it took when it succeeded, one for where it went when it did
-    not.
-    """
-    return f"{name}\x00onfailure"
 
 
 def _is_end(target: str | _EndSentinel) -> bool:

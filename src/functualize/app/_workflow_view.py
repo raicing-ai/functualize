@@ -28,7 +28,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from functualize._types.errors import GateNotFoundError
+from functualize._engine.decision_keys import recorded_route
+from functualize._primitives.scope_format import SCOPES_VERSION
+from functualize._types.errors import GateNotFoundError, ScopeStoreUnreadableError
 from functualize._types.persistence import (
     EPILOGUE_STEP_KEY,
     RuntimeStore,
@@ -381,8 +383,41 @@ def _read_scope(store: Any, scope_id: str) -> dict[str, Any] | None:
     return record
 
 
+class _BranchReaderMissingError(ScopeStoreUnreadableError):
+    """A runtime store that cannot list a scope's decision records.
+
+    A refusal, not ``{}``: a projection that read a store without the bulk
+    reader as "nothing recorded" would be the silently absent route this
+    projection exists to show. Raised as the unreadable-store error so every
+    surface's existing mapping carries it — CLI exit 2, MCP
+    ``scope_store_unreadable`` — rather than a second spelling of one refusal.
+    """
+
+    def __init__(self, store_name: str) -> None:
+        self.store_name = store_name
+        super().__init__(
+            f"the runtime store {store_name!r}", expected_version=SCOPES_VERSION
+        )
+
+    def _message(self) -> str:
+        return (
+            f"the runtime store {self.store_name!r} cannot list a scope's "
+            "recorded branches (WorkflowReader.branches is missing), so a "
+            "workflow's route would read as none where some may exist. Upgrade "
+            f"the plugin that provides {self.store_name!r}."
+        )
+
+
 def _port_record(store: RuntimeStore, view: WorkflowView) -> dict[str, Any]:
-    """Project port values into the established operator rendering shape."""
+    """Project port values into the established operator rendering shape.
+
+    ``branches`` is the scope's decision records **raw**, read in one call;
+    sorting them into kinds is ``_describe``'s, through the engine's decoder,
+    so both stores reach the operator through the same code.
+    """
+    read_branches = getattr(store.workflows, "branches", None)
+    if not callable(read_branches):
+        raise _BranchReaderMissingError(store.profile.name)
     steps = {
         step.step_key: {
             "status": step.status,
@@ -431,7 +466,7 @@ def _port_record(store: RuntimeStore, view: WorkflowView) -> dict[str, Any]:
         "lease": lease,
         "steps": steps,
         "gates": gates,
-        "branches": {},
+        "branches": dict(read_branches(view.scope_id)),
         "epilogue": (
             {
                 "status": epilogue.status,
@@ -453,6 +488,7 @@ def _describe(
     """The full projection. See the module docstring for why there is one."""
     topology = _topology(app, scope.get("workflow"))
     steps = scope.get("steps", {})
+    route = recorded_route(scope.get("branches") or {})
 
     return {
         "workflow_id": scope_id,
@@ -481,7 +517,11 @@ def _describe(
             for key, record in steps.items()
             if isinstance(record, dict)
         },
-        "branches": dict(scope.get("branches", {})),
+        # Conditional choices and failure routes, each in recording order.
+        # The record keeps both — and notification markers — in one NUL-keyed
+        # map; the engine decodes it, so no surface ever sees a `\x00`.
+        "branches": route.branches,
+        "failure_routes": route.failure_routes,
         # The epilogue is what separates `completed` from `stalled`, so a
         # projection that omitted it could not explain its own `state` field.
         "epilogue": scope.get("epilogue"),

@@ -225,7 +225,6 @@ class SqlWorkflowReader:
         )
         return str(rows[0][0]) if rows else None
 
-    # TRANSITIONAL(3.1): The operator projection will call this bulk reader.
     def branches(self, scope_id: str) -> dict[str, str]:
         rows = self._driver.query(
             "SELECT decision_key, chosen_target FROM workflow_branches "

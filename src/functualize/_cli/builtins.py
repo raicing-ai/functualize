@@ -1198,10 +1198,15 @@ def register_builtin_commands(cli_group: Any) -> None:
                     f"  {name}: {record.get('status')} -> {record.get('return_value')!r}"
                 )
 
-        branches = detail.get("branches") or {}
-        if branches:
-            chosen = ", ".join(f"{src} -> {tgt}" for src, tgt in branches.items())
-            click.echo(f"Branches: {chosen}")
+        # Always printed, `-` when empty: an absent line cannot tell "nothing
+        # was recorded" from "nothing was read".
+        for label, key in (
+            ("Branches", "branches"),
+            ("Failure routes", "failure_routes"),
+        ):
+            entries = detail.get(key) or {}
+            listed = ", ".join(f"{src} -> {tgt}" for src, tgt in entries.items())
+            click.echo(f"{label}: {listed or '-'}")
 
         gates = detail.get("pending_gates") or []
         if not gates:

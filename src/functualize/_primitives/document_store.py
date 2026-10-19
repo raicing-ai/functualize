@@ -342,7 +342,6 @@ class _DocumentWorkflowReader:
     def branch(self, scope_id: str, decision_key: str) -> str | None:
         return self._scopes.get_branch(scope_id, decision_key)
 
-    # TRANSITIONAL(3.1): The operator projection will call this bulk reader.
     def branches(self, scope_id: str) -> dict[str, str]:
         record = self._scopes.get_scope(scope_id)
         raw = record.get("branches") if record else None
