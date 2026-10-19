@@ -241,7 +241,26 @@ covers both before wave 3.
 
 ## Wave 3 — conformance and refusal
 
-- [ ] **2.2 Conformance check `record branch and branches`**
+**Execution pause at 3.2.** The new refusal test exercises a real booted
+SQLite app whose `SqlWorkflowReader.branches` member is removed after a scope
+has been recorded. `builtin workflow show` exits 2 with the upgrade message,
+and MCP `get_workflow_state` and `list_workflows` return
+`scope_store_unreadable`. Two required surfaces fail:
+
+- MCP `resume_workflow("route", {})` returns `workflow_not_found` for that
+  existing SQLite scope because `WorkflowToolProvider._resume_workflow` uses
+  its legacy document `self.store`, rather than `operator_store`.
+- `--wf-show route` exits 1 with `_BranchReaderMissingError` instead of
+  mapping it to the usage refusal. The eager click callback calls
+  `apply_workflow_flags` before entering `prelude_refusal`.
+
+The focused refusal gate was 2 failed, 1 passed; rerunning its MCP case
+identified `resume_workflow` as the failing tool. The projected-route gate
+remains green from wave 2. Task 3.2 explicitly says to stop if surface code
+must change; the task and wave 4 therefore stay unchecked pending a revised
+scope and gate. Ruff check, Ruff format check, mypy and lint-imports passed.
+
+- [x] **2.2 Conformance check `record branch and branches`**
 
 Add it to `testing/conformance/baseline.py` after `record branch and branch`
 (`BASELINE`, `:470-484`): write `fork`, then `join`; assert the mapping and
@@ -253,6 +272,10 @@ without the reader fails with an `AssertionError` that names it (contracts §5).
   documents and sqlite. Sabotage: reverse the sqlite ordering to
   `ORDER BY rowid DESC`, or break the documents method, and watch the order
   assertion fail (AC-8). Merely dropping `ORDER BY` can retain rowid order.
+- Evidence: 33 passed for the full baseline; reversing SQLite's read order
+  after commit made the new check fail (1 failed, 32 deselected), then the
+  reader was restored. Production caller: `run_baseline` → `BASELINE` →
+  `record_branch_and_branches` → public writer and reader on a reopened store.
 
 - [ ] **3.2 Refusal on every surface (tests only)**
 
