@@ -97,7 +97,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 
 ## Wave 2 — the two backends, then agreement
 
-### T5 [ ] — Document backend: attempt fields and `supersedes`
+### T5 [x] — Document backend: attempt fields and `supersedes`
 - **Depends on:** T1.
 - **Files:** `src/functualize/_primitives/document_store.py`,
   `src/functualize/_primitives/gate_requests.py`,
