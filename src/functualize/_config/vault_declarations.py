@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from functualize._config.manifest import parse_annotation
+from functualize._config.roles import BASE_SLOT, parse_slot
 from functualize._primitives.vault_identity import VaultIdentity
 
 if TYPE_CHECKING:
@@ -39,6 +40,8 @@ def parse_vault_declarations(
     declarations: list[VaultSecretDeclaration] = []
     locations: dict[VaultIdentity, str] = {}
     for path, config in per_file_values:
+        slot = parse_slot(path)
+        environment = None if slot is None or slot.casefold() == BASE_SLOT else slot
         blocks = config.get("vault_secret", [])
         if not isinstance(blocks, list):
             raise VaultDeclarationError(
@@ -50,27 +53,45 @@ def parse_vault_declarations(
                 raise VaultDeclarationError(f"{location}: expected a table")
             group, job = block.get("group"), block.get("job")
             field, source = block.get("field"), block.get("source")
-            if (group is None) == (job is None):
+            if group is None and job is None:
                 raise VaultDeclarationError(
-                    f"{location}: choose exactly one of group or job"
+                    f"{location}: supply group, job, or both group and job"
                 )
             if set(block) - {"group", "job", "field", "source"}:
                 raise VaultDeclarationError(
                     f"{location}: unsupported key in declaration"
                 )
-            if not all(
-                isinstance(value, str) and value
-                for value in (group if group is not None else job, field, source)
+            if (
+                not isinstance(field, str)
+                or not field
+                or not isinstance(source, str)
+                or not source
+                or any(
+                    not isinstance(value, str) or not value
+                    for value in (group, job)
+                    if value is not None
+                )
             ):
                 raise VaultDeclarationError(
                     f"{location}: target, field, and source must be nonempty strings"
                 )
+            if isinstance(job, str) and "." in job:
+                raise VaultDeclarationError(
+                    f"{location}: job must be a leaf name; use group and job separately "
+                    "(for example --group deploy --job web)"
+                )
             assert isinstance(field, str) and isinstance(source, str)
-            target = group if group is not None else job
+            target = (
+                f"{group}.{job}"
+                if group is not None and job is not None
+                else group
+                if group is not None
+                else job
+            )
             assert isinstance(target, str)
             try:
                 identity = VaultIdentity(
-                    "group" if group is not None else "job", target, field
+                    "job" if job is not None else "group", target, field, environment
                 )
                 chain = parse_annotation(source)
             except ValueError as exc:

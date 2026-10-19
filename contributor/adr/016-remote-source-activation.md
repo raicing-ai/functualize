@@ -6,6 +6,16 @@
 `.spec/features/remote-source-activation/` and are cleared at merge, as that workflow
 requires; recover them from the pull request ref if needed.
 
+**Amended 2026-10-17 — address and environment-qualified vault entries.**
+The offline read and explicit sync decisions stand. A group declaration names
+a subject address; a job declaration may pair `group` with a leaf `job`.
+Entries written for a selected environment use
+`(scope, target, field, environment)`; base declarations and existing
+three-part keys are shared. Sync reads only base and selected-overlay
+declarations, and remains the only path that contacts providers. The 2026-10-04
+three-part identity and exactly-one-target wording below records its earlier
+revision and is superseded by this amendment.
+
 **Amended 2026-10-04 — scoped vault declarations.** The activation and offline
 read decision stands. Provider references now live only in explicit
 `[[vault_secret]]` blocks with exactly one `group` or `job` target, a secret

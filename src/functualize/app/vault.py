@@ -219,11 +219,11 @@ def resolve_vault_identity(
     job: str | None = None,
     field: str,
 ) -> VaultIdentity:
-    """Validate exactly one declared scope and secret field before reading input."""
-    if (group is None) == (job is None):
+    """Validate a group, a leaf job, or a job within a group."""
+    if group is None and job is None:
         raise VaultPathError(
             "scope_required",
-            "Choose exactly one of --group or --job.",
+            "Supply --group, --job, or both --group and --job.",
             path=_label(
                 "group" if group is not None else "job", group or job or "", field
             ),
@@ -234,7 +234,14 @@ def resolve_vault_identity(
             "A field name is required.",
             path=_label("", group or job or "", ""),
         )
-    if group is not None:
+    if job is not None and "." in job:
+        raise VaultPathError(
+            "dotted_job",
+            "--job must be a leaf name; use --group deploy --job web.",
+            path=_label("job", job, field),
+        )
+    if job is None:
+        assert group is not None
         label = _label("group", group, field)
         spec = app.get_group_options_spec(group)
         if spec is None:
@@ -263,8 +270,13 @@ def resolve_vault_identity(
         return VaultIdentity("group", spec.group, match.name)
 
     assert job is not None
-    label = _label("job", job, field)
-    descriptor = _resolve_job(app, job, label)
+    target = f"{group}.{job}" if group is not None else job
+    label = (
+        f"--group {group} --job {job} --field {field}"
+        if group is not None
+        else _label("job", job, field)
+    )
+    descriptor = _resolve_job(app, target, label)
     match = _resolve_field(descriptor, field, label)
     return VaultIdentity("job", _descriptor_name(descriptor), match.name)
 
@@ -280,8 +292,21 @@ def _label(scope: str, target: str, field: str) -> str:
 
 def _revalidate(app: Any, identity: VaultIdentity) -> VaultIdentity:
     """Check an identity a caller built, returning its canonical spelling."""
+    if identity.scope == "job" and "." in identity.target:
+        group, job = identity.target.rsplit(".", 1)
+        return resolve_vault_identity(app, group=group, job=job, field=identity.field)
     scope = {identity.scope: identity.target}
     return resolve_vault_identity(app, **scope, field=identity.field)
+
+
+def _active_identity(app: Any, identity: VaultIdentity) -> VaultIdentity:
+    """Give a validated target the slot selected by the booted app."""
+    return VaultIdentity(
+        identity.scope,
+        identity.target,
+        identity.field,
+        app.configuration.active_environment(),
+    )
 
 
 def _descriptor_name(descriptor: Any) -> str:
@@ -824,7 +849,7 @@ def vault_put(
     not cost someone the secret they already typed. This re-validates anyway,
     because a public function cannot assume its caller did.
     """
-    resolved = _revalidate(app, identity)
+    resolved = _active_identity(app, _revalidate(app, identity))
     resolution = _resolve_key(app, cwd)
     store = _open_store(cwd)
 
@@ -871,7 +896,13 @@ def vault_remove(
     and simply matches nothing if it was a typo.
     """
     with contextlib.suppress(VaultPathError):
-        identity = _revalidate(app, identity)
+        canonical = _revalidate(app, identity)
+        identity = VaultIdentity(
+            canonical.scope,
+            canonical.target,
+            canonical.field,
+            identity.environment or app.configuration.active_environment(),
+        )
     target = identity.encode()
     removed = _open_store(cwd).delete(target)
     if removed is None:
@@ -912,14 +943,35 @@ def vault_inspect(
 
     try:
         resolved = _revalidate(app, identity)
-        key = resolved.encode()
         eligible = True
-        display = resolved
     except VaultPathError:
-        key, eligible, display = identity.encode(), False, identity
+        resolved, eligible = identity, False
+
+    active = app.configuration.active_environment()
+    candidates = (
+        (
+            VaultIdentity(
+                resolved.scope, resolved.target, resolved.field, identity.environment
+            ),
+        )
+        if identity.environment is not None
+        and identity.environment != active.casefold()
+        else VaultIdentity.lookup_candidates(
+            resolved.scope, resolved.target, resolved.field, active
+        )
+    )
 
     store = _open_store(cwd)
-    entry = next((e for e in store.list_entries() if e.key == key), None)
+    entries = {entry.key: entry for entry in store.list_entries()}
+    selected = next(
+        (
+            (candidate, entries[candidate.encode()])
+            for candidate in candidates
+            if candidate.encode() in entries
+        ),
+        None,
+    )
+    display, entry = selected if selected is not None else (candidates[0], None)
     if entry is None:
         return VaultInspectionReport(
             identity=display,
