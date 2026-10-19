@@ -86,6 +86,11 @@ No-options candidates include scoped children and provenance, and a selected
 candidate runs. Focused TUI/group-flag suite passed (27 tests before the final
 literal-dot case). After a clean commit, restoring the no-spec guard made E4
 fail three assertions; the guard was removed again.
+Correction (found during T8's wave run): the always-built trie swallowed
+`builtin config ` completion, failing two pre-existing SmartBar subcommand
+tests from this task's commit on. A walk inside the reserved `builtin`
+subtree now returns to the registry's subcommand chain; disabling that
+guard after its commit failed both tests again.
 
 - Inputs: T1/T3; Serena reference set for `build_group_option_trie`.
 - [F] `src/functualize/_cli/tui/cli_arg_parser.py`, `src/functualize/_cli/tui/smart_bar_autocomplete.py`, `tests/group_options/test_tui_completion_context.py`, `tests/group_options/test_tui_group_flags.py` (its synthetic trie must contain its asserted shallow job), `tests/tui/test_command_path_surface.py`.
