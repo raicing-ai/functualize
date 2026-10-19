@@ -139,7 +139,11 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 ### T7 [ ] — Conformance: both backends agree
 - **Depends on:** T5, T6.
 - **Files:** `src/functualize/testing/conformance/baseline.py`,
-  `tests/conformance/test_baseline.py`.
+  `tests/conformance/test_baseline.py`; and `src/functualize/_types/persistence.py`
+  for its seven `TRANSITIONAL(effecting-step-recovery/…)` comments only (the hit
+  set of `rg -n "TRANSITIONAL\(effecting-step-recovery" src plugins`): once both
+  backends persist and read the fields they say "later", which is no longer the
+  code's behaviour; they are re-pointed at the walk tasks that still owe a writer.
 - **Change:** cases for (a) an `attempt` / `started_at` round trip through `RecordStep`
   and `CompleteStep`, (b) a pure step with neither, (c) `SuspendAtGate(supersedes=…)`
   after a consumed request: the reader's request for the gate is the new open one.
