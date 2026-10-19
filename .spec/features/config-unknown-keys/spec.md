@@ -13,6 +13,15 @@ comment reading "follow recommendation" (`18808859`, `18972740`, `18808867`).
 This spec therefore builds the page's own recommendation, **1a + 2a + 3a**,
 and no variant of it. See `plan.md` → `## Alignment`.
 
+> **Revision 2 (2026-10-19) — proposed, not confirmed.** The maintainer asked
+> (MCH-190 comment `01a153bd`) for one consistent single source of truth for
+> the config vocabulary, with no duplication, after the pattern of the
+> unified job namespace (SD/19595276). That is the change SD/17137669 v2 itself
+> names as "a larger change than this ticket", so §3.7 and AC12–AC16 are
+> **outside the approved shape until the page records them** (`plan.md` →
+> decision M1). §1–§3.6 are unchanged, except §3.5's handling of the global
+> file's warning, which now depends on decision M3.
+
 ## 1. Problem
 
 Measured on `master` `d1c7e40a` (2026-10-17, `func` 0.4.0, isolated `HOME`):
@@ -162,7 +171,11 @@ key from what is applied (the global reader's existing filter is unchanged).
   `config.unknown_keys`: always present, `[]` when there are none (the rule
   `discovery_failures` and `config` already follow). See `contracts.md`.
 - No startup warning (2b) is added. The global reader's existing stderr
-  warning stays exactly as it is.
+  warning (`_cli/config.py:150`) is the one place a key is reported outside
+  2a. Revision 2 removes it as a separate vocabulary, so there is one
+  checker. Whether that checker also writes to stderr for the global file is
+  decision **M3** (recommended: no; the global file is reported like every
+  other file, on `config path` and `info --json`).
 
 ### 3.6 Must not change
 
@@ -174,7 +187,30 @@ key from what is applied (the global reader's existing filter is unchanged).
 - `info --json` differs only by the added `config.unknown_keys` key.
 - `func <job>` runs do not import or execute the check.
 
-## 4. Acceptance criteria
+### 3.7 One vocabulary (Revision 2 — pending M1)
+
+There is exactly **one declaration** of what a functualize config document
+may carry, and every reader, filter, check, environment mapping and file-name
+list derives from it.
+
+- **What the declaration holds:** every key functualize reads from a config
+  document, with its canonical place (top level or a section), any other place
+  it is accepted (the directory lists are accepted both at the top level and
+  under `[discovery]`), its type (including a free-form map for `[aliases]`
+  and an array of tables for `[[vault_secret]]`), whether it is shown as a
+  settings row, and whether an environment variable sets it. It also holds the
+  document frame that already sits on the same type: the project and global
+  file names and the `pyproject.toml` prefix `tool.functualize`.
+- **What "derives" means:** no module outside the declaration restates a set,
+  tuple, list or dict of config key names, and no reader of a config document
+  names a key by string literal; it names the declared setting.
+- **What a user sees:** nothing beyond §3.1–§3.6. Today's settings rows, help
+  text, environment variable names and resolution results are unchanged — the
+  refactor is pinned by tests that record today's values first.
+- **What keeps it single:** a source ratchet test fails when a collection of
+  config key names, or a config-key string literal in a config-read position,
+  appears outside the declaration — a ratchet in the sense of SD/19595276 E8:
+  the baseline can only shrink.
 
 Each maps to a shape experiment (E1–E5) or a ticket acceptance clause.
 
@@ -186,11 +222,16 @@ Each maps to a shape experiment (E1–E5) or a ticket acceptance clause.
 | AC4 (E4) | a file with a `[my-job]` table and no job named `my-job` | both commands | no finding |
 | AC5 (E5) | a file with only known keys (incl. `[aliases]` entries, `[[vault_secret]]`, `[plugins] disabled`, `[discovery] jobs_directories`) | `config path` | output byte-identical to `d1c7e40a`; `config.unknown_keys == []` |
 | AC6 | `pyproject.toml` with `[tool.functualize] roots = true` and `[tool.ruff] line-length = 88` | `config path` | names `roots`; nothing from `[tool.ruff]` |
-| AC7 | global `config.toml` with `roots = true` | `config path` | the global line names `roots`; stderr unchanged from today |
+| AC7 | global `config.toml` with `roots = true` and `[cli] show_timng = true` | `config path` | the global line names `roots` and `cli.show_timng` (suggestion `cli.show_timing`); stderr per decision M3 |
 | AC8 | `[tui] them = "x"` with the shell **not** imported | check | finding `tui.them`, suggestion `tui.theme`; and `[tui] theme = "x"` → no finding |
 | AC9 (E1) | every functualize config file under `examples/` and `evals/` | check | 0 findings |
 | AC10 | `func <job>` | run | the check module is not imported |
 | AC11 | ticket | regression test | the AC1 test fails on `e00d870` and passes at the fix head |
+| AC12 (§3.7) | the source tree | ratchet: collection literals of ≥2 config key names outside the declaration module | **0** (baseline at `91947bb4`: 13 literals in 6 files) |
+| AC13 (§3.7) | the source tree | ratchet: config-key literals in a read position (`.get("k")`, `["k"]`, `"k" in …`) outside the declaration | ≤ the recorded per-file baseline, which only shrinks (at `91947bb4`: 91 in 9 files; after this feature: only the flag-plumbing sites decision M2 leaves) |
+| AC14 (§3.7) | today's catalog, `_RECOGNIZED_*` sets, env mapping, `LIST_KEYS`, `PROJECT_CONFIG_CANDIDATES` names, `cli.output` choices | pinned in a test **before** the refactor | every value equal after it |
+| AC15 (§3.7) | every `toml` block and the env-var tables in `docs/cli/config.md` | docs ratchet | 0 keys the declaration does not know; every declared, listed setting documented |
+| AC16 (§3.7) | `root`, `vault_secret`, `plugins`/`plugins.disabled`, `aliases`, and the five list keys | AC13's walk restricted to these names, **config-document reads only** (flag plumbing excluded per M2) | **0** outside the declaration (at `91947bb4` the unrestricted walk over these names reads 59 literals in 8 files: `_cli/main.py` 26, `app/utils.py` 14, `_cli/config.py` 12, `_cli/dispatch.py` 2, `_config/project_dirs.py` 2, `_app/boot.py` 1, `_cli/info.py` 1, `_config/vault_declarations.py` 1) |
 
 ## 5. Out of scope
 
@@ -202,4 +243,9 @@ From the shape's *Boundaries and non-goals*, verbatim in substance:
 - unknown parameters inside a job section;
 - a startup warning (2b) and a strict mode (1b/1c) — "available as follow-ups";
 - which files `config path` lists, and how it walks for them — shared with
-  SD/17104898 (MCH-188), not this feature.
+  SD/17104898 (MCH-188), not this feature;
+- the `[tool.functualize]` table of a PEP 723 script (`_cli/pep723.py`,
+  keys `job`, `skill`) — a different document kind with its own two-key
+  vocabulary, stated once; not a duplicate;
+- typing the CLI-flag plumbing dicts (`cli_flags`, `overrides`, `effective`)
+  — decision M2.
