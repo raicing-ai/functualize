@@ -13,7 +13,7 @@ Commit first, because `git checkout -- <file>` reverts everything uncommitted.
 
 ## Wave 0 — the defect, pinned red
 
-- [ ] **0.1 Both-store and CLI tests, red on `91947bb`**
+- [x] **0.1 Both-store and CLI tests, red on `91947bb`**
 
 New `tests/workflow/test_recorded_route_on_both_stores.py`, parametrized over
 documents and sqlite (the pattern of `tests/engine/test_the_walk_on_both_stores.py`;
@@ -38,6 +38,9 @@ that took a branch.
   `tests/integration/test_cli_workflow_parity.py`
 - Gate: on unmodified `91947bb`, the new file fails every test that asserts
   `failure_routes` or relational `branches`. Record the counts here (AC-12).
+  Red baseline on the unchanged implementation at `179f9a81`: 7 failed,
+  21 passed, across both stores and the CLI parity test. The first run before
+  `uv sync --all-packages` was 3 failed, 3 skipped (SQLite unavailable).
 
 ## Wave 1 — port and declaration (foundation)
 
