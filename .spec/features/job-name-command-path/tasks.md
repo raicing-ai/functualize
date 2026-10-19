@@ -154,6 +154,18 @@ path, because an ungrouped child job is a single literal-dot leaf.
 
 ### T9 — Root help from the discovered trie
 
+Status: [x] Complete. `func --help` lists `builtin`, `deploy`, `hello` and
+`suite` for the E7 project (nested `deploy.web` appears only as `deploy`),
+with the global options intact. Rows are the top-level nodes of
+`JobCommandProvider`, the trie-built tree the shell and app door walk, from
+one boot inside the existing diagnostic scope; cold and warm output are
+byte-identical. A module that fails to load keeps the other rows, and a
+project whose boot fails on a reserved name still prints the page. The
+builtin-only test is rewritten as an inventory/parity test against the bare
+listing. After the clean commit, removing the row registration failed E7 and
+three inventory tests; restored. Installed plugin namespaces stay out of
+root help, which lists the project's jobs and groups.
+
 - Inputs: T1/T3 and N3; the existing pinned decision/test in `tests/cli/test_help_surface_pinned.py`.
 - [F] `src/functualize/_cli/main.py`, `tests/cli/test_help_surface_pinned.py`, `tests/cli/test_command_path_surface.py`.
 - Invariants: `func --help` retains its global option descriptions and builtin subtree, adds top-level jobs and groups, uses one diagnostic boot and the same path source. A discovery failure must not hide diagnostic help. Cold and warm output agree.
