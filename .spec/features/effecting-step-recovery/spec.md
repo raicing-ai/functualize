@@ -1,6 +1,6 @@
 # effecting-step-recovery — specification
 
-**Phase:** Plan. Specify was confirmed on 2026-10-17 (Q-1, Q-2 as recommended). Revisions S-R1 to S-R4, forced by the architecture pass (`plan.md`), are marked *[S-Rn]* and await re-confirmation.
+**Phase:** Plan. Specify was confirmed on 2026-10-17 (Q-1, Q-2 as recommended). Revisions S-R1 to S-R4, forced by the architecture pass (`plan.md`) and marked *[S-Rn]*, were confirmed by the member on 2026-10-19. The spec is fixed from here.
 **Shape:** *Shape Intent — Effecting Steps Across a Crash* (Confluence SD/15007820),
 `Authority: Approved` (v9, 2026-10-13). Decisions of record: D1 = A, D2 = 2a′,
 D3 = 3a, D4 = 4a, D5 = 5a. "The matrix" means the Part I composition matrix.

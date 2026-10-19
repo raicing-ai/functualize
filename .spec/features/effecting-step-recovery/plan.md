@@ -1,7 +1,6 @@
 # effecting-step-recovery — plan
 
-**Phase:** Plan. Awaiting member review of the tasks, the four spec revisions, and
-the surviving smells before Execute.
+**Phase:** Plan approved by the member on 2026-10-19: S-R1 to S-R4 confirmed, Large Class review answered (a), `tasks.md` approved for Execute.
 **Baseline:** rebased onto `origin/master` `d1c7e40a`. The lease-heartbeat change has
 landed. It moved every walk write behind the runtime-store port, so this plan maps
 the **post-heartbeat** engine. `spec.md` line citations that predate it are
@@ -202,6 +201,6 @@ only `_types` and its siblings in `_engine`. No peer-layer import is added.
 
 | Smell | Where | Why accepted | Needs maintainer review |
 |---|---|---|---|
-| **Large Class** (pre-existing, slightly grown) | `WorkflowWalker` (767 lines), `FrontierWalk` (578 lines) | Both are past the ~500 LOC forbidden-pattern threshold **before** this change. The plan adds no responsibility to either: the walker gains a delegation of about 12 lines, and the frontier gains keyword pass-through. The policy lives in the new `EffectRecovery`. Task gates cap the growth (T7 ≤ +15 lines, T8 ≤ +15 lines in the class spans). Splitting either class is not in this feature's scope | **Yes.** It touches a forbidden-pattern threshold. Recommend a separate extraction lane for `WorkflowWalker` |
+| **Large Class** (pre-existing, slightly grown) | `WorkflowWalker` (767 lines), `FrontierWalk` (578 lines) | Both are past the ~500 LOC forbidden-pattern threshold **before** this change. The plan adds no responsibility to either: the walker gains a delegation of about 12 lines, and the frontier gains keyword pass-through. The policy lives in the new `EffectRecovery`. Task gates cap the growth (T8 ≤ +15 lines for `FrontierWalk`, T9 ≤ +15 lines for `WorkflowWalker`, measured on the class spans). Splitting either class is not in this feature's scope | **Reviewed 2026-10-19: accepted, option (a).** The growth caps hold, and a separate extraction lane for `WorkflowWalker` is to be opened later |
 | **Shotgun Surgery** (bounded) | Adding `attempt` / `started_at` touches the port type, the document backend, the SQLite writer, reader and migration, and conformance: 5 places | Inherent to one port with two backends, and the exact precedent `effecting` set (migration `0002`). Conformance keeps them in agreement | No |
 | **Switch Statements** (pre-existing, unchanged) | `_gate_strategy_list` | The recovery gate's ladder is passed in through `GateAsk`. No new branch is added to the chain | No |
