@@ -190,3 +190,148 @@ def test_app_door_suggests_and_uses_full_grouped_path(tmp_path, monkeypatch, cap
     leaf = JobCommandProvider(app).nodes()[0].children()[0]
     assert leaf.execute(["--help"]) == 0
     assert "Usage: sample suite inventory [OPTIONS]" in capsys.readouterr().out
+
+
+def _workflow_app(tmp_path, monkeypatch):
+    """An app with a literal-dot leaf and a grouped workflow, both gated."""
+    from pydantic import BaseModel
+
+    from functualize._discovery.providers import Job, StaticProvider
+    from functualize.app import FunctualizeApp, JobSources
+    from functualize.workflow import END, Edge, Gate, Step, workflow
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".functualize").mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+
+    class Ask(BaseModel):
+        text: str
+
+    def build() -> str:
+        return "built"
+
+    def finish() -> str:
+        print("FINISHED")
+        return "finished"
+
+    def gated() -> str:
+        return "done"
+
+    flow = workflow(
+        steps=[Step("build"), Gate(name="pause", awaits=Ask), Step("finish")],
+        edges=[
+            Edge("build", "pause"),
+            Edge("pause", "finish"),
+            Edge("finish", END),
+        ],
+    )
+    return FunctualizeApp(
+        name="sample",
+        job_sources=JobSources(
+            job_providers=[
+                StaticProvider(
+                    [
+                        Job(function=build),
+                        Job(function=finish),
+                        Job(function=flow(gated), name="tools.release"),
+                        Job(function=flow(gated), name="ship", group="ci"),
+                    ]
+                )
+            ]
+        ),
+    )
+
+
+def test_copied_resume_line_finishes_the_run_and_keeps_a_literal_dot_leaf(
+    tmp_path, monkeypatch
+):
+    """The blocked message's resume line runs as printed on the app door."""
+    from click.testing import CliRunner
+
+    from functualize.app.adapters import CliAdapter
+    from functualize.app.adapters.click_params import _program_name
+
+    adapter = CliAdapter()
+    adapter(_workflow_app(tmp_path, monkeypatch))
+    runner = CliRunner()
+    program = _program_name()
+    for typed, path in (
+        (["tools.release"], "tools.release"),
+        (["ci", "ship"], "ci ship"),
+    ):
+        blocked = runner.invoke(adapter._cli_group, typed)
+        assert blocked.exit_code == 5, blocked.output
+        line = next(
+            row.strip() for row in blocked.stderr.splitlines() if "--wf-resume" in row
+        )
+        assert line.startswith(f"{program} {path} --wf-resume "), line
+        copied = shlex.split(line)[1:]
+        copied[-1] = '{"text": "ok"}'
+        resumed = runner.invoke(adapter._cli_group, copied)
+        assert resumed.exit_code == 0, resumed.output
+        assert "FINISHED" in resumed.output
+
+
+def test_provenance_keeps_child_jobs_and_local_literal_dot_leaves():
+    """`(local)` and child attribution survive without splitting identity."""
+    from types import SimpleNamespace
+
+    from functualize._cli.completions.provenance import (
+        CompletionProvenanceClassifier,
+    )
+    from functualize._discovery.transforms import NamespaceTransform
+    from functualize.types import JobDescriptor
+
+    app = SimpleNamespace(child_projects=[SimpleNamespace(name="tools")])
+    classifier = CompletionProvenanceClassifier(app)
+    (mounted,) = NamespaceTransform("tools").transform_list(
+        [JobDescriptor(name="lint", group=None)]
+    )
+    grouped = JobDescriptor(name="tools.run", group="tools")
+    literal = JobDescriptor(name="pkg.lint", group=None)
+    assert str(mounted.command_path) == "tools.lint"
+    assert classifier.get_provenance(mounted).source_type == "child"
+    assert classifier.get_provenance(mounted).display_label == "tools"
+    assert classifier.get_provenance(grouped).source_type == "child"
+    assert classifier.get_provenance(literal).source_type == "local"
+
+
+def test_inline_handoff_hint_is_the_trie_path_and_literal_leaf_runs(
+    tmp_path, monkeypatch, capsys
+):
+    from functualize._cli.inline_tui import _run_handoff
+    from functualize._discovery.providers import Job, StaticProvider
+    from functualize.app import FunctualizeApp, JobSources
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+
+    def run() -> None:
+        print("RUN")
+
+    def lint() -> None:
+        print("LINT")
+
+    app = FunctualizeApp(
+        name="sample",
+        job_sources=JobSources(
+            job_providers=[
+                StaticProvider(
+                    [
+                        Job(function=run, group="deploy.web"),
+                        Job(function=lint, name="tools.lint"),
+                    ]
+                )
+            ]
+        ),
+    )
+    # The token crosses two edges below `deploy`; the offered spelling is the
+    # whole path from the root, not the token with its dots blanked out.
+    _run_handoff(app, ["deploy", "web.run"])
+    assert "e.g. `deploy web run`." in capsys.readouterr().err
+    _run_handoff(app, ["tools.lint"])
+    assert "LINT" in capsys.readouterr().out

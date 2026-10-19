@@ -922,7 +922,7 @@ def _exit_quietly_on_broken_pipe() -> None:
     raise SystemExit(0)
 
 
-def _report_blocked(result: Any) -> None:
+def _report_blocked(result: Any, command_path: str | None = None) -> None:
     """Explain a gate pause on stderr, tiered by log level (S5 T39).
 
     A blocked run is the one outcome a *script* most needs to act on, so the
@@ -963,14 +963,7 @@ def _report_blocked(result: Any) -> None:
             f"(run `{program} builtin workflow list` to find the scope)",
             file=sys.stderr,
         )
-    if scope and job_name:
-        # The *command path*, not the job name. A job is addressed as
-        # `audit.audit-run` and invoked as `audit audit-run` — its group is a
-        # command group, and neither surface has a top-level command with a dot
-        # in it. Printing the dotted form gives the reader
-        # `No such command 'audit.audit-run'`, which is worse than printing
-        # nothing: it looks like the resume feature is the thing that is broken.
-        command_path = job_name.replace(".", " ")
+    if scope and job_name and command_path:
         # One line that finishes the run, rather than one that starts another
         # attempt at it. `--scope-id` re-invoked the job and blocked again
         # unless the gate had been answered separately; `--wf-resume
@@ -1296,7 +1289,19 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
     # silently saying nothing.
     if (line := report_line(result.status)) is not None:
         if result.status is RunStatus.BLOCKED:
-            _report_blocked(result)
+            # The resume line names the *command path*, never the dotted
+            # identity: `audit.audit-run` answers `No such command`, and a
+            # literal-dot leaf (`tools.lint`) must not be split into two words.
+            # The descriptor owns that spelling, so ask it rather than the name.
+            descriptor = (
+                app_ref.get_job(name)
+                if app_ref is not None and callable(getattr(app_ref, "get_job", None))
+                else None
+            )
+            _report_blocked(
+                result,
+                str(descriptor.command_path) if descriptor is not None else None,
+            )
         elif result.status is RunStatus.REFUSED:
             _report_refused(result)
         else:

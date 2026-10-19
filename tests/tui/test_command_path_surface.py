@@ -125,3 +125,43 @@ def test_recent_preset_uses_the_same_bar_emitter_and_keeps_history_identity():
     resolution = resolve_tui_command(trie, tokenize_bar_text(preset.display_text))
     assert resolution.job_name == "deploy.web.run"
     assert resolution.args == ["--image", "my image"]
+
+
+def test_panel_refusal_offers_the_trie_path(tmp_path, monkeypatch):
+    """The in-panel worker offers the walk's full path for a refused token."""
+    from types import SimpleNamespace
+
+    from functualize._cli.tui.cli_arg_parser import (
+        build_group_option_trie,
+        resolve_tui_command,
+    )
+    from functualize._cli.tui.job_execution import run_job
+    from functualize._discovery.providers import Job, StaticProvider
+    from functualize.app import FunctualizeApp, JobSources
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+
+    def run() -> None:
+        pass
+
+    func_app = FunctualizeApp(
+        name="sample",
+        job_sources=JobSources(
+            job_providers=[StaticProvider([Job(function=run, group="deploy.web")])]
+        ),
+    )
+    trie = build_group_option_trie(func_app)
+    written: list[str] = []
+    log = SimpleNamespace(add_class=lambda *_: None, write=written.append)
+    tui = SimpleNamespace(
+        _func_app=func_app,
+        workers=[],
+        resolve_command=lambda tokens: resolve_tui_command(trie, tokens),
+        query_one=lambda *_: log,
+    )
+    run_job(tui, ["deploy", "web.run"])  # type: ignore[arg-type]
+    assert len(written) == 1
+    assert "[bold]deploy web run[/bold]." in written[0]

@@ -166,6 +166,8 @@ class TuiCommandResolution:
         dotted_token: A path token the user spelled with a dot
             (``deploy.web.run``). The TUI navigates by spaces, so this is a
             refusal, reported rather than silently accepted.
+        dotted_path: The trie's full path for ``dotted_token`` — the spelling
+            the refusal offers instead. Set exactly when ``dotted_token`` is.
         bad_flag: A ``-``-prefixed token no consumed ancestor declares.
     """
 
@@ -173,6 +175,7 @@ class TuiCommandResolution:
         "args",
         "bad_flag",
         "bad_flag_hint",
+        "dotted_path",
         "dotted_token",
         "group_values",
         "job_name",
@@ -186,11 +189,13 @@ class TuiCommandResolution:
         dotted_token: str | None = None,
         bad_flag: str | None = None,
         bad_flag_hint: str | None = None,
+        dotted_path: tuple[str, ...] | None = None,
     ) -> None:
         self.job_name = job_name
         self.args = args
         self.group_values = group_values
         self.dotted_token = dotted_token
+        self.dotted_path = dotted_path
         self.bad_flag = bad_flag
         self.bad_flag_hint = bad_flag_hint
 
@@ -221,7 +226,13 @@ def resolve_tui_command(trie: Any, tokens: list[str]) -> TuiCommandResolution:
     walk = walk_group_path(trie, tokens)
 
     if walk.bad_path is not None:
-        return TuiCommandResolution(None, [], {}, dotted_token=walk.remaining[0])
+        return TuiCommandResolution(
+            None,
+            [],
+            {},
+            dotted_token=walk.remaining[0],
+            dotted_path=walk.bad_path,
+        )
 
     node = walk.node
     job_name = node.payload if getattr(node, "has_payload", False) else None

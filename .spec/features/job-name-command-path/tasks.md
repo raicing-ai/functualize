@@ -128,7 +128,7 @@ the display wire was restored.
 ### T8 — Resume hints, provenance and inline handoff
 
 - Inputs: T1/T5; job-name conversion hit set from `rg -n` in `research.md`.
-- [F] `src/functualize/app/_workflow_resume.py`, `src/functualize/app/adapters/click_params.py`, `src/functualize/_cli/completions/provenance.py`, `src/functualize/_cli/inline_tui.py`, `tests/cli/test_command_path_surface.py`.
+- [F] `src/functualize/app/_workflow_resume.py`, `src/functualize/app/adapters/click_params.py`, `src/functualize/_cli/completions/provenance.py`, `src/functualize/_cli/inline_tui.py`, `tests/cli/test_command_path_surface.py`, `tests/workflow/test_gate_drafts.py` (live deposit response is asserted here), `src/functualize/_cli/tui/cli_arg_parser.py` (the TUI resolution carries the trie's path for a refused dotted token), `src/functualize/_cli/tui/job_execution.py` (the in-panel worker renders the same hint from that resolution), `tests/tui/test_command_path_surface.py` (the in-panel hint is asserted here).
 - Invariants: resume lines use path without changing stored workflow identity; provenance derives from group/path rather than splitting identity; inline handoff uses the trie result, not dot substitution.
 - Gate: copied resume line executes, literal-dot leaf survives, `(local)`/`(job)` attribution remains; source ratchet has no job-name dot conversion at these sites. Wire: restore each text conversion after commit and see a surface test fail.
 - Dependency: T5. Completion evidence: command transcript and provenance assertions.

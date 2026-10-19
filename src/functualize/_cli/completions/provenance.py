@@ -195,12 +195,7 @@ class CompletionProvenanceClassifier:
         if not child_names:
             return False
 
-        if job.group and job.group in child_names:
-            return True
-
-        # Check if the job name itself has a child namespace prefix
-        name_prefix = job.name.split(".")[0] if "." in job.name else None
-        return bool(name_prefix and name_prefix in child_names)
+        return _child_namespace(job, child_names) is not None
 
     def _get_child_app_names(self) -> frozenset[str]:
         """Get the set of mounted child app namespace names."""
@@ -228,13 +223,21 @@ class CompletionProvenanceClassifier:
             if child_name:
                 return str(child_name)
 
-        child_names = self._get_child_app_names()
+        return _child_namespace(job, self._get_child_app_names()) or "child"
 
-        if job.group and job.group in child_names:
-            return job.group
 
-        name_prefix = job.name.split(".")[0] if "." in job.name else None
-        if name_prefix and name_prefix in child_names:
-            return name_prefix
+def _child_namespace(job: JobDescriptor, child_names: frozenset[str]) -> str | None:
+    """The mounted child namespace `job` belongs to, or None.
 
-        return "child"
+    A child's jobs keep their own group and gain the namespace as a prefix of
+    their dotted identity (``NamespaceTransform``), so an ungrouped child job
+    ``ns.build`` has the single-segment path ``ns.build``: its path does not
+    carry the namespace and cannot answer this. The identity prefix can, and
+    matching it is a programmatic read of the identity, not a shell spelling.
+    """
+    if job.group and job.group in child_names:
+        return job.group
+    return next(
+        (name for name in sorted(child_names) if job.name.startswith(f"{name}.")),
+        None,
+    )
