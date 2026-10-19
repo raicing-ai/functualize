@@ -799,11 +799,17 @@ def _show_command_not_found(cmd: str, app: object) -> None:
                 # The list is capped by `suggest_similar_commands` itself, at
                 # the same number `func` shows. A second, smaller slice here
                 # is how the two doors answered one question differently.
+                # Render every row before printing the header, so a row that
+                # cannot be rendered never leaves an empty "Did you mean:".
+                rows = [
+                    f"  {app.name} {descriptors_by_name[s].command_path}"
+                    if s in descriptors_by_name
+                    else f"  {app.name} {s}"
+                    for s in suggestions
+                ]
                 print("\nDid you mean:", file=sys.stderr)
-                for s in suggestions:
-                    descriptor = descriptors_by_name.get(s)
-                    path = str(descriptor.command_path) if descriptor else s
-                    print(f"  {app.name} {path}", file=sys.stderr)
+                for row in rows:
+                    print(row, file=sys.stderr)
     except Exception:
         pass
 
