@@ -95,6 +95,13 @@ fail three assertions; the guard was removed again.
 
 ### T6 — Collision projection for human and JSON output
 
+Status: [x] Complete. Typed findings are joined to the final descriptor by
+identity. Clean catalog/detail key sets remain exact; affected rows add only
+the five-field `collisions` array. One-file and two-file cold/warm info, three
+claimants, narrow/full text and JSON, and legacy four-key failures passed.
+After the clean commit, removing the projection calls made the full-report
+test fail on the missing array; the calls were restored.
+
 - Inputs: T2; `job_catalog` and `discovery_failures` reference sets from Serena.
 - [F] `src/functualize/_cli/info.py`, `src/functualize/_cli/builtins.py`, `tests/cli/test_info_discovery_failures.py`, `tests/cli/test_job_detail_declaration.py`.
 - Invariants: one projection joins typed findings to the final descriptor by identity; no message parsing. Text says path and both files; JSON says identity and adds `collisions` only on affected rows. Full report's `discovery_failures` shape and clean catalog rows remain compatible.
