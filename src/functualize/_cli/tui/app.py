@@ -2335,6 +2335,22 @@ class FunctualizeInlineTUI(App[int]):
         command = str(descriptor.command_path)
         return f"[bold]{command} — {first_line}[/bold]"
 
+    def _write_preflight_job_header(
+        self, log: RichLog, descriptor: Any, job_name: str
+    ) -> None:
+        """The job header, then any collision finding for the job, verbatim.
+
+        The finding is the same line `func` prints on stderr before the job
+        runs, so the pre-flight warns about exactly what the run would.
+        """
+        from rich.markup import escape
+
+        from functualize._cli.info import collision_notices
+
+        log.write(self._format_preflight_job_header(descriptor, job_name))
+        for notice in collision_notices(self._func_app).get(job_name, ()):
+            log.write(f"[yellow]{escape(notice)}[/yellow]")
+
     def _render_preflight_summary(self, log: RichLog) -> None:
         """Render compact pre-flight summary with single-line-per-field format.
 
@@ -2399,12 +2415,12 @@ class FunctualizeInlineTUI(App[int]):
                 # the discoverability hint silently disappears for the
                 # zero-fields edge case.
                 if self._smart_bar.readiness == BarReadiness.READY:
-                    log.write(self._format_preflight_job_header(descriptor, job_name))
+                    self._write_preflight_job_header(log, descriptor, job_name)
                     log.write("[dim]Ctrl+Enter run  ·  Ctrl+S save as shortcut[/dim]")
                 return
 
             # --- Job header (bold: job_name — first_line_of_docstring) ---
-            log.write(self._format_preflight_job_header(descriptor, job_name))
+            self._write_preflight_job_header(log, descriptor, job_name)
 
             # Determine available width for truncation
             try:

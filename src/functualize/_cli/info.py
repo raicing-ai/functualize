@@ -31,6 +31,7 @@ __all__ = [
     "job_catalog",
     "job_detail",
     "command_schemas",
+    "collision_notices",
     "collision_projection",
     "render_catalog_text",
     "render_collision_notice",
@@ -167,6 +168,23 @@ def render_collision_notice(path: str, collision: dict[str, str]) -> str:
         f"({collision['dropped_source_file']}) was dropped. "
         "Rename one job."
     )
+
+
+def collision_notices(app: FunctualizeApp) -> dict[str, list[str]]:
+    """Each colliding job's notice lines, keyed by identity.
+
+    The one source for every human surface that warns about a collision -- the
+    invocation, group help, the TUI row and pre-flight -- so they cannot word
+    or path the same finding differently. A clean job has no entry.
+    """
+    descriptors = {descriptor.name: descriptor for descriptor in app.get_jobs()}
+    return {
+        name: [
+            render_collision_notice(str(descriptors[name].command_path), collision)
+            for collision in collisions
+        ]
+        for name, collisions in collision_projection(app).items()
+    }
 
 
 def job_catalog(app: FunctualizeApp) -> list[dict[str, Any]]:

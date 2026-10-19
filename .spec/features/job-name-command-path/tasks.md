@@ -195,7 +195,7 @@ root help, which lists the project's jobs and groups.
 ### T10 — Collision notice on the command and in TUI
 
 - Inputs: T6/T7; one text renderer from `src/functualize/_cli/info.py`.
-- [F] `src/functualize/_cli/main.py`, `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/panels/job_browser.py`, `tests/cli/test_collision_surfaces.py`, `tests/tui/test_command_path_surface.py`.
+- [F] `src/functualize/_cli/main.py`, `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/panels/job_browser.py`, `tests/cli/test_collision_surfaces.py`, `tests/tui/test_command_path_surface.py`, `src/functualize/_cli/info.py` (the notice lines are rendered at each job's path beside the existing renderer, so every surface reads one function), `src/functualize/_cli/tui/job_listing.py` (it builds the browser panel, which must receive the notices).
 - Invariants: invocation writes one warning line to stderr before the final claimant runs; group help, TUI row marker and pre-flight warning agree. A clean command gets none; no duplicate warning under cold/warm discovery. A selected row still invokes identity.
 - Gate: E5 all human surfaces and N2. Wire: remove the warning call from each door after commit; the corresponding test fails.
 - Dependency: T6/T7. Completion evidence: one/two-file transcripts and TUI assertions.

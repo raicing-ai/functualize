@@ -165,3 +165,74 @@ def test_panel_refusal_offers_the_trie_path(tmp_path, monkeypatch):
     run_job(tui, ["deploy", "web.run"])  # type: ignore[arg-type]
     assert len(written) == 1
     assert "[bold]deploy web run[/bold]." in written[0]
+
+
+@pytest.fixture()
+def colliding_tui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from functualize._cli.tui.app import FunctualizeInlineTUI
+    from functualize.app.config import JobSources, PluginSources
+    from functualize.app.core import FunctualizeApp
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.chdir(tmp_path)
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "tools.py").write_text(
+        'JOB_GROUP = "tools"\n\n'
+        'def status() -> None:\n    """Report status."""\n\n'
+        "def status_() -> None:\n    pass\n\n"
+        "def other() -> None:\n    pass\n"
+    )
+    (jobs / "hello.py").write_text("def hello() -> None:\n    pass\n")
+    app = FunctualizeApp(
+        name="sample",
+        job_sources=JobSources(directories=[str(jobs)]),
+        plugin_sources=PluginSources(entry_point_group="functualize.plugins.__none__"),
+    )
+    return FunctualizeInlineTUI(app)
+
+
+def _cli_line(tui) -> str:
+    from functualize._cli.info import collision_notices
+
+    (line,) = collision_notices(tui._func_app)["tools.status"]
+    return line
+
+
+def test_preflight_shows_the_cli_collision_line(colliding_tui):
+    """The pre-flight warns with the exact line `func` prints before the run."""
+    from types import SimpleNamespace
+
+    written: list[str] = []
+    log = SimpleNamespace(write=written.append)
+    func_app = colliding_tui._func_app
+    for name, expected in (("tools.status", 2), ("tools.other", 1)):
+        written.clear()
+        descriptor = func_app.get_job(name)
+        colliding_tui._write_preflight_job_header(log, descriptor, name)
+        assert len(written) == expected
+    written.clear()
+    colliding_tui._write_preflight_job_header(
+        log, func_app.get_job("tools.status"), "tools.status"
+    )
+    assert _cli_line(colliding_tui) in written[1]
+    assert _cli_line(colliding_tui).startswith("JobNameCollision: tools status: ")
+
+
+def test_browser_marks_the_row_that_reaches_the_collision(colliding_tui):
+    from functualize._cli.tui.job_listing import build_general_panels
+    from functualize._cli.tui.panels.job_browser import JobBrowserPanel
+
+    colliding_tui._panel_id_seq = 0
+    browser = next(
+        widget
+        for _, widget in build_general_panels(colliding_tui)
+        if isinstance(widget, JobBrowserPanel)
+    )
+    cells = {job.name: browser._row_cells(job) for job in browser._jobs}
+    assert cells["tools"][0] == "tools ⚠"
+    assert cells["tools"][2] == _cli_line(colliding_tui)
+    assert cells["hello"][0] == "hello"
+    assert "JobNameCollision" not in cells["hello"][2]

@@ -934,6 +934,18 @@ def _render_group_option_rows(specs: list[Any]) -> list[tuple[str, str]]:
     return rows
 
 
+def _warn_collisions(app: Any, descriptor: Any) -> None:
+    """Print the job's collision findings to stderr, one line each, before it runs.
+
+    The collision stays a warning -- the surviving claimant runs -- but a user
+    who typed the command learns here, not later, that another job wanted it.
+    """
+    from functualize._cli.info import collision_notices
+
+    for line in collision_notices(app).get(descriptor.name, ()):
+        print(line, file=sys.stderr)
+
+
 def _show_dotted_group_error(token: str, path: tuple[str, ...]) -> int:
     """Explain the shell spelling for a token that crossed group edges."""
     print(
@@ -1135,6 +1147,7 @@ def _dispatch_group(
                 output_format=output_format,
                 force=force,
             )
+            _warn_collisions(app, job_descriptor)
             return invoke_command_capturing(
                 command,
                 remaining,
@@ -1161,6 +1174,10 @@ def _dispatch_group(
     children = sorted(node.children.values(), key=lambda child: child.segment)
     sub_groups = sorted(child.segment for child in children if child.children)
     entries: list[tuple[str, str]] = []
+    from functualize._cli.info import collision_notices
+
+    notices = collision_notices(app)
+    entry_notices: dict[str, list[str]] = {}
     for child in children:
         if not child.has_payload:
             continue
@@ -1169,6 +1186,7 @@ def _dispatch_group(
             entries.append(
                 (child.segment, (job.docstring or "").strip().split("\n")[0])
             )
+            entry_notices[child.segment] = notices.get(job.name, [])
             continue
         cmd = plugins_by_path.get(child.payload or "")
         if cmd is not None:
@@ -1202,6 +1220,8 @@ def _dispatch_group(
             width = max(len(cmd_name) for cmd_name, _ in rows)
             for cmd_name, desc in rows:
                 print(f"  {cmd_name.ljust(width)}  {desc}".rstrip())
+                for notice in entry_notices.get(cmd_name, ()):
+                    print(f"    {notice}")
         if not sub_groups and not entries:
             print("No commands available.")
         return 0
@@ -1571,6 +1591,7 @@ def _handle_job(
         force=force,
     )
 
+    _warn_collisions(app, job_descriptor)
     return invoke_command_capturing(
         command,
         remaining_args,
