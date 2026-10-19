@@ -1,21 +1,17 @@
-"""``func --help`` is a global-flags page, and stays one.
+"""``func --help`` lists the project's top-level commands beside ``builtin``.
 
-The top-level help lists exactly one command — ``builtin``. Not the discovered
-jobs, not the job groups, not the commands a plugin registered. That is a
-**decision**, taken 2026-09-08, not an accident of the lazy-boot design:
-``--help`` is intercepted pre-boot (``_cli/main.py``, the ``"--help" in
-sys.argv`` branch) and routed to a plain click group carrying only what
-``register_builtin_commands`` mounts, which is the single ``builtin`` name.
+The page used to list exactly one command, ``builtin``: a decision taken
+2026-09-08 and pinned here, which kept discovery out of the help page. The
+approved command-path shape reverses it (N3). A reader of ``func --help`` in a
+project now sees the first word of every path that runs — each top-level job
+and each top-level group — alongside the reserved ``builtin`` subtree.
 
-The command index lives elsewhere and is reachable three ways: bare ``func``
-(the TUI on a terminal, a job list when piped), ``func builtin info schema``
-for the machine-readable form, and ``func <namespace>`` to drill into a group.
-
-This test exists because the surrounding feature adds plugin commands to the
-*command tree*, and the command tree feeds several surfaces that render command
-lists. It would be an easy and plausible-looking mistake to let them reach this
-one too. If a change makes ``func --help`` grow a row, this fails — and the fix
-is to put the row on the surface that wanted it, not to relax the assertion.
+What this file pins instead is that the page is an *inventory*, not a second
+opinion: its rows are the top-level nodes of the command tree the shell, the
+TUI and an app's own CLI walk, so a row cannot name something that does not
+run, and a path that runs cannot be missing from it. It also keeps the old
+file's other promises: cold and warm render identically, and a broken project
+still gets its help page.
 """
 
 from __future__ import annotations
@@ -25,8 +21,24 @@ from tests.conftest import surfaces
 # About the bare `func` entry point specifically: the pre-boot `--help`
 # interception exists only there. A `FunctualizeApp`'s own click group is
 # assembled by `CliAdapter`, mounts its jobs deliberately, and is a different
-# contract — pinning it here would assert something this decision never said.
+# contract.
 pytestmark = surfaces("func")
+
+JOBS = {
+    "tasks.py": (
+        "from functualize.job import job\n"
+        "\n"
+        "@job\n"
+        "def deploy() -> None:\n"
+        '    """Deploy the thing."""\n'
+    ),
+    "suite.py": (
+        'JOB_GROUP = "suite"\n\n'
+        "def inventory() -> None:\n    pass\n\n"
+        "def versions() -> None:\n    pass\n"
+    ),
+    "web.py": 'JOB_GROUP = "infra.web"\n\ndef run() -> None:\n    pass\n',
+}
 
 
 def _commands_block(help_text: str) -> list[str]:
@@ -43,65 +55,83 @@ def _commands_block(help_text: str) -> list[str]:
     return out
 
 
-class TestTopLevelHelpListsOnlyBuiltin:
-    def test_commands_block_is_exactly_builtin(self, cli_run, project_tree) -> None:
-        """One row, and it is ``builtin`` — even with jobs present to tempt it."""
-        project = project_tree(
-            jobs={
-                "tasks.py": (
-                    "from functualize import job\n"
-                    "\n"
-                    "@job\n"
-                    "def deploy() -> None:\n"
-                    '    """Deploy the thing."""\n'
-                )
-            }
-        )
-        result = cli_run(["--help"], cwd=project)
+def _names(help_text: str) -> list[str]:
+    return [row.split()[0] for row in _commands_block(help_text)]
 
-        assert result.exit_code == 0
-        rows = _commands_block(result.stdout)
-        assert len(rows) == 1, f"expected one command row, got {rows}"
-        assert rows[0].startswith("builtin"), rows[0]
 
-    def test_discovered_jobs_are_absent(self, cli_run, project_tree) -> None:
-        """A job that `func` can run is still not advertised here."""
-        project = project_tree(
-            jobs={
-                "tasks.py": (
-                    "from functualize import job\n"
-                    "\n"
-                    "@job\n"
-                    "def deploy() -> None:\n"
-                    '    """Deploy the thing."""\n'
-                )
-            }
-        )
-        result = cli_run(["--help"], cwd=project)
+class TestTopLevelHelpIsTheCommandInventory:
+    def test_rows_are_builtin_plus_each_top_level_job_and_group(
+        self, cli_run, project_tree
+    ) -> None:
+        """One row per first path word; nested groups appear only at the root."""
+        result = cli_run(["--help"], cwd=project_tree(jobs=JOBS))
 
-        assert result.exit_code == 0
-        assert "deploy" not in _commands_block(result.stdout)
+        assert result.exit_code == 0, result.stderr
+        assert _names(result.stdout) == ["builtin", "deploy", "infra", "suite"]
+        rows = dict(row.split(None, 1) for row in _commands_block(result.stdout))
+        assert rows["deploy"] == "Deploy the thing."
+        assert "--log-level" in result.stdout, "global options must stay"
+
+    def test_rows_match_the_paths_the_bare_listing_prints(
+        self, cli_run, project_tree
+    ) -> None:
+        """Parity: every listed path starts with a row, and every row runs."""
+        project = project_tree(jobs=JOBS)
+        helped = cli_run(["--help"], cwd=project)
+        listed = cli_run([], cwd=project)
+
+        assert helped.exit_code == listed.exit_code == 0
+        # Plugin namespaces close the listing as `<ns> — N commands (run …)`;
+        # root help lists the project's jobs and groups, not installed plugins.
+        first_words = {
+            line.split()[0]
+            for line in listed.stdout.splitlines()
+            if "(run 'func " not in line
+        }
+        assert set(_names(helped.stdout)) == first_words | {"builtin"}
 
     def test_help_is_stable_across_two_invocations(self, cli_run, project_tree) -> None:
         """Cold and warm render identically.
 
-        The second run reads the discovery cache the first one wrote. Since the
-        help page is not supposed to reflect discovery at all, the two must be
-        byte-identical — a divergence would mean discovery had leaked in.
+        The second run reads the discovery cache the first one wrote. The rows
+        come from discovery now, so a divergence would mean the two boots
+        disagree about the project's shape.
         """
-        project = project_tree(
-            jobs={
-                "tasks.py": (
-                    "from functualize import job\n"
-                    "\n"
-                    "@job\n"
-                    "def deploy() -> None:\n"
-                    '    """Deploy the thing."""\n'
-                )
-            }
-        )
+        project = project_tree(jobs=JOBS)
         cold = cli_run(["--help"], cwd=project)
         warm = cli_run(["--help"], cwd=project)
 
         assert cold.exit_code == warm.exit_code == 0
         assert cold.stdout == warm.stdout
+
+    def test_builtin_help_is_not_given_the_project_rows(
+        self, cli_run, project_tree
+    ) -> None:
+        result = cli_run(["builtin", "--help"], cwd=project_tree(jobs=JOBS))
+
+        assert result.exit_code == 0
+        assert "deploy" not in _names(result.stdout)
+        assert "suite" not in _names(result.stdout)
+
+
+class TestBrokenProjectsKeepTheirHelp:
+    def test_a_module_that_fails_to_load_leaves_the_rest(
+        self, cli_run, project_tree
+    ) -> None:
+        jobs = {**JOBS, "broken.py": "def oops(:\n"}
+        result = cli_run(["--help"], cwd=project_tree(jobs=jobs))
+
+        assert result.exit_code == 0, result.stderr
+        assert "builtin" in _names(result.stdout)
+        assert "deploy" in _names(result.stdout)
+
+    def test_a_project_that_cannot_boot_still_prints_the_page(
+        self, cli_run, project_tree
+    ) -> None:
+        """A job claiming the reserved name stops the boot, not the help."""
+        jobs = {**JOBS, "reserved.py": "def builtin() -> None:\n    pass\n"}
+        result = cli_run(["--help"], cwd=project_tree(jobs=jobs))
+
+        assert result.exit_code == 0, result.stderr
+        assert "--log-level" in result.stdout
+        assert "builtin" in _names(result.stdout)

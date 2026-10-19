@@ -103,6 +103,29 @@ class _LeftMarginEpilogGroup(click.Group):
 
         self.format_commands(ctx, formatter)
 
+    #: The project's top-level jobs and groups, as ``(name, help)`` rows. Set
+    #: only by the ``--help`` route, and read only when this group renders its
+    #: own Commands block, so ``func builtin … --help`` never boots a project.
+    discovered_rows: Callable[[], list[tuple[str, str]]] | None = None
+
+    def format_commands(self, ctx: click.Context, formatter: Any) -> None:
+        """List ``builtin`` beside the project's discovered top-level paths.
+
+        A row is a help-only placeholder, never registered: this group does not
+        dispatch jobs, so nothing could invoke it.
+        """
+        if self.discovered_rows is None:
+            super().format_commands(ctx, formatter)
+            return
+        rows: dict[str, click.Command] = {
+            name: click.Command(name, help=help_text)
+            for name, help_text in self.discovered_rows()
+        }
+        rows.update(self.commands)
+        # A throwaway group renders the merged block, so this group's own
+        # registry -- module-level and reused in-process -- never gains a row.
+        click.Group(commands=rows).format_commands(ctx, formatter)
+
     def format_epilog(self, ctx: click.Context, formatter: Any) -> None:
         from functualize.app.utils import write_agent_epilog
 
@@ -525,6 +548,28 @@ def _print_perf_report(app: Any, fmt: str, filter_pattern: str | None) -> None:
         print(report.to_json(include=filter_pattern), file=sys.stderr)
     else:
         print(report.summary(include=filter_pattern), file=sys.stderr)
+
+
+def _discovered_help_rows(
+    anchor: Path,
+    merged_config: dict[str, Any],
+    effective: dict[str, list[str]],
+    cli_flags: dict[str, Any],
+) -> list[tuple[str, str]]:
+    """Root-help rows: the top-level nodes of the shell's command tree.
+
+    The tree is the trie the shell, the TUI and an app's own CLI navigate, so
+    a row is exactly the first word of a path that runs. A project that fails
+    to boot loses its rows, never the page: the help is what explains it.
+    """
+    from functualize.app.commands import JobCommandProvider
+
+    try:
+        app = _boot_project_app(anchor, merged_config, effective, cli_flags)
+        return [(node.name, node.help_text) for node in JobCommandProvider(app).nodes()]
+    except Exception as exc:  # noqa: BLE001 - help must survive a broken project
+        logger.debug("root help: no discovered rows (%s)", exc)
+        return []
 
 
 def _handle_bare(
@@ -1171,39 +1216,16 @@ def _dispatch_group(
     return 1
 
 
-def _handle_group(
-    args: list[str],
+def _boot_project_app(
     anchor: Path,
     merged_config: dict[str, Any],
     effective: dict[str, list[str]],
     cli_flags: dict[str, Any],
-    group_names: set[str],
-    *,
-    output_format: str = "none",
-    _app_ref: list[Any] | None = None,
-    prompt_gates: bool = False,
-    force: bool = False,
-) -> int:
-    """Handle Mode.GROUP: boot app, then delegate to _dispatch_group.
+) -> Any:
+    """Boot the project's FunctualizeApp over the resolved scan roots.
 
-    Boots the full app (plugins included) and hands off to _dispatch_group,
-    which greedily consumes the group path and lists or executes the target
-    job or plugin command. Group-path consumption happens post-boot so it can
-    see plugin-registered command groups (e.g. ``mcp``) alongside job groups.
-
-    Args:
-        args: [group_segment_1, ..., sub_command?, ...remaining_args]
-        anchor: Project anchor directory.
-        merged_config: Merged project config dict.
-        effective: Resolved effective directories.
-        cli_flags: Parsed global CLI flags for resolve_cli_config.
-        group_names: Set of known group names (including ancestor prefixes).
-        output_format: The --emit-format flag value (json, text, or none).
-        _app_ref: Optional mutable container; if provided, the constructed
-            FunctualizeApp is appended so callers can access it for perf reporting.
-
-    Returns:
-        Exit code (0 = success).
+    Shared by group dispatch and root help, so the commands a group lists and
+    the rows ``func --help`` shows come from one boot of one project shape.
     """
     from functualize._cli.config import resolve_cli_config
     from functualize.app import FunctualizeApp
@@ -1250,6 +1272,44 @@ def _handle_group(
         if _disabled_plugins
         else None,
     )
+    return app
+
+
+def _handle_group(
+    args: list[str],
+    anchor: Path,
+    merged_config: dict[str, Any],
+    effective: dict[str, list[str]],
+    cli_flags: dict[str, Any],
+    group_names: set[str],
+    *,
+    output_format: str = "none",
+    _app_ref: list[Any] | None = None,
+    prompt_gates: bool = False,
+    force: bool = False,
+) -> int:
+    """Handle Mode.GROUP: boot app, then delegate to _dispatch_group.
+
+    Boots the full app (plugins included) and hands off to _dispatch_group,
+    which greedily consumes the group path and lists or executes the target
+    job or plugin command. Group-path consumption happens post-boot so it can
+    see plugin-registered command groups (e.g. ``mcp``) alongside job groups.
+
+    Args:
+        args: [group_segment_1, ..., sub_command?, ...remaining_args]
+        anchor: Project anchor directory.
+        merged_config: Merged project config dict.
+        effective: Resolved effective directories.
+        cli_flags: Parsed global CLI flags for resolve_cli_config.
+        group_names: Set of known group names (including ancestor prefixes).
+        output_format: The --emit-format flag value (json, text, or none).
+        _app_ref: Optional mutable container; if provided, the constructed
+            FunctualizeApp is appended so callers can access it for perf reporting.
+
+    Returns:
+        Exit code (0 = success).
+    """
+    app = _boot_project_app(anchor, merged_config, effective, cli_flags)
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -2122,6 +2182,9 @@ def _run_cli() -> None:
         and mode is not Mode.GROUP
     ):
         register_builtin_commands(cli_app)
+        cli_app.discovered_rows = lambda: _discovered_help_rows(
+            anchor, merged_config, effective, cli_flags
+        )
         # `--help` prints and stops. It never runs a job, so a project-wide
         # contradiction — two files contesting one group's flags — has nothing
         # to make ambiguous here, and killing a help request over it left a
@@ -2129,8 +2192,11 @@ def _run_cli() -> None:
         # that would explain it (`func builtin why --help` exited 2 with an
         # empty stdout). Unconditional, not `_diagnostic_scope`: the rule is
         # about *running*, and this path runs nothing (decision D-4).
-        with diagnostic_boot():
-            cli_app()
+        try:
+            with diagnostic_boot():
+                cli_app()
+        finally:
+            cli_app.discovered_rows = None
         return
 
     # Resolve output format from global options. Unset → "auto": the emitter
