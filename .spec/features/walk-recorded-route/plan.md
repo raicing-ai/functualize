@@ -56,7 +56,7 @@ The page's §6 AFTER is kept. This plan adds one placement the page left open
   only.
 - **Codemaps.** `contributor/architecture/codemaps/data-flow.md:237` lists
   `WorkflowReader`'s readers (`workflow, step, steps, branch, state`). The
-  AFTER adds `branches`, so that line is updated (T7). Nothing in
+  AFTER adds `branches`, so that line is updated (task 4.1). Nothing in
   `overview.md`, `modules.md`, `dependencies.md` or `entry-points.md`
   contradicts the BEFORE below.
 - **Skills consulted:**
@@ -142,7 +142,7 @@ Smells the BEFORE already carries (catalogue names):
   `app.utils`, which is an indirect import that the contract allows.
 - `_engine/decision_keys.py` imports `_types` only.
 - `_types/workflow.py` gains no import.
-- `uv run lint-imports` is the Execute gate on this (T2, T3).
+- `uv run lint-imports` is the Execute gate on this (tasks 1.1, 2.1).
 
 **Candidate AFTERs checked for introduced smells.**
 
@@ -199,7 +199,7 @@ deprecation shim, and no hard-coded path. Nothing on the list is present.
    - anything else containing NUL is a **marker** and is dropped.
 
    It preserves input order. The walker imports the encoders from here.
-   Records stay byte-identical, which T3's existing walker tests pin.
+   Records stay byte-identical, which task 2.1's walker-test gate pin.
 4. **Projection** (`app/_workflow_view.py`).
    - `_port_record` sets `"branches": dict(reader.branches(id))`, raw. When
      the store's `workflows` has no callable `branches`, it raises
@@ -215,7 +215,7 @@ deprecation shim, and no hard-coded path. Nothing on the list is present.
    `_workflow_refusal` (`_cli/builtins.py:1141-1156`, around show, list and
    resume), `@_refuse_unreadable_scopes` (MCP `get_workflow_state`,
    `list_workflows`, `resume_workflow`), and `click_params.py:1170`
-   (`--wf-show`). T6 asserts this; it does not edit it.
+   (`--wf-show`). Task 3.2 asserts this; it does not edit it.
 6. **Text** (`_cli/builtins.py` `_render_scope`, `:1201-1204`). Print both
    lines unconditionally, with `-` when empty (contracts §1).
 7. **Declaration** (`_types/workflow.py`). `Step`, `Gate` and `AgentStep`
@@ -268,9 +268,9 @@ tests` returns exactly the two stores, the Protocol, and `FrontierWalk`
 | --- | --- |
 | A third-party store without `branches` breaks on `show` | contracts §6 refusal (exit 2, `scope_store_unreadable`); `run_baseline` fails loudly first; CHANGELOG names it |
 | Documents scripts reading `branches["publish\u0000onfailure"]` | undocumented key; replacement `failure_routes["publish"]`; CHANGELOG (spec R2) |
-| Moving the encoders silently changes stored keys | T3's gate: the existing failure-routing and notify walker tests pass unchanged, and `test_notify.py:339` still reads the marker in the raw record |
+| Moving the encoders silently changes stored keys | Task 2.1's gate: the existing failure-routing and notify walker tests pass unchanged, and `test_notify.py:339` still reads the marker in the raw record |
 | A rowid order that differs from write order after a legacy import | `_legacy_import.py` inserts in source order; AC-11 runs on both stores with a fresh walk |
-| `--wf-show` refusal path untested today | T6 adds the assertion through the app flag, not just the builtin |
+| `--wf-show` refusal path untested today | Task 3.2 adds the assertion through the app flag, not just the builtin |
 
 ## Surviving smells
 
