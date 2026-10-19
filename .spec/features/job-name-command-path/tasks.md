@@ -8,6 +8,11 @@ Status: task review approved by the maintainer on 2026-10-19 (graph and both sur
 
 ### T0 — Red acceptance fixtures
 
+Status: [x] Complete. The base run failed eight named acceptance tests for the
+measured shell, TUI, collision and root-help behavior; the separate literal-dot
+leaf and explicit-group guard passed. The CLI path is `cli_run -> main ->
+dispatch/help/info`, and the TUI path is `SmartBarAutoComplete -> group context`.
+
 - Inputs: `spec.md` E1–E8 and the measured commands in `research.md`.
 - [F] `tests/cli/test_command_path_surface.py` (new), `tests/tui/test_command_path_surface.py` (new), `tests/cli/test_collision_surfaces.py` (new).
 - Invariants: isolated HOME and all XDG roots for subprocesses; keep the current deterministic winner and machine-readable identity assertions. Test the same fixture cold and warm. The printed suggestion is copied into a subprocess, not merely string-checked.
