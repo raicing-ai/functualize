@@ -55,7 +55,7 @@ that took a branch.
 
 ## Wave 1 — independent declaration refusal
 
-- [ ] **1.2 Node names refuse NUL**
+- [x] **1.2 Node names refuse NUL**
 
 `Step`, `Gate` and `AgentStep` `__post_init__` raise `ValueError` per
 contracts §7, beside each existing empty-name refusal.
@@ -69,6 +69,10 @@ contracts §7, beside each existing empty-name refusal.
   task 3.1 in wave 2. Do not claim that broader suite is green here.
 - Call path: node construction, which every `@workflow` declaration runs.
   Sabotage one NUL check after committing and verify its AC-10 case fails.
+- Evidence: at `c3f13d1c` the gate is 25 passed, with `ruff check`, `ruff
+  format --check`, `mypy src/` and `lint-imports` clean. Sabotage: `Gate`'s
+  NUL check disabled after commit → `test_node_names_refuse_nul[<lambda>1]`
+  failed (1 failed, 2 passed); restored with `git checkout --`.
 
 ## Wave 2 — integrate the reader, encoding owner and projection
 
