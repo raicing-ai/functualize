@@ -92,6 +92,19 @@ class _EndSentinel:
 END: _EndSentinel = _EndSentinel()
 
 
+def _refuse_nul(kind: str, name: str) -> None:
+    """Refuse a node name the decision-key encoding could not tell apart.
+
+    A walk namespaces its bookkeeping records with NUL (`<node>\\x00onfailure`,
+    `\\x00notify\\x00…`), so a node whose own name held one could forge a
+    failure route or a notification marker.
+    """
+    if "\x00" in name:
+        raise ValueError(
+            f"{kind} name must not contain a NUL character ('\\x00'): {name!r}"
+        )
+
+
 def _job_ref_name(job: str | Callable[..., Any]) -> str:
     """Resolve a job reference to the name that identifies it in the graph.
 
@@ -157,16 +170,14 @@ class Step:
         if isinstance(self.job, str):
             if not self.job.strip():
                 raise ValueError("Step job reference must not be empty")
-            if "\x00" in self.job:
-                raise ValueError("Step job reference must not contain NUL")
+            _refuse_nul("Step", self.job)
             return
         if not callable(self.job):
             raise TypeError(
                 f"Step job must be a registered job name or a callable, "
                 f"got {type(self.job).__name__}"
             )
-        if "\x00" in _job_ref_name(self.job):
-            raise ValueError("Step job reference must not contain NUL")
+        _refuse_nul("Step", _job_ref_name(self.job))
 
     @property
     def name(self) -> str:
@@ -329,8 +340,7 @@ class Gate:
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name.strip():
             raise ValueError("Gate name must be a non-empty string")
-        if "\x00" in self.name:
-            raise ValueError("Gate name must not contain NUL")
+        _refuse_nul("Gate", self.name)
         # A gate name is a node address — the string used to resume it — so it
         # canonicalizes like every other address.
         object.__setattr__(self, "name", _job_ref_name(self.name))
@@ -486,8 +496,7 @@ class AgentStep:
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name.strip():
             raise ValueError("AgentStep name must be a non-empty string")
-        if "\x00" in self.name:
-            raise ValueError("AgentStep name must not contain NUL")
+        _refuse_nul("AgentStep", self.name)
         # A node name is a graph address, so it canonicalizes like every other
         # address (`Step`, `Gate`, `Edge`) — otherwise an edge written from the
         # name the author typed would not find this node.
