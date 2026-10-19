@@ -223,24 +223,16 @@ class SmartBarAutoComplete:
         trie = self._group_trie
         if trie is None:
             return None, [], None, 0
-        node = trie.root
-        segments: list[str] = []
-        index = 0
-        while index < len(tokens):
-            token = tokens[index]
-            if token.startswith("-"):
-                # A group flag and (for a value flag) its value are not path.
-                index += 2 if "=" not in token and index + 1 < len(tokens) else 1
-                continue
-            stepped = trie.step(node, token)
-            if stepped is None:
-                break
-            node = stepped
-            segments.extend(token.split("."))
-            index += 1
-            if getattr(node, "has_payload", False) and getattr(node, "is_leaf", False):
-                return node, segments, node.payload, index
-        return node, segments, None, index
+        from functualize._cli.dispatch import walk_group_path
+
+        walk = walk_group_path(trie, tokens)
+        if walk.bad_path is not None:
+            return None, [], None, 0
+        node = walk.node
+        segments = list(node.path)
+        consumed = len(tokens) - len(walk.remaining)
+        job_name = node.payload if node.has_payload and node.is_leaf else None
+        return node, segments, job_name, consumed
 
     def _candidates_path(
         self, node: Any, segments: list[str], partial: str
@@ -266,7 +258,14 @@ class SmartBarAutoComplete:
                 job = self._cached_job_map.get(child.payload or "")
                 if job is not None and job.docstring:
                     desc = job.docstring.strip().split("\n")[0][:60]
-                badge = "[dim green]job[/dim green]"
+                if job is not None:
+                    provenance = self._provenance.get_provenance(job)
+                    badge = (
+                        f"[{provenance.badge_style}]{provenance.display_label}"
+                        f"[/{provenance.badge_style}]"
+                    )
+                else:
+                    badge = "[dim green]job[/dim green]"
             else:
                 badge = "[dim blue]group[/dim blue]"
             score = 2.0 if name.lower().startswith(partial_lower) else 1.0
