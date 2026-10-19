@@ -95,7 +95,17 @@ trip". It does not. SQLite keeps rowid order and passes. Settling contracts
 comment `01a15671` at `2026-10-19T23:13:37Z`: preserve recording order by
 stopping the shared document writer from sorting keys. Task 1.3 and the
 revised contracts §8.1 and plan *Approach* 2 carry that decision. Wave 2
-remains open until its full gate is green; wave 3 has not started.
+was left open until its full gate turned green; wave 3 had not started.
+
+Evidence at `ed05211`: the targeted store, decoder, conformance and example
+gate passed (136); the deferred workflow/CLI/MCP gate passed (580 passed, 24
+skipped); the root step selection passed (1780 passed, 36 skipped), and the
+SQLite plugin selection passed (186). Ruff check, Ruff format check, mypy and
+lint-imports passed. Restoring `sort_keys=True` only for sabotage after commit
+made the document round-trip/eviction test and the document AC-11 test fail
+(2 failed, 1 passed including SQLite); the committed writer was restored.
+The integrated reader, decoder, projection and example call paths and their
+sabotages were recorded at `38328d83`. All their named gates now pass.
 
 Evidence at `38328d83`:
 
@@ -119,7 +129,7 @@ Evidence at `38328d83`:
     AC-4 and walk cases fail on both stores.
   - The `Failure routes:` echo is removed: both CLI text tests fail.
 
-- [ ] **1.3 Documents store writes in recording order**
+- [x] **1.3 Documents store writes in recording order**
 
 Remove `sort_keys=True` from `atomic_write_json`. Preserve mapping insertion
 order across document writes so raw workflow branches retain recording order
@@ -139,7 +149,7 @@ order; there is no migration or backfill.
   `sort_keys=True` once and confirm both ordering and eviction tests fail;
   then restore the committed implementation.
 
-- [ ] **1.1 `WorkflowReader.branches` on the port and both stores**
+- [x] **1.1 `WorkflowReader.branches` on the port and both stores**
 
 Add `branches(scope_id) -> Mapping[str, str]` to the Protocol
 (`_types/persistence.py`, beside `branch`, `:864`). Implement it in:
@@ -166,7 +176,7 @@ Contracts §4.
   example fail. The readers are transitional until 3.1 and 4.2 are committed;
   leave 1.1 unchecked until both call paths, this gate and sabotage pass.
 
-- [ ] **2.1 `_engine/decision_keys.py`**
+- [x] **2.1 `_engine/decision_keys.py`**
 
 Move `_failure_branch`, `_notify_key` and `_ROUTED_TO_END` out of
 `_engine/workflow_walker.py` (`:1098-1133`) as `failure_key`, `notify_key`
@@ -193,7 +203,7 @@ Unit tests cover:
   (3.1) → `recorded_route` decodes that record. Sabotage the decoder call and
   confirm AC-2 fails. Leave 2.1 unchecked until both paths and its gate pass.
 
-- [ ] **3.1 Projection and `show` text**
+- [x] **3.1 Projection and `show` text**
 
 In `app/_workflow_view.py`:
 
@@ -215,7 +225,7 @@ empty (contracts §1).
   relational fails); the `recorded_route` call (AC-2 no-NUL fails); the
   `Failure routes:` echo (CLI test fails).
 
-- [ ] **4.2 Example caller for the public member**
+- [x] **4.2 Example caller for the public member**
 
 Extend `examples/standalone/workflow_store_read/test_workflow_store_read.py`
 with `runtime.workflows.branches(...)` from a booted app (D7). Exercise both
