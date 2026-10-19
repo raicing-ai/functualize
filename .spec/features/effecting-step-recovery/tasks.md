@@ -121,7 +121,12 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   `…/_workflow_sql.py`, `…/_readers.py`, `…/_migrations.py` (`SHIPPED_MIGRATIONS`
   appends `_load(3, "step_attempt")`, and the revision's on-disk object map gains
   the column), `plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py`,
-  `…/tests/test_workflow_sql.py`.
+  `…/tests/test_workflow_sql.py`; and the three files that pin the newest
+  schema version 2, so revision 3 turns them red (the hit set of
+  `rg -n "max\(version\).*\(2,\)|latest_version = 2|VALUES \(3, 'future'" plugins tests`):
+  `…/tests/test_plugin_selection.py`, `…/tests/test_runtime_store.py`,
+  `tests/conformance/sqlite_hooks.py` (`latest_version`, and the "ahead"
+  damage that must stay ahead of the shipped set).
 - **Change:** `ALTER TABLE workflow_steps ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0);`.
   `_stage_step` writes `attempt` and `started_at` (the column exists since `0001`).
   `_step` reads both. `suspend` with `supersedes` verifies that the named request is
