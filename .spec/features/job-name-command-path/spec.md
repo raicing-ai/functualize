@@ -17,16 +17,16 @@ A person using `func`, an application's own CLI, or the TUI can see different sp
 
 ## Acceptance gates (SD/19595276 E1–E8)
 
-| Gate | Experiment | Required result |
-| --- | --- | --- |
-| E1 | `func suite.inventori`, `func deploy.web.rnu`, `func versions` | Suggestions are spaced command paths and each suggested job runs when pasted. |
-| E2 | `func suite inventory --help`; app `suite inventory --help` | Usage is `func suite inventory [OPTIONS]` and `<app> suite inventory [OPTIONS]` respectively. |
-| E3 | `func suite.inventory` | Refused with the spaces hint and non-zero exit. |
-| E4 | TUI with no `GroupOptions`, type `audit ` | Offers `explain` and `notes` with `(local)` / `(job)` provenance, and no `builtin`. |
-| E5 | `status` and `status_` in `tools`, first one file then two | Invocation, group help, `info jobs` text/JSON and TUI browser show the finding; shell text says `tools status`, JSON says `tools.status`. Preserve the winner. |
-| E6 | Literal-dot leaf `Job(name="tools.lint")`, `Job(name="pack", group="ci")`, nested `deploy.web.run` | Every displayed path invokes its intended job. |
-| E7 | Root `func --help` in a project with `hello` and `suite` | Both are listed as command paths. |
-| E8 | Ratchet over `src/` | No job-name `replace(".", " ")` or `split(".")` outside `_types/naming.py`. |
+| # | Run | Must hold | Falsifies |
+| --- | --- | --- | --- |
+| E1 | `func suite.inventori`, `func deploy.web.rnu`, `func versions` | spaced suggestions, each exits 0 when pasted | rules 2, 3 |
+| E2 | `func suite inventory --help`, app `suite inventory --help` | `Usage: func suite inventory [OPTIONS]` / `Usage: <app> suite inventory [OPTIONS]` | rule 2 |
+| E3 | `func suite.inventory` | refused with the spaces hint, exit non-zero | rule 3 |
+| E4 | TUI, no `GroupOptions`: `audit` | `explain`, `notes` with `(local)` / `(job)`; no `builtin` | rule 4, H2 |
+| E5 | `status` and `status_` in `tools` (one file, then two): run, group help, `info jobs` (text/JSON), TUI browser | the finding on each; shell text says `tools status`, JSON says `tools.status` | rule 5, N2 |
+| E6 | `Job(name="tools.lint")`, `Job(name="pack", group="ci")`, nested `deploy.web.run` | every printed path runs | H1 |
+| E7 | root `func --help` | lists `hello` and `suite` | N3 |
+| E8 | ratchet test over `src/` | no `replace(".", " ")` / `split(".")` on a job name outside `_types/naming.py` | rule 2 |
 
 ## Boundaries
 
