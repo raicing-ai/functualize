@@ -127,6 +127,18 @@ the display wire was restored.
 
 ### T8 — Resume hints, provenance and inline handoff
 
+Status: [x] Complete. The blocked-run resume line is copied from stderr and
+run on the app door: a literal-dot leaf prints `tools.release --wf-resume`,
+a grouped job `ci ship --wf-resume`, and both finish the run. The deposit
+response names the same paths. Both TUI refusals offer the trie's whole path
+(`deploy web run` for `deploy web.run`). A mounted child's ungrouped job keeps
+child attribution and a local literal-dot leaf stays `local`; E4's `(local)`
+labels pass. No dot conversion remains at the six sites. After the clean
+commit, restoring each of the four text conversions failed its surface test,
+and dropping the child prefix match failed the provenance test; all restored.
+Deviation: provenance matches a child namespace by identity prefix, not by
+path, because an ungrouped child job is a single literal-dot leaf.
+
 - Inputs: T1/T5; job-name conversion hit set from `rg -n` in `research.md`.
 - [F] `src/functualize/app/_workflow_resume.py`, `src/functualize/app/adapters/click_params.py`, `src/functualize/_cli/completions/provenance.py`, `src/functualize/_cli/inline_tui.py`, `tests/cli/test_command_path_surface.py`, `tests/workflow/test_gate_drafts.py` (live deposit response is asserted here), `src/functualize/_cli/tui/cli_arg_parser.py` (the TUI resolution carries the trie's path for a refused dotted token), `src/functualize/_cli/tui/job_execution.py` (the in-panel worker renders the same hint from that resolution), `tests/tui/test_command_path_surface.py` (the in-panel hint is asserted here).
 - Invariants: resume lines use path without changing stored workflow identity; provenance derives from group/path rather than splitting identity; inline handoff uses the trie result, not dot substitution.
