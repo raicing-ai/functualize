@@ -4017,3 +4017,26 @@ asset still fails as "not listed".
 
 The rejected one-sided and generalised alternatives, with their reasons, are
 ADR-015's **Addendum (2026-10-14)** and its Alternatives Considered rows.
+
+## job-name-command-path — completed 2026-10-20
+
+Human shell surfaces render a discovered job as a space-separated command
+path. The shared path derivation also builds the group trie, so CLI suggestions,
+usage, root help, bare listings, resume hints, and TUI navigation agree. A
+suggested or selected command is executable as printed on both CLI doors.
+Programmatic names and persisted identities remain dotted. A dotted token
+that walks group edges is refused with a spaced-path hint; a literal dot in
+one leaf remains valid. Group options keep their position in the path.
+
+The TUI builds job navigation even without GroupOptions and scopes children
+to the selected depth. Collision diagnostics name the deterministic winner
+and both claimant source paths across invocation, help, info, TUI, and
+pre-flight surfaces. The legacy discovery-failure JSON keeps its original
+keys, while typed collision details remain available for human projections.
+The source ratchet rejects hand-written job-name dot-to-space conversions
+outside the shared naming rule.
+
+Two existing code-shape compromises remain: collision projection draws data
+from discovery in `_cli/info.py::discovery_failures`, and group dispatch in
+`_cli/main.py::_dispatch_group` remains long. New behavior stays in helpers;
+neither requires a new layer dependency.

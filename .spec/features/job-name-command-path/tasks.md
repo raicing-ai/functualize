@@ -243,8 +243,15 @@ as a boundary.
 
 ### T12 — Whole-feature gate and artifact lifecycle
 
+Status: [x] Complete. The E1–E8 selection across shell, app, TUI, cold/warm
+discovery, group flags, literal-dot leaves, legacy JSON, and the source ratchet
+passed (2283 passed, 389 skipped); the standalone group-options example passed
+(18 tests). Ruff check and format, mypy, and all seven import contracts passed.
+The dead-code delta introduced no new or tests-only findings. PR validation
+records the tip-tier and artifact lifecycle evidence at handoff.
+
 - Inputs: all preceding tasks and `contributor/guides/wiring-discipline.md`.
-- [F] `.spec/STATUS.md`, then deletion-only last commit under `.spec/features/job-name-command-path/` after the feature-bearing push validates.
+- [F] `.spec/STATUS.md`, this task ledger, then deletion-only last commit under `.spec/features/job-name-command-path/` after the feature-bearing push validates.
 - Invariants: no source or test edit in the final artifact-clearing commit. The durable rule and any accepted compromise move to `.spec/STATUS.md` or an ADR. No tracker key, URL, run id or harness name in commit/PR title or body. `master` is reached only by a reviewed squash PR; designer never performs merge, release or deploy.
 - Gate: E1–E8 end to end, both doors, TUI, cold/warm, group flags, exact legacy JSON keys; `uv run ruff check --fix src/ tests/ plugins/ examples/` then `ruff format --check`, `mypy src/`, `lint-imports`, relevant pytest (maximum two local invocations per verification), CI tip tier, and `uv run python .github/scripts/dead_code_delta.py <base> <head>`. Price the CI and test load; do not issue a single local suite expected past the 600 s cap. Confirm `contract-diff-carries-task-graph` parses this graph and `spec-artifacts-cleared` turns green after the deletion-only push.
 - Dependency: T11. Completion evidence: command outputs, dead-code classification, PR validation, durable entry and artifact-clearing commit.
