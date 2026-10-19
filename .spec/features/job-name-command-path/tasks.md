@@ -1,6 +1,6 @@
 # Execution waves
 
-Status: Plan review required before Execute. The approved shape confirms the behavior in `spec.md`; this graph and the surviving smells in `plan.md` are the native task-review gate. An implementer starts only after that review. All tasks use the fixed context anchor: `spec.md`, `contracts.md`, `research.md`, `plan.md`, `tasks.md`, and `.spec/STATE.md` (absent means no work in flight). The branch base is `91947bb4f90c611d588de9907f84e61edf2c1514`.
+Status: task review approved by the maintainer on 2026-10-19 (graph and both surviving smells accepted). T9 was then moved from wave 4 into its own wave because it shares `tests/cli/test_command_path_surface.py` with T8; same-wave tasks must touch disjoint files. Ordering only; no task content changed. All tasks use the fixed context anchor: `spec.md`, `contracts.md`, `research.md`, `plan.md`, `tasks.md`, and `.spec/STATE.md` (absent means no work in flight). The branch base is `91947bb4f90c611d588de9907f84e61edf2c1514`.
 
 `[F]` is the allowed file set. Each task names its production call path and a wire that must be broken after a clean commit to prove the test reaches it. If retrieval reveals another file, amend this graph before editing it. Wave N+1 starts only when every task in wave N is checked.
 
@@ -86,6 +86,8 @@ Status: Plan review required before Execute. The approved shape confirms the beh
 - Gate: copied resume line executes, literal-dot leaf survives, `(local)`/`(job)` attribution remains; source ratchet has no job-name dot conversion at these sites. Wire: restore each text conversion after commit and see a surface test fail.
 - Dependency: T5. Completion evidence: command transcript and provenance assertions.
 
+## Wave 5 — root help (serialized: shares `tests/cli/test_command_path_surface.py` with T8)
+
 ### T9 — Root help from the discovered trie
 
 - Inputs: T1/T3 and N3; the existing pinned decision/test in `tests/cli/test_help_surface_pinned.py`.
@@ -94,7 +96,7 @@ Status: Plan review required before Execute. The approved shape confirms the beh
 - Gate: E7, group nesting and broken-project help. Rewrite the old “builtin only” test as a positive inventory/parity test; do not delete it. Wire: remove the discovered-row registration after commit and E7 fails.
 - Dependency: T4. Completion evidence: root help Commands block, cold/warm comparison, sabotage result.
 
-## Wave 5 — collision notices on every shell surface
+## Wave 6 — collision notices on every shell surface
 
 ### T10 — Collision notice on the command and in TUI
 
@@ -104,7 +106,7 @@ Status: Plan review required before Execute. The approved shape confirms the beh
 - Gate: E5 all human surfaces and N2. Wire: remove the warning call from each door after commit; the corresponding test fails.
 - Dependency: T6/T7. Completion evidence: one/two-file transcripts and TUI assertions.
 
-## Wave 6 — ratchet and documentation
+## Wave 7 — ratchet and documentation
 
 ### T11 — Guard future spelling drift and document the contract
 
@@ -114,7 +116,7 @@ Status: Plan review required before Execute. The approved shape confirms the beh
 - Gate: E8, example tests, `tests/skills/` if shipped skill prose changes, and a source scan for every former 15-surface site. Wire: reintroduce `job_name.replace(".", " ")` in one test fixture after commit and watch the ratchet fail.
 - Dependency: T8/T9/T10. Completion evidence: ratchet failure proof, docs/example parity and changelog line.
 
-## Wave 7 — complete verification and artifact lifecycle
+## Wave 8 — complete verification and artifact lifecycle
 
 ### T12 — Whole-feature gate and artifact lifecycle
 
@@ -133,10 +135,11 @@ Status: Plan review required before Execute. The approved shape confirms the beh
     {"id": 1, "tasks": ["T1", "T2"]},
     {"id": 2, "tasks": ["T3"]},
     {"id": 3, "tasks": ["T4", "T5", "T6"]},
-    {"id": 4, "tasks": ["T7", "T8", "T9"]},
-    {"id": 5, "tasks": ["T10"]},
-    {"id": 6, "tasks": ["T11"]},
-    {"id": 7, "tasks": ["T12"]}
+    {"id": 4, "tasks": ["T7", "T8"]},
+    {"id": 5, "tasks": ["T9"]},
+    {"id": 6, "tasks": ["T10"]},
+    {"id": 7, "tasks": ["T11"]},
+    {"id": 8, "tasks": ["T12"]}
   ]
 }
 ```
