@@ -23,6 +23,8 @@ claimant through `discovery_failures`.
 
 from __future__ import annotations
 
+import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -30,6 +32,7 @@ import pytest
 from functualize import FunctualizeApp
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
 from functualize._discovery.collisions import resolve_name_collisions
+from functualize._discovery.registry import JobRegistry
 from functualize._primitives.locator import ResourceLocator
 from functualize._types.descriptors import JobDescriptor
 from functualize._types.discovery_report import (
@@ -487,6 +490,25 @@ def test_three_claimant_chain_retains_both_losers_for_final_projection():
         "/a.py",
         "/b.py",
     }
+
+
+def test_registry_fallback_finding_has_both_claimant_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    source = tmp_path / "jobs.py"
+    source.write_text(TWO_SPELLINGS)
+    spec = importlib.util.spec_from_file_location("collision_registry_fixture", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+    registry = JobRegistry()
+    with collecting_discovery_failures() as findings:
+        registry._extract_descriptors_from_module(module)
+    (finding,) = [f for f in findings if f.error_type == JOB_NAME_COLLISION]
+    assert finding.collision is not None
+    assert finding.collision.dropped_source_file == str(source)
+    assert finding.collision.registered_source_file == str(source)
 
     def test_a_clean_static_provider_reports_nothing(self, tmp_path: Path) -> None:
         app = FunctualizeApp(
