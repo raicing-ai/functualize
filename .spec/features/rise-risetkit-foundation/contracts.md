@@ -1,6 +1,6 @@
 # Rise / RiseKit foundation — external contracts (revision 7)
 
-This records observable v1 surfaces against SD/18153475 v26 (approved v21
+This records observable v1 surfaces against SD/18153475 v27 (approved v21
 plus the owner's confirmed deltas and comments 18808989 / 18809013).
 Example module names, builders, JSON schema details and the F6 function name
 remain provisional where §7 says so. Released 0.5.0 owns core API spelling.
