@@ -57,8 +57,40 @@ Two places keep the underscored spelling for good reasons:
   existing config file keeps working.
 
 Two functions whose names normalize to the same job (`build_wheel` and
-`buildWheel`) are rejected at registration rather than one silently replacing
-the other.
+`buildWheel`) do not both register. One of them runs, chosen the same way on
+every run, and every surface that shows the command says so — see
+[Duplicate command detection](#duplicate-command-detection).
+
+## Identity and command path
+
+A job has two spellings, and each has one job:
+
+| | Example | Used by |
+|---|---|---|
+| **Identity** — dotted | `deploy.web.run` | `rc.invoke(...)`, `deps=`, `FromJob`, `[aliases]` targets, state keys, MCP tool names, every `--json` listing |
+| **Command path** — spaced | `deploy web run` | what you type after `func` or your app's entry point, and every hint, usage line, help page and TUI row that shows you a command |
+
+The shell walks groups one word at a time. `func deploy web run` runs the job;
+`func deploy.web.run` is refused with a hint naming the spaced command, because
+a dot in a shell token never means "go into this group".
+
+A dot that belongs to the job's own name is not a group boundary. A job
+registered as `tools.lint` with no group is the single command `func tools.lint`,
+and `Job(name="pack", group="ci")` is `func ci pack`. Code that prints commands
+for people reads the path from the descriptor rather than rebuilding it from the
+name:
+
+```python
+from functualize.types import CommandPath
+
+descriptor = app.get_job("deploy.web.run")
+descriptor.name                 # "deploy.web.run" — the identity
+str(descriptor.command_path)    # "deploy web run" — what a person types
+CommandPath.of(None, "tools.lint").segments  # ("tools.lint",) — one word
+```
+
+`func --help` lists your top-level jobs and groups beside `builtin`, and
+`func <group>` lists what is under a group.
 
 ## Function eligibility criteria
 
@@ -291,10 +323,22 @@ This can happen when:
 - Two modules with the same `JOB_GROUP` both define a function with the same name
 - Two modules without `JOB_GROUP` both define a function with the same name
 
-Within one directory, the **first module discovered wins** (filesystem order
-from `pkgutil.iter_modules`) and the duplicate is not registered. Duplicate
-job names across *providers* raise a `ValueError` at registration. Do not
-rely on discovery order — rename one of the functions.
+One claimant runs: the last by source file, then Python name, so the same
+function wins on every run and on cold and warm discovery alike. The other is
+not registered, and the collision is a warning rather than an error, so the
+rest of your jobs keep working.
+
+The warning is shown wherever the command is: one line on stderr before the
+job runs, under the command's row in `func <group>`, in `func builtin info`
+(text and JSON), and on the TUI's job browser row and pre-flight panel. It names
+the command path, both functions with their files, and which one runs:
+
+```
+JobNameCollision: tools status: status_ (/srv/app/jobs/tools_more.py) runs; status (/srv/app/jobs/tools.py) was dropped. Rename one job.
+```
+
+In `func builtin info jobs --json` the surviving job's row keeps its dotted
+`name` and gains a `collisions` array. Rename one of the functions.
 
 ## Minimal job file example
 
