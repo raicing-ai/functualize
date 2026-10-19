@@ -26,6 +26,9 @@ dispatch/help/info`, and the TUI path is `SmartBarAutoComplete -> group context`
 Status: [x] Complete. `CommandPath.of` supplies both trie insertion and the
 public descriptor property; focused trie and serialization tests pass. A
 post-commit break of each call made 38 tests fail, then both files were restored.
+Correction (whole-suite census before T10): the new export failed
+`tests/test_public_api_surface.py`, which pins every public name; it now
+expects `CommandPath`. File scope widened to that test.
 
 - Inputs: `plan.md` chosen shape; `_job_segments` caller census from Serena and `rg -n '_job_segments' src tests plugins`.
 - [F] `src/functualize/_types/naming.py`, `src/functualize/_types/descriptors.py`, `src/functualize/types/__init__.py`, `tests/discovery/test_group_trie.py`, `tests/core/test_command_path.py` (new).
@@ -71,6 +74,11 @@ leaf help names the full program/path, and bare non-TTY output uses paths.
 The focused shell/app suite passed with only the later root-help fixture red.
 After a clean commit, restoring dotted identity and leaf-only usage at two
 renderers failed their end-to-end assertions; both wires were restored.
+Correction (census): the app door printed "Did you mean:" and then raised
+on a row its unit test's app could not render, leaving the list empty.
+Rows are now rendered before the header; `tests/cli/test_fallbacks.py`
+uses real descriptors and asserts `app deploy`. Printing the bare identity
+again after the commit failed that assertion. File scope widened to that test.
 
 - Inputs: T1/T3; source census in `research.md`.
 - [F] `src/functualize/_cli/main.py`, `src/functualize/app/commands.py`, `src/functualize/app/adapters/cli.py`, `tests/cli/test_command_path_surface.py`.
@@ -91,6 +99,9 @@ Correction (found during T8's wave run): the always-built trie swallowed
 tests from this task's commit on. A walk inside the reserved `builtin`
 subtree now returns to the registry's subcommand chain; disabling that
 guard after its commit failed both tests again.
+Census: two more stub fixtures (`tests/cli/test_cross_panel_sync.py`,
+`tests/cli/test_diff_view_wiring.py`) gave the app no jobs while the bar
+named one; they now carry the job they resolve. Test-only; scope widened.
 
 - Inputs: T1/T3; Serena reference set for `build_group_option_trie`.
 - [F] `src/functualize/_cli/tui/cli_arg_parser.py`, `src/functualize/_cli/tui/smart_bar_autocomplete.py`, `tests/group_options/test_tui_completion_context.py`, `tests/group_options/test_tui_group_flags.py` (its synthetic trie must contain its asserted shallow job), `tests/tui/test_command_path_surface.py`.
@@ -123,6 +134,13 @@ history and selection retain dotted identity. Literal-dot leaves and group
 flags round-trip. Fifty focused TUI/write-back tests passed. After a clean
 commit, restoring the raw browser identity failed its displayed-path test;
 the display wire was restored.
+Correction (census): browser rows for top-level nodes without a descriptor
+(`builtin`, groups, plugin namespaces) had no `command_path`, so opening the
+browser raised in every real project and 85 pilot/pre-flight tests failed.
+`_cli/tui/job_listing.py` now gives such a row its own name as its path;
+removing it after the commit failed seven pilot and snapshot tests. The
+pre-flight test stubs gain the field the header reads. Scope widened to
+`job_listing.py` and the three `tests/cli/test_preflight_*.py` files.
 
 - Inputs: T1/T5 and ADR-009's one-emitter rule.
 - [F] `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/sync.py`, `src/functualize/_cli/tui/panels/job_browser.py`, `src/functualize/_cli/data/invocation_preset.py`, `tests/tui_group_options/test_write_back_contract.py`, `tests/tui_group_options/test_panel_rendering.py` (existing browser expectation passes a bare identity), `tests/tui/test_command_path_surface.py`.
