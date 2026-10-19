@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — scoped vault entries resolve by address and environment
+
+`vault put`, `inspect`, and `remove` accept a group address, a leaf job, or a
+group with a leaf job: `--group deploy --job web --field token`. A dotted
+`--job deploy.web` is refused with the split spelling. `[[vault_secret]]`
+declarations use the same `group` and `job` fields. Stored keys include the
+environment selected by the app; base declarations use a shared key. For a
+group field, reads try the active environment at the exact address and each
+ancestor, then the shared entries in that same order. A job field stays exact.
+Existing three-part v2 keys remain readable as shared entries.
+
+`vault list` and `inspect` show stored or resolved identity and environment
+without decrypting secret bytes; `put` and `inspect` identify whether the
+active environment was selected or defaulted. `remove` deletes the exact
+active-environment key. Sync fetches only base and selected-overlay
+declarations; job runs still read the local vault offline. This extends the
+earlier scoped-identity change described below.
+
 ### Fixed — a second SQLite walk in one process cannot take a live lease
 
 Two walks in one process use the same runner identity. SQLite previously let

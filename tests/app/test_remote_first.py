@@ -49,6 +49,10 @@ def _no_key() -> VaultKeyResolver:
 
 
 class _FakeRemoteProvider:
+    def __init__(self, *, failure: Exception | None = None) -> None:
+        self.fetched: list[str] = []
+        self.failure = failure
+
     def identifier(self) -> str:
         return "fake-sm"
 
@@ -56,13 +60,109 @@ class _FakeRemoteProvider:
         return True
 
     def fetch(self, reference: str) -> str:
+        self.fetched.append(reference)
+        if self.failure is not None:
+            raise self.failure
         return f"fetched:{reference}"
+
+
+def _scoped_sync_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: _FakeRemoteProvider
+) -> Any:
+    from functualize.app import FunctualizeApp, JobSources
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FUNCTUALIZE_ENV", "prod")
+    monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", _KEY.hex())
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "web.py").write_text(
+        'JOB_GROUP = "deploy"\n'
+        "from pydantic import BaseModel\n"
+        "from functualize.job.decorators import job\n"
+        "from functualize.types import Secret\n"
+        "class Config(BaseModel):\n    token: Secret[str]\n"
+        "@job\ndef web(config: Config) -> str:\n    return 'ok'\n"
+    )
+    for slot in ("base", "prod", "staging"):
+        (tmp_path / f"config.{slot}.toml").write_text(
+            '[[vault_secret]]\ngroup = "deploy"\njob = "web"\n'
+            f'field = "token"\nsource = "fake-sm://{slot}"\n'
+        )
+    monkeypatch.setattr(
+        ProviderRegistry,
+        "_discover_remote_entry_points",
+        lambda self: self.register_remote_provider(provider),
+    )
+    return FunctualizeApp(
+        "vaultlab",
+        config_sources=remote_first(),
+        job_sources=JobSources(directories=[str(jobs)], lazy=False),
+    )
+
+
+def test_sync_fetches_only_base_and_selected_overlay_with_composed_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from functualize.app.utils import vault_location, vault_sync
+
+    provider = _FakeRemoteProvider()
+    app = _scoped_sync_app(tmp_path, monkeypatch, provider)
+
+    report = vault_sync(app, cwd=tmp_path)
+
+    assert report.failed == ()
+    assert provider.fetched == ["base", "prod"]
+    assert {
+        entry.key for entry in SecretsVault(vault_location(tmp_path)).list_entries()
+    } == {
+        VaultIdentity("job", "deploy.web", "token").encode(),
+        VaultIdentity("job", "deploy.web", "token", "prod").encode(),
+    }
+
+
+def test_sync_checks_direct_conflict_before_fetching_that_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from functualize._config.vault import VaultOrigin
+    from functualize.app.utils import vault_location, vault_sync
+
+    provider = _FakeRemoteProvider()
+    app = _scoped_sync_app(tmp_path, monkeypatch, provider)
+    active = VaultIdentity("job", "deploy.web", "token", "prod").encode()
+    SecretsVault(vault_location(tmp_path)).put(
+        active, "typed", encryption_key=_KEY, origin=VaultOrigin.DIRECT
+    )
+
+    report = vault_sync(app, cwd=tmp_path)
+
+    assert provider.fetched == ["base"]
+    assert report.failed == (
+        (active, "direct entry already exists; remove it before syncing"),
+    )
+
+
+def test_sync_failure_does_not_echo_provider_exception_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from functualize.app.utils import vault_sync
+
+    conspicuous = "PRIVATE-PROVIDER-TEXT-6f12a35d"
+    provider = _FakeRemoteProvider(failure=RuntimeError(conspicuous))
+    app = _scoped_sync_app(tmp_path, monkeypatch, provider)
+
+    report = vault_sync(app, cwd=tmp_path)
+
+    assert provider.fetched == ["base", "prod"]
+    assert len(report.failed) == 2
+    assert conspicuous not in str(report)
 
 
 class _FakeApp:
     """The minimum `build_vault_source` reads. Avoids a full boot."""
 
     def __init__(self, *, remote: bool, providers: bool) -> None:
+        self._environment = "DEV"
         self._config_sources = remote_first() if remote else classic()
         self.config_registry = ProviderRegistry()
         if providers:

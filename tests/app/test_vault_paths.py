@@ -6,6 +6,7 @@ from dataclasses import fields
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 from functualize.app import FunctualizeApp, JobSources
 from functualize.app.vault import (
@@ -16,6 +17,8 @@ from functualize.app.vault import (
     VaultMutationReport,
     VaultPathError,
     resolve_vault_identity,
+    vault_inspect,
+    vault_put,
 )
 from functualize.job import GroupOptions
 from functualize.types import Secret  # noqa: TC001 - pydantic resolves it at run time
@@ -115,7 +118,52 @@ def test_nested_job_path_is_target_not_field(app: FunctualizeApp) -> None:
     app.register_dynamic_job("deploy.service", lambda: None, config_class=None)
     with pytest.raises(VaultPathError) as exc:
         resolve_vault_identity(app, job="deploy.service", field="token")
-    assert exc.value.reason == "unknown_field"
+    assert exc.value.reason == "dotted_job"
+
+
+class _NestedConfig(BaseModel):
+    token: Secret[str]
+
+
+def test_composed_group_and_leaf_job_validate_as_one_job(app: FunctualizeApp) -> None:
+    app.register_dynamic_job(
+        "deploy.web", lambda config: None, config_class=_NestedConfig
+    )
+
+    assert resolve_vault_identity(
+        app, group="deploy", job="web", field="token"
+    ) == VaultIdentity("job", "deploy.web", "token")
+
+
+def test_composed_job_put_and_inspect_use_one_active_identity(
+    app: FunctualizeApp, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from functualize._config.vault_keys import ENV_VAR, generate_key
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(ENV_VAR, generate_key())
+    app.register_dynamic_job(
+        "deploy.web", lambda config: None, config_class=_NestedConfig
+    )
+    identity = resolve_vault_identity(app, group="deploy", job="web", field="token")
+
+    mutation = vault_put(app, identity, "private", cwd=tmp_path)
+    inspection = vault_inspect(app, identity, cwd=tmp_path)
+
+    assert mutation.identity.target == "deploy.web"
+    assert (
+        mutation.identity.environment
+        == app.configuration.active_environment().casefold()
+    )
+    assert inspection.identity == mutation.identity
+    assert inspection.exists is True
+    assert "private" not in str(inspection)
+
+
+def test_dotted_job_shows_composed_spelling_before_lookup(app: FunctualizeApp) -> None:
+    with pytest.raises(VaultPathError, match="--group deploy --job web") as exc:
+        resolve_vault_identity(app, job="deploy.web", field="token")
+    assert exc.value.reason == "dotted_job"
 
 
 def test_canonical_spelling_and_secret_marker(app: FunctualizeApp) -> None:
@@ -148,10 +196,9 @@ def test_ineligible_target_or_field(
 
 
 def test_exactly_one_scope_is_required(app: FunctualizeApp) -> None:
-    for kwargs in ({}, {"group": "deploy", "job": "deploy"}):
-        with pytest.raises(VaultPathError) as exc:
-            resolve_vault_identity(app, field="token", **kwargs)
-        assert exc.value.reason == "scope_required"
+    with pytest.raises(VaultPathError) as exc:
+        resolve_vault_identity(app, field="token")
+    assert exc.value.reason == "scope_required"
 
 
 class _ReleaseOptions(GroupOptions, group="release"):

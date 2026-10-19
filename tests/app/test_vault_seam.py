@@ -153,10 +153,30 @@ class TestPut:
     ) -> None:
         report = vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
 
-        assert report.identity == _JOB_TOKEN
+        assert report.identity == VaultIdentity(
+            "job", "deploy", "api_token", app.configuration.active_environment()
+        )
         assert report.origin is VaultOrigin.DIRECT
         assert report.created is True
         assert _SECRET not in str(report)
+
+    def test_direct_put_uses_the_active_environment(
+        self, app: FunctualizeApp, project: Path
+    ) -> None:
+        from functualize._config.vault import SecretsVault
+        from functualize._config.vault_paths import vault_path_for_project
+
+        report = vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
+        stored = {
+            entry.key
+            for entry in SecretsVault(vault_path_for_project(project)).list_entries()
+        }
+
+        assert (
+            report.identity.environment
+            == app.configuration.active_environment().casefold()
+        )
+        assert stored == {report.identity.encode()}
 
     def test_a_bad_path_is_refused_before_the_value_is_used(
         self, app: FunctualizeApp, project: Path
@@ -193,7 +213,9 @@ class TestPut:
         resolution = resolve_vault_key("ignored")
         assert resolution.key is not None
         SecretsVault(vault_path_for_project(project)).put(
-            _JOB_TOKEN.encode(),
+            VaultIdentity(
+                "job", "deploy", "api_token", app.configuration.active_environment()
+            ).encode(),
             "from-aws",
             encryption_key=resolution.key,
             annotation="aws-sm://x",
@@ -233,7 +255,25 @@ class TestRemove:
         report = vault_remove(app, spelled, cwd=project)
 
         assert report.removed is True
-        assert report.identity == _JOB_TOKEN
+        assert report.identity == VaultIdentity(
+            "job", "deploy", "api_token", app.configuration.active_environment()
+        )
+
+    def test_remove_targets_active_key_without_touching_shared(
+        self, app: FunctualizeApp, project: Path
+    ) -> None:
+        from functualize._config.vault import SecretsVault
+        from functualize._config.vault_key_resolver import resolve_vault_key
+        from functualize._config.vault_paths import vault_path_for_project
+
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
+        store = SecretsVault(vault_path_for_project(project))
+        resolution = resolve_vault_key("ignored")
+        assert resolution.key is not None
+        store.put(_JOB_TOKEN.encode(), "old-shared", encryption_key=resolution.key)
+
+        assert vault_remove(app, _JOB_TOKEN, cwd=project).removed is True
+        assert {entry.key for entry in store.list_entries()} == {_JOB_TOKEN.encode()}
 
     def test_it_needs_no_key(
         self, app: FunctualizeApp, project: Path, monkeypatch: pytest.MonkeyPatch
@@ -287,6 +327,30 @@ class TestInspect:
         assert report.eligible is True
         assert report.origin is VaultOrigin.DIRECT
         assert report.readability is Readability.READABLE
+        assert _SECRET not in str(report)
+
+    def test_shared_entry_is_inspectable_when_active_key_is_absent(
+        self, app: FunctualizeApp, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from functualize._config.vault import SecretsVault
+        from functualize._config.vault_key_resolver import resolve_vault_key
+        from functualize._config.vault_paths import vault_path_for_project
+
+        resolution = resolve_vault_key("ignored")
+        assert resolution.key is not None
+        SecretsVault(vault_path_for_project(project)).put(
+            _JOB_TOKEN.encode(), _SECRET, encryption_key=resolution.key
+        )
+        monkeypatch.setattr(
+            SecretsVault,
+            "get",
+            lambda *args, **kwargs: pytest.fail("inspect decrypted a secret"),
+        )
+
+        report = vault_inspect(app, _JOB_TOKEN, cwd=project)
+
+        assert report.exists is True
+        assert report.identity == _JOB_TOKEN
         assert _SECRET not in str(report)
 
     def test_an_absent_entry_is_reported_not_raised(
@@ -351,7 +415,9 @@ class TestScope:
         job = vault_inspect(app, _JOB_TOKEN, cwd=project)
         group = vault_inspect(app, _GROUP_TOKEN, cwd=project)
         assert job.exists is True
-        assert job.identity == _JOB_TOKEN
+        assert job.identity == VaultIdentity(
+            "job", "deploy", "api_token", app.configuration.active_environment()
+        )
         assert group.exists is False
 
 

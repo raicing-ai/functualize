@@ -148,10 +148,10 @@ def vault_list(json_out: bool) -> None:
         (*_identity_columns(e.key), _origin_column(e), _when(e), e.annotation or "")
         for e in entries
     ]
-    widths = [max(len(row[i]) for row in rows) for i in range(4)]
+    widths = [max(len(row[i]) for row in rows) for i in range(5)]
     for row in rows:
-        cells = [cell.ljust(width) for cell, width in zip(row[:4], widths, strict=True)]
-        click.echo("  ".join([*cells, row[4], row[5]]).rstrip())
+        cells = [cell.ljust(width) for cell, width in zip(row[:5], widths, strict=True)]
+        click.echo("  ".join([*cells, row[5], row[6]]).rstrip())
 
 
 def _entry_identity(key: str) -> dict[str, str | None]:
@@ -165,15 +165,20 @@ def _entry_identity(key: str) -> dict[str, str | None]:
     try:
         identity = VaultIdentity.decode(key)
     except ValueError:
-        return {"scope": None, "target": None, "field": None}
+        return {"scope": None, "target": None, "field": None, "environment": None}
     return {**_identity_fields(identity)}
 
 
-def _identity_columns(key: str) -> tuple[str, str, str]:
+def _identity_columns(key: str) -> tuple[str, str, str, str]:
     decoded = _entry_identity(key)
     if decoded["scope"] is None:
-        return ("-", key, "-")
-    return (str(decoded["scope"]), str(decoded["target"]), str(decoded["field"]))
+        return ("-", key, "-", "-")
+    return (
+        str(decoded["scope"]),
+        str(decoded["target"]),
+        str(decoded["field"]),
+        str(decoded["environment"]),
+    )
 
 
 @vault_app.command("status")
@@ -403,15 +408,11 @@ def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
 
     def fields(key: str) -> dict[str, str]:
         identity = VaultIdentity.decode(key)
-        return {
-            "scope": identity.scope,
-            "target": identity.target,
-            "field": identity.field,
-        }
+        return _identity_fields(identity)
 
     def label(key: str) -> str:
         identity = VaultIdentity.decode(key)
-        return f"{identity.scope} {identity.target} {identity.field}"
+        return f"{_describe(identity)} ({identity.environment or 'base'})"
 
     app = _vault_app(ctx, "vault sync")
     try:
@@ -499,10 +500,8 @@ def vault_sync_command(ctx: click.Context, json_out: bool) -> None:
 # opinion here is how `func` and an embedding application come to disagree
 # about what an identity means.
 #
-# An entry is named by a scope, a target and a field — never by one dotted
-# string. A dot belongs to the command path only, so `--job deploy.service
-# --field iam_key` and `--group deploy --field token` cannot be misread, and a
-# group and a job sharing a name stay two entries.
+# An entry is named by group, leaf job and field flags, never by one dotted
+# job value. A group and a job sharing a name stay two entries.
 
 
 def _fail(
@@ -536,11 +535,23 @@ def _identity_fields(identity: Any) -> dict[str, str]:
         "scope": identity.scope,
         "target": identity.target,
         "field": identity.field,
+        "environment": identity.environment or "base",
+    }
+
+
+def _environment_fields(app: Any) -> dict[str, str]:
+    """Name the selected or defaulted slot without exposing a value."""
+    return {
+        "active_environment": app.configuration.active_environment().casefold(),
+        "environment_source": app.configuration.environment_source().value,
     }
 
 
 def _describe(identity: Any) -> str:
     """One readable line naming an identity, in the flags that address it."""
+    if identity.scope == "job" and "." in identity.target:
+        group, job = identity.target.rsplit(".", 1)
+        return f"--group {group} --job {job} --field {identity.field}"
     return f"--{identity.scope} {identity.target} --field {identity.field}"
 
 
@@ -564,8 +575,8 @@ def _scoped(command: Any) -> Any:
         "--job",
         "job",
         default=None,
-        metavar="PATH",
-        help="A job's command path, e.g. `deploy.service`, for a config field.",
+        metavar="NAME",
+        help="A leaf job name, e.g. `web`; pair with --group for grouped jobs.",
     )(command)
     return click.option(
         "--group",
@@ -577,7 +588,7 @@ def _scoped(command: Any) -> Any:
 
 
 def _identity(group: str | None, job: str | None, field: str, *, json_out: bool) -> Any:
-    """The identity as typed, refusing an absent or doubled scope.
+    """The identity as typed, accepting a group and leaf job together.
 
     `inspect` and `remove` use this rather than validating against the live
     schema: `inspect` exists to explain an ineligible identity, and `remove`
@@ -585,18 +596,26 @@ def _identity(group: str | None, job: str | None, field: str, *, json_out: bool)
     """
     from functualize.app.vault import VaultIdentity
 
-    if (group is None) == (job is None):
+    if group is None and job is None:
         _fail(
             "scope_required",
-            "Choose exactly one of --group or --job.",
+            "Supply --group, --job, or both --group and --job.",
+            json_out=json_out,
+            code=ExitCode.USAGE,
+        )
+    if job is not None and "." in job:
+        _fail(
+            "dotted_job",
+            "--job must be a leaf name; use --group deploy --job web.",
             json_out=json_out,
             code=ExitCode.USAGE,
         )
     scope: Literal["group", "job"]
-    if group is not None:
-        scope, target = "group", group
+    if job is not None:
+        scope = "job"
+        target = f"{group}.{job}" if group is not None else job
     else:
-        scope, target = "job", job or ""
+        scope, target = "group", group or ""
     try:
         return VaultIdentity(scope, target or "", field)
     except ValueError:
@@ -813,7 +832,7 @@ def vault_put_command(
 
     \b
       func builtin vault put --group deploy --field token
-      func builtin vault put --job deploy.service --field iam_key --stdin
+      func builtin vault put --group deploy --job service --field iam_key --stdin
 
     The target and field are validated against the live schema **before** the
     value is read, so a typo costs you nothing you have already typed.
@@ -822,6 +841,7 @@ def vault_put_command(
     from functualize.app.vault import (
         VaultEntryExistsError,
         VaultFormatError,
+        VaultIdentity,
         VaultKeySourceError,
         VaultOriginConflictError,
         VaultPathError,
@@ -835,6 +855,12 @@ def vault_put_command(
         identity = resolve_vault_identity(app, group=group, job=job, field=field)
     except VaultPathError as exc:
         _fail(exc.reason, str(exc), json_out=json_out, code=ExitCode.USAGE)
+    identity = VaultIdentity(
+        identity.scope,
+        identity.target,
+        identity.field,
+        app.configuration.active_environment(),
+    )
 
     # Also before the value is read: a store this version cannot write would
     # otherwise cost the operator a secret they had just typed.
@@ -881,6 +907,7 @@ def vault_put_command(
             {
                 "ok": True,
                 **_identity_fields(report.identity),
+                **_environment_fields(app),
                 "origin": str(report.origin) if report.origin else None,
                 "created": report.created,
                 "replaced": report.replaced,
@@ -889,7 +916,11 @@ def vault_put_command(
         )
         return
     state = "replaced" if report.replaced else "new"
-    click.echo(f"Stored {_describe(report.identity)} ({state}).")
+    click.echo(
+        f"Stored {_describe(report.identity)} "
+        f"({report.identity.environment}, {state}; "
+        f"{_environment_fields(app)['environment_source']})."
+    )
 
 
 @vault_app.command("inspect")
@@ -914,8 +945,9 @@ def vault_inspect_command(
     from functualize.app.vault import VaultFormatError, vault_inspect
 
     identity = _identity(group, job, field, json_out=json_out)
+    app = _vault_app(ctx, "vault inspect")
     try:
-        report = vault_inspect(_vault_app(ctx, "vault inspect"), identity)
+        report = vault_inspect(app, identity)
     except VaultFormatError as exc:
         _refuse_legacy(exc, json_out=json_out)
 
@@ -924,6 +956,7 @@ def vault_inspect_command(
             {
                 "ok": True,
                 **_identity_fields(report.identity),
+                **_environment_fields(app),
                 "eligible": report.eligible,
                 "exists": report.exists,
                 "origin": str(report.origin) if report.origin else None,
@@ -943,6 +976,11 @@ def vault_inspect_command(
     click.echo(f"Scope:      {report.identity.scope}")
     click.echo(f"Target:     {report.identity.target}")
     click.echo(f"Field:      {report.identity.field}")
+    click.echo(f"Environment:{' ':<2}{report.identity.environment or 'base'}")
+    click.echo(
+        f"Selected:   {_environment_fields(app)['active_environment']} "
+        f"({_environment_fields(app)['environment_source']})"
+    )
     click.echo(f"Eligible:   {'yes' if report.eligible else 'no'}")
     click.echo(f"Stored:     {'yes' if report.exists else 'no'}")
     if report.exists:
@@ -971,7 +1009,7 @@ def vault_remove_command(
     """Remove one entry. Needs no vault key.
 
     \b
-      func builtin vault remove --job deploy.service --field iam_key --yes
+      func builtin vault remove --group deploy --job service --field iam_key --yes
 
     Works on a store this machine cannot open, and on an entry whose job or
     group no longer exists, which are the situations it exists for. A direct
@@ -981,8 +1019,16 @@ def vault_remove_command(
 
     from functualize.app.vault import VaultFormatError, vault_remove
 
-    identity = _identity(group, job, field, json_out=json_out)
     app = _vault_app(ctx, "vault remove")
+    typed = _identity(group, job, field, json_out=json_out)
+    from functualize.app.vault import VaultIdentity
+
+    identity = VaultIdentity(
+        typed.scope,
+        typed.target,
+        typed.field,
+        app.configuration.active_environment(),
+    )
 
     interactive = sys.stdin.isatty() and sys.stdout.isatty()
     if not assume_yes:
@@ -1009,6 +1055,7 @@ def vault_remove_command(
             {
                 "ok": True,
                 **_identity_fields(report.identity),
+                **_environment_fields(app),
                 "origin": str(report.origin) if report.origin else None,
                 "removed": report.removed,
                 **({"warning": report.warning} if report.warning else {}),

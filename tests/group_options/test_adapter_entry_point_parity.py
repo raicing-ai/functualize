@@ -19,6 +19,8 @@ they need no install step — the tree under test is the one
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -44,12 +46,17 @@ class WebOptions(GroupOptions, group="deploy.web"):
 
 _WEB_JOB = '''\
 from typing import Annotated
+from pydantic import BaseModel
 
 from functualize.job import Arg, job
+from functualize.types import Secret
 
 from _group import DeployOptions, WebOptions
 
 JOB_GROUP = "deploy.web"
+
+class RunConfig(BaseModel):
+    token: Secret[str] = Secret("default-job-token")
 
 
 @job
@@ -58,9 +65,10 @@ def run(
     replicas: int = 1,
     opts: DeployOptions = None,
     web: WebOptions = None,
+    config: RunConfig = None,
 ):
     """Deploy the web tier."""
-    print(f"image={image} replicas={replicas} env={opts.env} region={web.region} token={opts.token.get_secret_value()}")
+    print(f"image={image} replicas={replicas} env={opts.env} region={web.region} token={opts.token.get_secret_value()} job_token={config.token.get_secret_value()}")
     return image
 '''
 
@@ -112,6 +120,13 @@ def app_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     jobs.mkdir()
     (jobs / "_group.py").write_text(_GROUP_MODULE, encoding="utf-8")
     (jobs / "web.py").write_text(_WEB_JOB, encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "vault-parity"\nversion = "0.1.0"\ndependencies = []\n',
+        encoding="utf-8",
+    )
+    (tmp_path / ".functualize.toml").write_text(
+        'jobs_directories = ["jobs"]\n', encoding="utf-8"
+    )
     (tmp_path / "config.base.toml").write_text(_CONFIG, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
@@ -191,6 +206,53 @@ class TestTheGroupsDefaultDoesNotOutrankItsConfigFile:
         assert from_vault.exit_code == explicit.exit_code == 0
         assert "token=vault-token" in from_vault.output
         assert "token=flag-token" in explicit.output
+
+    @pytest.mark.slow
+    def test_nested_job_uses_its_exact_vault_key_on_both_entry_surfaces(
+        self, app_cli, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from functualize._config.vault_keys import generate_key
+        from functualize.app.vault import VaultIdentity, vault_put
+
+        monkeypatch.setenv("FUNCTUALIZE_VAULT_KEY", generate_key())
+        vault_put(
+            app_cli.app,
+            VaultIdentity("job", "deploy.web.run", "token"),
+            "nested-job-token",
+        )
+        vault_put(
+            app_cli.app,
+            VaultIdentity("group", "deploy", "token"),
+            "nested-group-token",
+        )
+        app_cli.app.refresh()
+
+        adapter = app_cli(["deploy", "web", "run", "v1"])
+        assert adapter.exit_code == 0, adapter.output
+        assert "token=nested-group-token job_token=nested-job-token" in adapter.output
+
+        project_root = Path(__file__).parent.parent.parent
+        binary = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--project",
+                str(project_root),
+                "func",
+                "deploy",
+                "web",
+                "run",
+                "v1",
+            ],
+            cwd=Path.cwd(),
+            env=dict(os.environ),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert binary.returncode == 0, binary.stderr
+        assert "token=nested-group-token job_token=nested-job-token" in binary.stdout
 
 
 class TestARefusalIsStillARefusal:

@@ -32,10 +32,80 @@ def test_two_scopes_with_the_same_text_are_distinct() -> None:
     assert [item.chain[0].reference for item in parsed] == ["a", "b"]
 
 
+def test_grouped_job_is_distinct_from_group_and_ungrouped_job() -> None:
+    parsed = parse_vault_declarations(
+        [
+            (
+                "config.Prod.toml",
+                {
+                    "vault_secret": [
+                        {
+                            "group": "deploy.web",
+                            "field": "token",
+                            "source": "fake-sm://a",
+                        },
+                        {
+                            "group": "deploy",
+                            "job": "web",
+                            "field": "token",
+                            "source": "fake-sm://b",
+                        },
+                        {"job": "web", "field": "token", "source": "fake-sm://c"},
+                    ]
+                },
+            )
+        ]
+    )
+
+    assert [item.identity for item in parsed] == [
+        VaultIdentity("group", "deploy.web", "token", "prod"),
+        VaultIdentity("job", "deploy.web", "token", "prod"),
+        VaultIdentity("job", "web", "token", "prod"),
+    ]
+
+
+def test_base_and_unslotted_share_an_identity_but_named_overlay_is_distinct() -> None:
+    block = {"job": "deploy", "field": "token", "source": "fake-sm://a"}
+    parsed = parse_vault_declarations(
+        [
+            ("config.base.toml", {"vault_secret": [block]}),
+            ("config.prod.toml", {"vault_secret": [block]}),
+        ]
+    )
+    assert [item.identity.environment for item in parsed] == [None, "prod"]
+
+    with pytest.raises(VaultDeclarationError, match="duplicate"):
+        parse_vault_declarations(
+            [
+                ("config.base.toml", {"vault_secret": [block]}),
+                ("config.toml", {"vault_secret": [block]}),
+            ]
+        )
+
+
+def test_dotted_job_refuses_with_composed_spelling() -> None:
+    with pytest.raises(VaultDeclarationError, match="--group deploy --job web"):
+        parse_vault_declarations(
+            [
+                (
+                    "config.base.toml",
+                    {
+                        "vault_secret": [
+                            {
+                                "job": "deploy.web",
+                                "field": "token",
+                                "source": "fake-sm://a",
+                            }
+                        ]
+                    },
+                )
+            ]
+        )
+
+
 @pytest.mark.parametrize(
     "block",
     [
-        {"group": "deploy", "job": "deploy", "field": "token", "source": "fake-sm://a"},
         {"field": "token", "source": "fake-sm://a"},
         {"job": "deploy", "source": "fake-sm://a"},
         {"job": "deploy", "field": "token", "source": "literal"},
@@ -53,10 +123,10 @@ def test_duplicate_across_files_fails_before_merge() -> None:
         parse_vault_declarations(
             [
                 ("config.base.toml", {"vault_secret": [block]}),
-                ("config.dev.toml", {"vault_secret": [block]}),
+                ("config.toml", {"vault_secret": [block]}),
             ]
         )
-    assert "config.dev.toml" in str(exc.value)
+    assert "config.toml" in str(exc.value)
 
 
 def test_ordinary_sections_are_not_declarations() -> None:
