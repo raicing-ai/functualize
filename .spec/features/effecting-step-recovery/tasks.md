@@ -1,7 +1,8 @@
 # effecting-step-recovery — tasks
 
-Execute against the six-file anchor: `spec.md`, `contracts.md`, `plan.md`,
-`research.md`, `tasks.md`, and `.spec/CONSTITUTION.md`. **Wave order is binding.**
+Execute against the six-file anchor: `AGENTS.md`, `.spec/CONSTITUTION.md`,
+`.spec/ARCHITECTURE.md`, `.spec/TESTING.md`, `.spec/STATE.md` (if absent, no work
+in flight), and this `tasks.md`. **Wave order is binding.**
 Every gate below is a command. A task is `[x]` only when its gate is green **and**
 its reachability line has been proven by breaking the call and watching a test go
 red. Commit before sabotaging. Each task's checks are run from the repository root:
@@ -13,7 +14,11 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 ## Wave 1 — vocabulary and declaration (foundation; parallel-safe)
 
 ### T1 — Port vocabulary: attempt fields and `supersedes`
-- **Inputs:** contracts C3 and C2 (*the question*); plan *Technical approach* 1.
+- **Inputs:** an effecting attempt is durably recorded before its job runs with
+  `status=attempting`, `effecting=true`, attempt number (starting at 1), and start
+  time. The recovery question carries step, attempt, loop iteration, and start
+  time; a consumed answer for one doubt must never answer a later doubt. Port
+  fields default so existing construction sites remain valid.
 - **Files:** `src/functualize/_types/persistence.py`,
   `src/functualize/_engine/recording/input_recorder.py`,
   `tests/conformance/test_baseline.py` (default-value assertions only).
@@ -30,7 +35,16 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   its writers land.
 
 ### T2 — Declaration: recovery gates, `InDoubt`, shape, collision refusal
-- **Inputs:** contracts C1, C2, C5; spec B3, B7; research R1, R2, R7.
+- **Inputs:** `effecting=True` implies one declared recovery gate named
+  `<step>-in-doubt`; it opens only when a walk finds the step in doubt. The gate
+  must resolve through `WorkflowDeclaration.node()` because the answer path
+  resolves its model from the declaration. Canonicalisation maps
+  `refund_in_doubt` to `refund-in-doubt`; `.` separates groups. The answer schema
+  requires `outcome` (`ran` or `did_not_run`), permits optional `value`, and
+  forbids extra fields. Graph shape and digest add the effecting flag and gate
+  only for effecting steps; pure graphs remain byte-identical. A previously
+  parked effecting scope with the old digest gets the existing graph-changed
+  refusal. Name collisions are refused at declaration time.
 - **Files:** `src/functualize/_types/workflow.py`,
   `src/functualize/workflow/_validation.py`,
   `tests/test_workflow_declaration.py`, `tests/workflow/test_source_identity.py`.
@@ -54,7 +68,9 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   Proof: remove the `recovers` entry and the AC-10 test goes red.
 
 ### T3 — Boot refusal: `effecting=True` on a workflow job (E×W×W)
-- **Inputs:** spec B6 and AC-12; research R6.
+- **Inputs:** a step whose job is itself a workflow cannot be effecting: its
+  child steps declare their own flags. The registry reveals nested workflows
+  only at boot, after declaration; refuse this composition at boot validation.
 - **Files:** `src/functualize/_engine/workflow_validation.py`,
   `tests/workflow/test_launch_validation.py`.
 - **Change:** `validate_workflow_declarations` raises `WorkflowDeclarationError` when
@@ -68,7 +84,8 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   goes red.
 
 ### T4 — Discovery cache version
-- **Inputs:** contracts C5.
+- **Inputs:** effecting steps add a flag and recovery-gate entry to the cached
+  workflow shape. The cache schema version therefore advances from 21 to 22.
 - **Files:** `src/functualize/_primitives/cache_format.py`, plus any test pinning
   `CACHE_VERSION` (the hit set of
   `rg -ln "CACHE_VERSION|\b21\b.*cache" tests src`, re-run at execution time).
@@ -136,13 +153,16 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   `BLOCKED = "blocked"`, none added to `TERMINAL_SUCCESS`. `FrontierWalk.record` /
   `complete` accept `attempt`, `started_at`, `effecting` (keyword-only,
   pass-through). `open_request` accepts `supersedes`. The `is_effecting` docstring is
-  corrected (C6). In `gate_service.py`, a frozen
+  corrected to say an in-flight effecting step is never re-run without a
+  decision and is exactly-once once that decision is made; a raise is the
+  job's own account. In `gate_service.py`, a frozen
   `GateAsk(position=None, prompt=None, ladder=_DEFAULT, supersedes=None)` is added,
   and `service(..., ask=GateAsk())` uses it in `_open` and in place of
   `_gate_strategy_list` when `ladder` is given.
 - **Invariants:** `GateAsk()` reproduces today exactly (the existing gate tests are
   unchanged and green). **The `FrontierWalk` class span grows by ≤ 15 lines**
-  (`awk` over `frontier.py`, as measured in `plan.md`).
+  (measure the class span in `frontier.py` against the pre-change span of 578
+  lines, counting the class declaration through its last method).
 - **Gate:** existing `tests/workflow/test_gate_*` green, unchanged; new test:
   `GateAsk(ladder=["prompt"])` never consults the `resolve` rung (a registry spy
   records the strategies asked); `TERMINAL_SUCCESS` is still `{"success"}`.
@@ -164,9 +184,26 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   ladder=["prompt"] if prompt_gates else None, supersedes=<consumed request whose prompt ≠ this doubt>))`,
   and returns `Ran(value, reusable)` / `DidNotRun` / the blocked report.
   `_service_step` delegates for effecting or doubting steps. `StepBlocked` on an
-  effecting step records `blocked` (S-R3). `_NodeRun` gains `reusable: bool | None`
+  effecting step records `blocked`: this is an ending, not doubt, and resume
+  re-runs the step. `_NodeRun` gains `reusable: bool | None`
   so that `ran` without a value completes as not reusable. `attempt` flows through
   `_advance` → `complete`.
+- **Recovery behavior:** an `attempting` record means control reached the
+  effecting job; on resume, never call that job before a decision. Record the
+  step `in_doubt`, stop the scope with status `blocked`, `blocked_on` equal to
+  `<step>-in-doubt`, and a reason beginning `in_doubt:` that names the step,
+  attempt, and start time. `ran` records success and continues without calling
+  the job; its optional `value` is the return value, and without one a downstream
+  `FromJob` / `FromStep` must fail rather than use an invented value.
+  `did_not_run` explicitly permits the job to run as attempt *n+1*. An answer
+  for one loop pass or attempt never resolves a later doubt: the new question
+  identifies step, attempt, iteration, and start time, and supersedes a stale
+  consumed request. With prompt gates off, leave the gate pending; with them
+  on, allow only an explicit prompt answer. Config, AI, decision, default,
+  cancellation, and timeout never decide it. A return, raise, cancellation,
+  `BLOCKED` ending, routed failure, or fresh fingerprint skip must replace the
+  attempt record. Reclaim leaves `attempting` intact until the resumed walk
+  reaches the step; it must not turn into `timed_out`.
 - **Invariants:** a pure step's path is byte-for-byte today's; **the `WorkflowWalker`
   class span grows by ≤ 15 lines**; `effect_recovery.py` imports only `_types` and
   `_engine` siblings.
@@ -213,9 +250,16 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 - **Depends on:** T9.
 - **Files:** `src/functualize/_types/workflow.py` (the `Step.effecting` docstring only),
   `docs/guides/workflows.md`, `docs/cli/workflow.md`, `CHANGELOG.md`.
-- **Change:** C6 wording; D5 caveat; the recovery gate and how to answer it; the
-  known notification limitation; a changelog entry stating the one-time digest
-  refusal for workflows with an effecting step.
+- **Change:** state that an in-flight effecting step is never re-run without a
+  decision and is exactly-once once that decision is made; a raise is the
+  job's own account even if its effect already happened. Document the recovery
+  gate (`<step>-in-doubt`) and its required `outcome` (`ran` or `did_not_run`),
+  optional `value`, and how to answer it through the existing CLI/API surfaces.
+  Document the known notification limitation: `Notify(on="blocked")` is keyed
+  per declaration and scope, so an earlier blocked stop may prevent a later
+  in-doubt stop in the same scope from sending another notification; status
+  and `blocked_reason` still expose the stop. Add a changelog entry stating
+  the one-time digest refusal for workflows with an effecting step.
 - **Gate (AC-15):** `rg -n "exactly once|exactly-once|at-most-once|at most once" src/functualize/_types/workflow.py src/functualize/_engine/frontier.py docs/guides/workflows.md`
   returns only lines carrying "never re-run without a decision"; the docs-example
   parity tests for the guide pass.
