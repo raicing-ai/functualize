@@ -154,7 +154,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 
 ## Wave 3 — engine plumbing
 
-### T8 [ ] — Frontier statuses and pass-through; `GateAsk`
+### T8 [x] — Frontier statuses and pass-through; `GateAsk`
 - **Depends on:** T1, T5, T6.
 - **Files:** `src/functualize/_engine/frontier.py`,
   `src/functualize/_engine/gate_service.py`, `tests/workflow/test_gate_resolution_model.py`.
