@@ -194,6 +194,19 @@ root help, which lists the project's jobs and groups.
 
 ### T10 — Collision notice on the command and in TUI
 
+Status: [x] Complete. One function, `_cli/info.py::collision_notices`, renders
+each finding with the existing renderer at the job's path. `func tools status`
+and `func check` (group and job routes) print exactly one stderr line before
+the job's own output, cold and warm, for one-file and two-file pairs; the
+two-file line names `status_ (…tools_more.py) runs` and `status (…tools.py)
+was dropped`. Group help prints the same line under the row, `info jobs`
+carries it, the TUI pre-flight writes it under the header, and the browser
+shows `tools ⚠` with that line on the row reaching it. `tools other` and
+`hello` get none; rows still post their identity. After the clean commit,
+removing each of the five calls failed its test; all restored. Residual: the
+application's own CLI door does not print the line (its adapter is outside
+this task's scope and cannot import `_cli`).
+
 - Inputs: T6/T7; one text renderer from `src/functualize/_cli/info.py`.
 - [F] `src/functualize/_cli/main.py`, `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/panels/job_browser.py`, `tests/cli/test_collision_surfaces.py`, `tests/tui/test_command_path_surface.py`, `src/functualize/_cli/info.py` (the notice lines are rendered at each job's path beside the existing renderer, so every surface reads one function), `src/functualize/_cli/tui/job_listing.py` (it builds the browser panel, which must receive the notices).
 - Invariants: invocation writes one warning line to stderr before the final claimant runs; group help, TUI row marker and pre-flight warning agree. A clean command gets none; no duplicate warning under cold/warm discovery. A selected row still invokes identity.
