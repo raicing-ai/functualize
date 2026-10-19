@@ -23,6 +23,10 @@ dispatch/help/info`, and the TUI path is `SmartBarAutoComplete -> group context`
 
 ### T1 — One path value and public descriptor property
 
+Status: [x] Complete. `CommandPath.of` supplies both trie insertion and the
+public descriptor property; focused trie and serialization tests pass. A
+post-commit break of each call made 38 tests fail, then both files were restored.
+
 - Inputs: `plan.md` chosen shape; `_job_segments` caller census from Serena and `rg -n '_job_segments' src tests plugins`.
 - [F] `src/functualize/_types/naming.py`, `src/functualize/_types/descriptors.py`, `src/functualize/types/__init__.py`, `tests/discovery/test_group_trie.py`, `tests/core/test_command_path.py` (new).
 - Invariants: `CommandPath.of(group, name)` is immutable, owns the existing segment derivation, and is the trie's insertion rule; `str(path)` joins segments with spaces but leaves a literal dot inside a leaf. `JobDescriptor.name`, `to_dict` and `from_dict` stay identity-shaped.
@@ -30,6 +34,11 @@ dispatch/help/info`, and the TUI path is `SmartBarAutoComplete -> group context`
 - Dependency: T0. Completion evidence: unit output, import from `functualize.types`, and unchanged descriptor JSON keys.
 
 ### T2 — Structured collision finding without a payload change
+
+Status: [x] Complete. Cold/warm cached, pipeline, and registry fallback tests
+retain both claimant paths, names and legacy four-key payload. Post-commit
+breaks of the three producer calls made their respective tests fail, then all
+three files were restored.
 
 - Inputs: `contracts.md` JSON object; current `DiscoveryFailure` and `job_name_collision` callers from Serena.
 - [F] `src/functualize/_types/discovery_report.py`, `src/functualize/_discovery/collisions.py`, `src/functualize/_discovery/pipeline.py`, `src/functualize/_discovery/registry.py`, `tests/discovery/test_job_name_collisions.py`.
