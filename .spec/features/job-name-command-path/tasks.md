@@ -112,6 +112,13 @@ test fail on the missing array; the calls were restored.
 
 ### T7 — TUI displayed path, presets and write-back
 
+Status: [x] Complete. Browser rows, pre-flight header, selection into SmartBar,
+the one bar emitter and callback-rendered recent presets use actual paths while
+history and selection retain dotted identity. Literal-dot leaves and group
+flags round-trip. Fifty focused TUI/write-back tests passed. After a clean
+commit, restoring the raw browser identity failed its displayed-path test;
+the display wire was restored.
+
 - Inputs: T1/T5 and ADR-009's one-emitter rule.
 - [F] `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/sync.py`, `src/functualize/_cli/tui/panels/job_browser.py`, `src/functualize/_cli/data/invocation_preset.py`, `tests/tui_group_options/test_write_back_contract.py`, `tests/tui_group_options/test_panel_rendering.py` (existing browser expectation passes a bare identity), `tests/tui/test_command_path_surface.py`.
 - Invariants: row, header, bar and recent preset show a path that resolves; history keys and selected job payloads remain dotted identity. `build_command_line` remains the sole bar emitter and keeps quoting and group flags mid-path.
