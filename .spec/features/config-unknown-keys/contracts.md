@@ -70,3 +70,54 @@ def describe(findings: Sequence[UnknownKey]) -> str: ...   # C1 suffix, "" when 
 ```
 
 Not exported from any public folder; no public API change.
+
+## C4. The one declaration (Revision 2 — pending M1)
+
+Extends the existing `_types/settings.py` types (public re-export
+`functualize.plugin`, unchanged) and adds func's own declaration as data.
+
+```python
+# functualize._types.settings — extended, additive
+@dataclass(frozen=True)
+class Setting:
+    ...                                  # every existing field unchanged
+    places: tuple[str, ...] = ()         # ordered lookup places; () == (self.section,)
+                                         # "" is the top level. e.g. jobs_directories: ("", "discovery")
+    listed: bool = True                  # a settings row / generated help entry
+    env: bool = True                     # an environment variable sets it
+    # `type` gains "map" (free-form table, keys never checked: [aliases])
+    # and "records" (array of tables: [[vault_secret]])
+
+class AppSettingsSchema:
+    ...                                  # every existing field and method unchanged
+    def setting(self, name: str) -> Setting | None: ...
+    def sections(self) -> frozenset[str]: ...                 # "" excluded
+    def keys_in(self, section: str) -> frozenset[str]: ...    # every key accepted there
+    def value_in(self, table: Mapping[str, Any], setting: Setting) -> Any | None: ...
+        # first place in `places` that holds the key; None otherwise
+
+# functualize._types.functualize_settings — NEW, data only
+ROOT: Setting                 # "root", bool, listed=False, env=False
+JOBS_DIRECTORIES: Setting     # places=("", "discovery")
+PLUGINS_DIRECTORIES: Setting
+IMPORT_LIBS: Setting
+EXTRA_DIRECTORIES: Setting
+EXCLUDE_PATTERNS: Setting
+VAULT_SECRET: Setting         # type="records", listed=False, env=False
+ALIASES: Setting              # type="map", listed=False
+PLUGINS_DISABLED: Setting     # "plugins.disabled", list
+...                           # every setting in today's _BASE_SETTINGS and tui_settings()
+FUNCTUALIZE_SETTINGS: AppSettingsSchema   # settings=(all of the above), sources, prefixes
+
+# public: functualize.app.config re-exports FUNCTUALIZE_SETTINGS and the constants
+```
+
+Rules:
+- Every name in today's `_BASE_SETTINGS`, `tui_settings()`, `_RECOGNIZED_*`,
+  `LIST_KEYS`, `_DISCOVERY_FINGERPRINT_FIELDS` (minus `pre_filter`, which is
+  not a file key) is declared exactly once.
+- Display order, defaults, choices, bounds, descriptions, `cli_flag`, `phase`
+  and environment variable names equal today's values (AC14).
+- No public signature is removed. `FuncSetting`, `FUNC_SETTINGS`,
+  `FUNC_SCHEMA`, `register_settings` keep their shapes; they become views
+  over the declaration.
