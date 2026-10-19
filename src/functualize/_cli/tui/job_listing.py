@@ -37,6 +37,7 @@ def command_tree_rows(app: FunctualizeInlineTUI) -> list[Any]:
     third-party package may claim.
     """
     from functualize.app.commands import build_command_tree, command_kind
+    from functualize.types import CommandPath
 
     rows: list[Any] = []
     descriptors = {d.name: d for d in app._func_app.get_jobs()}
@@ -51,6 +52,9 @@ def command_tree_rows(app: FunctualizeInlineTUI) -> list[Any]:
                 source="",
                 docstring=node.help_text,
                 group=None,
+                # A top-level node is addressed by its own name; the browser
+                # renders every row's path, descriptor or not.
+                command_path=CommandPath((node.name,)),
                 parameters=[],
                 config_fields=[],
                 source_label=command_kind(node),
