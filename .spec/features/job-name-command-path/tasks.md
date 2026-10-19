@@ -80,6 +80,13 @@ renderers failed their end-to-end assertions; both wires were restored.
 
 ### T5 — Always build the TUI's navigation trie
 
+Status: [x] Complete. Jobs build the trie with or without GroupOptions; the
+same path walk handles flags, dotted traversal refusal and literal-dot leaves.
+No-options candidates include scoped children and provenance, and a selected
+candidate runs. Focused TUI/group-flag suite passed (27 tests before the final
+literal-dot case). After a clean commit, restoring the no-spec guard made E4
+fail three assertions; the guard was removed again.
+
 - Inputs: T1/T3; Serena reference set for `build_group_option_trie`.
 - [F] `src/functualize/_cli/tui/cli_arg_parser.py`, `src/functualize/_cli/tui/smart_bar_autocomplete.py`, `tests/group_options/test_tui_completion_context.py`, `tests/group_options/test_tui_group_flags.py` (its synthetic trie must contain its asserted shallow job), `tests/tui/test_command_path_surface.py`.
 - Invariants: jobs produce the trie even with no `GroupOptions`; options only decorate it. The root offers group names, under `audit ` only that node's children, with provenance. Group flags still scope by position; a dotted group token is not offered as a runnable path.
