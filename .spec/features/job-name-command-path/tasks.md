@@ -66,6 +66,12 @@ guards were restored and the targeted tests passed again.
 
 ### T4 — Hints, usages and non-TTY listing
 
+Status: [x] Complete. Shell and app suggestions emit copyable paths, grouped
+leaf help names the full program/path, and bare non-TTY output uses paths.
+The focused shell/app suite passed with only the later root-help fixture red.
+After a clean commit, restoring dotted identity and leaf-only usage at two
+renderers failed their end-to-end assertions; both wires were restored.
+
 - Inputs: T1/T3; source census in `research.md`.
 - [F] `src/functualize/_cli/main.py`, `src/functualize/app/commands.py`, `src/functualize/app/adapters/cli.py`, `tests/cli/test_command_path_surface.py`.
 - Invariants: fuzzy ranking and candidate set remain identity-based; render a matched descriptor's path only at output. Plugin and group suggestions remain valid. Click `prog_name` includes program plus full path on both doors. Bare non-TTY `func` prints paths; JSON stays identity.
