@@ -35,6 +35,7 @@ from functualize._cli.completions.quote_handling import (
     quote_for_insertion,
     tokenize_smart_bar,
 )
+from functualize.app.utils import BUILTIN_SEGMENT
 from functualize.plugin import DEFAULT_SIGIL, InputMode, InputModeRegistry
 
 if TYPE_CHECKING:
@@ -229,6 +230,10 @@ class SmartBarAutoComplete:
         if walk.bad_path is not None:
             return None, [], None, 0
         node = walk.node
+        if node.path[:1] == (BUILTIN_SEGMENT,):
+            # The trie reserves `builtin` but does not model its subcommands;
+            # the builtin registry's subcommand chain answers below it.
+            return None, [], None, 0
         segments = list(node.path)
         consumed = len(tokens) - len(walk.remaining)
         job_name = node.payload if node.has_payload and node.is_leaf else None
