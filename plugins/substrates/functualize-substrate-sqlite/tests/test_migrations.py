@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -71,16 +72,19 @@ def _names(driver: LocalSqliteDriver, kind: str) -> set[str]:
     return {name for (name,) in rows if not name.startswith("sqlite_")}
 
 
-def test_an_empty_database_becomes_version_2_with_two_ledger_rows(
+def test_an_empty_database_becomes_version_3_with_three_ledger_rows(
     driver: LocalSqliteDriver,
 ) -> None:
-    assert migrate(driver) == 2
+    assert migrate(driver) == 3
 
     rows = driver.query("SELECT version, name, checksum FROM schema_migrations")
     assert rows == [
         (1, "runtime_schema", REVISION_1.checksum),
         (2, "step_record_metadata", SHIPPED_MIGRATIONS[1].checksum),
+        (3, "step_attempt", SHIPPED_MIGRATIONS[2].checksum),
     ]
+    columns = {row[1]: row for row in driver.query("PRAGMA table_info(workflow_steps)")}
+    assert columns["attempt"][2:5] == ("INTEGER", 1, "0")  # type, NOT NULL, default
 
 
 def test_prepare_upgrades_a_version_1_file_and_defaults_step_metadata(
@@ -104,7 +108,7 @@ def test_prepare_upgrades_a_version_1_file_and_defaults_step_metadata(
     try:
         driver = LocalSqliteDriver(path)
         try:
-            assert driver.query("SELECT max(version) FROM schema_migrations") == [(2,)]
+            assert driver.query("SELECT max(version) FROM schema_migrations") == [(3,)]
             columns = {
                 row[1]: row for row in driver.query("PRAGMA table_info(workflow_steps)")
             }
@@ -119,12 +123,53 @@ def test_prepare_upgrades_a_version_1_file_and_defaults_step_metadata(
         prepared.store.close()
 
 
+def test_a_populated_version_2_database_upgrades_with_attempt_0(
+    driver: LocalSqliteDriver,
+) -> None:
+    assert migrate(driver, SHIPPED_MIGRATIONS[:2]) == 2
+    driver.batch(
+        [
+            ("INSERT INTO namespaces VALUES ('default', 'p', 'now')", ()),
+            (
+                "INSERT INTO workflow_scopes (namespace_id, id, workflow, status, "
+                "created_at, updated_at) VALUES ('default', 's1', 'f', 'running', "
+                "'now', 'now')",
+                (),
+            ),
+            (
+                "INSERT INTO workflow_steps (namespace_id, scope_id, step_key, "
+                "status, effecting, started_at) VALUES "
+                "('default', 's1', 'charge::', 'success', 1, '2026-10-01T00:00:00')",
+                (),
+            ),
+        ]
+    )
+
+    assert migrate(driver) == 3
+    assert driver.query(
+        "SELECT step_key, status, effecting, attempt, started_at FROM workflow_steps"
+    ) == [("charge::", "success", 1, 0, "2026-10-01T00:00:00")]
+    with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        driver.batch([("UPDATE workflow_steps SET attempt = -1", ())])
+
+
+def test_an_applied_revision_whose_column_is_gone_is_refused(
+    driver: LocalSqliteDriver,
+) -> None:
+    migrate(driver)
+    driver.batch([("ALTER TABLE workflow_steps DROP COLUMN attempt", ())])
+
+    with pytest.raises(MigrationRefused, match=r"workflow_steps\.attempt") as refused:
+        migrate(driver)
+    assert refused.value.version == 3
+
+
 def test_a_second_run_is_a_no_op(driver: LocalSqliteDriver) -> None:
     migrate(driver)
     schema = driver.query("SELECT sql FROM sqlite_master ORDER BY name")
 
-    assert migrate(driver) == 2
-    assert driver.query("SELECT count(*) FROM schema_migrations") == [(2,)]
+    assert migrate(driver) == 3
+    assert driver.query("SELECT count(*) FROM schema_migrations") == [(3,)]
     assert driver.query("SELECT sql FROM sqlite_master ORDER BY name") == schema
 
 
@@ -133,7 +178,7 @@ def test_an_edited_revision_is_refused(driver: LocalSqliteDriver) -> None:
     edited = Migration(1, REVISION_1.name, REVISION_1.sql + "\n-- edited\n")
 
     with pytest.raises(MigrationRefused) as refused:
-        migrate(driver, [edited, SHIPPED_MIGRATIONS[1]])
+        migrate(driver, [edited, *SHIPPED_MIGRATIONS[1:]])
 
     assert refused.value.version == 1
     assert refused.value.expected_checksum == edited.checksum
@@ -146,7 +191,7 @@ def test_a_ledger_ahead_of_the_shipped_set_is_refused(
 ) -> None:
     migrate(driver)
     driver.batch(
-        [("INSERT INTO schema_migrations VALUES (3, 'future', 'x', 'now')", ())]
+        [("INSERT INTO schema_migrations VALUES (4, 'future', 'x', 'now')", ())]
     )
 
     with pytest.raises(MigrationRefused, match="newer than this code"):
@@ -184,7 +229,7 @@ def test_a_legacy_documents_table_alone_is_migrated(driver: LocalSqliteDriver) -
         ]
     )
 
-    assert migrate(driver) == 2
+    assert migrate(driver) == 3
 
 
 def test_a_failing_revision_leaves_neither_schema_nor_ledger(

@@ -115,7 +115,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   `gate_requests.open_request`. Proof: ignore `supersedes` there and the test goes
   red.
 
-### T6 [ ] — SQLite backend: migration 0003, writer, reader
+### T6 [x] — SQLite backend: migration 0003, writer, reader
 - **Depends on:** T1.
 - **Files:** `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_schema/0003_step_attempt.sql` (new),
   `…/_workflow_sql.py`, `…/_readers.py`, `…/_migrations.py` (`SHIPPED_MIGRATIONS`

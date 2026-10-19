@@ -48,12 +48,12 @@ def test_the_factory_and_store_satisfy_their_ports(tmp_path: Path) -> None:
     assert prepared.store.profile is SQLITE_PROFILE is factory.profile
 
 
-def test_prepare_on_an_empty_path_migrates_to_version_2(tmp_path: Path) -> None:
+def test_prepare_on_an_empty_path_migrates_to_version_3(tmp_path: Path) -> None:
     db = tmp_path / "nested" / "state.db"
     prepared = SqliteRuntimeStoreFactory().prepare(_config(tmp_path, db))
 
     store = cast("SqliteRuntimeStore", prepared.store)
-    assert store.driver.query("SELECT max(version) FROM schema_migrations") == [(2,)]
+    assert store.driver.query("SELECT max(version) FROM schema_migrations") == [(3,)]
 
 
 def test_the_substrate_is_the_same_file_never_none(tmp_path: Path) -> None:

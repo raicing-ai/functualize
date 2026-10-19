@@ -180,7 +180,7 @@ class SqlWorkflowReader:
 
     _STEP_COLUMNS = (
         "step_key, iteration, status, result, reusable, result_kind, "
-        "result_type, inputs, effecting, completed_at"
+        "result_type, inputs, effecting, completed_at, attempt, started_at"
     )
 
     @staticmethod
@@ -197,6 +197,8 @@ class SqlWorkflowReader:
             inputs=_json(row[7]),
             effecting=bool(row[8]),
             completed_at=_time(row[9]),
+            attempt=row[10],
+            started_at=_time(row[11]),
         )
 
     def step(self, scope_id: str, step_key: str, iteration: int = 0) -> StepView | None:
