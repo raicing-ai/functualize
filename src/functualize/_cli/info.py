@@ -31,7 +31,9 @@ __all__ = [
     "job_catalog",
     "job_detail",
     "command_schemas",
+    "collision_projection",
     "render_catalog_text",
+    "render_collision_notice",
     "render_report_text",
     "resolve_renderer",
 ]
@@ -103,6 +105,70 @@ def _group_options_class_names(app: FunctualizeApp) -> frozenset[str]:
         return frozenset()
 
 
+def collision_projection(app: FunctualizeApp) -> dict[str, list[dict[str, str]]]:
+    """Join typed findings to each final registered claimant by identity.
+
+    The discovery failure payload remains four keys. This in-memory view is
+    used only for affected job rows and human notices.
+    """
+    descriptors = {descriptor.name: descriptor for descriptor in app.get_jobs()}
+    pipeline = getattr(app, "_resolution_pipeline", None)
+    findings: list[Any] = []
+    for entry in getattr(pipeline, "_providers", ()) or ():
+        provider = getattr(entry, "provider", entry)
+        findings.extend(getattr(provider, "discovery_failures", ()) or ())
+    findings.extend(getattr(pipeline, "collisions", ()) or ())
+
+    result: dict[str, list[dict[str, str]]] = {}
+    seen: set[tuple[str, str, str]] = set()
+    for finding in findings:
+        detail = getattr(finding, "collision", None)
+        if detail is None:
+            continue
+        descriptor = descriptors.get(detail.canonical_name)
+        if descriptor is None:
+            continue
+        key = (
+            detail.canonical_name,
+            detail.dropped_python_name,
+            detail.dropped_source_file,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.setdefault(detail.canonical_name, []).append(
+            {
+                "canonical_name": detail.canonical_name,
+                "dropped_python_name": detail.dropped_python_name,
+                "dropped_source_file": detail.dropped_source_file,
+                "registered_python_name": descriptor.python_name
+                or detail.registered_python_name,
+                "registered_source_file": descriptor.source_file
+                or detail.registered_source_file,
+            }
+        )
+    for collisions in result.values():
+        collisions.sort(
+            key=lambda item: (
+                item["dropped_source_file"],
+                item["dropped_python_name"],
+            )
+        )
+    return result
+
+
+def render_collision_notice(path: str, collision: dict[str, str]) -> str:
+    """One physical line shared by info, invocation and TUI surfaces."""
+    return (
+        f"JobNameCollision: {path}: "
+        f"{collision['registered_python_name']} "
+        f"({collision['registered_source_file']}) runs; "
+        f"{collision['dropped_python_name']} "
+        f"({collision['dropped_source_file']}) was dropped. "
+        "Rename one job."
+    )
+
+
 def job_catalog(app: FunctualizeApp) -> list[dict[str, Any]]:
     """Every discovered job, in the shape a listing needs.
 
@@ -110,16 +176,18 @@ def job_catalog(app: FunctualizeApp) -> list[dict[str, Any]]:
     job may be called. ``job_detail`` is the deep view.
     """
     catalog: list[dict[str, Any]] = []
+    collisions_by_name = collision_projection(app)
     for descriptor in sorted(app.get_jobs(), key=lambda d: d.name):
-        catalog.append(
-            {
-                "name": descriptor.name,
-                "group": descriptor.group,
-                "summary": _summary(descriptor),
-                "parameters": [f.name for f in descriptor.parameters],
-                "requires_tty": bool(getattr(descriptor, "requires_tty", False)),
-            }
-        )
+        entry: dict[str, Any] = {
+            "name": descriptor.name,
+            "group": descriptor.group,
+            "summary": _summary(descriptor),
+            "parameters": [f.name for f in descriptor.parameters],
+            "requires_tty": bool(getattr(descriptor, "requires_tty", False)),
+        }
+        if collisions := collisions_by_name.get(descriptor.name):
+            entry["collisions"] = collisions
+        catalog.append(entry)
     return catalog
 
 
@@ -143,7 +211,7 @@ def job_detail(app: FunctualizeApp, name: str) -> dict[str, Any] | None:
     # job it is looking at.
     declaration = getattr(descriptor, "declaration", None)
     fields = descriptor.config_fields or descriptor.parameters
-    return {
+    detail = {
         "name": descriptor.name,
         "group": descriptor.group,
         "summary": _summary(descriptor),
@@ -167,6 +235,9 @@ def job_detail(app: FunctualizeApp, name: str) -> dict[str, Any] | None:
             group_options_class_names=_group_options_class_names(app),
         ),
     }
+    if collisions := collision_projection(app).get(descriptor.name):
+        detail["collisions"] = collisions
+    return detail
 
 
 def _walk_tree(
@@ -427,6 +498,8 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
 
 def render_catalog_text(catalog: list[dict[str, Any]]) -> list[str]:
     """The catalog as aligned columns — no box drawing, safe through a pipe."""
+    from functualize.types import CommandPath
+
     if not catalog:
         return ["No jobs discovered."]
 
@@ -436,6 +509,12 @@ def render_catalog_text(catalog: list[dict[str, Any]]) -> list[str]:
         summary = entry["summary"]
         marker = "  [tty]" if entry["requires_tty"] else ""
         lines.append(f"{entry['name']:<{width}}  {summary}{marker}".rstrip())
+        if collisions := entry.get("collisions"):
+            path = str(CommandPath.of(entry.get("group"), entry["name"]))
+            lines.extend(
+                f"  {render_collision_notice(path, collision)}"
+                for collision in collisions
+            )
     return lines
 
 
@@ -502,8 +581,10 @@ def render_report_text(report: dict[str, Any]) -> list[str]:
     catalog = [
         {
             "name": job["name"],
+            "group": job.get("group"),
             "summary": job["summary"],
             "requires_tty": job["requires_tty"],
+            "collisions": job.get("collisions", []),
         }
         for job in jobs
         if job is not None
