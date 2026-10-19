@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BUILTIN_SEGMENT",
+    "CommandPath",
     "RESERVED_SIGILS",
     "GroupTrie",
     "NodeKind",
@@ -40,6 +41,25 @@ __all__ = [
     "normalize_segment",
     "resolve_name",
 ]
+
+
+@dataclass(frozen=True)
+class CommandPath:
+    """The segments a person types to address one job in a shell.
+
+    The dotted job name remains its programmatic identity. A dot inside the
+    leaf is retained because only the group's prefix defines path boundaries.
+    """
+
+    segments: tuple[str, ...]
+
+    @classmethod
+    def of(cls, group: str | None, name: str) -> CommandPath:
+        """Derive a path using the trie's job insertion rule."""
+        return cls(tuple(_job_segments(group, name)))
+
+    def __str__(self) -> str:
+        return " ".join(self.segments)
 
 
 def normalize_segment(segment: str) -> str:
@@ -382,7 +402,7 @@ class GroupTrie:
             cls._ensure_path(root, segments, origin="group")
 
         for job_group, name, kind in job_groups:
-            segments = _job_segments(job_group, name)
+            segments = list(CommandPath.of(job_group, name).segments)
             node_kind = NodeKind(kind) if not isinstance(kind, NodeKind) else kind
             cls._insert(root, segments, payload=name, kind=node_kind, origin="job")
 
