@@ -241,6 +241,10 @@ class CompleteStep:
     #: Whether the step was declared to affect the outside world, recorded on
     #: the step rather than looked up from a possibly-changed declaration.
     effecting: bool = False
+    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): persisted by both backends later.
+    attempt: int = 0
+    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): persisted by both backends later.
+    started_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -287,6 +291,10 @@ class RecordStep:
     result_type: str | None = None
     inputs: Mapping[str, Any] | None = None
     effecting: bool = False
+    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): persisted by both backends later.
+    attempt: int = 0
+    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): persisted by both backends later.
+    started_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -352,6 +360,8 @@ class SuspendAtGate:
     #: The gate's bound tool specs — names, never values.
     tools: tuple[Mapping[str, Any], ...] = ()
     scope_status: str = "blocked"
+    # TRANSITIONAL(effecting-step-recovery/T5,T7): consumed request supersession.
+    supersedes: str | None = None
 
 
 @dataclass(frozen=True)
@@ -647,6 +657,10 @@ class StepView:
     result_type: str | None = None
     inputs: Mapping[str, Any] | None = None
     effecting: bool = False
+    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): read by both backends later.
+    attempt: int = 0
+    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): read by both backends later.
+    started_at: datetime | None = None
     completed_at: datetime | None = None
 
 

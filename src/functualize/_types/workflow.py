@@ -38,13 +38,13 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
 
+from pydantic import BaseModel, ConfigDict
+
 from functualize._types.decision import decision_shape
 from functualize._types.job_declaration import _ref_name
 from functualize._types.protocols import AgentCapability
 
 if TYPE_CHECKING:
-    from pydantic import BaseModel
-
     from functualize._types.decision import ChoiceDecision
 
 __all__ = [
@@ -58,6 +58,7 @@ __all__ = [
     "Notify",
     "OnFailure",
     "IMPLIED_CAPABILITIES",
+    "InDoubt",
     "Step",
     "Tool",
     "ToolRef",
@@ -168,6 +169,22 @@ class Step:
     def name(self) -> str:
         """The graph key for this node (the referenced job's name)."""
         return _job_ref_name(self.job)
+
+
+def recovery_gate_name(step: str) -> str:
+    """Address an effecting step's recovery question beside that step."""
+    canonical = _job_ref_name(step)
+    group, dot, leaf = canonical.rpartition(".")
+    return f"{group}{dot}{leaf}-in-doubt"
+
+
+class InDoubt(BaseModel):
+    """An operator's answer to whether an effecting attempt ran."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["ran", "did_not_run"]
+    value: Any = None
 
 
 class Tool:
@@ -721,6 +738,8 @@ class WorkflowNodeShape:
     kind: str  # "step" | "gate" | "agent"
     model: str | None = None
     decision: Mapping[str, Any] | None = None
+    effecting: bool = False
+    recovers: str | None = None
 
 
 @dataclass(frozen=True)
@@ -781,6 +800,8 @@ class WorkflowShape:
                 # and digests — byte-for-byte as it did before the field.
                 if node.decision is not None:
                     entry |= {"decision": dict(node.decision)}
+                if node.recovers is not None:
+                    entry["recovers"] = node.recovers
                 nodes.append(entry)
             elif node.kind == "agent":
                 # Its own key, not "step": an agent step runs no registered
@@ -788,7 +809,10 @@ class WorkflowShape:
                 # that does not exist.
                 nodes.append({"agent": node.name})
             else:
-                nodes.append({"step": node.name})
+                entry = {"step": node.name}
+                if node.effecting:
+                    entry["effecting"] = True
+                nodes.append(entry)
 
         edges: list[dict[str, Any]] = []
         for edge in self.edges:
@@ -830,12 +854,19 @@ class WorkflowShape:
                         kind="gate",
                         model=raw.get("model"),
                         decision=decision,
+                        recovers=raw.get("recovers"),
                     )
                 )
             elif "agent" in raw:
                 nodes.append(WorkflowNodeShape(name=str(raw["agent"]), kind="agent"))
             elif "step" in raw:
-                nodes.append(WorkflowNodeShape(name=str(raw["step"]), kind="step"))
+                nodes.append(
+                    WorkflowNodeShape(
+                        name=str(raw["step"]),
+                        kind="step",
+                        effecting=raw.get("effecting", False),
+                    )
+                )
             else:
                 return None
 
@@ -1005,10 +1036,42 @@ class WorkflowDeclaration:
 
     def node(self, name: str) -> Step | Gate | AgentStep | None:
         """Look up a node by its graph key."""
+        name = _job_ref_name(name)
         for node in self.nodes:
             if node.name == name:
                 return node
+        for gate in self.recovery_gates():
+            if gate.name == name:
+                return gate
         return None
+
+    def recovery_gate(self, step: str) -> Gate | None:
+        """The declared recovery question for an effecting step, if any."""
+        step = _job_ref_name(step)
+        for node in self.nodes:
+            if isinstance(node, Step) and node.name == step and node.effecting:
+                return Gate(name=recovery_gate_name(step), awaits=InDoubt)
+        return None
+
+    def recovered_step(self, gate: str) -> str | None:
+        """The effecting step addressed by a derived gate, if any."""
+        gate = _job_ref_name(gate)
+        for node in self.nodes:
+            if (
+                isinstance(node, Step)
+                and node.effecting
+                and recovery_gate_name(node.name) == gate
+            ):
+                return node.name
+        return None
+
+    def recovery_gates(self) -> tuple[Gate, ...]:
+        """Derived gates in step declaration order."""
+        return tuple(
+            Gate(name=recovery_gate_name(node.name), awaits=InDoubt)
+            for node in self.nodes
+            if isinstance(node, Step) and node.effecting
+        )
 
     def step_refs(self) -> tuple[str | Callable[..., Any], ...]:
         """Every `Step`'s job reference, in declaration order.
@@ -1020,7 +1083,10 @@ class WorkflowDeclaration:
 
     def gates(self) -> tuple[Gate, ...]:
         """Every `Gate` node, in declaration order."""
-        return tuple(node for node in self.nodes if isinstance(node, Gate))
+        return (
+            *tuple(node for node in self.nodes if isinstance(node, Gate)),
+            *self.recovery_gates(),
+        )
 
     def outgoing(self, source: str) -> tuple[Edge | ConditionalEdge, ...]:
         """Every edge leaving ``source``."""
@@ -1063,8 +1129,18 @@ class WorkflowDeclaration:
                     if isinstance(node, Gate) and node.decide is not None
                     else None
                 ),
+                effecting=isinstance(node, Step) and node.effecting,
             )
             for node in self.nodes
+        )
+        nodes += tuple(
+            WorkflowNodeShape(
+                name=gate.name,
+                kind="gate",
+                model="InDoubt",
+                recovers=self.recovered_step(gate.name),
+            )
+            for gate in self.recovery_gates()
         )
 
         def _target(value: str | _EndSentinel) -> str | None:
