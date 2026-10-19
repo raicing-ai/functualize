@@ -21,14 +21,14 @@ if TYPE_CHECKING:
 __all__ = ["JobBrowserPanel"]
 
 
-def _display_command(job_name: str) -> str:
-    """The name as the shell spells it: `deploy web run`, not `deploy.web.run`.
+def _display_command(job: JobDescriptor) -> str:
+    """Render the descriptor's actual shell path.
 
     The browser is where a user first meets a job, so it must show the form
     they can type. The dotted name stays the canonical identity — selecting a
     row still posts it — and only the rendering changes.
     """
-    return job_name.replace(".", " ")
+    return str(job.command_path)
 
 
 def _normalize_for_filter(text: str) -> str:
@@ -123,7 +123,7 @@ class JobBrowserPanel(Widget):
             return
         self._table.clear()
         for job in self._filtered_jobs:
-            name = _display_command(job.name)
+            name = _display_command(job)
             source = self._derive_source_label(job)
             description = self._derive_description(job)
             self._table.add_row(name, source, description)
@@ -147,7 +147,10 @@ class JobBrowserPanel(Widget):
         else:
             q = _normalize_for_filter(query)
             self._filtered_jobs = [
-                j for j in self._jobs if q in _normalize_for_filter(j.name)
+                j
+                for j in self._jobs
+                if q in _normalize_for_filter(str(j.command_path))
+                or q in _normalize_for_filter(j.name)
             ]
         self._row_count = len(self._filtered_jobs)
         self._cursor_row = 0
@@ -159,7 +162,7 @@ class JobBrowserPanel(Widget):
             return
         self._table.clear()
         for job in self._filtered_jobs:
-            name = _display_command(job.name)
+            name = _display_command(job)
             source = self._derive_source_label(job)
             description = self._derive_description(job)
             self._table.add_row(name, source, description)

@@ -90,9 +90,38 @@ def test_dotted_traversal_is_not_a_tui_path(candidates):
 
 def test_literal_dot_leaf_remains_a_tui_path():
     from functualize._cli.tui.cli_arg_parser import resolve_tui_command
+    from functualize._cli.tui.sync import build_command_line
     from functualize.app.utils import build_group_trie
 
     trie = build_group_trie([("ci", "ci.tools.lint", "job")], builtin=False)
-    resolution = resolve_tui_command(trie, ["ci", "tools.lint"])
+    emitted = build_command_line("ci.tools.lint", [], {}, trie)
+    assert emitted == "ci tools.lint"
+    resolution = resolve_tui_command(trie, emitted.split())
     assert resolution.job_name == "ci.tools.lint"
     assert resolution.dotted_token is None
+
+
+def test_recent_preset_uses_the_same_bar_emitter_and_keeps_history_identity():
+    from functualize._cli.data.argument_history import ArgumentHistory
+    from functualize._cli.data.invocation_preset import get_recent_invocations
+    from functualize._cli.tui.cli_arg_parser import (
+        resolve_tui_command,
+        tokenize_bar_text,
+    )
+    from functualize._cli.tui.sync import build_command_line
+    from functualize.app.utils import build_group_trie
+
+    trie = build_group_trie([("deploy.web", "deploy.web.run", "job")], builtin=False)
+    history = ArgumentHistory(_store={}, _max_entries=50, _path=None, _dirty=False)
+    history.record("deploy.web.run", "image", "my image")
+
+    def emit(name: str, values: dict[str, str]) -> str:
+        entries = [(field, value, False, None) for field, value in values.items()]
+        return build_command_line(name, entries, {}, trie)
+
+    (preset,) = get_recent_invocations(history, ["deploy.web.run"], render_command=emit)
+    assert preset.job_name == "deploy.web.run"
+    assert preset.display_text == 'deploy web run --image "my image"'
+    resolution = resolve_tui_command(trie, tokenize_bar_text(preset.display_text))
+    assert resolution.job_name == "deploy.web.run"
+    assert resolution.args == ["--image", "my image"]

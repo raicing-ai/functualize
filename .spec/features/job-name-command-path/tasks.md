@@ -113,7 +113,7 @@ test fail on the missing array; the calls were restored.
 ### T7 — TUI displayed path, presets and write-back
 
 - Inputs: T1/T5 and ADR-009's one-emitter rule.
-- [F] `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/sync.py`, `src/functualize/_cli/tui/panels/job_browser.py`, `src/functualize/_cli/data/invocation_preset.py`, `tests/tui_group_options/test_write_back_contract.py`, `tests/tui/test_command_path_surface.py`.
+- [F] `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/sync.py`, `src/functualize/_cli/tui/panels/job_browser.py`, `src/functualize/_cli/data/invocation_preset.py`, `tests/tui_group_options/test_write_back_contract.py`, `tests/tui_group_options/test_panel_rendering.py` (existing browser expectation passes a bare identity), `tests/tui/test_command_path_surface.py`.
 - Invariants: row, header, bar and recent preset show a path that resolves; history keys and selected job payloads remain dotted identity. `build_command_line` remains the sole bar emitter and keeps quoting and group flags mid-path.
 - Gate: E6 on each display, preset selection and bar round trip, plus existing TUI write-back contract. Wire: restore one raw-identity or dot-split display after commit; its user-surface assertion fails.
 - Dependency: T5. Completion evidence: TUI text, round-trip test and sabotage result.
