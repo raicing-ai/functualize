@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -152,3 +155,58 @@ def test_a_walk_projects_its_recorded_route(
         }
     finally:
         store.close()
+
+
+def test_cli_subprocess_names_recorded_and_empty_routes(tmp_path: Path) -> None:
+    """Drive the text renderer through the builtin CLI in an isolated child."""
+    script = """
+import click
+from datetime import UTC, datetime
+from functualize._cli.builtins import register_builtin_commands
+from functualize.app.core import FunctualizeApp
+from functualize.plugin import RecordBranch
+from functualize.types import RunRequest
+from functualize.workflow import END, Edge, Step, workflow
+
+app = FunctualizeApp(name="routes")
+app.register_dynamic_job("work", lambda: "done")
+@workflow(steps=[Step("work")], edges=[Edge(source="work", target=END)])
+def release():
+    return "released"
+app.register_dynamic_job("release", release)
+for scope_id in ("empty", "chosen"):
+    app.execute(RunRequest(job_name="release", surface="app.execute", workflow_scope_id=scope_id))
+runtime = app.workflow_runtime_store()
+view = runtime.workflows.workflow("chosen")
+assert view is not None and view.generation is not None
+with runtime.transaction() as tx:
+    tx.workflows.record_branch(RecordBranch("chosen", view.generation, "work", "done", datetime.now(UTC)))
+root = click.Group(name="func")
+register_builtin_commands(root)
+for scope_id in ("empty", "chosen"):
+    root.main(args=["builtin", "workflow", "show", scope_id], prog_name="func", standalone_mode=False, obj={"app": app})
+"""
+    project = tmp_path / "project"
+    (project / ".functualize").mkdir(parents=True)
+    home = tmp_path / "home"
+    home.mkdir()
+    env = dict(os.environ)
+    env.update(
+        HOME=str(home),
+        XDG_CONFIG_HOME=str(home / ".config"),
+        XDG_DATA_HOME=str(home / ".local" / "share"),
+        XDG_CACHE_HOME=str(home / ".cache"),
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=project,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Branches: -" in result.stdout
+    assert "Branches: work -> done" in result.stdout
+    assert result.stdout.count("Failure routes: -") == 2

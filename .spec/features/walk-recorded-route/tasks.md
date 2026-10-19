@@ -41,6 +41,8 @@ that took a branch.
   Red baseline on the unchanged implementation at `179f9a81`: 7 failed,
   21 passed, across both stores and the CLI parity test. The first run before
   `uv sync --all-packages` was 3 failed, 3 skipped (SQLite unavailable).
+  An added isolated CLI subprocess test also fails as expected on the
+  still-unprojected code (1 failed, because `Branches: -` is absent).
 
 ## Wave 1 — port and declaration (foundation)
 
