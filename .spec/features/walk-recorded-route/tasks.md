@@ -63,6 +63,8 @@ Contracts §4.
   tests/conformance/test_baseline.py -q` still green.
 - Call path: `_workflow_view._port_record` (task 3.1); until then
   TRANSITIONAL, disclosed in the commit body.
+  Partial at wave 1: the reader exists on both stores, but 3.1 has not wired
+  the production call path. Reachability therefore keeps 1.1 unchecked.
 
 - [ ] **1.2 Node names refuse NUL**
 
@@ -73,6 +75,11 @@ contracts §7, beside each existing empty-name refusal.
 - Gate: the AC-10 tests pass; `uv run pytest tests/test_workflow_declaration.py
   tests/workflow -q` green.
 - Call path: node construction, which every `@workflow` declaration runs.
+  Partial at wave 1: the NUL tests and focused conformance suite pass, but the
+  exact `tests/test_workflow_declaration.py tests/workflow` gate reports 10
+  failures in wave 0's intentionally red projection tests (523 passed, 24
+  skipped). Those tests can only turn green at 3.1, after this wave. The
+  acceptance-gate rule keeps 1.2 unchecked and prevents advancing to wave 2.
 
 ## Wave 2 — the encoding's owner, and conformance
 

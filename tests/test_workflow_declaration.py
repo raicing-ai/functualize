@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from functualize._types.workflow import (
     END,
+    AgentStep,
     ConditionalEdge,
     Edge,
     Gate,
@@ -25,6 +26,19 @@ class Approval(BaseModel):
     """Gate schema used across these tests."""
 
     approved: bool = False
+
+
+@pytest.mark.parametrize(
+    "make_node",
+    [
+        lambda: Step("name\x00onfailure"),
+        lambda: Gate(name="gate\x00x", awaits=Approval),
+        lambda: AgentStep(name="agent\x00x", instructions="Review"),
+    ],
+)
+def test_node_names_refuse_nul(make_node) -> None:
+    with pytest.raises(ValueError, match="NUL"):
+        make_node()
 
 
 class TestDeclarationAttachment:
