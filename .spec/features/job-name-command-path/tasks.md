@@ -50,6 +50,12 @@ three files were restored.
 
 ### T3 — Shell path acceptance and refusal
 
+Status: [x] Complete. Both doors reject dotted tokens crossing group edges with
+the spaces hint; spaced calls, dotted alias targets, literal-dot leaves and
+mid-path group flags pass. Cold/warm shell refusal passed. After the clean code
+commit, disabling either door's guard failed its targeted assertion; both
+guards were restored and the targeted tests passed again.
+
 - Inputs: T1; `walk_group_path` references from Serena; `TrieNode.path` and current `Mode.JOB` fast path.
 - [F] `src/functualize/_cli/dispatch.py`, `src/functualize/_cli/main.py`, `src/functualize/app/adapters/cli.py`, `tests/cli/test_group_dispatch_trie.py`, `tests/group_options/test_adapter_entry_point_parity.py`.
 - Invariants: reject a single token that traverses multiple group edges; accept a literal-dot leaf that traverses one edge. `func` and app Click door emit the spaces hint. Alias targets remain dotted identities, and `func deploy --env prod web run` keeps its flag position.
