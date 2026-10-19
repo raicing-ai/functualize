@@ -73,8 +73,48 @@ contracts §7, beside each existing empty-name refusal.
   format --check`, `mypy src/` and `lint-imports` clean. Sabotage: `Gate`'s
   NUL check disabled after commit → `test_node_names_refuse_nul[<lambda>1]`
   failed (1 failed, 2 passed); restored with `git checkout --`.
+  Follow-up `11d3d68f`: the message now has contracts §7.2's shape
+  (`<Kind> name must not contain a NUL character ('\x00'): <repr>`), from one
+  helper; the test asserts the exact message. Gate 25 passed; disabling the
+  helper's check fails all three cases.
 
 ## Wave 2 — integrate the reader, encoding owner and projection
+
+**Status at `38328d83`: integrated, BLOCKED on one premise, no task checked.**
+The four tasks' code is committed. Every gate below is green except one test of
+the deferred 3.1 gate:
+`test_choices_and_failure_routes_are_separate_and_ordered[documents]`, the
+AC-11 recording-order case on the documents store. The cause is a false plan
+premise, not the projection. `atomic_write_json`
+(`_primitives/fresh_format.py:217`), the only writer `JsonFileSubstrate` uses,
+calls `json.dump(..., sort_keys=True)`, so `scopes.json` stores `branches` in
+key order and recording order is gone before any reader runs. Plan *Approach*
+2 claimed "the JSON object keeps insertion order across a `scopes.json` round
+trip". It does not. SQLite keeps rowid order and passes. Settling contracts
+§2.6/§4.3 against §8.1 (identical bytes) is a design decision, so wave 2 stays
+open and wave 3 has not started.
+
+Evidence at `38328d83`:
+
+- Deferred 3.1 gate (`tests/workflow`, CLI parity, MCP workflow tools):
+  1 failed (above), 579 passed, 24 skipped.
+- Step tier from `tests-for-diff` without `tests/workflow`, plus
+  `tests/conformance/test_baseline.py`: 1168 passed, 35 skipped. SQLite plugin
+  tests: 186 passed.
+- `tests/engine/test_decision_keys.py`, `test_failure_routing.py` and
+  `test_notify.py` (both unchanged): 73 passed.
+- `examples/standalone/workflow_store_read`: 3 passed, both stores.
+- `ruff check`, `ruff format --check`, `mypy src/` and `lint-imports` are clean.
+  The `TRANSITIONAL(3.1)` reader markers are removed because both callers exist.
+- Sabotage after commit, each restored with `git checkout --`. Every run also
+  shows the known documents-order red.
+  - SQLite reader returns `{}`: 0.1 sqlite cases and the sqlite example fail.
+  - Documents reader returns `{}`: 0.1 documents walk cases and the documents
+    example fail.
+  - `_port_record` emits `{}`: relational and port-backed 0.1 cases fail.
+  - `_describe` emits raw records in place of `recorded_route(...)`: the AC-2,
+    AC-4 and walk cases fail on both stores.
+  - The `Failure routes:` echo is removed: both CLI text tests fail.
 
 - [ ] **1.1 `WorkflowReader.branches` on the port and both stores**
 
