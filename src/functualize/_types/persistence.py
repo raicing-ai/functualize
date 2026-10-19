@@ -241,9 +241,9 @@ class CompleteStep:
     #: Whether the step was declared to affect the outside world, recorded on
     #: the step rather than looked up from a possibly-changed declaration.
     effecting: bool = False
-    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): persisted by both backends later.
+    # TRANSITIONAL(effecting-step-recovery/T8,T9): both backends persist it; no walk sets it yet.
     attempt: int = 0
-    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): persisted by both backends later.
+    # TRANSITIONAL(effecting-step-recovery/T8,T9): both backends persist it; no walk sets it yet.
     started_at: datetime | None = None
 
 
@@ -291,9 +291,9 @@ class RecordStep:
     result_type: str | None = None
     inputs: Mapping[str, Any] | None = None
     effecting: bool = False
-    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): persisted by both backends later.
+    # TRANSITIONAL(effecting-step-recovery/T8,T9): both backends persist it; no walk sets it yet.
     attempt: int = 0
-    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): persisted by both backends later.
+    # TRANSITIONAL(effecting-step-recovery/T8,T9): both backends persist it; no walk sets it yet.
     started_at: datetime | None = None
 
 
@@ -360,7 +360,7 @@ class SuspendAtGate:
     #: The gate's bound tool specs — names, never values.
     tools: tuple[Mapping[str, Any], ...] = ()
     scope_status: str = "blocked"
-    # TRANSITIONAL(effecting-step-recovery/T5,T7): consumed request supersession.
+    # TRANSITIONAL(effecting-step-recovery/T8,T9): both backends honour it; no walk passes it yet.
     supersedes: str | None = None
 
 
@@ -657,9 +657,9 @@ class StepView:
     result_type: str | None = None
     inputs: Mapping[str, Any] | None = None
     effecting: bool = False
-    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): read by both backends later.
+    # TRANSITIONAL(effecting-step-recovery/T8,T9): both backends read it; no walk writes it yet.
     attempt: int = 0
-    # TRANSITIONAL(effecting-step-recovery/T4,T5,T7): read by both backends later.
+    # TRANSITIONAL(effecting-step-recovery/T8,T9): both backends read it; no walk writes it yet.
     started_at: datetime | None = None
     completed_at: datetime | None = None
 

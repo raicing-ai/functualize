@@ -136,7 +136,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 - **Reachability:** `SqlWorkflowWriter._stage_step` from `complete_step` /
   `record_step`. Proof: drop `attempt` from the INSERT and the round-trip goes red.
 
-### T7 [ ] — Conformance: both backends agree
+### T7 [x] — Conformance: both backends agree
 - **Depends on:** T5, T6.
 - **Files:** `src/functualize/testing/conformance/baseline.py`,
   `tests/conformance/test_baseline.py`; and `src/functualize/_types/persistence.py`
