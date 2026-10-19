@@ -419,6 +419,34 @@ def record_branch_and_branch(make_store: MakeStore, root: Path) -> None:
     store.close()
 
 
+def record_branch_and_branches(make_store: MakeStore, root: Path) -> None:
+    """A bulk reader keeps decision order before and after reopening."""
+    store = make_store(root)
+    gen = _claim(store, "branches")
+    with store.transaction() as tx:
+        tx.workflows.record_branch(
+            RecordBranch("branches", gen, "fork", "left", _at(1))
+        )
+        tx.workflows.record_branch(
+            RecordBranch("branches", gen, "join", "right", _at(2))
+        )
+
+    def assert_branches(current: RuntimeStore) -> None:
+        reader = getattr(current.workflows, "branches", None)
+        assert callable(reader), "WorkflowReader.branches is missing"
+        assert list(reader("branches").items()) == [
+            ("fork", "left"),
+            ("join", "right"),
+        ]
+        assert reader("missing") == {}
+
+    assert_branches(store)
+    store.close()
+    reopened = make_store(root)
+    assert_branches(reopened)
+    reopened.close()
+
+
 def move_and_workflow(make_store: MakeStore, root: Path) -> None:
     store = make_store(root)
     gen = _claim(store, "move")
@@ -482,6 +510,7 @@ BASELINE: tuple[tuple[str, Callable[[MakeStore, Path], None]], ...] = (
     ("release and workflow", release_and_workflow),
     ("record step and steps", record_step_and_steps),
     ("record branch and branch", record_branch_and_branch),
+    ("record branch and branches", record_branch_and_branches),
     ("move and workflow", move_and_workflow),
     ("state and state", state_and_state),
     ("candidate answer has no legacy deposit", candidate_answer_has_no_legacy_deposit),
