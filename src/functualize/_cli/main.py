@@ -889,6 +889,16 @@ def _render_group_option_rows(specs: list[Any]) -> list[tuple[str, str]]:
     return rows
 
 
+def _show_dotted_group_error(token: str, path: tuple[str, ...]) -> int:
+    """Explain the shell spelling for a token that crossed group edges."""
+    print(
+        f"Error: '{token}' crosses a group; navigate groups with spaces: "
+        f"func {' '.join(path)}",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def _dispatch_group(
     app: Any,
     args: list[str],
@@ -995,6 +1005,8 @@ def _dispatch_group(
     # mid-path and is consumed as a group option (`func deploy --env prod web
     # run`). Everything else still errors exactly as before.
     walk = walk_group_path(trie, args)
+    if walk.bad_path is not None:
+        return _show_dotted_group_error(walk.remaining[0], walk.bad_path)
     node = walk.node
     remaining = list(walk.remaining)
     consumed = list(walk.consumed)
@@ -1471,6 +1483,11 @@ def _handle_job(
             print(file=sys.stderr)
         print("Run 'func' to see all available commands.", file=sys.stderr)
         return 1
+
+    # A dotted identity is still valid for aliases and programmatic calls.
+    # Only a token typed at the shell that names a grouped job is a traversal.
+    if raw_name not in aliases and job_descriptor.group and "." in raw_name:
+        return _show_dotted_group_error(raw_name, job_descriptor.command_path.segments)
 
     # Materialize the ONE target job via the engine (lazy boot leaves
     # cache-only descriptors with function=None; this imports only the

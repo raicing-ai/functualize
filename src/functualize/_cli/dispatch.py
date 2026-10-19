@@ -640,6 +640,8 @@ class GroupWalk:
     #: boolean given an inline value is a *known* flag used wrongly, and
     #: saying "unknown option" would send the reader looking for a typo.
     bad_flag_hint: str | None = None
+    #: Canonical path reached by one dotted token crossing multiple edges.
+    bad_path: tuple[str, ...] | None = None
 
 
 def walk_group_path(trie: GroupTrie, args: Sequence[str]) -> GroupWalk:
@@ -720,11 +722,21 @@ def walk_group_path(trie: GroupTrie, args: Sequence[str]) -> GroupWalk:
                 index += 2
             continue
 
-        walked = trie.step(node, token)
+        # A dot can belong to one leaf name. Prefer that exact edge before
+        # asking the trie to interpret the token as multiple segments.
+        walked = node.children.get(token) or trie.step(node, token)
         if walked is None:
             break
+        if len(walked.path) - len(node.path) > 1:
+            return GroupWalk(
+                node=node,
+                consumed=tuple(consumed),
+                remaining=tuple(args[index:]),
+                options=options,
+                bad_path=walked.path,
+            )
         node = walked
-        path.extend(token.split("."))
+        path = list(node.path)
         consumed.append(token)
         index += 1
 

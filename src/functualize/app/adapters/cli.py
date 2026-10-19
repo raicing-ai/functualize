@@ -195,6 +195,14 @@ class FallbackGroup(NormalizingGroup):
         except click.UsageError as _exc:
             if "No such command" not in str(_exc):
                 raise
+            path = _dotted_group_path(self, args[0])
+            if path is not None:
+                program = ctx.find_root().info_name or "app"
+                raise click.UsageError(
+                    f"'{args[0]}' crosses a group; navigate groups with spaces: "
+                    f"{program} {' '.join(path)}",
+                    ctx=ctx,
+                ) from None
 
             @click.command(name=args[0], hidden=True)
             @click.pass_context
@@ -212,6 +220,26 @@ class FallbackGroup(NormalizingGroup):
                 raise SystemExit(1)
 
             return args[0], _fallback_cmd, args[1:]
+
+
+def _dotted_group_path(group: click.Group, token: str) -> tuple[str, ...] | None:
+    """Return a tree path only when one token crosses existing group edges."""
+    if "." not in token or token in group.commands:
+        return None
+    from functualize.app.utils import normalize_segment
+
+    node: click.Command = group
+    path: list[str] = []
+    for segment in token.split("."):
+        if not isinstance(node, click.Group):
+            return None
+        key = segment if segment in node.commands else normalize_segment(segment)
+        child = node.commands.get(key)
+        if child is None:
+            return None
+        path.append(key)
+        node = child
+    return tuple(path) if len(path) > 1 else None
 
 
 # ─── Panel derivation ────────────────────────────────────────────────────
@@ -701,6 +729,13 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
         return None
 
     descriptor = matching[0]
+    if descriptor.group and "." in cmd:
+        print(
+            f"Error: '{cmd}' crosses a group; navigate groups with spaces: "
+            f"{' '.join(descriptor.command_path.segments)}",
+            file=sys.stderr,
+        )
+        return 2
 
     # run-request-entry (T6/T11): this fallback is one of the app-CLI job
     # paths — a job registered after the click tree was built. It names no
