@@ -217,6 +217,22 @@ this task's scope and cannot import `_cli`).
 
 ### T11 — Guard future spelling drift and document the contract
 
+Status: [x] Complete. `tests/spec/test_command_path_ratchet.py` walks the AST
+of every production source except `_types/naming.py` and rejects
+`replace(".", " ")` or `split(".")` on a job-identity receiver; eleven
+fixtures prove versions, modules, events, sections, vault targets,
+namespaces, groups, typed tokens, query text and `rsplit` stay legal. Of the
+sixteen base sites only the cached provider's canonical lookup remained; it
+now calls `normalize_name`. The guide documents identity versus path, the
+literal-dot leaf and the collision warning (replacing two stale claims), the
+lab example calls `CommandPath` and `command_path`, and `CHANGELOG.md` has the
+`### Fixed` entry. After the clean commit, reintroducing
+`job_name.replace(".", " ")` in `click_params.py` failed the ratchet, and the
+same call in a negative fixture failed that fixture; both restored. Not in
+E8: six `rsplit(".", 1)` leaf/group derivations (for example
+`JobDescriptor.func_name`) predate the feature and still treat a literal dot
+as a boundary.
+
 - Inputs: T1–T10; the `rg` source hit set recorded in `research.md`.
 - [F] `tests/spec/test_command_path_ratchet.py` (new), `src/functualize/_discovery/cached_provider.py`, `docs/guides/jobs-discovery.md`, `CHANGELOG.md`, `examples/standalone/group_options_lab/tests/test_group_options_lab.py`.
 - Invariants: E8 detects job-name dot conversions without rejecting unrelated version, module, vault or configuration dots. Any remaining split of a job identity for non-shell purposes is moved behind the naming boundary or documented as programmatic and proven outside E8. The public API has an example caller. Docs say shell path versus program identity accurately. Changelog adds a `### Fixed — …` entry under Unreleased.
