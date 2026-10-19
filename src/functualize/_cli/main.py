@@ -421,9 +421,9 @@ def cli_app(
                     if job.docstring:
                         desc = job.docstring.strip().split("\n")[0]
                     if desc:
-                        click.echo(f"{job.name} — {desc}")
+                        click.echo(f"{job.command_path} — {desc}")
                     else:
-                        click.echo(job.name)
+                        click.echo(str(job.command_path))
             else:
                 click.echo("No jobs discovered.")
             raise SystemExit(0)
@@ -627,9 +627,9 @@ def _handle_bare(
         if job.docstring:
             desc = job.docstring.strip().split("\n")[0]
         if desc:
-            click.echo(f"{job.name} — {desc}")
+            click.echo(f"{job.command_path} — {desc}")
         else:
-            click.echo(job.name)
+            click.echo(str(job.command_path))
 
     # Plugin-registered command namespaces + un-namespaced commands (post-boot).
     namespace_counts: dict[str, int] = {}
@@ -1051,9 +1051,7 @@ def _dispatch_group(
                         file=sys.stderr,
                     )
                 return 2
-    # Echo the tokens as typed, not the canonical path: a user who wrote
-    # `func infra.aws` should read their own spelling back in the usage line.
-    cli_path = " ".join(consumed) if consumed else args[0]
+    cli_path = " ".join(node.path) if node.path else args[0]
 
     # ── A command node → execute it, remaining tokens are its arguments ───
     if node.has_payload and node.is_leaf:
@@ -1093,7 +1091,10 @@ def _dispatch_group(
                 force=force,
             )
             return invoke_command_capturing(
-                command, remaining, output_format, prog_name=job_descriptor.func_name
+                command,
+                remaining,
+                output_format,
+                prog_name=f"func {job_descriptor.command_path}",
             )
 
         plugin_cmd = plugins_by_path.get(node.payload or "")
@@ -1108,16 +1109,7 @@ def _dispatch_group(
                 # "Usage: func mcp serve" -- a line that can be copied and
                 # run. It printed "Usage: serve", naming a command that does
                 # not exist.
-                prog_name=" ".join(
-                    [
-                        "func",
-                        *(
-                            segment
-                            for token in consumed
-                            for segment in token.split(".")
-                        ),
-                    ]
-                ),
+                prog_name=f"func {' '.join(node.path)}",
             )
 
     # ── A group node ──────────────────────────────────────────────────────
@@ -1144,9 +1136,7 @@ def _dispatch_group(
         # legal here (`func deploy --env prod web run`), so a listing that
         # showed only this node's own declarations would under-report what the
         # user may type. Outermost-first, matching the order they appear in.
-        option_specs = trie.group_options_on_path(
-            [segment for token in consumed for segment in token.split(".")]
-        )
+        option_specs = trie.group_options_on_path(node.path)
         option_rows = _render_group_option_rows(option_specs)
         if option_rows:
             print("\nOptions:")
@@ -1477,9 +1467,12 @@ def _handle_job(
 
         suggestions = suggest_similar_commands(job_name, discovered_names)
         if suggestions:
+            descriptors_by_name = {descriptor.name: descriptor for descriptor in jobs}
             print("\nDid you mean:", file=sys.stderr)
             for suggestion in suggestions:
-                print(f"  func {suggestion}", file=sys.stderr)
+                descriptor = descriptors_by_name.get(suggestion)
+                path = str(descriptor.command_path) if descriptor else suggestion
+                print(f"  func {path}", file=sys.stderr)
             print(file=sys.stderr)
         print("Run 'func' to see all available commands.", file=sys.stderr)
         return 1
@@ -1522,7 +1515,7 @@ def _handle_job(
         command,
         remaining_args,
         output_format,
-        prog_name=job_descriptor.name,
+        prog_name=f"func {job_descriptor.command_path}",
         on_start=lambda: app.perf_timeline.mark("job.execute.start"),
         on_end=lambda: app.perf_timeline.mark("job.execute.end"),
     )

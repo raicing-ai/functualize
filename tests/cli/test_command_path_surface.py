@@ -74,6 +74,15 @@ def test_leaf_usage_has_the_full_path(cli_run, project_tree):
 
 
 @surfaces("func")
+def test_bare_non_tty_listing_prints_paths(cli_run, project_tree):
+    result = cli_run([], cwd=_project(project_tree))
+    assert result.exit_code == 0
+    assert "suite inventory" in result.stdout
+    assert "deploy web run" in result.stdout
+    assert "suite.inventory" not in result.stdout
+
+
+@surfaces("func")
 def test_dotted_group_traversal_is_refused(cli_run, project_tree):
     result = cli_run(["suite.inventory"], cwd=_project(project_tree))
     assert result.exit_code != 0
@@ -126,3 +135,58 @@ def test_literal_dot_leaf_and_explicit_group_are_distinct_paths(tmp_path, monkey
     assert literal.exit_code == grouped.exit_code == 0
     assert "LINT" in literal.output
     assert "PACK" in grouped.output
+
+
+def test_app_door_suggests_and_uses_full_grouped_path(tmp_path, monkeypatch, capsys):
+    from click.testing import CliRunner
+
+    from functualize._discovery.providers import Job, StaticProvider
+    from functualize.app import FunctualizeApp, JobSources
+    from functualize.app.adapters import CliAdapter
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+
+    def inventory() -> None:
+        print("INVENTORY")
+
+    app = FunctualizeApp(
+        name="sample",
+        job_sources=JobSources(
+            job_providers=[StaticProvider([Job(function=inventory, group="suite")])]
+        ),
+    )
+    adapter = CliAdapter()
+    adapter(app)
+    runner = CliRunner()
+    typo = runner.invoke(adapter._cli_group, ["inventori"], prog_name="sample")
+    assert typo.exit_code != 0
+    assert "sample suite inventory" in typo.output
+    suggested = next(
+        line.strip()
+        for line in typo.output.splitlines()
+        if line.strip() == "sample suite inventory"
+    )
+    copied = runner.invoke(
+        adapter._cli_group,
+        shlex.split(suggested)[1:],
+        prog_name="sample",
+    )
+    assert copied.exit_code == 0, copied.output
+    assert "INVENTORY" in copied.output
+    help_result = runner.invoke(
+        adapter._cli_group, ["suite", "inventory", "--help"], prog_name="sample"
+    )
+    assert help_result.exit_code == 0, help_result.output
+    assert "Usage: sample suite inventory [OPTIONS]" in help_result.output
+    run = runner.invoke(adapter._cli_group, ["suite", "inventory"], prog_name="sample")
+    assert run.exit_code == 0, run.output
+    assert "INVENTORY" in run.output
+
+    from functualize.app.commands import JobCommandProvider
+
+    leaf = JobCommandProvider(app).nodes()[0].children()[0]
+    assert leaf.execute(["--help"]) == 0
+    assert "Usage: sample suite inventory [OPTIONS]" in capsys.readouterr().out

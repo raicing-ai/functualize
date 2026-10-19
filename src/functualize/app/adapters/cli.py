@@ -763,7 +763,12 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
         app=app,
         command_name=cmd,
     )
-    return invoke_command_capturing(command, remaining_args, "none", prog_name=cmd)
+    return invoke_command_capturing(
+        command,
+        remaining_args,
+        "none",
+        prog_name=f"{app.name} {descriptor.command_path}",
+    )
 
 
 def _show_command_not_found(cmd: str, app: object) -> None:
@@ -786,6 +791,7 @@ def _show_command_not_found(cmd: str, app: object) -> None:
         if isinstance(app, FunctualizeApp):
             jobs = app.get_jobs()
             job_names = [j.name for j in jobs]
+            descriptors_by_name = {j.name: j for j in jobs}
             from functualize.app.utils import suggest_similar_commands
 
             suggestions = suggest_similar_commands(cmd, job_names)
@@ -795,7 +801,9 @@ def _show_command_not_found(cmd: str, app: object) -> None:
                 # is how the two doors answered one question differently.
                 print("\nDid you mean:", file=sys.stderr)
                 for s in suggestions:
-                    print(f"  {s}", file=sys.stderr)
+                    descriptor = descriptors_by_name.get(s)
+                    path = str(descriptor.command_path) if descriptor else s
+                    print(f"  {app.name} {path}", file=sys.stderr)
     except Exception:
         pass
 
