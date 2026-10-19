@@ -1,0 +1,142 @@
+# Execution waves
+
+Status: Plan review required before Execute. The approved shape confirms the behavior in `spec.md`; this graph and the surviving smells in `plan.md` are the native task-review gate. An implementer starts only after that review. All tasks use the fixed context anchor: `spec.md`, `contracts.md`, `research.md`, `plan.md`, `tasks.md`, and `.spec/STATE.md` (absent means no work in flight). The branch base is `91947bb4f90c611d588de9907f84e61edf2c1514`.
+
+`[F]` is the allowed file set. Each task names its production call path and a wire that must be broken after a clean commit to prove the test reaches it. If retrieval reveals another file, amend this graph before editing it. Wave N+1 starts only when every task in wave N is checked.
+
+## Wave 0 — lock the failing behavior
+
+### T0 — Red acceptance fixtures
+
+- Inputs: `spec.md` E1–E8 and the measured commands in `research.md`.
+- [F] `tests/cli/test_command_path_surface.py` (new), `tests/tui/test_command_path_surface.py` (new), `tests/cli/test_collision_surfaces.py` (new).
+- Invariants: isolated HOME and all XDG roots for subprocesses; keep the current deterministic winner and machine-readable identity assertions. Test the same fixture cold and warm. The printed suggestion is copied into a subprocess, not merely string-checked.
+- Gate: run these tests on the base before a source edit; E1, E3, E4, E5 and E7 must fail for the measured reason. Record E2 and E6 as separate assertions so a later accidental dot ban cannot pass E3 by breaking E6. No task is marked done because an unrelated error made a test red.
+- Dependency: none. Completion evidence: failing test names, expected/actual excerpts, and fixture paths.
+
+## Wave 1 — establish shared data, with no delivery edit
+
+### T1 — One path value and public descriptor property
+
+- Inputs: `plan.md` chosen shape; `_job_segments` caller census from Serena and `rg -n '_job_segments' src tests plugins`.
+- [F] `src/functualize/_types/naming.py`, `src/functualize/_types/descriptors.py`, `src/functualize/types/__init__.py`, `tests/discovery/test_group_trie.py`, `tests/core/test_command_path.py` (new).
+- Invariants: `CommandPath.of(group, name)` is immutable, owns the existing segment derivation, and is the trie's insertion rule; `str(path)` joins segments with spaces but leaves a literal dot inside a leaf. `JobDescriptor.name`, `to_dict` and `from_dict` stay identity-shaped.
+- Gate: unit cases for `suite.inventory`, `deploy.web.run`, ungrouped `tools.lint`, and `pack` in `ci`; existing trie and descriptor serialization tests pass. Wire: `GroupTrie.from_cache -> CommandPath.of` and `JobDescriptor.command_path -> CommandPath.of`; after commit, break each call and see its test fail.
+- Dependency: T0. Completion evidence: unit output, import from `functualize.types`, and unchanged descriptor JSON keys.
+
+### T2 — Structured collision finding without a payload change
+
+- Inputs: `contracts.md` JSON object; current `DiscoveryFailure` and `job_name_collision` callers from Serena.
+- [F] `src/functualize/_types/discovery_report.py`, `src/functualize/_discovery/collisions.py`, `src/functualize/_discovery/pipeline.py`, `src/functualize/_discovery/registry.py`, `tests/discovery/test_job_name_collisions.py`.
+- Invariants: keep `DiscoveryFailure.as_dict()`'s four keys and deterministic winner. Attach typed claimant names and file paths only in memory. Re-derive findings on warm boot. A three-claimant chain is reportable against its final winner.
+- Gate: one-file, two-file, provider/pipeline and warm-cache tests prove both paths and claimant names; full-info failure payload is unchanged. Wire: each of the three production collision producers calls the shared finding factory; sabotage each producer after commit.
+- Dependency: T0. Completion evidence: assertions over typed details and exact legacy payload.
+
+## Wave 2 — resolve shell paths
+
+### T3 — Shell path acceptance and refusal
+
+- Inputs: T1; `walk_group_path` references from Serena; `TrieNode.path` and current `Mode.JOB` fast path.
+- [F] `src/functualize/_cli/dispatch.py`, `src/functualize/_cli/main.py`, `src/functualize/app/adapters/cli.py`, `tests/cli/test_group_dispatch_trie.py`, `tests/group_options/test_adapter_entry_point_parity.py`.
+- Invariants: reject a single token that traverses multiple group edges; accept a literal-dot leaf that traverses one edge. `func` and app Click door emit the spaces hint. Alias targets remain dotted identities, and `func deploy --env prod web run` keeps its flag position.
+- Gate: E3 and E6 plus cold/warm and mid-path flag parity. Rewrite dotted-invocation tests to assert refusal while retaining their jobs' spaced success. Wire: `main -> walk_group_path -> trie.step` and app Click group resolution; sabotage both doors after commit.
+- Dependency: T1. Completion evidence: exact error/exit and literal-dot success.
+
+## Wave 3 — render paths and build TUI navigation
+
+### T4 — Hints, usages and non-TTY listing
+
+- Inputs: T1/T3; source census in `research.md`.
+- [F] `src/functualize/_cli/main.py`, `src/functualize/app/commands.py`, `src/functualize/app/adapters/cli.py`, `tests/cli/test_command_path_surface.py`.
+- Invariants: fuzzy ranking and candidate set remain identity-based; render a matched descriptor's path only at output. Plugin and group suggestions remain valid. Click `prog_name` includes program plus full path on both doors. Bare non-TTY `func` prints paths; JSON stays identity.
+- Gate: E1/E2 and copied-line execution on both doors, including a retired name and nested group. Verify leaf help on both direct and group routes. Wire: revert a renderer to `descriptor.name` or leaf `func_name` after commit and watch its end-to-end assertion fail.
+- Dependency: T3. Completion evidence: before/after output and sabotage result.
+
+### T5 — Always build the TUI's navigation trie
+
+- Inputs: T1/T3; Serena reference set for `build_group_option_trie`.
+- [F] `src/functualize/_cli/tui/cli_arg_parser.py`, `src/functualize/_cli/tui/smart_bar_autocomplete.py`, `tests/group_options/test_tui_completion_context.py`, `tests/tui/test_command_path_surface.py`.
+- Invariants: jobs produce the trie even with no `GroupOptions`; options only decorate it. The root offers group names, under `audit ` only that node's children, with provenance. Group flags still scope by position; a dotted group token is not offered as a runnable path.
+- Gate: E4 plus with/without-options comparison, typed candidate execution, and no `builtin` under `audit `. Wire: restore the `if not specs: return None` guard after commit; E4 must fail.
+- Dependency: T3. Completion evidence: candidate lists and sabotage result.
+
+### T6 — Collision projection for human and JSON output
+
+- Inputs: T2; `job_catalog` and `discovery_failures` reference sets from Serena.
+- [F] `src/functualize/_cli/info.py`, `src/functualize/_cli/builtins.py`, `tests/cli/test_info_discovery_failures.py`, `tests/cli/test_job_detail_declaration.py`.
+- Invariants: one projection joins typed findings to the final descriptor by identity; no message parsing. Text says path and both files; JSON says identity and adds `collisions` only on affected rows. Full report's `discovery_failures` shape and clean catalog rows remain compatible.
+- Gate: E5 narrow and full info, one/two/three claimants, cold/warm. Rewrite exact-key tests to distinguish clean and colliding rows. Wire: remove the projection call after commit and prove text and JSON tests fail.
+- Dependency: T2/T1. Completion evidence: output samples and byte-compatible legacy payload keys.
+
+## Wave 4 — finish interactive and help surfaces
+
+### T7 — TUI displayed path, presets and write-back
+
+- Inputs: T1/T5 and ADR-009's one-emitter rule.
+- [F] `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/sync.py`, `src/functualize/_cli/tui/panels/job_browser.py`, `src/functualize/_cli/data/invocation_preset.py`, `tests/tui_group_options/test_write_back_contract.py`, `tests/tui/test_command_path_surface.py`.
+- Invariants: row, header, bar and recent preset show a path that resolves; history keys and selected job payloads remain dotted identity. `build_command_line` remains the sole bar emitter and keeps quoting and group flags mid-path.
+- Gate: E6 on each display, preset selection and bar round trip, plus existing TUI write-back contract. Wire: restore one raw-identity or dot-split display after commit; its user-surface assertion fails.
+- Dependency: T5. Completion evidence: TUI text, round-trip test and sabotage result.
+
+### T8 — Resume hints, provenance and inline handoff
+
+- Inputs: T1/T5; job-name conversion hit set from `rg -n` in `research.md`.
+- [F] `src/functualize/app/_workflow_resume.py`, `src/functualize/app/adapters/click_params.py`, `src/functualize/_cli/completions/provenance.py`, `src/functualize/_cli/inline_tui.py`, `tests/cli/test_command_path_surface.py`.
+- Invariants: resume lines use path without changing stored workflow identity; provenance derives from group/path rather than splitting identity; inline handoff uses the trie result, not dot substitution.
+- Gate: copied resume line executes, literal-dot leaf survives, `(local)`/`(job)` attribution remains; source ratchet has no job-name dot conversion at these sites. Wire: restore each text conversion after commit and see a surface test fail.
+- Dependency: T5. Completion evidence: command transcript and provenance assertions.
+
+### T9 — Root help from the discovered trie
+
+- Inputs: T1/T3 and N3; the existing pinned decision/test in `tests/cli/test_help_surface_pinned.py`.
+- [F] `src/functualize/_cli/main.py`, `tests/cli/test_help_surface_pinned.py`, `tests/cli/test_command_path_surface.py`.
+- Invariants: `func --help` retains its global option descriptions and builtin subtree, adds top-level jobs and groups, uses one diagnostic boot and the same path source. A discovery failure must not hide diagnostic help. Cold and warm output agree.
+- Gate: E7, group nesting and broken-project help. Rewrite the old “builtin only” test as a positive inventory/parity test; do not delete it. Wire: remove the discovered-row registration after commit and E7 fails.
+- Dependency: T4. Completion evidence: root help Commands block, cold/warm comparison, sabotage result.
+
+## Wave 5 — collision notices on every shell surface
+
+### T10 — Collision notice on the command and in TUI
+
+- Inputs: T6/T7; one text renderer from `src/functualize/_cli/info.py`.
+- [F] `src/functualize/_cli/main.py`, `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/panels/job_browser.py`, `tests/cli/test_collision_surfaces.py`, `tests/tui/test_command_path_surface.py`.
+- Invariants: invocation writes one warning line to stderr before the final claimant runs; group help, TUI row marker and pre-flight warning agree. A clean command gets none; no duplicate warning under cold/warm discovery. A selected row still invokes identity.
+- Gate: E5 all human surfaces and N2. Wire: remove the warning call from each door after commit; the corresponding test fails.
+- Dependency: T6/T7. Completion evidence: one/two-file transcripts and TUI assertions.
+
+## Wave 6 — ratchet and documentation
+
+### T11 — Guard future spelling drift and document the contract
+
+- Inputs: T1–T10; the `rg` source hit set recorded in `research.md`.
+- [F] `tests/spec/test_command_path_ratchet.py` (new), `src/functualize/_discovery/cached_provider.py`, `docs/guides/jobs-discovery.md`, `CHANGELOG.md`, `examples/standalone/group_options_lab/tests/test_group_options_lab.py`.
+- Invariants: E8 detects job-name dot conversions without rejecting unrelated version, module, vault or configuration dots. Any remaining split of a job identity for non-shell purposes is moved behind the naming boundary or documented as programmatic and proven outside E8. The public API has an example caller. Docs say shell path versus program identity accurately. Changelog adds a `### Fixed — …` entry under Unreleased.
+- Gate: E8, example tests, `tests/skills/` if shipped skill prose changes, and a source scan for every former 15-surface site. Wire: reintroduce `job_name.replace(".", " ")` in one test fixture after commit and watch the ratchet fail.
+- Dependency: T8/T9/T10. Completion evidence: ratchet failure proof, docs/example parity and changelog line.
+
+## Wave 7 — complete verification and artifact lifecycle
+
+### T12 — Whole-feature gate and artifact lifecycle
+
+- Inputs: all preceding tasks and `contributor/guides/wiring-discipline.md`.
+- [F] `.spec/STATUS.md`, then deletion-only last commit under `.spec/features/job-name-command-path/` after the feature-bearing push validates.
+- Invariants: no source or test edit in the final artifact-clearing commit. The durable rule and any accepted compromise move to `.spec/STATUS.md` or an ADR. No tracker key, URL, run id or harness name in commit/PR title or body. `master` is reached only by a reviewed squash PR; designer never performs merge, release or deploy.
+- Gate: E1–E8 end to end, both doors, TUI, cold/warm, group flags, exact legacy JSON keys; `uv run ruff check --fix src/ tests/ plugins/ examples/` then `ruff format --check`, `mypy src/`, `lint-imports`, relevant pytest (maximum two local invocations per verification), CI tip tier, and `uv run python .github/scripts/dead_code_delta.py <base> <head>`. Price the CI and test load; do not issue a single local suite expected past the 600 s cap. Confirm `contract-diff-carries-task-graph` parses this graph and `spec-artifacts-cleared` turns green after the deletion-only push.
+- Dependency: T11. Completion evidence: command outputs, dead-code classification, PR validation, durable entry and artifact-clearing commit.
+
+## Task Dependency Graph
+
+```json
+{
+  "waves": [
+    {"id": 0, "tasks": ["T0"]},
+    {"id": 1, "tasks": ["T1", "T2"]},
+    {"id": 2, "tasks": ["T3"]},
+    {"id": 3, "tasks": ["T4", "T5", "T6"]},
+    {"id": 4, "tasks": ["T7", "T8", "T9"]},
+    {"id": 5, "tasks": ["T10"]},
+    {"id": 6, "tasks": ["T11"]},
+    {"id": 7, "tasks": ["T12"]}
+  ]
+}
+```
