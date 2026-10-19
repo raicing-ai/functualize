@@ -13,7 +13,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 
 ## Wave 1 — vocabulary and declaration (foundation; parallel-safe)
 
-### T1 — Port vocabulary: attempt fields and `supersedes`
+### T1 [x] — Port vocabulary: attempt fields and `supersedes`
 - **Inputs:** an effecting attempt is durably recorded before its job runs with
   `status=attempting`, `effecting=true`, attempt number (starting at 1), and start
   time. The recovery question carries step, attempt, loop iteration, and start
@@ -34,7 +34,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   with `# TRANSITIONAL(effecting-step-recovery/T4,T5,T7)` on each new field until
   its writers land.
 
-### T2 — Declaration: recovery gates, `InDoubt`, shape, collision refusal
+### T2 [x] — Declaration: recovery gates, `InDoubt`, shape, collision refusal
 - **Inputs:** `effecting=True` implies one declared recovery gate named
   `<step>-in-doubt`; it opens only when a walk finds the step in doubt. The gate
   must resolve through `WorkflowDeclaration.node()` because the answer path
@@ -67,7 +67,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   `declaration.shape()`, called from `WorkflowWalker._check_the_graph_has_not_changed`.
   Proof: remove the `recovers` entry and the AC-10 test goes red.
 
-### T3 — Boot refusal: `effecting=True` on a workflow job (E×W×W)
+### T3 [x] — Boot refusal: `effecting=True` on a workflow job (E×W×W)
 - **Inputs:** a step whose job is itself a workflow cannot be effecting: its
   child steps declare their own flags. The registry reveals nested workflows
   only at boot, after declaration; refuse this composition at boot validation.
@@ -83,7 +83,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   (`_engine/workflow_validation.py:113`). Proof: delete the new branch and the test
   goes red.
 
-### T4 — Discovery cache version
+### T4 [x] — Discovery cache version
 - **Inputs:** effecting steps add a flag and recovery-gate entry to the cached
   workflow shape. The cache schema version therefore advances from 21 to 22.
 - **Files:** `src/functualize/_primitives/cache_format.py`, plus any test pinning
@@ -97,7 +97,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 
 ## Wave 2 — the two backends, then agreement
 
-### T5 — Document backend: attempt fields and `supersedes`
+### T5 [ ] — Document backend: attempt fields and `supersedes`
 - **Depends on:** T1.
 - **Files:** `src/functualize/_primitives/document_store.py`,
   `src/functualize/_primitives/gate_requests.py`,
@@ -115,7 +115,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   `gate_requests.open_request`. Proof: ignore `supersedes` there and the test goes
   red.
 
-### T6 — SQLite backend: migration 0003, writer, reader
+### T6 [ ] — SQLite backend: migration 0003, writer, reader
 - **Depends on:** T1.
 - **Files:** `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_schema/0003_step_attempt.sql` (new),
   `…/_workflow_sql.py`, `…/_readers.py`, `…/_migrations.py` (`SHIPPED_MIGRATIONS`
@@ -131,7 +131,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 - **Reachability:** `SqlWorkflowWriter._stage_step` from `complete_step` /
   `record_step`. Proof: drop `attempt` from the INSERT and the round-trip goes red.
 
-### T7 — Conformance: both backends agree
+### T7 [ ] — Conformance: both backends agree
 - **Depends on:** T5, T6.
 - **Files:** `src/functualize/testing/conformance/baseline.py`,
   `tests/conformance/test_baseline.py`.
@@ -145,7 +145,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 
 ## Wave 3 — engine plumbing
 
-### T8 — Frontier statuses and pass-through; `GateAsk`
+### T8 [ ] — Frontier statuses and pass-through; `GateAsk`
 - **Depends on:** T1, T5, T6.
 - **Files:** `src/functualize/_engine/frontier.py`,
   `src/functualize/_engine/gate_service.py`, `tests/workflow/test_gate_resolution_model.py`.
@@ -171,7 +171,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 
 ## Wave 4 — the behaviour
 
-### T9 — `EffectRecovery` and the walker's delegation
+### T9 [ ] — `EffectRecovery` and the walker's delegation
 - **Depends on:** T2, T8.
 - **Files:** `src/functualize/_engine/effect_recovery.py` (new),
   `src/functualize/_engine/workflow_walker.py`,
@@ -218,7 +218,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   `_service_step` → `EffectRecovery.begin`. Proof: remove the `begin` call, and
   AC-1's in-process twin (a crash after the effect) re-runs the job.
 
-### T10 — Answer path: a recovery gate stands at its step
+### T10 [ ] — Answer path: a recovery gate stands at its step
 - **Depends on:** T2.
 - **Files:** `src/functualize/app/_workflow_answer.py`,
   `tests/workflow/test_gate_resume_surfaces.py`.
@@ -233,7 +233,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 
 ## Wave 5 — the real crash, and the words
 
-### T11 — `kill -9` into the window
+### T11 [ ] — `kill -9` into the window
 - **Depends on:** T9, T10.
 - **Files:** `tests/integration/test_crash_and_resume.py`.
 - **Change:** a hang point **after the effect and before the job returns**, plus a
@@ -246,7 +246,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   `DocumentRuntimeStore` (as today's test does). Proof: comment out `begin` in T9's
   call site and AC-1 goes red with a marker count of 2.
 
-### T12 — Docstrings, guide, CLI reference, changelog
+### T12 [ ] — Docstrings, guide, CLI reference, changelog
 - **Depends on:** T9.
 - **Files:** `src/functualize/_types/workflow.py` (the `Step.effecting` docstring only),
   `docs/guides/workflows.md`, `docs/cli/workflow.md`, `CHANGELOG.md`.
