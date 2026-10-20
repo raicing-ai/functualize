@@ -76,7 +76,7 @@ raising `FromStepUnavailableError` for anything but `Recorded`. Uses
 
 ## Wave 3 — the engine
 
-- [ ] **3.1 Boot validation for every `FromStep` position**
+- [x] **3.1 Boot validation for every `FromStep` position**
 
 `_engine/workflow_validation.py`: extract the ancestor computation
 (`:52-66`) into a helper used by both checks; add
@@ -94,8 +94,12 @@ not checked. Messages per `contracts.md` §2. Module stays < 500 lines.
 - Call path: `_app` boot → `validate_workflow_declarations` →
   `_validate_workflow_from_step_refs`. Sabotage: remove the call; AC4/AC5 in
   0.1 go red.
+- Evidence at `807ea9d1`: validation and existing `FromJob` suites, 57 passed;
+  AC4/AC5 passed before sabotage. Removing the validation call made all six
+  AC4/AC5 variants fail (16 deselected); the committed file was restored.
+  Module length 369 lines; lint, format, mypy and import contracts passed.
 
-- [ ] **3.2 Injection, outside the executor**
+- [x] **3.2 Injection, outside the executor**
 
 New `_engine/walk_reads.py`: `step_records(runtime_store, scope_id)`
 (StepView → record mapping, the same port call `_from_job_value` makes) and
@@ -106,6 +110,8 @@ applying spec B2/B5/D2: explicit argument wins; no scope → error; `Recorded`
 
 - Files: `src/functualize/_engine/walk_reads.py`, `tests/engine/test_walk_reads.py` (new)
 - Gate: `uv run pytest tests/engine/test_walk_reads.py -q` green.
+- Evidence: 8 passed; source lint, format, mypy (397 files), and all seven
+  import contracts passed. The executor call remains transitional until 4.1.
 
 ## Wave 4 — wire the engine
 
