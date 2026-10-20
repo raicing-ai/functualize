@@ -180,7 +180,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 
 ## Wave 4 — the behaviour
 
-### T9 [ ] — `EffectRecovery` and the walker's delegation
+### T9 [x] — `EffectRecovery` and the walker's delegation
 - **Depends on:** T2, T8.
 - **Files:** `src/functualize/_engine/effect_recovery.py` (new),
   `src/functualize/_engine/workflow_walker.py`,
