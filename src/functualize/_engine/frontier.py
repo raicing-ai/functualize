@@ -105,8 +105,6 @@ class GraphModel:
         cannot tell them apart by looking and guessing wrong in that direction
         re-runs a refund.
         """
-        # TRANSITIONAL(effecting-step-recovery/T9): the walk records the attempt
-        # and asks the recovery gate from T9; until then nothing enforces this.
         return node in self.effecting
 
     def successors(self, node: str, choice: str | None = None) -> list[str]:

@@ -56,8 +56,6 @@ class _Default(Enum):
 _DEFAULT: Final = _Default.LADDER
 
 
-# TRANSITIONAL(effecting-step-recovery/T9): every caller passes the default
-# ask until the effecting-step recovery asks its gate through this.
 @dataclass(frozen=True)
 class GateAsk:
     """How the walk asks a gate this time, when that is not the gate's own way.
