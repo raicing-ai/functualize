@@ -138,7 +138,7 @@ fingerprint fallthrough for `FromJob` kept.
 
 ## Wave 5 — the tool surfaces (5.2 precedes 5.3)
 
-- [ ] **5.1 Core gate-tool path**
+- [x] **5.1 Core gate-tool path**
 
 Delete `_resolve_bound` (`app/_workflow_control.py:836-870`); `_bound_values`
 (`:892`) calls `resolve_bound_values(scope["steps"].items(), spec.bound)`.
@@ -147,8 +147,10 @@ Delete `_resolve_bound` (`app/_workflow_control.py:836-870`); `_bound_values`
 - Gate: `rg -c "def _resolve_bound" src/functualize/app/_workflow_control.py`
   → 0; the core `call_gate_tool` tests green
   (`uv run pytest tests/workflow/test_workflow_control.py -q`).
+- Evidence: core workflow-control suite 28 passed; `_resolve_bound` has zero
+  definitions in the core module.
 
-- [ ] **5.2 MCP resolver test migration**
+- [x] **5.2 MCP resolver test migration**
 
 Update the four test call sites that used
 `tools._resolve_bound` to call `resolve_bound_values` directly, and change
@@ -157,10 +159,12 @@ changes*); add a binding naming an earlier gate (AC8, D1).
 
 - Files: `tests/plugins/test_gate_tool_narrowing.py`, `tests/integration/test_part_i_remaining_cells.py`
 - Gate: `uv run pytest tests/plugins/test_gate_tool_narrowing.py tests/integration/test_part_i_remaining_cells.py -q` green; the four test calls use `resolve_bound_values` and no test calls `tools._resolve_bound`.
+- Evidence: migrated suites 48 passed, including a binding that reads an
+  earlier gate answer; no test calls the plugin resolver.
 - Dependency: 5.3 deletes the old plugin resolver only after these tests
   exercise the shared reader.
 
-- [ ] **5.3 Fold the unused MCP declaration lookup into the live core path**
+- [x] **5.3 Fold the unused MCP declaration lookup into the live core path**
 
 Before deletion, add tests in `tests/plugins/test_gate_tool_narrowing.py` that
 invoke both the MCP `_call_gate_tool` and core `call_gate_tool` on the same
@@ -180,6 +184,10 @@ member: the live plugin path never accesses `execution_engine`.
   `_bound_values` → `resolve_bound_values`. Sabotage the core
   `_bound_values` call in `call_gate_tool` after committing and verify the
   parity test fails, then restore it.
+- Evidence: three parity tests passed before deletion; after deletion the
+  plugin/integration/host suites passed (53). The removed symbols have zero
+  hits in the plugin, and core `_bound_values` has one definition. Lint,
+  format, mypy and all seven import contracts passed.
 
 ## Wave 6 — witnesses
 
