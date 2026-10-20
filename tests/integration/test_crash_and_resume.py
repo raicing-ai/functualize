@@ -366,6 +366,30 @@ def test_pure_step_retries_after_kill_inside_its_body(project: Path) -> None:
     assert marker.read_text().count("charged") == 2
 
 
+def test_killed_effect_never_enters_again_without_a_verdict(project: Path) -> None:
+    """The reachability twin reports two markers if attempt recording is removed."""
+    from functualize._primitives.scope_store import ScopeStore
+    from functualize.app._workflow_control import reclaim_scope
+
+    runner = _write_window_runner(project)
+    marker, hang = project / "effects.log", project / "window.ready"
+    first = _spawn(runner, marker, hang, effecting=True)
+    assert _wait_for(hang)
+    _kill_hard(first)
+    _expire_the_dead_runners_lease(project)
+    reclaim_scope(ScopeStore.for_project(project), "crash-scope")
+    hang.unlink()
+    second = _spawn(runner, marker, hang, effecting=True)
+    if _wait_for(hang, timeout=5):
+        _kill_hard(second)
+    else:
+        out, err = second.communicate(timeout=10)
+        assert second.returncode == 0, err.decode()[-2000:]
+        assert b"blocked" in out.lower()
+    count = marker.read_text().count("charged")
+    assert count == 1, f"effect marker count: {count}"
+
+
 @pytest.mark.parametrize("mode", ["deps", "inv"])
 def test_kill_in_child_work_stops_the_effecting_parent_at_doubt(
     project: Path, mode: str
