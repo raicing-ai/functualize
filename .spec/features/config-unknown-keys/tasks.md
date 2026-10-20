@@ -1,152 +1,151 @@
-# config-unknown-keys — Tasks (Revision 2, proposed)
+# config-unknown-keys — Tasks (Revision 3)
 
-Base: `origin/master` `91947bb4` (rebased from `d1c7e40a`). Branch: `sdd/config-unknown-keys`.
-Spec: `spec.md` AC1–AC16. Contracts: C1–C4. Plan: `plan.md` (R5).
-**Execute is gated on M1–M4** (`plan.md` §6) and on confirmation of these tasks.
+Base `91947bb4`, branch `sdd/config-unknown-keys`. Spec AC1–AC27, contracts
+C1–C6, plan R3. **Execute is gated on** the maintainer's confirmation of these
+tasks and answers to M5, M6, M7 (`plan.md` §6).
 
-Authoring-time measurements (2026-10-19, `91947bb4`, AST walk, docstrings excluded):
+Authoring-time measurements (2026-10-20, `91947bb4`): 13 vocabulary
+collection literals in 6 files; 91 read-position key literals in 9 files;
+`rg -n 'functualize_settings|settings_layers|settings_resolution|config_vocabulary' src` → 0 hits;
+`uv run lint-imports` → 7 kept / 0 broken. F3a and F3b reproduced
+(`spec.md` §1.2).
 
-- collection literals restating ≥ 2 config key names: **13 in 6 files** (AC12 baseline);
-- config-key literals in read position: **91 in 9 files** (AC13 baseline);
-- the same walk restricted to the structural names of AC16: **59 in 8 files**;
-- `rg -n 'config_vocabulary|functualize_settings' src/functualize` → **0 hits**;
-- `uv run lint-imports` → 7 kept, 0 broken.
+Every task's gate also includes: `uv run lint-imports` green; the pin
+(`tests/config/test_settings_pin.py`) green, or changed only in a row that
+`spec.md` §3.8 names; reachability by sabotage for every new production path
+(commit, break, watch the named test fail, restore).
 
-Each task's gate includes `uv run lint-imports` and the AC14 pin
-(`tests/config/test_vocabulary_pin.py`), both green.
+## Wave 0 — pin and declare
 
-## Wave 0 — pin, then declare
+- [ ] **0.1 Pin** (AC14) — **[F]** `tests/config/test_settings_pin.py` (new)
+  - Literal expectations at `91947bb4`: `SETTINGS_ORDER`, defaults, choices,
+    bounds, descriptions, `cli_flag`, `phase`, env names, `_RECOGNIZED_*`,
+    `LIST_KEYS`, `PROJECT_CONFIG_CANDIDATES` names, fingerprint fields, the
+    flags of `_cli/main.py:117-200`. Resolved values for a matrix of single
+    dir, nested ± `root`, global-only, env, and flags. A second class pins the
+    §3.8 rows as today's behaviour (`F3a`, `F3b`, env names), marked to be
+    flipped by the task that changes each.
+- [ ] **0.2 Declaration** (C4) — **[F]** `src/functualize/_types/settings.py`,
+  `src/functualize/_types/functualize_settings.py` (new),
+  `tests/config/test_functualize_settings.py` (new)
+  - Every name of the pin, declared once, with constants. `extend()` raises
+    on a name clash. `SCRIPT_METADATA` covers `job` (+ `skill` per M5).
+  - Gate: the declaration's names = the union pinned in 0.1; `_types`
+    imports nothing internal.
 
-- [ ] **0.1 — Pin today's vocabulary** (AC14)
-  - **[F]** `tests/config/test_vocabulary_pin.py` (new)
-  - **Do:** record literal expected values, not imports compared with
-    themselves: `SETTINGS_ORDER`, `DEFAULT_VALUES`, every setting's choices,
-    bounds, `cli_flag` and `phase`, `FUNC_SCHEMA.env_var_for` per setting,
-    `_RECOGNIZED_SECTIONS`/`_TOP_LEVEL_KEYS`/`_KEYS`, `_VALID_OUTPUT_FORMATS`,
-    `LIST_KEYS`, `PROJECT_CONFIG_CANDIDATES` names,
-    `_DISCOVERY_FINGERPRINT_FIELDS`, `DiscoveryConfig` field names, and
-    `resolve_env_overrides()` for each of the 7 documented variables.
-  - **Acceptance:** green at `91947bb4`, with no source change.
+## Wave 1 — resolver, layers, mechanical split
 
-- [ ] **0.2 — The declaration** (C4)
-  - **[F]** `src/functualize/_types/settings.py`,
-    `src/functualize/_types/functualize_settings.py` (new),
-    `src/functualize/app/config.py` (re-export),
-    `tests/config/test_functualize_settings.py` (new)
-  - **Do:** add `places`/`listed`/`env` and the `map`/`records` types; add the
-    `setting`/`sections`/`keys_in`/`value_in` queries; declare every key
-    once, with named constants; re-export `FUNCTUALIZE_SETTINGS` and the
-    constants from `functualize.app.config`.
-  - **Tests:** the declaration's names equal the union of today's statements
-    (0.1's pinned sets); `value_in` follows the order of `places`; `keys_in("aliases")`
-    is free-form; `_types` imports nothing internal.
-  - **Acceptance:** both test files green.
+- [ ] **1.1 Layers** (C5, §3.2) — **[F]** `src/functualize/_config/settings_layers.py` (new),
+  `tests/config/test_settings_layers.py` (new)
+  - Gate: AC24's fixture gives exactly the root-stopped layers; global last.
+- [ ] **1.2 Resolver** (C5, §3.3) — **[F]** `src/functualize/_config/settings_resolution.py` (new),
+  `src/functualize/_config/sources.py`, `tests/config/test_settings_resolution.py` (new)
+  - `EnvSource(prefix=)`, `LayerSource`, list merge = `_merge_lists_dedup`.
+  - Gate: the 0.1 matrix resolves to the pinned values, and F3a → `rich`.
+- [ ] **1.3 Builtins split** (F10, AC25) — **[F]** `src/functualize/_cli/builtins.py` →
+  `src/functualize/_cli/builtins/` (`__init__.py`, `_cache.py`, `_data.py`,
+  `_workflow.py`, `_run.py`, `_builtin.py`, `_config.py`, `_domains.py`,
+  `_skills.py`, `_info.py`, `_helpers.py`)
+  - Move only, no behaviour change. Gate: `func builtin --help` and every
+    subgroup's `--help` byte-identical; `uv run pytest tests/cli tests/_cli -q`
+    green; `register_builtin_commands` ≤ 60 lines.
 
-## Wave 1 — derive (no behaviour change; disjoint files)
+## Wave 2 — public seam and kernel consumers
 
-- [ ] **1.1 — `_config`**
-  - **[F]** `src/functualize/_config/project_dirs.py`, `src/functualize/_config/merge.py`,
-    `src/functualize/_config/vault_declarations.py`
-  - **Do:** `LIST_KEYS` is derived from the declaration (settings whose places
-    include `""` and `"discovery"`). The names in `PROJECT_CONFIG_CANDIDATES`
-    come from `.sources` and the prefix. `root_key` defaults to `ROOT.key`.
-    The vault reader uses `VAULT_SECRET.key`.
-  - **Acceptance:** `uv run pytest tests/config -q` green; AC16 walk over
-    these three files → 0.
+- [ ] **2.1 Public seam** (C4/C5) — **[F]** `src/functualize/app/config.py`,
+  `src/functualize/app/core.py`, `src/functualize/plugin/__init__.py`, `tests/app/test_app_settings.py` (new)
+  - Re-exports; `ConfigSources(settings=, resolved=)`; `FunctualizeApp.settings`.
+- [ ] **2.2 `_config` readers** — **[F]** `src/functualize/_config/project_dirs.py`,
+  `src/functualize/_config/merge.py`, `src/functualize/_config/vault_declarations.py`
+  - Gate: `uv run pytest tests/config -q`; the AC13 walk over these files → 0.
+- [ ] **2.3 Fingerprint** — **[F]** `src/functualize/_discovery/filter_factory.py`,
+  `tests/discovery/test_discovery_hash.py`
+  - Gate: an unset config's digest equals the pinned digest.
 
-- [ ] **1.2 — `_discovery` fingerprint**
-  - **[F]** `src/functualize/_discovery/filter_factory.py`,
-    `tests/discovery/test_discovery_hash.py`
-  - **Do:** derive the fingerprint fields from the `[discovery]` filter
-    settings, plus `pre_filter`. The drift half of the test (`:113`, `:127`)
-    becomes an equality against the declaration.
-  - **Acceptance:** `uv run pytest tests/discovery/test_discovery_hash.py -q`
-    green; the fingerprint of an unset config is byte-identical (pinned digest).
+## Wave 3 — boot, engine, adapters (F3b, F7, STATUS #22)
 
-- [ ] **1.3 — `_app` and `_engine` reads**
-  - **[F]** `src/functualize/_app/boot.py`, `src/functualize/_engine/executor.py`
-  - **Do:** `PLUGINS_STRICT`, `SHELL_PROGRAM` and `SHELL_SUDO_PASSWORD`
-    supply section and key.
-  - **Acceptance:** `uv run pytest tests/engine tests/plugin -q` green.
+- [ ] **3.1 Boot and engine** (AC17) — **[F]** `src/functualize/_app/boot.py`,
+  `src/functualize/_engine/executor.py`, `tests/engine/test_shell_settings_source.py` (new)
+  - Before moving, pin today's vault path for `sudo_password` (risk 1).
+    `plugins.strict` and `shell.*` are then read from `app.settings`. Boot
+    re-resolves `secret` settings with the vault source.
+- [ ] **3.2 Public adapters** (AC19) — **[F]** `src/functualize/app/adapters/cli.py`,
+  `src/functualize/app/adapters/surface_gate.py`, `tests/adapters/test_surface_gate.py`
+  - No `_cli` import. Generated flags come from the schema. The surface gate
+    reads `app.settings`. STATUS #22's test passes when run alone.
 
-- [ ] **1.4 — `_cli` catalog views**
-  - **[F]** `src/functualize/_cli/data/func_settings.py`,
-    `src/functualize/_cli/data/settings_schema.py`, `src/functualize/_cli/tui/__init__.py`
-  - **Do:** `_BASE_SETTINGS`/`tui_settings()`/`SETTING_SCHEMAS` become views
-    over the declaration. `FuncSetting`, `FUNC_SETTINGS`, `FUNC_SCHEMA` and
-    `register_settings` keep their signatures. `_spec`/`_tui_spec` and the
-    `_as_setting` projection go away.
-  - **Acceptance:** `uv run pytest tests/cli/test_func_settings_store.py tests/cli/test_settings_registration.py -q`
-    green.
+## Wave 4 — CLI (M2 b, M3, M4)
 
-- [ ] **1.5 — `_cli/config.py`** (+ M3)
-  - **[F]** `src/functualize/_cli/config.py`, `tests/cli/test_cli_config.py`,
-    `tests/cli/test_cli_config_vault.py`
-  - **Do:** derive `_RECOGNIZED_*` and `_VALID_OUTPUT_FORMATS`; resolve
-    `[discovery]` by looping over the declared section. Apply M3 to the
-    `read_global_config` warning. Under M3-recommended, remove it and update
-    the tests asserting it (`test_cli_config.py:106,125,186`,
-    `test_cli_config_vault.py:85`) to assert that the key is dropped and that
-    `config path` reports it.
-  - **Acceptance:** those tests plus `tests/cli/test_resolve_cli_config.py`
-    green.
+- [ ] **4.1 Pre-boot scan and flag parsing** — **[F]** `src/functualize/_cli/dispatch.py`,
+  `src/functualize/_types/flag_grammar.py`, `tests/_cli/test_dispatch_flags.py` (new)
+  - Flags are read from the schema and parsed into `Mapping[Setting, value]`.
+    `_extract_global_options` is decomposed. `OPTIONAL_VALUE_VALID_SET` is
+    renamed `GLOBAL_OPTION_ACCEPTED_VALUES` (F13).
+- [ ] **4.2 `_cli/config.py`** (F9) — **[F]** `src/functualize/_cli/config.py`,
+  `tests/cli/test_cli_config.py`, `tests/cli/test_cli_config_vault.py`, `tests/cli/test_resolve_cli_config.py`
+  - `CliConfig` becomes a projection of `ResolvedSettings`. Delete
+    `read_global_config`, `_RECOGNIZED_*`, `resolve_env_overrides`,
+    `resolve_cli_config`'s own resolution, `resolve_cli_config_layers` and
+    `SettingsFileInfo`. The warning tests (`test_cli_config.py:106,125,186`,
+    `test_cli_config_vault.py:85`) become `config path` assertions.
+- [ ] **4.3 Settings store and TUI** (M4) — **[F]** `src/functualize/_cli/data/func_settings.py`,
+  `src/functualize/_cli/data/settings_schema.py`, `src/functualize/_cli/tui/__init__.py`,
+  `src/functualize/_cli/tui/settings_panel.py`, `src/functualize/_cli/tui/settings_validator.py`,
+  `src/functualize/_cli/tui/shell_mode.py`, `src/functualize/_cli/tui/app.py` (one read),
+  `src/functualize/_cli/tui/source_chain_providers.py`, `src/functualize/_cli/tui/panels/settings_files.py`,
+  `tests/cli/test_func_settings_store.py`, `tests/cli/test_settings_registration.py`
+  - Remove the registries, `FuncSetting`, `_spec`, `_as_setting` and the
+    import-time registration. Rows come from the schema (`surface="tui"`);
+    values come from `app.settings`.
 
-## Wave 2 — derive in the shared CLI files
+## Wave 5 — main and utils
 
-- [ ] **2.1 — `app/utils.py` config reads**
-  - **[F]** `src/functualize/app/utils.py`
-  - **Do:** document reads (`:750-753`, `:972-1032`) go through `value_in`.
-    The `overrides`/`effective` plumbing (`:843-867`) follows M2.
-  - **Acceptance:** `uv run pytest tests/cli/test_auto_discover.py tests/cli/test_config_upward_walk.py -q` green.
+- [ ] **5.1 `_cli/main.py`** — **[F]** `src/functualize/_cli/main.py`
+  - Generated options replace `:117-200`. The typed flag layer replaces
+    `cli_flags` (`:304-320`, `:2039-2043`). `PLUGINS_DISABLED`, `ALIASES`
+    and `JOBS_DIRECTORIES` reads go through `app.settings`/`value_in`.
+- [ ] **5.2 `app/utils.py`** — **[F]** `src/functualize/app/utils.py`
+  - Document reads (`:750-753`, `:972-1032`) and the `overrides`/`effective`
+    plumbing (`:843-867`) go through the declaration.
+  - Gate (after 5.1 and 5.2): the AC13 walk over `src/` → 0 outside the owner
+    and the resolver; plan risk 4's `rg` sweep is clean.
 
-- [ ] **2.2 — `_cli/main.py` config reads** (rebase onto MCH-194 if it landed first)
-  - **[F]** `src/functualize/_cli/main.py`
-  - **Do:** `PLUGINS_DISABLED` at `:360-362`, `:573-575`, `:1235-1237`
-    and `:1355-1357`. `ALIASES` at `:727` and `:733`. `JOBS_DIRECTORIES` at
-    `:1699`. The flag plumbing (`:304-320`, `:2039-2043`) follows M2.
-  - **Acceptance:** `uv run pytest tests/cli -q -k "plugin or alias or disabled"` green;
-    AC16 walk over `main.py` → 0.
+## Wave 6 — the check, surfaces, reserved names, example, PEP 723
 
-## Wave 3 — the check
+- [ ] **6.1 Check** (C3; AC4, AC6, AC8, AC9) — **[F]** `src/functualize/_cli/data/config_vocabulary.py` (new),
+  `tests/cli/test_config_vocabulary.py` (new)
+- [ ] **6.2 Reserved names** (F14; AC23, AC27) — **[F]** `src/functualize/_discovery/collisions.py`,
+  `src/functualize/_config/sources.py`, `tests/discovery/test_reserved_section_names.py` (new)
+- [ ] **6.3 Example** (F7; AC21) — **[F]** `examples/standalone/deploy_tool/deploy_tool/main.py`,
+  `examples/standalone/deploy_tool/tests/test_deploy_tool.py`
+- [ ] **6.4 PEP 723** (M5) — **[F]** `src/functualize/_cli/pep723.py`, `tests/cli/test_pep723_skill_key.py`, `tests/standalone/test_pep723.py`
 
-- [ ] **3.1 — `config_vocabulary`** (C3; AC4, AC5, AC6, AC8, AC9)
-  - **[F]** `src/functualize/_cli/data/config_vocabulary.py` (new), `tests/cli/test_config_vocabulary.py` (new)
-  - **Do:** as in Revision 1, but membership is
-    `FUNCTUALIZE_SETTINGS.keys_in(section)` ∪ registered. No literal vocabulary.
-  - **Acceptance:** test file green; the AC12 walk over the new module → 0.
-    TRANSITIONAL until wave 4 adds its callers.
+## Wave 7 — surfaces
 
-## Wave 4 — surfaces
+- [ ] **7.1 `config path` and `config show`** (C1; AC1, AC2, AC5, AC7, AC11, AC24) —
+  **[F]** `src/functualize/_cli/builtins/_config.py`, `tests/cli/test_config_builtin.py`
+  - Lists `settings_layers()`; status from `ResolvedSettings.contributes`;
+    annotations; `config show` provenance from the snapshot (removes
+    `_determine_source`).
+- [ ] **7.2 `info --json`** (C2; AC3, AC16) — **[F]** `src/functualize/_cli/info.py`,
+  `tests/cli/test_info_unknown_keys.py` (new)
 
-- [ ] **4.1 — `config path`** (C1; AC1, AC2, AC5, AC6, AC7, AC11)
-  - **[F]** `src/functualize/_cli/builtins.py`, `tests/cli/test_config_builtin.py`
-  - **Do:** take the file names from `FUNCTUALIZE_SETTINGS.sources` (removes
-    the literals at `:2419-2420`); add the annotation.
-  - **Reachability:** break the `describe(...)` call and watch AC1 fail.
-- [ ] **4.2 — `info --json`** (C2; AC3)
-  - **[F]** `src/functualize/_cli/info.py`, `tests/cli/test_info_unknown_keys.py` (new)
-  - **Reachability:** remove the assignment and watch AC3 fail.
+## Wave 8 — keep it single, docs, fixtures
 
-## Wave 5 — keep it single
+- [ ] **8.1 Ratchets** (AC12, AC13, AC18, AC20, AC22) — **[F]** `tests/spec/test_settings_ratchet.py` (new)
+- [ ] **8.2 Off the run path** (AC10) — **[F]** `tests/cli/test_config_vocabulary_run_path.py` (new)
+- [ ] **8.3 Fixtures** (F11; AC26) — **[F]** `tests/_cli/test_runtime_detection.py`,
+  `tests/_cli/test_self_doctor.py`, `tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py`,
+  `tests/cli/test_config_upward_walk.py`
+- [ ] **8.4 Docs, changelog, STATUS** (F12; AC15) — **[F]** `docs/cli/config.md`, `docs/guides/shell.md`,
+  `docs/guides/configuration.md`, `CHANGELOG.md`, `.spec/STATUS.md`, `tests/spec/test_config_docs_ratchet.py` (new)
+  - CHANGELOG: `### Fixed — …` (FOSS-127), plus `### Changed` rows for §3.8.
 
-- [ ] **5.1 — Off the run path** (AC10) — **[F]** `tests/cli/test_config_vocabulary_run_path.py` (new)
-- [ ] **5.2 — Source ratchet** (AC12, AC13, AC16)
-  - **[F]** `tests/spec/test_config_vocabulary_ratchet.py` (new),
-    `tests/spec/config_vocabulary_baseline.json` (new)
-  - **Do:** an AST walk over `src/functualize/**` excluding
-    `_types/functualize_settings.py`. AC12: 0 collection literals. AC13: a
-    per-file count ≤ baseline, and the test fails with "lower the baseline"
-    when a count drops without the file being edited. AC16: 0 structural
-    names.
-- [ ] **5.3 — Docs ratchet, docs, changelog** (AC15)
-  - **[F]** `tests/spec/test_config_docs_ratchet.py` (new), `docs/cli/config.md`, `CHANGELOG.md`
+## Wave 9 — checkpoint
 
-## Wave 6 — checkpoint
-
-- [ ] **6.1** — the five gates, `dead_code_delta.py origin/master HEAD`, and the
-  live E2 repro. Migrate the durable rule ("one declaration in
-  `_types/functualize_settings.py`; ratchet") to `.spec/STATUS.md` or an ADR
-  before the deletion-only cleanup commit.
+- [ ] **9.1** The five gates; `dead_code_delta.py origin/master HEAD`; the live
+  F1/F3a/F3b repros; an ADR for the one-declaration rule; then the
+  deletion-only cleanup commit.
 
 ## Task Dependency Graph
 
@@ -154,12 +153,15 @@ Each task's gate includes `uv run lint-imports` and the AC14 pin
 {
   "waves": [
     { "id": 0, "tasks": ["0.1", "0.2"] },
-    { "id": 1, "tasks": ["1.1", "1.2", "1.3", "1.4", "1.5"] },
-    { "id": 2, "tasks": ["2.1", "2.2"] },
-    { "id": 3, "tasks": ["3.1"] },
-    { "id": 4, "tasks": ["4.1", "4.2"] },
-    { "id": 5, "tasks": ["5.1", "5.2", "5.3"] },
-    { "id": 6, "tasks": ["6.1"] }
+    { "id": 1, "tasks": ["1.1", "1.2", "1.3"] },
+    { "id": 2, "tasks": ["2.1", "2.2", "2.3"] },
+    { "id": 3, "tasks": ["3.1", "3.2"] },
+    { "id": 4, "tasks": ["4.1", "4.2", "4.3"] },
+    { "id": 5, "tasks": ["5.1", "5.2"] },
+    { "id": 6, "tasks": ["6.1", "6.2", "6.3", "6.4"] },
+    { "id": 7, "tasks": ["7.1", "7.2"] },
+    { "id": 8, "tasks": ["8.1", "8.2", "8.3", "8.4"] },
+    { "id": 9, "tasks": ["9.1"] }
   ]
 }
 ```

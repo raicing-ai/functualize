@@ -1,259 +1,219 @@
-# config-unknown-keys — Plan
+# config-unknown-keys — Plan (Revision 3)
 
 ## Alignment
 
 - **Shape:** *Shape Intent — Unknown Keys in .functualize.toml (what is
-  checked, how loudly, where)* — Confluence `SD/17137669`, **version 2**
-  (updated 2026-10-17 03:48:14 UTC), `Status = Approved`,
-  `Authority = Approved`. Read live on 2026-10-17 before this plan was written.
-- **Approval record:** three inline comments by the maintainer, each
-  "follow recommendation" (`18808859` 03:46:36Z, `18972740` 03:47:04Z,
-  `18808867` 03:47:31Z). The build shape is the page's own
-  "**Recommendation: 1a + 2a + 3a.**" The page's intro sentence "It is **not
-  approved**" is stale draft prose; the `Authority` row governs.
-- **In scope, in the shape's words:**
-  - "Unknown **scalar/array keys** at the top level and inside known setting
-    sections (`[cli]`, `[discovery]`, registered sections) of
-    `.functualize.toml` and `pyproject.toml` `[tool.functualize]`"
-  - "A "did you mean" suggestion from the known vocabulary"
-  - "`func builtin config path` and the JSON of `func builtin info`"
-  - "The XDG global `config.toml` gets the same check"
-- **Out of scope, in the shape's words:** "Validating **values** (types, enum
-  members)"; "Unknown **tables** that could be job sections"; "Adding a
-  `--json` flag to `config path` — owned by SD/2850883's output-flag
-  conventions"; "Unknown parameters inside a job section — per-job schema
-  validation".
-- **Must not change, in the shape's words:** "a file with only known keys
-  produces exactly today's output; no run's exit code changes because of the
-  check."
-- **Shape risks answered here:** Risk 1 (registered settings load late) → §4.2;
-  Risk 2 (`pyproject.toml` neighbours) → only `[tool.functualize]` is read, via
-  the existing `_functualize_table`.
-- **Related, not carried:** SD/17104898 (MCH-188) shares the `config path`
-  surface; which files `config path` lists is that page's concern.
-
-- **Revision 2 scope (pending M1):** the maintainer's direction on MCH-190
-  (comment `01a153bd`, 2026-10-19) asks for one consistent single source of
-  truth for the config vocabulary, after the unified job-namespace design
-  (SD/19595276, MCH-194). SD/17137669 v2 calls that unification "a larger
-  change than this ticket". Until the page records it, §3.7 of `spec.md` and
-  waves 1–3 below are proposed, not approved.
+  checked, how loudly, where)*, Confluence `SD/17137669` **v3**,
+  `Authority = Approved`. v2 (2026-10-17) approved 1a + 2a + 3a through the
+  maintainer's three "follow recommendation" inline comments (`18808859`,
+  `18972740`, `18808867`). v3 (2026-10-20) records the maintainer's
+  2026-10-19 answers on MCH-190 (comment `01a15669`): M1 (amend the shape),
+  M2 (b), M3 (remove the global warning), M4 (fix the registries in scope),
+  and the rule "every found issue must be solved and fixed in scope".
+- **In scope, in the page's words (v3):** v2's three in-scope rows, plus
+  "one declaration of the settings vocabulary in the types layer", "one list
+  of settings files and one resolver for every reader", "settings-backed flags
+  and environment variables derived from the declaration", "no process-wide
+  registries", and "every defect found while doing the above" (`spec.md`
+  §1.2, F2–F15).
+- **Out of scope, in the page's words:** v2's four rows, unchanged; "where the
+  upward walk stops beyond `root = true` — SD/17104898 (MCH-188)".
+- **Must not change (v3):** "for a project whose settings live only in the
+  current directory and hold only known keys, `config path` output is
+  byte-identical; no run's exit code changes because of the check; every
+  setting's value is unchanged except where the page's *User-visible changes*
+  table says so".
 
 ## 1. Skills consulted
 
-- `python-design-patterns` (in-repo) — single responsibility; "live with
-  duplication vs. add an abstraction".
-- `design-patterns-refactoring` (user-level; Refactoring.Guru catalogue) —
-  *Duplicate Code*, *Shotgun Surgery*, *Primitive Obsession*, *Middle Man*,
-  *Long Method*; techniques *Extract Class*, *Replace Data Value with
-  Object*, *Remove Middle Man*.
-- Precedent read: MCH-194's `.spec/features/job-name-command-path/plan.md`
-  on `origin/fix/job-name-command-path` `5f27149f`. Its pattern is one typed
-  owner in `_types/` (`CommandPath` in `_types/naming.py`), public re-export,
-  every surface deriving from it, and a source ratchet (E8) so that the rule
-  cannot be re-implemented elsewhere. This plan applies the same pattern to
-  the config vocabulary.
+- `python-design-patterns` (in-repo): single responsibility, composition,
+  "God-class decomposition".
+- `design-patterns-refactoring` (user-level, Refactoring.Guru catalogue):
+  *Duplicate Code*, *Shotgun Surgery*, *Divergent Change*, *Primitive
+  Obsession*, *Middle Man*, *Long Method*, *Large Class*, *Temporal
+  Coupling*-by-registration; techniques *Extract Class*, *Move Function*,
+  *Replace Data Value with Object*, *Introduce Parameter Object*,
+  *Replace Global with Parameter*.
+- Precedent: MCH-194 `job-name-command-path/plan.md` (`5f27149f`). The
+  pattern is one typed owner in `_types`, public re-export, every surface
+  deriving from it, and a source ratchet.
 
-## 2. Architecture pass — where the vocabulary lives today
+## 2. Architecture pass — today (`91947bb4`)
 
-Measured at `91947bb4` with an AST walk of `src/functualize/**` (docstrings
-excluded). Tools: zvec-grep (worktree index), serena
-`find_referencing_symbols` (`full_report`, `_functualize_table`), graphify
-`get_neighbors full_report`, `uv run lint-imports` (7 kept, 0 broken).
-
-- **13 collection literals restate ≥ 2 config key names, in 6 files**:
-  `_cli/config.py` 6, `_cli/main.py` 2, `_config/project_dirs.py` 2,
-  `_cli/info.py` 1, `_cli/dispatch.py` 1, `_cli/data/settings_schema.py` 1.
-  Two more statements sit outside that count because they are tuples of pairs:
-  `_cli/data/func_settings.py:180` (`_BASE_SETTINGS`, built from `_spec(...)`
-  calls) and `_discovery/filter_factory.py:199` (`_DISCOVERY_FINGERPRINT_FIELDS`).
-  Its own comment says it repeats `DiscoveryConfig` "because `_discovery` may
-  not import the public `app.config`", and a drift test keeps it in line.
-- **91 config-key string literals in read position** (`.get("k")`, `["k"]`,
-  `"k" in …`) **in 9 files**: `_cli/main.py` 35, `app/utils.py` 19,
-  `_cli/config.py` 15, `_cli/dispatch.py` 12, `_config/project_dirs.py` 5,
-  `_cli/info.py` 2, `_app/boot.py` 1, `_config/vault_declarations.py` 1,
-  `app/adapters/cli.py` 1. About half are reads of a config document
-  (`merged_config.get("plugins")`). The other half are CLI-flag plumbing,
-  dicts keyed by the same names (`cli_flags["require_file_import"] = …`,
-  `_cli/main.py:304-320`, `_cli/dispatch.py:401-423`, `app/utils.py:843-867`).
-- **The type for a single declaration already exists and is unused for
-  this.** `_types/settings.py` declares `Setting`, `SettingsSources` (project
-  and global file names) and `AppSettingsSchema` (settings, env prefix,
-  `pyproject.toml` prefix, `env_var_for`, `section_in_file`). Its own docstring
-  says it was "reconciled with the shipped `FuncSetting`" so that "there is
-  still a single spelling of a setting's identity". func's *instance* of it,
-  `FUNC_SCHEMA`, is built in `_cli/data/func_settings.py:512`, which is in
-  the delivery layer. Neither `_config/`, `_discovery/`, `_engine/` nor `_app/`
-  may import it, so each of them restates the names it needs.
+Tools: zvec-grep (worktree index), serena (`find_referencing_symbols` on
+`full_report`, `_functualize_table`), graphify (`get_neighbors full_report`),
+AST walks (counts in `spec.md` §1.2), `uv run lint-imports` (7 kept, 0 broken),
+live experiments (F3a, F3b).
 
 ### BEFORE
 
 ```
- [_types]      _types/settings.py   Setting, SettingsSources, AppSettingsSchema   (shape only, no instance)
-                    ▲ public re-export: functualize.plugin
- [_config]     _config/project_dirs.py  LIST_KEYS, PROJECT_CONFIG_CANDIDATES      (statement #3)
- [peer]        _config/merge.py         root_key="root"
-               _config/vault_declarations.py  "vault_secret"
- [_discovery]  _discovery/filter_factory.py   _DISCOVERY_FINGERPRINT_FIELDS        (statement #4, drift-tested)
- [_app]        _app/boot.py  resolve("strict","plugins")
- [_engine]     _engine/executor.py  _resolve_shell_setting("program"/"sudo_password")
- [public app]  app/config.py DiscoveryConfig fields; app/utils.py reads "discovery"/"scan_depth"/"vault_secret"
- [_cli]        _cli/data/func_settings.py  _BASE_SETTINGS, tui_settings(), FUNC_SCHEMA   (statement #1)
-               _cli/data/settings_schema.py SETTING_SCHEMAS (9 tui)                (statement #1b)
-               _cli/config.py  _RECOGNIZED_SECTIONS/_TOP_LEVEL_KEYS/_KEYS,
-                               _VALID_OUTPUT_FORMATS                               (statement #2, drift-tested)
-               _cli/main.py    "plugins"/"disabled"/"aliases" ×4 sites each
-               _cli/builtins.py config_path: "pyproject.toml", ".functualize.toml"; config_show field list
- docs/cli/config.md  schema + env tables by hand                                   (statement #5)
+                         settings files (.functualize.toml, [tool.functualize], global config.toml)
+                                │ read by 4 different readers
+   ┌────────────────────────────┼──────────────────────────────┬──────────────────────────────┐
+   ▼                            ▼                              ▼                              ▼
+[_config] project_dirs     [_cli] config.read_global_config  [_cli] config.resolve_cli_       [_cli] builtins.config_path
+ resolve_project_config     (own filter + own warning,        config_layers (walk, NO root    (cwd probes, own tomllib,
+ (walk + root stop)          drops [plugins]/[shell])          stop) → FuncSettingsStore       "used" = exists)
+   │                            │                              │
+   ▼                            ▼                              ▼
+ RESOLVER 1: _cli/config.resolve_cli_config → CliConfig    RESOLVER 2: FuncSettingsStore (+ _REGISTERED,
+   (discovery filters, cli.output, aliases, dotenv…)          _PREBOOT_OVERRIDES globals) → TUI panel, cli.inline_tui,
+   │                                                          surface gate, TUI shell.program, root generated flags
+   ▼
+ FunctualizeApp(config_sources=…)  ──►  RESOLVER 3: job ResolutionChain (config.*.toml, un-prefixed env)
+                                          ◄── _app/boot plugins.strict, _engine/executor shell.program/sudo_password
 
- Each arrow that would remove a statement is illegal: _config/_discovery/_engine/_app → _cli is
- forbidden ("Peer layers are independent", "Internal never imports public"); _cli → _config is
- forbidden ("_cli uses public API only").
+ vocabulary statements: _cli/data/func_settings._BASE_SETTINGS (+ tui_settings registered at import),
+ _cli/config._RECOGNIZED_*, _config/project_dirs.LIST_KEYS, _discovery/filter_factory fingerprint fields,
+ _types/flag_grammar + _cli/main click options + _cli/dispatch parsing (flags), docs tables
+ public → internal leaks: app/adapters/cli.py, app/adapters/surface_gate.py → _cli.data.func_settings
 ```
 
-**Smells the BEFORE carries:** *Duplicate Code* (five statements of one
-vocabulary, two held together only by drift tests); *Shotgun Surgery*
-(adding a setting means editing `func_settings.py`, `_cli/config.py`, docs,
-and, for a list key, `project_dirs.py` and `filter_factory.py`);
-*Primitive Obsession* (a setting is a bare string at 91 read sites, and flags
-travel as `dict[str, Any]` keyed by the same strings); *Middle Man*
-(`FuncSetting` → `_as_setting` → `Setting` projects one record onto an
-identical one); *Long Method* (`register_builtin_commands`, 728-3038).
-Pre-existing **forbidden patterns** in the region: hard-coded config file
-names (`builtins.py:2419-2420`); module-level mutable registries
-(`_REGISTERED`, `_PREBOOT_OVERRIDES` at `func_settings.py:274`, `:283`).
+**Smells (catalogue names) and forbidden patterns in the BEFORE:**
+*Duplicate Code* (vocabulary ×5, flags ×3, resolvers ×3); *Divergent Change*
+(F3a, F3b, F4: the copies drifted); *Shotgun Surgery* (a new setting touches
+up to seven files); *Primitive Obsession* (91 string reads; flags travel as
+`dict[str, Any]`); *Middle Man* (`FuncSetting` → `_as_setting` → `Setting`);
+*Temporal Coupling* (a setting exists only after a module is imported —
+STATUS #22); *Long Method* (`register_builtin_commands` 2311 lines,
+`resolve_cli_config` 306, `_extract_global_options` 164). **Forbidden:**
+module-level mutable registries (`func_settings.py:274`, `:283`); hard-coded
+config file names (`builtins.py:2419-2420`); god classes in files this plan
+edits: `JobExecutionEngine` 2568 lines (`_engine/executor.py`) and
+`FunctualizeInlineTUI` 2679 lines (`_cli/tui/app.py`) — decision M7.
 
 ## 3. Candidate AFTERs
 
-| | Owner | Verdict |
+| Question | Candidates | Chosen, and why |
 |---|---|---|
-| R1 | Revision 1: a checker module plus a drift test | **Rejected by the maintainer.** It adds a sixth statement |
-| R2 | Owner in `_cli/data/` (where `FUNC_SCHEMA` is) | Rejected: `_config`, `_discovery`, `_engine` and `_app` cannot import `_cli`, so statements 3 and 4 stay |
-| R3 | Owner in `_config/` | Rejected: `_cli` may not import `_config`, and `_discovery`/`_engine` are its peers |
-| R4 | Owner in public `app/config.py` | Rejected: internal layers may not import public folders, which is exactly why `filter_factory.py` repeats the fields today |
-| **R5** | **func's declaration as data in `_types/`, on the existing `AppSettingsSchema` type, re-exported publicly; every statement becomes a derivation; a source ratchet** | **Chosen.** `_types` is the only layer every consumer may import |
+| Where the declaration lives | `_cli/data` · `_config` · public `app/config` · `_types` | **`_types`** — the only layer every consumer may import (`_discovery`'s own comment says why the others fail) |
+| What resolves settings | keep `resolve_cli_config` · keep `FuncSettingsStore` · a new settings resolver · **a `ResolutionChain` instance for settings** | **A chain instance.** The chain is already the system's resolver with provenance (`ResolvedValue.source_type/source_id/alternatives`). A new resolver would be a fourth. Two chain instances over two document kinds (settings documents; job `config.*` files) is one resolver *logic*, not duplication |
+| Which files | `list_project_config_files` · `resolve_project_config` · cwd probes | **One `settings_layers()` in `_config`**, ResourceLocator walk with the `root = true` stop. The only reader of settings files |
+| Registries | keep, fix ordering · DI registry · **declaration passed at construction** | **`ConfigSources(settings=schema)`** (grouped frozen config, the constitution's constructor idiom); pre-boot flags passed as data |
+| Flags | keep three tables · **generate from `Setting.cli_flag`** | Generated. `flag_grammar` keeps only non-settings flags |
+| `register_builtin_commands` | leave · **package of one module per group** | *Extract Function* + *Move Function*; same import path via package `__init__` |
 
-Introduced-smell check for R5:
-- *Shotgun Surgery* is removed: a new setting is one `Setting(...)` line,
-  plus docs, which the docs ratchet catches.
-- *Middle Man* is removed: `FuncSetting` becomes a thin view, not a second
-  record.
-- Logic in `_types`: `keys_in`, `value_in` and `setting` are pure queries on
-  frozen data. They follow the methods already on `AppSettingsSchema`
-  (`env_var_for`, `section_in_file`) and MCH-194's `_types/naming.py`
-  exception. No I/O and no state.
-- *Large Class* risk: `AppSettingsSchema` gains four small methods, far from
-  ~500 LOC (the file is 155 lines).
-- No peer-layer import is added. `_types` still imports nothing internal.
+Introduced-smell check:
+- The chain gains a list-merge policy driven by the declaration (`merge` for
+  `list` settings: concatenate + dedupe, which is today's rule) in one place.
+  No *Divergent Change*.
+- `ResolvedSettings` is a value object, not a service. No new global.
+- `_types` gains pure queries (`keys_in`, `value_in`, `flag`, `extend`) on
+  frozen data, in the idiom of the existing `env_var_for`/`section_in_file`
+  and MCH-194's `_types/naming.py`.
+- No peer-layer import: `_config` → `_types` only; `_app`/`_engine` receive
+  `ResolvedSettings` as data via `ConfigSources`.
+- `_cli` → public re-exports only. The public `app/adapters` stop importing
+  `_cli`.
 
 ### AFTER
 
 ```
- [_types]  _types/settings.py               Setting(+places, listed, env; type map/records),
-                                            AppSettingsSchema(+setting, sections, keys_in, value_in)
-              ▲
-           _types/functualize_settings.py   ROOT, JOBS_DIRECTORIES, …, PLUGINS_DISABLED, ALIASES,
-                                            VAULT_SECRET, every catalog setting → FUNCTUALIZE_SETTINGS   [THE ONE STATEMENT]
-              ▲ imported directly by internal layers           ▲ public re-export
-              │                                                │ functualize.app.config (+ functualize.plugin types, unchanged)
- [_config]   project_dirs: LIST_KEYS = derived; file names from .sources; merge: ROOT.key;
-             vault_declarations: VAULT_SECRET.key
- [_discovery] filter_factory: fingerprint fields = [discovery] settings (+ pre_filter) — drift test retired
- [_app]      boot: PLUGINS_STRICT;          [_engine] executor: SHELL_PROGRAM, SHELL_SUDO_PASSWORD
- [app]       config.DiscoveryConfig fields pinned to [discovery] keys by test; utils reads via value_in
- [_cli]      data/func_settings: views over FUNCTUALIZE_SETTINGS (FuncSetting, FUNC_SETTINGS, FUNC_SCHEMA keep shape)
-             data/settings_schema: SettingSchema derived from Setting; SETTING_SCHEMAS derived
-             config: _RECOGNIZED_* and _VALID_OUTPUT_FORMATS derived; discovery resolved by looping the section
-             main: PLUGINS_DISABLED / ALIASES / JOBS_DIRECTORIES via value_in
-             data/config_vocabulary: unknown-key check = keys not in keys_in(); suggestion; describe()
-             builtins config_path: file names from .sources; annotation;   info: config.unknown_keys
- tests/      ratchet: collection literals of config keys outside the owner = 0;
-             read-position literals ≤ baseline (shrink-only); docs/cli/config.md ⊆ declaration
+[_types]   settings.py                 Setting(+places, listed, surface, env), AppSettingsSchema(+extend, keys_in, value_in, flag)
+           functualize_settings.py     FUNCTUALIZE_SETTINGS (+ named Setting constants), SCRIPT_METADATA      ← the ONE statement
+           flag_grammar.py             non-settings flags only; settings flags = {s.cli_flag for s in schema}
+              ▲ (every layer)
+[_config]  settings_layers.py  NEW     settings_layers(schema, cwd)  ← the ONLY reader of settings files (walk + root stop)
+           settings_resolution.py NEW  resolve_settings(schema, layers, flags, environ, vault) → ResolvedSettings
+                                       = one ResolutionChain: CliSource → vault → EnvSource(prefix) → LayerSource×N → DefaultSource
+           sources.py                  EnvSource(prefix=…), LayerSource (mapping-backed, source_id = file path)
+           project_dirs / merge / vault_declarations: names from the declaration
+[_discovery] filter_factory            fingerprint fields = declaration's [discovery] filters (+ pre_filter)
+              ▲ re-exported
+[app]      config.py                   FUNCTUALIZE_SETTINGS, constants, SettingsLayer, ResolvedSettings, resolve_settings;
+                                       ConfigSources(settings=…, resolved=…)
+           core / FunctualizeApp       .settings -> ResolvedSettings
+           adapters/cli.py, surface_gate.py   read app.settings / schema (no _cli import)
+[_app]     boot                        plugins.strict from app.settings; vault re-resolution of secret settings
+[_engine]  executor                    shell.* from app.settings (data), never the job chain
+[_cli]     dispatch / main             flags generated from the schema → Mapping[Setting, value] → resolve_settings
+           config.py                   CliConfig = typed projection of ResolvedSettings (no resolution of its own)
+           data/func_settings.py       FuncSettingsStore = editor/write-back over ResolvedSettings (no globals)
+           data/config_vocabulary.py   unknown keys = not in schema.keys_in()
+           builtins/ (package)         one module per group; config_path lists settings_layers, status from provenance
+           tui/                        rows from schema (surface="tui"), values from app.settings
+           pep723.py                   SCRIPT_METADATA
+tests/spec ratchets: vocabulary literals, read-position literals, settings-file reads, job-chain reads of
+           settings sections, registries, flag strings, docs ⊆ declaration
 ```
 
-Legality: every new edge points at `_types` (allowed for all layers) or at a
-public re-export (allowed for `_cli`). `uv run lint-imports` is a gate on
-each wave.
+## 4. Technical approach (one paragraph per area; tasks in `tasks.md`)
 
-## 4. Technical approach
-
-1. **Pin first (AC14).** Before moving anything, one test records today's
-   values: catalog order, defaults, choices, bounds, `cli_flag`/`phase`, env
-   names, `_RECOGNIZED_*`, `LIST_KEYS`, the fingerprint field list, the file
-   names, `cli.output` choices and the `resolve_env_overrides()` mapping for
-   every documented variable. The refactor must leave them equal.
-2. **Declare.** `_types/functualize_settings.py` holds one named `Setting`
-   per key. List keys declare `places` in today's lookup order
-   (`project_dirs.py:363-387`: top level first, then `[discovery]`). The
-   table-shaped keys (`ALIASES` = `map`, `VAULT_SECRET` = `records`) and
-   `ROOT` are `listed=False`, so no settings row appears that does not exist
-   today. Env participation equals today's mapping (risk §7.1).
-3. **Derive**, one owner-file group per task (tasks.md waves 1–2). No
-   behaviour change, AC14 green after every task.
-4. **Check** (waves 3–4): `config_vocabulary.find_unknown_keys` is "not in
-   `FUNCTUALIZE_SETTINGS.keys_in(section)` ∪ registered", skipping `map`
-   sections and unknown tables (3a). Suggestions use `difflib`, cutoff 0.6.
-   Surfaces are as in Revision 1.
-5. **Ratchet** (wave 5): AST tests that fail on a new collection literal of
-   config key names, or a read-position literal above the per-file baseline,
-   outside the owner, plus the docs ratchet (AC15).
-6. **Registration** stays as it is: `register_settings` takes declared
-   `Setting`s. tui registers the declared `TUI_*` settings, which only
-   controls display. Validation knows `tui.*` statically.
+1. **Pin first.** Literal expected values recorded at `91947bb4`: catalog,
+   flags, env names, and resolved values for a fixture matrix (single dir,
+   nested with and without `root`, global only, env, flags). §3.8 rows are
+   pinned as today's behaviour in a separate test that the fix flips
+   deliberately, so each change is visible as a diff of expectations.
+2. **Declare** in `_types`. Flags taken verbatim from `_cli/main.py:117-200`.
+   Env names from `env_var_for`. Defaults, choices and bounds from
+   `_BASE_SETTINGS` and `SETTING_SCHEMAS`.
+3. **Layers and resolver** in `_config`. `EnvSource` gains a `prefix`, and
+   `LayerSource` reads one layer's table by section/key with `places` order.
+   List merge equals `_merge_lists_dedup` (`_cli/config.py:287`).
+4. **App seam.** `ConfigSources(settings=…)`. The CLI resolves before boot,
+   using the pre-boot flag scan as the flag layer, and hands the snapshot in.
+   Boot re-resolves only `secret` settings with the app's vault source, and
+   the result is `app.settings`.
+5. **Consumers switch**, one owner-file group per task. Each deletes its own
+   statement, so the ratchet baselines fall as tasks land.
+6. **The check and the surfaces** (approved v2), on the new layers and
+   provenance.
+7. **Reserved names** (F14) via the existing `discovery_failures` channel.
+   Job config files with a reserved table go through `FileSource`'s existing
+   event-bus reporting, surfaced by the same channel.
+8. **Builtins split** (F10) — mechanical, `func builtin --help` byte-identical.
+9. **Docs, fixtures, STATUS.** Close STATUS #22 (and #29 per M5) in
+   `.spec/STATUS.md`. Migrate the durable rule ("one declaration in
+   `_types/functualize_settings.py`; ratchets") to an ADR before the cleanup
+   commit.
 
 ## 5. Blast radius and sequencing
 
-- Files: the hit sets in `tasks.md` — 18 source files (2 new) plus tests and docs.
-- **Overlaps MCH-194**, whose plan edits `_cli/main.py`, `_cli/dispatch.py`,
-  `_cli/info.py` and `_cli/builtins.py`. This plan touches `main.py`,
-  `info.py` and `builtins.py` (not `dispatch.py` under M2-b). Whichever lands
-  second rebases. Waves 0–2 avoid those files except `main.py` (task 2.4),
-  which is placed last so that it can rebase onto MCH-194.
-- **Feeds MCH-188** (SD/17104898, not started): its root-bounded walk reads
-  `ROOT` and the file names from the declaration instead of new literals.
+- Source files: 30 existing files edited (the `[F]` hit sets in `tasks.md`),
+  4 new modules, and `_cli/builtins.py` replaced by an 11-module package.
+- **MCH-194** (`fix/job-name-command-path`) edits `_cli/main.py`,
+  `_cli/dispatch.py`, `_cli/info.py`, `_cli/builtins.py`, `_cli/tui/*`. The
+  maintainer accepts the conflicts. Whichever merges second rebases; the
+  builtins split (wave 1) is mechanical, so its rebase is a re-run of the move.
+- **MCH-188** reads `settings_layers()` for its root-bound decision: one
+  function to change.
 
 ## 6. Decisions
 
-- **D1 (taken):** 1a + 2a + 3a, unchanged.
-- **M1 — shape scope** (member): record vocabulary unification as in scope
-  on SD/17137669 (v3).
-- **M2 — flag plumbing** (member): (a) declaration + config-document reads,
-  flag-plumbing dicts kept as ratchet baseline; or (b) also type the plumbing.
-  Recommended (a): see the hand-off.
-- **M3 — the global file's stderr warning** (member): recommended removing it
-  as a separate path; one checker, reported on 2a surfaces for every file.
-- **M4 — module-level registries** (member): `_REGISTERED`/`_PREBOOT_OVERRIDES`
-  are a pre-existing forbidden pattern in a file this plan edits. Recommended
-  follow-up ticket; this plan does not extend them.
-- **D2 (revised):** the hard-coded file names in `config_path` are removed
-  (they come from `FUNCTUALIZE_SETTINGS.sources`). The cwd-only listing stays,
-  because changing it is MCH-188's concern. This supersedes Revision 1's
-  "leave it": the literal names were the forbidden part, and the declaration
-  now owns them.
+| # | Decision | State |
+|---|---|---|
+| D1 | 1a + 2a + 3a | approved (v2) |
+| M1 | amend SD/17137669 to v3 | **done** 2026-10-20 on instruction |
+| M2 | (b): type the flag plumbing too | taken |
+| M3 | remove the global file's own warning | taken |
+| M4 | remove the registries in scope | taken |
+| M5 | `[tool.functualize] skill` (STATUS #29): remove now, or keep it declared and transitional | **open** — recommended: remove |
+| M6 | the canonical name, and therefore the one env var, of `extra_directories`/`exclude_patterns` | **open** — recommended: `[discovery]` (their settings rows and every docs example), so `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES`; the documented `FUNCTUALIZE_EXTRA_DIRECTORIES` goes |
+| M7 | the god classes and long functions in files this plan edits | **open** — recommended: same carrier, a second PR after the config PR, with its own architecture pass |
 
 ## Surviving smells
 
-| Smell (catalogue) | Where | Why | Maintainer review? |
+| Smell | Where | Why | Maintainer review? |
 |---|---|---|---|
-| *Primitive Obsession* | CLI-flag plumbing dicts keyed by setting names: `_cli/main.py:304-320`, `_cli/dispatch.py:401-423`, `app/utils.py:843-867` | Under M2-(a) they stay, pinned by the shrink-only ratchet. Typing them rewrites `dispatch.py`/`main.py` while MCH-194 is rewriting the same files | **Yes** (M2) |
-| Forbidden pattern, pre-existing: module-level mutable state | `func_settings.py:274` `_REGISTERED`, `:283` `_PREBOOT_OVERRIDES` | Not introduced, not extended. Removing them threads registration through the app (the second-app seam), which is separate work | **Yes** (M4) |
-| *Long Method*, pre-existing | `register_builtin_commands` | +≤ 6 lines | No |
-| Logic in `_types` | `AppSettingsSchema.setting/sections/keys_in/value_in` | Pure queries on frozen data, same idiom as `env_var_for` and MCH-194's naming exception | No, but named so the review sees it |
+| Forbidden: god class (pre-existing) | `JobExecutionEngine` (2568 lines), `FunctualizeInlineTUI` (2679 lines) | Not introduced and not grown: this plan's edits there replace one settings read each. Fixing them is M7 | **Yes** (M7) |
+| *Long Method* (pre-existing, files edited) | `_cli/main.py` `_run_cli` 352, `_dispatch_group` 278, `_handle_job` 241, `cli_app` 224, `_handle_single_file` 219; `_app/boot.py` `boot_standard` 463, `boot_static` 241, `wire_children_to_pipeline` 157; `app/utils.py` `auto_discover` 192, `vault_sync` 185; `app/adapters/cli.py` `_register_callback` 217; `_engine/executor.py` `_execute_lifecycle` 359 | Same as above. `resolve_cli_config` (306) and `_extract_global_options` (164) are **removed** by this plan, not surviving | **Yes** (M7) |
+| Logic in `_types` | `AppSettingsSchema.extend/keys_in/value_in/flag` | Pure queries on frozen data; established idiom | No; named for the review |
 
-Revision 1's *Duplicate Code* entry (the restated `_config` keys) is
-**removed**. It no longer exists in this design.
+Every other smell named in §2 is removed by a task in `tasks.md`.
 
 ## 7. Risks
 
-1. **Env mapping asymmetry.** `extra_directories` is set at the top level
-   (`FUNCTUALIZE_EXTRA_DIRECTORIES`, documented), but `exclude_patterns` is
-   not (`FUNCTUALIZE_DISCOVERY_EXCLUDE_PATTERNS`). The declaration must
-   reproduce both. The AC14 pin catches a mistake. Unifying them would be a
-   behaviour change and is not proposed.
-2. **Display.** `listed=False` keys must not add settings-panel rows or help
-   entries. AC14 pins `SETTINGS_ORDER`.
-3. A job named after a settings section: unchanged from Revision 1, report
-   only.
-4. **H2 (warm boot).** The declaration is imported where the names are
-   already needed today (`_config`, boot). The checker stays lazy. Gate 6.1.
+1. **Vault for `shell.sudo_password`.** Today a vault value can reach it only
+   through the job chain's `[shell]` section. Task 4.1 pins today's vault
+   behaviour with a test *before* moving, and keeps the result through the
+   settings chain's vault source.
+2. **Pre-boot cost.** Resolution before boot exists today
+   (`resolve_cli_config`). `tests/perf/test_startup_budget.py` gates the
+   warm path (AC10).
+3. **Conflicts with MCH-194.** Accepted by the maintainer. The ratchets make
+   a bad merge fail loudly rather than silently re-add a statement.
+4. **Hidden readers.** A reader the AST walk misses (a dynamic key) would
+   survive. Gate: after wave 5, `rg` for every declared key name in `src/`
+   outside the owner must return only `Setting` constant references and the
+   resolver.
