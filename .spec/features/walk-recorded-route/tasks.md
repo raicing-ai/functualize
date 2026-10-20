@@ -351,7 +351,7 @@ surviving smells). Update:
 
 ## Wave 5 — verify and clear
 
-- [ ] **5.1 Verification, reachability, clearing**
+- [x] **5.1 Verification, reachability, clearing**
 
 Run the full gates, including the tip tier dispatched to CI rather than
 waited on. Re-run spec § *The defect* probe on both stores and paste its
@@ -364,6 +364,30 @@ on a second push.
 
 - Files: none beyond the clearing commit
 - Gate: every required check green except the artifact checks before clearing.
+
+- Evidence: the spec § *The defect* probe re-run on both stores, one `release`
+  workflow (`score-submission` → `ConditionalEdge` → `auto-approve` → `publish`
+  raising → `OnFailure` → `rollback` → `END`):
+  - documents and relational both print `Branches: score-submission -> approve`
+    and `Failure routes: publish -> rollback`, exit 0; `--format json` gives
+    `"branches": {"score-submission": "approve"}` /
+    `"failure_routes": {"publish": "rollback"}`, with no `\u0000` in either map
+    (AC-1, AC-2);
+  - relational read cost: `show` = 5 queries after boot (1 `workflow_scopes`,
+    2 `workflow_steps`, 1 `input_requests`, 1 `workflow_branches`); `list` over
+    3 scopes = 13 (`4N+1`, 4 per scope, one of them `workflow_branches`) —
+    never one per record (AC-13).
+  Focused suite (`test_recorded_route_on_both_stores`,
+  `test_recorded_route_refusal`, `test_decision_keys`,
+  `test_baseline`, `test_scope_projection`, `test_decision_record`): 75 passed.
+  CI-equivalent plugin gates: `examples/standalone/workflow_store_read` 3
+  passed; `functualize-mcp/tests` 32 passed; `functualize-substrate-sqlite/tests`
+  186 passed. Static gates: ruff check, ruff format check, mypy and
+  lint-imports all green. The full `uv run pytest` and the slow tier are CI's.
+  Reachability (AC-14): replacing `"failure_routes": route.failure_routes` with
+  `{}` fails 6 of the 11 cases in `test_recorded_route_on_both_stores.py`; the
+  file was restored and re-ran green. Dead-code delta 91947bb..HEAD: `NEW_DEAD:
+  0  TESTS_ONLY: 0`, 5 NEIGHBOURHOOD findings, all pre-existing and untouched.
 
 ## Task Dependency Graph
 
