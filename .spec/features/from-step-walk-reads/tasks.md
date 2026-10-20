@@ -191,7 +191,7 @@ member: the live plugin path never accesses `execution_engine`.
 
 ## Wave 6 — witnesses
 
-- [ ] **6.1 Both stores and invoked children**
+- [x] **6.1 Both stores and invoked children**
 
 `tests/engine/test_the_walk_on_both_stores.py`: a "`FromStep` inside a walk
 on SQLite" subject reading a step and a gate (R5). In
@@ -202,6 +202,15 @@ the outside-a-walk message (R4).
 - Files: `tests/engine/test_the_walk_on_both_stores.py`, `tests/integration/test_from_step_reads_e2e.py`
 - Gate: both files green on both store parametrisations; the full
   `test_from_step_reads_e2e.py` green (every AC).
+- Evidence at `0e3633a4`: `tests/engine/test_the_walk_on_both_stores.py`
+  22 passed (the new subject on `documents` and `sqlite`; the gate is answered
+  through `apply_workflow_flags`, the `--wf-input` path, because the legacy
+  `resume_scope` store cannot see SQLite's scopes); the full
+  `test_from_step_reads_e2e.py` 24 passed (22 + R4 in both annotation modes).
+  Sabotage, committed first and restored with `git checkout --`: keeping the
+  walk's `workflow_scope_id` in `nested_request` made both R4 variants fail
+  (the child succeeded); replacing the executor's `step_records` read with
+  `{}` made the new subject fail on both stores.
 
 ## Wave 7 — documentation tells the truth (B6, AC13)
 
