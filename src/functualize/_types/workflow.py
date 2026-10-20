@@ -36,16 +36,22 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
-
-from pydantic import BaseModel, ConfigDict
+from functools import cache
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args, get_origin
 
 from functualize._types.decision import decision_shape
 from functualize._types.job_declaration import _ref_name
 from functualize._types.protocols import AgentCapability
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from functualize._types.decision import ChoiceDecision
+
+    class InDoubt(BaseModel):
+        outcome: Literal["ran", "did_not_run"]
+        value: Any = None
+
 
 __all__ = [
     "END",
@@ -182,13 +188,29 @@ def recovery_gate_name(step: str) -> str:
     return f"{group}{dot}{leaf}-in-doubt"
 
 
-class InDoubt(BaseModel):
-    """An operator's answer to whether an effecting attempt ran."""
+@cache
+def _in_doubt_model() -> type[InDoubt]:
+    """Create the answer model only when a recovery gate is used."""
+    from pydantic import BaseModel, ConfigDict
 
-    model_config = ConfigDict(extra="forbid")
+    class _InDoubt(BaseModel):
+        """An operator's answer to whether an effecting attempt ran."""
 
-    outcome: Literal["ran", "did_not_run"]
-    value: Any = None
+        model_config = ConfigDict(extra="forbid", title="InDoubt")
+
+        outcome: Literal["ran", "did_not_run"]
+        value: Any = None
+
+    _InDoubt.__name__ = "InDoubt"
+    _InDoubt.__qualname__ = "InDoubt"
+    return cast("type[InDoubt]", _InDoubt)
+
+
+def __getattr__(name: str) -> Any:
+    """Expose the recovery answer model without loading it for every import."""
+    if name == "InDoubt":
+        return _in_doubt_model()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class Tool:
@@ -1054,7 +1076,7 @@ class WorkflowDeclaration:
         step = _job_ref_name(step)
         for node in self.nodes:
             if isinstance(node, Step) and node.name == step and node.effecting:
-                return Gate(name=recovery_gate_name(step), awaits=InDoubt)
+                return Gate(name=recovery_gate_name(step), awaits=_in_doubt_model())
         return None
 
     def recovered_step(self, gate: str) -> str | None:
@@ -1072,7 +1094,7 @@ class WorkflowDeclaration:
     def recovery_gates(self) -> tuple[Gate, ...]:
         """Derived gates in step declaration order."""
         return tuple(
-            Gate(name=recovery_gate_name(node.name), awaits=InDoubt)
+            Gate(name=recovery_gate_name(node.name), awaits=_in_doubt_model())
             for node in self.nodes
             if isinstance(node, Step) and node.effecting
         )
