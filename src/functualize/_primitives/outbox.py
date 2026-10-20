@@ -26,8 +26,8 @@ unacknowledged claim, which the lease returns. A receiver that blocks blocks
 the drain that called it, deliberately — a slow receiver is the receiver's to
 make asynchronous, not this module's to hide.
 
-This module sits in ``_primitives`` and imports ``_types`` only; ``_app``
-composes it (``_app/effects.py``).
+This module sits in ``_primitives`` and imports ``_types`` only. Boot and
+answer-path composition lands in the following task.
 """
 
 from __future__ import annotations
@@ -56,6 +56,8 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+# TRANSITIONAL(2.3): boot does not compose or drain this dispatcher yet.
+
 #: How long a claim protects an intent from a second dispatcher. Past it, a
 #: dispatcher that has not acknowledged is presumed dead and the intent is
 #: delivered again.
@@ -77,7 +79,9 @@ def retry_delay(attempts: int) -> timedelta:
 
     5 s, 10 s, 20 s … doubling, capped at 15 minutes.
     """
-    exponent = max(attempts, 1) - 1
+    # The cap is reached at exponent 8. Bound the exponent before computing
+    # its power so a long-lived intent cannot make retry calculation huge.
+    exponent = min(max(attempts, 1) - 1, 8)
     seconds = min(_RETRY_BASE_SECONDS * (2**exponent), _RETRY_CAP_SECONDS)
     return timedelta(seconds=seconds)
 
