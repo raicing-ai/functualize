@@ -52,9 +52,10 @@ from functualize._types.persistence import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from functualize._types.gate_resolution import GateCandidate
+    from functualize._types.gate_resolution import GateCandidate, GateDecision
     from functualize._types.persistence import (
         Claimed,
+        EffectIntent,
         RuntimeStore,
         StepView,
         WorkflowView,
@@ -549,6 +550,7 @@ class FrontierWalk:
         tools: Sequence[Mapping[str, Any]] = (),
         when: datetime | None = None,
         scope_status: str = WalkState.BLOCKED,
+        run_id: str | None = None,
     ) -> str:
         """Open (or rejoin) the gate request through the runtime port.
 
@@ -572,21 +574,43 @@ class FrontierWalk:
             model=model,
             tools=tuple(tools),
             scope_status=scope_status,
+            run_id=run_id,
         )
         with self._runtime_store.transaction() as tx:
             tx.workflows.suspend(command)
         return command.request_id
 
-    def record_candidates(self, candidates: Sequence[GateCandidate]) -> None:
+    def record_candidates(
+        self,
+        candidates: Sequence[GateCandidate],
+        *,
+        decision: GateDecision | None = None,
+        effect: EffectIntent | None = None,
+    ) -> None:
         """Record proposed answers against their request — one unit.
 
         Appending is refused for a request that is no longer open, with
         nothing from the unit applied, so a second writer's answer cannot
         overwrite a recorded one.
+
+        When the candidates carry an acceptance, its ``decision`` and its
+        outbox ``effect`` ride in the **same** unit, so a crash leaves all of
+        them or none. The effect is recorded only on a store whose profile
+        declares ``durable_outbox`` — any other store runs no outbox tier and
+        is never asked to.
         """
         with self._runtime_store.transaction() as tx:
             for candidate in candidates:
                 tx.inputs.append(candidate)
+            if decision is not None:
+                tx.inputs.decide(decision)
+            if effect is not None and self._runtime_store.profile.durable_outbox:
+                tx.effects.append(
+                    effect.namespace,
+                    effect.topic,
+                    effect.payload,
+                    effect.idempotency_key,
+                )
 
     def consume(self, request_id: str) -> None:
         """Retire the request the walk is moving past — its single writer.
@@ -626,6 +650,7 @@ class FrontierWalk:
             request=request,
             candidates=tuple(candidates),
             accepted_id=accepted.candidate_id if accepted is not None else None,
+            decision=self._runtime_store.inputs.decision(request.request_id),
         )
 
     def _request_id_for(self, gate_name: str) -> str:
