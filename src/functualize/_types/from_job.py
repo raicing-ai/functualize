@@ -353,12 +353,10 @@ class FromStepParam:
     """A walk read and the signature facts needed to resolve it later."""
 
     ref: FromStep
-    # TRANSITIONAL(3.2): Injection will use the declared type for reconstruction.
     declared_type: Any
     has_default: bool
 
 
-# TRANSITIONAL(3.1): Workflow boot will consume these declaration facts.
 def from_step_refs(func: Callable[..., Any]) -> dict[str, FromStepParam]:
     """Extract ``FromStep`` parameters from resolved annotation metadata.
 
@@ -383,7 +381,6 @@ def from_step_refs(func: Callable[..., Any]) -> dict[str, FromStepParam]:
     return refs
 
 
-# TRANSITIONAL(3.1): Boot will reject these ambiguous signatures.
 def mixed_source_params(func: Callable[..., Any]) -> tuple[str, ...]:
     """Parameters declaring both job and walk sources in one annotation."""
     mixed: list[str] = []
