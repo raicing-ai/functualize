@@ -3863,6 +3863,11 @@ bare `func`, `builtin info schema`, and `func <namespace>`. Pinned by
 `tests/cli/test_help_surface_pinned.py`; a change that adds a row there is
 contradicting a decision, not fixing an oversight.
 
+*Superseded 2026-10-20.* The `job-name-command-path` decision below replaces
+this one: `func --help` is now an inventory of the top-level nodes of the one
+command tree, and the same test file pins that instead. The paragraph above is
+kept for the reason the decision was originally taken, not as current behavior.
+
 **Plugin kinds are derived from the entry-point group, never enumerated.**
 `functualize.plugins` → adapter, `functualize.domains` → domain,
 `functualize.*_providers` → implementation. Domains declare new provider groups
