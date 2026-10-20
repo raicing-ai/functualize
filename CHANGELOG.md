@@ -81,6 +81,16 @@ held the other proxy mutex, both threads could wait forever. First
 materialization now uses the process-wide re-entrant import mutex as its sole
 guard, including publication of the callable, so nested materialization has
 one lock order. Already-materialized calls retain their fast path.
+### Fixed — written Unicode job names resolve to their registered jobs
+
+Python applies NFKC normalization to identifiers before a job is registered.
+A name written with a character Python rewrites now resolves through `invoke`,
+`invoke_parallel`, the CLI, dependencies and config-file sections. For example, a function
+written `job_aaǆ` registers as `job-aadž`; both spellings reach it.
+
+String-set job or group names containing such characters may change identity.
+The warm discovery cache rebuilds at version 22. Persisted job state is not
+migrated, so an affected job re-runs once under its new name.
 
 ### Fixed — a workflow parked on the SQLite store resumes in another process
 

@@ -37,7 +37,12 @@ use, and the one Click itself defaults to:
 |---|---|---|
 | `def data_sync()` | `data-sync` | `func data-sync` |
 | `def buildWheel()` | `build-wheel` | `func build-wheel` |
+| `def job_aaǆ()` | `job-aadž` | `func job_aaǆ` or `func job-aadž` |
 | `JOB_GROUP = "data_ops"` + `def run_etl()` | `data-ops.run-etl` | `func data-ops run-etl` |
+
+Names are NFKC-normalized first, as Python normalizes identifiers when it
+parses them, then lowercased and hyphenated. This also lets written Unicode
+names resolve through `rc.invoke`, `rc.invoke_parallel` and `Deps`.
 
 Python identifiers cannot contain hyphens and command names conventionally do,
 so without a single canonical form the same job has two spellings and every
@@ -52,9 +57,11 @@ form.
 Two places keep the underscored spelling for good reasons:
 
 - **Environment variables** — `DATA_SYNC_BATCH_SIZE`, because no shell can
-  export a name containing a hyphen.
+  export a name containing a hyphen. The variable is spelled from the
+  registered name: `job-aadž` uses `JOB_AADŽ_FIELD`.
 - **Config sections** — `[data_sync]` and `[data-sync]` are both read, so an
-  existing config file keeps working.
+  existing config file keeps working. Non-ASCII TOML keys require quotes, for
+  example `["job_aaǆ"]` for `job-aadž`.
 
 Two functions whose names normalize to the same job (`build_wheel` and
 `buildWheel`) are rejected at registration rather than one silently replacing
