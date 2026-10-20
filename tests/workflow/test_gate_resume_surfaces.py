@@ -526,11 +526,6 @@ def test_recovery_answer_and_reopen_follow_the_step(
         )
 
     scope = store.get_scope("s1")
-    assert _downstream_of(app, scope, "charge-in-doubt") == {
-        "charge",
-        "approval",
-        "after",
-    }
 
     invalid = submit({"outcome": "maybe"})
     assert invalid["status"] == "drafted"
@@ -549,6 +544,11 @@ def test_recovery_answer_and_reopen_follow_the_step(
     assert calls == ["charge"]
     refused = submit(reopen=True)
     assert refused["error"] == "gate_already_consumed"
+    assert _downstream_of(app, scope, "charge-in-doubt") == {
+        "charge",
+        "approval",
+        "after",
+    }
     assert (
         answer_gate(app, store, "s1", "approval", {"approved": True})["status"]
         == "answered"
