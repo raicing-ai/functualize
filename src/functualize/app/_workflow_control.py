@@ -317,7 +317,7 @@ def resume_scope(
     Returns a flat result dict carrying ``status`` (the walk's outcome),
     ``workflow_id``, and the scope projection under ``scope``.
     """
-    scope = store.get_scope(scope_id)
+    scope = _read_scope(store, scope_id)
     if scope is None:
         return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
     if scope.get("status") == "cancelled":

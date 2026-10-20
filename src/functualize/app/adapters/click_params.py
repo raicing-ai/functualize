@@ -1078,51 +1078,60 @@ def build_job_engine_callback(
         #
         # Both dispatch paths call the same `apply_workflow_flags`
         # (`pitfalls.md` §23). `lazy_command.py` is the other one.
-        scope_id = workflow_scope_id
-        if _declares_workflow(function):
-            from functualize.app.adapters.workflow_flags import apply_workflow_flags
+        #
+        # It sits **inside** `prelude_refusal`, not above it: `--wf-show` reads
+        # the scope's recorded route before any job runs, so an unreadable store
+        # is refused there. Outside this mapping that refusal escaped as a
+        # traceback and exit 1, while the same condition on `builtin workflow
+        # show` exited 2 (contracts §6.2).
+        with prelude_refusal():
+            scope_id = workflow_scope_id
+            if _declares_workflow(function):
+                from functualize.app.adapters.workflow_flags import (
+                    apply_workflow_flags,
+                )
 
-            scope_id = apply_workflow_flags(app_ref, name, kwargs) or scope_id
-        if scope_id is None:
-            # The programmatic seam, kept deliberately: an embedded host sets
-            # this attribute directly. It has no CLI spelling.
-            scope_id = getattr(app_ref, "_workflow_scope_id", None)
+                scope_id = apply_workflow_flags(app_ref, name, kwargs) or scope_id
+            if scope_id is None:
+                # The programmatic seam, kept deliberately: an embedded host
+                # sets this attribute directly. It has no CLI spelling.
+                scope_id = getattr(app_ref, "_workflow_scope_id", None)
 
-        # The config-model split and stdin resolution used to happen here.
-        # Both moved into `engine.run()` at run-request/T11: they are the same
-        # work whichever door was used, and this one only ever did it for
-        # click. `stdin_markers` still shapes the click *parameters* above —
-        # that half genuinely is this module's business.
+            # The config-model split and stdin resolution used to happen here.
+            # Both moved into `engine.run()` at run-request/T11: they are the
+            # same work whichever door was used, and this one only ever did it
+            # for click. `stdin_markers` still shapes the click *parameters*
+            # above — that half genuinely is this module's business.
 
-        from functualize.app.adapters.surface_gate import wants_stdout_surface
+            from functualize.app.adapters.surface_gate import wants_stdout_surface
 
-        _descriptor = (
-            app_ref.get_job(name)
-            if app_ref is not None and getattr(app_ref, "get_job", None)
-            else None
-        )
-        live_ctx: Any = contextlib.nullcontext()
-        if wants_stdout_surface(app_ref, _descriptor, uses_live=uses_live):
-            with contextlib.suppress(ImportError):
-                from functualize.ui import stdout_live_session
-
-                live_ctx = stdout_live_session(app_ref, _descriptor)
-
-        with live_ctx, prelude_refusal():
-            from functualize.app.adapters._request_builder import build_request
-
-            request = build_request(
-                job_name=name,
-                kwargs=kwargs,
-                group_option_values=group_option_values,
-                workflow_scope_id=scope_id,
-                surface=surface,
-                prompt_gates=prompt_gates,
-                output_format=output_format,
-                force=force,
-                app=app_ref,
+            _descriptor = (
+                app_ref.get_job(name)
+                if app_ref is not None and getattr(app_ref, "get_job", None)
+                else None
             )
-            result = app_ref.execution_engine.run(request)  # type: ignore[union-attr]
+            live_ctx: Any = contextlib.nullcontext()
+            if wants_stdout_surface(app_ref, _descriptor, uses_live=uses_live):
+                with contextlib.suppress(ImportError):
+                    from functualize.ui import stdout_live_session
+
+                    live_ctx = stdout_live_session(app_ref, _descriptor)
+
+            with live_ctx:
+                from functualize.app.adapters._request_builder import build_request
+
+                request = build_request(
+                    job_name=name,
+                    kwargs=kwargs,
+                    group_option_values=group_option_values,
+                    workflow_scope_id=scope_id,
+                    surface=surface,
+                    prompt_gates=prompt_gates,
+                    output_format=output_format,
+                    force=force,
+                    app=app_ref,
+                )
+                result = app_ref.execution_engine.run(request)  # type: ignore[union-attr]
         return deliver_job_result(result, name, app_ref)
 
     return wrapper

@@ -376,12 +376,12 @@ class WorkflowToolProvider:
         gate: str | None = None,
         retry_epilogue: bool = False,
     ) -> dict[str, Any]:
-        resolved = resolve_advanceable(self.store, workflow_id)
+        resolved = resolve_advanceable(self.operator_store, workflow_id)
         if isinstance(resolved, dict):
             return resolved
         return resume_scope(
             self._app,
-            self.store,
+            self.operator_store,
             resolved,
             input=input,
             gate=gate,

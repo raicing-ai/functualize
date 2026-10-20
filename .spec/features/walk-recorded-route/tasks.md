@@ -241,24 +241,24 @@ covers both before wave 3.
 
 ## Wave 3 — conformance and refusal
 
-**Execution pause at 3.2.** The new refusal test exercises a real booted
+**Scope revision at 3.2 (resolved).** The refusal test exercises a real booted
 SQLite app whose `SqlWorkflowReader.branches` member is removed after a scope
 has been recorded. `builtin workflow show` exits 2 with the upgrade message,
 and MCP `get_workflow_state` and `list_workflows` return
-`scope_store_unreadable`. Two required surfaces fail:
+`scope_store_unreadable`. Two required surfaces failed the original
+tests-only gate:
 
-- MCP `resume_workflow("route", {})` returns `workflow_not_found` for that
-  existing SQLite scope because `WorkflowToolProvider._resume_workflow` uses
+- MCP `resume_workflow("route", {})` returned `workflow_not_found` for that
+  existing SQLite scope because `WorkflowToolProvider._resume_workflow` read
   its legacy document `self.store`, rather than `operator_store`.
-- `--wf-show route` exits 1 with `_BranchReaderMissingError` instead of
-  mapping it to the usage refusal. The eager click callback calls
+- `--wf-show route` exited 1 with `_BranchReaderMissingError` instead of
+  mapping it to the usage refusal. The eager click callback called
   `apply_workflow_flags` before entering `prelude_refusal`.
 
-The focused refusal gate was 2 failed, 1 passed; rerunning its MCP case
-identified `resume_workflow` as the failing tool. The projected-route gate
-remains green from wave 2. Task 3.2 explicitly says to stop if surface code
-must change; the task and wave 4 therefore stay unchecked pending a revised
-scope and gate. Ruff check, Ruff format check, mypy and lint-imports passed.
+The focused gate was 2 failed, 1 passed. Task 3.2 is therefore widened to the
+two surface fixes: the pause it declared is resolved by that revision, not by
+a design change. Ruff check, Ruff format check, mypy and lint-imports passed
+at the paused head.
 
 - [x] **2.2 Conformance check `record branch and branches`**
 
@@ -277,7 +277,7 @@ without the reader fails with an `AssertionError` that names it (contracts §5).
   reader was restored. Production caller: `run_baseline` → `BASELINE` →
   `record_branch_and_branches` → public writer and reader on a reopened store.
 
-- [ ] **3.2 Refusal on every surface (tests only)**
+- [ ] **3.2 Refusal on every surface**
 
 For a store whose `workflows` lacks `branches`, assert:
 
@@ -286,10 +286,27 @@ For a store whose `workflows` lacks `branches`, assert:
   `scope_store_unreadable`;
 - `--wf-show` exits 2 (via `click_params.py:1170`).
 
-No surface code is expected to change (`plan.md` → *Approach* 5). If one has
-to change, stop and report.
+A tests-only gate cannot hold: contracts §6.1 ("Every surface in §3 refuses
+instead of emitting `{}`") is only true when the refusal reaches the MCP tool
+and the CLI flag surface, not just `builtin workflow show`. Two surface fixes
+are therefore in this task:
 
-- Files: `tests/workflow/test_recorded_route_refusal.py` (new)
+- `_resume_workflow` reads `operator_store`, like its siblings
+  `get_workflow_state`, `list_workflows` and `cancel_workflow`;
+- the eager and lazy click wrappers enter `prelude_refusal` **before**
+  `apply_workflow_flags`, so a flag-surface refusal maps to exit 2 instead of
+  escaping as a traceback.
+
+`resume_scope` reads its head scope through `_read_scope`, so the fixed tool
+reaches a relational store instead of calling a document-only `get_scope`.
+`retry_epilogue` and `--wf-input` on a relational store stay out of scope
+(ADR-033's open migration).
+
+- Files: `tests/workflow/test_recorded_route_refusal.py` (new),
+  `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py`,
+  `src/functualize/app/_workflow_control.py`,
+  `src/functualize/app/adapters/click_params.py`,
+  `src/functualize/app/adapters/lazy_command.py`
 - Gate: `uv run pytest tests/workflow/test_recorded_route_refusal.py -q
   --no-header` green for AC-9; the wave 2 projection
   remains green. Sabotage the missing-reader guard in `_port_record` and
