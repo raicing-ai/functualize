@@ -229,7 +229,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   `_service_step` → `EffectRecovery.begin`. Proof: remove the `begin` call, and
   AC-1's in-process twin (a crash after the effect) re-runs the job.
 
-### T10 [ ] — Answer path: a recovery gate stands at its step
+### T10 [x] — Answer path: a recovery gate stands at its step
 - **Depends on:** T2.
 - **Files:** `src/functualize/app/_workflow_answer.py`,
   `tests/workflow/test_gate_resume_surfaces.py`.
