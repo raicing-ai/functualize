@@ -260,6 +260,14 @@ records the tip-tier and artifact lifecycle evidence at handoff.
 
 ### T13 — Make a child group hint runnable through the app door
 
+Status: [x] Complete. The app-door child-plus-group test failed at the
+reviewed head with `ops kid.ops.tool`; it passes for eager and lazy children
+with a copyable `parent kid ops tool` path. The late fallback prints the actual
+`launcher` program. The focused set passed (133 passed, 20 skipped); Ruff,
+format, mypy and all seven import contracts passed. After a clean commit,
+breaking either the namespace path wire or the program-name wire failed both
+parameterizations of the regression test; each source file was restored.
+
 - Inputs: the reviewed app-door child-plus-`JOB_GROUP` finding and the existing E1/E6 command-path contract.
 - [F] `tests/cli/test_command_path_surface.py`, `src/functualize/_types/naming.py`, `src/functualize/app/adapters/cli.py`, `src/functualize/_app/boot.py`, `.spec/features/job-name-command-path/contracts.md`, `.spec/STATUS.md`, this ledger.
 - Invariants: preserve dotted identity and legacy JSON; do not split a literal-dot leaf; keep normalized child namespaces and group flags; no new dependency. The printed hint includes the app program name and runs when copied.
