@@ -78,10 +78,109 @@ walk.run()
 """
 
 
+_WINDOW_WORKFLOW = """
+import sys, time
+from pathlib import Path
+
+from functualize._engine.workflow_walker import WorkflowWalker
+from functualize._primitives.document_store import DocumentRuntimeStore
+from functualize._primitives.scope_store import ScopeStore
+from functualize._types.workflow import END, Edge, Step, WorkflowDeclaration
+
+MARKER = Path(sys.argv[1])
+HANG = Path(sys.argv[2])
+EFFECTING = sys.argv[3] == "yes"
+
+
+def run_step(name: str) -> str:
+    with MARKER.open("a") as marker:
+        marker.write("charged\\n")
+    HANG.write_text("effect-done-before-return")
+    time.sleep(60)
+    return "charged"
+
+
+declaration = WorkflowDeclaration(
+    nodes=(Step("charge", effecting=EFFECTING),),
+    edges=(Edge("charge", END),),
+)
+store = ScopeStore.for_project(Path.cwd())
+report = WorkflowWalker(
+    declaration, "crash-scope", run_step=run_step,
+    runtime_store=DocumentRuntimeStore(store.substrate), workflow_name="flow",
+).run()
+print(report.outcome.value, flush=True)
+"""
+
+
+_NESTED_WORKFLOW = """
+import sys, time
+from pathlib import Path
+
+from functualize.app import FunctualizeApp
+from functualize.job import Deps, Invoke, job
+from functualize.types import RunRequest
+from functualize.workflow import END, Edge, Step, workflow
+
+MARKER = Path(sys.argv[1])
+HANG = Path(sys.argv[2])
+MODE = sys.argv[3]
+
+
+@job
+def upstream() -> str:
+    with MARKER.open("a") as marker:
+        marker.write("charged\\n")
+    HANG.write_text("upstream-effect-before-return")
+    time.sleep(60)
+    return "charged"
+
+
+if MODE == "deps":
+    @job(deps=Deps("upstream"))
+    def charge() -> str:
+        return "charged"
+else:
+    @job
+    def charge(inv: Invoke) -> str:
+        inv("upstream")
+        return "charged"
+
+
+@workflow(steps=[Step(charge, effecting=True)], edges=[Edge("charge", END)])
+def flow() -> str:
+    return "done"
+
+
+app = FunctualizeApp(name="nested-crash")
+app.register_dynamic_job("upstream", upstream)
+app.register_dynamic_job("charge", charge)
+app.register_dynamic_job("flow", flow)
+result = app.execute(
+    RunRequest(job_name="flow", surface="app.execute", workflow_scope_id="crash-scope")
+)
+print(result.status.value, flush=True)
+"""
+
+
 def _write_runner(project: Path) -> Path:
     (project / ".functualize").mkdir(parents=True, exist_ok=True)
     runner = project / "runner.py"
     runner.write_text(textwrap.dedent(_WORKFLOW))
+    return runner
+
+
+def _write_window_runner(project: Path) -> Path:
+    (project / ".functualize").mkdir(parents=True, exist_ok=True)
+    runner = project / "window_runner.py"
+    runner.write_text(textwrap.dedent(_WINDOW_WORKFLOW))
+    return runner
+
+
+def _write_nested_runner(project: Path) -> Path:
+    (project / ".functualize").mkdir(parents=True, exist_ok=True)
+    runner = project / "nested_runner.py"
+    runner.write_text(textwrap.dedent(_NESTED_WORKFLOW))
     return runner
 
 
@@ -94,6 +193,17 @@ def _spawn(runner: Path, marker: Path, hang: Path, effecting: bool) -> subproces
             str(hang),
             "yes" if effecting else "no",
         ],
+        cwd=str(runner.parent),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _spawn_nested(
+    runner: Path, marker: Path, hang: Path, mode: str
+) -> subprocess.Popen:
+    return subprocess.Popen(
+        [sys.executable, str(runner), str(marker), str(hang), mode],
         cwd=str(runner.parent),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -117,6 +227,40 @@ def _kill_hard(proc: subprocess.Popen) -> None:
     """
     os.kill(proc.pid, signal.SIGKILL)
     proc.wait(timeout=30)
+
+
+def _step_record(project: Path, name: str = "charge") -> dict | None:
+    from functualize._engine.frontier import step_key
+    from functualize._primitives.scope_store import ScopeStore
+
+    return ScopeStore.for_project(project).get_step("crash-scope", step_key(name, ""))
+
+
+def _answer_recovery(project: Path, outcome: str) -> None:
+    """Submit a recorded answer through the input port for the subprocess walk."""
+    from datetime import UTC, datetime
+
+    from functualize._engine.recording import InputRecorder
+    from functualize._primitives.document_store import DocumentRuntimeStore
+    from functualize._primitives.scope_store import ScopeStore
+    from functualize._types.gate_resolution import (
+        CandidateEvaluation,
+        EvaluationOutcome,
+    )
+
+    port = DocumentRuntimeStore(ScopeStore.for_project(project).substrate)
+    request = port.inputs.for_gate("crash-scope", "charge-in-doubt")
+    assert request is not None
+    candidate = InputRecorder().submitted(
+        request.request_id,
+        "test",
+        CandidateEvaluation(EvaluationOutcome.ACCEPTED),
+        {"outcome": outcome, "value": "charged"},
+        ordinal=0,
+        now=datetime.now(UTC),
+    )
+    with port.transaction() as tx:
+        tx.inputs.append(candidate)
 
 
 def _expire_the_dead_runners_lease(project: Path) -> None:
@@ -148,6 +292,118 @@ def _expire_the_dead_runners_lease(project: Path) -> None:
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     return tmp_path / "proj"
+
+
+@pytest.mark.parametrize("outcome,expected", [("ran", 1), ("did_not_run", 2)])
+def test_kill_inside_the_effect_before_step_return(
+    project: Path, outcome: str, expected: int
+) -> None:
+    """The intent survives SIGKILL and a verdict controls the next entry."""
+    from functualize._primitives.scope_store import ScopeStore
+    from functualize.app._workflow_control import reclaim_scope
+
+    runner = _write_window_runner(project)
+    marker, hang = project / "effects.log", project / "window.ready"
+    first = _spawn(runner, marker, hang, effecting=True)
+    assert _wait_for(hang), "the effect did not reach the pre-return window"
+    _kill_hard(first)
+    assert first.returncode == -signal.SIGKILL
+    assert marker.read_text().count("charged") == 1
+    assert _step_record(project)["status"] == "attempting"
+
+    _expire_the_dead_runners_lease(project)
+    assert (
+        reclaim_scope(ScopeStore.for_project(project), "crash-scope")["status"]
+        == "reclaimed"
+    )
+    hang.unlink()
+    blocked = _spawn(runner, marker, hang, effecting=True)
+    try:
+        out, err = blocked.communicate(timeout=20)
+    except subprocess.TimeoutExpired:
+        _kill_hard(blocked)
+        raise AssertionError("the resumed effect ran before a verdict") from None
+    assert blocked.returncode == 0, err.decode()[-2000:]
+    assert b"blocked" in out.lower()
+    assert not hang.exists()
+    assert marker.read_text().count("charged") == 1
+    assert _step_record(project)["status"] == "in_doubt"
+
+    _answer_recovery(project, outcome)
+    decided = _spawn(runner, marker, hang, effecting=True)
+    if outcome == "ran":
+        out, err = decided.communicate(timeout=20)
+        assert decided.returncode == 0, err.decode()[-2000:]
+        assert b"completed" in out
+    else:
+        assert _wait_for(hang), "did_not_run did not permit the second attempt"
+        _kill_hard(decided)
+        assert decided.returncode == -signal.SIGKILL
+    assert marker.read_text().count("charged") == expected
+    if outcome == "did_not_run":
+        assert _step_record(project)["attempt"] == 2
+
+
+def test_pure_step_retries_after_kill_inside_its_body(project: Path) -> None:
+    """The unflagged step still runs twice when it dies before completion."""
+    from functualize._primitives.scope_store import ScopeStore
+    from functualize.app._workflow_control import reclaim_scope
+
+    runner = _write_window_runner(project)
+    marker, hang = project / "effects.log", project / "window.ready"
+    first = _spawn(runner, marker, hang, effecting=False)
+    assert _wait_for(hang)
+    _kill_hard(first)
+    assert first.returncode == -signal.SIGKILL
+    assert _step_record(project) is None
+    _expire_the_dead_runners_lease(project)
+    reclaim_scope(ScopeStore.for_project(project), "crash-scope")
+    hang.unlink()
+    second = _spawn(runner, marker, hang, effecting=False)
+    assert _wait_for(hang)
+    _kill_hard(second)
+    assert second.returncode == -signal.SIGKILL
+    assert marker.read_text().count("charged") == 2
+
+
+@pytest.mark.parametrize("mode", ["deps", "inv"])
+def test_kill_in_child_work_stops_the_effecting_parent_at_doubt(
+    project: Path, mode: str
+) -> None:
+    """The intent is written before Deps or Invoke enters a child job."""
+    from functualize._primitives.scope_store import ScopeStore
+    from functualize.app._workflow_control import reclaim_scope
+
+    runner = _write_nested_runner(project)
+    marker, hang = project / "effects.log", project / "window.ready"
+    first = _spawn_nested(runner, marker, hang, mode)
+    if not _wait_for(hang, timeout=15):
+        out, err = first.communicate(timeout=5)
+        raise AssertionError(
+            f"the child effect did not reach its pre-return window: "
+            f"{out.decode()[-1000:]} {err.decode()[-2000:]}"
+        )
+    _kill_hard(first)
+    assert first.returncode == -signal.SIGKILL
+    assert marker.read_text().count("charged") == 1
+    assert _step_record(project)["status"] == "attempting"
+
+    _expire_the_dead_runners_lease(project)
+    assert (
+        reclaim_scope(ScopeStore.for_project(project), "crash-scope")["status"]
+        == "reclaimed"
+    )
+    hang.unlink()
+    second = _spawn_nested(runner, marker, hang, mode)
+    try:
+        out, err = second.communicate(timeout=20)
+    except subprocess.TimeoutExpired:
+        _kill_hard(second)
+        raise AssertionError("child effect ran again before a verdict") from None
+    assert second.returncode == 0, err.decode()[-2000:]
+    assert b"blocked" in out.lower()
+    assert marker.read_text().count("charged") == 1
+    assert _step_record(project)["status"] == "in_doubt"
 
 
 class TestAnEffectingStepRunsOnce:
