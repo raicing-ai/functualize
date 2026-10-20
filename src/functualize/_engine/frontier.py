@@ -429,6 +429,7 @@ class FrontierWalk:
         attempt: int = 0,
         started_at: datetime | None = None,
         effecting: bool | None = None,
+        reusable_override: bool | None = None,
     ) -> list[str]:
         """Record ``node`` as finished and expand the frontier past it.
 
@@ -446,6 +447,8 @@ class FrontierWalk:
         from functualize._primitives.fingerprint import classify_return_value
 
         reusable, kind, type_name, stored = classify_return_value(return_value)
+        if reusable_override is False:
+            reusable, kind, stored = False, "missing_recovery_value", None
 
         # The branch is resolved before the write: a choice already recorded
         # for this scope wins, so replay follows the branch the walk took
