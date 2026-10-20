@@ -326,6 +326,14 @@ def resume_scope(
             f"Workflow scope '{scope_id}' was cancelled and cannot be resumed.",
         )
 
+    if input is not None and isinstance(store, RuntimeStore):
+        # Fused gate input still uses the document-only answer_gate path.
+        # Before operator reads selected the runtime store, a relational
+        # scope returned this clean error because the document store did not
+        # contain it. Keep that public outcome until input recording moves to
+        # the runtime port; never pass a runtime store to get_scope.
+        return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
+
     if input is not None:
         pending = [name for name, _ in pending_gates(scope)]
         if gate is None:
