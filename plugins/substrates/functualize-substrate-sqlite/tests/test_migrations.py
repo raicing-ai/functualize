@@ -34,6 +34,8 @@ TABLES = {
     "scope_events",
     "input_requests",
     "input_candidates",
+    "input_decisions",
+    "input_decision_observations",
     "outbox",
     "artifact_refs",
     "runtime_cutover",
@@ -58,6 +60,8 @@ INDEXES = {
     "input_candidates_request_ordinal",
     "outbox_idempotency_key",
     "outbox_status_available",
+    "input_decision_observations_candidate",
+    "artifact_refs_candidate",
 }
 
 
@@ -71,15 +75,16 @@ def _names(driver: LocalSqliteDriver, kind: str) -> set[str]:
     return {name for (name,) in rows if not name.startswith("sqlite_")}
 
 
-def test_an_empty_database_becomes_version_2_with_two_ledger_rows(
+def test_an_empty_database_becomes_version_3_with_three_ledger_rows(
     driver: LocalSqliteDriver,
 ) -> None:
-    assert migrate(driver) == 2
+    assert migrate(driver) == 3
 
     rows = driver.query("SELECT version, name, checksum FROM schema_migrations")
     assert rows == [
         (1, "runtime_schema", REVISION_1.checksum),
         (2, "step_record_metadata", SHIPPED_MIGRATIONS[1].checksum),
+        (3, "gate_interactions", SHIPPED_MIGRATIONS[2].checksum),
     ]
 
 
@@ -104,7 +109,7 @@ def test_prepare_upgrades_a_version_1_file_and_defaults_step_metadata(
     try:
         driver = LocalSqliteDriver(path)
         try:
-            assert driver.query("SELECT max(version) FROM schema_migrations") == [(2,)]
+            assert driver.query("SELECT max(version) FROM schema_migrations") == [(3,)]
             columns = {
                 row[1]: row for row in driver.query("PRAGMA table_info(workflow_steps)")
             }
@@ -123,8 +128,8 @@ def test_a_second_run_is_a_no_op(driver: LocalSqliteDriver) -> None:
     migrate(driver)
     schema = driver.query("SELECT sql FROM sqlite_master ORDER BY name")
 
-    assert migrate(driver) == 2
-    assert driver.query("SELECT count(*) FROM schema_migrations") == [(2,)]
+    assert migrate(driver) == 3
+    assert driver.query("SELECT count(*) FROM schema_migrations") == [(3,)]
     assert driver.query("SELECT sql FROM sqlite_master ORDER BY name") == schema
 
 
@@ -133,7 +138,7 @@ def test_an_edited_revision_is_refused(driver: LocalSqliteDriver) -> None:
     edited = Migration(1, REVISION_1.name, REVISION_1.sql + "\n-- edited\n")
 
     with pytest.raises(MigrationRefused) as refused:
-        migrate(driver, [edited, SHIPPED_MIGRATIONS[1]])
+        migrate(driver, [edited, *SHIPPED_MIGRATIONS[1:]])
 
     assert refused.value.version == 1
     assert refused.value.expected_checksum == edited.checksum
@@ -146,7 +151,7 @@ def test_a_ledger_ahead_of_the_shipped_set_is_refused(
 ) -> None:
     migrate(driver)
     driver.batch(
-        [("INSERT INTO schema_migrations VALUES (3, 'future', 'x', 'now')", ())]
+        [("INSERT INTO schema_migrations VALUES (99, 'future', 'x', 'now')", ())]
     )
 
     with pytest.raises(MigrationRefused, match="newer than this code"):
@@ -184,7 +189,7 @@ def test_a_legacy_documents_table_alone_is_migrated(driver: LocalSqliteDriver) -
         ]
     )
 
-    assert migrate(driver) == 2
+    assert migrate(driver) == 3
 
 
 def test_a_failing_revision_leaves_neither_schema_nor_ledger(

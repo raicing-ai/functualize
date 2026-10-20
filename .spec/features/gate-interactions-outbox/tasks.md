@@ -11,7 +11,17 @@ the gate-resolution branch (D-2).
 
 ## Wave 0 — vocabulary
 
-- [ ] **0.1** Values and ports: `EvidenceRef`, `GateDecision`, candidate provenance,
+*Waves 0–1 land values, ports and storage ahead of their production callers,
+as FUN-17's ports did: the call paths are 2.1 (the walk), 2.3 (boot) and 3.1
+(the answer surfaces), and wave 4 proves each by sabotage. Gate evidence for
+0.1–1.4: `ruff check`, `ruff format --check`, `mypy src/` and the plugin's
+`mypy` clean; `tests/types tests/primitives tests/engine tests/conformance
+tests/gate tests/test_public_api_surface.py` 1066 passed, 1 failed — the
+lease-timing test `test_a_slow_claim_does_not_leave_the_first_step_claimable`
+under `-n auto` load, which passes 3/3 alone and touches no changed module;
+the SQLite plugin suite 198 passed.*
+
+- [x] **0.1** Values and ports: `EvidenceRef`, `GateDecision`, candidate provenance,
       `GateResolution.decision`, request causal ids, `SupersedeRequest`, `EffectIntent`,
       `InputWriter.decide/supersede`, `InputReader.decision`, `EffectView`, `EffectQueue`,
       `OutboxStore`, `EffectReceiver`; `INPUT_REQUEST` gains `accepted→cancelled`; `OUTBOX`
@@ -21,16 +31,16 @@ the gate-resolution branch (D-2).
 
 ## Wave 1 — recording and storage
 
-- [ ] **1.1** The recorder: provenance on `submitted` and `ladder_candidates`, evidence
+- [x] **1.1** The recorder: provenance on `submitted` and `ladder_candidates`, evidence
       validation, `decided`, `accepted_effect`, `superseding`.
       *Files:* `src/functualize/_engine/recording/input_recorder.py`, `tests/engine/test_input_recorder_provenance.py`
-- [ ] **1.2** Document backend: provenance, evidence refs and the decision on the gate
+- [x] **1.2** Document backend: provenance, evidence refs and the decision on the gate
       record; `decide`, `supersede`, `decision` through the port; run id on suspend.
       *Files:* `src/functualize/_primitives/gate_requests.py`, `src/functualize/_primitives/document_store.py`, `tests/primitives/test_document_gate_provenance.py`
-- [ ] **1.3** SQLite inputs: revision `0003`, provenance columns, `input_decisions`,
+- [x] **1.3** SQLite inputs: revision `0003`, provenance columns, `input_decisions`,
       evidence as `artifact_refs` rows, `supersede`, readers.
       *Files:* `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_schema/0003_gate_interactions.sql`, `_run_sql.py`, `_readers.py`, `_workflow_sql.py`, `plugins/substrates/functualize-substrate-sqlite/tests/test_gate_interactions_sql.py`
-- [ ] **1.4** SQLite outbox queue: `SqlEffectQueue` (claim, published, failed, effect);
+- [x] **1.4** SQLite outbox queue: `SqlEffectQueue` (claim, published, failed, effect);
       the store satisfies `OutboxStore`.
       *Files:* `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_outbox_sql.py`, `_runtime_store.py`, `plugins/substrates/functualize-substrate-sqlite/tests/test_outbox_queue.py`
 

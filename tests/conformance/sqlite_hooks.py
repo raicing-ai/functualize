@@ -140,7 +140,7 @@ class SqliteOutboxProbe:
 class SqliteMigrationHarness:
     """`MigrationHarness` — the schemas and damage a local file can have."""
 
-    latest_version = 2
+    latest_version = 3
     historical = ("empty", "documents-only", "version-1")
     refusals = ("checksum", "ahead", "gap", "partial")
 
@@ -192,7 +192,7 @@ class SqliteMigrationHarness:
             self._execute(
                 path,
                 "INSERT INTO schema_migrations (version, name, checksum, applied_at) "
-                "VALUES (3, 'future', 'x', 'now')",
+                f"VALUES ({self.latest_version + 1}, 'future', 'x', 'now')",
             )
         elif refusal == "gap":
             self._execute(path, "DELETE FROM schema_migrations WHERE version = 1")

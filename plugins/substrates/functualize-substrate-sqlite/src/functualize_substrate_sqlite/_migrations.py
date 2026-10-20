@@ -102,6 +102,7 @@ def _load(version: int, name: str) -> Migration:
 SHIPPED_MIGRATIONS: tuple[Migration, ...] = (
     _load(1, "runtime_schema"),
     _load(2, "step_record_metadata"),
+    _load(3, "gate_interactions"),
 )
 
 

@@ -31,9 +31,12 @@ from functualize._types.errors import (
     SubstrateInstallError,
 )
 from functualize._types.gate_resolution import (
+    GATE_ACCEPTED_TOPIC,
     CandidateEvaluation,
     EvaluationOutcome,
+    EvidenceRef,
     GateCandidate,
+    GateDecision,
 )
 from functualize._types.host import PluginHost
 from functualize._types.input_modes import DEFAULT_SIGIL, InputMode, InputModeRegistry
@@ -57,6 +60,10 @@ from functualize._types.persistence import (
     CompleteStep,
     Conflict,
     ConsumeInput,
+    EffectIntent,
+    EffectQueue,
+    EffectReceiver,
+    EffectView,
     EffectWriter,
     EventView,
     EventWriter,
@@ -65,6 +72,7 @@ from functualize._types.persistence import (
     InputRequest,
     InputWriter,
     MoveScope,
+    OutboxStore,
     PreparedStore,
     RecordBranch,
     RecordStep,
@@ -86,6 +94,7 @@ from functualize._types.persistence import (
     StateBatch,
     StepView,
     StoreProfile,
+    SupersedeRequest,
     SuspendAtGate,
     WorkflowQuery,
     WorkflowReader,
@@ -281,6 +290,18 @@ __all__ = [
     "RuntimeStoreConfig",
     "PreparedStore",
     "RuntimeStoreFactory",
+    # The outbox and gate interaction evidence (ADR-034): what a durable-
+    # outbox store implements, what a receiver consumes, and the decision and
+    # evidence values a gate records.
+    "SupersedeRequest",
+    "EffectIntent",
+    "EffectView",
+    "EffectQueue",
+    "OutboxStore",
+    "EffectReceiver",
+    "EvidenceRef",
+    "GateDecision",
+    "GATE_ACCEPTED_TOPIC",
     "IllegalTransition",
     "RuntimeStoreCapabilityError",
     "RuntimeStoreSelectionError",
