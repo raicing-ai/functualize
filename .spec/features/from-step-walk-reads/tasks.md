@@ -257,6 +257,19 @@ the deletion-only clearing commit follows on a second push.
 
 - Files: `.spec/STATUS.md` or `contributor/adr/<next>.md`
 - Gate: every check green except the two artifact checks before clearing.
+- Local evidence at the ADR commit: `ruff check`, `ruff format --check`,
+  `mypy src/` (397 files), `lint-imports` (7 kept, 0 broken) passed; bare
+  `pytest --collect-only` 14383 collected, 0 errors. Step tier from
+  `tests-for-diff` (exit 0, 153 files): the 152 root files 2837 passed,
+  91 skipped in 200 s; `plugins/adapters/functualize-mcp/tests` 32 passed
+  (run apart — a plugin's `tests/conftest.py` cannot share a root session).
+  AC1–AC6 re-run: 16 passed (AC1–AC6 and AC10, both annotation modes).
+  Dead-code delta `c03dfb72..HEAD`: NEW_DEAD 2, TESTS_ONLY 4, all six in
+  files with no change against `origin/master` `1b73983c` — they arrive with
+  the `b6c050e0` master merge, not this feature, so none is classified
+  against it. Against `origin/master..HEAD`: NEW_DEAD 0, TESTS_ONLY 0.
+  Durable half: `contributor/adr/034-fromstep-reads-the-walk-everywhere.md`
+  (option (i), D1, D2). Open until CI reports on the pushed head.
 
 ## Task Dependency Graph
 
