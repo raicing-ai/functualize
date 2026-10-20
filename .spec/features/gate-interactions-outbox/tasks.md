@@ -40,16 +40,22 @@ the SQLite plugin suite 198 passed.*
 - [x] **1.3** SQLite inputs: revision `0003`, provenance columns, `input_decisions`,
       evidence as `artifact_refs` rows, `supersede`, readers.
       *Files:* `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_schema/0003_gate_interactions.sql`, `_run_sql.py`, `_readers.py`, `_workflow_sql.py`, `plugins/substrates/functualize-substrate-sqlite/tests/test_gate_interactions_sql.py`
+      *Repair:* `supersede` now gives a successor a strictly later creation time,
+      so `for_gate` remains deterministic when the clock has not advanced;
+      the port regression fixes the successor ID's lexical order.
 - [x] **1.4** SQLite outbox queue: `SqlEffectQueue` (claim, published, failed, effect);
       the store satisfies `OutboxStore`.
       *Files:* `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_outbox_sql.py`, `_runtime_store.py`, `plugins/substrates/functualize-substrate-sqlite/tests/test_outbox_queue.py`
 
 ## Wave 2 — the outbox tier
 
-- [ ] **2.1** Walker request/candidate wiring: the run id on the request; a ladder
+- [x] **2.1** Walker request/candidate wiring: the run id on the request; a ladder
       acceptance records its decision and, on a durable-outbox store, its intent in the
       candidates' unit.
       *Files:* `src/functualize/_engine/gate_service.py`, `src/functualize/_engine/frontier.py`, `tests/engine/test_gate_ladder_decision.py`
+      *Gate:* both stores pass the accepted and blocked ladder cases; removing
+      `GateService.service → GateService._record` after the code commit fails the
+      accepted case on both stores, and the committed call was restored.
 - [ ] **2.2** The dispatcher: claim, deliver, acknowledge or reschedule; at-least-once.
       *Files:* `src/functualize/_primitives/outbox.py`, `tests/primitives/test_outbox_dispatcher.py`
 - [ ] **2.3** Receivers and boot: `register_effect_receiver`, the required capability at
