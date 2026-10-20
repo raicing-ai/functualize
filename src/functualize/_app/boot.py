@@ -343,16 +343,54 @@ def check_required_capabilities(
 def _required_capabilities(app: Any) -> Mapping[str, RequiredCapability]:
     """The capabilities this boot's configuration requires of its store.
 
-    Empty today, deliberately. No shipped configuration key implies a
-    capability the document store lacks, and inventing one to exercise the
-    check would add a config surface nobody asked for. The features that
-    declare requirements land their key here — resume across runners
-    (``multi_machine``), a durable-outbox consumer (``durable_outbox``), a
-    second process on the store (``multi_process``, FUN-19's SQLite) — and
-    the refusal fires the moment one of them is switched on against a store
-    that cannot serve it.
+    The features that declare requirements land their key here — and the
+    first has: registering an effect receiver declares that this
+    configuration needs ``durable_outbox=True``
+    (``_app/effects.receiver_requirements``), and the refusal fires the
+    moment one is registered against a store that cannot serve it. Still to
+    land: resume across runners (``multi_machine``), a second process on the
+    store (``multi_process``) — each declared by its own feature, never
+    invented here to exercise the check.
     """
-    return {}
+    from functualize._app.effects import receiver_requirements
+
+    return receiver_requirements(app)
+
+
+def _drain_outbox(app: Any, store: RuntimeStore) -> None:
+    """Deliver, once, what earlier processes left committed in the outbox.
+
+    The end of both boot paths. A dispatcher is built only when receivers are
+    registered and the selected store's profile declares the outbox — every
+    other combination was refused or skipped at step 6.5 — and this one
+    synchronous drain is the whole of the outbox tier's boot work: an intent
+    committed by a process that died before delivering it is delivered here,
+    by the next process that starts with a receiver for its topic.
+
+    **Caught, unlike step 6.5.** A receiver's failure is already data (the
+    dispatcher reschedules it); what reaches here is the queue itself failing
+    — a locked or unreadable outbox. The intents stay committed and the next
+    drain delivers them, so refusing to start would cost the run and save
+    nothing; it is logged as a warning instead.
+    """
+    from functualize._app.effects import drain
+
+    try:
+        report = drain(app, store)
+    except Exception as exc:  # noqa: BLE001 — undelivered intents wait, committed
+        logger.warning(
+            "outbox: boot drain could not read the queue; committed intents "
+            "wait for the next drain: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        return
+    if report is not None and (report.delivered or report.failed):
+        logger.info(
+            "outbox: boot drain delivered %d, rescheduled %d",
+            report.delivered,
+            report.failed,
+        )
 
 
 def build_engine(
@@ -668,6 +706,11 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
             resource="di_registry",
             app=app,
         )
+
+    # Outbox: deliver what earlier processes left committed. Last, after the
+    # registry is frozen, so the drain runs on the app as booted — the same
+    # order a job would see it in.
+    _drain_outbox(app, store)
 
     perf_timeline.mark("boot.total.end")
 
@@ -1133,6 +1176,11 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
             app=app,
         )
     perf_timeline.mark("boot.freeze.end")
+
+    # Outbox: deliver what earlier processes left committed. Last, after the
+    # registry is frozen, so the drain runs on the app as booted — the same
+    # order a job would see it in.
+    _drain_outbox(app, store)
 
     perf_timeline.mark("boot.total.end")
 

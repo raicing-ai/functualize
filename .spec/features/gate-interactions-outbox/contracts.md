@@ -128,11 +128,13 @@ satisfy it. A store whose profile declares `durable_outbox=True` must satisfy
 
 ## 4. Plugin host and public API
 
-- `PluginHost.register_effect_receiver(receiver: EffectReceiver) -> None` — new, on the
-  host protocol (`_types/host.py`) and the app's extensions facade. One receiver per
-  topic; a second for the same topic raises `ValueError`; registration after boot
-  selected the store raises `SubstrateInstallError`; a non-conforming object raises
-  `TypeError`.
+- `app.extensions.register_effect_receiver(receiver: EffectReceiver) -> None` — new, on
+  the app's extensions facade, the door `register_notifier` already uses. **Not** on
+  `PluginHost`'s `ExtensionsView`: that view is sized to measured plugin use
+  (`tests/types/test_plugin_host_port.py`) and no shipped plugin calls this yet; the
+  first receiver plugin adds it there with its census line. One receiver per topic; a
+  second for the same topic raises `ValueError`; registration after boot selected the
+  store raises `SubstrateInstallError`; a non-conforming object raises `TypeError`.
 - `functualize.plugin.__all__` gains `EffectReceiver`, `EffectView`, `EvidenceRef`,
   `GateDecision`, `GATE_ACCEPTED_TOPIC`. `tests/test_public_api_surface.py` and an
   `examples/` caller move with them; the decision is ADR-034.

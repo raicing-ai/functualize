@@ -26,8 +26,10 @@ unacknowledged claim, which the lease returns. A receiver that blocks blocks
 the drain that called it, deliberately — a slow receiver is the receiver's to
 make asynchronous, not this module's to hide.
 
-This module sits in ``_primitives`` and imports ``_types`` only. Boot and
-answer-path composition lands in the following task.
+This module sits in ``_primitives`` and imports ``_types`` only. Composition
+lives in ``_app.effects`` — it builds this dispatcher at the end of boot and
+drains it there; the drains after answer-surface commits land with those
+surfaces.
 """
 
 from __future__ import annotations
@@ -55,8 +57,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-# TRANSITIONAL(2.3): boot does not compose or drain this dispatcher yet.
 
 #: How long a claim protects an intent from a second dispatcher. Past it, a
 #: dispatcher that has not acknowledged is presumed dead and the intent is

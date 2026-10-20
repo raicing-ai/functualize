@@ -1,10 +1,10 @@
 """Everything a plugin registers into the app — `app.extensions`.
 
 Extracted from :class:`~functualize.app.core.FunctualizeApp`
-(engine-sealed-construction/T9). Eleven members with one caller in common: a
+(engine-sealed-construction/T9). Twelve members with one caller in common: a
 plugin, at wiring time. Commands, job providers, job transforms, agent-step
-executors, surfaces, ambient constructs, instrumentation points, and the
-per-plugin state bag they hang things off.
+executors, notifiers, effect receivers, surfaces, ambient constructs,
+instrumentation points, and the per-plugin state bag they hang things off.
 
 **Not here:** ``push_surface``, ``pop_surface``, ``live_zone`` and ``collector``,
 which look like they belong. They are members of the ``EngineHost`` protocol
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from functualize._app.models import PluginCommand
+    from functualize._types.persistence import EffectReceiver
     from functualize._types.protocols import (
         AgentStepExecutor,
         JobProvider,
@@ -136,6 +137,28 @@ class ExtensionsFacade:
         from functualize._app.impl import register_notifier
 
         register_notifier(self._app, notifier)
+
+    def register_effect_receiver(self, receiver: EffectReceiver) -> None:
+        """Register a consumer for one outbox topic, before boot selects a store.
+
+        Registering a receiver declares that this configuration needs a store
+        with ``durable_outbox=True``; boot step 6.5 refuses a selected store
+        whose profile lacks it, naming the receivers' topics. The outbox
+        delivers each committed effect to its topic's receiver at least once —
+        the receiver deduplicates on ``effect.idempotency_key``.
+
+        Args:
+            receiver: An implementation of `EffectReceiver` — a ``topic`` and
+                a ``receive(effect)``.
+
+        Raises:
+            TypeError: ``receiver`` does not satisfy `EffectReceiver`.
+            SubstrateInstallError: Boot already selected the store.
+            ValueError: Its topic is empty or already registered.
+        """
+        from functualize._app.impl import register_effect_receiver
+
+        register_effect_receiver(self._app, receiver)
 
     @property
     def extension_state(self) -> dict[str, Any]:

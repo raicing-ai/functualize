@@ -64,10 +64,26 @@ the SQLite plugin suite 198 passed.*
       deduplicates by key. Four targeted cases pass; removing the dispatcher's
       `_deliver` call after commit fails the delivery case. Production boot
       composition and draining remain task 2.3.
-- [ ] **2.3** Receivers and boot: `register_effect_receiver`, the required capability at
+- [x] **2.3** Receivers and boot: `register_effect_receiver`, the required capability at
       step 6.5, the `OutboxStore` agreement check, the dispatcher built and drained at the
       end of boot on both paths.
       *Files:* `src/functualize/_app/effects.py`, `src/functualize/_app/impl.py`, `src/functualize/_app/extensions_facade.py`, `src/functualize/_app/boot.py`, `src/functualize/_app/store_selection.py`, `src/functualize/_types/host.py`, `src/functualize/plugin/__init__.py`, `tests/app/test_effect_receivers.py`
+      *Gate:* a receiver registered through the plugin door is delivered a
+      committed SQLite intent by the drain at the end of boot on both the
+      static and the standard path, and a second boot on the same file
+      delivers nothing new; documents with no receiver builds no dispatcher,
+      and documents with a registered receiver refuse boot naming the store,
+      `durable_outbox`, `runtime_store.url` and the topic; a store whose
+      profile and type disagree is refused at selection in both directions;
+      a late registration, a duplicate topic, an empty topic and a
+      non-receiver are refused at the door; a queue the drain cannot read is
+      logged and the app still starts. `tests/app/test_effect_receivers.py`
+      16 passed; removing boot's `_drain_outbox` call after the commit fails
+      the delivery case on both paths (`2 failed`), and the committed call
+      was restored. `host.py` and `plugin/__init__.py` needed no change: the
+      public values shipped with 0.1, and the door stays off
+      `PluginHost`'s census-sized `ExtensionsView` until a shipped plugin
+      calls it (`contracts.md` §4).
 
 ## Wave 3 — answer surfaces on the selected store
 
