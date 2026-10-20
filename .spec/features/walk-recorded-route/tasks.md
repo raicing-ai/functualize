@@ -325,7 +325,7 @@ reaches a relational store instead of calling a document-only `get_scope`.
 
 ## Wave 4 — records
 
-- [ ] **4.1 ADR-034, docs, changelog, codemap**
+- [x] **4.1 ADR-034, docs, changelog, codemap**
 
 New `contributor/adr/034-operator-surfaces-read-decision-records-in-bulk.md`
 (template `000-template.md`; links ADR-033 and ADR-025; records D2–D7 and the
@@ -340,6 +340,14 @@ surviving smells). Update:
 - Gate: `uv run pytest tests/skills tests/test_contributor_docs.py -q
   --no-header` green; the docs say what 3.1 does. There is no `tests/docs`
   directory at `44168c54`, so the former command could not execute.
+
+- Evidence: 91 passed, 4 skipped. `docs/cli/workflow.md` gained § *The recorded
+  route* under `workflow show` (both lines, both JSON keys, the `-` form,
+  bookkeeping records not listed, the refusal and its exit code, the one-read
+  cost). `CHANGELOG.md` gained one `[Unreleased]` entry covering the relational
+  fix, the documents-path move, the port member, the refusal and the NUL refusal,
+  linking ADR-034. ADR-034 records D2–D7, the two refused alternatives and the
+  three surviving smells; it links ADR-033 and ADR-025.
 
 ## Wave 5 — verify and clear
 
