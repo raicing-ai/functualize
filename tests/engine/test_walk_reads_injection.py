@@ -8,8 +8,10 @@ from typing import Annotated
 import pytest
 
 from functualize._engine.context import ExecutionContext
+from functualize._engine.executor import JobExecutionEngine
 from functualize._engine.walk_reads import inject_from_step, step_records
 from functualize._types.errors import FromStepUnavailableError
+from functualize.job import FromJob
 from functualize.workflow import FromStep
 
 
@@ -42,6 +44,37 @@ def test_step_records_uses_one_scope_and_preserves_record_fields() -> None:
     store = SimpleNamespace(workflows=SimpleNamespace(steps=steps))
     assert step_records(store, "walk-1")["approve::0"]["return_value"] == {"ok": True}
     assert seen == ["walk-1"]
+
+
+def test_failed_walk_record_never_falls_back_to_an_older_fingerprint() -> None:
+    """A present failed node owns this scope even when a project cache is stale."""
+    fingerprint_reads: list[str] = []
+
+    def get_fingerprint(key: str) -> dict[str, object]:
+        fingerprint_reads.append(key)
+        return _record("STALE")
+
+    step = SimpleNamespace(
+        step_key="plan::",
+        status="failure",
+        result=None,
+        reusable=False,
+        result_kind="none",
+        result_type=None,
+    )
+    engine = SimpleNamespace(
+        _state_store=lambda: SimpleNamespace(get_fingerprint=get_fingerprint),
+        _runtime_store=SimpleNamespace(
+            workflows=SimpleNamespace(steps=lambda scope_id: [step])
+        ),
+        _live_step_value=lambda scope_id, name: None,
+        fingerprint_key_for=lambda name, method, options: f"{name}:{method}",
+    )
+
+    assert (
+        JobExecutionEngine._from_job_value(engine, FromJob("plan"), "scope-7") is None
+    )
+    assert fingerprint_reads == []
 
 
 def test_recorded_value_is_injected() -> None:

@@ -2194,6 +2194,11 @@ class JobExecutionEngine:
                 # Preserve FromJob's live fallback for an uncarriable or None
                 # result. A missing record still falls through to fingerprints.
                 return self._live_step_value(scope_id, ref.name)
+            if any(key.split("::", 1)[0] == ref.name for key in records):
+                # A matching failed record was already part of this walk.
+                # FromJob previously stopped here; falling through would read
+                # an older fingerprint from another run.
+                return self._live_step_value(scope_id, ref.name)
 
         for method in ("checksum", "timestamp", "none"):
             record = store.get_fingerprint(

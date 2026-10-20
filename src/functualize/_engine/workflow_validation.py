@@ -178,7 +178,8 @@ def _validate_workflow_from_step_refs(
                         else:
                             continue
                         raise WorkflowDeclarationError(
-                            f"Workflow '{workflow_name}' reader '{node.name}' "
+                            f"Workflow '{workflow_name}' Gate '{node.name}' "
+                            f"tool '{tool.name}' reader '{node.name}' "
                             f"parameter '{parameter}' reads FromStep('{target}'), "
                             f"but {why}"
                         )

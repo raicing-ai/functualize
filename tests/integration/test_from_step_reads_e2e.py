@@ -242,6 +242,9 @@ def walk() -> None:
         with pytest.raises(WorkflowDeclarationError) as exc:
             _run(_app(module, "plan", "inspect", "walk"))
         _mentions(str(exc.value), "approve", "allowed", "approve")
+        assert "Workflow 'walk'" in str(exc.value)
+        assert "Gate 'approve' tool 'inspect'" in str(exc.value)
+        assert "not ordered before" in str(exc.value)
 
 
 class TestAC6ScopeIsolation:
@@ -409,10 +412,17 @@ def walk() -> str:
 """,
             future_annotations,
         )
-        assert _run(_app(module, "plan", "walk")).status is RunStatus.SUCCESS
+        app = _app(module, "plan", "walk")
+        assert _run(app).status is RunStatus.SUCCESS
         assert (
             ScopeStore.for_project(Path.cwd()).deposit_gate_payload(
                 "one", "plan", {"ok": True}
             )
             is False
         )
+        from functualize.app.utils import GateNotFoundError, answer_gate
+
+        with pytest.raises(GateNotFoundError):
+            answer_gate(
+                app, ScopeStore.for_project(Path.cwd()), "one", "plan", {"ok": True}
+            )
