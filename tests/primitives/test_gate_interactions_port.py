@@ -10,6 +10,7 @@ read back through ``InputReader`` alone.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -210,6 +211,9 @@ def test_reopen_cancels_the_accepted_request_and_opens_a_new_one(
     command = InputRecorder().superseding(
         scope_id="wf_42", gate_name="approval", request_id=request_id, now=T0
     )
+    # Sorts before every recorder-minted req_<hex> id. A timestamp tie must
+    # still return this successor, rather than the cancelled request.
+    command = replace(command, new_request_id="req_0")
 
     with store.transaction() as tx:
         tx.inputs.supersede(command)

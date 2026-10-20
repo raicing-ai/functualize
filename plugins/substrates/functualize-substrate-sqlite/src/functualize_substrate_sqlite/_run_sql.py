@@ -22,7 +22,7 @@ Each stages into the unit's batch and returns ``None`` (`contracts.md` §1.3):
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -31,7 +31,7 @@ from functualize._primitives.transitions import require_transition
 from functualize._types.errors import InputRequestNotOpenError
 from functualize._types.gate_resolution import EvaluationOutcome
 from functualize._types.lifecycle import ATTEMPT, INPUT_REQUEST, RUN
-from functualize_substrate_sqlite._transaction import RequestRow, dumps, iso
+from functualize_substrate_sqlite._transaction import RequestRow, dumps, iso, parse_iso
 
 if TYPE_CHECKING:
     from functualize._types.gate_resolution import GateCandidate, GateDecision
@@ -329,6 +329,18 @@ class SqlInputWriter:
             )
         require_transition(INPUT_REQUEST, request.status, "cancelled")
         now = iso(cmd.now)
+        latest = tx.driver.query(
+            "SELECT MAX(created_at) FROM input_requests WHERE namespace_id = ? "
+            "AND scope_id = ? AND gate_key = ?",
+            (tx.namespace, cmd.scope_id, cmd.gate_name),
+        )[0][0]
+        # A reopen can use the same clock tick as the withdrawn request. Keep
+        # creation order explicit so for_gate never breaks that tie by ULID.
+        successor_at = parse_iso(now) + timedelta(microseconds=1)
+        if latest is not None:
+            successor_at = max(
+                successor_at, parse_iso(latest) + timedelta(microseconds=1)
+            )
         tx.stage(
             "UPDATE input_requests SET status = 'cancelled', resolved_at = ? "
             "WHERE id = ? AND status = 'accepted'",
@@ -340,7 +352,7 @@ class SqlInputWriter:
             "SELECT ?, namespace_id, scope_id, gate_key, generation, 'open', schema, "
             "prompt, ?, run_id, position FROM input_requests "
             "WHERE id = ? AND status = 'cancelled'",
-            (cmd.new_request_id, now, cmd.request_id),
+            (cmd.new_request_id, iso(successor_at), cmd.request_id),
         )
         tx.update_request(
             cmd.request_id, RequestRow(cmd.scope_id, cmd.gate_name, "cancelled")
