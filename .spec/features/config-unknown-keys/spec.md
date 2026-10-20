@@ -1,251 +1,221 @@
-# config-unknown-keys — Specification
+# config-unknown-keys — Specification (Revision 3)
 
-A key that is not a functualize setting is not accepted in silence.
-`func builtin config path` names the keys it did not understand, so a typo in
-`.functualize.toml` is visible where the user looks for configuration, and
-`func builtin info --json` carries the same findings in a machine-readable
-field.
+A key that is not a functualize setting is not accepted in silence, and the
+settings vocabulary that decides it is stated **once**. Every reader, resolver,
+flag, environment variable, file list, report and document derives from that
+one declaration.
 
-Shape: *Shape Intent — Unknown Keys in .functualize.toml (what is checked, how
-loudly, where)*, Confluence `SD/17137669` **v2**, `Authority = Approved`. The
-maintainer resolved each of the page's three dimensions with an inline
-comment reading "follow recommendation" (`18808859`, `18972740`, `18808867`).
-This spec therefore builds the page's own recommendation, **1a + 2a + 3a**,
-and no variant of it. See `plan.md` → `## Alignment`.
+Shape: Confluence `SD/17137669` **v3** (scope amended 2026-10-20 on the
+maintainer's instruction, MCH-190 comment `01a15669`). It keeps v2's approved
+1a + 2a + 3a and adds vocabulary, resolver and registry unification (decisions
+M1–M4), so nothing found on the way is left as a follow-up. `plan.md` →
+`## Alignment` quotes it.
 
-> **Revision 2 (2026-10-19) — proposed, not confirmed.** The maintainer asked
-> (MCH-190 comment `01a153bd`) for one consistent single source of truth for
-> the config vocabulary, with no duplication, after the pattern of the
-> unified job namespace (SD/19595276). That is the change SD/17137669 v2 itself
-> names as "a larger change than this ticket", so §3.7 and AC12–AC16 are
-> **outside the approved shape until the page records them** (`plan.md` →
-> decision M1). §1–§3.6 are unchanged, except §3.5's handling of the global
-> file's warning, which now depends on decision M3.
+Base: `master` `91947bb4`. Every measurement below was run on that head
+(2026-10-19/20, isolated `HOME`, the worktree's editable venv).
 
 ## 1. Problem
 
-Measured on `master` `d1c7e40a` (2026-10-17, `func` 0.4.0, isolated `HOME`):
+### 1.1 The reported defect (FOSS-127)
 
 ```console
 $ cat .functualize.toml
 root = true
 roots = true                       # typo for `root`
 definitely_not_a_setting = 1
-
 [cli]
 outptu = "json"                    # typo for `output`
 
-$ func builtin config path
+$ func builtin config path         # exit 0
   ✗ missing …/home/.config/functualize/config.toml
   ✗ missing …/pyproject.toml
-  ✓ used    …/.functualize.toml    # none of the three unknown keys is named
-$ echo $?
-0
+  ✓ used    …/.functualize.toml    # no unknown key named
 $ func builtin info --json | grep -c -i 'roots\|outptu\|definitely'
 0
 ```
 
-`config path` prints `✓ used` when `.functualize.toml` exists
-(`src/functualize/_cli/builtins.py:2462-2467`); nothing on that path reads the
-file's keys. `docs/cli/config.md:239` defines `✓ used` as "file exists and
-contributed values" — the code decides it on existence alone.
+### 1.2 Everything else found on the way (all in scope — maintainer, 2026-10-19)
 
-### 1.1 What exists today (verified)
-
-| Fact | Evidence |
-|---|---|
-| The **global** `config.toml` already warns on stderr, on every read, for an unknown key inside a recognized section, and drops it | `_cli/config.py:145-152` (`read_global_config`); measured: `Warning: …/config.toml: unrecognized key 'show_timng' in [cli], ignoring` |
-| The same reader **silently drops** an unknown top-level key (`roots = true`) and every section outside `{discovery, cli, aliases, tui, vault}` | `_cli/config.py:126-133` |
-| Project files (`.functualize.toml`, `pyproject.toml [tool.functualize]`) get **no** key check at all | `rg -n 'unrecognized key\|unknown key' src/functualize` → the only config-file key warnings are `_cli/config.py:150` (global file) and `_cli/pep723.py:159` (PEP 723 inline script metadata — a different file kind, out of scope) |
-| The settings vocabulary lives in four places | `_cli/data/func_settings.py:180` `_BASE_SETTINGS`; `func_settings.py:164` `tui_settings()` (registered by the shell at `_cli/tui/__init__.py:86`); `_cli/config.py:26-67` `_RECOGNIZED_*`; keys read directly by `_config/` (`project_dirs.py:63` `LIST_KEYS`, `merge.py:36` `root`, `vault_declarations.py:42` `vault_secret`) and by `_cli/main.py:362` (`[plugins] disabled`) |
-| `[aliases]` keys are user-chosen names, not settings | `_cli/config.py:136-139` |
-| Top-level tables are job (and group) sections | `_config/sources.py:650-685` `_section_data` |
-| `[shell]` and `[plugins] strict` are resolved through the same job-section chain | `_engine/executor.py:1932-1940`; `_app/boot.py:2078-2081` |
-| `func builtin info --json` carries an always-present `config` object | `_cli/info.py:396-401` |
-| No `difflib` in `src/` today; the secrets plugins already suggest the intended key with `difflib.get_close_matches(…, n=1, cutoff=0.6)` | `rg -c difflib src/` → exit 1; `plugins/credentials/functualize-secrets-aws/src/functualize_secrets_aws/_reference.py:124-127` |
-
-### 1.2 Census (shape experiment E1)
-
-The vocabulary in §3.2 was run over every functualize config in the
-repository (`examples/`, `evals/`, `docs/` TOML blocks: 20 files and every
-`toml` fence; `tests/`: 203 TOML string constants in 75 files).
-
-- `examples/`, `evals/`, `docs/`: **0 findings.**
-- `tests/`: every finding is either a deliberate unknown-key fixture
-  (`tests/cli/test_cli_config.py:106,125,186`,
-  `tests/cli/test_cli_config_vault.py:85`), a non-functualize TOML document
-  (format-provider and locator tests), or a key functualize does not read where
-  it is written: `scan_depth` at top level
-  (`tests/_cli/test_runtime_detection.py:219`), `require_file_import` at top
-  level (`tests/_cli/test_self_doctor.py:159`), `name`
-  (`tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py:121`),
-  `extra` (`tests/cli/test_config_upward_walk.py:134`). Those are true
-  positives: `scan_depth` is only read under `[discovery]`
-  (`app/utils.py:739-751`). None of those tests asserts on `config path` or on
-  `info --json`'s `config` block, and the check changes no exit code, so none
-  changes outcome.
-
-H1 holds: one vocabulary assembled from the named sources knows every key
-functualize reads; the shape's "wrong if" condition did not fire.
+| # | Finding | Evidence |
+|---|---|---|
+| F2 | The vocabulary is stated five times, and 91 key names are read by string | AST walk of `src/functualize`: 13 collection literals restating ≥ 2 config key names, in 6 files; `_cli/data/func_settings.py:180` `_BASE_SETTINGS`; `_discovery/filter_factory.py:199` (its comment: repeated "because `_discovery` may not import the public `app.config`"); 91 read-position literals (`.get("k")`, `["k"]`, `"k" in`) in 9 files |
+| F3a | **Three resolvers** for one set of settings, and they disagree. `root = true` is honoured by the CLI and ignored by the settings store | project `.functualize.toml` = `root = true`, parent `.functualize.toml` = `[cli] output = "json"` → `resolve_cli_config().output == "rich"`, `FuncSettingsStore.discover()` → `cli.output == "json"`; store layers include the parent file. The store feeds the TUI settings panel, `cli.inline_tui` (`app/adapters/cli.py:1150`), `shell.program` in the TUI (`_cli/tui/shell_mode.py:252`), the surface gate (`app/adapters/surface_gate.py:81`) |
+| F3b | A declared setting is read by its consumer from a different file kind than the one it is declared, shown and documented in | `[shell] program` in `.functualize.toml`: store says `/bin/from-dotfunctualize`, engine (`_engine/executor.py:2016`, job `ResolutionChain`) says `None`. In `config.base.toml`: engine honours it, store/TUI show nothing. `plugins.strict` is resolved the same way (`_app/boot.py:2082`) |
+| F4 | One setting, three environment names | `shell.sudo_password`: docs `FUNCTUALIZE_SUDO_PASSWORD` (`docs/guides/shell.md:97`), catalog rule `FUNCTUALIZE_SHELL_SUDO_PASSWORD`, engine's chain `SHELL_SUDO_PASSWORD` (un-prefixed `EnvSource`). And `extra_directories` takes `FUNCTUALIZE_EXTRA_DIRECTORIES` (documented) while `exclude_patterns` does not |
+| F5 | Settings-backed CLI flags are stated three times, with a fourth generator beside them | `_types/flag_grammar.py:46` (`GLOBAL_OPTIONS_ALWAYS_VALUE`), `_cli/main.py:117-200` (click options), `_cli/dispatch.py:294`, `:490` (hand parsing), and `Setting.cli_flag` generation (`app/adapters/cli.py:1209`) |
+| F6 | Module-level mutable registries (constitution: forbidden) | `_cli/data/func_settings.py:274` `_REGISTERED`, `:283` `_PREBOOT_OVERRIDES`. Consequence recorded as `.spec/STATUS.md` #22: `tui.default_surface` is inert on a direct `func <job>` run because the shell registers it as an import side effect, and tests pass or fail by import order |
+| F7 | The public API cannot express a second app's settings | `app/adapters/cli.py:1147`, `:1209`, `:1238` and `app/adapters/surface_gate.py:74` import `functualize._cli.data.func_settings`; `examples/standalone/deploy_tool/deploy_tool/main.py` imports `functualize._cli.*` and reads the private `store._layers` |
+| F8 | `config path` invents its own file list, and its status words do not mean what the docs say | hard-coded names `_cli/builtins.py:2419-2420`; cwd-only probes vs. the upward walk resolution uses; `✓ used` = "exists" (`:2462-2467`) while `docs/cli/config.md:239-240` says "contributed values" / "all values were overridden" — never computed |
+| F9 | The global file has its own reader, its own warning, and drops whole sections | `_cli/config.py:80-158`: warns per run for unknown keys in 5 recognised sections, silently drops `[plugins]`, `[shell]` and unknown top-level keys |
+| F10 | *Long Method* | `register_builtin_commands`, `_cli/builtins.py:728-3038` (2311 lines, 10 command groups as closures) |
+| F11 | Test fixtures write keys functualize does not read where they are written | `tests/_cli/test_runtime_detection.py:219` (`scan_depth` top level), `tests/_cli/test_self_doctor.py:159` (`require_file_import` top level), `tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py:121` (`name`), `tests/cli/test_config_upward_walk.py:134` (`extra`) |
+| F12 | Docs disagree with the code | `docs/cli/config.md` *Error Handling* table ("Unrecognized section … silently ignored" / "key … warning") and env table; `docs/guides/shell.md:97` |
+| F13 | A TRANSITIONAL in a file this change rewrites, deferred to "a separate follow-up" | `_types/flag_grammar.py` `OPTIONAL_VALUE_VALID_SET` rename |
+| F14 | A job or group named like a settings section is ambiguous | a job `shell`, `cli`, `discovery`, `plugins`, `vault`, `tui` or `aliases` shares its config table with settings |
+| F15 | `[tool.functualize] skill` in a PEP 723 script is accepted and read by nothing | `.spec/STATUS.md` #29, `_cli/pep723.py:53` — decision **M5** |
 
 ## 2. Users and stories
 
-- **A project author** who typed `roots = true` runs `func builtin config path`
-  to see why the setting has no effect, and is told the key is unknown and
-  that `root` was probably meant.
-- **An agent** fetches `func builtin info --json` at the start of a session and
-  reads the same findings from one field, without parsing prose.
-- **Anyone running jobs** sees no change: no new stderr line, no new exit code,
-  no extra work on the run path.
+- A **project author** with a typo runs `func builtin config path` and is told
+  which key is unknown and what was probably meant.
+- An **agent** reads the same findings from `func builtin info --json`.
+- A **user setting `shell.program`** writes it where the settings panel, help
+  and docs say. The engine honours it there, the TUI shows the same value, and
+  one environment variable overrides it.
+- A **project with `root = true`** sees the same value for every setting in
+  the CLI, the TUI and the engine.
+- An **app author** (the `deploy_tool` example) declares their own settings
+  through public API only, at app construction, with no import-order effects.
 
 ## 3. Behaviour
 
-### 3.1 Files checked
+### 3.1 One declaration
 
-The functualize-scoped table of each file `config path` reports, and of each
-layer `info` reports:
+- One declaration lists every key a functualize settings document may carry,
+  with its canonical place, other accepted places, type (scalar, list, bool,
+  int, enum, free-form `map` for `[aliases]`, `records` for
+  `[[vault_secret]]`, `secret`), default, environment variable, CLI flag, and
+  whether it is a settings row. It also holds the document frame: project
+  and global file names, and the `pyproject.toml` prefix `tool.functualize`.
+- An app extends the declaration with its own settings at construction. No
+  process-wide registration exists.
+- `tui.*` settings are declared statically and marked as belonging to the
+  shell surface. They resolve on every path (closes STATUS #22) and are
+  listed as rows only where the shell is.
 
-- `.functualize.toml` (and `.functualize/.functualize.toml`) — the whole
-  document;
-- `pyproject.toml` — only `[tool.functualize]` (shape Risk 2); every other
-  table belongs to other tools;
-- the global `config.toml` — the whole document (shape: "The XDG global
-  `config.toml` gets the same check").
+### 3.2 One layer list
 
-### 3.2 What counts as an unknown key (dimension 3 → **3a, keys only**)
+The files that participate in settings resolution are computed once:
+upward walk, `root = true` stop, global file last. The same list feeds
+resolution, the settings store, `config path` and `info`.
 
-> "**3a. Keys only (recommended).** Scalars/arrays at top level and inside
-> known sections. Tables are assumed to be job sections." — SD/17137669 v2
+### 3.3 One resolver
 
-- A **key** is an entry whose value is not a TOML table (scalar, array, or
-  array of tables).
-- **Top level:** a key is known if it is a top-level setting of the catalog
-  (`dotenv`, `dotenv_path`, `import_libs`) or a key functualize reads at the
-  top level elsewhere (`root`, `jobs_directories`, `plugins_directories`,
-  `extra_directories`, `exclude_patterns`, `vault_secret`).
-- **Known setting section:** a table whose name is a section of the settings
-  catalog — `cli`, `discovery`, `plugins`, `shell`, `vault`, `tui`, and any
-  section a component has registered when the check runs. Inside it, a key is
-  known if the catalog defines it there, or functualize reads it there
-  elsewhere (`[discovery]`: the five list keys; `[plugins]`: `disabled`).
-- `[aliases]` is free-form: its keys are never checked.
-- Every other table — job sections, group sections, plugin-owned sections, an
-  unregistered component's section — is **not** checked, and neither is a
-  table nested inside a known section.
-- `tui.*` keys are known whether or not the shell has been imported in this
-  process (shape Risk 1).
+Every read of a declared setting, whether by the CLI before boot, the app at
+boot, the engine, the TUI or the builtins, comes from one resolution over
+(CLI flags → app vault for `secret` settings → environment → layers →
+declared default). The result is one frozen snapshot with provenance. The job
+`ResolutionChain` never resolves a declared settings section.
 
-### 3.3 The suggestion
+### 3.4 Flags and environment from the declaration
 
-When an unknown key is close to a known key **of the same scope** (same
-section, or top level), the finding names it. Closeness is the plugins'
-existing rule: the single best match at similarity ≥ 0.6. No close match → no
-suggestion.
+- Every settings-backed root flag is generated from its setting's `cli_flag`.
+  Parsed flags form the top resolution layer, keyed by the declared setting,
+  not by string.
+- The pre-boot scan reads the active declaration and passes what it found as
+  data. Non-settings flags (`--log-level`, `--perf-*`, `--emit-format`,
+  `--config-directory`) stay in `flag_grammar.py`, renamed per F13.
+- Every setting has exactly one environment variable,
+  `AppSettingsSchema.env_var_for`. Changes to user-visible names: §3.8.
 
-### 3.4 Strictness (dimension 1 → **1a, warn and continue**)
+### 3.5 The unknown-key check (approved v2: 1a + 2a + 3a)
 
-> "**1a. Warn and continue (recommended).** The run proceeds; the key is
-> reported." — SD/17137669 v2
+- **Files:** every layer of §3.2 (whole document; `pyproject.toml` only
+  `[tool.functualize]`).
+- **Known:** declared in that place by the active declaration.
+- **Checked:** non-table entries at the top level and inside declared
+  sections; `map` sections, unknown tables and tables nested in sections are
+  not checked.
+- **Suggestion:** the best same-scope match at similarity ≥ 0.6.
+- **Strictness (1a):** warn and continue. The check changes no exit code and
+  never drops a key that would otherwise apply.
+- **Surface (2a):** `config path` annotates each file line; `info --json`
+  carries `config.unknown_keys` (`contracts.md` C1, C2). No startup warning.
+  The global reader's separate warning is removed (M3); the global file is
+  reported like every other file.
 
-The check never changes an exit code, never stops a run, and never removes a
-key from what is applied (the global reader's existing filter is unchanged).
+### 3.6 `config path`
 
-### 3.5 Surface (dimension 2 → **2a, `config path` + `builtin info`**)
+- **Lists:** exactly the layers of §3.2, plus the expected locations that are
+  not layers (missing anchor candidates, a `pyproject.toml` without
+  `[tool.functualize]`, a missing global file). The order is ascending
+  precedence, which is today's order: global first, nearest project file
+  last (`contracts.md` C1).
+- **Status:**
+  - `✓ used`: the file supplies at least one value in effect (a winning
+    value, or a contribution to a merged list).
+  - `○ found`: the file exists and supplies none: it is empty, holds only
+    unknown keys, or is wholly overridden.
+  - `✗ missing`: the file does not exist.
 
-> "**2a.** `config path` **+** `builtin info` **(recommended).** `config path`
-> annotates the file line (`✓ used …/.functualize.toml — unknown key "roots"
-> (did you mean "root"?)`); `func builtin info --json` lists the finding in a
-> machine-readable field." — SD/17137669 v2
+  This is what `docs/cli/config.md` already promises, and the "Verification
+  for a fix" clause of FOSS-127.
+- **Annotations:** unknown keys, per §3.5.
 
-- `func builtin config path` appends to the line of each file it prints one
-  annotation per unknown key, in document order, joined by `; `:
+### 3.7 Reserved section names (F14)
 
-  ```console
-    ✓ used    …/.functualize.toml — unknown key "roots" (did you mean "root"?); unknown key "definitely_not_a_setting"; unknown key "cli.outptu" (did you mean "cli.output"?)
-  ```
+A discovered job or group whose canonical name equals a declared settings
+section is reported through the existing discovery-failure channel. It
+appears on `info --json` `discovery_failures` and on the CLI's existing
+discovery-failure surfaces, naming the section and the source file. The job
+still registers.
 
-  A key inside a section is named by its dotted name (`cli.outptu`), the
-  catalog's own naming. The status word (`✓ used` / `○ found` / `✗ missing`)
-  and the set of files listed are unchanged.
-- `func builtin info --json` (and `info all --json`) carries
-  `config.unknown_keys`: always present, `[]` when there are none (the rule
-  `discovery_failures` and `config` already follow). See `contracts.md`.
-- No startup warning (2b) is added. The global reader's existing stderr
-  warning (`_cli/config.py:150`) is the one place a key is reported outside
-  2a. Revision 2 removes it as a separate vocabulary, so there is one
-  checker. Whether that checker also writes to stderr for the global file is
-  decision **M3** (recommended: no; the global file is reported like every
-  other file, on `config path` and `info --json`).
+A job config file (`config.*.toml`, read by the job `ResolutionChain`) whose
+top-level table is named like a declared settings section (`[shell]`,
+`[plugins]`, …) is reported on the same channel. The finding names the file
+and the settings document the table belongs in, so moving `[shell]` out of
+`config.base.toml` (§3.8) is never silent.
 
-### 3.6 Must not change
+### 3.8 User-visible changes (pre-release: no shims, no aliases — constitution)
 
-> "Behaviour that must **not** change: a file with only known keys produces
-> exactly today's output; no run's exit code changes because of the check."
-> — SD/17137669 v2
+| Change | Before | After |
+|---|---|---|
+| `[shell]`, `[plugins]` settings location | honoured only in `config.*.toml` job files (F3b) | honoured in the settings documents (`.functualize.toml`, `[tool.functualize]`, global `config.toml`) where they are declared, shown and documented; a `[shell]`/`[plugins]` table in a job config file is reported as a reserved-name table (§3.7) |
+| `shell.*`, `plugins.strict` environment | `SHELL_PROGRAM`, `SHELL_SUDO_PASSWORD`, `PLUGINS_STRICT` | `FUNCTUALIZE_SHELL_PROGRAM`, `FUNCTUALIZE_SHELL_SUDO_PASSWORD`, `FUNCTUALIZE_PLUGINS_STRICT` (the documented `FUNCTUALIZE_SUDO_PASSWORD` was never read and goes from the docs) |
+| list keys' environment | `FUNCTUALIZE_EXTRA_DIRECTORIES` (top level) | the canonical name only — decision **M6** |
+| `root = true` in settings | ignored by the TUI, the settings store, `cli.inline_tui` and the surface gate | honoured everywhere |
+| `config path` | cwd-only list; `used` = exists | the resolution layers; `used`/`found` as §3.6 |
+| global file warning | stderr on every run, for 5 sections | removed; reported by `config path`/`info` |
+| app settings (`deploy_tool`) | `register_settings(...)` at import from `functualize._cli` | declared at app construction through `functualize.app.config` |
 
-- `config path` output for files with only known keys is byte-identical.
-- `info --json` differs only by the added `config.unknown_keys` key.
-- `func <job>` runs do not import or execute the check.
+### 3.9 Must not change
 
-### 3.7 One vocabulary (Revision 2 — pending M1)
+- For a project whose settings live only in the current directory, and whose
+  files hold only known keys, `config path` output is byte-identical (E5).
+- Every setting's resolved value is unchanged, except where §3.8 says so.
+  This is pinned against `91947bb4` before the refactor (AC14).
+- No exit code changes because of the check.
+- `func <job>` does not import the check, and a warm `func <job>` stays inside
+  `tests/perf/test_startup_budget.py`.
 
-There is exactly **one declaration** of what a functualize config document
-may carry, and every reader, filter, check, environment mapping and file-name
-list derives from it.
+## 4. Acceptance criteria
 
-- **What the declaration holds:** every key functualize reads from a config
-  document, with its canonical place (top level or a section), any other place
-  it is accepted (the directory lists are accepted both at the top level and
-  under `[discovery]`), its type (including a free-form map for `[aliases]`
-  and an array of tables for `[[vault_secret]]`), whether it is shown as a
-  settings row, and whether an environment variable sets it. It also holds the
-  document frame that already sits on the same type: the project and global
-  file names and the `pyproject.toml` prefix `tool.functualize`.
-- **What "derives" means:** no module outside the declaration restates a set,
-  tuple, list or dict of config key names, and no reader of a config document
-  names a key by string literal; it names the declared setting.
-- **What a user sees:** nothing beyond §3.1–§3.6. Today's settings rows, help
-  text, environment variable names and resolution results are unchanged — the
-  refactor is pinned by tests that record today's values first.
-- **What keeps it single:** a source ratchet test fails when a collection of
-  config key names, or a config-key string literal in a config-read position,
-  appears outside the declaration — a ratchet in the sense of SD/19595276 E8:
-  the baseline can only shrink.
-
-Each maps to a shape experiment (E1–E5) or a ticket acceptance clause.
-
-| # | Given | When | Then |
-|---|---|---|---|
-| AC1 (E2) | `.functualize.toml` = `root = true`, `roots = true`, `definitely_not_a_setting = 1` | `func builtin config path` | the `.functualize.toml` line names `roots` with suggestion `root`, and `definitely_not_a_setting` with none; exit 0 |
-| AC2 (E2) | same, plus `[cli] outptu = "json"` | same | the line also names `cli.outptu` with suggestion `cli.output` |
-| AC3 (E3) | AC2's file | `func builtin info --json` | `config.unknown_keys` lists the three findings with `file`, `key`, `suggestion`; exit 0 |
-| AC4 (E4) | a file with a `[my-job]` table and no job named `my-job` | both commands | no finding |
-| AC5 (E5) | a file with only known keys (incl. `[aliases]` entries, `[[vault_secret]]`, `[plugins] disabled`, `[discovery] jobs_directories`) | `config path` | output byte-identical to `d1c7e40a`; `config.unknown_keys == []` |
-| AC6 | `pyproject.toml` with `[tool.functualize] roots = true` and `[tool.ruff] line-length = 88` | `config path` | names `roots`; nothing from `[tool.ruff]` |
-| AC7 | global `config.toml` with `roots = true` and `[cli] show_timng = true` | `config path` | the global line names `roots` and `cli.show_timng` (suggestion `cli.show_timing`); stderr per decision M3 |
-| AC8 | `[tui] them = "x"` with the shell **not** imported | check | finding `tui.them`, suggestion `tui.theme`; and `[tui] theme = "x"` → no finding |
-| AC9 (E1) | every functualize config file under `examples/` and `evals/` | check | 0 findings |
-| AC10 | `func <job>` | run | the check module is not imported |
-| AC11 | ticket | regression test | the AC1 test fails on `e00d870` and passes at the fix head |
-| AC12 (§3.7) | the source tree | ratchet: collection literals of ≥2 config key names outside the declaration module | **0** (baseline at `91947bb4`: 13 literals in 6 files) |
-| AC13 (§3.7) | the source tree | ratchet: config-key literals in a read position (`.get("k")`, `["k"]`, `"k" in …`) outside the declaration | ≤ the recorded per-file baseline, which only shrinks (at `91947bb4`: 91 in 9 files; after this feature: only the flag-plumbing sites decision M2 leaves) |
-| AC14 (§3.7) | today's catalog, `_RECOGNIZED_*` sets, env mapping, `LIST_KEYS`, `PROJECT_CONFIG_CANDIDATES` names, `cli.output` choices | pinned in a test **before** the refactor | every value equal after it |
-| AC15 (§3.7) | every `toml` block and the env-var tables in `docs/cli/config.md` | docs ratchet | 0 keys the declaration does not know; every declared, listed setting documented |
-| AC16 (§3.7) | `root`, `vault_secret`, `plugins`/`plugins.disabled`, `aliases`, and the five list keys | AC13's walk restricted to these names, **config-document reads only** (flag plumbing excluded per M2) | **0** outside the declaration (at `91947bb4` the unrestricted walk over these names reads 59 literals in 8 files: `_cli/main.py` 26, `app/utils.py` 14, `_cli/config.py` 12, `_cli/dispatch.py` 2, `_config/project_dirs.py` 2, `_app/boot.py` 1, `_cli/info.py` 1, `_config/vault_declarations.py` 1) |
+| # | Given / When | Then |
+|---|---|---|
+| AC1 | §1.1 file, `config path` | names `roots` → `root` and `definitely_not_a_setting`; exit 0 |
+| AC2 | + `[cli] outptu` | names `cli.outptu` → `cli.output` |
+| AC3 | `info --json` (+ `info all --json`) | `config.unknown_keys` lists the three with `file`, `key`, `suggestion` |
+| AC4 | `[my-job]` table, no such job | no finding |
+| AC5 | only known keys, incl. `[aliases]`, `[[vault_secret]]`, `[plugins] disabled`, `[discovery] jobs_directories` | `config path` output byte-identical to `91947bb4`; `unknown_keys == []` |
+| AC6 | `pyproject.toml` `[tool.functualize] roots` + `[tool.ruff]` | `roots` only |
+| AC7 | global `roots = true`, `[cli] show_timng` | the global line names both; **no** stderr warning |
+| AC8 | `[tui] them`, shell never imported | `tui.them` → `tui.theme` |
+| AC9 | every config under `examples/`, `evals/`, `docs/` TOML blocks | 0 findings |
+| AC10 | warm `func <job>` | check module not imported; startup budget green |
+| AC11 | regression | the AC1 test fails on `e00d870` and passes at head |
+| AC12 | ratchet | 0 collection literals of config key names outside the declaration (baseline 13 / 6 files) |
+| AC13 | ratchet | 0 config-key string literals in read position outside the declaration and the settings resolver (baseline 91 / 9 files) |
+| AC14 | pin | catalog order, defaults, choices, bounds, descriptions, flags and resolved values for a fixture matrix equal `91947bb4`, except the rows §3.8 lists |
+| AC15 | docs ratchet | every key in `docs/` TOML blocks and env tables is declared; every listed setting is documented |
+| AC16 | F3a fixture (`root = true` + parent `output = "json"`) | CLI, settings store, TUI panel value and `info --json` all report `rich` |
+| AC17 | F3b fixture (`[shell] program` in `.functualize.toml`) | the engine runs raw shell commands with that program; the TUI shows the same value; `FUNCTUALIZE_SHELL_PROGRAM` overrides both |
+| AC18 | ratchet | no `ResolutionChain.resolve(<k>, <declared section>)` call; no settings-file TOML read outside the layer module |
+| AC19 | `FUNCTUALIZE_TUI_DEFAULT_SURFACE=stdout`, direct `func <job>`, clean process | the surface gate opens (STATUS #22); `tests/adapters/` green when run alone |
+| AC20 | ratchet | no module-level mutable registry in `_cli/data/`; `register_settings`, `_REGISTERED`, `_PREBOOT_OVERRIDES` absent from `src/` |
+| AC21 | `deploy_tool` example | imports nothing from `functualize._` ; its tests green |
+| AC22 | every settings-backed root flag | generated from the declaration; `rg` finds each flag string once in `src/` |
+| AC23 | a job named `shell` | a discovery failure names the reserved section; the job still runs |
+| AC24 | parent dir has `.functualize.toml`, cwd has `root = true` file | `config path` lists exactly the layers resolution uses; statuses per §3.6 |
+| AC25 | `register_builtin_commands` | ≤ 60 lines; each builtin group in its own module; `func builtin --help` output byte-identical |
+| AC26 | F11 fixtures | rewritten to the keys they mean; their tests green |
+| AC27 | `config.base.toml` with `[shell] program = …` | a finding names the file and `.functualize.toml` `[shell]` as the place it belongs; exit 0 |
 
 ## 5. Out of scope
 
-From the shape's *Boundaries and non-goals*, verbatim in substance:
-
-- validating **values** (types, enum members);
-- unknown **tables** that could be job sections (3b);
-- a `--json` flag on `config path` (owned by SD/2850883);
-- unknown parameters inside a job section;
-- a startup warning (2b) and a strict mode (1b/1c) — "available as follow-ups";
-- which files `config path` lists, and how it walks for them — shared with
-  SD/17104898 (MCH-188), not this feature;
-- the `[tool.functualize]` table of a PEP 723 script (`_cli/pep723.py`,
-  keys `job`, `skill`) — a different document kind with its own two-key
-  vocabulary, stated once; not a duplicate;
-- typing the CLI-flag plumbing dicts (`cli_flags`, `overrides`, `effective`)
-  — decision M2.
+From the shape (unchanged in v3): validating values (types, enum members);
+unknown tables that could be job sections (3b); a `--json` flag on
+`config path` (SD/2850883); unknown parameters inside a job section; a
+startup warning (2b) and strict mode (1b/1c). Not this feature's question:
+*where* the walk stops beyond `root = true` (bounding by a project root) is
+SD/17104898 (MCH-188). After this feature it is one change, in the single
+layer function.
