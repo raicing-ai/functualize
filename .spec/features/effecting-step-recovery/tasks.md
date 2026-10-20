@@ -184,6 +184,8 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 - **Depends on:** T2, T8.
 - **Files:** `src/functualize/_engine/effect_recovery.py` (new),
   `src/functualize/_engine/workflow_walker.py`,
+  `src/functualize/_engine/frontier.py` (atomic nonreusable `ran` completion),
+  `src/functualize/_engine/executor.py` (refuse a missing recovery value for `FromJob`),
   `tests/workflow/test_effecting_recovery.py` (new).
 - **Change:** `EffectRecovery.begin` writes `RecordStep(status=attempting, attempt,
   started_at, effecting=True, completed_at=None)`. `EffectRecovery.verdict`, on an
