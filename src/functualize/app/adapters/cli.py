@@ -214,7 +214,12 @@ class FallbackGroup(NormalizingGroup):
                     all_args = [args[0], *remaining_args]
                     app_obj = obj.get("app")
                     fallbacks = obj.get("fallbacks", [])
-                    exit_code = _run_fallback_chain(all_args, app_obj, fallbacks)
+                    exit_code = _run_fallback_chain(
+                        all_args,
+                        app_obj,
+                        fallbacks,
+                        program=ctx.find_root().info_name,
+                    )
                     raise SystemExit(exit_code)
                 _show_command_not_found(args[0], None)
                 raise SystemExit(1)
@@ -695,6 +700,8 @@ def _run_fallback_chain(
     args: list[str],
     app: object,
     fallbacks: list[FallbackCommand],
+    *,
+    program: str | None = None,
 ) -> int:
     """Try each fallback in order; first match wins.
 
@@ -708,7 +715,7 @@ def _run_fallback_chain(
     # Last resort: route through discovered jobs
     cmd = args[0] if args else ""
     if cmd and app is not None:
-        exit_code = _try_discovered_job(cmd, args[1:], app)
+        exit_code = _try_discovered_job(cmd, args[1:], app, program=program)
         if exit_code is not None:
             return exit_code
 
@@ -716,7 +723,13 @@ def _run_fallback_chain(
     return 1
 
 
-def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int | None:
+def _try_discovered_job(
+    cmd: str,
+    remaining_args: list[str],
+    app: object,
+    *,
+    program: str | None = None,
+) -> int | None:
     """Attempt to execute a discovered job by name. Returns exit code or None."""
     from functualize.app import FunctualizeApp
 
@@ -729,10 +742,11 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
         return None
 
     descriptor = matching[0]
+    invocation_program = program or app.name
     if descriptor.group and "." in cmd:
         print(
             f"Error: '{cmd}' crosses a group; navigate groups with spaces: "
-            f"{' '.join(descriptor.command_path.segments)}",
+            f"{invocation_program} {descriptor.command_path}",
             file=sys.stderr,
         )
         return 2
@@ -767,7 +781,7 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
         command,
         remaining_args,
         "none",
-        prog_name=f"{app.name} {descriptor.command_path}",
+        prog_name=f"{invocation_program} {descriptor.command_path}",
     )
 
 

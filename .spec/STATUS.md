@@ -4040,3 +4040,14 @@ Two existing code-shape compromises remain: collision projection draws data
 from discovery in `_cli/info.py::discovery_failures`, and group dispatch in
 `_cli/main.py::_dispatch_group` remains long. New behavior stays in helpers;
 neither requires a new layer dependency.
+
+### Child namespaces with declared groups
+
+When a child prefixes a dotted job identity but retains its own declared
+`JOB_GROUP`, the rightmost complete group occurrence separates the child
+namespace from the leaf. `kid.ops.tool` with group `ops` is invoked as
+`kid ops tool`. The suffix after the group remains one leaf token, so a
+literal dot there is preserved. An ungrouped dotted identity stays one token
+because its dots alone cannot distinguish a namespace from a literal leaf.
+Identity, JSON, and programmatic lookup retain the dotted form. The app-door
+fallback prints the actual invoked program before the command path.

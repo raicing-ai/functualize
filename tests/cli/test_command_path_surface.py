@@ -7,6 +7,8 @@ import shlex
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from tests.conftest import surfaces
 
 JOBS = {
@@ -190,6 +192,59 @@ def test_app_door_suggests_and_uses_full_grouped_path(tmp_path, monkeypatch, cap
     leaf = JobCommandProvider(app).nodes()[0].children()[0]
     assert leaf.execute(["--help"]) == 0
     assert "Usage: sample suite inventory [OPTIONS]" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("lazy", [False, True])
+def test_app_door_child_group_hint_runs_as_printed(tmp_path, monkeypatch, lazy):
+    """A child's namespace and its declared group are separate shell segments."""
+    from click.testing import CliRunner
+
+    from functualize.app import FunctualizeApp, JobSources
+    from functualize.app.adapters import CliAdapter
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    child = tmp_path / "child"
+    jobs = child / "jobs"
+    jobs.mkdir(parents=True)
+    (jobs / "ops.py").write_text(
+        'JOB_GROUP = "ops"\n\ndef tool() -> None:\n    print("CHILD-TOOL")\n'
+    )
+
+    app = FunctualizeApp(
+        name="parent",
+        job_sources=JobSources(children={"kid": str(child)}, lazy=lazy),
+    )
+    adapter = CliAdapter()
+    adapter(app)
+    runner = CliRunner()
+
+    dotted = runner.invoke(adapter.cli_command, ["kid.ops.tool"], prog_name="parent")
+    assert dotted.exit_code != 0
+    assert "parent kid ops tool" in dotted.output
+    printed = next(
+        line.rsplit(": ", 1)[-1]
+        for line in dotted.output.splitlines()
+        if "navigate groups with spaces" in line
+    )
+    assert printed == "parent kid ops tool"
+    copied = runner.invoke(
+        adapter.cli_command, shlex.split(printed)[1:], prog_name="parent"
+    )
+    assert copied.exit_code == 0, copied.output
+    assert "CHILD-TOOL" in copied.output
+
+    # A job discovered after the Click tree was built takes the fallback wire.
+    # That wire must name the invoked program, which may differ from app.name.
+    child_group = adapter.cli_command.commands.pop("kid")
+    fallback = runner.invoke(
+        adapter.cli_command, ["kid.ops.tool"], prog_name="launcher"
+    )
+    assert fallback.exit_code != 0
+    assert "launcher kid ops tool" in fallback.output
+    adapter.cli_command.add_command(child_group, name="kid")
 
 
 def _workflow_app(tmp_path, monkeypatch):
