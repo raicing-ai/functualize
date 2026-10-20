@@ -1,8 +1,9 @@
 """End-to-end witnesses for reading a node produced by the current walk.
 
-The source for each workflow is compiled in both annotation modes.  These
-tests intentionally start red: later waves connect the reader to boot and
-execution.
+The source for each workflow is compiled in both annotation modes.  The
+AC1 and AC10 classes passed before the reader existed; every other class
+failed on that base and is green only because boot validation and executor
+injection now read the walk's own records.
 """
 
 from __future__ import annotations
@@ -302,6 +303,41 @@ def reader(value: Annotated[str, FromStep("source")]) -> str:
         result = _app(module, "reader").execute(request_for("reader"))
         assert result.status is RunStatus.FAILURE
         _mentions(str(result.exception), "source", "value", "reader")
+
+
+class TestR4InvokedChildIsOutsideTheWalk:
+    def test_a_job_invoked_from_a_step_refuses_the_read(
+        self, future_annotations: bool
+    ) -> None:
+        module = _module(
+            """
+from typing import Annotated
+from functualize.job import Invoke
+from functualize.workflow import FromStep
+from functualize.workflow import END, Edge, Step, workflow
+children = []
+def plan() -> str:
+    return "this-walk"
+def reader(value: Annotated[str, FromStep("plan")]) -> str:
+    return value
+def caller(invoke: Invoke) -> str:
+    child = invoke("reader")
+    children.append(child)
+    return "called"
+@workflow(steps=[Step(plan), Step(caller)],
+          edges=[Edge("plan", "caller"), Edge("caller", END)])
+def walk() -> str:
+    return "done"
+""",
+            future_annotations,
+        )
+        result = _run(_app(module, "plan", "reader", "caller", "walk"))
+        assert result.status is RunStatus.SUCCESS, result.exception
+        [child] = module.children
+        assert child.status is RunStatus.FAILURE
+        message = str(child.exception)
+        _mentions(message, "plan", "value", "reader")
+        assert "outside a walk" in message
 
 
 class TestAC9SkippedBranch:
