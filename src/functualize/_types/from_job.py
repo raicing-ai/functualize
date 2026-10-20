@@ -249,7 +249,7 @@ def from_job_types(func: Callable[..., Any]) -> dict[str, Any]:
 
 
 class FromStep:
-    """A read of *this walk's* recorded result for one step (resolved Q20).
+    """A read of *this walk's* recorded result for one node (resolved Q20).
 
     ``FromStep`` and :class:`FromJob` answer different questions, and the
     difference is why this is a separate name rather than a flag:
@@ -258,12 +258,17 @@ class FromStep:
                   ``FromJob`` in a signature        ``FromStep``
     ============  ===============================  =========================
     may run it    yes — it is a dependency edge     **never**
-    resolves in   fingerprints, or a scope          this scope's steps only
+    resolves in   fingerprints, or a scope          this walk's nodes
     upstream      may not have run yet              has already run
     ============  ===============================  =========================
 
-    Used where a value is read from inside a walk that has already produced
-    it — a gate tool's bound argument, and the epilogue body::
+    The node is a ``Step`` or a ``Gate`` — a gate's record is its answer — and
+    the read is written in one of three positions:
+
+    - **a step job's parameter**, ``Annotated[T, FromStep("node")]``;
+    - **the epilogue body's parameter**, the same annotation on the
+      ``@workflow`` function itself;
+    - **a gate tool's bound argument**, ``Tool(job, arg=FromStep("node"))``::
 
         Gate(
             name="review",
@@ -272,8 +277,19 @@ class FromStep:
         )
 
     The agent may call `read_file`, but `allowed` is fixed to whatever
-    `setup-vfs` returned *in this scope* — so the tool is scoped to exactly
+    `setup-vfs` returned *in this walk* — so the tool is scoped to exactly
     those files and a call outside them is inexpressible rather than refused.
+
+    Boot refuses a name that is not a node of the workflow, and a step or gate
+    reader naming a node the graph does not order before it — including a
+    gate's binding naming its own gate; an earlier gate is allowed and reads
+    that gate's answer. The epilogue may read any node, because it runs after
+    ``END``. At run time a node a conditional branch skipped yields the
+    parameter's declared default, and with none the run fails with
+    :class:`~functualize._types.errors.FromStepUnavailableError` naming the
+    node, the parameter and the reader — as does a job run outside a walk,
+    including one invoked from inside a step. An explicit argument wins over
+    the read.
 
     **Why not ``FromJob`` here.** In a gate-tool binding ``run=True`` is not
     merely unused, it is unmeaningful: the agent invokes the tool on demand,

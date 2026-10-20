@@ -44,9 +44,10 @@ def trip_planner():
   An empty body is legal (returns `None`).
   > **Not implemented:** the `FromJob[step]` / `FromStep[step]` *subscript* injection
   > described below was designed but never built — neither class defines
-  > `__class_getitem__`, and no resolver reads them from an epilogue signature.
-  > `FromStep`'s implemented use is the gate-tool binding
-  > `Tool(job, arg=FromStep("step"))`.
+  > `__class_getitem__`. The call form is what reads a node of the walk:
+  > `Annotated[T, FromStep("node")]` on a step job's or the epilogue's
+  > parameter, or `Tool(job, arg=FromStep("node"))` on a gate — all three
+  > through the walk's own records (`_primitives/walk_reads.py`).
 
 ## 3. Walker Mechanics
 
@@ -86,7 +87,8 @@ from deposited input this time.
 | Recorded branch choices | **Stable** — read from per-scope record, not re-evaluated |
 | Deposited gate inputs | **Stable** — read from state store |
 | `Deps` edges | **Stale deps re-run** (correctness for builds) |
-| `FromJob` / `FromStep` injection | **Fresh** — always implies a dependency edge; inject cached value if fingerprint-fresh, otherwise run upstream |
+| `FromJob` injection | **Fresh** — always implies a dependency edge; inject cached value if fingerprint-fresh, otherwise run upstream |
+| `FromStep` reads | **Stable** — this walk's record for the node, the same one a fresh process reads; never runs anything, never consults a fingerprint |
 | Scope status while the resume walks | **`running` from entry** — never the `blocked`, `failed` or `completed` it resumed from |
 
 **A resumed walk is live, and says so.** Every entry into a walk stamps the scope `running` — first

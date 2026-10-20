@@ -290,6 +290,12 @@ class Gate:
     ``awaits``'s JSON schema, and stops. Depositing valid input resumes the
     walk; the deposited payload is available to the epilogue body.
 
+    The answer is the gate's record in the walk. Read it with
+    :class:`~functualize._types.from_job.FromStep` — on a later step's
+    parameter, on the epilogue body's
+    (``approval: Annotated[Approval, FromStep("approve")]``, rebuilt into the
+    annotated type), or as a later gate's tool binding.
+
     Attributes:
         name: Graph key for this node, and the address used to resume it.
         awaits: Pydantic model describing the input the gate requires.
