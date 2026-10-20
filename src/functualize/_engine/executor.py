@@ -1398,6 +1398,28 @@ class JobExecutionEngine:
         # pre-flight decision — a guard may be a callable reading one.
         self._inject_from_job(job_name, function, context, workflow_scope_id)
 
+        from functualize._engine.walk_reads import inject_from_step, step_records
+        from functualize._types.errors import FromStepUnavailableError
+        from functualize._types.from_job import from_step_refs
+
+        if from_step_refs(function):
+            records = (
+                step_records(self._runtime_store, workflow_scope_id)
+                if workflow_scope_id is not None
+                else {}
+            )
+            live = (
+                self._live_step_values.get(workflow_scope_id, {})
+                if workflow_scope_id is not None
+                else {}
+            )
+            try:
+                inject_from_step(
+                    job_name, function, context, workflow_scope_id, records, live
+                )
+            except FromStepUnavailableError as error:
+                return self._failure_before_execution(context, job_name, error)
+
         # Pre-flight (§D.2/§D.3): guards and file staleness decide whether the
         # body runs at all. Placed after config resolution because a guard may
         # be a callable taking the resolved config, and before PRE_EXECUTE
@@ -2148,37 +2170,23 @@ class JobExecutionEngine:
             return None
 
         from functualize._primitives.fingerprint import reusable_return_value
+        from functualize._primitives.walk_reads import NotCarriable, Recorded, read_node
 
         if scope_id is not None:
             # Inside a walk the value is the walk's own step record, read
             # through the port (ruling R-3) and handed over in the record shape
             # `reusable_return_value` reads.
-            for step in self._runtime_store.workflows.steps(scope_id):
-                if step.step_key.split("::", 1)[0] == ref.name:
-                    record = {
-                        "status": step.status,
-                        "return_value": step.result,
-                        "return_value_reusable": step.reusable,
-                        "return_value_kind": step.result_kind,
-                        "return_value_type": step.result_type,
-                    }
-                    value = reusable_return_value(
-                        record, job_name=ref.name, expected_type=expected_type
-                    )
-                    if value is not None:
-                        return value
-                    # Resolved 19b: the record exists but its value could not
-                    # be carried. Inside a walk, re-running is not the remedy —
-                    # the step already ran in this scope, and running it again
-                    # would execute outside the walk's ordering and defeat the
-                    # memoization the walk exists to provide. Fall back to the
-                    # live in-process value the walk still holds.
-                    #
-                    # The order is deliberately record-first. Live-first would
-                    # leave the store path exercised only on resume, and a
-                    # second path reached only in a rare case is exactly how
-                    # the warm-boot divergences happened.
-                    return self._live_step_value(scope_id, ref.name)
+            from functualize._engine.walk_reads import step_records
+
+            result = read_node(
+                step_records(self._runtime_store, scope_id), ref.name, expected_type
+            )
+            if isinstance(result, Recorded) and result.value is not None:
+                return result.value
+            if isinstance(result, (Recorded, NotCarriable)):
+                # Preserve FromJob's live fallback for an uncarriable or None
+                # result. A missing record still falls through to fingerprints.
+                return self._live_step_value(scope_id, ref.name)
 
         for method in ("checksum", "timestamp", "none"):
             record = store.get_fingerprint(

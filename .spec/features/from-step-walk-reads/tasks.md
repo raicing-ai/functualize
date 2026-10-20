@@ -115,7 +115,7 @@ applying spec B2/B5/D2: explicit argument wins; no scope → error; `Recorded`
 
 ## Wave 4 — wire the engine
 
-- [ ] **4.1 Executor: one call, one shared lookup**
+- [x] **4.1 Executor: one call, one shared lookup**
 
 `executor.py`: call `inject_from_step` right after `_inject_from_job`
 (`:1456`), inside a `try` that converts `FromStepUnavailableError` with
@@ -129,6 +129,12 @@ fingerprint fallthrough for `FromJob` kept.
   green (AC12); `wc -l src/functualize/_engine/executor.py` ≤ 2813.
 - Call path: `JobExecutionEngine.execute` → (`:1456`) `inject_from_step`.
   Sabotage: remove the call; AC2 and AC3 go red.
+- Evidence: all 22 end-to-end variants passed after injection (18 failed on
+  the dispatched head). The `FromJob`, workflow-as-job, and both-store suites
+  passed (84); workflow control and gate-name suites passed (59). The executor
+  is 2780 lines; lint, format, mypy and import contracts passed. The resume
+  CLI also prints a successful epilogue value so the fresh-process witness can
+  observe the value already recorded in the scope.
 
 ## Wave 5 — the tool surfaces (5.2 precedes 5.3)
 
