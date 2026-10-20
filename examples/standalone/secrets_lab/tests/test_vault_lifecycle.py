@@ -35,9 +35,8 @@ _ROOT = Path(__file__).parent.parent
 #: Distinctive, so an assertion about absence is not satisfied by coincidence.
 _TOKEN = "lab-token-7c2f91-not-a-real-credential"  # gitleaks:allow
 
-#: `report`'s `token` config field. A vault entry is named by scope, target and
-#: field — the same three things `func builtin vault put --job report --field
-#: token` takes — so a group option and a job field never share an entry.
+#: `report`'s `token` config field. A vault entry also records the selected
+#: environment when written; an existing three-part key remains shared.
 _REPORT_TOKEN = VaultIdentity("job", "report", "token")
 
 
@@ -139,6 +138,7 @@ def test_inspect_explains_the_entry_without_revealing_it(project: Path) -> None:
     assert report.exists is True
     assert report.origin is VaultOrigin.DIRECT
     assert report.readability is Readability.READABLE
+    assert report.identity.environment == "dev"
     assert _TOKEN not in str(report)
 
 

@@ -29,6 +29,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from functualize._types.errors import GateNotFoundError
+from functualize._types.naming import normalize_name
 from functualize._types.persistence import (
     EPILOGUE_STEP_KEY,
     RuntimeStore,
@@ -311,6 +312,7 @@ def list_scopes(
     nothing would be a silently empty answer to a well-formed question.
     """
     explicit = state is not None
+    wanted_workflow = normalize_name(workflow_name)
     rows: list[dict[str, Any]] = []
     for sid, scope in _scopes(store):
         # A scope record with no workflow is not a workflow.
@@ -330,7 +332,10 @@ def list_scopes(
             continue
         if not explicit and scope.get("status") not in LIVE_STATUSES:
             continue
-        if workflow_name is not None and scope.get("workflow") != workflow_name:
+        if (
+            wanted_workflow is not None
+            and normalize_name(scope.get("workflow")) != wanted_workflow
+        ):
             continue
         if state is not None and derived_state(scope) != state:
             continue

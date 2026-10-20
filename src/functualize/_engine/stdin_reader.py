@@ -18,6 +18,7 @@ closes. Anything else keeps the eager whole-of-stdin string.
 from __future__ import annotations
 
 import json
+import select
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -36,14 +37,46 @@ __all__ = [
 ]
 
 
-def is_stdin_available() -> bool:
-    """Check if stdin has piped data (non-TTY).
-
-    Returns:
-        ``True`` if stdin is not a TTY (i.e., data is piped in),
-        ``False`` if stdin is an interactive terminal.
-    """
+def _stdin_is_a_pipe() -> bool:
+    """Return ``True`` when the process stdin is a non-interactive stream."""
     return not sys.stdin.isatty()
+
+
+def _stdin_data_ready(timeout: float = 0.0) -> bool:
+    """Return ``True`` when the process stdin already carries data or EOF.
+
+    The single readiness probe behind the rule that a non-interactive stdin
+    never blocks a run: a zero-timeout ``poll`` instead of a read that waits
+    for writers to close. ``poll`` handles descriptors above FD_SETSIZE and
+    reports EOF as POLLHUP. An unprobeable stream raises instead of silently
+    entering a potentially blocking read. A test double may answer through a
+    ``data_ready()`` attribute.
+    """
+    data_ready = getattr(sys.stdin, "data_ready", None)
+    if callable(data_ready):
+        return bool(data_ready())
+    if not hasattr(select, "poll"):
+        msg = "stdin readiness requires select.poll on this platform"
+        raise RuntimeError(msg)
+    poller = select.poll()
+    poller.register(sys.stdin.fileno(), select.POLLIN | select.POLLHUP)
+    events = poller.poll(int(timeout * 1000))
+    for _, event in events:
+        if event & (select.POLLERR | select.POLLNVAL):
+            msg = "stdin readiness probe failed"
+            raise OSError(msg)
+    return any(event & (select.POLLIN | select.POLLHUP) for _, event in events)
+
+
+def is_stdin_available() -> bool:
+    """Check if stdin has piped data available.
+
+    ``True`` only when stdin is a pipe *and* content is already waiting or the
+    stream has reached EOF — "has data", not "is a pipe". A pipe nobody has
+    written to yet answers ``False``: an optional parameter must not wait for
+    data that may never come.
+    """
+    return _stdin_is_a_pipe() and _stdin_data_ready()
 
 
 def read_stdin(encoding: str = "utf-8") -> str:
@@ -107,8 +140,13 @@ def resolve_stdin_params(
     Resolution rules (in priority order):
         1. If a CLI value is provided for a param → use CLI value (explicit > implicit)
         2. If multiple Stdin params need resolution → error (ambiguous)
-        3. If stdin is available (piped) and one param needs it → read stdin
-        4. If stdin is TTY and a param is required (no default) → error (never block)
+        3. If stdin is a pipe that already carries content and one param needs
+           it → read stdin (iterator-typed parameters get the lazy stream, the
+           explicit opt-in to waiting). A silent pipe or an empty stream
+           resolves nothing here.
+        4. Otherwise — a terminal, a silent pipe, or an empty stream — resolve
+           nothing and let the parameter's default win (a param with no default
+           fails as the ordinary missing-argument error, one level up).
 
     Args:
         stdin_markers: Mapping of parameter name → ``Stdin`` marker for all
@@ -157,18 +195,23 @@ def resolve_stdin_params(
     target_name = next(iter(unresolved))
     target_marker = unresolved[target_name]
 
-    # Rule 3: stdin available (piped) → hand over the stream
-    if is_stdin_available():
-        # An iterator-typed parameter gets the lazy NDJSON stream: reading it
-        # eagerly here would stall the pipeline until the upstream closed,
-        # which is exactly what row-wise streaming exists to avoid.
+    # Rule 3: stdin is a pipe. An iterator-typed parameter is the explicit
+    # opt-in to waiting: iter_stdin_ndjson hands rows over as they arrive,
+    # flowing row-wise instead of each stage blocking until its upstream
+    # closes — iteration waits for a late first row by design. Anything else
+    # takes the pipe only when it already carries content: a pipe nobody has
+    # written to resolves nothing here and now, and an empty stream resolves
+    # nothing either, so in both cases the signature default survives.
+    if _stdin_is_a_pipe():
         if streaming and target_name in streaming:
             return {target_name: iter_stdin_ndjson(target_marker.encoding)}
-        content = read_stdin(encoding=target_marker.encoding)
-        return {target_name: content}
+        if is_stdin_available():
+            content = read_stdin(encoding=target_marker.encoding)
+            if content:
+                return {target_name: content}
 
-    # Rule 4: stdin is a terminal and nothing supplied the parameter — resolve
-    # nothing, and let the job's own default win.
+    # Rule 4: nothing carried the parameter — a terminal, a silent pipe, or an
+    # empty stream — resolve nothing, and let the job's own default win.
     #
     # This used to `raise SystemExit(1)` here, under a comment reading "the
     # caller is responsible for determining whether the param has a default …

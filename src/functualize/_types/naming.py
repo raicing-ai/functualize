@@ -17,6 +17,7 @@ codebase ended up with three dependency resolvers that disagreed in production.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -42,6 +43,11 @@ __all__ = [
 ]
 
 
+def _nfkc(value: str) -> str:
+    """Apply the same compatibility normalization as Python identifiers (PEP 3131)."""
+    return value if value.isascii() else unicodedata.normalize("NFKC", value)
+
+
 def normalize_segment(segment: str) -> str:
     """Canonical form of one identity segment: lowercase, hyphenated.
 
@@ -51,7 +57,8 @@ def normalize_segment(segment: str) -> str:
     picks one — the divergence class that already produced three disagreeing
     dependency resolvers here.
 
-    Applied at registration time to all job and group names, ensuring a single
+    NFKC runs first, matching Python's identifier parsing (PEP 3131). Applied
+    at registration time to all job and group names, ensuring a single
     canonical spelling throughout the CLI, invoke resolution, and MCP surfaces.
 
     **Acronyms stay whole.** A hyphen goes before an uppercase letter only when
@@ -61,6 +68,7 @@ def normalize_segment(segment: str) -> str:
     would register ``h-t-t-p-server``, and a name nobody would type is a name
     nobody can run.
     """
+    segment = _nfkc(segment)
     out: list[str] = []
     for index, char in enumerate(segment):
         if char in "_ ":
@@ -85,6 +93,9 @@ def normalize_name(name: str | None) -> str | None:
     ``data_ops.run_etl`` -> ``data-ops.run-etl``. ``None`` passes through, so
     callers holding an optional group need no branch.
 
+    NFKC runs on the whole name before splitting because compatibility
+    normalization can turn a fullwidth dot into a separator (PEP 3131).
+
     Groups normalize with jobs deliberately. A group whose ``name`` said
     ``data-ops.run-etl`` while its ``group`` field said ``data_ops`` would be
     one group with two spellings, and the CLI mounts its subcommand from the
@@ -93,7 +104,7 @@ def normalize_name(name: str | None) -> str | None:
     """
     if name is None:
         return None
-    return ".".join(normalize_segment(part) for part in name.split("."))
+    return ".".join(normalize_segment(part) for part in _nfkc(name).split("."))
 
 
 def resolve_name(candidate: str, known: Iterable[str]) -> str:
@@ -116,7 +127,8 @@ def resolve_name(candidate: str, known: Iterable[str]) -> str:
     ``infra.provision`` — a caller who names the wrong group wants to hear
     about it, not to silently run a job from somewhere else.
 
-    Step 2 is normalization, not aliasing. An alias is a second *declared*
+    Step 2 includes Python's NFKC identifier normalization (PEP 3131), not
+    aliasing. An alias is a second *declared*
     name that someone maintains and that a reader of the job cannot see; this
     is a total function from what you typed to the one name that exists. A job
     still has exactly one identity — you simply cannot miss it by writing it
@@ -136,7 +148,7 @@ def resolve_name(candidate: str, known: Iterable[str]) -> str:
         return candidate
 
     def _canonical(name: str) -> str:
-        return ".".join(normalize_segment(part) for part in name.split("."))
+        return ".".join(normalize_segment(part) for part in _nfkc(name).split("."))
 
     wanted = _canonical(candidate)
     matches = [name for name in names if _canonical(name) == wanted]
@@ -145,7 +157,7 @@ def resolve_name(candidate: str, known: Iterable[str]) -> str:
     if matches:
         raise LookupError(f"{candidate!r} is ambiguous — matches {sorted(matches)}")
 
-    if "." in candidate:
+    if "." in _nfkc(candidate):
         raise LookupError(f"{candidate!r} matches no known name")
 
     matches = [name for name in names if _canonical(name).rsplit(".", 1)[-1] == wanted]

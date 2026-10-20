@@ -319,7 +319,7 @@ def scoped_project(
         '[deploy.service]\niam_key = "file-key"\n'
         '[[vault_secret]]\ngroup = "deploy"\nfield = "token"\n'
         'source = "fake-sm://group"\n'
-        '[[vault_secret]]\njob = "deploy.service"\nfield = "iam_key"\n'
+        '[[vault_secret]]\ngroup = "deploy"\njob = "service"\nfield = "iam_key"\n'
         'source = "fake-sm://service"\n'
     )
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -348,6 +348,33 @@ def _scoped_app(root: Path) -> FunctualizeApp:
 
 
 class TestScopedAcceptance:
+    def test_shared_v2_ciphertext_decrypts_and_wrong_key_stops_fallback(
+        self,
+        scoped_project: tuple[Path, _Provider],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from functualize._config.vault import SecretsVault
+        from functualize._config.vault_keys import ENV_VAR
+        from functualize._config.vault_paths import vault_path_for_project
+        from functualize._config.vault_source import VaultEntryUnreadableError
+        from functualize.app.vault import VaultIdentity
+
+        root, _ = scoped_project
+        shared = VaultIdentity("group", "deploy", "token")
+        SecretsVault(vault_path_for_project(root)).put(
+            shared.encode(),
+            "shared-v2-token",
+            encryption_key=bytes.fromhex(os.environ[ENV_VAR]),
+        )
+        monkeypatch.setenv("DEPLOY__TOKEN", "plaintext-fallback")
+        assert _scoped_app(root).execute(request_for("deploy")).return_value == (
+            "shared-v2-token|file-token|default"
+        )
+
+        monkeypatch.setenv(ENV_VAR, "00" * 32)
+        with pytest.raises(VaultEntryUnreadableError):
+            _scoped_app(root).execute(request_for("deploy"))
+
     def test_direct_and_provider_entries_resolve_offline_with_scope_and_precedence(
         self,
         scoped_project: tuple[Path, _Provider],
@@ -380,7 +407,7 @@ class TestScopedAcceptance:
             "provider-group|provider-service"
         )
         assert cold.execute(request_for("deploy.web.web")).return_value == (
-            "provider-group|web-file"
+            "provider-group|provider-group"
         )
         nearer = _cli_run(
             ["put", "--group", "deploy.web", "--field", "token", "--stdin"],

@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — scoped vault entries resolve by address and environment
+
+`vault put`, `inspect`, and `remove` accept a group address, a leaf job, or a
+group with a leaf job: `--group deploy --job web --field token`. A dotted
+`--job deploy.web` is refused with the split spelling. `[[vault_secret]]`
+declarations use the same `group` and `job` fields. Stored keys include the
+environment selected by the app; base declarations use a shared key. For a
+group field, reads try the active environment at the exact address and each
+ancestor, then the shared entries in that same order. A job field stays exact.
+Existing three-part v2 keys remain readable as shared entries.
+
+`vault list` and `inspect` show stored or resolved identity and environment
+without decrypting secret bytes; `put` and `inspect` identify whether the
+active environment was selected or defaulted. `remove` deletes the exact
+active-environment key. Sync fetches only base and selected-overlay
+declarations; job runs still read the local vault offline. This extends the
+earlier scoped-identity change described below.
+
+### Fixed — a second SQLite walk in one process cannot take a live lease
+
+Two walks in one process use the same runner identity. SQLite previously let
+the second claim replace the first walk's still-live lease, advancing the
+generation and fencing the first walk during its step. An ordinary second
+walk is now held until the lease expires, as on the document store. A forced
+takeover and a claim after expiry still advance the generation.
+
+### Fixed — a changed group option re-runs a cached job instead of replaying the previous result
+
+A job's freshness key was computed from its resolved config plus the caller's
+explicit arguments. A `GroupOptions` parameter is neither: it is injected, and
+it resolves against the group's config scope rather than the job's config
+model. So `func demo --target a scan` followed by `--target b scan` skipped
+the second run and handed back the record written under `a`, and a `FromJob`
+consumer under `--target b` received the value `scan` recorded under `a` —
+exit 0, nothing reported. The reader side (`FromJob` lookups, the dependency
+pass, `func builtin why`) reconstructed the same option-blind key, so reader
+and writer agreed on a key that was wrong for both.
+
+The resolved group options now hash into the key as their own payload field,
+whichever layer supplied them — flag, vault, environment, config file or
+default. A changed option misses the record and re-runs; the same resolved
+value hits it and skips, as before. Every reader derives the key through the
+same resolver, using the option layer its own run carries, so a `FromJob`
+consumer never receives a value recorded under a different option value. Jobs
+that declare no `GroupOptions` parameter keep byte-identical keys, so their
+existing records still match; jobs that do declare one miss once, deliberately,
+because their previous records could not tell option values apart.
+### Fixed — decorated run middleware executes around jobs
+
+Run middleware registered with `@app.hooks.run_middleware`, with or without a
+priority, now uses the same execution chain as
+`app.hooks.register_run_middleware`. Both forms wrap job runs in priority order,
+and middleware inspection reflects the chain the engine actually runs.
+### Fixed — a warm-cache parallel batch no longer fails to materialise a module
+
+Two jobs living in the same module, run concurrently through
+`invoke.parallel` on a warm cache, could race on first use: the lazy
+import wrapper inserted the module's directory into `sys.path`, imported,
+and removed it with no process-wide guard, so one job could read the
+module while the other's import was still in flight and fail with
+`JobMaterializationError` — either because the directory had been removed
+underneath it, or because it saw the module before the import had bound
+the job it wanted. First materialisation of the wrapper's import region is
+now serialised across the process with a re-entrant lock, so both jobs of
+a shared module always materialise. Cold boots, single-job batches and
+batches spanning different modules keep their results, and
+`sys.path` is left exactly as found on success and failure alike.
+
+The first guard still held a separate proxy mutex while importing arbitrary
+module code. If that import materialized another proxy while a second thread
+held the other proxy mutex, both threads could wait forever. First
+materialization now uses the process-wide re-entrant import mutex as its sole
+guard, including publication of the callable, so nested materialization has
+one lock order. Already-materialized calls retain their fast path.
+### Fixed — written Unicode job names resolve to their registered jobs
+
+Python applies NFKC normalization to identifiers before a job is registered.
+A name written with a character Python rewrites now resolves through `invoke`,
+`invoke_parallel`, the CLI, dependencies and config-file sections. For example, a function
+written `job_aaǆ` registers as `job-aadž`; both spellings reach it.
+
+String-set job or group names containing such characters may change identity.
+The warm discovery cache rebuilds at version 22. Persisted job state is not
+migrated, so an affected job re-runs once under its new name.
+
 ### Fixed — a workflow parked on the SQLite store resumes in another process
 
 With `runtime_store.url = "sqlite:"`, only a walk's claim used to reach the
@@ -142,6 +227,23 @@ rendered by click; a closed pipe is still a quiet exit 0; a config validation
 failure is still a panel and a missing value still a one-line usage error, both
 exit 2. `--emit-format` still governs stdout only, so a failed job writes
 nothing there whatever the format.
+### Fixed — an optional Stdin parameter no longer hangs or overruns its default on a silent pipe
+
+An optional `Stdin` parameter used to block forever when stdin was a pipe
+carrying nothing yet — `sleep 30 | func s` hung until the writer died — and
+an empty stream (`func s < /dev/null`) wrote `""` over the parameter's
+default. Resolution now reads stdin only when it is a pipe that already
+carries data or has reached end-of-stream: a silent pipe resolves nothing
+here and now, an empty stream is read and found empty, and in both cases the
+parameter's default is what the job receives. The two "nothing there" shapes
+stay distinguishable in the reader's own accounting (the first is never read,
+the second is read and found empty), and a deliberately empty flag —
+`--data ""` — is still an explicit value that wins over the default. Real
+piped data passes through unchanged, multiline and UTF-8 included, and the
+rule is the same on the agent-run path's `StdinCollector`. Streaming a
+`list[...]`- or `Iterator[...]`-typed parameter stays the documented opt-in
+to waiting: those parameters read the stream to end by design.
+
 
 ### Changed — failed parallel children now fail an ignoring parent
 
@@ -157,6 +259,24 @@ reports every child because it uses the opt-out internally.
 
 Unchanged: the batch deadline returns promptly without waiting for running
 worker threads to finish.
+
+### Fixed — `self update` on a standalone binary can verify a release again
+
+Every standalone update since 0.2.2 was refused with
+`functualize-<target>.tar.gz is not listed in SHA256SUMS`. The release
+workflow wrote the checksum file with `sha256sum ./*`, so each line named its
+asset `./functualize-<target>.tar.gz`, and the updater compared against the
+bare name. Nothing was ever installed unverified — the refusal is the
+fail-closed path — but nothing could be installed at all.
+
+Both sides changed. The release workflow now writes bare names
+(`sha256sum *`), which is what the updater in the 0.2.2–0.4.0 binaries can
+match: those binaries update by reading the *next* release's file, so this
+release is the first they can update to. And the updater now accepts every
+name `sha256sum` writes for an asset — `<asset>`, `./<asset>`, `*<asset>` and
+`*./<asset>`, as `sha256sum -c` and both install scripts already did — and
+nothing wider: `dir/<asset>` or `other-<asset>` is still "not listed", and a
+differing digest is still refused with both digests named.
 
 ### Changed — one arity per pre-boot flag, and one exit code for a wrong value
 

@@ -2,9 +2,33 @@
 
 from __future__ import annotations
 
+import sys
+import unicodedata
+
 import pytest
 
 from functualize._discovery.naming import qualified_name
+from functualize._types.naming import normalize_name, normalize_segment, resolve_name
+
+
+def _pre_nfkc_segment(segment: str) -> str:
+    """Frozen naming loop before Unicode normalization was added."""
+    out: list[str] = []
+    for index, char in enumerate(segment):
+        if char in "_ ":
+            out.append("-")
+            continue
+        if char.isupper() and index and segment[index - 1] not in "_- ":
+            starts_word = not segment[index - 1].isupper()
+            ends_acronym = (
+                not starts_word
+                and index + 1 < len(segment)
+                and segment[index + 1].islower()
+            )
+            if starts_word or ends_acronym:
+                out.append("-")
+        out.append(char.lower())
+    return "".join(out).strip("-")
 
 
 class TestQualifiedNameUngrouped:
@@ -84,6 +108,37 @@ class TestNormalizeSegment:
 
         assert normalize_segment("_private_") == "private"
 
+    def test_nfkc_unstable_identifiers(self) -> None:
+        assert normalize_segment("job_aaǆ") == "job-aadž"
+        assert normalize_segment("ǆ_ops") == "dž-ops"
+
+    def test_stable_inputs_keep_the_old_rule(self) -> None:
+        for codepoint in range(sys.maxunicode + 1):
+            char = chr(codepoint)
+            if not ("a" + char).isidentifier():
+                continue
+            segment = "a" + char + "_b"
+            if unicodedata.normalize("NFKC", segment) == segment:
+                assert normalize_segment(segment) == _pre_nfkc_segment(segment), (
+                    f"U+{codepoint:04X}"
+                )
+
+    def test_combining_accent_composes_with_previous_character(self) -> None:
+        assert normalize_segment("a\u0301_b") == "á-b"
+
+    def test_identifier_continuations_are_idempotent(self) -> None:
+        for codepoint in range(sys.maxunicode + 1):
+            char = chr(codepoint)
+            if ("a" + char).isidentifier():
+                segment = "a" + char
+                normalized = normalize_segment(segment)
+                assert normalize_segment(normalized) == normalized, f"U+{codepoint:04X}"
+
+
+class TestNormalizeName:
+    def test_nfkc_can_create_dotted_segments(self) -> None:
+        assert normalize_name("ｄｅｐｌｏｙ．ｗｅｂ") == "deploy.web"
+
 
 class TestResolveName:
     """One naming policy, shared by the dependency graph and (later) the trie."""
@@ -114,3 +169,14 @@ class TestResolveName:
 
         with pytest.raises(LookupError, match="matches no known name"):
             resolve_name("nope", ["a.build"])
+
+    def test_nfkc_writes_and_dotted_names_resolve(self) -> None:
+        assert resolve_name("job_aaǆ", ["job-aadž"]) == "job-aadž"
+        assert (
+            resolve_name("ｄｅｐｌｏｙ．ｗｅｂ", ["deploy.web", "other.web"])
+            == "deploy.web"
+        )
+
+    def test_nfkc_dotted_candidate_does_not_fall_back_to_leaf(self) -> None:
+        with pytest.raises(LookupError, match="matches no known name"):
+            resolve_name("ａ．ｂ", ["x.b"])

@@ -608,6 +608,31 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### Lease heartbeat — implemented, review pending
+
+A claimed workflow walk renews its 300-second lease once when it starts, before
+any step, and then every 60 seconds, including while a step executes and while
+the walk reports its end. A walk whose first renewal finds the scope taken runs
+nothing. The per-walk heartbeat
+stops and joins before the claim is released on completion, failure, or an
+exception. Renewal extends expiry without changing the generation. A transient
+storage failure is retried at the next interval; a stale generation means
+another runner claimed the scope, even after expiry, so the old walk suppresses
+its normal end report and its next write is fenced. On the SQLite store that
+holds for a takeover that commits between the renewal's fence check and its
+conditional update too: the update matches no row and the transaction raises
+the stale generation at commit, so the walk is told at once rather than one
+interval later.
+
+Expiry makes a still-`running` scope claimable but neither proves the old work
+stopped nor interrupts it. An ordinary second walker is refused while the
+first keeps renewing, including after the first claim's original expiry. This
+also holds for two walks with the same process owner on SQLite; the second may
+claim once the lease expires. The
+operator-facing account is in `docs/cli/workflow.md`; the two-walker and
+cleanup proofs are in `tests/engine/test_walk_claims_through_the_port.py` and
+`tests/engine/test_timeout_is_lease_expiry.py`.
+
 ### Gate resolution requests — behavior delivered, durable evidence open
 
 AC-1 and AC-2 are delivered on `feat/gate-resolution-model`: a gate request has
@@ -890,6 +915,147 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### The freshness key counts resolved group options (2026-10-14, `fix/freshness-key-group-options`)
+
+**The decision worth keeping.** *A resolved `GroupOptions` value belongs in the
+fingerprint key, as its own payload field.* It is injected, so the
+injected-set subtraction dropped it, and it resolves against the **group's**
+config scope — never the job's config model — so nothing about `config`
+carried it either. Both halves of the key (writer and reader) were option-blind
+in agreement: a changed option replayed the previous run's record, and a
+`FromJob` consumer received a value recorded under a different option
+(`REPORT target=b scanned=a`, exit 0). The derivation now lives in
+`_engine/freshness_key.py` (`FreshnessKeys.for_run` writer,
+`for_job` reader) with the corrected five-kind design table in its module
+docstring.
+
+**Rules that outlive the feature:**
+
+- **`compute_args_hash(config, args, group_options)` gains its payload field
+  only when the job declares options.** A job without `GroupOptions` keeps a
+  byte-identical key, so records written before the change still match. Jobs
+  *with* options miss once, deliberately — the old records were written under a
+  key that could not tell options apart.
+- **A reader that cannot resolve an option hashes `None` into its slot**, never
+  an option-blind key: the option-blind key is the one pre-change records
+  answer under, and falling back to it would resurrect this defect.
+- **Every reader uses the consumer's option layer** — the same
+  `RunRequest.group_option_values` the dependencies ran under (after the
+  delivery fix, `206e42de`). `func builtin why` explains the flagless run,
+  matching its standing behavior for job config.
+- **`Exec(run="once")` deduplication keys the same way.** Two calls differing
+  only in a resolved group option are no longer duplicates — the same defect
+  through a second consumer.
+- **Secret group options hash by their resolved value, not their display
+  mask.** `Secret[str]` intentionally serializes to the same mask for every
+  value in JSON mode (ADR-008 §A3). The key derivation keeps the JSON shape
+  for ordinary option fields, overlays secret leaves from the Python-mode
+  model only in transient memory, and stores only the resulting SHA-256
+  digest. Both the writer and `FromJob` readers use it; the regression checks
+  changed-secret misses, same-secret hits, dependent values, a read-only
+  consumer, and absence of plaintext in the stored fingerprint record.
+
+**Surviving smells, accepted.** *Parallel derivation*: `for_run` and `for_job`
+both assemble "config + args + options" (one reads live values, the other
+re-resolves); they sit side by side in one module and a test asserts the
+reader's key equals the writer's. *Middle Man / Inappropriate Intimacy* on
+`FreshnessKeys`' engine back-reference, per the `DependencyRunner` extraction
+precedent. None need maintainer review.
+
+**Open.** `func builtin why` accepts no group-CLI layer, so it explains the run
+a plain `func <job>` would make; a run launched with typed flags records under
+a key `why` does not reconstruct — the same limitation `why` already has for
+job-config CLI flags.
+### Decorated run middleware runs (2026-10-14, `fix/run-middleware-registration`)
+
+**The decision worth keeping.** *One run-middleware store, read by the engine.*
+`@app.hooks.run_middleware` (bare and `priority=` forms) and
+`app.hooks.register_run_middleware(fn)` now all register through
+`register_run_middleware` into `ExecutionMiddlewareChain`, the chain
+`build_engine` hands to `JobExecutionEngine`. Before, the decorator wrote only a
+`MiddlewareRegistry` that no runtime code read, so the same middleware ran or
+was silently inert depending on how it was spelled. The inert registry is no
+longer constructed: both boot paths in `_app/boot.py` bind
+`_middleware_registry` to the same object as `_execution_middleware_chain`.
+
+**Rules that outlive the feature:**
+
+- **Priority is ascending.** Lower priority runs first; equal priorities keep
+  registration order; post-yield code unwinds in reverse
+  (`ExecutionMiddlewareChain.get_sorted()` sorts by `(priority,
+  registration order)`). The `register_run_middleware` docstring said the
+  opposite and was corrected.
+- **Inspection is an alias, never a second store.** `_middleware_registry`
+  stays as a private name for `has_middleware`/`get_sorted()` inspection; it is
+  the chain itself. Code asserting `isinstance(..., MiddlewareRegistry)` on it
+  now sees `ExecutionMiddlewareChain` — the repository's own inspection test
+  was migrated deliberately.
+- **Prove registration by a run, not by the registry.** The integration test in
+  `tests/integration/test_plugin_config_flow.py` registers bare, parameterized
+  and function-form middleware, runs a real job and asserts the observed state
+  and order; it failed on the old code with `decorator_state=None` and again
+  when the decorator's registration call was removed.
+- **Unchanged on purpose.** The decorator still rejects a non-generator
+  function (`_app/decorators.py`); job middleware in
+  `_engine/job_middleware.py` is a different registry and was not touched.
+
+**Surviving smells, accepted.** `_middleware_registry` is a duplicate
+reference to one object, not duplicated state. The dead-code delta reports the
+two boot aliases `TESTS_ONLY` (read by the inspection test) and the
+dynamically registered `parameterized` test middleware `NEW_DEAD`; the run
+assertion proves it executes. Advisory findings, not unconnected production
+code.
+### Lazy job imports serialise on sys.path, process-wide (corrected 2026-10-15)
+
+**The decision worth keeping.** The lazy wrapper's insert → import → remove
+region on `sys.path` is guarded by one module-level re-entrant lock in
+`_discovery/lazy_wrapper.py` (`_IMPORT_LOCK`). Two jobs of one module are
+two `LazyJobFunction` proxies, so only a process-wide guard can stop a
+warm-cache `invoke.parallel` batch from
+reading a half-initialized module (CPython publishes it to `sys.modules`
+before its body runs) or importing against a directory another thread just
+removed. Failure mode filed three times; the deterministic reproduction
+paces the two threads with marker files and fails on the pre-guard code.
+
+The initial guard was nested inside each proxy's separate mutex. Importing
+module code could materialize another proxy while a second thread held that
+proxy mutex and waited for the import mutex: a cross-thread lock-order cycle.
+The correction uses `_IMPORT_LOCK` as the sole first-materialization guard,
+including publication of the resolved callable and config class. An already
+materialized proxy keeps its lock-free fast path. The nested-import test runs
+in a timed child process, so the former deadlock fails without hanging the
+test runner.
+
+**Rules that outlive the feature:**
+
+- **The lock is not state.** The Constitution bans global mutable state
+  because it breaks testability and DI; a lock has no value to reset, no
+  data to read, and resolves through no registry. The argument lives at
+  its definition site — a future edit that widens it into state must
+  re-argue it, not inherit it.
+- **The guarded resource decides the guard's scope.** `sys.path` is
+  interpreter-global; no instance-scoped owner spans every caller
+  (proxies are per-descriptor, and the entry-point provider calls
+  `_import_real_function` with no proxy at all). A guard narrower than
+  its resource is the bug, not the design.
+- **The synthetic-source helper branch does not edit `sys.path`.**
+  `<entry_point>`/`<dynamic>` direct helper calls remain outside the mutex;
+  first publication through a lazy proxy is serialized by the common guard.
+- **One acquisition order.** Every proxy takes the import mutex before its
+  first import. No second proxy mutex exists, so imported module code can
+  materialize another proxy on the same thread without a cross-thread cycle.
+- **Adjacent same-shape regions are not covered.** `_discovery/registry.py`
+  and `_discovery/sync.py` insert/remove on the cold scan path, where no
+  engine worker threads exist. If either ever becomes reachable
+  concurrently with lazy materialisation, take the same lock there rather
+  than adding a second one.
+
+**Surviving smells, both accepted.** **Mutable Data (Global Data)**:
+`sys.path` itself remains a shared global; the lock removes the race, not
+the global, and the global is the interpreter's. Serialised first imports
+across *different* modules (a throughput ceiling, not a correctness one):
+paid once per module per process.
+
 ### Parallel child failures reach the parent (2026-10-12, `fix/parallel-child-failure`)
 
 **The decision worth keeping.** *A failed child fails a parent that ignores the
@@ -926,6 +1092,44 @@ applies to identifiers, so a job defined with an NFKC-unstable name (`def
 job_ǆ`) is registered as `job_dž` and cannot be reached by its written name.
 The input-order property test now draws only NFKC-stable names. The production
 gap is tracked as MCH-183.
+
+### An optional Stdin parameter never blocks on a silent pipe (2026-10-10, `fix/optional-stdin-silent-pipe`)
+
+**The decision worth keeping.** *A `Stdin` parameter takes piped content, never
+a silent wait.* Rule 3 reads stdin only when it is a pipe that already carries
+data or has reached end-of-stream: a silent pipe (write end open, nothing
+written) and an empty stream both resolve **no value**, so the signature default
+survives — Rule 4 reachable outside a terminal for the first time. The two
+"nothing there" shapes stay distinguishable in the reader's accounting
+(never-read vs read-and-found-empty) and in the tests. A deliberately empty
+flag (`--data ""`) is an explicit value and still wins (Rule 1). Real piped
+data passes through unchanged — multi-line and non-default `encoding` intact.
+
+**Rules that outlive the feature:**
+
+- **"Pipe present" is not "data available".** `is_stdin_available()` means
+  "non-TTY and content ready (or EOF)"; readiness is one zero-width probe
+  (`_stdin_data_ready`: a test double's `data_ready()`, else a zero-timeout
+  `select.poll` probe). The POSIX probe handles fds above FD_SETSIZE and EOF;
+  an unprobeable stream fails loudly instead of entering a blocking read.
+- **A streaming annotation is the documented opt-in to waiting.** `list[...]`
+  / `Iterator[...]` parameters keep the ungated lazy hand-over: row-wise
+  pipelines must deliver first rows however late the upstream starts.
+- **Never fabricate an empty value.** An empty stream is "no value", not `""`;
+  a required (no-default) `Stdin` parameter on an empty stream fails the
+  ordinary missing-argument way. An explicit `""` is the only way to mean empty.
+- Both halves of interactivity state one rule: the prompt half
+  (`StdinCollector.is_available()` — no prompting on a non-interactive run) and
+  the parameter half agree that a run blocks on a human or on data only when
+  the human or the data is actually there.
+
+Pinned by `tests/cli/test_stdin_integration_unit.py` and
+`tests/engine/test_run_request_stdin.py` — wall-clock silent-pipe tests over a
+real `os.pipe()` with the write end held open, so a blocking-read regression
+fails the `join(timeout)` instead of hanging the suite — sharing the
+`tests/_support/stdin_fakes.py` seam. Full feature record (spec, contracts,
+plan, tasks) archived in Confluence before this clearing:
+https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/15138850 (PR #105).
 
 ### The vault key from an unlocked keyring, never a prompt from a run (2026-10-03, `sdd/vault-keyring-unlock`)
 
@@ -3723,3 +3927,93 @@ invalidation.
   `inspect.getsource(_dispatch_group)` for a function name passed for the wrong
   reason and failed for the wrong reason too: editing the module mid-run made
   `linecache` return a neighbouring function's source.
+
+## tool-call-approval — completed 2026-10-13
+
+`ToolScope.approval_required()` was documented as a safety control and
+consumed by nothing: the scope marked itself, `to_tool_defs()` never
+looked, and the pydantic translator ran every tool ungated. A user who
+marked a destructive tool believed it was gated.
+
+### Decisions worth not re-litigating
+
+- **Approval is per filter, not per scope.** `approval_required()` stamps
+  every filter already in the scope; `+` concatenates filters unchanged,
+  so gating one operand does not gate the other's tools. Double
+  application ANDs the gates (a later call can never weaken an earlier
+  one), and a tool name reached through a gated and an ungated filter is
+  gated regardless of order — `to_tool_defs()` combines approval from
+  every matching filter. The old scope-level merge fields were removed,
+  not deprecated; `requires_approval` now means "any filter gated" and
+  `approval_gate` returns the first gate, documented as not authoritative
+  for mixed scopes.
+- **The gate contract is strict and synchronous:**
+  `gate(tool_name, args, ToolCallContext) -> bool`, called positionally;
+  only `is True` admits (`False`, `None`, truthy non-bools deny — a gate
+  that forgets to `return` fails closed). No gate ⇒ every call refused.
+  `ToolCallContext` carries only `job_name` and `description` — what the
+  wrapper holds; nothing provider-private.
+- **A denial is a result, not an error.** The tool returns the fixed
+  refusal text `Tool call refused: approval required for '<name>'.`, the
+  loop continues, and `AI_TOOL_CALLED` reports `status="denied"` (the
+  refusal predicate lives in `functualize_ai._approval`, one producer one
+  matcher). `ToolCallRecord` was deliberately left unchanged.
+- **A raising gate ends the run with its own exception.** The wrapper
+  marks it, and the three generic relabelers (`AI.run`,
+  `run_agent_loop`, `run_with_history`) unwrap and re-raise it instead of
+  manufacturing `AINotAvailableError`. Verified on the locked
+  pydantic-ai 1.107.0: a tool exception escapes `agent.run_sync`
+  unwrapped.
+- **Enforcement sits in the translator wrapper** (`_tool_translator.py`),
+  the one choke point every in-tree entry path crosses; the approval
+  state travels on `ToolDef` (`requires_approval`, `approval_gate` —
+  additive members, a called-out plugin-API change), so the translator
+  never reaches back into `ToolScope`. Third-party `AIProvider`s see the
+  members but are not forced to check — recorded as an open risk with
+  wrap-`ToolDef.function` as the alternative.
+- **Deferred/pydantic-ai native approval and core's `awaits_input` gate
+  machinery are follow-ups**, not part of this change; the interactive
+  "pause for a human" shape is a different, larger design.
+
+### Leftovers, disclosed
+
+- `run_agent_loop`/`run_with_history` read `result.data`, which the
+  locked pydantic-ai renamed to `output` — those two entry points had
+  never run against 1.107.0; fixed here because the approval tests drive
+  them. `_extract_usage` still triggers two upstream deprecation
+  warnings per run (handled both-forms); harmless, left alone.
+- The step-tier mapper selecting both AI plugin test dirs in one pytest
+  invocation dies on an `ImportPathMismatchError`: both plugin `tests`
+  packages are named `tests`. Pre-existing for any change touching both
+  plugins; run them per-directory.
+## self-update-checksum-prefix — completed 2026-10-14
+
+Every standalone `self update` since 0.2.2 was refused with "<asset> is not
+listed in SHA256SUMS": the release workflow wrote the file with
+`sha256sum ./*`, so every line named its asset `./<asset>`, and the updater
+compared against the bare name it took from the release's asset list. The
+fail-closed half did its job — nothing was ever installed unverified — but the
+verifying half could never succeed.
+
+**Which side is normalised: both, for different reasons, and neither alone
+fixes the field.** The *reader* tolerates the names `sha256sum` writes for an
+asset — `<asset>`, `./<asset>`, `*<asset>`, `*./<asset>` — exactly as
+`sha256sum -c` and both install scripts already did; the Python updater was
+the format's one strict consumer and is brought in line rather than made the
+exception the writer caters to. The *writer* emits bare names
+(`sha256sum *`), because a reader fix only helps binaries built after it:
+the 0.2.2–0.4.0 binaries already installed carry the old reader and verify
+the *next* release's file, so a `SHA256SUMS` that still said `./<asset>`
+would leave them unable to update for ever. The two halves agree — the writer
+emits the form every reader accepts, the reader accepts every form the writer
+has ever emitted — and a test that runs the workflow's checksum command and
+verifies its output through `verify` keeps that agreement checked.
+
+Tolerance is bounded to those spellings. A name that merely *ends* with the
+asset name (`dir/<asset>`, `other-<asset>`) does not match, and no
+`basename`-style path normalisation is applied — either would widen what
+passes. A differing digest still fails naming both digests, and an unlisted
+asset still fails as "not listed".
+
+The rejected one-sided and generalised alternatives, with their reasons, are
+ADR-015's **Addendum (2026-10-14)** and its Alternatives Considered rows.

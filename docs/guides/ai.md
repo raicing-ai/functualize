@@ -98,10 +98,22 @@ scope = ToolScope.functions([search])
 # Combine scopes
 combined = scope_a + scope_b
 
-# Add instructions and approval requirements
+# Add instructions
 scope = scope.with_instructions("Only search public docs")
-scope = scope.approval_required()
+# Require approval before any tool in this scope runs.
+# The gate sees the tool name, its arguments and a ToolCallContext,
+# and must return True to let the call run.
+def approve(tool_name, args, ctx):
+    return tool_name != "delete-records"
+
+scope = scope.approval_required(approve)
+# Without a gate, every call to these tools is refused:
+locked = scope.approval_required()
 ```
+
+A refused call is returned to the model as a refusal message, and the run
+continues. Approval applies only to the tools of the scope it was called
+on, so `+` does not spread it. A gate that raises ends the run.
 
 ---
 

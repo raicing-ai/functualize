@@ -473,11 +473,24 @@ $ func builtin vault put --job deploy --field api_token    # masked prompt
 $ func deploy                                # the job receives it
 ```
 
-The identity is a **scope**, a target, and a field. Use `--job` for a job's
-config model or `--group` for a group's options model, plus `--field` for one
-secret-marked field. A function parameter is an invocation input and cannot
-be a vault target. The identity is checked against the live schema *before*
-the value is read, so a typo costs you nothing you have already typed.
+The identity is a **scope**, target, field, and environment. Use `--group` for
+a group's subject address, `--job` for an ungrouped leaf job, or both flags for
+a grouped job: `--group deploy --job web --field token`. A dotted
+`--job deploy.web` is refused; split it into the two flags. A function
+parameter is an invocation input and cannot be a vault target. The identity
+is checked against the live schema *before* the value is read, so a typo costs
+you nothing you have already typed. The active environment is selected by
+`FUNCTUALIZE_ENV`, `ENVIRONMENT`, or `ENV` (default `dev`); there is no vault
+environment flag. `list` and `inspect` show the stored or resolved environment
+and never print the secret.
+
+For a group address such as `deploy.web`, resolution tries the active
+environment at `deploy.web`, then `deploy`, followed by shared (`base`) entries
+at `deploy.web`, then `deploy`. A job entry is exact, with active before shared.
+An existing three-part key remains a readable shared entry. If the first
+present entry cannot be opened, the run stops; it does not try another entry
+or a plaintext source. `remove` deletes the exact active-environment key, so
+`inspect` or `list` is useful before deleting an older shared entry.
 
 The stored value resolves through the ordinary configuration chain, above the
 environment and config files and below an explicit argument:
@@ -525,10 +538,15 @@ field = "token"
 source = "aws-ssm:///platform/deploy-token"
 ```
 
-Each block requires exactly one of `group` or `job`, plus `field` and `source`.
-The target and field must exist and be marked secret. Duplicate identities,
-including duplicates in separate config files, fail before a provider is
-contacted. The `source` is a location, never the credential value.
+Each block names `group`, a leaf `job`, or both, plus `field` and `source`.
+For example, `group = "deploy"` with `job = "web"` addresses the grouped
+job `deploy.web`. A dotted `job` value is refused with the split spelling.
+The target and field must exist and be marked secret. `config.base.toml`
+declarations are shared (`base`); `config.prod.toml` declarations belong to
+`prod`. Sync reads base and the selected overlay and never fetches another
+environment's provider. Duplicate identities within the same environment,
+including across files, fail before a provider is contacted. The `source` is
+a location, never the credential value.
 
 The old inline form, such as `password = "aws-sm://prod/db-password"`, is no
 longer a vault declaration. A secret-marked field using it fails with guidance
@@ -722,7 +740,8 @@ In the first four the key may well still exist, so the message never suggests
 deleting anything. Where the key really is gone the last resort is
 `func builtin vault sync` for a provider entry, and — saying that they destroy
 the stored value, which for an entry typed in with `vault put` is the only
-copy — `func builtin vault remove --group|--job <path> --field <name>` and
+copy — `func builtin vault remove --group <address> --job <leaf> --field <name>`
+(or either target flag alone) and
 `func builtin vault clear`, which need no key.
 
 ### Three things that warn rather than fail
@@ -770,8 +789,9 @@ because the declared secret would otherwise remain unsynced.
 ```bash
 func builtin vault init      # ensure this machine has a key -- never prints it
 func builtin vault put --job deploy --field api_token       # masked prompt
+func builtin vault put --group deploy --job web --field token  # grouped job
 func builtin vault inspect --group deploy --field token     # metadata only
-func builtin vault remove --job deploy --field api_token    # needs no key
+func builtin vault remove --group deploy --job web --field token  # exact active key; no vault key
 func builtin vault sync      # fetch explicit declarations, write the vault
 func builtin vault list      # names, origins, timestamps -- never values
 func builtin vault status    # key provider and key state, age, entry counts
@@ -783,7 +803,8 @@ func builtin vault keygen    # print a fresh 32-byte key, hex-encoded
 All of them take `--json`.
 
 The JSON refusal envelope includes a stable `reason`. In particular,
-`scope_required` means the command needs exactly one of `--group` or `--job`;
+`scope_required` means the command needs `--group`, `--job`, or both;
+`dotted_job` means to split a dotted job path between the two flags;
 `unknown_group` means the named group has no declared options; and
 `vault_format_unsupported` means an old-format vault must be cleared before
 scoped secrets can be used.

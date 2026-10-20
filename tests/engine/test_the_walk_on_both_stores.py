@@ -30,7 +30,9 @@ What each subject guards:
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event, Thread
 from typing import TYPE_CHECKING, Annotated, Any
 
 import pytest
@@ -42,6 +44,7 @@ from functualize._engine.frontier import FrontierWalk, GraphModel, StepStatus
 from functualize._engine.workflow_runner import WorkflowRunner
 from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
 from functualize._primitives.document_store import DocumentRuntimeStore
+from functualize._primitives.run_store import runner_identity
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize._types.workflow import Loop, WorkflowDeclaration
 from functualize.job import FromJob, job
@@ -77,6 +80,67 @@ def _claimed(walk: FrontierWalk) -> int:
     outcome = walk.claim()
     assert isinstance(outcome, Claimed)
     return outcome.generation
+
+
+@pytest.mark.parametrize("backend", ["documents", "sqlite"])
+def test_two_walks_with_one_runner_identity_respect_a_live_lease(
+    backend: str, tmp_path: Path
+) -> None:
+    """A blocked step excludes a second walk in the same process on both stores."""
+    root = tmp_path / backend
+    root.mkdir()
+    first_store = _store(backend, root)
+    second_store = _store(backend, root)
+    declaration = WorkflowDeclaration(
+        nodes=(Step("a"),), edges=(Edge(source="a", target=END),)
+    )
+    entered, release = Event(), Event()
+    first_steps: list[str] = []
+    second_steps: list[str] = []
+    first_reports: list[WalkOutcome] = []
+
+    def first_step(name: str) -> str:
+        first_steps.append(name)
+        entered.set()
+        assert release.wait(5), "the blocked step was not released"
+        return name
+
+    first = WorkflowWalker(
+        declaration, "same-owner", run_step=first_step, runtime_store=first_store
+    )
+    runner = Thread(target=lambda: first_reports.append(first.run().outcome))
+    try:
+        runner.start()
+        assert entered.wait(5), "the first walk never entered its step"
+        before = first_store.workflows.workflow("same-owner")
+        assert before is not None
+        assert before.owner == runner_identity()
+        assert before.generation == 1
+        assert before.expires_at is not None
+        assert before.expires_at > datetime.now(UTC)
+
+        second = WorkflowWalker(
+            declaration,
+            "same-owner",
+            run_step=lambda name: second_steps.append(name),
+            runtime_store=second_store,
+        )
+        second_report = second.run()
+        after = first_store.workflows.workflow("same-owner")
+        assert second_report.outcome is WalkOutcome.HELD
+        assert second_steps == []
+        assert after is not None
+        assert after.owner == runner_identity()
+        assert after.generation == before.generation
+    finally:
+        release.set()
+        runner.join(5)
+        first_store.close()
+        second_store.close()
+
+    assert not runner.is_alive()
+    assert first_reports == [WalkOutcome.COMPLETED]
+    assert first_steps == ["a"]
 
 
 @pytest.fixture(params=["documents", "sqlite"])
@@ -344,6 +408,40 @@ def test_a_takeover_records_no_completion_time(backend: str, tmp_path: Path) -> 
     )
     view = resumed.step("first::")
     assert view is not None and view.completed_at is None and view.status == "timed_out"
+    store.close()
+
+
+def test_a_renewal_overtaken_before_its_commit_is_superseded(tmp_path: Path) -> None:
+    """The heartbeat's verdict follows what was stored, not what was attempted.
+
+    SQLite checks the fence when the renewal is staged and again in the
+    statement's predicate. A forced claim that commits between the two leaves
+    the renewal matching no row, so the walk no longer owns the scope —
+    `renew()` must say `SUPERSEDED`, or the heartbeat waits a whole interval
+    believing it still holds a scope another runner is walking.
+    """
+    from unittest.mock import patch
+
+    from functualize_substrate_sqlite._workflow_sql import SqlWorkflowWriter
+
+    from functualize._engine.frontier import RenewalOutcome
+
+    store = _store("sqlite", tmp_path)
+    walk = _walk(GraphModel(entry="a"), store)
+    generation = _claimed(walk)
+    real_renew = SqlWorkflowWriter.renew
+
+    def overtaken(writer: SqlWorkflowWriter, cmd: Any) -> None:
+        real_renew(writer, cmd)  # the fence check passes; the update is staged
+        rival = _walk(GraphModel(entry="a"), store).claim(owner="rival", force=True)
+        assert isinstance(rival, Claimed)  # committed before the renewal is
+
+    with patch.object(SqlWorkflowWriter, "renew", overtaken):
+        assert walk.renew() is RenewalOutcome.SUPERSEDED
+
+    view = store.workflows.workflow("s1")
+    assert view is not None
+    assert (view.owner, view.generation) == ("rival", generation + 1)
     store.close()
 
 

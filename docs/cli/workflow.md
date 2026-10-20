@@ -69,20 +69,32 @@ pending gates and looked stuck.
 
 ### `abandoned` — and what it does not claim
 
-A running walk holds a **lease** on its scope and renews it. If the runner
-stops — killed, crashed, machine gone — the lease lapses and nobody renews it.
-The scope's stored status is still `running`, because nothing reaps it, so
-without this state a dead run is indistinguishable from a live one.
+A running walk holds a **lease** on its scope. Its heartbeat renews once when
+the walk starts, before any step runs, then every 60 seconds, including while
+a step runs, and stops when the walk ends. A walk that finds its scope already
+taken at that first renewal runs nothing. The lease
+expires 300 seconds after the last successful renewal. A slow step remains
+unclaimable past 300 seconds while successful renewals finish before expiry.
+A renewal whose own durable write outlasts the lease can land already expired:
+an ordinary second walker may then claim the scope while the first step still
+runs. In a compressed test, one renewal write took 0.418 seconds against a
+0.3-second lease. With a 300-second lease and 60-second interval, the write
+would have to stall for more than 240 seconds. The generation fence rejects
+the old runner's stored writes, but effects outside the store can repeat.
+If renewal stops or keeps failing, the lease may lapse while the scope's stored
+status is still `running`; nothing reaps it automatically.
 
-> **`abandoned` means "nothing has heard from that runner", not "that runner is
-> dead".** A long step on a machine with a slow clock looks exactly the same.
-> Treat it as a prompt to go and look, not as a verdict.
+> **`abandoned` means the lease expired while the scope still says `running`,
+> not that its runner is dead.** A paused runner or a storage outage can stop
+> successful renewals while its step continues. Expiry makes another claim
+> possible; it does not interrupt the old work. Treat it as a prompt to look,
+> not a verdict.
 
 That is why nothing happens automatically:
 
 - the state is derived **when you read**, and reading never repairs anything. A
-  read that quietly took the scope would make a slow step on a distant machine
-  lose its work to whoever glanced at a list.
+  read that quietly took the scope could fence a still-running step merely
+  because someone glanced at a list.
 - `reclaim` is a verb you run, having looked.
 - an abandoned scope is **not purgeable** — it is not finished, and collecting
   it would delete the evidence of whatever went wrong.
@@ -120,6 +132,13 @@ disagree about the time, so each one's evidence that a lease has expired is its
 own clock. The generation needs no clock: every claim increments it, every write
 carries the one it was made under, and a write carrying an old generation is
 **refused** — even if the runner that made it still believes it holds the lease.
+
+A heartbeat renewal refused for a **stale generation** means another runner has
+claimed the scope, even if the old lease had already expired. The old walk
+stops reporting a normal end and its next write is fenced. A transient storage
+error does not establish takeover: the heartbeat retries at the next 60-second
+interval. If successful renewals stop long enough for expiry, the scope can be
+claimed while the old step is still running.
 
 That is what makes `cancel` and `reclaim` decisive rather than advisory.
 

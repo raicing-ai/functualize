@@ -404,11 +404,15 @@ UPDATE workflow_scopes
        lease_generation   = lease_generation + 1
  WHERE namespace_id = :ns
    AND id           = :scope
-   AND (lease_owner = :runner OR lease_expires_at <= :now)
+   AND (:force OR lease_owner IS NULL OR lease_expires_at IS NULL
+        OR lease_expires_at <= :now)
 RETURNING lease_generation;
 ```
 
-Zero rows updated → `Conflict`, not an exception. Every authoritative write then carries the held
+Zero rows updated → `Conflict`, not an exception. A second walk from the same
+process is refused while the first lease is live; the prior owner may claim
+again once it expires, while renewal extends a held claim without moving its
+generation. Every authoritative write then carries the held
 generation in its predicate:
 
 ```sql

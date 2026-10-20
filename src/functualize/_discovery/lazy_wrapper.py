@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,27 @@ from functualize._primitives.config_class_detection import detect_config_class
 
 if TYPE_CHECKING:
     from functualize._types.descriptors import JobDescriptor
+
+#: Mutual exclusion over the ``sys.path`` insert → import → remove region
+#: of :func:`_import_real_function`, process-wide.
+#:
+#: This is a lock, not state, so the Constitution's "global mutable state
+#: / module-level singletons" ban does not reach it: it holds no data, has
+#: no observable value, is never reset between tests, and resolves through
+#: no DI registry — the two reasons that rule gives cannot arise. What it
+#: guards *is* interpreter-global (``sys.path``/``sys.modules``, like the
+#: module locks CPython's own import machinery holds). It also guards the
+#: first-materialization state of every ``LazyJobFunction``. A second proxy
+#: lock would create an opposite-order cycle when imported module code
+#: materializes another proxy on a different thread. No instance-scoped owner
+#: spans every caller (the entry-point provider and tests call
+#: ``_import_real_function`` with no proxy in sight); the one owner that
+#: spans all of them is this module.
+#:
+#: Re-entrant deliberately: module import may materialize another proxy on
+#: the same thread. All proxies acquire this lock before their first import,
+#: so no thread can hold a proxy lock while waiting for it.
+_IMPORT_LOCK = threading.RLock()
 
 
 def _detect_config_class(func: Callable[..., Any]) -> type | None:
@@ -45,9 +67,13 @@ def _import_real_function(descriptor: JobDescriptor) -> Callable[..., Any]:
     For descriptors backed by a real source file, temporarily inserts the
     module's directory into sys.path and handles sys.modules collisions
     (a same-named module loaded from a different file is re-executed from
-    the descriptor's source file). For synthetic sources
+    the descriptor's source file). That whole insert → import → remove
+    region is serialised process-wide by ``_IMPORT_LOCK`` — concurrent
+    first materialisation of same-module jobs (a warm-cache
+    ``invoke.parallel`` batch) would otherwise race on sys.path and read
+    half-initialized modules. For synthetic sources
     (``<entry_point>``/``<dynamic>``), falls back to a plain import of
-    ``module_path``.
+    ``module_path`` outside the lock.
 
     Args:
         descriptor: A JobDescriptor with module_path, func_name, source_file.
@@ -66,35 +92,39 @@ def _import_real_function(descriptor: JobDescriptor) -> Callable[..., Any]:
 
     if source_file and source_file != "<entry_point>" and source_file != "<dynamic>":
         module_dir = str(Path(source_file).parent)
-        path_added = False
-        if module_dir not in sys.path:
-            sys.path.insert(0, module_dir)
-            path_added = True
-        try:
-            existing = sys.modules.get(module_path)
-            if existing is not None:
-                existing_file = getattr(existing, "__file__", None)
-                if existing_file and str(Path(existing_file).resolve()) != str(
-                    Path(source_file).resolve()
-                ):
-                    import importlib.util as _importlib_util
+        # Every source-backed helper call holds this region until import is
+        # complete. It also protects direct callers without a lazy proxy;
+        # proxies take the same re-entrant lock before checking their state.
+        with _IMPORT_LOCK:
+            path_added = False
+            if module_dir not in sys.path:
+                sys.path.insert(0, module_dir)
+                path_added = True
+            try:
+                existing = sys.modules.get(module_path)
+                if existing is not None:
+                    existing_file = getattr(existing, "__file__", None)
+                    if existing_file and str(Path(existing_file).resolve()) != str(
+                        Path(source_file).resolve()
+                    ):
+                        import importlib.util as _importlib_util
 
-                    spec = _importlib_util.spec_from_file_location(
-                        module_path, source_file
-                    )
-                    if spec and spec.loader:
-                        module = _importlib_util.module_from_spec(spec)
-                        spec.loader.exec_module(module)
-                        sys.modules[module_path] = module
+                        spec = _importlib_util.spec_from_file_location(
+                            module_path, source_file
+                        )
+                        if spec and spec.loader:
+                            module = _importlib_util.module_from_spec(spec)
+                            spec.loader.exec_module(module)
+                            sys.modules[module_path] = module
+                        else:
+                            module = importlib.import_module(module_path)
                     else:
-                        module = importlib.import_module(module_path)
+                        module = existing
                 else:
-                    module = existing
-            else:
-                module = importlib.import_module(module_path)
-        finally:
-            if path_added and module_dir in sys.path:
-                sys.path.remove(module_dir)
+                    module = importlib.import_module(module_path)
+            finally:
+                if path_added and module_dir in sys.path:
+                    sys.path.remove(module_dir)
     else:
         module = importlib.import_module(module_path)
 
@@ -122,8 +152,6 @@ class LazyJobFunction:
     __functualize_lazy__: bool = True
 
     def __init__(self, descriptor: JobDescriptor) -> None:
-        import threading
-
         self.descriptor = descriptor
         self.config_class: type | None = None
         # The stand-in mimics the *function*, so it carries the function's
@@ -134,12 +162,11 @@ class LazyJobFunction:
         self.__module__ = descriptor.module_path
         self.__doc__ = descriptor.docstring or ""
         self._real_fn: Callable[..., Any] | None = None
-        self._lock = threading.Lock()
 
     def materialize(self) -> tuple[Callable[..., Any], type | None]:
         """Import the module (once) and return (real_fn, config_class).
 
-        Idempotent and thread-safe (double-checked lock). Uses the
+        Idempotent and thread-safe (double-checked import lock). Uses the
         descriptor's attached live function when present (cold boot /
         static providers) instead of importing.
 
@@ -149,7 +176,11 @@ class LazyJobFunction:
         """
         if self._real_fn is not None:
             return self._real_fn, self.config_class
-        with self._lock:
+        # One lock guards both proxy publication and the process-wide import
+        # region. Import runs arbitrary module code, which may materialize a
+        # second proxy; a separate per-proxy lock would permit a cross-thread
+        # lock-order cycle.
+        with _IMPORT_LOCK:
             if self._real_fn is not None:
                 return self._real_fn, self.config_class
             attached = getattr(self.descriptor, "function", None)

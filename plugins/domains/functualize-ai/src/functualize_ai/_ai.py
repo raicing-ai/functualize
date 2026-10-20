@@ -15,6 +15,7 @@ import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
+from functualize_ai._approval import is_tool_refusal, unwrap_gate_failure
 from functualize_ai._errors import AINotAvailableError, BudgetExceededError
 from functualize_ai._events import (
     AI_BUDGET_EXCEEDED,
@@ -250,14 +251,20 @@ class AI:
 
             duration_ms = (time.time() - start_time) * 1000
 
-            # Emit tool.called events for each tool call in the result
+            # Emit tool.called events for each tool call in the result.
+            # A refused approval-gated call reports "denied", so a refusal
+            # is never logged as a successful call.
             for tc in result.tool_calls:
                 self._emit(
                     AI_TOOL_CALLED,
                     tool_name=tc.tool_name,
                     args=tc.args,
                     duration_ms=tc.duration_ms,
-                    status="success",
+                    status=(
+                        "denied"
+                        if is_tool_refusal(tc.result, tc.tool_name)
+                        else "success"
+                    ),
                 )
 
             # Record budget spend if state is available
@@ -288,6 +295,12 @@ class AI:
             raise
         except Exception as exc:
             duration_ms = (time.time() - start_time) * 1000
+            gate_failure = unwrap_gate_failure(exc)
+            if gate_failure is not None:
+                # An approval gate that raised ends the run with its own
+                # exception — never relabelled AINotAvailableError.
+                self._emit(AI_CALL_FAILED, error=str(exc), duration_ms=duration_ms)
+                raise gate_failure from exc
             self._emit(AI_CALL_FAILED, error=str(exc), duration_ms=duration_ms)
             raise AINotAvailableError(str(exc)) from exc
 

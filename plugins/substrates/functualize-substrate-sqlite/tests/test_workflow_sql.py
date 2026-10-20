@@ -139,11 +139,22 @@ def test_force_takes_a_live_lease(store: SqliteRuntimeStore) -> None:
     assert isinstance(_claim(store, "b", force=True), Claimed)
 
 
-def test_the_holder_may_retake_its_own_lease(store: SqliteRuntimeStore) -> None:
-    """Data model §5's rule: ``lease_owner = :runner OR expired``."""
+def test_a_live_same_owner_claim_is_conflict(store: SqliteRuntimeStore) -> None:
+    """A second walk in this process must renew, not claim over the first."""
     _held(store, "a")
 
-    again = _claim(store, "a")
+    assert _claim(store, "a", at=T0 + timedelta(seconds=1)) == Conflict(
+        "s1", held_by="a", held_generation=1
+    )
+    assert _row(store, "SELECT lease_owner, lease_generation FROM workflow_scopes") == [
+        ("a", 1)
+    ]
+
+
+def test_the_same_owner_may_reclaim_after_expiry(store: SqliteRuntimeStore) -> None:
+    _held(store, "a")
+
+    again = _claim(store, "a", at=T0 + timedelta(seconds=LEASE))
 
     assert isinstance(again, Claimed)
     assert again.generation == 2
@@ -211,6 +222,26 @@ def test_a_takeover_between_check_and_commit_matches_zero_rows(
     assert _row(store, "SELECT count(*) FROM workflow_steps") == [(0,)]
     assert _row(store, "SELECT status, lease_generation FROM workflow_scopes") == [
         ("running", 2)
+    ]
+
+
+def test_a_renewal_overtaken_between_check_and_commit_is_refused(
+    store: SqliteRuntimeStore,
+) -> None:
+    """A renewal is the one write whose *caller* reads the outcome.
+
+    The heartbeat decides from it whether the walk still owns the scope, so a
+    renewal the predicate stopped must say so, as the up-front check would
+    have — not return as if it had extended the lease.
+    """
+    first = _held(store, "a")
+
+    with pytest.raises(StaleGenerationError), store.transaction() as tx:
+        tx.workflows.renew(RenewLease("s1", first, "a", T0, LEASE))
+        _claim(store, "b", force=True)  # commits on the spot, mid-unit
+
+    assert _row(store, "SELECT lease_owner, lease_generation FROM workflow_scopes") == [
+        ("b", first + 1)
     ]
 
 

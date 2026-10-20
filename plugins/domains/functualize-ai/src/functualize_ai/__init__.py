@@ -27,6 +27,7 @@ __all__ = [
     "AIResult",
     "TokenUsage",
     "ToolDef",
+    "ToolCallContext",
     "AILimits",
     "ToolCallRecord",
     # Config
@@ -135,6 +136,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "AIResult": ("functualize_ai._types", "AIResult"),
     "TokenUsage": ("functualize_ai._types", "TokenUsage"),
     "ToolCallRecord": ("functualize_ai._types", "ToolCallRecord"),
+    "ToolCallContext": ("functualize_ai._types", "ToolCallContext"),
     "ToolDef": ("functualize_ai._types", "ToolDef"),
 }
 
@@ -192,6 +194,7 @@ if TYPE_CHECKING:
         AILimits,
         AIResult,
         TokenUsage,
+        ToolCallContext,
         ToolCallRecord,
         ToolDef,
     )

@@ -34,6 +34,10 @@ class _TrackingStdin:
     def isatty(self) -> bool:
         return False
 
+    def data_ready(self) -> bool:
+        """The preloaded lines are available without waiting for a writer."""
+        return bool(self._lines)
+
     def read(self) -> str:
         self.consumed = len(self._lines)
         return "".join(self._lines)

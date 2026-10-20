@@ -396,6 +396,16 @@ belong. If a `default=repr` fallback can be reached at all, something
 unserializable is already in there. Assert the **number of keys written** after N
 unchanged runs — freshness assertions pass for the wrong reason.
 
+**Corollary (2026-10-14): injected is not unreconstructable.** The
+`injected`-set subtraction excludes *capabilities* because a live object cannot
+be rebuilt — not because it was injected. A resolved `GroupOptions` value is
+injected **and** reconstructable: a reader re-resolves it from the group's
+config section, the environment, the defaults and the same CLI layer the run
+carried. Subtracting it anyway made the freshness key ignore the option, so
+`scan --target a` then `--target b` replayed `a`'s record and a `FromJob`
+consumer received a value recorded under the other target. Ask the
+reconstructability question per *kind* of value, never per delivery mechanism.
+
 ## 22. A reader must not reconstruct a key the writer computed
 
 Five readers addressed fingerprint records under

@@ -18,6 +18,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from functualize.app.utils import resolve_name
+
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
@@ -134,7 +136,12 @@ def job_detail(app: FunctualizeApp, name: str) -> dict[str, Any] | None:
     """
     from functualize.app.utils import job_input_schema
 
-    descriptor = next((d for d in app.get_jobs() if d.name == name), None)
+    descriptors = app.get_jobs()
+    try:
+        registered_name = resolve_name(name, (d.name for d in descriptors))
+    except LookupError:
+        return None
+    descriptor = next((d for d in descriptors if d.name == registered_name), None)
     if descriptor is None:
         return None
 

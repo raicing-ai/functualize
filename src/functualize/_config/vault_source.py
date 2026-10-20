@@ -101,6 +101,7 @@ class VaultSource:
         *,
         key: VaultKeyResolver,
         max_age: timedelta | None = None,
+        environment: str | None = "dev",
     ) -> None:
         """Initialise the source.
 
@@ -110,12 +111,15 @@ class VaultSource:
                 is about to be opened, never at construction.
             max_age: How old the vault may be before the first read of the run
                 warns. None disables the staleness check entirely.
+            environment: The selected file slot. Boot passes this explicitly;
+                the default keeps directly constructed test sources simple.
         """
         # Metadata only until a lookup names the provider; see `_lookup`.
         self._vault = SecretsVault(vault_path)
         self._key = key
         self._lookup_result: KeyLookup | None = None
         self._max_age = max_age
+        self._environment = environment.casefold() if environment is not None else None
         self._staleness_checked = False
         self._opens_asked = False
         self._opens: bool | None = None
@@ -198,6 +202,9 @@ class VaultSource:
     @staticmethod
     def _remove_flags(identity: VaultIdentity) -> str:
         """What follows ``vault remove`` for this entry: its scoped flags."""
+        if identity.scope == "job" and "." in identity.target:
+            group, job = identity.target.rsplit(".", 1)
+            return f"--group {group} --job {job} --field {identity.field}"
         flag = "--group" if identity.scope == "group" else "--job"
         return f"{flag} {identity.target} --field {identity.field}"
 
@@ -252,12 +259,24 @@ class VaultSource:
         if identity is None:
             return None
 
-        # Not stored: nothing to open, so nothing to resolve — the line that
-        # keeps a run reading no stored entry off the keyring.
-        entry = self._stored_entries().get(identity.encode())
-        if entry is None:
+        # Presence is checked in the full candidate order before any key lookup.
+        # A present but unreadable candidate is terminal; a lower candidate must
+        # never silently substitute a different credential.
+        stored = self._stored_entries()
+        selected = next(
+            (
+                (candidate, stored[candidate.encode()])
+                for candidate in VaultIdentity.lookup_candidates(
+                    scope, identity.target, key, self._environment
+                )
+                if candidate.encode() in stored
+            ),
+            None,
+        )
+        if selected is None:
             self.misses.append(self._display(identity))
             return None
+        identity, entry = selected
 
         display = self._display(identity)
         lookup = self._lookup()
@@ -389,7 +408,12 @@ class VaultSource:
         if not self.usable:
             return False
         identity = self._identity(key, section, scope)
-        return identity is not None and identity.encode() in self._stored_entries()
+        return identity is not None and any(
+            candidate.encode() in self._stored_entries()
+            for candidate in VaultIdentity.lookup_candidates(
+                scope, identity.target, key, self._environment
+            )
+        )
 
     def keys(self, section: str, *, scope: VaultScope = "job") -> set[str]:
         """Every field the vault holds for one scope's section — metadata only.
@@ -399,10 +423,17 @@ class VaultSource:
         """
         if not self.usable:
             return set()
+        identities = self._stored_identities()
         return {
             identity.field
-            for identity in self._stored_identities()
-            if identity.scope == scope and identity.target == section
+            for identity in identities
+            if identity.scope == scope
+            and identity.environment in (self._environment, None)
+            and (
+                identity.target == section
+                or scope == "group"
+                and section.startswith(f"{identity.target}.")
+            )
         }
 
     def _warn_if_stale(self) -> None:
@@ -488,16 +519,26 @@ class VaultSource:
             section: The section the key was resolved in, if any.
             scope: Whether that section names a group or a job.
         """
-        identity = self._identity(resolved.key, section, scope)
+        requested = self._identity(resolved.key, section, scope)
+        if requested is None:
+            return
+        declared = self._declared_identities()
+        identity = next(
+            (
+                candidate
+                for candidate in VaultIdentity.lookup_candidates(
+                    scope, requested.target, requested.field, self._environment
+                )
+                if candidate in declared
+            ),
+            None,
+        )
         if identity is None or identity.encode() in self._warned:
             return
 
         # The declaration first, the key second. Asking `opens` resolves the
         # key, and an ordinary value that falls through — `database.port` —
         # must never be what touches the keyring.
-        if identity not in self._declared_identities():
-            return
-
         if not self.opens:
             # No key: warned once per run, at the first declared value that
             # needed it — never per identity, which would drown the message.

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 import click
 import pytest
 from click.testing import CliRunner, Result
+from pydantic import BaseModel
 
 from functualize._app.state import AppState
 from functualize._cli.builtins import (
@@ -37,6 +38,7 @@ from functualize.app.core import FunctualizeApp, request_for
 from functualize.app.presets import remote_first
 from functualize.app.utils import ExitCode, vault_location
 from functualize.app.vault import VaultIdentity
+from functualize.types import Secret  # noqa: TC001 - pydantic resolves it at run time
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -45,6 +47,13 @@ _KEY = b"\x2b" * KEY_BYTES
 _KEY_HEX = _KEY.hex()
 _JOB_TOKEN = VaultIdentity("job", "deploy", "api_token")
 _GROUP_TOKEN = VaultIdentity("group", "deploy", "api_token")
+_ACTIVE_JOB_TOKEN = VaultIdentity("job", "deploy", "api_token", "dev")
+_ACTIVE_GROUP_TOKEN = VaultIdentity("group", "deploy", "api_token", "dev")
+
+
+class _GroupedConfig(BaseModel):
+    api_token: Secret[str]
+
 
 #: If this appears in any surface's output, a secret was rendered. Long and
 #: distinctive on purpose: a short value can satisfy a leak assertion by
@@ -711,11 +720,11 @@ class TestSync:
             ("job", "report", "password"),
         }
         assert {e.key for e in SecretsVault(vault_location()).list_entries()} == {
-            VaultIdentity("group", "report", "token").encode(),
-            VaultIdentity("job", "report", "password").encode(),
+            VaultIdentity("group", "report", "token", "dev").encode(),
+            VaultIdentity("job", "report", "password", "dev").encode(),
         }
 
-    def test_duplicate_across_files_refuses_before_any_fetch(
+    def test_base_and_overlay_are_distinct_before_any_fetch(
         self, project: Path, register: Callable[..., list[_FakeProvider]]
     ) -> None:
         provider = register()[0]
@@ -726,9 +735,8 @@ class TestSync:
         (project / "config.dev.toml").write_text(block)
         (project / "config.base.toml").write_text(block)
         result = _run(["sync"], app=_app())
-        assert result.exit_code == ExitCode.REFUSED
-        assert "duplicate" in result.output
-        assert provider.fetched == []
+        assert result.exit_code == ExitCode.OK
+        assert provider.fetched == ["a", "a"]
 
     def test_invalid_target_refuses_before_any_fetch(
         self, project: Path, register: Callable[..., list[_FakeProvider]]
@@ -785,7 +793,8 @@ class TestSync:
         assert providers[0].fetched == ["prod/db-password"]
         assert (
             SecretsVault(vault_location()).get(
-                VaultIdentity("job", "report", "password").encode(), encryption_key=_KEY
+                VaultIdentity("job", "report", "password", "dev").encode(),
+                encryption_key=_KEY,
             )
             == _CONSPICUOUS
         )
@@ -812,7 +821,7 @@ class TestSync:
         register()
         _run(["sync"], app=_app())
         stored = {e.key for e in SecretsVault(vault_location()).list_entries()}
-        assert stored == {VaultIdentity("job", "report", "password").encode()}
+        assert stored == {VaultIdentity("job", "report", "password", "dev").encode()}
 
     def test_a_literal_is_not_synced(
         self, register: Callable[..., list[_FakeProvider]]
@@ -853,7 +862,7 @@ class TestSync:
     ) -> None:
         register()
         output = _run(["sync"], app=_app()).output
-        assert "job report password" in output
+        assert "--job report --field password (dev)" in output
         assert "1 synced" in output
 
     def test_no_value_reaches_the_output(
@@ -875,6 +884,7 @@ class TestSync:
                 "scope": "job",
                 "target": "report",
                 "field": "password",
+                "environment": "dev",
                 "provider": "fake-sm",
             }
         ]
@@ -958,7 +968,8 @@ class TestWhatSyncLeavesOnDisk:
         _run(["sync"], app=_app())
         assert (
             SecretsVault(vault_location()).get(
-                VaultIdentity("job", "report", "password").encode(), encryption_key=_KEY
+                VaultIdentity("job", "report", "password", "dev").encode(),
+                encryption_key=_KEY,
             )
             == _CONSPICUOUS
         )
@@ -970,7 +981,7 @@ class TestSyncFailures:
         self, register: Callable[..., list[_FakeProvider]]
     ) -> None:
         provider = register()[0]
-        identity = VaultIdentity("job", "report", "password")
+        identity = VaultIdentity("job", "report", "password", "dev")
         SecretsVault(vault_location()).put(
             identity.encode(),
             "direct-value",
@@ -984,6 +995,7 @@ class TestSyncFailures:
                 "scope": "job",
                 "target": "report",
                 "field": "password",
+                "environment": "dev",
                 "reason": "direct entry already exists; remove it before syncing",
             }
         ]
@@ -1024,7 +1036,7 @@ class TestSyncFailures:
         )
         result = _run(["sync"], app=_app())
         stored = {e.key for e in SecretsVault(vault_location()).list_entries()}
-        assert stored == {VaultIdentity("job", "report", "second").encode()}
+        assert stored == {VaultIdentity("job", "report", "second", "dev").encode()}
         assert result.exit_code == ExitCode.REFUSED
 
     def test_a_provider_that_is_not_ready_says_why(
@@ -1058,7 +1070,8 @@ class TestSyncFailures:
         assert providers[1].fetched == ["b"]
         assert (
             SecretsVault(vault_location()).get(
-                VaultIdentity("job", "report", "key").encode(), encryption_key=_KEY
+                VaultIdentity("job", "report", "key", "dev").encode(),
+                encryption_key=_KEY,
             )
             == "from-second"
         )
@@ -1296,7 +1309,7 @@ class TestPutCommand:
 
         assert result.exit_code == ExitCode.OK
         entry = SecretsVault(vault_location()).list_entries()[0]
-        assert entry.key == _JOB_TOKEN.encode()
+        assert entry.key == _ACTIVE_JOB_TOKEN.encode()
         assert _CONSPICUOUS not in result.stdout
 
     def test_stdin_strips_exactly_one_trailing_newline(
@@ -1311,7 +1324,7 @@ class TestPutCommand:
         )
 
         stored = SecretsVault(vault_location()).get(
-            _JOB_TOKEN.encode(), encryption_key=_KEY
+            _ACTIVE_JOB_TOKEN.encode(), encryption_key=_KEY
         )
         assert stored == _CONSPICUOUS + "\n"
 
@@ -1544,7 +1557,7 @@ class TestOriginAwareListing:
         result = _run(["list"])
 
         assert result.exit_code == ExitCode.OK
-        assert re.search(r"job\s+deploy\s+api_token\s+direct", result.stdout)
+        assert re.search(r"job\s+deploy\s+api_token\s+base\s+direct", result.stdout)
         assert _CONSPICUOUS not in result.stdout
 
     def test_list_json_nulls_what_a_direct_entry_lacks(self, project: Path) -> None:
@@ -1738,7 +1751,7 @@ class TestTheDeclaredReasonCodesAreReachable:
         """`put` over a synced entry. The seam test covers the exception; this
         covers the code a caller actually branches on."""
         SecretsVault(vault_location()).put(
-            _JOB_TOKEN.encode(),
+            _ACTIVE_JOB_TOKEN.encode(),
             "from-aws",
             encryption_key=_KEY,
             annotation="fake-sm://prod/token",
@@ -1806,6 +1819,7 @@ class TestTheDeclaredReasonCodesAreReachable:
             "key_source_unavailable",
             "key_source_not_initializable",
             "scope_required",
+            "dotted_job",
             "unknown_group",
             "unknown_job",
             "unknown_field",
@@ -1853,6 +1867,9 @@ class TestTheDeclaredReasonCodesAreReachable:
             "scope",
             "target",
             "field",
+            "environment",
+            "active_environment",
+            "environment_source",
             "origin",
             "created",
             "replaced",
@@ -1956,21 +1973,15 @@ class TestScopedFlags:
         assert "--field" in result.output
 
     @pytest.mark.parametrize("command", ["put", "inspect", "remove"])
-    @pytest.mark.parametrize(
-        "scope",
-        [[], ["--group", "deploy", "--job", "deploy"]],
-        ids=["neither", "both"],
-    )
-    def test_exactly_one_scope_is_required(
+    def test_a_scope_is_required(
         self,
         project: Path,
         local_app: FunctualizeApp,
         command: str,
-        scope: list[str],
     ) -> None:
         extra = {"put": ["--stdin"], "inspect": [], "remove": ["--yes"]}[command]
         result = _run(
-            [command, *scope, "--field", "api_token", *extra, "--json"],
+            [command, "--field", "api_token", *extra, "--json"],
             app=local_app,
             stdin=_CONSPICUOUS,
         )
@@ -1978,6 +1989,78 @@ class TestScopedFlags:
         assert result.exit_code == ExitCode.USAGE
         assert json.loads(result.stdout)["reason"] == "scope_required"
         assert not vault_location().exists()
+
+    def test_grouped_job_flags_store_inspect_and_remove_one_active_key(
+        self, project: Path, local_app: FunctualizeApp
+    ) -> None:
+        local_app.register_dynamic_job(
+            "deploy.web", lambda config: None, config_class=_GroupedConfig
+        )
+        flags = ["--group", "deploy", "--job", "web", "--field", "api_token"]
+
+        put = _run(
+            ["put", *flags, "--stdin", "--json"], app=local_app, stdin=_CONSPICUOUS
+        )
+        inspected = _run(["inspect", *flags, "--json"], app=local_app)
+        listed = _run(["list", "--json"])
+        removed = _run(["remove", *flags, "--yes", "--json"], app=local_app)
+
+        expected = VaultIdentity("job", "deploy.web", "api_token", "dev")
+        assert (
+            put.exit_code
+            == inspected.exit_code
+            == listed.exit_code
+            == removed.exit_code
+            == 0
+        )
+        assert json.loads(put.stdout)["environment"] == "dev"
+        assert json.loads(put.stdout)["environment_source"] == "default"
+        assert json.loads(inspected.stdout)["target"] == "deploy.web"
+        assert json.loads(inspected.stdout)["exists"] is True
+        assert json.loads(listed.stdout)["entries"][0]["key"] == expected.encode()
+        assert json.loads(removed.stdout)["removed"] is True
+        assert (
+            _CONSPICUOUS
+            not in put.output + inspected.output + listed.output + removed.output
+        )
+
+    def test_explicit_environment_is_named_in_json_and_storage(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FUNCTUALIZE_ENV", "prod")
+        app = FunctualizeApp(
+            "vaulttest",
+            job_sources=JobSources(directories=[str(project / "jobs")], lazy=False),
+        )
+
+        result = _run(
+            ["put", "--job", "report", "--field", "password", "--stdin", "--json"],
+            app=app,
+            stdin=_CONSPICUOUS,
+        )
+
+        payload = json.loads(result.stdout)
+        assert result.exit_code == ExitCode.OK
+        assert payload["environment"] == payload["active_environment"] == "prod"
+        assert payload["environment_source"] == "FUNCTUALIZE_ENV"
+        assert {e.key for e in SecretsVault(vault_location()).list_entries()} == {
+            VaultIdentity("job", "report", "password", "prod").encode()
+        }
+
+    @pytest.mark.parametrize("command", ["put", "inspect", "remove"])
+    def test_dotted_job_is_refused_with_split_spelling(
+        self, project: Path, local_app: FunctualizeApp, command: str
+    ) -> None:
+        extra = {"put": ["--stdin"], "inspect": [], "remove": ["--yes"]}[command]
+        result = _run(
+            [command, "--job", "deploy.web", "--field", "api_token", *extra, "--json"],
+            app=local_app,
+            stdin=_CONSPICUOUS,
+        )
+
+        assert result.exit_code == ExitCode.USAGE
+        assert json.loads(result.stdout)["reason"] == "dotted_job"
+        assert "--group deploy --job web" in result.stdout
 
     def test_a_group_secret_is_stored_under_its_own_scope(
         self, project: Path, local_app: FunctualizeApp
@@ -1996,7 +2079,7 @@ class TestScopedFlags:
             "api_token",
         )
         keys = [e.key for e in SecretsVault(vault_location()).list_entries()]
-        assert keys == [_GROUP_TOKEN.encode()]
+        assert keys == [_ACTIVE_GROUP_TOKEN.encode()]
 
     def test_group_validation_precedes_reading_input(
         self, project: Path, local_app: FunctualizeApp
@@ -2067,13 +2150,13 @@ class TestScopedFlags:
 
         result = _run(["list"])
 
-        assert re.search(r"group\s+deploy\s+api_token\s+direct", result.stdout)
+        assert re.search(r"group\s+deploy\s+api_token\s+dev\s+direct", result.stdout)
         assert _CONSPICUOUS not in result.output
 
     def test_an_orphan_from_a_deleted_job_can_still_be_removed(
         self, project: Path, local_app: FunctualizeApp
     ) -> None:
-        orphan = VaultIdentity("job", "deleted-job", "token")
+        orphan = VaultIdentity("job", "deleted-job", "token", "dev")
         SecretsVault(vault_location()).put(
             orphan.encode(),
             _CONSPICUOUS,
