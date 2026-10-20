@@ -277,7 +277,7 @@ without the reader fails with an `AssertionError` that names it (contracts §5).
   reader was restored. Production caller: `run_baseline` → `BASELINE` →
   `record_branch_and_branches` → public writer and reader on a reopened store.
 
-- [ ] **3.2 Refusal on every surface**
+- [x] **3.2 Refusal on every surface**
 
 For a store whose `workflows` lacks `branches`, assert:
 
@@ -311,6 +311,17 @@ reaches a relational store instead of calling a document-only `get_scope`.
   --no-header` green for AC-9; the wave 2 projection
   remains green. Sabotage the missing-reader guard in `_port_record` and
   verify the refusal test fails.
+
+- Evidence: red baseline at the paused head was 2 failed, 1 passed
+  (`resume_workflow` → `workflow_not_found`; `--wf-show` exit 1 with
+  `_BranchReaderMissingError`); after the two surface fixes the file is 3
+  passed, and the wider set (`test_lazy_wrapper`, `test_lazy_wrapper_properties`,
+  `test_cold_warm_history_parity`, `test_workflow_control`,
+  `test_mcp_workflow_tools`) is 133 passed, 11 skipped. Sabotaging
+  `_port_record`'s `if not callable(read_branches)` guard makes all three
+  refuse-test cases fail (`'NoneType' object is not callable`, `assert 1 == 2`),
+  so the gate measures the guard rather than incidental behaviour. Ruff check,
+  Ruff format check, mypy and lint-imports passed after the fixes.
 
 ## Wave 4 — records
 
