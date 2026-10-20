@@ -108,8 +108,8 @@ applying spec B2/B5/D2: explicit argument wins; no scope → error; `Recorded`
 → inject and add to `context.injected`; `NotCarriable` → live value or error;
 `NotRecorded` → declared default (D2) else error.
 
-- Files: `src/functualize/_engine/walk_reads.py`, `tests/engine/test_walk_reads.py` (new)
-- Gate: `uv run pytest tests/engine/test_walk_reads.py -q` green.
+- Files: `src/functualize/_engine/walk_reads.py`, `tests/engine/test_walk_reads_injection.py` (new; renamed from `test_walk_reads.py`, whose basename collided with `tests/primitives/test_walk_reads.py` in two non-package test dirs and broke collection)
+- Gate: `uv run pytest tests/engine/test_walk_reads_injection.py -q` green.
 - Evidence: 8 passed; source lint, format, mypy (397 files), and all seven
   import contracts passed. The executor call remains transitional until 4.1.
 
