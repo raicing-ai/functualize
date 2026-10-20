@@ -2178,14 +2178,18 @@ class JobExecutionEngine:
             # `reusable_return_value` reads.
             from functualize._engine.walk_reads import step_records
 
-            result = read_node(
-                step_records(self._runtime_store, scope_id), ref.name, expected_type
-            )
+            records = step_records(self._runtime_store, scope_id)
+            result = read_node(records, ref.name, expected_type)
             if isinstance(result, Recorded) and result.value is not None:
                 return result.value
             if isinstance(result, (Recorded, NotCarriable)):
                 # Preserve FromJob's live fallback for an uncarriable or None
                 # result. A missing record still falls through to fingerprints.
+                return self._live_step_value(scope_id, ref.name)
+            if any(key.split("::", 1)[0] == ref.name for key in records):
+                # A matching failed record was already part of this walk.
+                # FromJob previously stopped here; falling through would read
+                # an older fingerprint from another run.
                 return self._live_step_value(scope_id, ref.name)
 
         for method in ("checksum", "timestamp", "none"):

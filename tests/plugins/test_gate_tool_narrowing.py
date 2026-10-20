@@ -27,12 +27,13 @@ from pydantic import BaseModel
 
 from functualize._app.state import AppState
 from functualize._primitives.walk_reads import resolve_bound_values
+from functualize._types.enums import RunStatus
 from functualize._types.errors import FromStepUnavailableError
 from functualize.app._workflow_control import call_gate_tool, resume_scope
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import ScopeStore
 from functualize.types import RunRequest
-from functualize.workflow import END, Edge, Gate, Step, Tool, workflow
+from functualize.workflow import END, ConditionalEdge, Edge, Gate, Step, Tool, workflow
 
 
 @pytest.fixture(autouse=True)
@@ -368,6 +369,65 @@ class TestCallGateTool:
 
 
 class TestCoreAndMcpGateToolParity:
+    def test_skipped_bound_node_names_the_scope_in_both_paths(self) -> None:
+        from functualize._types.from_job import FromStep
+
+        app = FunctualizeApp(name="skipped-bound")
+
+        def choose() -> str:
+            return "skip"
+
+        def optional() -> str:
+            return "recorded"
+
+        def inspect(allowed: str) -> str:
+            return allowed
+
+        @workflow(
+            steps=[
+                Step(choose),
+                Step(optional),
+                Gate(
+                    "approval",
+                    awaits=RefundDecision,
+                    tools=[Tool(inspect, allowed=FromStep("optional"))],
+                ),
+            ],
+            edges=[
+                ConditionalEdge(
+                    "choose",
+                    lambda _: "skip",
+                    {"take": "optional", "skip": "approval"},
+                ),
+                Edge("optional", "approval"),
+                Edge("approval", END),
+            ],
+        )
+        def walk() -> None:
+            pass
+
+        for name, function in (
+            ("choose", choose),
+            ("optional", optional),
+            ("inspect", inspect),
+            ("walk", walk),
+        ):
+            app.register_dynamic_job(name, function)
+        result = app.execute(
+            RunRequest(
+                job_name="walk", surface="app.execute", workflow_scope_id="scope-7"
+            )
+        )
+        assert result.status is RunStatus.BLOCKED
+        tools = WorkflowToolProvider(app, store=_store())
+        plugin = asyncio.run(tools._call_gate_tool("scope-7", "inspect", {}))
+        core = call_gate_tool(app, tools.store, "scope-7", "inspect", {})
+        assert plugin == core
+        assert plugin["error"] == "tool_unresolvable"
+        assert "FromStep('optional')" in plugin["message"]
+        assert "scope-7" in plugin["message"]
+        assert "outside a walk" not in plugin["message"]
+
     def test_bound_value_reaches_both_paths(self) -> None:
         app, tools = _blocked([Tool("issue_refund", cap_cents=5000)])
         args = {"order_id": "A", "amount_cents": 9999}

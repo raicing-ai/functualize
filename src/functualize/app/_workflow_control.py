@@ -790,7 +790,7 @@ def call_gate_tool(
             bound=entry["bound"],
         )
 
-    bound_values, failure = _bound_values(app, scope, tool)
+    bound_values, failure = _bound_values(app, scope, tool, scope_id)
     if failure is not None:
         return failure
 
@@ -834,7 +834,7 @@ def call_gate_tool(
 
 
 def _bound_values(
-    app: Any, scope: dict[str, Any], tool: str
+    app: Any, scope: dict[str, Any], tool: str, scope_id: str
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """The gate's pinned argument *values*, from the live declaration.
 
@@ -858,7 +858,10 @@ def _bound_values(
                     )
 
                     return resolve_bound_values(
-                        (scope.get("steps") or {}).items(), spec.bound, reader=tool
+                        (scope.get("steps") or {}).items(),
+                        spec.bound,
+                        reader=tool,
+                        scope_id=scope_id,
                     ), None
     except Exception as exc:
         return {}, _error(
