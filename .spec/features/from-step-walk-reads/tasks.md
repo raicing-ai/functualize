@@ -214,7 +214,7 @@ the outside-a-walk message (R4).
 
 ## Wave 7 — documentation tells the truth (B6, AC13)
 
-- [ ] **7.1 Docstrings and guides**
+- [x] **7.1 Docstrings and guides**
 
 `FromStep` docstring (table row "this scope's steps only" → "this walk's
 nodes"; positions per B1), `Gate` docstring (`_types/workflow.py:289-291` now
@@ -232,6 +232,17 @@ binding"; `:89` split the row — `FromStep` never runs anything),
   `contributor/reference/workflow-walker.md:48,89`,
   `skills/functualize/references/workflows.md:58`,
   `src/functualize/_types/from_job.py:256`).
+- Evidence: the gate `rg` returns 0 hits (5 before: `docs/guides/workflows.md:497`,
+  `contributor/reference/workflow-walker.md:48,89`,
+  `skills/functualize/references/workflows.md:58`, and
+  `src/functualize/_types/from_job.py:261` — the table row had moved down five
+  lines). `tests/skills/`, `tests/test_contributor_docs.py` and
+  `tests/test_from_job.py` 129 passed, 4 skipped; lint, format, mypy (397
+  files) and all seven import contracts passed.
+- Scope addition, disclosed: `src/functualize/workflow/__init__.py:17-18`, the
+  public module docstring, repeated the gate-tool-only claim in words the gate
+  pattern does not match. It now names the three positions. No other file
+  outside the row's list changed.
 
 ## Wave 8 — checkpoint
 
