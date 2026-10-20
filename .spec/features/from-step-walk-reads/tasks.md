@@ -246,7 +246,7 @@ binding"; `:89` split the row — `FromStep` never runs anything),
 
 ## Wave 8 — checkpoint
 
-- [ ] **8.1 Verify**
+- [x] **8.1 Verify**
 
 All five checks; pytest by tier over the diff; dead-code delta
 `uv run python .github/scripts/dead_code_delta.py c03dfb72 HEAD` with every
@@ -269,7 +269,16 @@ the deletion-only clearing commit follows on a second push.
   the `b6c050e0` master merge, not this feature, so none is classified
   against it. Against `origin/master..HEAD`: NEW_DEAD 0, TESTS_ONLY 0.
   Durable half: `contributor/adr/034-fromstep-reads-the-walk-everywhere.md`
-  (option (i), D1, D2). Open until CI reports on the pushed head.
+  (option (i), D1, D2).
+- CI on `8c95ec92` (run 39429247009): every check passed — lint, lint-imports,
+  typecheck, test-fast, test-full 3.11/3.12/3.13, gitleaks, lint-title,
+  spec-only-change, research-artifacts-cleared, message-hygiene,
+  contract-diff-carries-task-graph, doc-verify, docs-build, examples,
+  clean-clone-examples, plugin-mcp, plugin-substrate-sqlite — except
+  `spec-artifacts-cleared`, which this clearing push resolves.
+- After that run, the five `TRANSITIONAL(3.1|3.2|5.1)` markers were deleted
+  (comment-only; each symbol has its production caller). Local lint, format,
+  mypy and the four walk-read suites (78 passed) are green on that commit.
 
 ## Task Dependency Graph
 
