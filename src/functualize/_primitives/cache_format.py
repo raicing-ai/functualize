@@ -153,6 +153,10 @@ from functualize._primitives.locator import (
 # and consumer already treated it. `_discovery/providers.py` alone emitted
 # member *names*, so a v20 entry spells the choices the way the CLI will now
 # refuse them — a valid-looking cache that rejects every correct value.
+# v22 (2026-10-16): job and group names supplied as strings are now NFKC'd
+# before the existing spelling rule. A v21 descriptor may retain an older
+# identity such as `ǆ-ops.run-it`, so rebuilding the discovery cache ensures
+# warm boot agrees with cold discovery. Persisted job state is not migrated.
 CACHE_VERSION = 22
 
 # Cache file name within the resolved cache directory.
