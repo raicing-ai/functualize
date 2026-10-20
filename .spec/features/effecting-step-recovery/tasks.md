@@ -244,7 +244,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
 
 ## Wave 5 — the real crash, and the words
 
-### T11 [ ] — `kill -9` into the window
+### T11 [x] — `kill -9` into the window
 - **Depends on:** T9, T10.
 - **Files:** `tests/integration/test_crash_and_resume.py`.
 - **Change:** a hang point **after the effect and before the job returns**, plus a
