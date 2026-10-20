@@ -56,8 +56,14 @@ the SQLite plugin suite 198 passed.*
       *Gate:* both stores pass the accepted and blocked ladder cases; removing
       `GateService.service → GateService._record` after the code commit fails the
       accepted case on both stores, and the committed call was restored.
-- [ ] **2.2** The dispatcher: claim, deliver, acknowledge or reschedule; at-least-once.
+- [x] **2.2** The dispatcher: claim, deliver, acknowledge or reschedule; at-least-once.
       *Files:* `src/functualize/_primitives/outbox.py`, `tests/primitives/test_outbox_dispatcher.py`
+      *Gate:* the real SQLite queue and `OutboxDispatcher.drain` deliver outside
+      a transaction, exclude a competing claim, read back a published or
+      rescheduled effect, and redeliver after a lost ack while a receiver
+      deduplicates by key. Four targeted cases pass; removing the dispatcher's
+      `_deliver` call after commit fails the delivery case. Production boot
+      composition and draining remain task 2.3.
 - [ ] **2.3** Receivers and boot: `register_effect_receiver`, the required capability at
       step 6.5, the `OutboxStore` agreement check, the dispatcher built and drained at the
       end of boot on both paths.
