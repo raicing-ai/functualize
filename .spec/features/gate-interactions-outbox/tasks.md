@@ -87,10 +87,11 @@ the SQLite plugin suite 198 passed.*
 
 ## Wave 3 — answer surfaces on the selected store
 
-- [ ] **3.1** One answer path, two record seams: `answer_gate`, `gate_draft`,
+- [x] **3.1** One answer path, two record seams: `answer_gate`, `gate_draft`,
       `resolve_gate`, reopen and the resolution view over a `RuntimeStore`; provenance,
       decision and intent on both; drain after commit.
       *Files:* `src/functualize/app/_workflow_answer.py`, `src/functualize/app/_workflow_resume.py`, `tests/app/test_answer_on_selected_store.py`
+      *Gate:* a real workflow blocked on the selected store is answered through the public doors on both seams: over SQLite the submission, its decision and its `gate.accepted` intent commit as one unit and the dispatcher runs only after it — the receiver holds the intent keyed by the request and the row reads back `published`; a partial answer is a recorded candidate the next one supersedes; `--no-commit` is refused with `draft_requires_commit`; reopen supersedes over the port, keeps the withdrawn request's own decision, and is refused with `gate_already_consumed` once the walk passed; over documents the decision lands beside the accepted candidate in one batch and the resolution gains `accepted_id`, causal identity and the decision. `tests/app/test_answer_on_selected_store.py` 8 passed, with `tests/workflow/test_gate_drafts.py` and `tests/workflow/test_gate_resolution_model.py` green beside it (50 passed together); removing the post-commit drain after the commit fails the delivery case, and the committed call was restored.
 - [ ] **3.2** Surfaces: `resume_scope` on a `RuntimeStore`; `--wf-input`, CLI
       `answer`/`resume` and MCP gate tools through `selected_workflow_store`;
       `_record_port_input` removed.
