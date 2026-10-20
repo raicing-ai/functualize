@@ -40,6 +40,8 @@ engine's job, because only the engine knows the run.
 
 from __future__ import annotations
 
+import inspect
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 from functualize._types.annotations import resolved_hints
@@ -51,10 +53,13 @@ if TYPE_CHECKING:
 __all__ = [
     "FromJob",
     "FromStep",
+    "FromStepParam",
     "from_job_types",
     "declared_dependency_names",
     "from_job_names",
     "from_job_refs",
+    "from_step_refs",
+    "mixed_source_params",
 ]
 
 
@@ -325,3 +330,53 @@ class FromStep:
 
     def __hash__(self) -> int:
         return hash(("FromStep", self.name))
+
+
+@dataclass(frozen=True)
+class FromStepParam:
+    """A walk read and the signature facts needed to resolve it later."""
+
+    ref: FromStep
+    # TRANSITIONAL(3.2): Injection will use the declared type for reconstruction.
+    declared_type: Any
+    has_default: bool
+
+
+# TRANSITIONAL(3.1): Workflow boot will consume these declaration facts.
+def from_step_refs(func: Callable[..., Any]) -> dict[str, FromStepParam]:
+    """Extract ``FromStep`` parameters from resolved annotation metadata.
+
+    The declared type is the first ``Annotated`` argument.  Only the presence
+    of a default is captured here; execution leaves the default on the
+    function signature and consults it if this walk skipped the named node.
+    """
+    parameters = inspect.signature(func).parameters
+    refs: dict[str, FromStepParam] = {}
+    for name, annotation in resolved_hints(func).items():
+        if name == "return" or get_origin(annotation) is not Annotated:
+            continue
+        args = get_args(annotation)
+        for meta in args[1:]:
+            if isinstance(meta, FromStep):
+                refs[name] = FromStepParam(
+                    ref=meta,
+                    declared_type=args[0],
+                    has_default=parameters[name].default is not inspect.Parameter.empty,
+                )
+                break
+    return refs
+
+
+# TRANSITIONAL(3.1): Boot will reject these ambiguous signatures.
+def mixed_source_params(func: Callable[..., Any]) -> tuple[str, ...]:
+    """Parameters declaring both job and walk sources in one annotation."""
+    mixed: list[str] = []
+    for name, annotation in resolved_hints(func).items():
+        if name == "return" or get_origin(annotation) is not Annotated:
+            continue
+        metadata = get_args(annotation)[1:]
+        if any(isinstance(meta, FromJob) for meta in metadata) and any(
+            isinstance(meta, FromStep) for meta in metadata
+        ):
+            mixed.append(name)
+    return tuple(mixed)

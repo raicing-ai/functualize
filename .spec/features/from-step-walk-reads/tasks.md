@@ -12,7 +12,7 @@ executor proves it by breaking that call and watching the named test fail
 
 ## Wave 0 — the defect, pinned red
 
-- [ ] **0.1 End-to-end tests, red on `master`**
+- [x] **0.1 End-to-end tests, red on `master`**
 
 New `tests/integration/test_from_step_reads_e2e.py`. One class per spec AC:
 AC1 (boot blocks), AC2 (fresh-process resume via
@@ -31,10 +31,14 @@ fixture module is compiled twice, with and without
 - Gate: `uv run pytest tests/integration/test_from_step_reads_e2e.py -q` on
   unmodified `c03dfb72` — AC1 and AC10 pass, every other class fails. Record
   the exact pass/fail counts in this task when run.
+- Base `c03dfb72` with the new test file: **4 passed, 18 failed** (AC1 and
+  AC10 pass in both annotation modes; AC2–AC7 and AC9 fail in both modes).
+  Run with `PYTHONPATH` set to that base checkout's `src` and the feature
+  checkout's pytest executable, from the clean base checkout.
 
 ## Wave 1 — vocabulary (foundation layers only)
 
-- [ ] **1.1 `from_step_refs` and the refusal error**
+- [x] **1.1 `from_step_refs` and the refusal error**
 
 `_types/from_job.py`: `from_step_refs(func) -> dict[str, FromStepParam]`
 (`ref`, declared base type, `has_default`), via `resolved_hints` like
@@ -48,10 +52,12 @@ parameter carrying both `FromJob` and `FromStep`. `from_job_refs`,
 - Gate: `uv run pytest tests/test_from_job.py -q` green, including new
   `TestFromStepRefs` (both annotation modes; `from_job_refs` of a
   `FromStep`-only function is `{}`).
+- Gate result: 38 passed. This is a foundation task: boot consumption is
+  marked `TRANSITIONAL(3.1)` until wave 3 supplies its production call path.
 
 ## Wave 2 — the pure reader (imports 1.1's error)
 
-- [ ] **1.2 The pure reader**
+- [x] **1.2 The pure reader**
 
 New `_primitives/walk_reads.py`: `read_node(records, node, expected_type=None)`
 returning `Recorded(value) | NotRecorded() | NotCarriable()`, matching the
@@ -64,6 +70,9 @@ raising `FromStepUnavailableError` for anything but `Recorded`. Uses
 - Gate: `uv run pytest tests/primitives/test_walk_reads.py -q` green;
   `rg -n "fingerprint_key|get_fingerprint" src/functualize/_primitives/walk_reads.py`
   returns 0 hits (R1 by construction).
+- Gate result: 8 passed; the fingerprint search returned 0 hits. The reader
+  and bound resolver are marked `TRANSITIONAL(3.2)` and `TRANSITIONAL(5.1)`
+  until those waves supply their production call paths.
 
 ## Wave 3 — the engine
 
