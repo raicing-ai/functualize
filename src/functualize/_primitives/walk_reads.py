@@ -37,7 +37,6 @@ WalkRecords: TypeAlias = (
 )
 
 
-# TRANSITIONAL(3.2): Engine injection will call this reader for walk parameters.
 def read_node(
     records: WalkRecords, node: str, expected_type: Any = None
 ) -> Recorded | NotRecorded | NotCarriable:
@@ -64,7 +63,6 @@ def read_node(
     return NotRecorded()
 
 
-# TRANSITIONAL(5.1): The core gate-tool path will consume this shared resolver.
 def resolve_bound_values(
     records: WalkRecords,
     bound: Mapping[str, Any],
