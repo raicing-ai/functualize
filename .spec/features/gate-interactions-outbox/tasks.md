@@ -92,10 +92,30 @@ the SQLite plugin suite 198 passed.*
       decision and intent on both; drain after commit.
       *Files:* `src/functualize/app/_workflow_answer.py`, `src/functualize/app/_workflow_resume.py`, `tests/app/test_answer_on_selected_store.py`
       *Gate:* a real workflow blocked on the selected store is answered through the public doors on both seams: over SQLite the submission, its decision and its `gate.accepted` intent commit as one unit and the dispatcher runs only after it — the receiver holds the intent keyed by the request and the row reads back `published`; a partial answer is a recorded candidate the next one supersedes; `--no-commit` is refused with `draft_requires_commit`; reopen supersedes over the port, keeps the withdrawn request's own decision, and is refused with `gate_already_consumed` once the walk passed; over documents the decision lands beside the accepted candidate in one batch and the resolution gains `accepted_id`, causal identity and the decision. `tests/app/test_answer_on_selected_store.py` 8 passed, with `tests/workflow/test_gate_drafts.py` and `tests/workflow/test_gate_resolution_model.py` green beside it (50 passed together); removing the post-commit drain after the commit fails the delivery case, and the committed call was restored.
-- [ ] **3.2** Surfaces: `resume_scope` on a `RuntimeStore`; `--wf-input`, CLI
+- [x] **3.2** Surfaces: `resume_scope` on a `RuntimeStore`; `--wf-input`, CLI
       `answer`/`resume` and MCP gate tools through `selected_workflow_store`;
       `_record_port_input` removed.
       *Files:* `src/functualize/app/_workflow_control.py`, `src/functualize/app/adapters/workflow_flags.py`, `src/functualize/_cli/builtins.py`, `plugins/adapters/functualize-mcp/src/functualize_mcp/_workflow_tools.py`, `tests/cli/test_workflow_answer_relational.py`
+      *Gate:* with SQLite selected, `func builtin workflow answer … --input … --format
+      json` records an accepted candidate and its decision on the port and `resume`
+      completes the walk and consumes the request; a partial `--set` is a recorded
+      candidate `--show` reads back as the draft; a fused `resume --input` answers and
+      advances; `--no-commit` and `--retry-epilogue` exit 2 with
+      `draft_requires_commit` / `epilogue_retry_unsupported`, changing nothing;
+      `--wf-input` answers through `resolve_gate → answer_gate` (valid → accepted with a
+      decision; invalid → recorded and exit 2; unknown gate → exit 1); the MCP
+      `get_gate_draft`/`answer_gate`/`resume_workflow` tools answer and advance on the
+      port with an `mcp`/`agent` candidate; the legacy scope document never holds the
+      scope. `tests/cli/test_workflow_answer_relational.py` 9 passed. Sabotage after
+      the code commit, each restored: CLI `answer` on the legacy helper fails 3, CLI
+      `resume` on it fails 3, MCP `answer_gate` on it fails 1, `resume_scope` reading
+      `get_scope` fails 4, `--wf-input` skipping `answer_gate` fails 2.
+      `resume_scope` keeps serving the document store too: `selected_workflow_store`
+      hands document projects the scope document, so refusing it would break `resume`
+      on the default store (spec §3.5 covers both). `resume --format json` renders the
+      run metadata's enums and start time as text — a walk that completed made it raise
+      on either store before. Not changed: MCP `watch_workflow`, `purge_workflows` and
+      `call_gate_tool`, which still read the legacy helper and are no answer surface.
 
 ## Wave 4 — proof and record
 

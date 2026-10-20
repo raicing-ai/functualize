@@ -31,6 +31,7 @@ MCP cannot do.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -66,7 +67,10 @@ __all__ = [
 
 
 if TYPE_CHECKING:
+    from functualize._primitives.scope_store import ScopeStore
     from functualize._types.run_request import RunSurface
+
+logger = logging.getLogger(__name__)
 
 
 def _canonical(name: str) -> str:
@@ -290,7 +294,7 @@ def resolve_advanceable(
 
 def resume_scope(
     app: Any,
-    store: Any,
+    store: RuntimeStore | ScopeStore,
     scope_id: str,
     *,
     input: dict[str, Any] | None = None,
@@ -306,6 +310,14 @@ def resume_scope(
     The answer still goes through the same :func:`answer_gate`, so a fused
     answer and a standalone one cannot validate differently.
 
+    ``store`` is the **selected** store, as ``selected_workflow_store`` hands
+    it out: the ``RuntimeStore`` port on a relational project, the scope
+    document on the default one. Both are read through the same projection
+    (``_read_scope``) and answered through the same ``answer_gate``, so the
+    verb has one flow whichever store a project selected. After the walk the
+    outbox is drained once, so an intent the walk's own ladder committed is
+    delivered by the process that committed it.
+
     Args:
         input: Gate input to record before walking.
         gate: Which gate ``input`` answers, when several are pending.
@@ -317,13 +329,23 @@ def resume_scope(
     Returns a flat result dict carrying ``status`` (the walk's outcome),
     ``workflow_id``, and the scope projection under ``scope``.
     """
-    scope = store.get_scope(scope_id)
+    scope = _read_scope(store, scope_id)
     if scope is None:
         return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
     if scope.get("status") == "cancelled":
         return _error(
             "scope_cancelled",
             f"Workflow scope '{scope_id}' was cancelled and cannot be resumed.",
+        )
+    if retry_epilogue and isinstance(store, RuntimeStore):
+        # Refused before anything is recorded: the port has no step deletion,
+        # so the epilogue a retry would clear cannot be cleared here, and an
+        # answer recorded first would be left behind a walk that never ran.
+        return _error(
+            "epilogue_retry_unsupported",
+            f"Retrying a recorded epilogue is unavailable on the selected "
+            f"'{store.profile.name}' store; workflow '{scope_id}' was not "
+            "changed.",
         )
 
     if input is not None:
@@ -389,6 +411,7 @@ def resume_scope(
     except ScopeCancelledError as exc:
         return _error("scope_cancelled", str(exc))
 
+    _drain_after_walk(app)
     status = getattr(result.status, "value", str(result.status)).lower()
     return {
         "status": status,
@@ -397,6 +420,29 @@ def resume_scope(
         "metadata": dict(getattr(result, "metadata", None) or {}),
         "scope": describe_scope(app, store, scope_id),
     }
+
+
+def _drain_after_walk(app: Any) -> None:
+    """Deliver what the walk committed to the outbox, once, after it returned.
+
+    A ladder acceptance inside the walk records its ``gate.accepted`` intent
+    in the candidates' unit; this drain is what delivers it from the process
+    that committed it rather than the next one to start. Nothing happens on a
+    store without an outbox or with no receiver registered. A queue that
+    cannot be read is logged and left: the walk's outcome stands, and the
+    intents stay committed for the next drain.
+    """
+    from functualize._app.effects import drain
+
+    try:
+        drain(app, app.workflow_runtime_store())
+    except Exception as exc:  # noqa: BLE001 — undelivered intents wait, committed
+        logger.warning(
+            "outbox: drain after resume could not read the queue; committed "
+            "intents wait for the next drain: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
 
 
 def _clear_epilogue(store: Any, scope_id: str) -> None:
@@ -408,54 +454,6 @@ def _clear_epilogue(store: Any, scope_id: str) -> None:
     on resume, which is why ``--wf-retry-failed`` is not part of this feature.
     """
     store.record_epilogue(scope_id, None)
-
-
-def _record_port_input(
-    app: Any,
-    store: RuntimeStore,
-    scope_id: str,
-    gate: str | None,
-    values: dict[str, Any],
-    *,
-    source: str = "cli",
-) -> dict[str, Any]:
-    """Validate once and append a candidate to the selected input request."""
-    from functualize._engine.recording import InputRecorder
-    from functualize._gate._evaluation import evaluate_submission
-    from functualize.app._workflow_resume import _resolve_gate_model
-
-    view = store.workflows.workflow(scope_id)
-    request = store.inputs.open_for(scope_id)
-    if view is None or request is None or request.status != "open":
-        return _error(
-            "gate_not_found", f"Workflow '{scope_id}' has no gate awaiting input."
-        )
-    if gate is not None and gate not in (
-        request.gate_name,
-        request.gate_name.replace("-", "_"),
-    ):
-        return _error("gate_not_found", f"Gate '{gate}' is not awaiting input.")
-    model, error = _resolve_gate_model(
-        app, {"workflow": view.workflow}, request.gate_name
-    )
-    if error is not None:
-        return error
-    evaluation, validated = evaluate_submission(model, values)
-    candidate = InputRecorder().submitted(
-        request.request_id,
-        source,
-        evaluation,
-        validated if validated is not None else values,
-        ordinal=len(store.inputs.candidates_for(request.request_id)),
-        now=datetime.now(UTC),
-    )
-    with store.transaction() as tx:
-        tx.inputs.append(candidate)
-    if validated is None:
-        return _error(
-            "validation_error", f"Input does not satisfy gate '{request.gate_name}'."
-        )
-    return {"status": "answered", "workflow_id": scope_id, "gate": request.gate_name}
 
 
 def cancel_scope(store: Any, scope_id: str) -> dict[str, Any]:
