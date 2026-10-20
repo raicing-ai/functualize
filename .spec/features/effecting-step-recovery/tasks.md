@@ -257,7 +257,7 @@ Run `uv sync --frozen --all-extras --all-packages` first.
   `DocumentRuntimeStore` (as today's test does). Proof: comment out `begin` in T9's
   call site and AC-1 goes red with a marker count of 2.
 
-### T12 [ ] — Docstrings, guide, CLI reference, changelog
+### T12 [x] — Docstrings, guide, CLI reference, changelog
 - **Depends on:** T9.
 - **Files:** `src/functualize/_types/workflow.py` (the `Step.effecting` docstring only),
   `docs/guides/workflows.md`, `docs/cli/workflow.md`, `CHANGELOG.md`.

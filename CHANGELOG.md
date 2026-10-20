@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — an interrupted effecting step stops in doubt instead of re-running
+
+`Step(job, effecting=True)` now writes an `attempting` record before its job
+runs. A resume that finds one — the runner died between the effect and the
+record's completion — stops the scope `blocked` at the derived gate
+`<step>-in-doubt` and never re-runs the job without a decision; the step is
+exactly-once once that decision is made. The gate's answer schema is
+`{"outcome": "ran" | "did_not_run"}`, with an optional `value`, answered
+through the existing gate surfaces. `ran` completes the step without calling
+the job; `did_not_run` permits the next attempt, and a later interruption
+opens the question again. Steps that declare nothing replay exactly as
+before. A workflow that declares an effecting step digests differently: a
+scope parked under the old digest is refused on resume with the existing
+graph-changed error, once, when the declaration first changes.
+
 ### Changed — scoped vault entries resolve by address and environment
 
 `vault put`, `inspect`, and `remove` accept a group address, a leaf job, or a

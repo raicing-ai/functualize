@@ -130,8 +130,10 @@ class Step:
             itself. Nothing else: a step does not define behavior, it points
             at behavior that is already declared and independently runnable.
         effecting: This step does something the world remembers — charges a
-            card, sends a mail, files a ticket. It must run **exactly once**
-            across a crash and a resume.
+            card, sends a mail, files a ticket. An in-flight effecting step is
+            never re-run without a decision, and is exactly-once once that
+            decision is made; a raise is the job's own account, even if its
+            effect already happened.
 
             Default `False`, and that default is the honest one: the framework
             cannot tell an effecting step from a pure one by looking at it, and
@@ -139,16 +141,18 @@ class Step:
             nothing is replayed, which is the behaviour every workflow has had
             until now.
 
-            What the flag buys is an **outbox**: the step's completion record is
-            committed in the same locked batch as the walk's position, so a
-            crash can leave the effect done and the record absent only if it
-            lands between the effect and a write that is itself atomic. See
-            `_engine/frontier.complete`.
+            What the flag buys is a **record of intent**: before the job runs,
+            the walk commits an `attempting` step record, numbered per attempt.
+            A resume that finds one — the runner died between the effect and
+            the record's completion — refuses to enter the job again on its
+            own: it stops the scope blocked at the derived gate
+            `<step>-in-doubt` and waits for an operator verdict, `ran` or
+            `did_not_run`, through the same surfaces as any other gate. See
+            `_engine/effect_recovery.py`.
 
             > It does not make the effect itself transactional — nothing here
-            > can. It makes the *record* of the effect commit with the walk's
-            > progress, which is what a resume reads to decide whether to run
-            > the step again.
+            > can. It makes the *doubt* explicit: a resume asks instead of
+            > guessing, which is what keeps the effect from running twice.
     """
 
     job: str | Callable[..., Any]
@@ -630,7 +634,7 @@ class Loop:
 
     A cycle declared with ordinary :class:`Edge`\ s is refused at decoration
     time (`workflow-graph-semantics`/T1), because the walk prunes nodes it has
-    already visited and such a graph therefore ran its cycle exactly once, in
+    already visited and such a graph therefore ran its cycle a single time, in
     silence. `Loop` is the declaration that says *how many times*, which is the
     one thing the graph could not previously express.
 
