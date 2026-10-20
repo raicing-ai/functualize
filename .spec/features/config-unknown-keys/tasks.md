@@ -4,6 +4,10 @@ Base `91947bb4`, branch `sdd/config-unknown-keys`. Spec AC1–AC27, contracts
 C1–C6, plan R3. **Execute is gated on** the maintainer's confirmation of these
 tasks and answers to M5, M6, M7 (`plan.md` §6).
 
+**Before 0.1:** rebase onto current `master`. `1b73983c` (#116) already
+touches `_cli/info.py` and `_config/sources.py`. Re-run the counts below and
+the F3a/F3b repros, and write the numbers the commands return.
+
 Authoring-time measurements (2026-10-20, `91947bb4`): 13 vocabulary
 collection literals in 6 files; 91 read-position key literals in 9 files;
 `rg -n 'functualize_settings|settings_layers|settings_resolution|config_vocabulary' src` → 0 hits;
