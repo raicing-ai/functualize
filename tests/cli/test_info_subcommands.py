@@ -95,6 +95,16 @@ def test_info_jobs_detail_names_one_job(cli_run, project):
     assert detail["inputSchema"]["properties"]["rows"]["type"] == "integer"
 
 
+@pytest.mark.parametrize("spelling", ["job_aaǆ", "job-aadž"])
+def test_info_jobs_detail_resolves_both_unicode_spellings(
+    cli_run, project_tree, spelling: str
+):
+    project = project_tree(jobs={"unicode.py": "def job_aaǆ():\n    return 'found'\n"})
+    result = cli_run(["builtin", "info", "jobs", spelling, "--json"], cwd=project)
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(result.stdout)["name"] == "job-aadž"
+
+
 def test_info_jobs_unknown_name_is_a_usage_error(cli_run, project):
     result = cli_run(["builtin", "info", "jobs", "nope"], cwd=project)
     assert result.exit_code == 2

@@ -66,7 +66,10 @@ def _store() -> ScopeStore:
 
 
 def _gated_app(
-    calls: list[str] | None = None, *, sqlite: bool = False
+    calls: list[str] | None = None,
+    *,
+    sqlite: bool = False,
+    workflow_name: str = "trip_planner",
 ) -> FunctualizeApp:
     """An app with one workflow that blocks at a gate between two steps."""
     seen = calls if calls is not None else []
@@ -116,7 +119,7 @@ def _gated_app(
 
     app.register_dynamic_job("forecast", forecast)
     app.register_dynamic_job("travel_plan", travel_plan)
-    app.register_dynamic_job("trip_planner", trip_planner)
+    app.register_dynamic_job(workflow_name, trip_planner)
     return app
 
 
@@ -263,6 +266,28 @@ class TestGetWorkflowState:
 
 
 class TestListWorkflows:
+    @pytest.mark.parametrize("run_spelling", ["job_aaǆ", "job-aadž"])
+    async def test_unicode_workflow_filter_accepts_both_spellings(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_spelling: str
+    ) -> None:
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        app = _gated_app(workflow_name="job_aaǆ")
+        app.execute(
+            RunRequest(
+                job_name=run_spelling,
+                surface="app.execute",
+                workflow_scope_id="unicode-run",
+            )
+        )
+        provider = _provider(app)
+        all_rows = (await provider._list_workflows())["workflows"]
+        assert [row["workflow_id"] for row in all_rows] == ["unicode-run"]
+        for filter_spelling in ("job_aaǆ", "job-aadž"):
+            rows = (await provider._list_workflows(workflow_name=filter_spelling))[
+                "workflows"
+            ]
+            assert rows == all_rows
+
     async def test_no_scopes_lists_nothing(self) -> None:
         result = await _provider(_gated_app())._list_workflows()
         assert result["workflows"] == []

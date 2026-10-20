@@ -74,7 +74,8 @@ the job handle and the group's children.
 
 ## 5. Naming Normalization
 
-- `normalize_segment(name)` — lowercase, strip non-alphanumeric
+- `normalize_segment(name)` — NFKC first (like Python identifiers), then
+  lowercase, `_`/space to `-`, and an acronym-aware camel-case split.
 
 ## 6. Reserved Names
 
