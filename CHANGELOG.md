@@ -22,6 +22,8 @@ before. A workflow that declares an effecting step digests differently: a
 scope parked under the old digest is refused on resume with the existing
 graph-changed error, once, when the declaration first changes.
 
+Recorded in [ADR-035](contributor/adr/035-an-interrupted-effecting-step-stops-in-doubt.md).
+
 ### Changed — scoped vault entries resolve by address and environment
 
 `vault put`, `inspect`, and `remove` accept a group address, a leaf job, or a
