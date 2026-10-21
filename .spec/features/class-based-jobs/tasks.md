@@ -393,12 +393,12 @@ tasks in five waves.
     `uv run pytest -x -q --no-header`,
     `uv run pytest examples/ -v`,
     `uv run python .github/scripts/dead_code_delta.py origin/master HEAD`;
-    then AC-7's full sweep by hand: in the acceptance fixture project, run the
-    AC-1/AC-2/AC-11 command set with the cache cleared, capture
+    then AC-7's full sweep by hand: in the acceptance fixture project, clear
+    the cache, run the AC-1/AC-2/AC-11 command set and capture
     `func builtin info jobs --json`, `func builtin info --json` and both job
-    runs, delete the cache, run the same set again, and diff the captured
-    `--json` output — identical, and the vault value still reaches `self` on the
-    warm run.
+    runs (cold), then run the same set again against the cache the first run
+    left (warm) and capture the same four outputs — the two captures are
+    byte-identical, and the vault value still reaches `self` on the warm run.
   - **Acceptance:** all green; `lint-imports` prints "7 kept, 0 broken"; the
     dead-code delta is pasted into the hand-off; the cold/warm diff is empty;
     AC-9 and AC-14 are reviewed
