@@ -119,8 +119,26 @@ the SQLite plugin suite 198 passed.*
 
 ## Wave 4 — proof and record
 
-- [ ] **4.1** Process kill between commit and dispatch; redelivery deduplicated.
+- [x] **4.1** Process kill between commit and dispatch; redelivery deduplicated.
       *Files:* `tests/workflow/test_gate_outbox_recovery.py`
+      *Gate:* real crashes, by `os._exit` in a child process at production seams.
+      A child answers the gate through `answer_gate` with a receiver registered and
+      dies inside the post-commit `_app.effects.drain` (exit 17): read cold, the
+      request is `accepted` with one candidate, its evidence reference and its
+      decision, and the outbox row is `pending`, attempts 0; the next start's boot
+      drain delivers it once (deliveries 1, applied 1, row `published`, attempts 1)
+      without a second candidate, and a further start delivers nothing. A child
+      whose boot drain delivers and then dies inside `SqlEffectQueue.published`
+      (exit 23) leaves the row `claimed`, attempts 1, with the receiver's key
+      applied once; a restart inside the claim lease delivers nothing; a drain past
+      the lease redelivers (deliveries 2) and the receiver's key keeps applied at 1,
+      row `published`, attempts 2; a later drain delivers nothing. The document
+      store is pinned as having no outbox (`durable_outbox=False`, not an
+      `OutboxStore`, a receiver refuses boot), since it has no queue to recover.
+      3 passed; 3/3 repeat runs under `-n auto`. Sabotage after the code commit,
+      each restored: the answer unit dropping its intent fails 2; acknowledging
+      before delivering fails 1; never retaking an expired claim fails 1; no drain at
+      the end of boot fails 2; a receiver declaring no capability fails 1.
 - [ ] **4.2** Documentation, decision and example: at-least-once wording, `Notify` stops
       being called the outbox, ADR-034, data-model reference, `STATUS.md`, `CHANGELOG.md`,
       an `examples/` receiver.
