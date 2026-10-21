@@ -44,6 +44,7 @@ A nested project can declare `root = true` while an ancestor's project file stil
 
 - No change to non-directory config merge semantics, project mode selection, job-name collision policy, or the order of sources within the active project scope. (*Revised in Plan:* the merge is unchanged; Behavior 7 aligns the settings catalog's layer *list* with the merge that already stops, per D1.)
 - No change to projects that do not declare `root = true`.
+- *Revised in Plan (D3, 2026-10-21):* job configuration files (`config.base.toml`, `config.<env>.toml`, found by their own upward search that stops at `~`) are not bounded by `root = true`; an ancestor's job config still applies to a nested root project. Recorded as a known residual for its own shape, per the recommended D3 (a) on SD/17104898.
 - No new CLI command, flag, or user-authored configuration key.
 
 ## Verification notes

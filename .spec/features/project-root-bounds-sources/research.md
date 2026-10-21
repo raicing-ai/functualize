@@ -55,3 +55,13 @@ Runtime: `uv sync --frozen --all-extras --all-packages` in this worktree; probes
 - `list_project_config_files`: `_cli/config.py:825`, `_cli/tui/config_target_discovery.py:69`.
 - `auto_discover` is also reached by the MCP server manager (`plugins/adapters/functualize-mcp/src/functualize_mcp/_server_manager.py:266`), which therefore gets the fix with no change.
 - Tests writing `root = true`: 13 files, all using it to isolate a tmp project.
+
+### P3: job config ignores `root = true` (decision D3, 2026-10-21)
+
+Job config is found by walk B (`_app/boot.py::discover_config_path`: upward to the first directory holding `config.<env>.<ext>`, stopping at `~`). The values are then read from that directory and every ancestor up to `~` (`boot.py:1396-1401`). Probe: nested `root = true`, job `greeter.greet` with a `BaseModel` config, and the ancestor `config.base.toml` `[greeter.greet] greeting = "ANCESTOR…"`. The job prints the ancestor's value. With a nested `config.base.toml` lacking the key, the ancestor's value still applies (key-by-key layering). A `[greeter.greet]` table in `.functualize.toml` is not read at all, nested or ancestor.
+
+### Other forms measured for the shape page (2026-10-21)
+
+- A nested `.functualize/` with no nested config file, run from `nested/sub/`: `['outer-only']`. The nested project's own job is missing while `Mode` names the nested folder. This is a pre-existing defect: convention `jobs/` is collected only at walk-A config-hit levels plus cwd.
+- `.functualize/.functualize.toml` with `root = true` works as a marker, but `func builtin config path` lists only cwd's `pyproject.toml` and `.functualize.toml` (`_cli/builtins.py:2418-2467`).
+- `pyproject.toml` without `[tool.functualize]` is not a marker; with the table and `root = true`, it behaves like `.functualize.toml`.
