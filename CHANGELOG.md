@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — gate answers are durable, evidenced, and delivered at least once
+
+A gate's question and every answer it collects are now first-class records on
+the selected store: the request carries the causal identity of the walk that
+opened it (run, workflow, step, generation), and each candidate carries its
+resolver class and channel, schema identity and version, payload hash,
+supersession, and evidence stored by reference plus digest — never as bytes.
+Every acceptance records the decision that made it: the policy identity and
+version, and the exact candidate ids it observed. The `answer`/`resume`
+commands, `--wf-input`, and the MCP gate tools all address the store selected
+by `runtime_store.url`; with SQLite selected, nothing reads `scopes.json`.
+
+On a store with a durable outbox (SQLite), the accepted answer, its decision
+and its effect intent commit in **one** transaction, and the intent is
+delivered to the registered receiver **at least once** — redelivered after a
+crash between delivery and acknowledgement, recovered by the next boot, and
+applied exactly once by a receiver that deduplicates on the intent's
+`idempotency_key`. A plugin registers a receiver for the `gate.accepted`
+topic with `app.extensions.register_effect_receiver(...)`; registering one
+declares that the project's store must have a durable outbox, and boot
+refuses the document store with the setting to change. `Notify` keeps its
+record-first, at-most-once rule and is documented as deliberately not the
+outbox. The decision is ADR-034; a runnable receiver ships in
+`examples/plugins/effect_receiver/`.
+
 ### Changed — scoped vault entries resolve by address and environment
 
 `vault put`, `inspect`, and `remove` accept a group address, a leaf job, or a

@@ -371,7 +371,48 @@ return value under `EPILOGUE_STEP_KEY`), `MoveScope` for a status and position w
 `step`, `steps`, `branch`, `state`) and `InputReader` (`for_gate`, and the `TRANSITIONAL(FUN-21)`
 `deposited_answer`). No module under `_engine/` reaches the legacy `ScopeStore` outside the four
 allowlisted non-walk sites, which `tests/spec/test_the_walk_writes_only_through_the_port.py`
-holds. Effect dispatch and acknowledgement remain FUN-21's.
+holds. Effect dispatch and acknowledgement are delivered — the delivery
+contract is the subsection below.
+
+### 4.1 The outbox's delivery contract
+
+The two catalogue rows above — *dispatch effect* and *acknowledge effect* —
+carry a contract, and it is **at-least-once with consumer dedup** (ADR-034;
+`_primitives/outbox.py`, composed by `_app/effects.py`):
+
+- **The claim is a lease, not a take.** `claim` writes a fresh
+  `claim_token` and a `claimed_at` under a lease measured in seconds. A second
+  dispatcher cannot see a live claim; once the lease expires, an
+  unacknowledged claim is presumed dead and the intent is claimable again —
+  which is how a process killed between the receiver and its acknowledgement
+  gets its intent redelivered by the next drain.
+- **A lost acknowledgement redelivers.** `receive` returning acknowledges
+  (`published`, `published_at` set); `receive` raising reschedules
+  (`pending`, `last_error`, `available_at` now plus the backoff — 5 s doubling,
+  capped at 15 min). A crash after the receiver acted but before the
+  acknowledgement lands leaves the claim to expire, and the intent is
+  delivered **again** — the receiver must apply each `idempotency_key` once,
+  which is the consumer's half of the contract and the only source of
+  exactly-once anywhere in the design.
+- **`attempts` and `last_error` are the diagnosis.** Each failed delivery
+  increments `attempts` and overwrites `last_error` (bounded); they answer
+  "why has this intent not landed?" without reading any log.
+- **`idempotency_key` is unique where present.** The column's uniqueness makes
+  recording the same acceptance twice one row — a gate's key is
+  `gate.accepted:<request_id>`, so a reopened and re-answered gate is two
+  intents under two keys, and a replayed acceptance is none.
+- **A store whose profile says `durable_outbox=False` runs none of this.** It
+  is never asked to record an intent, no dispatcher is built over it, and
+  registering a receiver against it refuses boot at step 6.5 — the capability
+  check and the profile/type agreement check keep the declaration to one
+  meaning (`_app/store_selection.py`).
+
+The drains that run delivery are in-process and synchronous: one at the end of
+boot (which delivers what a dead process left committed), one after each
+answer-surface commit, one after `resume`. The recovery end of this — a real
+`os._exit` between commit and dispatch, redelivered and applied once — is
+`tests/workflow/test_gate_outbox_recovery.py`.
+
 
 **Consumption is a write on the live path.** `GateService.service` calls
 `FrontierWalk.consume`, which issues `tx.inputs.consume(ConsumeInput(...))`;

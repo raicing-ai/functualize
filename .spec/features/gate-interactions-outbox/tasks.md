@@ -139,10 +139,22 @@ the SQLite plugin suite 198 passed.*
       each restored: the answer unit dropping its intent fails 2; acknowledging
       before delivering fails 1; never retaking an expired claim fails 1; no drain at
       the end of boot fails 2; a receiver declaring no capability fails 1.
-- [ ] **4.2** Documentation, decision and example: at-least-once wording, `Notify` stops
+- [x] **4.2** Documentation, decision and example: at-least-once wording, `Notify` stops
       being called the outbox, ADR-034, data-model reference, `STATUS.md`, `CHANGELOG.md`,
       an `examples/` receiver.
       *Files:* `docs/guides/workflows.md`, `docs/api/workflow.md`, `src/functualize/_types/workflow.py`, `src/functualize/_engine/workflow_walker.py`, `contributor/architecture/run-model/10-graph-semantics.md`, `contributor/adr/034-gate-effects-are-delivered-at-least-once.md`, `contributor/reference/runtime-persistence-data-model.md`, `.spec/STATUS.md`, `CHANGELOG.md`, `examples/plugins/effect_receiver/`
+      *Gate:* AC-2's grep is green — `rg -i "at-most-once"` over
+      `docs/ contributor/ src/` matches only `Notify`'s record-first rule and
+      ADR-034's rejected alternative, and no matched line names the outbox;
+      `mkdocs build --strict` passes; the `h-workflow` doc scenario passes
+      and `--audit` accepts both edited doc pages; `uv run pytest examples/`
+      → 253 passed, including the receiver example's 3 (protocol shape,
+      key-dedup on redelivery, a real gate answered through `answer_gate`
+      delivered after the commit); statics clean (ruff, format, mypy 397
+      files, lint-imports 7 kept) and the docstring-adjacent suites green
+      (`tests/types` 339 passed; recovery + notify + answer + receiver 27
+      passed, 3 skipped). The source edits are docstrings only — no behaviour
+      change, no new production code.
 
 ## Task Dependency Graph
 

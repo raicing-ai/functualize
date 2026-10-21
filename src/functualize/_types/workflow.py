@@ -138,16 +138,25 @@ class Step:
             nothing is replayed, which is the behaviour every workflow has had
             until now.
 
-            What the flag buys is an **outbox**: the step's completion record is
-            committed in the same locked batch as the walk's position, so a
-            crash can leave the effect done and the record absent only if it
-            lands between the effect and a write that is itself atomic. See
-            `_engine/frontier.complete`.
+            What the flag buys is an atomic completion record: the step's
+            record is committed in the same locked batch as the walk's
+            position, so a crash can leave the effect done and the record
+            absent only if it lands between the effect and a write that is
+            itself atomic. See `_engine/frontier.complete`.
 
             > It does not make the effect itself transactional — nothing here
             > can. It makes the *record* of the effect commit with the walk's
             > progress, which is what a resume reads to decide whether to run
             > the step again.
+            >
+            > Delivery of an effect that must reach the *outside world* is a
+            > different promise, and it is not exactly-once: a gate's
+            > acceptance commits its effect intent to the transactional
+            > outbox in the same unit (ADR-034), and a registered
+            > `EffectReceiver` is delivered **at least once** — the receiver
+            > deduplicates on the effect's `idempotency_key`, because a crash
+            > between delivery and acknowledgement redelivers. See
+            > `functualize.plugin.EffectReceiver`.
     """
 
     job: str | Callable[..., Any]
@@ -894,11 +903,20 @@ _VALID_NOTIFY_STATES: frozenset[str] = frozenset(
 class Notify:
     """Tell somebody when a walk ends in a given state.
 
-    An **effect**, and it rides the same outbox rule as `Step(effecting=True)`:
-    the record that it fired is committed before the provider is called, so a
-    crash can lose a notification but can never send it twice. At-most-once, in
-    the direction that matters — a resumed workflow must not page the on-call
-    again for a failure they have already seen.
+    An **effect**, and a deliberately modest one: the record that it fired is
+    committed to the scope's branch store *before* the provider is called, so
+    a crash can lose a notification but can never send it twice. At-most-once,
+    in the direction that matters — a resumed workflow must not page the
+    on-call again for a failure they have already seen.
+
+    This is **not the transactional outbox** and does not ride it. The outbox
+    (ADR-034) exists for an effect whose delivery must not be lost: its
+    intent commits with the state change and an `EffectReceiver` is delivered
+    at least once, deduplicating on the effect's idempotency key. A `Notify`
+    makes the opposite trade — it would rather drop one than repeat one — so
+    it goes straight to the registered notifier, once, with no redelivery.
+    When a notification must survive a crash, it is an outbox receiver, not a
+    `Notify`.
 
     > **Not a bus and not a broker.** ``to`` is opaque to the engine: it is
     > handed to the provider verbatim and nothing here parses, matches or routes

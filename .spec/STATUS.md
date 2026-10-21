@@ -633,20 +633,30 @@ operator-facing account is in `docs/cli/workflow.md`; the two-walker and
 cleanup proofs are in `tests/engine/test_walk_claims_through_the_port.py` and
 `tests/engine/test_timeout_is_lease_expiry.py`.
 
-### Gate resolution requests — behavior delivered, durable evidence open
+### Gate interactions, evidence, and the transactional outbox — delivered
 
-AC-1 and AC-2 are delivered on `feat/gate-resolution-model`: a gate request has
-a minted `request_id` stable across resume, and candidates carry their ordinal,
-source, and evaluation recorded at submission. The read projection returns
-those verdicts without recomputing them. The storage location is
-**`TRANSITIONAL(FUN-21)`**: the document backend still stores requests and
-candidates inside each gate record in `scopes.json`.
+Delivered on `feat/gate-interactions-outbox` (ADR-034): a gate request and its
+candidates are first-class rows with causal run/workflow/step/generation
+identity; every candidate carries resolver class and channel, schema identity
+and version, payload hash, supersession and evidence by reference plus digest
+(`EvidenceRef`, no bytes in any runtime row); every acceptance records one
+`GateDecision` naming the policy identity and version and the exact candidate
+ids it observed; and on a store whose profile declares `durable_outbox=True`
+the acceptance and its `gate.accepted` effect intent commit in **one**
+transaction, delivered **at least once** with consumer dedup on
+`gate.accepted:<request_id>` — claimed under a lease, redelivered after a lost
+acknowledgement, recovered by the next boot (proven against a real `os._exit`
+in `tests/workflow/test_gate_outbox_recovery.py`).
 
-**AC-3 remains open**, pending FUN-18's tables and legal transitions, FUN-19's
-durable provider, and FUN-21's interaction/evidence slice and answer-surface
-migration. Interaction evidence is not yet durable and readable independently
-of the scope document. The **FUN-4 issue must not close** until AC-3 is
-delivered, even if this parallel branch merges first.
+The answer surfaces (`answer`, `resume`, `--wf-input`, the MCP gate tools)
+address the **selected** store through `selected_workflow_store`; on SQLite
+nothing reads `scopes.json`, and the document backend serves the same one
+answer path through its own record seam. `Notify` keeps its record-first,
+at-most-once rule and is documented as deliberately not the outbox.
+
+AC-3 of FUN-4 is satisfied by this slice: interaction evidence is durable and
+readable independently of the scope document. The legacy
+`_record_port_input` path is removed.
 
 The maintainer approved D-1 through D-5 as Option A:
 
