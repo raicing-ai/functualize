@@ -382,9 +382,11 @@ def _build_job_command(
         func = None
         config_class = None
 
-    # Grouped jobs register under their bare function name inside the
+    # Grouped jobs register under their command-path leaf inside the
     # sub-group; top-level jobs register under their canonical name.
-    command_name = descriptor.func_name if descriptor.group else descriptor.name
+    command_name = (
+        descriptor.command_path.segments[-1] if descriptor.group else descriptor.name
+    )
 
     if func is not None and not getattr(func, "__functualize_lazy__", False):
         command: click.Command = create_job_click_command(

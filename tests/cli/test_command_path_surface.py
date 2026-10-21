@@ -139,6 +139,54 @@ def test_literal_dot_leaf_and_explicit_group_are_distinct_paths(tmp_path, monkey
     assert "PACK" in grouped.output
 
 
+def test_app_door_grouped_literal_dot_leaf_runs_under_printed_path(
+    tmp_path, monkeypatch
+):
+    """The grouped Click leaf must run under the path shown in the refusal."""
+    from click.testing import CliRunner
+
+    from functualize._discovery.providers import Job, StaticProvider
+    from functualize.app import FunctualizeApp, JobSources
+    from functualize.app.adapters import CliAdapter
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+
+    def lint() -> None:
+        print("LINT")
+
+    app = FunctualizeApp(
+        name="s",
+        job_sources=JobSources(
+            job_providers=[
+                StaticProvider([Job(function=lint, name="ci.tools.lint", group="ci")])
+            ]
+        ),
+    )
+    adapter = CliAdapter()
+    adapter(app)
+    runner = CliRunner()
+
+    dotted = runner.invoke(adapter.cli_command, ["ci.tools.lint"], prog_name="s")
+    assert dotted.exit_code != 0
+    assert "navigate groups with spaces: s ci tools.lint" in dotted.output
+    printed = next(
+        line.rsplit(": ", 1)[-1]
+        for line in dotted.output.splitlines()
+        if "navigate groups with spaces" in line
+    )
+    copied = runner.invoke(adapter.cli_command, shlex.split(printed)[1:], prog_name="s")
+    assert copied.exit_code == 0, copied.output
+    assert "LINT" in copied.output
+    help_result = runner.invoke(
+        adapter.cli_command, ["ci", "tools.lint", "--help"], prog_name="s"
+    )
+    assert help_result.exit_code == 0, help_result.output
+    assert "Usage: s ci tools.lint [OPTIONS]" in help_result.output
+
+
 def test_app_door_suggests_and_uses_full_grouped_path(tmp_path, monkeypatch, capsys):
     from click.testing import CliRunner
 
