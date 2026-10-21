@@ -11,7 +11,7 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
 - `git grep -n "JOB_TAGS" -- src/ tests/ docs/ examples/` → **0 hits** (exit 1).
 - `git grep -c "isfunction" -- src/functualize/_discovery` → `registry.py:1`, `sync.py:3`.
 - `git grep -n "decorators=" -- src/functualize/_discovery/` → **1 hit**, `sync.py:303`.
-- `git grep -n "extract_function_decorators" -- src/ tests/ plugins/ examples/` → `sync.py:36`, `sync.py:249`, `_primitives/pre_filter.py:436`, `_primitives/job_filter.py:136`, `tests/discovery/test_discovery_failures.py:38,165,171`, `tests/discovery/test_job_filter.py:22,137,154`.
+- `git grep -n "extract_function_decorators" -- src/ tests/ plugins/ examples/` → **11 hits**: definition `_primitives/pre_filter.py:436`; imports/calls `sync.py:36`, `sync.py:249`; a docstring reference at `_primitives/job_filter.py:136` (text, not a call); tests `tests/discovery/test_discovery_failures.py:38,165,171,194` and `tests/discovery/test_job_filter.py:22,137,154`.
 - `grep -rn "class job\|job class\|@job on" contributor/architecture/codemaps/` → **0 hits**.
 - `uv run lint-imports` → **7 kept, 0 broken** ("Analyzed 395 files, 1149 dependencies").
 - Pydantic probe (`uv run python`): a bare `JOB_TAGS = (...)` in a `BaseModel` body raises `PydanticUserError: A non-annotated attribute was detected`; the `ClassVar` form is readable from `cls.__dict__`; `Database.__abstractmethods__` is `frozenset({'start','stop'})` for an abstract class and `frozenset()` for a concrete subclass.
@@ -21,23 +21,30 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
 - [ ] **1.1 — `ClassJobMethod`, the instance-free callable of a class job** (C1; spec F1)
   - **[F]** `src/functualize/_types/class_job.py` (new), `tests/types/test_class_job.py` (new)
   - **Inputs:** `plan.md` §4.4; `schema.md` §6; `_types/annotations.resolved_hints`.
-  - **Do:** `ClassJobMethod(job_class, method_name)` exposing `job_class`,
-    `method_name`, `__signature__` (the method's signature with the first
-    parameter removed, every resolvable annotation replaced by its live type),
-    `__name__`/`__qualname__`/`__doc__`/`__module__`/`__annotations__`/
-    `__wrapped__`, `__getattr__` delegating to the underlying function, and
-    `__call__` raising `RuntimeError` that names the job. `__functualize_lazy__`
-    must not be reachable as truthy. No other behaviour.
+  - **Do:** `ClassJobMethod(job_class, method_name, declaration)` exposing
+    `job_class`, `method_name`, `__signature__` (the method's signature with the
+    first parameter removed, every resolvable annotation replaced by its live
+    type), `__name__`/`__qualname__`/`__doc__`/`__module__`/`__annotations__`/
+    `__wrapped__`, `__getattr__` delegating to the underlying function for
+    everything *except* the declaration, `declaration` stored as the proxy's
+    **own** `__functualize_job__`, and `__call__` raising `RuntimeError` that
+    names the job. `__functualize_lazy__` must not be reachable as truthy. No
+    other behaviour.
   - **Tests (unit):** signature excludes `self`, keeps the rest in order and
     keeps defaults; a fixture module with `from __future__ import annotations`
     and `Annotated[int, Field(ge=0)]` yields a live `Annotated` in
-    `__signature__.parameters[...].annotation`; `__functualize_job__` and
-    `__doc__` delegate; `getattr(proxy, "__functualize_lazy__", False)` is
-    falsy; calling it raises `RuntimeError`; `resolved_hints(proxy) == {}` —
-    asserted, because the proxy's own resolution is what makes that fallback
-    harmless.
-  - **Invariants:** `_types` imports stdlib plus `_types.annotations` only; the
-    proxy holds no class instance and no module handle.
+    `__signature__.parameters[...].annotation`; `__getattr__` delegates
+    (`__doc__`, `__functualize_workflow__`, a capability marker);
+    **`proxy.__functualize_job__ is declaration`** even when the method carries
+    its own `@job(tags=("mine",))`, and `proxy.__functualize_job__ is not
+    method.__functualize_job__` — the whole point of an own attribute, and the
+    assertion that fails if it is left to `__getattr__`;
+    `getattr(proxy, "__functualize_lazy__", False)` is falsy; calling it raises
+    `RuntimeError`; `resolved_hints(proxy) == {}` — asserted, because the
+    proxy's own resolution is what makes that fallback harmless.
+  - **Invariants:** `_types` imports stdlib plus `_types.annotations` and, for
+    annotations only, `_types.job_declaration`; the proxy holds no class
+    instance and no module handle.
   - **Acceptance:** new suite green; `uv run lint-imports` still 7 kept.
   - **Reachability:** `TRANSITIONAL(no production caller until 3.1 constructs a proxy)`. No sabotage: there is no path to observe yet.
 
@@ -63,21 +70,15 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
   - **Acceptance:** `tests/job` green, existing cases untouched.
   - **Reachability:** `TRANSITIONAL(declaration only; consumed by 3.1)`.
 
-- [ ] **1.3 — `JOB_TAGS` is documented and pinned as a `ClassVar`** (C2; spec F4)
-  - **[F]** `.spec/features/class-based-jobs/contracts.md` (C2),
-    `.spec/features/class-based-jobs/spec.md` (F4), `tests/job/test_job_tags_classvar.py` (new)
-  - **Inputs:** `plan.md` § *Alignment* erratum; the probe in the gate runs above.
-  - **Do:** C2 and spec F4 spell `JOB_TAGS: ClassVar[tuple[str, ...]] = (...)`
-    with one sentence saying why (a bare attribute on a pydantic model is a
-    `PydanticUserError` before Functualize runs).
-  - **Tests (unit):** a bare `JOB_TAGS = ("t1",)` in a `BaseModel` body raises
-    `PydanticUserError`; the `ClassVar` form is readable from `cls.__dict__`
-    and is not a model field. This pins the documented spelling: if pydantic
-    ever relaxes the rule, the doc example stays valid, and if it tightens, the
-    test says so.
-  - **Invariants:** no `src/` change.
-  - **Acceptance:** test green; both documents show one spelling.
-  - **Reachability:** documentation-only; no runtime path.
+**1.3 was removed in review** (it was `[ ] 1.3 — JOB_TAGS documented and pinned
+as a ClassVar`). Its content was two document spellings plus a test asserting
+pydantic rejects a bare `JOB_TAGS` — a test of pydantic, not of this feature,
+which could not fail for a reason this change caused. The spellings are fixed in
+`spec.md` F4/AC-5 and `contracts.md` C2 during the plan phase; the falsifiable
+half — that the documented `ClassVar` form is visible in `cls.__dict__` and
+absent from `model_fields` — moved to task 3.1's tests, where the code that
+reads `JOB_TAGS` lives. Wave 0 is therefore two tasks, and the feature is 13
+tasks in five waves.
 
 ## Wave 1
 
@@ -136,15 +137,19 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
     unimplemented method, no jobs; MRO walk nearest-first skipping `BaseModel`,
     `object` and pydantic's own bases, dropping `_`-prefixed names,
     `staticmethod`, `classmethod`, `property` and `cached_property`; per method
-    a descriptor with `name=qualified_name(raw_group, method)`,
-    `python_name=method`, `owner_class=cls.__name__`, `group=class group`,
-    `config_fields` from `cls.model_fields`, `parameters` from
-    `extract_parameters_from_signature(proxy)`,
-    `function=ClassJobMethod(cls, method)`, and the **effective declaration**:
-    group from the class, `visibility` from the method else the class, `tags`
-    merged author-first then the class `@job(tags=)` then `JOB_TAGS` from the
-    job class outward along the MRO with duplicates removed, and
-    `guards`/`exec`/`cache`/`deps` from the method only. A method whose own
+    **first the effective declaration** — group from the class, `visibility`
+    from the method else the class, `tags` merged author-first then the class
+    `@job(tags=)` then `JOB_TAGS` from the job class outward along the MRO with
+    duplicates removed, and `guards`/`exec`/`cache`/`deps` from the method only
+    — **then** the descriptor, with
+    `name=qualified_name(raw_group, method)`, `python_name=method`,
+    `owner_class=cls.__name__`, `group=class group`, `config_fields` from
+    `cls.model_fields`, `parameters` from
+    `extract_parameters_from_signature(proxy)`, and
+    `function=ClassJobMethod(cls, method, declaration=effective)`. That one
+    object is passed to the proxy as its own `__functualize_job__` and is what
+    `JobDescriptor.declaration` reads back — nothing after 3.1 recomputes it
+    (plan.md §4.2). A method whose own
     `@job(group=...)` differs from the class group produces no job and one
     "method group conflict" finding naming the method, its class and both
     groups.
@@ -154,10 +159,16 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
     `@job` produces a finding that names `start` and `stop`; an abstract class
     without `@job` produces nothing at all; a method group conflict produces a
     finding naming both groups and no descriptor; `JOB_TAGS` from a base yields
-    merged tags in the declared order with duplicates removed; class
-    `visibility` applies when the method sets none and is overridden when it
-    does; a class re-exported through a package `__init__` is not registered
-    from that module.
+    merged tags in the declared order with duplicates removed, and the
+    documented spelling is the one that works — `JOB_TAGS` is in
+    `cls.__dict__`, not in `cls.model_fields`; class `visibility` applies when
+    the method sets none and is overridden when it does; a class re-exported
+    through a package `__init__` is not registered from that module.
+  - **Declaration is computed once (F2):** the descriptor's `declaration` and
+    the descriptor's `function.__functualize_job__` are the **same object**
+    (`is`), and that object carries the merged tags of a class `JOB_TAGS` even
+    when the method has its own `@job(tags=...)`. Recomputing at any later stage
+    breaks this assertion rather than drifting silently.
   - **Invariants:** the function branch's descriptor fields are unchanged; no
     module import for a class beyond the module already being scanned; no
     instance is constructed anywhere in `_discovery` (AC-4).
@@ -194,14 +205,20 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
     `collisions.py:57-96`.
   - **Do:** `CLASS_JOB_NAME_COLLISION = "ClassJobNameCollision"` and
     `ClassJobCollisionDetail(canonical_name, claimants)` where each claimant is
-    `(python_name, source_file)`; widen `DiscoveryFailure.collision`'s type
+    `(qualified_name, source_file)` — `"OtherPostgres.start"` for a class job,
+    the function's own name otherwise; the message is formatted from these pairs
+    because `python_name` is the *method* name and would print `start` twice.
+    Widen `DiscoveryFailure.collision`'s type
     without touching `as_dict`'s four keys; in `resolve_name_collisions`, when
     at least one claimant has `owner_class`, keep none, register every other
     name, and record one finding whose message names every claimant and its
     file. Two plain functions keep the existing path untouched.
   - **Tests (unit):** `OtherPostgres` vs `LocalPostgres` in one file → `postgres.start`
     and `postgres.stop` both collide, both findings name both classes and the
-    file, `pg.*` from the same module still registers; a class job against a
+    file, `pg.*` from the same module still registers; the assertion is on the
+    serialized `as_dict()["message"]` — that it contains `OtherPostgres` and
+    `LocalPostgres` — not on the detail's tuple, so a formatter that dropped the
+    class prefix fails; a class job against a
     plain function collides; two plain functions still produce
     `JobNameCollision` with its four `as_dict` keys and its existing message
     (golden).
@@ -252,10 +269,18 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
     (`LazyJobFunction`, `materialize` 166-204).
   - **Do:** after `importlib.import_module(module_path)`, a descriptor with
     `owner_class` resolves `getattr(module, owner_class)` then the method, and
-    returns `ClassJobMethod(cls, method)`; the synthetic-source branch, the
-    import lock and the `sys.path` handling above it are untouched.
+    returns `ClassJobMethod(cls, method, declaration=descriptor.declaration)` —
+    built **from the descriptor**, so the warm proxy carries 3.1's merged
+    declaration rather than a freshly computed one. `LazyJobFunction.materialize`
+    then takes `config_class` from `real_fn.job_class` for a class descriptor —
+    the unconditional `self.config_class = _detect_config_class(real_fn)` at
+    `:200` becomes the function path only, so no detection runs on
+    a proxy; the synthetic-source branch, the import lock and the `sys.path`
+    handling above it are untouched.
   - **Tests (unit):** a warm descriptor (no `function`) materialises to a proxy
-    whose `job_class` is the class and whose `method_name` is the method; a
+    whose `job_class` is the class and whose `method_name` is the method, and
+    whose `__functualize_job__` is the descriptor's declaration object (`is`);
+    `_ensure_materialized` keeps `config_class` as the job class; a
     missing class or method raises the existing materialisation error type with
     the descriptor's identity in the message; a plain-function descriptor takes
     the unchanged path.
@@ -266,30 +291,51 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
 
 ## Wave 3
 
-- [ ] **4.1 — registration and the receiver** (C1, C6; spec F1, AC-2, AC-4, AC-7)
-  - **[F]** `src/functualize/_types/descriptors.py`, `src/functualize/_engine/context.py`, `src/functualize/_engine/executor.py`, `src/functualize/_app/boot.py`, `tests/engine/test_class_job_receiver.py` (new)
+- [ ] **4.1 — registration and the receiver** (C1, C6; spec F1, AC-2, AC-3, AC-4, AC-7, AC-11)
+  - **[F]** `src/functualize/_types/descriptors.py`, `src/functualize/_engine/context.py`, `src/functualize/_engine/executor.py`, `src/functualize/_app/boot.py`, `tests/engine/test_class_job_receiver.py` (new), `tests/cli/test_class_job_acceptance.py` (new)
   - **Inputs:** `plan.md` §4.4; `schema.md` §4, §5; `_types/descriptors.py:552-579`;
     `_engine/context.py:94-107`; `executor.py:1220-1259`, `:2555-2632`,
-    `:2634-2648`; `_app/boot.py:2003-2059`; `_app/configuration_facade.py:59-81`.
+    `:2634-2648`; `_app/boot.py:1986-1987` (the early return), `:2003-2059`;
+    `_app/configuration_facade.py:59-81`.
   - **Do:** `RegisteredJob.method_name`, `ExecutionContext.method_name`; boot's
-    class branch sets `config_class = proxy.job_class`,
-    `method_name = proxy.method_name`, `function = proxy`, and **skips**
-    `_detect_config_class` and `adopt_descriptor_declaration` — the proxy would
-    hand back the *method's* unmerged declaration and overwrite 3.1's; the
+    **class arm first** — `if descriptor.owner_class is not None:` →
+    `function = live_fn if live_fn is not None else LazyJobFunction(descriptor)`,
+    `config_class = getattr(fn, "job_class", None)` (the proxy, cold or warm,
+    answers this from the class), `method_name = descriptor.python_name`. Cold
+    and warm therefore take one path: neither calls `_detect_config_class`
+    (`getattr(..., "job_class", None)` is the whole answer) and neither calls
+    `adopt_descriptor_declaration` — it early-returns on a non-`None`
+    `getattr(func, "__functualize_job__", None)` (`boot.py:1986-1987`), and the
+    function arm below it stays byte-identical for function jobs. `method_name`
+    comes from the descriptor, so `JobDescriptor` gains no such field. The
     context is built with `method_name`; `_resolve_config_model` ends with the
     one documented rebind.
   - **Tests (unit):** a class job registers with `config_class` = the class and
-    `method_name` set; the rebind produces a callable whose call receives the
-    resolved instance as the receiver and whose `call_kwargs` never contains
-    `self`; `context.injected` is unaffected; the config section key is
-    `descriptor.group` (`[pg]`), not `pg.start`; a warm boot registers the same
-    shape and the instance count after `list_jobs` + `--help`-shaped
-    introspection is 0 (AC-4).
+    `method_name` = the method; the rebind produces a callable whose call
+    receives the resolved instance as the receiver and whose `call_kwargs`
+    never contains `self`; `context.injected` is unaffected; the config section
+    key is `descriptor.group` (`[pg]`), not `pg.start`; the instance count
+    after `list_jobs` + `--help`-shaped introspection is 0 (AC-4).
+  - **Tests (declaration, F2):** (a) through a **public** surface — `app.get_jobs()`
+    and `func builtin info --json` for one class job — the tags are the merge of
+    the method's `@job(tags=...)`, the class `@job(tags=)` and `JOB_TAGS` in the
+    documented order, the class `visibility` is in effect, and a method
+    `guards=` is present; nothing in the test reads `_discovery` internals or
+    calls `descriptor.declaration` directly. (b) **warm equals cold**: a run of
+    the same job against a warm cache has the same effective guards, cache flags
+    and injected deps as the cold run — the assertion that catches a warm proxy
+    rebuilt with the method's unmerged `@job`.
   - **Tests:** CLI-level AC-2/AC-3 in the fixture project of `spec.md` § AC
-    preamble.
+    preamble, then **AC-11**: `func builtin vault put --group pg --field
+    password`, then `func pg start` and `func pg stop` each receive that one
+    entry — both, not just the method that was run first, so a per-method
+    config instance would show; `func builtin info` and `env` mask it; and
+    `func pg <TAB>`-shaped completion for the class job returns its methods
+    without constructing the class (AC-4). Re-run those CLI cases once with the
+    cache warm and assert identical output (AC-7's class-job half).
   - **Invariants:** no `_discovery` import from `_engine`; `registered_job`
     shape additive; function jobs unaffected.
-  - **Acceptance:** AC-1, AC-2, AC-3, AC-4, AC-7.
+  - **Acceptance:** AC-1, AC-2, AC-3, AC-4, AC-7, AC-11.
   - **Reachability:** sabotage the rebind to pass the proxy → the run fails with
     the proxy's `RuntimeError`; restore.
 
@@ -346,9 +392,16 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
     `uv run mypy src/`, `uv run lint-imports`,
     `uv run pytest -x -q --no-header`,
     `uv run pytest examples/ -v`,
-    `uv run python .github/scripts/dead_code_delta.py origin/master HEAD`.
+    `uv run python .github/scripts/dead_code_delta.py origin/master HEAD`;
+    then AC-7's full sweep by hand: in the acceptance fixture project, run the
+    AC-1/AC-2/AC-11 command set with the cache cleared, capture
+    `func builtin info jobs --json`, `func builtin info --json` and both job
+    runs, delete the cache, run the same set again, and diff the captured
+    `--json` output — identical, and the vault value still reaches `self` on the
+    warm run.
   - **Acceptance:** all green; `lint-imports` prints "7 kept, 0 broken"; the
-    dead-code delta is pasted into the hand-off; AC-9 and AC-14 are reviewed
+    dead-code delta is pasted into the hand-off; the cold/warm diff is empty;
+    AC-9 and AC-14 are reviewed
     against the diff rather than asserted by a new test.
 
 ## Task Dependency Graph
@@ -356,7 +409,7 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
 ```json
 {
   "waves": [
-    { "id": 0, "tasks": ["1.1", "1.2", "1.3"] },
+    { "id": 0, "tasks": ["1.1", "1.2"] },
     { "id": 1, "tasks": ["2.1", "2.2"] },
     { "id": 2, "tasks": ["3.1", "3.2", "3.3", "3.4", "3.5"] },
     { "id": 3, "tasks": ["4.1", "4.2", "4.3"] },

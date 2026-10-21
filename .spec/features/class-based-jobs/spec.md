@@ -229,9 +229,9 @@ vault entry for `password`; AC-9/AC-10 add `.functualize/jobs/databases.py` from
 | AC-2 | `func pg start` | runs with no extra flag; `self.host == "db.internal"` from `[pg]`; `self.password` is the vault value | E2 |
 | AC-3 | `func pg stop --force`, then `FUNCTUALIZE_ENV=prod func pg stop` with `config.prod.toml` `[pg] host` | the method parameter binds; the overlay value reaches `self` | E3 |
 | AC-4 | `func pg --help`, `func builtin info`, completion | a constructor side-effect counter stays 0 | E4 |
-| AC-5 | a base class declares `JOB_TAGS = ("t1",)`; `stop` keeps `@job(guards=…, tags=["mine"])` | `stop` has tags `(mine, t1)` and its guards | E5 |
+| AC-5 | a base class declares `JOB_TAGS: ClassVar[tuple[str, ...]] = ("t1",)`; `stop` keeps `@job(guards=…, tags=["mine"])` | `stop` has tags `(mine, t1)` and its guards | E5 |
 | AC-6 | add module function `def start()` with `JOB_GROUP = "pg"` | `func pg start` exits 2 naming both definitions and files; `func builtin info` lists it; `func pg stop` still runs | E6 |
-| AC-7 | repeat AC-1, AC-2, AC-6, AC-9, AC-10 on a warm cache | identical results | E7 |
+| AC-7 | repeat AC-1, AC-2, AC-6, AC-9, AC-10, AC-11 on a warm cache | identical results, including the masked vault value reaching both methods | E7 |
 | AC-8 | review every new public name, flag, config key and message in the diff | each uses only R-1's vocabulary; no new invocation flag, request field or envelope key (R-4) | E8 |
 | AC-9 | listing and `func --help` with `databases.py`; then add `@job` to abstract `Database` | no job and no group for `Database`; with `@job`, still no job, and `func builtin info` shows a finding naming `start` and `stop` as unimplemented | E9 |
 | AC-10 | same listing; then add `OtherPostgres(Database)` with `@job(group="postgres")` | `TunedPostgres` produces no job; `PooledPostgres` lists only under `postgres-tuned`; `OtherPostgres` and `LocalPostgres` collide on `postgres.start`/`postgres.stop` and the collision is reported per AC-6 | E10 |

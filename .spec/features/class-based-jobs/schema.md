@@ -98,11 +98,12 @@ the `call_kwargs - injected` fingerprint — is unaffected.
 
 | Member | Source | Why |
 |---|---|---|
-| `job_class` | constructor | registration: `config_class`, `adopt_descriptor_declaration` |
-| `method_name` | constructor | registration; the engine's bind |
+| `job_class` | constructor | registration's `config_class` (plan.md §4.4) — boot never calls `_detect_config_class` for a class job |
+| `method_name` | constructor, from `descriptor.python_name` | registration; the engine's bind. Derived, not stored on `JobDescriptor` (§8) |
 | `__signature__` | method signature, first parameter removed, PEP 563 annotations resolved | `click_params.build_click_params` and `extract_parameters_from_signature` do not drop `self` by name; `ArgValidator` skips unannotated parameters |
 | `__name__`, `__qualname__`, `__doc__`, `__module__`, `__annotations__`, `__wrapped__` | the underlying function | `inspect.getdoc`, error text, `get_type_hints` diagnostics |
-| `__getattr__` | delegates to the function | `__functualize_job__`, `__functualize_workflow__`, capability markers |
+| `__functualize_job__` | constructor argument: the descriptor's **effective merged** declaration | the one source of the declaration (plan.md §4.2, §4.4). An **own attribute**, never read through: `__getattr__` would answer with the *method's* unmerged `@job`, and `adopt_descriptor_declaration`'s early return would then treat it as already-correct |
+| `__getattr__` | delegates to the function | `__functualize_workflow__`, capability markers — everything the descriptor already carries apart from the declaration |
 | `__functualize_lazy__` | **absent** | `executor._execute_lifecycle:1220-1238` must not treat it as a cache stand-in |
 | `__call__` | raises `RuntimeError` naming the job | the receiver is the run's config instance; a call without one would build a second instance |
 
@@ -113,7 +114,7 @@ the `call_kwargs - injected` fingerprint — is unaffected.
 | Name | Shape |
 |---|---|
 | `CLASS_JOB_NAME_COLLISION` | `"ClassJobNameCollision"` — a **different** `error_type` from `JOB_NAME_COLLISION`, so the existing four-key `as_dict` payload keeps its meaning (C5, AC-14) |
-| `ClassJobCollisionDetail` | `canonical_name: str`, `claimants: tuple[tuple[str, str], ...]` — each claimant `(python_name, source_file)` |
+| `ClassJobCollisionDetail` | `canonical_name: str`, `claimants: tuple[tuple[str, str], ...]` — each claimant `(qualified_name, source_file)`, `qualified_name` being `owner_class.method` for a class job and the function's own name otherwise. `python_name` is the method name and would render two claimants identically |
 | `DiscoveryFailure.collision` | type widened to `JobNameCollisionDetail \| ClassJobCollisionDetail \| None`; `as_dict` still emits exactly `module`, `path`, `error_type`, `message` |
 
 The message names every claimant and its file:

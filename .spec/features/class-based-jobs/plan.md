@@ -37,10 +37,12 @@
   importing → §4.6; "an instance per run" with no second lifecycle → §4.5; two
   same-named methods in one file being one cache entry → §4.3; the CLI rendering
   a `self` argument → §4.4.
-- **Related, not carried:** `SD/12779576` (job-name collapse) and
-  `SD/17072130` (job-name collapse reaches the user), each with its own
-  follow-up. Page Q4 — F2 and the configuration-section half of F3 — has no
-  ticket, so nothing here decides it.
+- **Related, not carried:** `SD/12779576` (scoped-vault shape: `func builtin
+  vault` — scoped secrets and resolution, so the vault work this feature's
+  AC-11 touches is not decided here) and `SD/19595276` (One Job Namespace:
+  identity, command path and collisions on every surface, which supersedes
+  `SD/17072130`), each with its own follow-up. Page Q4 — F2 and the
+  configuration-section half of F3 — has no ticket, so nothing here decides it.
 - **Erratum against `contracts.md`, made in this phase:** C2 shows
   `JOB_TAGS = ("database",)` inside a `pydantic.BaseModel` subclass. That is a
   hard `PydanticUserError` at class creation, before any Functualize code runs
@@ -56,10 +58,17 @@
   change"; "an interface with one implementation is a guess"; the rule that a
   new abstraction must replace a real duplication rather than anticipate one.
   It is the reason §3 rejects a `ClassProvider` and a second registration shape.
-- `design-patterns-refactoring` (user-level; Refactoring.Guru catalogue) — the
-  smell names used below (*Conditional Complexity*, *Data Clump*, *Silent
-  Overwrite*, *Duplicate Code*, *Long Method*, *Shotgun Surgery*, *Divergent
-  Change*) and their routing.
+- `design-patterns-refactoring` (user-level, **outside this repository**:
+  `~/.claude/skills/design-patterns-refactoring/chapters/ch31-smells-catalog.md`
+  and its `glossary.md`) — the catalogue this plan's smell names are checked
+  against, and the routing table that pairs each with its fix. The names used
+  below are the catalogue's own (*Duplicate Code*, *Data Clumps*, *Long
+  Method*, *Shotgun Surgery*, *Divergent Change*, *Switch Statements*,
+  *Speculative Generality*). Two findings have no catalogue name — the repeated
+  job-ness test (§2) and the last-write-wins cache key (§2) — so they are
+  described in plain words and **not** given invented ones; a name that is not
+  in the catalogue cannot be looked up or routed, which is worse than a
+  description.
 
 ## 2. Architecture pass — the region today
 
@@ -130,14 +139,14 @@ mentions a class job; nothing in them contradicts the drawing below.
  └────────────────────────────────────────────────────────────────────────────────
 ```
 
-**Smells the BEFORE already carries** (catalogue names):
+**Smells the BEFORE already carries** (catalogue names where the catalogue has
+one):
 
 | Smell | Where |
 |---|---|
-| *Conditional Complexity* — job-ness is one predicate, repeated | `sync.py:410-411` `isfunction`, `registry.py:605-609` `isfunction`, `providers.py` `_build_descriptor` assumes a function |
-| *Silent Overwrite* — two definitions with one key become one entry | `cached_provider.py:545` `_entry_key` + `:547-550` `_add_entry` |
-| *Duplicate Code* — the same identity rule in three places | `_entry_key` (545), `claim_order` (40-57), `attribute_name`/`python_name` |
-| *Data Clump* — provenance (file, class, method) has no single field | `descriptor.python_name`, `collision.dropped/registered_*_file`, `_import_real_function` |
+| *Duplicate Code* — two rules, each spelled out at more than one site: "is this a job?" (`sync.py:410-411`, `registry.py:605-609`, `providers._build_descriptor`) and "what is this job's key?" (`_entry_key` 545, `claim_order` 40-57, `attribute_name`/`python_name`) |
+| Last write wins, with no diagnostic (no catalogue name) — two definitions that normalise to one key become one cache entry | `cached_provider.py:545` `_entry_key` + `:547-550` `_add_entry` |
+| *Data Clumps* — provenance (file, class, method) has no single field | `descriptor.python_name`, `collision.dropped/registered_*_file`, `_import_real_function` |
 | *Shotgun Surgery* — every job surface assumes a `self`-free function | `click_params.build_click_params` (708-880), `_engine/validation._build_validation_model`, `executor._di_binding_errors` |
 | *Long Method* | `sync.extract_module` 210-308 |
 | *Divergent Change* — `collision_projection` answers "which claimant won" only | `_cli/info.py:111-160`; the "nobody won" case has no shape |
@@ -163,15 +172,18 @@ gains one optional field (`method_name`); the engine binds the receiver from the
 config instance it already builds; discovery gains one branch in the place that
 already walks a module.
 
-Introduced-smell check for A3: no *Conditional Complexity* growth outside one
-named branch per seam (`sync._find_all_jobs` class branch, `_import_real_function`
+Introduced-smell check for A3: no *Switch Statements* growth outside one named
+branch per seam (`sync._find_all_jobs` class branch, `_import_real_function`
 class branch, `register_descriptors` class branch, `collision_projection` third
 shape) — each branch's condition is `owner_class is not None`, one predicate
-carried in data rather than re-derived from types; no *Duplicate Code* — the
-identity rule becomes one composed string with two readers (`_entry_key`,
-`claim_order`) and no third copy; no *Shotgun Surgery* — `click_params`,
-`ArgValidator` and `_di_binding_errors` are **unchanged**, because the proxy's
-`__signature__` already excludes `self`; no global state; no peer-layer import
+carried in data rather than re-derived from types, and the check is a field, not
+a `isinstance`/type-code ladder (the catalogue's *Switch Statements* is
+branching on a type code; a boolean already on the record is not one). No
+*Duplicate Code* — the identity rule becomes one composed string with two
+readers (`_entry_key`, `claim_order`) and no third copy. No *Shotgun Surgery* —
+`click_params`, `ArgValidator` and `_di_binding_errors` are **unchanged**,
+because the proxy's `__signature__` already excludes `self`. No *Speculative
+Generality* beyond the one proxy. No global state; no peer-layer import
 (`_discovery` builds the proxy, `_engine` only rebinds by field, `_types` holds
 the proxy); `extract_module` grows by one call plus one helper, not by another
 99 lines.
@@ -195,12 +207,13 @@ the proxy); `extract_module` grows by one call plus one helper, not by another
  ┌──────────────────────────────────▼───────────────────────────────────────────
  │ _types/class_job.py  ClassJobMethod  [NEW — stdlib only]
  │   job_class, method_name, __signature__ (self/cls removed, PEP 563 resolved),
- │   __name__/__qualname__/__doc__/__module__, __getattr__ → method,
- │   __functualize_job__ read-through; calling it without a receiver: RuntimeError
+ │   __name__/__qualname__/__doc__/__module__, __getattr__ → method (workflow,
+ │   markers), __functualize_job__ = the descriptor's merged declaration (own
+ │   attribute, never read through); calling it without a receiver: RuntimeError
  │ _types/descriptors.py  JobDescriptor.owner_class  [NEW FIELD]
  │                        RegisteredJob.method_name   [NEW FIELD]
  │ _types/discovery_report.py  CLASS_JOB_NAME_COLLISION,
- │                             ClassJobCollisionDetail (both definitions+files)
+ │                             ClassJobCollisionDetail (qualified names+files)
  ├────────────────────────────────────────────────────────────────────────────────
  │ _discovery/sync.py  extract_module → _find_all_jobs   [CHG: class branch]
  │   class: own-namespace @job only (F1-b); abstract → finding, no jobs (F1-a);
@@ -299,9 +312,20 @@ after the existing `dir(module)` loop over functions (unchanged, including the
   `config_fields` from `cls.model_fields` (via the existing
   `FieldDescriptor` conversion `_detect_config_class` feeding `sync` uses),
   `parameters` from `extract_parameters_from_signature(proxy)`,
-  `function=ClassJobMethod(cls, method_name)`, `decorators` from the
-  class-aware AST map (§4.4), and `source_file`/`mtime`/`content_hash` from the
-  module file — unchanged.
+  `function=ClassJobMethod(cls, method_name, declaration=effective)`,
+  `decorators` from the class-aware AST map (§4.4), and
+  `source_file`/`mtime`/`content_hash` from the module file — unchanged.
+
+**`effective` is computed here, once** — group from the class, `visibility` from
+the method else the class, `tags` merged author-first then the class
+`@job(tags=)` then `JOB_TAGS` from the job class outward along the MRO with
+duplicates removed, `guards`/`exec`/`cache`/`deps` from the method only (task
+3.1 states the merge; this paragraph states where it happens). It is passed to
+the proxy as `__functualize_job__`, and `JobDescriptor.declaration`
+(`_types/descriptors.py:244-248`) reads exactly that attribute off
+`func.__functualize_job__` at extraction — so the cache, registration and the
+warm proxy all hold one object, computed once, and no later stage may
+recompute or replace it (§4.4, §4.6).
 
 `extract_function_decorators` (`_primitives/pre_filter.py:436-469`) gains a
 `ClassDef` branch: for each class in the tree, for each `FunctionDef`/
@@ -362,7 +386,13 @@ positional click argument. The proxy exposes
   cannot degrade `Annotated[...]` markers);
 - `__name__`, `__qualname__`, `__doc__`, `__module__`, `__annotations__`,
   `__wrapped__` from the underlying function, and `__getattr__` delegating to it
-  (`__functualize_job__`, `__functualize_workflow__`, capability markers);
+  (`__functualize_workflow__`, capability markers — everything the descriptor
+  already carries);
+- `__functualize_job__` as an **own attribute**, set at construction from the
+  descriptor's effective merged declaration — *not* left to `__getattr__`. Left
+  to `__getattr__` it would answer with the method's own unmerged `@job`, which
+  is exactly the object `adopt_descriptor_declaration`'s early return would then
+  treat as already-correct (§4.4);
 - `__functualize_lazy__` **not** set, so `executor`'s lazy branch
   (`:1220-1238`) does not treat it as a cache stand-in;
 - `job_class` and `method_name` for registration, and a call that raises
@@ -401,16 +431,70 @@ passed". "For each run" in F1 is the invocation the run performed:
 invocation, and `config_class` comes from `RegisteredJob`, not from
 `descriptor.function`.
 
-**Registration.** `_app/boot.register_descriptors` (`2003-2059`) gains the class
-branch next to the two it has: when `descriptor.owner_class` is set,
-`config_class = proxy.job_class`, `method_name = proxy.method_name`,
-`function = proxy`, and `adopt_descriptor_declaration` is applied to the
-**class** (its declaration, not the method's, carries `visibility` and `tags`).
-`_detect_config_class(live_fn)` is not called for a class job: the config class
-*is* the job class, which is the whole point of C1's "typed fields = one config
-section". Warm boot: the descriptor has `function=None`, `LazyJobFunction`
-materialises it, and `_import_real_function` builds the proxy (§4.6) instead of
-`getattr(module, attribute_name)`.
+**Registration — one path, one declaration.** `_app/boot.register_descriptors`
+(`2003-2059`) gains one branch, and it is the branch the rest of the feature
+already keys on — `descriptor.owner_class is not None`. `RegisteredJob` is still
+constructed once, in the loop it is constructed in today:
+
+```python
+for descriptor in descriptors:
+    live_fn = getattr(descriptor, "function", None)
+    if descriptor.owner_class is not None:          # class job, cold or warm
+        fn = live_fn if live_fn is not None else LazyJobFunction(descriptor)
+        config_class = getattr(fn, "job_class", None)   # proxy: the class; lazy: None
+        method_name = descriptor.python_name
+    elif live_fn is not None and callable(live_fn):  # function job, cold
+        fn = live_fn
+        adopt_descriptor_declaration(descriptor, live_fn)
+        config_class = _detect_config_class(live_fn)
+        method_name = None
+    else:                                            # function job, warm
+        fn = LazyJobFunction(descriptor)
+        config_class = None
+        method_name = None
+```
+
+The class arm comes first, so `adopt_descriptor_declaration` and
+`_detect_config_class` are *unreachable* for a class job rather than merely
+unnecessary — a reviewer can see there is no second door.
+
+Three decisions inside that branch are load-bearing:
+
+- **`method_name` is read from the descriptor, not from the proxy.** The
+  descriptor already separates the two halves — `python_name` is the method,
+  `owner_class` is the class — so `JobDescriptor` gains no `method_name` field
+  (schema §8), and the proxy's own `method_name` is derived from that same
+  `python_name` at construction. Two spells of one identity, both computed from
+  `python_name`, cannot disagree; a third would be able to. `RegisteredJob` and
+  `ExecutionContext` carry the field because the engine never sees a descriptor.
+- **`_detect_config_class` is not called for a class job**, cold or warm. Cold,
+  the answer is the class the proxy already names; running the detector on the
+  method's constructor asks "which class carries this method's configuration",
+  which has no answer that is not the class itself. Warm, `config_class` is
+  either already on the entry or set at materialisation (§4.6), and the lazy
+  stand-in is never passed to the detector for a class job.
+- **`adopt_descriptor_declaration` is not applied to a class job.** It exists
+  for one job: fill an **absent** `__functualize_job__` on a function that has
+  none (`boot.py:1986-1987` returns early when `getattr(live_fn,
+  "__functualize_job__", None) is not None`). A `ClassJobMethod` is constructed
+  with the descriptor's **effective, already-merged** declaration as its own
+  attribute (§4.2, task 3.1), so on the proxy the call is a no-op — and worse, a
+  no-op for the wrong reason: because `__getattr__` delegates to the method, a
+  proxy *without* the own attribute would answer with the method's **unmerged**
+  `@job`, the early return would fire, and the merged declaration would be
+  silently replaced by the method's. Skipping the call is what makes the single
+  source real; the proxy's own attribute is what makes skipping it safe.
+
+So the declaration has exactly one origin. `_discovery` computes the effective
+declaration once (author tags and class `@job(tags=)`, `JOB_TAGS` along the MRO,
+`visibility`, method guards — task 3.1) and stores it on the descriptor;
+`descriptor.declaration` (`_types/descriptors.py:244-248`, read off
+`func.__functualize_job__` at extraction and cached) carries it in the cache;
+registration takes it from the descriptor through the proxy, not through a
+lookup; and after materialisation the five `executor` read sites see the same
+object, because the warm proxy is built *from* the descriptor that carries it.
+Cold and warm therefore run the same guards with the same cache flags and the
+same deps, which is what AC-7's warm half asserts (§4.9, task 4.1).
 
 ### 4.5 Surfaces — listing, collisions, exit codes
 
@@ -422,8 +506,13 @@ a *different* one:
 - `_types/discovery_report.py`: `CLASS_JOB_NAME_COLLISION =
   "ClassJobNameCollision"` and `ClassJobCollisionDetail(canonical_name,
   claimants: tuple[tuple[str, str], ...])` — each claimant a
-  `(python_name, source_file)` pair, so the message can name both definitions
-  and both files. `JobNameCollisionDetail`, its four `as_dict` keys and its
+  `(qualified_name, source_file)` pair, `"OtherPostgres.start"` for a class
+  job and the function's own name for a module function. The qualified name is
+  not decoration: `python_name` is the *method* name, so two claimants of
+  `postgres.start` are both `start`, and a message built from it would name
+  neither class. The message is formatted **from these pairs** — not
+  re-derived from descriptors, which no longer exist once neither claimant is
+  registered. `JobNameCollisionDetail`, its four `as_dict` keys and its
   rendering are **not touched** (C5's last line, and AC-14);
 - `collisions.resolve_name_collisions` (60-96) gains the third case: at least
   one claimant has `owner_class` → none of them is kept, every other name still
@@ -474,8 +563,18 @@ its signature, and nothing in the listing path calls it.
 - **Materialisation.** `_import_real_function` (`lazy_wrapper.py:64-138`) gets a
   class branch after `module = importlib.import_module(module_path)` (`:129`):
   `getattr(module, descriptor.owner_class)` then the method, then
-  `ClassJobMethod(cls, method_name)`. The synthetic-source, lock and
-  `sys.path` handling above it is untouched.
+  `ClassJobMethod(cls, method_name, declaration=descriptor.declaration)` — the
+  proxy is built **from the descriptor**, so the warm run's `__functualize_job__`
+  is the same merged object the cold run registered (this is the sub-decision
+  §4.4 depends on: without it, the five `executor` sites
+  (`_engine/executor.py`, readers of `function.__functualize_job__`) would read
+  the method's unmerged declaration after materialisation and a warm run would
+  skip guards the cold run ran). `LazyJobFunction.materialize` then sets
+  `config_class = real_fn.job_class` for a class job and leaves
+  `_detect_config_class` to the function path; `_ensure_materialized`
+  (`executor.py:463-500`) already keeps `entry.config_class or detected_config`,
+  so the value boot left `None` is filled once and never re-derived. The
+  synthetic-source, lock and `sys.path` handling above the branch is untouched.
 
 ### 4.7 Docs, examples, changelog — last
 
@@ -526,7 +625,7 @@ output pasted into the hand-off. Example projects run separately:
 |---|---|---|
 | `job.decorators.apply` | 1 definition; every `@job` call site at import time | class target now accepted; three `ValueError` paths added; identity preservation unchanged |
 | `sync._find_all_job_functions` | 1 definition, 1 call (`sync.py:233`) | renamed and extended; function branch byte-identical |
-| `sync.extract_module` | 1 definition, 2 calls (`DirectoryScanProvider._import_and_extract`, `registry`) | new class branch; the function path keeps its 99 lines |
+| `sync.extract_module` | 1 definition (`sync.py:117`), 3 calls (`cached_provider.py:914`, `providers.py:613`, `sync.py:332` — the `full_import_and_extract` wrapper) | new class branch; the function path keeps its 99 lines |
 | `JobDescriptor.owner_class` | new field; 8 `JobDescriptor(` sites are keyword-based | additive; `to_dict`/`from_dict` must round-trip it |
 | `_entry_key` / `claim_order` | 5 + 5 references, all in `_discovery` | identity string composed with `owner_class`; unchanged for functions |
 | `RegisteredJob(` | 4 construction sites (`boot`, `impl`, `registry`, `lazy_command`) | each gains `method_name` when a class job is registered; default `None` makes the other three compile and behave |
@@ -569,7 +668,7 @@ output pasted into the hand-off. Example projects run separately:
 | Smell (catalogue) | Where | Why accepted | Maintainer review? |
 |---|---|---|---|
 | *Duplicate Code* — identity composed twice | `_entry_key` and `claim_order` | They live in peer modules of one layer and answer different questions (a dict key vs a sort order). One composed string, two readers, pinned by a test that asserts both agree on the `OtherPostgres`/`LocalPostgres` shape. | No |
-| *Conditional Complexity* — four `owner_class` branches | `sync`, `boot`, `_import_real_function`, `collision_projection` | One predicate in data beats four in code, but the branches cannot be merged: each is in a layer that may not import the other's module. | No |
+| *Switch Statements* (avoided) — four `owner_class` branches | `sync`, `boot`, `_import_real_function`, `collision_projection` | Four sites, one condition each: `descriptor.owner_class is not None` (or `cls.owner_class is not None`), read off the record, never a type code or `isinstance` ladder. The catalogue's *Switch Statements* is branching on a type code; a field cannot drift the way a repeated `isinstance` chain does. The branches cannot be merged regardless: each lives in a layer that may not import the other's module. | No |
 | *Speculative Generality* avoided, not carried | — | The proxy exposes only what a surface already reads (`signature`, `doc`, `name`, markers). No `__getstate__`, no pickling, no `__call__` fallback. | No |
 | *Long Method* | `sync.extract_module` | The class branch moves to `_find_all_jobs`; `extract_module` grows by one call and stays under its current 99 lines. | No |
 
@@ -581,10 +680,20 @@ output pasted into the hand-off. Example projects run separately:
   harmless — but this is the one place a PEP 563 class job could regress
   silently, so a task asserts an `Annotated[..., Field(...)]` parameter on a
   class method survives into click params and into `ArgValidator`.
-- **`_detect_config_class` on a class job.** Boot must not call it: it would
-  look at the constructor's parameters and could mistake the class for an
-  ordinary function job's config model. §4.4 skips it; a test pins that a class
-  job's config section is the class itself.
+- **`_detect_config_class` on a class job.** Neither boot nor materialisation
+  calls it: it looks at a constructor's parameters and would ask an ordinary
+  function job's question about a job class. §4.4's class arm is reached first,
+  so the call is unreachable cold; §4.6 sets `config_class` from
+  `real_fn.job_class` warm. A test pins that a class job's config section is the
+  class itself on both paths.
+- **The declaration is read once.** `ClassJobMethod.__functualize_job__` is set
+  at construction and `JobDescriptor.declaration` reads it; nothing may write a
+  different one afterwards. The trap is that `adopt_descriptor_declaration`
+  early-returns on a non-`None` `getattr`, and a read-through proxy would answer
+  with the *method's* unmerged `@job` — a real object, so the guard would look
+  satisfied and the merged declaration would be lost silently. §4.4 skips the
+  call and §4.6 builds the warm proxy from the descriptor; a test asserts a warm
+  run's guards, cache flags and deps equal the cold run's.
 - **Model-identity checks.** `sync.py:417-419` and `registry.py:605-609` compare
   `inspect.getmodule(attr)` with the scanned module. `ModelMetaclass` preserves
   `__module__`, but a class re-exported through a package `__init__` must not be
@@ -595,9 +704,12 @@ output pasted into the hand-off. Example projects run separately:
   That is the intended cost of `owner_class`; a test asserts a v22 payload is
   rejected rather than partially read.
 - **Collision message stability.** C5 requires both definitions and both files.
-  Any message built from `python_name` alone would print `start` twice for two
-  classes; the detail carries `(python_name, source_file)` pairs and the test
-  asserts both class names (or qualified names) appear.
+  A message built from `python_name` would print `start` twice for two classes;
+  the detail therefore carries `(qualified_name, source_file)` pairs with the
+  class prefix already composed (`"OtherPostgres.start"`), and the test asserts
+  on the serialized `as_dict()["message"]` — the string a reader actually sees
+  — that both class names appear, rather than on a tuple a formatter could
+  ignore.
 - **`graphify` was unavailable** (`graph.json` absent), so cross-module impact
   rests on serena references plus `git grep` counts in §5. The counts are
   recorded per symbol so a reviewer can re-run them.
