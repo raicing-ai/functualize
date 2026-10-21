@@ -67,6 +67,9 @@ def _make_tui_for_build():
     from functualize.app.core import FunctualizeApp
 
     func_app = FunctualizeApp(name="testapp")
+    # The bar names `deploy`, and the bar resolves through the navigation
+    # trie the app's jobs build, so the app must have that job.
+    func_app.register_dynamic_job("deploy", lambda port: None)
     tui = FunctualizeInlineTUI(func_app)
 
     # Set up minimum state

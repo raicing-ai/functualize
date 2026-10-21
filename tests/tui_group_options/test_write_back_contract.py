@@ -82,6 +82,26 @@ class TestThePanelTheBuilderActuallyProduces:
     which kind the flag is. The partition is the invariant, not the funnel.
     """
 
+    async def test_browser_selection_writes_an_invocable_path(self, glab_tui) -> None:
+        from functualize._cli.tui.panels.job_browser import JobBrowserPanel
+
+        async with glab_tui.run_test(size=(140, 40)) as pilot:
+            glab_tui.on_job_browser_panel_job_selected(
+                JobBrowserPanel.JobSelected("deploy.web.run")
+            )
+            await pilot.pause()
+            text = glab_tui._smart_bar.value
+            resolution = glab_tui.resolve_command(tokenize_bar_text(text))
+
+        assert text == "deploy web run"
+        assert resolution.job_name == "deploy.web.run"
+
+    def test_preflight_header_uses_the_descriptor_path(self, glab_tui) -> None:
+        descriptor = glab_tui._find_job_descriptor("deploy.web.run")
+        header = glab_tui._format_preflight_job_header(descriptor, "deploy.web.run")
+        assert "deploy web run" in header
+        assert "deploy.web.run" not in header
+
     async def test_editing_a_group_row_writes_the_flag_mid_path(self, glab_tui) -> None:
         async with glab_tui.run_test(size=(140, 40)) as pilot:
             table = await _place_real_panel(glab_tui, pilot, "deploy web run v1.2")

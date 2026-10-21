@@ -143,7 +143,10 @@ class JobNode:
             command_name=descriptor.func_name,
         )
         return invoke_command_capturing(
-            command, list(args), "none", prog_name=descriptor.func_name
+            command,
+            list(args),
+            "none",
+            prog_name=f"{self._app.name} {descriptor.command_path}",
         )
 
     # ── internals ────────────────────────────────────────────────────────

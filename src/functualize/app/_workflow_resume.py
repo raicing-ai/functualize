@@ -183,19 +183,22 @@ def deposit_gate_input(
         }
     # Name the command, not the concept. "Run the workflow job with scope_id
     # 'X'" named neither the flag nor its position, and the audit that found
-    # this got both wrong twice before reading `dispatch.py`. The job address
-    # is dotted (`audit.audit-run`) and the command path is not
-    # (`audit audit-run`), so the dotted form would print something that
-    # answers `No such command`.
+    # this got both wrong twice before reading `dispatch.py`. Scope storage
+    # keeps the dotted identity; the descriptor owns the command path.
     #
     # `--wf-resume` replaces `--scope-id`, and it does more than rename: this
     # hint is now a command that *finishes the run*, where the old one only
     # started another attempt at it.
     workflow_name = str(scope.get("workflow") or "")
+    descriptor = (
+        app.get_job(workflow_name)
+        if workflow_name and callable(getattr(app, "get_job", None))
+        else None
+    )
     resume_hint = (
-        f" Continue with: <your entry point> {workflow_name.replace('.', ' ')} "
+        f" Continue with: <your entry point> {descriptor.command_path} "
         f"--wf-resume {scope_id}"
-        if workflow_name
+        if descriptor is not None
         else f" Re-run the workflow job with --wf-resume {scope_id}."
     )
     return {

@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BUILTIN_SEGMENT",
+    "CommandPath",
     "RESERVED_SIGILS",
     "GroupTrie",
     "NodeKind",
@@ -41,6 +42,26 @@ __all__ = [
     "normalize_segment",
     "resolve_name",
 ]
+
+
+@dataclass(frozen=True)
+class CommandPath:
+    """The segments a person types to address one job in a shell.
+
+    The dotted job name remains its programmatic identity. A child namespace
+    precedes the declared group; only those known prefixes define boundaries.
+    A dot inside the remaining leaf is retained.
+    """
+
+    segments: tuple[str, ...]
+
+    @classmethod
+    def of(cls, group: str | None, name: str) -> CommandPath:
+        """Derive a path using the trie's job insertion rule."""
+        return cls(tuple(_job_segments(group, name)))
+
+    def __str__(self) -> str:
+        return " ".join(self.segments)
 
 
 def _nfkc(value: str) -> str:
@@ -394,7 +415,7 @@ class GroupTrie:
             cls._ensure_path(root, segments, origin="group")
 
         for job_group, name, kind in job_groups:
-            segments = _job_segments(job_group, name)
+            segments = list(CommandPath.of(job_group, name).segments)
             node_kind = NodeKind(kind) if not isinstance(kind, NodeKind) else kind
             cls._insert(root, segments, payload=name, kind=node_kind, origin="job")
 
@@ -573,14 +594,23 @@ def _split_group(group: str | None) -> list[str]:
 def _job_segments(group: str | None, name: str) -> list[str]:
     """Segments for a job row.
 
-    ``name`` is the descriptor's full dotted name, so the leaf is `name` with
-    the group prefix stripped rather than ``name.rsplit(".", 1)``. The
-    difference matters for any leaf carrying a dot of its own, such as
-    ``deploy[version=1.2]``: that dot is part of the name, not a separator.
+    ``name`` is the descriptor's full dotted identity. A child namespace can
+    precede its declared group, so the rightmost complete group prefix marks
+    the leaf boundary. Dots after that boundary belong to the leaf.
     """
     segments = _split_group(group)
     prefix = f"{group}." if group else ""
-    leaf = name[len(prefix) :] if prefix and name.startswith(prefix) else name
+    if prefix and name.startswith(prefix):
+        leaf = name[len(prefix) :]
+    elif group:
+        namespace, marker, remainder = name.rpartition(f".{group}.")
+        if marker:
+            segments = namespace.split(".") + segments
+            leaf = remainder
+        else:
+            leaf = name
+    else:
+        leaf = name
     segments.append(leaf)
     _check_segments(segments, f"job {name!r}")
     return segments

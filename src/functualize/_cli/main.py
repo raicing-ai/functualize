@@ -103,6 +103,29 @@ class _LeftMarginEpilogGroup(click.Group):
 
         self.format_commands(ctx, formatter)
 
+    #: The project's top-level jobs and groups, as ``(name, help)`` rows. Set
+    #: only by the ``--help`` route, and read only when this group renders its
+    #: own Commands block, so ``func builtin … --help`` never boots a project.
+    discovered_rows: Callable[[], list[tuple[str, str]]] | None = None
+
+    def format_commands(self, ctx: click.Context, formatter: Any) -> None:
+        """List ``builtin`` beside the project's discovered top-level paths.
+
+        A row is a help-only placeholder, never registered: this group does not
+        dispatch jobs, so nothing could invoke it.
+        """
+        if self.discovered_rows is None:
+            super().format_commands(ctx, formatter)
+            return
+        rows: dict[str, click.Command] = {
+            name: click.Command(name, help=help_text)
+            for name, help_text in self.discovered_rows()
+        }
+        rows.update(self.commands)
+        # A throwaway group renders the merged block, so this group's own
+        # registry -- module-level and reused in-process -- never gains a row.
+        click.Group(commands=rows).format_commands(ctx, formatter)
+
     def format_epilog(self, ctx: click.Context, formatter: Any) -> None:
         from functualize.app.utils import write_agent_epilog
 
@@ -421,9 +444,9 @@ def cli_app(
                     if job.docstring:
                         desc = job.docstring.strip().split("\n")[0]
                     if desc:
-                        click.echo(f"{job.name} — {desc}")
+                        click.echo(f"{job.command_path} — {desc}")
                     else:
-                        click.echo(job.name)
+                        click.echo(str(job.command_path))
             else:
                 click.echo("No jobs discovered.")
             raise SystemExit(0)
@@ -527,6 +550,28 @@ def _print_perf_report(app: Any, fmt: str, filter_pattern: str | None) -> None:
         print(report.summary(include=filter_pattern), file=sys.stderr)
 
 
+def _discovered_help_rows(
+    anchor: Path,
+    merged_config: dict[str, Any],
+    effective: dict[str, list[str]],
+    cli_flags: dict[str, Any],
+) -> list[tuple[str, str]]:
+    """Root-help rows: the top-level nodes of the shell's command tree.
+
+    The tree is the trie the shell, the TUI and an app's own CLI navigate, so
+    a row is exactly the first word of a path that runs. A project that fails
+    to boot loses its rows, never the page: the help is what explains it.
+    """
+    from functualize.app.commands import JobCommandProvider
+
+    try:
+        app = _boot_project_app(anchor, merged_config, effective, cli_flags)
+        return [(node.name, node.help_text) for node in JobCommandProvider(app).nodes()]
+    except Exception as exc:  # noqa: BLE001 - help must survive a broken project
+        logger.debug("root help: no discovered rows (%s)", exc)
+        return []
+
+
 def _handle_bare(
     anchor: Path,
     merged_config: dict[str, Any],
@@ -627,9 +672,9 @@ def _handle_bare(
         if job.docstring:
             desc = job.docstring.strip().split("\n")[0]
         if desc:
-            click.echo(f"{job.name} — {desc}")
+            click.echo(f"{job.command_path} — {desc}")
         else:
-            click.echo(job.name)
+            click.echo(str(job.command_path))
 
     # Plugin-registered command namespaces + un-namespaced commands (post-boot).
     namespace_counts: dict[str, int] = {}
@@ -889,6 +934,28 @@ def _render_group_option_rows(specs: list[Any]) -> list[tuple[str, str]]:
     return rows
 
 
+def _warn_collisions(app: Any, descriptor: Any) -> None:
+    """Print the job's collision findings to stderr, one line each, before it runs.
+
+    The collision stays a warning -- the surviving claimant runs -- but a user
+    who typed the command learns here, not later, that another job wanted it.
+    """
+    from functualize._cli.info import collision_notices
+
+    for line in collision_notices(app).get(descriptor.name, ()):
+        print(line, file=sys.stderr)
+
+
+def _show_dotted_group_error(token: str, path: tuple[str, ...]) -> int:
+    """Explain the shell spelling for a token that crossed group edges."""
+    print(
+        f"Error: '{token}' crosses a group; navigate groups with spaces: "
+        f"func {' '.join(path)}",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def _dispatch_group(
     app: Any,
     args: list[str],
@@ -995,6 +1062,8 @@ def _dispatch_group(
     # mid-path and is consumed as a group option (`func deploy --env prod web
     # run`). Everything else still errors exactly as before.
     walk = walk_group_path(trie, args)
+    if walk.bad_path is not None:
+        return _show_dotted_group_error(walk.remaining[0], walk.bad_path)
     node = walk.node
     remaining = list(walk.remaining)
     consumed = list(walk.consumed)
@@ -1039,9 +1108,7 @@ def _dispatch_group(
                         file=sys.stderr,
                     )
                 return 2
-    # Echo the tokens as typed, not the canonical path: a user who wrote
-    # `func infra.aws` should read their own spelling back in the usage line.
-    cli_path = " ".join(consumed) if consumed else args[0]
+    cli_path = " ".join(node.path) if node.path else args[0]
 
     # ── A command node → execute it, remaining tokens are its arguments ───
     if node.has_payload and node.is_leaf:
@@ -1080,8 +1147,12 @@ def _dispatch_group(
                 output_format=output_format,
                 force=force,
             )
+            _warn_collisions(app, job_descriptor)
             return invoke_command_capturing(
-                command, remaining, output_format, prog_name=job_descriptor.func_name
+                command,
+                remaining,
+                output_format,
+                prog_name=f"func {job_descriptor.command_path}",
             )
 
         plugin_cmd = plugins_by_path.get(node.payload or "")
@@ -1096,22 +1167,17 @@ def _dispatch_group(
                 # "Usage: func mcp serve" -- a line that can be copied and
                 # run. It printed "Usage: serve", naming a command that does
                 # not exist.
-                prog_name=" ".join(
-                    [
-                        "func",
-                        *(
-                            segment
-                            for token in consumed
-                            for segment in token.split(".")
-                        ),
-                    ]
-                ),
+                prog_name=f"func {' '.join(node.path)}",
             )
 
     # ── A group node ──────────────────────────────────────────────────────
     children = sorted(node.children.values(), key=lambda child: child.segment)
     sub_groups = sorted(child.segment for child in children if child.children)
     entries: list[tuple[str, str]] = []
+    from functualize._cli.info import collision_notices
+
+    notices = collision_notices(app)
+    entry_notices: dict[str, list[str]] = {}
     for child in children:
         if not child.has_payload:
             continue
@@ -1120,6 +1186,7 @@ def _dispatch_group(
             entries.append(
                 (child.segment, (job.docstring or "").strip().split("\n")[0])
             )
+            entry_notices[child.segment] = notices.get(job.name, [])
             continue
         cmd = plugins_by_path.get(child.payload or "")
         if cmd is not None:
@@ -1132,9 +1199,7 @@ def _dispatch_group(
         # legal here (`func deploy --env prod web run`), so a listing that
         # showed only this node's own declarations would under-report what the
         # user may type. Outermost-first, matching the order they appear in.
-        option_specs = trie.group_options_on_path(
-            [segment for token in consumed for segment in token.split(".")]
-        )
+        option_specs = trie.group_options_on_path(node.path)
         option_rows = _render_group_option_rows(option_specs)
         if option_rows:
             print("\nOptions:")
@@ -1155,6 +1220,8 @@ def _dispatch_group(
             width = max(len(cmd_name) for cmd_name, _ in rows)
             for cmd_name, desc in rows:
                 print(f"  {cmd_name.ljust(width)}  {desc}".rstrip())
+                for notice in entry_notices.get(cmd_name, ()):
+                    print(f"    {notice}")
         if not sub_groups and not entries:
             print("No commands available.")
         return 0
@@ -1169,39 +1236,16 @@ def _dispatch_group(
     return 1
 
 
-def _handle_group(
-    args: list[str],
+def _boot_project_app(
     anchor: Path,
     merged_config: dict[str, Any],
     effective: dict[str, list[str]],
     cli_flags: dict[str, Any],
-    group_names: set[str],
-    *,
-    output_format: str = "none",
-    _app_ref: list[Any] | None = None,
-    prompt_gates: bool = False,
-    force: bool = False,
-) -> int:
-    """Handle Mode.GROUP: boot app, then delegate to _dispatch_group.
+) -> Any:
+    """Boot the project's FunctualizeApp over the resolved scan roots.
 
-    Boots the full app (plugins included) and hands off to _dispatch_group,
-    which greedily consumes the group path and lists or executes the target
-    job or plugin command. Group-path consumption happens post-boot so it can
-    see plugin-registered command groups (e.g. ``mcp``) alongside job groups.
-
-    Args:
-        args: [group_segment_1, ..., sub_command?, ...remaining_args]
-        anchor: Project anchor directory.
-        merged_config: Merged project config dict.
-        effective: Resolved effective directories.
-        cli_flags: Parsed global CLI flags for resolve_cli_config.
-        group_names: Set of known group names (including ancestor prefixes).
-        output_format: The --emit-format flag value (json, text, or none).
-        _app_ref: Optional mutable container; if provided, the constructed
-            FunctualizeApp is appended so callers can access it for perf reporting.
-
-    Returns:
-        Exit code (0 = success).
+    Shared by group dispatch and root help, so the commands a group lists and
+    the rows ``func --help`` shows come from one boot of one project shape.
     """
     from functualize._cli.config import resolve_cli_config
     from functualize.app import FunctualizeApp
@@ -1248,6 +1292,44 @@ def _handle_group(
         if _disabled_plugins
         else None,
     )
+    return app
+
+
+def _handle_group(
+    args: list[str],
+    anchor: Path,
+    merged_config: dict[str, Any],
+    effective: dict[str, list[str]],
+    cli_flags: dict[str, Any],
+    group_names: set[str],
+    *,
+    output_format: str = "none",
+    _app_ref: list[Any] | None = None,
+    prompt_gates: bool = False,
+    force: bool = False,
+) -> int:
+    """Handle Mode.GROUP: boot app, then delegate to _dispatch_group.
+
+    Boots the full app (plugins included) and hands off to _dispatch_group,
+    which greedily consumes the group path and lists or executes the target
+    job or plugin command. Group-path consumption happens post-boot so it can
+    see plugin-registered command groups (e.g. ``mcp``) alongside job groups.
+
+    Args:
+        args: [group_segment_1, ..., sub_command?, ...remaining_args]
+        anchor: Project anchor directory.
+        merged_config: Merged project config dict.
+        effective: Resolved effective directories.
+        cli_flags: Parsed global CLI flags for resolve_cli_config.
+        group_names: Set of known group names (including ancestor prefixes).
+        output_format: The --emit-format flag value (json, text, or none).
+        _app_ref: Optional mutable container; if provided, the constructed
+            FunctualizeApp is appended so callers can access it for perf reporting.
+
+    Returns:
+        Exit code (0 = success).
+    """
+    app = _boot_project_app(anchor, merged_config, effective, cli_flags)
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1465,12 +1547,20 @@ def _handle_job(
 
         suggestions = suggest_similar_commands(job_name, discovered_names)
         if suggestions:
+            descriptors_by_name = {descriptor.name: descriptor for descriptor in jobs}
             print("\nDid you mean:", file=sys.stderr)
             for suggestion in suggestions:
-                print(f"  func {suggestion}", file=sys.stderr)
+                descriptor = descriptors_by_name.get(suggestion)
+                path = str(descriptor.command_path) if descriptor else suggestion
+                print(f"  func {path}", file=sys.stderr)
             print(file=sys.stderr)
         print("Run 'func' to see all available commands.", file=sys.stderr)
         return 1
+
+    # A dotted identity is still valid for aliases and programmatic calls.
+    # Only a token typed at the shell that names a grouped job is a traversal.
+    if raw_name not in aliases and job_descriptor.group and "." in raw_name:
+        return _show_dotted_group_error(raw_name, job_descriptor.command_path.segments)
 
     # Materialize the ONE target job via the engine (lazy boot leaves
     # cache-only descriptors with function=None; this imports only the
@@ -1501,11 +1591,12 @@ def _handle_job(
         force=force,
     )
 
+    _warn_collisions(app, job_descriptor)
     return invoke_command_capturing(
         command,
         remaining_args,
         output_format,
-        prog_name=job_descriptor.name,
+        prog_name=f"func {job_descriptor.command_path}",
         on_start=lambda: app.perf_timeline.mark("job.execute.start"),
         on_end=lambda: app.perf_timeline.mark("job.execute.end"),
     )
@@ -2112,6 +2203,9 @@ def _run_cli() -> None:
         and mode is not Mode.GROUP
     ):
         register_builtin_commands(cli_app)
+        cli_app.discovered_rows = lambda: _discovered_help_rows(
+            anchor, merged_config, effective, cli_flags
+        )
         # `--help` prints and stops. It never runs a job, so a project-wide
         # contradiction — two files contesting one group's flags — has nothing
         # to make ambiguous here, and killing a help request over it left a
@@ -2119,8 +2213,11 @@ def _run_cli() -> None:
         # that would explain it (`func builtin why --help` exited 2 with an
         # empty stdout). Unconditional, not `_diagnostic_scope`: the rule is
         # about *running*, and this path runs nothing (decision D-4).
-        with diagnostic_boot():
-            cli_app()
+        try:
+            with diagnostic_boot():
+                cli_app()
+        finally:
+            cli_app.discovered_rows = None
         return
 
     # Resolve output format from global options. Unset → "auto": the emitter

@@ -87,14 +87,13 @@ class TestRunFallbackChain:
         from functualize.app import FunctualizeApp
 
         # Create a mock app that returns known job names
+        from functualize.types import JobDescriptor
+
         mock_app = MagicMock(spec=FunctualizeApp)
-        mock_descriptor_deploy = MagicMock()
-        mock_descriptor_deploy.name = "deploy"
-        mock_descriptor_destroy = MagicMock()
-        mock_descriptor_destroy.name = "destroy"
+        mock_app.name = "app"
         mock_app.get_jobs.return_value = [
-            mock_descriptor_deploy,
-            mock_descriptor_destroy,
+            JobDescriptor(name="deploy", group=None),
+            JobDescriptor(name="destroy", group=None),
         ]
 
         result = _run_fallback_chain(["dep"], app=mock_app, fallbacks=[])
@@ -107,8 +106,9 @@ class TestRunFallbackChain:
         # sentences, under a comment in that same function saying the surface
         # does not change the answer (adj §4).
         assert "Unknown command 'dep'" in captured.err
-        # Should suggest "deploy" since "dep" is a prefix of "deploy"
-        assert "deploy" in captured.err
+        # Should suggest "deploy" since "dep" is a prefix of "deploy", as a
+        # line the app's own entry point runs.
+        assert "  app deploy" in captured.err
 
     def test_no_match_empty_args_returns_1(
         self, capsys: pytest.CaptureFixture[str]
