@@ -1,4 +1,4 @@
-# config-unknown-keys — Specification (Revision 3)
+# config-unknown-keys — Specification (Revision 4)
 
 A key that is not a functualize setting is not accepted in silence, and the
 settings vocabulary that decides it is stated **once**. Every reader, resolver,
@@ -9,10 +9,15 @@ Shape: Confluence `SD/17137669` **v3** (scope amended 2026-10-20 on the
 maintainer's instruction, MCH-190 comment `01a15669`). It keeps v2's approved
 1a + 2a + 3a and adds vocabulary, resolver and registry unification (decisions
 M1–M4), so nothing found on the way is left as a follow-up. `plan.md` →
-`## Alignment` quotes it.
+`## Alignment` quotes it. Revision 4 folds in the maintainer's closed
+answers to M5–M7 (MCH-190 comment `01a15ee0`, 2026-10-21): remove the PEP 723
+`skill` key, use the `[discovery]` environment names, and split the
+god-class work into PR 2.
 
-Base: `master` `91947bb4`. Every measurement below was run on that head
-(2026-10-19/20, isolated `HOME`, the worktree's editable venv).
+Base: `master` `bb3aac77`. Every line citation and count below was
+re-measured on that head on 2026-10-21 (`git grep -n` per anchor; AST walks),
+and F1, F3a and F3b were re-run there (isolated `HOME`, the worktree's
+editable venv).
 
 ## 1. Problem
 
@@ -39,20 +44,20 @@ $ func builtin info --json | grep -c -i 'roots\|outptu\|definitely'
 | # | Finding | Evidence |
 |---|---|---|
 | F2 | The vocabulary is stated five times, and 91 key names are read by string | AST walk of `src/functualize`: 13 collection literals restating ≥ 2 config key names, in 6 files; `_cli/data/func_settings.py:180` `_BASE_SETTINGS`; `_discovery/filter_factory.py:199` (its comment: repeated "because `_discovery` may not import the public `app.config`"); 91 read-position literals (`.get("k")`, `["k"]`, `"k" in`) in 9 files |
-| F3a | **Three resolvers** for one set of settings, and they disagree. `root = true` is honoured by the CLI and ignored by the settings store | project `.functualize.toml` = `root = true`, parent `.functualize.toml` = `[cli] output = "json"` → `resolve_cli_config().output == "rich"`, `FuncSettingsStore.discover()` → `cli.output == "json"`; store layers include the parent file. The store feeds the TUI settings panel, `cli.inline_tui` (`app/adapters/cli.py:1150`), `shell.program` in the TUI (`_cli/tui/shell_mode.py:252`), the surface gate (`app/adapters/surface_gate.py:81`) |
+| F3a | **Three resolvers** for one set of settings, and they disagree. `root = true` is honoured by the CLI and ignored by the settings store | project `.functualize.toml` = `root = true`, parent `.functualize.toml` = `[cli] output = "json"` → `resolve_cli_config().output == "rich"`, `FuncSettingsStore.discover()` → `cli.output == "json"`; store layers include the parent file. The store feeds the TUI settings panel, `cli.inline_tui` (`app/adapters/cli.py:1215`), `shell.program` in the TUI (`_cli/tui/shell_mode.py:252`), the surface gate (`app/adapters/surface_gate.py:81`) |
 | F3b | A declared setting is read by its consumer from a different file kind than the one it is declared, shown and documented in | `[shell] program` in `.functualize.toml`: store says `/bin/from-dotfunctualize`, engine (`_engine/executor.py:2016`, job `ResolutionChain`) says `None`. In `config.base.toml`: engine honours it, store/TUI show nothing. `plugins.strict` is resolved the same way (`_app/boot.py:2082`) |
 | F4 | One setting, three environment names | `shell.sudo_password`: docs `FUNCTUALIZE_SUDO_PASSWORD` (`docs/guides/shell.md:97`), catalog rule `FUNCTUALIZE_SHELL_SUDO_PASSWORD`, engine's chain `SHELL_SUDO_PASSWORD` (un-prefixed `EnvSource`). And `extra_directories` takes `FUNCTUALIZE_EXTRA_DIRECTORIES` (documented) while `exclude_patterns` does not |
-| F5 | Settings-backed CLI flags are stated three times, with a fourth generator beside them | `_types/flag_grammar.py:46` (`GLOBAL_OPTIONS_ALWAYS_VALUE`), `_cli/main.py:117-200` (click options), `_cli/dispatch.py:294`, `:490` (hand parsing), and `Setting.cli_flag` generation (`app/adapters/cli.py:1209`) |
+| F5 | Settings-backed CLI flags are stated three times, with a fourth generator beside them | `_types/flag_grammar.py:46` (`GLOBAL_OPTIONS_ALWAYS_VALUE`), `_cli/main.py:140-223` (16 click options; `@click.pass_context` at `:228`), `_cli/dispatch.py:294`, `:490` (hand parsing), and `Setting.cli_flag` generation (`app/adapters/cli.py:1274`) |
 | F6 | Module-level mutable registries (constitution: forbidden) | `_cli/data/func_settings.py:274` `_REGISTERED`, `:283` `_PREBOOT_OVERRIDES`. Consequence recorded as `.spec/STATUS.md` #22: `tui.default_surface` is inert on a direct `func <job>` run because the shell registers it as an import side effect, and tests pass or fail by import order |
-| F7 | The public API cannot express a second app's settings | `app/adapters/cli.py:1147`, `:1209`, `:1238` and `app/adapters/surface_gate.py:74` import `functualize._cli.data.func_settings`; `examples/standalone/deploy_tool/deploy_tool/main.py` imports `functualize._cli.*` and reads the private `store._layers` |
+| F7 | The public API cannot express a second app's settings | `app/adapters/cli.py:1212`, `:1274`, `:1303` and `app/adapters/surface_gate.py:74` import `functualize._cli.data.func_settings`; `examples/standalone/deploy_tool/deploy_tool/main.py` imports `functualize._cli.*` and reads the private `store._layers` |
 | F8 | `config path` invents its own file list, and its status words do not mean what the docs say | hard-coded names `_cli/builtins.py:2419-2420`; cwd-only probes vs. the upward walk resolution uses; `✓ used` = "exists" (`:2462-2467`) while `docs/cli/config.md:239-240` says "contributed values" / "all values were overridden" — never computed |
 | F9 | The global file has its own reader, its own warning, and drops whole sections | `_cli/config.py:80-158`: warns per run for unknown keys in 5 recognised sections, silently drops `[plugins]`, `[shell]` and unknown top-level keys |
-| F10 | *Long Method* | `register_builtin_commands`, `_cli/builtins.py:728-3038` (2311 lines, 10 command groups as closures) |
-| F11 | Test fixtures write keys functualize does not read where they are written | `tests/_cli/test_runtime_detection.py:219` (`scan_depth` top level), `tests/_cli/test_self_doctor.py:159` (`require_file_import` top level), `tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py:121` (`name`), `tests/cli/test_config_upward_walk.py:134` (`extra`) |
+| F10 | *Long Method* | `register_builtin_commands`, `_cli/builtins.py:728-3053` (2326 lines by AST, 10 command groups as closures) |
+| F11 | Test fixtures write keys functualize does not read where they are written | `tests/_cli/test_runtime_detection.py:219` (`scan_depth` top level), `tests/_cli/test_self_doctor.py:160` (`require_file_import` top level), `tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py:121` (`name`), `tests/cli/test_config_upward_walk.py:134` (`extra`) |
 | F12 | Docs disagree with the code | `docs/cli/config.md` *Error Handling* table ("Unrecognized section … silently ignored" / "key … warning") and env table; `docs/guides/shell.md:97` |
 | F13 | A TRANSITIONAL in a file this change rewrites, deferred to "a separate follow-up" | `_types/flag_grammar.py` `OPTIONAL_VALUE_VALID_SET` rename |
 | F14 | A job or group named like a settings section is ambiguous | a job `shell`, `cli`, `discovery`, `plugins`, `vault`, `tui` or `aliases` shares its config table with settings |
-| F15 | `[tool.functualize] skill` in a PEP 723 script is accepted and read by nothing | `.spec/STATUS.md` #29, `_cli/pep723.py:53` — decision **M5** |
+| F15 | `[tool.functualize] skill` in a PEP 723 script is accepted and read by nothing | `.spec/STATUS.md` #29, `_cli/pep723.py:53` `frozenset({"job", "skill"})` — **M5 closed: removed** (§3.10) |
 
 ## 2. Users and stories
 
@@ -162,7 +167,8 @@ and the settings document the table belongs in, so moving `[shell]` out of
 |---|---|---|
 | `[shell]`, `[plugins]` settings location | honoured only in `config.*.toml` job files (F3b) | honoured in the settings documents (`.functualize.toml`, `[tool.functualize]`, global `config.toml`) where they are declared, shown and documented; a `[shell]`/`[plugins]` table in a job config file is reported as a reserved-name table (§3.7) |
 | `shell.*`, `plugins.strict` environment | `SHELL_PROGRAM`, `SHELL_SUDO_PASSWORD`, `PLUGINS_STRICT` | `FUNCTUALIZE_SHELL_PROGRAM`, `FUNCTUALIZE_SHELL_SUDO_PASSWORD`, `FUNCTUALIZE_PLUGINS_STRICT` (the documented `FUNCTUALIZE_SUDO_PASSWORD` was never read and goes from the docs) |
-| list keys' environment | `FUNCTUALIZE_EXTRA_DIRECTORIES` (top level) | the canonical name only — decision **M6** |
+| list keys' environment (**M6 closed**) | `FUNCTUALIZE_EXTRA_DIRECTORIES` (top level, `docs/cli/config.md:148`) | `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES`; `exclude_patterns` keeps `FUNCTUALIZE_DISCOVERY_EXCLUDE_PATTERNS` (`docs/cli/config.md:177`). Both keys stay accepted at the top level and under `[discovery]` in files; only the environment name has one form. A CI job exporting `FUNCTUALIZE_EXTRA_DIRECTORIES=/opt/jobs` is no longer read, and `CHANGELOG` `### Changed` names the replacement |
+| PEP 723 `[tool.functualize] skill` (**M5 closed**) | accepted, read by nothing (STATUS #29) | rejected: the script gets the existing unknown-key warning (`_cli/pep723.py`); STATUS #29 closes as *removed, no consumer arrived*; `CHANGELOG` `### Changed` |
 | `root = true` in settings | ignored by the TUI, the settings store, `cli.inline_tui` and the surface gate | honoured everywhere |
 | `config path` | cwd-only list; `used` = exists | the resolution layers; `used`/`found` as §3.6 |
 | global file warning | stderr on every run, for 5 sections | removed; reported by `config path`/`info` |
@@ -173,29 +179,48 @@ and the settings document the table belongs in, so moving `[shell]` out of
 - For a project whose settings live only in the current directory, and whose
   files hold only known keys, `config path` output is byte-identical (E5).
 - Every setting's resolved value is unchanged, except where §3.8 says so.
-  This is pinned against `91947bb4` before the refactor (AC14).
+  This is pinned against `bb3aac77` before the refactor (AC14).
 - No exit code changes because of the check.
 - `func <job>` does not import the check, and a warm `func <job>` stays inside
   `tests/perf/test_startup_budget.py`.
+
+### 3.10 PEP 723 script metadata (M5 closed)
+
+`[tool.functualize]` in a PEP 723 script is its own small document kind
+(`SCRIPT_METADATA` in the declaration) with exactly one key, `job`. A script
+that writes `skill` gets the warning `_cli/pep723.py` already prints for any
+unknown key. Nothing else about script handling changes.
+
+### 3.11 Delivery (M7 closed: (a))
+
+- **PR 1** carries everything in this spec.
+- **PR 2**, on this issue and branch line, decomposes `JobExecutionEngine`
+  (`_engine/executor.py:205-2772`, 2568 lines) and `FunctualizeInlineTUI`
+  (`_cli/tui/app.py:125-2828`, 2704 lines), together with the long functions
+  in `plan.md` → *Surviving smells*. It starts only after PR 1 merges, and its
+  own architecture pass (BEFORE/AFTER, smell check, plan, tasks) comes before
+  any engine or TUI edit.
+- Until then, both classes stay in *Surviving smells* as maintainer-accepted
+  with a named owner (PR 2), not dropped.
 
 ## 4. Acceptance criteria
 
 | # | Given / When | Then |
 |---|---|---|
-| AC1 | §1.1 file, `config path` | names `roots` → `root` and `definitely_not_a_setting`; exit 0 |
+| AC1 | §1.1 file, `config path` | names `roots` → `root` and `definitely_not_a_setting`; exit 0 (re-run on `bb3aac77`: today prints `✓ used …/.functualize.toml` with no finding, exit 0) |
 | AC2 | + `[cli] outptu` | names `cli.outptu` → `cli.output` |
 | AC3 | `info --json` (+ `info all --json`) | `config.unknown_keys` lists the three with `file`, `key`, `suggestion` |
 | AC4 | `[my-job]` table, no such job | no finding |
-| AC5 | only known keys, incl. `[aliases]`, `[[vault_secret]]`, `[plugins] disabled`, `[discovery] jobs_directories` | `config path` output byte-identical to `91947bb4`; `unknown_keys == []` |
+| AC5 | only known keys, incl. `[aliases]`, `[[vault_secret]]`, `[plugins] disabled`, `[discovery] jobs_directories` | `config path` output byte-identical to `bb3aac77`; `unknown_keys == []` |
 | AC6 | `pyproject.toml` `[tool.functualize] roots` + `[tool.ruff]` | `roots` only |
 | AC7 | global `roots = true`, `[cli] show_timng` | the global line names both; **no** stderr warning |
 | AC8 | `[tui] them`, shell never imported | `tui.them` → `tui.theme` |
 | AC9 | every config under `examples/`, `evals/`, `docs/` TOML blocks | 0 findings |
 | AC10 | warm `func <job>` | check module not imported; startup budget green |
 | AC11 | regression | the AC1 test fails on `e00d870` and passes at head |
-| AC12 | ratchet | 0 collection literals of config key names outside the declaration (baseline 13 / 6 files) |
-| AC13 | ratchet | 0 config-key string literals in read position outside the declaration and the settings resolver (baseline 91 / 9 files) |
-| AC14 | pin | catalog order, defaults, choices, bounds, descriptions, flags and resolved values for a fixture matrix equal `91947bb4`, except the rows §3.8 lists |
+| AC12 | ratchet | 0 collection literals of config key names outside the declaration (baseline at `bb3aac77`: 13 / 6 files) |
+| AC13 | ratchet | 0 config-key string literals in read position outside the declaration and the settings resolver (baseline at `bb3aac77`: 91 / 9 files) |
+| AC14 | pin | catalog order, defaults, choices, bounds, descriptions, flags and resolved values for a fixture matrix equal `bb3aac77`, except the rows §3.8 lists |
 | AC15 | docs ratchet | every key in `docs/` TOML blocks and env tables is declared; every listed setting is documented |
 | AC16 | F3a fixture (`root = true` + parent `output = "json"`) | CLI, settings store, TUI panel value and `info --json` all report `rich` |
 | AC17 | F3b fixture (`[shell] program` in `.functualize.toml`) | the engine runs raw shell commands with that program; the TUI shows the same value; `FUNCTUALIZE_SHELL_PROGRAM` overrides both |
@@ -209,6 +234,8 @@ and the settings document the table belongs in, so moving `[shell]` out of
 | AC25 | `register_builtin_commands` | ≤ 60 lines; each builtin group in its own module; `func builtin --help` output byte-identical |
 | AC26 | F11 fixtures | rewritten to the keys they mean; their tests green |
 | AC27 | `config.base.toml` with `[shell] program = …` | a finding names the file and `.functualize.toml` `[shell]` as the place it belongs; exit 0 |
+| AC28 (M6) | `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES=/x` | `/x` is an extra directory; `FUNCTUALIZE_EXTRA_DIRECTORIES=/x` alone is not read; the pin's env-name table has exactly one name per setting |
+| AC29 (M5) | a PEP 723 script with `[tool.functualize] skill = "s"` | the existing unknown-key warning names `skill`; `job` is still honoured; `ScriptMetadata` has no `skill` field |
 
 ## 5. Out of scope
 
