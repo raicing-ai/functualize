@@ -3863,6 +3863,11 @@ bare `func`, `builtin info schema`, and `func <namespace>`. Pinned by
 `tests/cli/test_help_surface_pinned.py`; a change that adds a row there is
 contradicting a decision, not fixing an oversight.
 
+*Superseded 2026-10-20.* The `job-name-command-path` decision below replaces
+this one: `func --help` is now an inventory of the top-level nodes of the one
+command tree, and the same test file pins that instead. The paragraph above is
+kept for the reason the decision was originally taken, not as current behavior.
+
 **Plugin kinds are derived from the entry-point group, never enumerated.**
 `functualize.plugins` → adapter, `functualize.domains` → domain,
 `functualize.*_providers` → implementation. Domains declare new provider groups
@@ -4017,3 +4022,78 @@ asset still fails as "not listed".
 
 The rejected one-sided and generalised alternatives, with their reasons, are
 ADR-015's **Addendum (2026-10-14)** and its Alternatives Considered rows.
+
+## job-name-command-path — completed 2026-10-20
+
+Human shell surfaces render a discovered job as a space-separated command
+path. The shared path derivation also builds the group trie, so CLI suggestions,
+usage, root help, bare listings, resume hints, and TUI navigation agree. A
+suggested or selected command is executable as printed on both CLI doors.
+Programmatic names and persisted identities remain dotted. A dotted token
+that walks group edges is refused with a spaced-path hint; a literal dot in
+one leaf remains valid. Group options keep their position in the path.
+
+The TUI builds job navigation even without GroupOptions and scopes children
+to the selected depth. Collision diagnostics name the deterministic winner
+and both claimant source paths across invocation, help, info, TUI, and
+pre-flight surfaces. The legacy discovery-failure JSON keeps its original
+keys, while typed collision details remain available for human projections.
+The source ratchet rejects hand-written job-name dot-to-space conversions
+outside the shared naming rule.
+
+Two existing code-shape compromises remain: collision projection draws data
+from discovery in `_cli/info.py::discovery_failures`, and group dispatch in
+`_cli/main.py::_dispatch_group` remains long. New behavior stays in helpers;
+neither requires a new layer dependency.
+
+### Child namespaces with declared groups
+
+When a child prefixes a dotted job identity but retains its own declared
+`JOB_GROUP`, the rightmost complete group occurrence separates the child
+namespace from the leaf. `kid.ops.tool` with group `ops` is invoked as
+`kid ops tool`. The suffix after the group remains one leaf token, so a
+literal dot there is preserved. An ungrouped dotted identity stays one token
+because its dots alone cannot distinguish a namespace from a literal leaf.
+Identity, JSON, and programmatic lookup retain the dotted form. The app-door
+fallback prints the actual invoked program before the command path.
+
+### App-door child group path gate
+
+A child project's job keeps its declared group and gains the child prefix, so
+`kid.ops.tool` is reachable as `parent kid ops tool` at the app door. At the
+reviewed head before the fix, the new test failed with the hint
+`ops kid.ops.tool`; it now passes for eager and lazy children, and a job
+discovered after the Click tree was built takes the fallback wire, which names
+the actual invoked program (`launcher`) rather than the app name. Both wires are
+load-bearing: breaking the namespace-path wire or the program-name wire each
+turned both parameterizations red. The gate is
+`tests/cli/test_command_path_surface.py::test_app_door_child_group_hint_runs_as_printed`;
+the focused set around it passed (133 passed, 20 skipped) with Ruff, format,
+mypy and all seven import contracts green.
+
+### Measured at the base
+
+`91947bb4` is the fail-first record, measured in a fresh project with a fresh
+home and all three XDG roots. `func suite.inventori` exited 1 and suggested
+`func suite.inventory` — the dotted identity, not a line anyone can paste —
+while `func suite.inventory` exited 0, so one dotted token still walked the
+group edge that a spaced path should own. `func suite inventory --help` printed
+`Usage: inventory [OPTIONS]` with neither the program nor the group segment. A
+`status` / `status_` pair in one group ran the underscore claimant with no
+collision on invocation, group help or `builtin info jobs`, and `--json`
+carried no collision field. The TUI offered flat `audit.explain` and
+`audit.notes` without `GroupOptions`, and root `func --help` listed only
+`builtin`.
+
+That last measurement is the delivered reversal: the approved shape intent's
+command inventory supersedes the deliberate `func --help` decision recorded
+under `plugin-visibility-and-catalog`, so `tests/cli/test_help_surface_pinned.py`
+pins the inventory — rows are the top-level nodes of the one command tree —
+instead of that decision. The winning claimant is ordered by source path and
+Python name, never by discovery order, which is why cold and warm discovery
+agree on it.
+
+The whole-feature gate covering those cases passed (2283 passed, 389 skipped),
+as did the standalone group-options example (18 tests), Ruff check and format,
+mypy, and all seven import contracts; the dead-code delta reported no new
+findings.

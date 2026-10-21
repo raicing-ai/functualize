@@ -85,7 +85,10 @@ class TestGroupOptionSpecsOnPath:
             module_path="_group",
         )
         return build_group_trie(
-            [("deploy.web", "deploy.web.run", "job")],
+            [
+                ("deploy.web", "deploy.web.run", "job"),
+                ("deploy", "deploy.run", "job"),
+            ],
             [],
             group_options={"deploy": deploy, "deploy.web": web},
         )

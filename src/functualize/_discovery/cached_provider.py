@@ -1086,7 +1086,7 @@ class CachedDirectoryScanProvider:
         if descriptor is not None:
             return descriptor
 
-        from functualize._types.naming import normalize_segment
+        from functualize._types.naming import normalize_name
 
-        canonical = ".".join(normalize_segment(part) for part in name.split("."))
+        canonical = normalize_name(name) or name
         return self._by_name.get(canonical) if canonical != name else None

@@ -37,6 +37,7 @@ def command_tree_rows(app: FunctualizeInlineTUI) -> list[Any]:
     third-party package may claim.
     """
     from functualize.app.commands import build_command_tree, command_kind
+    from functualize.types import CommandPath
 
     rows: list[Any] = []
     descriptors = {d.name: d for d in app._func_app.get_jobs()}
@@ -51,11 +52,29 @@ def command_tree_rows(app: FunctualizeInlineTUI) -> list[Any]:
                 source="",
                 docstring=node.help_text,
                 group=None,
+                # A top-level node is addressed by its own name; the browser
+                # renders every row's path, descriptor or not.
+                command_path=CommandPath((node.name,)),
                 parameters=[],
                 config_fields=[],
                 source_label=command_kind(node),
             )
         )
+    return rows
+
+
+def collision_notices_by_row(app: FunctualizeInlineTUI) -> dict[str, list[str]]:
+    """Collision findings grouped under the browser row a user reaches them by.
+
+    The browser lists top-level nodes, so a finding for ``tools status`` is
+    shown on the ``tools`` row; the line itself names the full path.
+    """
+    from functualize._cli.info import collision_notices
+
+    paths = {d.name: d.command_path for d in app._func_app.get_jobs()}
+    rows: dict[str, list[str]] = {}
+    for name, lines in collision_notices(app._func_app).items():
+        rows.setdefault(paths[name].segments[0], []).extend(lines)
     return rows
 
 
@@ -84,7 +103,7 @@ def build_general_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     # Panel 1: Job Browser — interactive DataTable
     job_browser = JobBrowserPanel(id=f"job-browser-panel-{seq}")
     try:
-        job_browser.set_jobs(command_tree_rows(app))
+        job_browser.set_jobs(command_tree_rows(app), collision_notices_by_row(app))
     except Exception as exc:
         # Job discovery (get_jobs) is a domain call that can fail for many
         # reasons unrelated to widget mounting — log and fall back to an

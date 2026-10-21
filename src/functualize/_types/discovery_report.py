@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DiscoveryFailure",
+    "JobNameCollisionDetail",
     "collecting_discovery_failures",
     "job_name_collision",
     "record_discovery_failure",
@@ -56,6 +57,21 @@ __all__ = [
 #: class name -- the other values in that field are, and a collision is not
 #: raised anywhere -- so it is named here rather than spelled at each site.
 JOB_NAME_COLLISION = "JobNameCollision"
+
+
+@dataclass(frozen=True)
+class JobNameCollisionDetail:
+    """In-memory claimant data for a job-name collision.
+
+    The legacy failure payload remains unchanged; delivery surfaces use these
+    fields so neither source path nor Python name is parsed from prose.
+    """
+
+    canonical_name: str
+    dropped_python_name: str
+    dropped_source_file: str
+    registered_python_name: str
+    registered_source_file: str
 
 
 @dataclass(frozen=True)
@@ -78,6 +94,7 @@ class DiscoveryFailure:
     path: str
     error_type: str
     message: str
+    collision: JobNameCollisionDetail | None = None
 
     def as_dict(self) -> dict[str, str]:
         """The payload shape published by ``builtin info``."""
@@ -140,6 +157,7 @@ def job_name_collision(
     dropped_module: str,
     dropped_python_name: str,
     dropped_path: str,
+    kept_path: str = "",
 ) -> DiscoveryFailure:
     """The record for two functions resolving to one canonical job name.
 
@@ -177,6 +195,13 @@ def job_name_collision(
             f"lowercase-hyphenated form, so these are one address: "
             f"{kept_python_name!r} is registered and {dropped_python_name!r} is "
             f"not available. Rename one."
+        ),
+        collision=JobNameCollisionDetail(
+            canonical_name=canonical_name,
+            dropped_python_name=dropped_python_name,
+            dropped_source_file=dropped_path,
+            registered_python_name=kept_python_name,
+            registered_source_file=kept_path,
         ),
     )
 

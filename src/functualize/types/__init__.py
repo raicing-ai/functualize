@@ -40,6 +40,7 @@ from functualize._types.flag_grammar import (
     negative_flag_for,
 )
 from functualize._types.http_status import http_status_for_status
+from functualize._types.naming import CommandPath
 from functualize._types.outcome import (
     Family,
     is_failure,
@@ -69,6 +70,7 @@ __all__ = [
     "RunSurface",
     "JobResult",
     "JobDescriptor",
+    "CommandPath",
     "FieldDescriptor",
     "RunStatus",
     "RunType",

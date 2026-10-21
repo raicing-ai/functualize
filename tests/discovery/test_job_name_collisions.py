@@ -23,14 +23,22 @@ claimant through `discovery_failures`.
 
 from __future__ import annotations
 
+import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 
 from functualize import FunctualizeApp
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
+from functualize._discovery.collisions import resolve_name_collisions
+from functualize._discovery.registry import JobRegistry
 from functualize._primitives.locator import ResourceLocator
-from functualize._types.discovery_report import JOB_NAME_COLLISION
+from functualize._types.descriptors import JobDescriptor
+from functualize._types.discovery_report import (
+    JOB_NAME_COLLISION,
+    collecting_discovery_failures,
+)
 from functualize.app.config import JobSources
 
 TWO_SPELLINGS = '''
@@ -185,6 +193,34 @@ class TestOneSpellingInTwoFiles:
         (survivor,) = provider.list_jobs()
 
         assert survivor.module_path == "b"
+
+    def test_typed_finding_names_both_real_files_on_cold_and_warm_boot(
+        self, tmp_path: Path, jobs_dir: Path
+    ) -> None:
+        (jobs_dir / "a.py").write_text(ONE_SPELLING)
+        (jobs_dir / "b.py").write_text(ONE_SPELLING)
+        for provider in (_provider(tmp_path, jobs_dir), _provider(tmp_path, jobs_dir)):
+            (survivor,) = provider.list_jobs()
+            findings = [
+                failure
+                for failure in provider.discovery_failures
+                if failure.error_type == JOB_NAME_COLLISION
+            ]
+            assert survivor.source_file == str(jobs_dir / "b.py")
+            assert len(findings) == 1
+            detail = findings[0].collision
+            assert detail is not None
+            assert detail.canonical_name == "build-wheel"
+            assert detail.dropped_source_file == str(jobs_dir / "a.py")
+            assert detail.registered_source_file == str(jobs_dir / "b.py")
+            assert detail.dropped_python_name == "build_wheel"
+            assert detail.registered_python_name == "build_wheel"
+            assert set(findings[0].as_dict()) == {
+                "module",
+                "path",
+                "error_type",
+                "message",
+            }
 
     def test_a_rebuilt_index_picks_the_same_winner(
         self, tmp_path: Path, jobs_dir: Path
@@ -421,6 +457,58 @@ class TestAProviderAssembledByHand:
 
         assert len(messages) == 1
         assert "'build-wheel'" in messages[0]
+
+    def test_pipeline_finding_carries_claimant_data(self, tmp_path: Path) -> None:
+        app = FunctualizeApp(
+            "static",
+            job_sources=JobSources(
+                directories=[], functions=[_build_wheel, _build_wheel_camel]
+            ),
+        )
+        app.get_jobs()
+        (finding,) = app._resolution_pipeline.collisions
+        assert finding.collision is not None
+        assert finding.collision.canonical_name == "build-wheel"
+        assert finding.collision.registered_python_name == "build_wheel"
+        assert finding.collision.dropped_python_name == "buildWheel"
+        assert finding.collision.registered_source_file == "<provider>"
+
+
+def test_three_claimant_chain_retains_both_losers_for_final_projection():
+    descriptors = [
+        JobDescriptor(
+            name="status", group=None, python_name=name, source_file=f"/{name}.py"
+        )
+        for name in ("a", "b", "c")
+    ]
+    with collecting_discovery_failures() as findings:
+        (winner,) = resolve_name_collisions(descriptors)
+    details = [finding.collision for finding in findings]
+    assert winner.python_name == "c"
+    assert len(details) == 2
+    assert {detail.dropped_source_file for detail in details if detail} == {
+        "/a.py",
+        "/b.py",
+    }
+
+
+def test_registry_fallback_finding_has_both_claimant_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    source = tmp_path / "jobs.py"
+    source.write_text(TWO_SPELLINGS)
+    spec = importlib.util.spec_from_file_location("collision_registry_fixture", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+    registry = JobRegistry()
+    with collecting_discovery_failures() as findings:
+        registry._extract_descriptors_from_module(module)
+    (finding,) = [f for f in findings if f.error_type == JOB_NAME_COLLISION]
+    assert finding.collision is not None
+    assert finding.collision.dropped_source_file == str(source)
+    assert finding.collision.registered_source_file == str(source)
 
     def test_a_clean_static_provider_reports_nothing(self, tmp_path: Path) -> None:
         app = FunctualizeApp(

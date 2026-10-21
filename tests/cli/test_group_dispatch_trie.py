@@ -68,15 +68,52 @@ class TestNavigation:
         assert result.exit_code == 0
         assert "LAUNCH us" in result.stdout
 
-    def test_dotted_token_addresses_the_same_path(self, cli_run, grouped: Path) -> None:
-        """`func infra.aws launch` worked before the trie and still does.
+    def test_dotted_token_refused_but_spaced_path_runs(
+        self, cli_run, grouped: Path
+    ) -> None:
+        for _ in range(2):  # cold discovery, then cache-backed discovery
+            result = cli_run(["infra.aws", "launch"], cwd=grouped)
+            assert result.exit_code != 0
+            assert "navigate groups with spaces" in result.stderr
+            assert "func infra aws" in result.stderr
+        spaced = cli_run(["infra", "aws", "launch"], cwd=grouped)
+        assert spaced.exit_code == 0
+        assert "LAUNCH eu" in spaced.stdout
 
-        `resolve_name` rejects a dot inside one segment, so the walk has to
-        split a dotted token itself.
-        """
-        result = cli_run(["infra.aws", "launch"], cwd=grouped)
-        assert result.exit_code == 0
+    def test_dotted_identity_remains_an_alias_target(
+        self, cli_run, project_tree
+    ) -> None:
+        root = project_tree(
+            jobs=JOBS,
+            functualize_toml='[aliases]\nlaunch = "infra.aws.launch"\n',
+        )
+        result = cli_run(["launch"], cwd=root)
+        assert result.exit_code == 0, result.stderr
         assert "LAUNCH eu" in result.stdout
+
+    def test_literal_dot_leaf_is_one_trie_edge(
+        self, tmp_path, monkeypatch, capsys
+    ) -> None:
+        from functualize._cli.main import _dispatch_group
+        from functualize._discovery.providers import Job, StaticProvider
+        from functualize.app import FunctualizeApp, JobSources
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+
+        def lint() -> None:
+            print("LITERAL-LINT")
+
+        app = FunctualizeApp(
+            name="sample",
+            job_sources=JobSources(
+                job_providers=[StaticProvider([Job(function=lint, name="tools.lint")])]
+            ),
+        )
+        assert _dispatch_group(app, ["tools.lint"], set()) == 0
+        assert "LITERAL-LINT" in capsys.readouterr().out
 
     def test_shallow_group_runs_its_own_job(self, cli_run, grouped: Path) -> None:
         result = cli_run(["infra", "provision"], cwd=grouped)
@@ -99,13 +136,13 @@ class TestListing:
         assert "launch" in result.stdout
         assert "terminate" in result.stdout
 
-    def test_usage_line_echoes_the_tokens_as_typed(
-        self, cli_run, grouped: Path
-    ) -> None:
-        """A user who typed the dotted form reads their own spelling back."""
+    def test_dotted_group_listing_is_refused(self, cli_run, grouped: Path) -> None:
         result = cli_run(["infra.aws"], cwd=grouped)
-        assert result.exit_code == 0
-        assert "Usage: func infra.aws <command>" in result.stdout
+        assert result.exit_code != 0
+        assert "navigate groups with spaces" in result.stderr
+        spaced = cli_run(["infra", "aws"], cwd=grouped)
+        assert spaced.exit_code == 0
+        assert "Usage: func infra aws <command>" in spaced.stdout
 
     def test_a_duality_node_lists_rather_than_runs(
         self, cli_run, grouped: Path

@@ -597,7 +597,9 @@ class FunctualizeInlineTUI(App[int]):
         """Handle job selection from the browser — populate SmartBar and collapse."""
         autocomplete = self.query_one(FunctualizeAutoComplete)
         autocomplete.suppress()
-        self._smart_bar.value = event.job_name
+        self._smart_bar.value = build_command_line(
+            event.job_name, [], {}, self._group_trie
+        )
         self._panel_host.collapse()
         self._active_ring = None
         exit_to_command_mode(self, self._focus_state, self._smart_bar)
@@ -2330,8 +2332,24 @@ class FunctualizeInlineTUI(App[int]):
         docstring = getattr(descriptor, "docstring", None) or ""
         doc_lines = docstring.strip().splitlines() if docstring.strip() else []
         first_line = doc_lines[0].strip() if doc_lines else ""
-        command = job_name.replace(".", " ")
+        command = str(descriptor.command_path)
         return f"[bold]{command} — {first_line}[/bold]"
+
+    def _write_preflight_job_header(
+        self, log: RichLog, descriptor: Any, job_name: str
+    ) -> None:
+        """The job header, then any collision finding for the job, verbatim.
+
+        The finding is the same line `func` prints on stderr before the job
+        runs, so the pre-flight warns about exactly what the run would.
+        """
+        from rich.markup import escape
+
+        from functualize._cli.info import collision_notices
+
+        log.write(self._format_preflight_job_header(descriptor, job_name))
+        for notice in collision_notices(self._func_app).get(job_name, ()):
+            log.write(f"[yellow]{escape(notice)}[/yellow]")
 
     def _render_preflight_summary(self, log: RichLog) -> None:
         """Render compact pre-flight summary with single-line-per-field format.
@@ -2361,7 +2379,14 @@ class FunctualizeInlineTUI(App[int]):
                 # The shell navigates by spaces. Say so here rather than falling
                 # back to the dotted name, which would render a full pre-flight
                 # panel for a spelling execution then refuses.
-                spaced = _preflight_resolution.dotted_token.replace(".", " ")
+                from functualize._cli.dispatch import walk_group_path
+
+                rejected = walk_group_path(self._group_trie, tokens)
+                spaced = (
+                    " ".join(rejected.bad_path)
+                    if rejected.bad_path is not None
+                    else _preflight_resolution.dotted_token
+                )
                 log.write(
                     f"[dim]Navigate groups with spaces:[/dim] [bold]{spaced}[/bold]"
                 )
@@ -2390,12 +2415,12 @@ class FunctualizeInlineTUI(App[int]):
                 # the discoverability hint silently disappears for the
                 # zero-fields edge case.
                 if self._smart_bar.readiness == BarReadiness.READY:
-                    log.write(self._format_preflight_job_header(descriptor, job_name))
+                    self._write_preflight_job_header(log, descriptor, job_name)
                     log.write("[dim]Ctrl+Enter run  ·  Ctrl+S save as shortcut[/dim]")
                 return
 
             # --- Job header (bold: job_name — first_line_of_docstring) ---
-            log.write(self._format_preflight_job_header(descriptor, job_name))
+            self._write_preflight_job_header(log, descriptor, job_name)
 
             # Determine available width for truncation
             try:

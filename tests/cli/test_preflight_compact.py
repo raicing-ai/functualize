@@ -60,12 +60,15 @@ def _make_job_descriptor(
     docstring: str | None = None,
 ) -> SimpleNamespace:
     """Create a mock JobDescriptor with given fields and docstring."""
+    from functualize.types import CommandPath
+
     return SimpleNamespace(
         name=name,
         config_fields=fields,
         parameters=fields,
         docstring=docstring,
         group=None,
+        command_path=CommandPath.of(None, name),
         source_path=None,
     )
 
