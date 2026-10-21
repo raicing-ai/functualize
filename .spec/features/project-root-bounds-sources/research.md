@@ -60,6 +60,17 @@ Runtime: `uv sync --frozen --all-extras --all-packages` in this worktree; probes
 
 Job config is found by walk B (`_app/boot.py::discover_config_path`: upward to the first directory holding `config.<env>.<ext>`, stopping at `~`). The values are then read from that directory and every ancestor up to `~` (`boot.py:1396-1401`). Probe: nested `root = true`, job `greeter.greet` with a `BaseModel` config, and the ancestor `config.base.toml` `[greeter.greet] greeting = "ANCESTOR…"`. The job prints the ancestor's value. With a nested `config.base.toml` lacking the key, the ancestor's value still applies (key-by-key layering). A `[greeter.greet]` table in `.functualize.toml` is not read at all, nested or ancestor.
 
+### Scope amendment (2026-10-21)
+
+The owner selected D1(a), D2(b), and D3(b) on MCH-188 at 2026-10-21T15:02:26Z, overriding the previous designer's D2(a)/D3(a) recommendations. Confluence SD/17104898 v13 records the selections, a D3 alternatives assessment, and the D2 migration gate. Its `Authority` field remains `Approved`; the recommended detail within D3(b) awaits member review. The previous `plan.md` and `tasks.md` were removed from the branch because their architecture and waves explicitly leave walks C and B unchanged. A new Specify confirmation and Plan pass are required.
+
+Code facts checked for the amendment on branch `c2a81c9`:
+
+- Walk B has two independently leaky stages: `_app/boot.py:1176-1246` searches for the first job-config directory; `_app/boot.py:1396-1423` constructs a `ResourceLocator` that reads from that directory and its ancestors. Bounding only the first stage leaves key-by-key ancestor inheritance.
+- `_app/boot.py:1005-1034` bypasses file discovery when a config resolution chain is supplied. `_app/impl.py:1346-1393` is the one builder used by boot and `refresh()`. `app/adapters/cli.py:1009-1020` makes `--config-directory` an explicit override and refreshes the app.
+- `_primitives/locator.py:484-523` returns the nearest `.functualize/` without reading project config. `_primitives/cache_format.py:297-325` uses that answer for project cache versus XDG cache. `_config/vault_paths.py:43-76` stores vault data under XDG **data**, keyed by the chosen project root; it is inaccurate to say the vault moves into XDG cache. A D2 plan must keep one identity across subdirectories and verify state migration rather than assume a path.
+- `docs/guides/configuration.md:131-159` documents base/active environment overlays and nearest-directory precedence. User-global and explicit sources are preserved by the recommended D3 model.
+
 ### Other forms measured for the shape page (2026-10-21)
 
 - A nested `.functualize/` with no nested config file, run from `nested/sub/`: `['outer-only']`. The nested project's own job is missing while `Mode` names the nested folder. This is a pre-existing defect: convention `jobs/` is collected only at walk-A config-hit levels plus cwd.
