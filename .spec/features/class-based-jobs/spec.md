@@ -1,8 +1,8 @@
 # Class-based jobs
 
-Status: **proposed — awaiting confirmation before Plan.** Six decisions in
-§ *Decisions to confirm* are written here in their recommended form and are not
-final until confirmed.
+Status: **confirmed — Plan phase open.** The six decisions in § *Decisions* were
+written here in their recommended form and confirmed as recommended by the
+maintainer on 2026-10-21 (comment "All recommended", 2026-10-21T14:37:03Z).
 
 ## Authority
 
@@ -158,7 +158,9 @@ nothing new.
   - a class anywhere in the job class's bases contributes through a literal
     class attribute `JOB_TAGS`, a tuple of strings — the class-level
     counterpart of the module-level `JOB_GROUP`. It contributes without making
-    that class a job class.
+    that class a job class. It is declared `JOB_TAGS: ClassVar[tuple[str,
+    ...]]`: on a pydantic model a bare class attribute is a `PydanticUserError`
+    raised when the class is created, before any Functualize code runs.
 - **The author wins on every conflict.** Contributed tags are added to the
   author's tags. A contributed value never overwrites a value the author set
   explicitly (`group`, `visibility`, `guards`, `exec`, `cache`, `deps`). The
@@ -238,17 +240,20 @@ vault entry for `password`; AC-9/AC-10 add `.functualize/jobs/databases.py` from
 | AC-13 | the same job class published through a `functualize.jobs` entry point, and through a plugin's `StaticProvider` | the same jobs, names and config section as AC-1/AC-2; the same class through two sources is a collision per AC-6 | F1, F5 |
 | AC-14 | the plain-function and collision suites that exist on `master` | pass unchanged | must-not-change |
 
-## Decisions to confirm
+## Decisions (confirmed)
 
-Each is written into this spec in its recommended form.
+Each is written into this spec in its recommended form, and each recommended
+form was confirmed as recommended by the maintainer on 2026-10-21 (comment
+"All recommended", 2026-10-21T14:37:03Z). The table is the record of what was
+confirmed; the behaviour it names is normative above.
 
-| # | Question | Recommended |
+| # | Question | Confirmed |
 |---|---|---|
 | D1 | How does a class opt in, and what is its group? (page Q1) | Model A: `@job` on the class; `group=` or the normalized class name |
 | D2 | Where does a class's secret field live in the vault? (page Q2) | Once, under the class's group: `--group pg --field password` |
 | D3 | How loud is a class-derived name collision? | Model E: strict — neither runs, exit 2, listed in `info` |
 | D4 | Two author-written `@job` on one target (page Q3) | Refuse at decoration time |
-| D5 | How does a base class contribute tags? | `JOB_TAGS = (...)` class attribute; tags only in this feature |
+| D5 | How does a base class contribute tags? | `JOB_TAGS: ClassVar[tuple[str, ...]]`; tags only in this feature |
 | D6 | The guide's title word (page Q5) | Rename to `docs/guides/job-classes.md`, "Job classes"; keep the modelling advice |
 
 Page Q4 (F2 and the configuration-section half of F3) has no ticket and is not

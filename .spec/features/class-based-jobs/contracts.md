@@ -69,9 +69,10 @@ $ func builtin vault put --group pg --field password
 
 ```python
 from abc import abstractmethod
+from typing import ClassVar
 
 class Database(BaseModel):            # abstract: no job, no group
-    JOB_TAGS = ("database",)          # contributes a tag to subclasses' jobs (F4)
+    JOB_TAGS: ClassVar[tuple[str, ...]] = ("database",)   # contributes a tag to subclasses' jobs (F4)
     host: str = "localhost"
     @abstractmethod
     def start(self, sh: Shell) -> None: ...
@@ -93,7 +94,11 @@ class PooledPostgres(LocalPostgres):  # postgres-tuned.start, postgres-tuned.sto
 
 `JOB_TAGS` — an optional class attribute, a `tuple[str, ...]` of literal tag
 strings, read from every class in the job class's method resolution order. It
-never makes a class a job class.
+never makes a class a job class. It must be annotated `ClassVar`: a bare
+`JOB_TAGS = ("database",)` in a pydantic model body is a `PydanticUserError`
+("a non-annotated attribute was detected") raised while the class is being
+created, so no Functualize code ever sees it. `cls.__dict__["JOB_TAGS"]` holds
+the tuple either way, which is where discovery reads it.
 
 ## C3 — discovery sources
 
