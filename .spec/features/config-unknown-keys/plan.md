@@ -1,28 +1,53 @@
-# config-unknown-keys — Plan (Revision 3)
+# config-unknown-keys — Plan (Revision 4)
 
 ## Alignment
 
 - **Shape:** *Shape Intent — Unknown Keys in .functualize.toml (what is
-  checked, how loudly, where)*, Confluence `SD/17137669` **v3**,
-  `Authority = Approved`. v2 (2026-10-17) approved 1a + 2a + 3a through the
-  maintainer's three "follow recommendation" inline comments (`18808859`,
-  `18972740`, `18808867`). v3 (2026-10-20) records the maintainer's
-  2026-10-19 answers on MCH-190 (comment `01a15669`): M1 (amend the shape),
-  M2 (b), M3 (remove the global warning), M4 (fix the registries in scope),
-  and the rule "every found issue must be solved and fixed in scope".
-- **In scope, in the page's words (v3):** v2's three in-scope rows, plus
-  "one declaration of the settings vocabulary in the types layer", "one list
-  of settings files and one resolver for every reader", "settings-backed flags
-  and environment variables derived from the declaration", "no process-wide
-  registries", and "every defect found while doing the above" (`spec.md`
-  §1.2, F2–F15).
-- **Out of scope, in the page's words:** v2's four rows, unchanged; "where the
-  upward walk stops beyond `root = true` — SD/17104898 (MCH-188)".
-- **Must not change (v3):** "for a project whose settings live only in the
-  current directory and hold only known keys, `config path` output is
-  byte-identical; no run's exit code changes because of the check; every
-  setting's value is unchanged except where the page's *User-visible changes*
-  table says so".
+  checked, how loudly, where)*, Confluence `SD/17137669` **v3** (updated
+  2026-10-20 03:48:22 UTC), `Authority = Approved`. Read live on 2026-10-21
+  before this revision. The three inline approval comments (`18808859`,
+  `18972740`, `18808867`, "follow recommendation") are attached.
+- **Decisions:** v2 approved D1 = 1a + 2a + 3a. v3's decision record holds
+  M1–M4 and the rule from MCH-190 comment `01a15669`. M5–M7 were answered by
+  the maintainer on MCH-190 comment `01a15ee0` (2026-10-21 14:32 UTC):
+  "M5 = follow your recommendation, remove it. M6 = follow your
+  recommendation, for consistency. M7 = follow your recommendation". The
+  page's decision-record row still reads "M5–M7 | Open"; this revision
+  builds on `01a15ee0`, and the page row is reported in the hand-off rather
+  than edited unasked.
+- **In scope, verbatim from v3:**
+  - v2: "Unknown **scalar/array keys** at the top level and inside known
+    setting sections (`[cli]`, `[discovery]`, registered sections) of
+    `.functualize.toml` and `pyproject.toml` `[tool.functualize]`"; "A "did you
+    mean" suggestion from the known vocabulary"; "`func builtin config path`
+    and the JSON of `func builtin info`"; "The XDG global `config.toml` gets
+    the same check".
+  - v3: "One declaration of the settings vocabulary in the types layer; every
+    reader, flag, env var, file list and doc derives from it"; "One list of
+    settings files and one resolver for every reader (CLI, TUI, app, engine,
+    builtins)"; "Settings-backed flags and environment variables derived from
+    the declaration; flag values carried typed, not as string-keyed dicts";
+    "No process-wide registries; an app declares its own settings at
+    construction, through public API"; "`config path` lists the files
+    resolution actually uses; `✓ used` = supplies a value in effect,
+    `○ found` = exists but supplies none (what the docs already say)"; "A job
+    or group named like a settings section, and a settings table in a
+    `config.*.toml` job file, are reported"; "Every defect found on the way,
+    listed as F2–F15 in the feature's `spec.md`".
+- **Out of scope, verbatim:** "Validating **values** (types, enum members) — a
+  separate concern"; "Unknown **tables** that could be job sections —
+  validating them needs the discovered job set; deferred (see dimension 3)";
+  "Adding a `--json` flag to `config path` — owned by SD/2850883's
+  output-flag conventions"; "Unknown parameters inside a job section — per-job
+  schema validation"; "Where the upward walk stops beyond `root = true`
+  (bounding by a project root): SD/17104898, MCH-188. After this change it is
+  one function to edit".
+- **Must not change, verbatim (v3):** "for a project whose settings live only
+  in the current directory and hold only known keys, `config path` output is
+  byte-identical. No run's exit code changes because of the check. Every
+  setting's value is unchanged except as listed below."
+- **D3:** `config path` keeps the status word `used` (with the v3 meaning
+  above) and adds the annotation. It is not reopened.
 
 ## 1. Skills consulted
 
@@ -38,7 +63,7 @@
   pattern is one typed owner in `_types`, public re-export, every surface
   deriving from it, and a source ratchet.
 
-## 2. Architecture pass — today (`91947bb4`)
+## 2. Architecture pass — today (`bb3aac77`)
 
 Tools: zvec-grep (worktree index), serena (`find_referencing_symbols` on
 `full_report`, `_functualize_table`), graphify (`get_neighbors full_report`),
@@ -76,12 +101,12 @@ live experiments (F3a, F3b).
 up to seven files); *Primitive Obsession* (91 string reads; flags travel as
 `dict[str, Any]`); *Middle Man* (`FuncSetting` → `_as_setting` → `Setting`);
 *Temporal Coupling* (a setting exists only after a module is imported —
-STATUS #22); *Long Method* (`register_builtin_commands` 2311 lines,
+STATUS #22); *Long Method* (`register_builtin_commands` 2326 lines,
 `resolve_cli_config` 306, `_extract_global_options` 164). **Forbidden:**
 module-level mutable registries (`func_settings.py:274`, `:283`); hard-coded
 config file names (`builtins.py:2419-2420`); god classes in files this plan
 edits: `JobExecutionEngine` 2568 lines (`_engine/executor.py`) and
-`FunctualizeInlineTUI` 2679 lines (`_cli/tui/app.py`) — decision M7.
+`FunctualizeInlineTUI` 2704 lines (`_cli/tui/app.py`) — M7 closed: PR 2.
 
 ## 3. Candidate AFTERs
 
@@ -140,12 +165,12 @@ tests/spec ratchets: vocabulary literals, read-position literals, settings-file 
 
 ## 4. Technical approach (one paragraph per area; tasks in `tasks.md`)
 
-1. **Pin first.** Literal expected values recorded at `91947bb4`: catalog,
+1. **Pin first.** Literal expected values recorded at `bb3aac77`: catalog,
    flags, env names, and resolved values for a fixture matrix (single dir,
    nested with and without `root`, global only, env, flags). §3.8 rows are
    pinned as today's behaviour in a separate test that the fix flips
    deliberately, so each change is visible as a diff of expectations.
-2. **Declare** in `_types`. Flags taken verbatim from `_cli/main.py:117-200`.
+2. **Declare** in `_types`. Flags taken verbatim from `_cli/main.py:140-223`.
    Env names from `env_var_for`. Defaults, choices and bounds from
    `_BASE_SETTINGS` and `SETTING_SCHEMAS`.
 3. **Layers and resolver** in `_config`. `EnvSource` gains a `prefix`, and
@@ -159,11 +184,14 @@ tests/spec ratchets: vocabulary literals, read-position literals, settings-file 
    statement, so the ratchet baselines fall as tasks land.
 6. **The check and the surfaces** (approved v2), on the new layers and
    provenance.
-7. **Reserved names** (F14) via the existing `discovery_failures` channel.
-   Job config files with a reserved table go through `FileSource`'s existing
-   event-bus reporting, surfaced by the same channel.
+7. **Reserved names** (F14). A discovered job or group named like a declared
+   settings section produces a `DiscoveryFailure` with its own `error_type`,
+   built beside `job_name_collision` (`_types/discovery_report.py:152`) and
+   emitted from `_discovery/collisions.py`. It therefore reaches every surface
+   #118 already wired for collisions. A job config file with a reserved
+   top-level table is reported through the same record from `FileSource`.
 8. **Builtins split** (F10) — mechanical, `func builtin --help` byte-identical.
-9. **Docs, fixtures, STATUS.** Close STATUS #22 (and #29 per M5) in
+9. **Docs, fixtures, STATUS.** Close STATUS #22 and #29 (M5: removed, no consumer arrived) in
    `.spec/STATUS.md`. Migrate the durable rule ("one declaration in
    `_types/functualize_settings.py`; ratchets") to an ADR before the cleanup
    commit.
@@ -172,10 +200,11 @@ tests/spec ratchets: vocabulary literals, read-position literals, settings-file 
 
 - Source files: 30 existing files edited (the `[F]` hit sets in `tasks.md`),
   4 new modules, and `_cli/builtins.py` replaced by an 11-module package.
-- **MCH-194** (`fix/job-name-command-path`) edits `_cli/main.py`,
-  `_cli/dispatch.py`, `_cli/info.py`, `_cli/builtins.py`, `_cli/tui/*`. The
-  maintainer accepts the conflicts. Whichever merges second rebases; the
-  builtins split (wave 1) is mechanical, so its rebase is a re-run of the move.
+- **MCH-194 has landed** (`bb3aac77`, #118), and this branch is rebased onto
+  it. There is no longer a parallel branch to conflict with. #118 added the
+  typed collision channel (`_types/discovery_report.py:78` `DiscoveryFailure`,
+  `:152` `job_name_collision`, produced in `_discovery/collisions.py`), which
+  F14 reuses with its own `error_type`, so no second report channel appears.
 - **MCH-188** reads `settings_layers()` for its root-bound decision: one
   function to change.
 
@@ -188,16 +217,17 @@ tests/spec ratchets: vocabulary literals, read-position literals, settings-file 
 | M2 | (b): type the flag plumbing too | taken |
 | M3 | remove the global file's own warning | taken |
 | M4 | remove the registries in scope | taken |
-| M5 | `[tool.functualize] skill` (STATUS #29): remove now, or keep it declared and transitional | **open** — recommended: remove |
-| M6 | the canonical name, and therefore the one env var, of `extra_directories`/`exclude_patterns` | **open** — recommended: `[discovery]` (their settings rows and every docs example), so `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES`; the documented `FUNCTUALIZE_EXTRA_DIRECTORIES` goes |
-| M7 | the god classes and long functions in files this plan edits | **open** — recommended: same carrier, a second PR after the config PR, with its own architecture pass |
+| M5 | `[tool.functualize] skill` (STATUS #29) | **closed** (`01a15ee0`): removed; `SCRIPT_METADATA` = `job` only; a script that writes it gets the existing unknown-key warning |
+| M6 | the one environment name of `extra_directories`/`exclude_patterns` | **closed** (`01a15ee0`): `[discovery]` canonical — `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES`, `FUNCTUALIZE_DISCOVERY_EXCLUDE_PATTERNS`; `FUNCTUALIZE_EXTRA_DIRECTORIES` is no longer read. Both keys keep both accepted file places |
+| M7 | the god classes and long functions in files this plan edits | **closed** (`01a15ee0`): (a) — PR 2 on this issue and branch line, after PR 1 merges, with its own architecture pass before any engine/TUI edit |
+| D3 | the status word `used` | answered: kept, with the v3 meaning, plus the annotation |
 
 ## Surviving smells
 
 | Smell | Where | Why | Maintainer review? |
 |---|---|---|---|
-| Forbidden: god class (pre-existing) | `JobExecutionEngine` (2568 lines), `FunctualizeInlineTUI` (2679 lines) | Not introduced and not grown: this plan's edits there replace one settings read each. Fixing them is M7 | **Yes** (M7) |
-| *Long Method* (pre-existing, files edited) | `_cli/main.py` `_run_cli` 352, `_dispatch_group` 278, `_handle_job` 241, `cli_app` 224, `_handle_single_file` 219; `_app/boot.py` `boot_standard` 463, `boot_static` 241, `wire_children_to_pipeline` 157; `app/utils.py` `auto_discover` 192, `vault_sync` 185; `app/adapters/cli.py` `_register_callback` 217; `_engine/executor.py` `_execute_lifecycle` 359 | Same as above. `resolve_cli_config` (306) and `_extract_global_options` (164) are **removed** by this plan, not surviving | **Yes** (M7) |
+| Forbidden: god class (pre-existing) | `JobExecutionEngine` `_engine/executor.py:205-2772` (2568 lines), `FunctualizeInlineTUI` `_cli/tui/app.py:125-2828` (2704 lines) | Not introduced and not grown: PR 1 replaces one settings read in each. **Maintainer-accepted for PR 1 only** (M7 = (a)); PR 2 on this issue decomposes them after PR 1 merges | Answered (M7) — owner: PR 2 |
+| *Long Method* (pre-existing, files edited; AST at `bb3aac77`) | `_cli/main.py` `_run_cli` 358 (`:2033`), `_dispatch_group` 278 (`:959`), `_handle_job` 250 (`:1353`), `cli_app` 224 (`:229`), `_handle_single_file` 219 (`:1670`); `_app/boot.py` `boot_standard` 463, `boot_static` 241, `wire_children_to_pipeline` 157; `app/utils.py` `auto_discover` 192, `vault_sync` 185; `app/adapters/cli.py` `_register_callback` 217; `_engine/executor.py` `_execute_lifecycle` 359 | Same as above. `resolve_cli_config` (306) and `_extract_global_options` (164) are **removed** by this plan, not surviving. `register_builtin_commands` (2326) is split in PR 1 (task 1.3) | Answered (M7) — owner: PR 2 |
 | Logic in `_types` | `AppSettingsSchema.extend/keys_in/value_in/flag` | Pure queries on frozen data; established idiom | No; named for the review |
 
 Every other smell named in §2 is removed by a task in `tasks.md`.
@@ -211,8 +241,10 @@ Every other smell named in §2 is removed by a task in `tasks.md`.
 2. **Pre-boot cost.** Resolution before boot exists today
    (`resolve_cli_config`). `tests/perf/test_startup_budget.py` gates the
    warm path (AC10).
-3. **Conflicts with MCH-194.** Accepted by the maintainer. The ratchets make
-   a bad merge fail loudly rather than silently re-add a statement.
+3. **`master` moves under the branch.** It moved twice during Plan
+   (`1b73983c`, `bb3aac77`). Every Execute wave starts by rebasing and
+   re-running the pin. The ratchets make a bad rebase fail loudly rather
+   than silently re-add a statement.
 4. **Hidden readers.** A reader the AST walk misses (a dynamic key) would
    survive. Gate: after wave 5, `rg` for every declared key name in `src/`
    outside the owner must return only `Setting` constant references and the

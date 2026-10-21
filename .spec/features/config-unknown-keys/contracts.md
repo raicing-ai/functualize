@@ -28,7 +28,7 @@ followed, only when the file has unknown keys, by:
 - Findings are in document order (top-level keys first as TOML yields them,
   then section keys in section order).
 - For a project whose settings live only in the current directory and hold only
-  known keys, the output is byte-identical to `91947bb4` (spec §3.9).
+  known keys, the output is byte-identical to `bb3aac77` (spec §3.9).
 - Exit code: unchanged (0).
 
 ## C2. `func builtin info --json` / `func builtin info all --json`
@@ -116,7 +116,7 @@ CLI_OUTPUT, CLI_SHOW_TIMING, CLI_INLINE_TUI, PLUGINS_STRICT, PLUGINS_DISABLED,
 SHELL_PROGRAM, SHELL_SUDO_PASSWORD, VAULT_KEYRING_TIMEOUT, ALIASES, VAULT_SECRET,
 TUI_THEME, … : Setting
 FUNCTUALIZE_SETTINGS: AppSettingsSchema
-SCRIPT_METADATA: AppSettingsSchema      # PEP 723 [tool.functualize]: job (+ skill per M5)
+SCRIPT_METADATA: AppSettingsSchema      # PEP 723 [tool.functualize]: job only (M5 closed: skill removed)
 ```
 
 ## C5. Layers and resolution (`_config`, public via `functualize.app.config`)
@@ -168,6 +168,9 @@ def resolve_settings(schema: AppSettingsSchema, layers: Sequence[SettingsLayer],
 `_RECOGNIZED_*`, `read_global_config`, `resolve_cli_config_layers`,
 `SettingsFileInfo`, `CliConfig`'s own resolution, `LIST_KEYS` literal,
 `_DISCOVERY_FINGERPRINT_FIELDS` literal, `OPTIONAL_VALUE_VALID_SET` (renamed
-`GLOBAL_OPTION_ACCEPTED_VALUES`), the hand-written settings click options.
+`GLOBAL_OPTION_ACCEPTED_VALUES`), the hand-written settings click options,
+`_KNOWN_TOOL_KEYS` and `ScriptMetadata.skill` (M5), and the top-level
+environment name `FUNCTUALIZE_EXTRA_DIRECTORIES` (M6; one name per setting,
+`AppSettingsSchema.env_var_for`).
 `FuncSettingsStore` stays as the TUI's editor and write-back, over
 `ResolvedSettings`.

@@ -1,18 +1,17 @@
-# config-unknown-keys — Tasks (Revision 3)
+# config-unknown-keys — Tasks (Revision 4)
 
-Base `91947bb4`, branch `sdd/config-unknown-keys`. Spec AC1–AC27, contracts
-C1–C6, plan R3. **Execute is gated on** the maintainer's confirmation of these
-tasks and answers to M5, M6, M7 (`plan.md` §6).
+Base `bb3aac77` (rebased 2026-10-21; `git merge-base --is-ancestor origin/master HEAD` → 0),
+branch `sdd/config-unknown-keys`. Spec AC1–AC29, contracts C1–C6, plan rev4.
+M1–M7 are closed (`01a15669`, `01a15ee0`). **Execute is gated on one thing:**
+the maintainer's confirmation of this task list. Everything here is PR 1;
+PR 2 (M7) gets its own plan after PR 1 merges.
 
-**Before 0.1:** rebase onto current `master`. `1b73983c` (#116) already
-touches `_cli/info.py` and `_config/sources.py`. Re-run the counts below and
-the F3a/F3b repros, and write the numbers the commands return.
-
-Authoring-time measurements (2026-10-20, `91947bb4`): 13 vocabulary
+Authoring-time measurements (2026-10-21, `bb3aac77`): 13 vocabulary
 collection literals in 6 files; 91 read-position key literals in 9 files;
-`rg -n 'functualize_settings|settings_layers|settings_resolution|config_vocabulary' src` → 0 hits;
-`uv run lint-imports` → 7 kept / 0 broken. F3a and F3b reproduced
-(`spec.md` §1.2).
+`rg -n 'functualize_settings|settings_layers|settings_resolution|config_vocabulary' src`
+→ 0 hits; `uv run lint-imports` → 7 kept / 0 broken. F1, F3a and F3b
+reproduced (`spec.md` §1.2). If `master` has moved again when wave 0 starts,
+rebase first and re-run these.
 
 Every task's gate also includes: `uv run lint-imports` green; the pin
 (`tests/config/test_settings_pin.py`) green, or changed only in a row that
@@ -22,18 +21,21 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 ## Wave 0 — pin and declare
 
 - [ ] **0.1 Pin** (AC14) — **[F]** `tests/config/test_settings_pin.py` (new)
-  - Literal expectations at `91947bb4`: `SETTINGS_ORDER`, defaults, choices,
+  - Literal expectations at `bb3aac77`: `SETTINGS_ORDER`, defaults, choices,
     bounds, descriptions, `cli_flag`, `phase`, env names, `_RECOGNIZED_*`,
     `LIST_KEYS`, `PROJECT_CONFIG_CANDIDATES` names, fingerprint fields, the
-    flags of `_cli/main.py:117-200`. Resolved values for a matrix of single
+    16 flags of `_cli/main.py:140-223`. Resolved values for a matrix of single
     dir, nested ± `root`, global-only, env, and flags. A second class pins the
-    §3.8 rows as today's behaviour (`F3a`, `F3b`, env names), marked to be
-    flipped by the task that changes each.
+    §3.8 rows as today's behaviour, each marked to be flipped by the task that
+    changes it: `F3a`, `F3b`, the `shell.*`/`plugins.strict` env names,
+    `FUNCTUALIZE_EXTRA_DIRECTORIES` (M6, flipped in 1.2) and the PEP 723 `skill`
+    key (M5, flipped in 6.4).
 - [ ] **0.2 Declaration** (C4) — **[F]** `src/functualize/_types/settings.py`,
   `src/functualize/_types/functualize_settings.py` (new),
   `tests/config/test_functualize_settings.py` (new)
   - Every name of the pin, declared once, with constants. `extend()` raises
-    on a name clash. `SCRIPT_METADATA` covers `job` (+ `skill` per M5).
+    on a name clash. `SCRIPT_METADATA` = `job` only (M5). `EXTRA_DIRECTORIES` and
+    `EXCLUDE_PATTERNS` are canonical in `[discovery]`, with `places=("", "discovery")` (M6).
   - Gate: the declaration's names = the union pinned in 0.1; `_types`
     imports nothing internal.
 
@@ -44,15 +46,16 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   - Gate: AC24's fixture gives exactly the root-stopped layers; global last.
 - [ ] **1.2 Resolver** (C5, §3.3) — **[F]** `src/functualize/_config/settings_resolution.py` (new),
   `src/functualize/_config/sources.py`, `tests/config/test_settings_resolution.py` (new)
-  - `EnvSource(prefix=)`, `LayerSource`, list merge = `_merge_lists_dedup`.
-  - Gate: the 0.1 matrix resolves to the pinned values, and F3a → `rich`.
+  - `EnvSource(prefix=)`, `LayerSource`, list merge = `_merge_lists_dedup` (`_cli/config.py:287`).
+  - Gate: the 0.1 matrix resolves to the pinned values; F3a → `rich`; AC28: only
+    `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES` is read for `extra_directories`.
 - [ ] **1.3 Builtins split** (F10, AC25) — **[F]** `src/functualize/_cli/builtins.py` →
   `src/functualize/_cli/builtins/` (`__init__.py`, `_cache.py`, `_data.py`,
   `_workflow.py`, `_run.py`, `_builtin.py`, `_config.py`, `_domains.py`,
   `_skills.py`, `_info.py`, `_helpers.py`)
   - Move only, no behaviour change. Gate: `func builtin --help` and every
     subgroup's `--help` byte-identical; `uv run pytest tests/cli tests/_cli -q`
-    green; `register_builtin_commands` ≤ 60 lines.
+    green; `register_builtin_commands` (today `_cli/builtins.py:728-3053`, 2326 lines) ≤ 60 lines.
 
 ## Wave 2 — public seam and kernel consumers
 
@@ -90,7 +93,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   - `CliConfig` becomes a projection of `ResolvedSettings`. Delete
     `read_global_config`, `_RECOGNIZED_*`, `resolve_env_overrides`,
     `resolve_cli_config`'s own resolution, `resolve_cli_config_layers` and
-    `SettingsFileInfo`. The warning tests (`test_cli_config.py:106,125,186`,
+    `SettingsFileInfo`. The warning tests (`test_cli_config.py:108,125,190`,
     `test_cli_config_vault.py:85`) become `config path` assertions.
 - [ ] **4.3 Settings store and TUI** (M4) — **[F]** `src/functualize/_cli/data/func_settings.py`,
   `src/functualize/_cli/data/settings_schema.py`, `src/functualize/_cli/tui/__init__.py`,
@@ -105,9 +108,11 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 ## Wave 5 — main and utils
 
 - [ ] **5.1 `_cli/main.py`** — **[F]** `src/functualize/_cli/main.py`
-  - Generated options replace `:117-200`. The typed flag layer replaces
-    `cli_flags` (`:304-320`, `:2039-2043`). `PLUGINS_DISABLED`, `ALIASES`
-    and `JOBS_DIRECTORIES` reads go through `app.settings`/`value_in`.
+  - Generated options replace the 16 decorators at `:140-223` (`@click.pass_context`
+    `:228`). The typed flag layer replaces `cli_flags` (`:327-343`, `:2130-2134`).
+    `PLUGINS_DISABLED` reads (`:383-385`, `:618-620`, `:1279-1281`, `:1437-1439`),
+    `ALIASES` (`:772`, `:778`) and `JOBS_DIRECTORIES` (`:1790`) go through
+    `app.settings`/`value_in`.
 - [ ] **5.2 `app/utils.py`** — **[F]** `src/functualize/app/utils.py`
   - Document reads (`:750-753`, `:972-1032`) and the `overrides`/`effective`
     plumbing (`:843-867`) go through the declaration.
@@ -118,11 +123,18 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 - [ ] **6.1 Check** (C3; AC4, AC6, AC8, AC9) — **[F]** `src/functualize/_cli/data/config_vocabulary.py` (new),
   `tests/cli/test_config_vocabulary.py` (new)
-- [ ] **6.2 Reserved names** (F14; AC23, AC27) — **[F]** `src/functualize/_discovery/collisions.py`,
-  `src/functualize/_config/sources.py`, `tests/discovery/test_reserved_section_names.py` (new)
+- [ ] **6.2 Reserved names** (F14; AC23, AC27) — **[F]** `src/functualize/_types/discovery_report.py`,
+  `src/functualize/_discovery/collisions.py`, `src/functualize/_config/sources.py`,
+  `tests/discovery/test_reserved_section_names.py` (new)
+  - A new `error_type` on #118's `DiscoveryFailure` (`_types/discovery_report.py:78`),
+    built beside `job_name_collision` (`:152`). No second channel.
 - [ ] **6.3 Example** (F7; AC21) — **[F]** `examples/standalone/deploy_tool/deploy_tool/main.py`,
   `examples/standalone/deploy_tool/tests/test_deploy_tool.py`
-- [ ] **6.4 PEP 723** (M5) — **[F]** `src/functualize/_cli/pep723.py`, `tests/cli/test_pep723_skill_key.py`, `tests/standalone/test_pep723.py`
+- [ ] **6.4 PEP 723** (M5 closed: remove; AC29) — **[F]** `src/functualize/_cli/pep723.py`, `tests/cli/test_pep723_skill_key.py`, `tests/standalone/test_pep723.py`
+  - `_KNOWN_TOOL_KEYS` (`_cli/pep723.py:53`, today `frozenset({"job", "skill"})`) gives way to
+    `SCRIPT_METADATA` (`job` only). `ScriptMetadata.skill` and the
+    `TRANSITIONAL(third-party-host-seams/1.2)` site go. `test_pep723_skill_key.py`
+    asserts the unknown-key warning instead of acceptance.
 
 ## Wave 7 — surfaces
 
@@ -143,7 +155,10 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   `tests/cli/test_config_upward_walk.py`
 - [ ] **8.4 Docs, changelog, STATUS** (F12; AC15) — **[F]** `docs/cli/config.md`, `docs/guides/shell.md`,
   `docs/guides/configuration.md`, `CHANGELOG.md`, `.spec/STATUS.md`, `tests/spec/test_config_docs_ratchet.py` (new)
-  - CHANGELOG: `### Fixed — …` (FOSS-127), plus `### Changed` rows for §3.8.
+  - CHANGELOG: `### Fixed — …` (FOSS-127), plus `### Changed` rows for §3.8, including
+    M6 (`FUNCTUALIZE_EXTRA_DIRECTORIES` → `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES`,
+    `docs/cli/config.md:148`) and M5 (`skill` rejected). STATUS #22 and #29 closed
+    (#29: removed, no consumer arrived).
 
 ## Wave 9 — checkpoint
 
