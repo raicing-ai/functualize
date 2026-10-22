@@ -24,6 +24,17 @@ def _app(config_sources: ConfigSources) -> FunctualizeApp:
     )
 
 
+def test_new_fields_preserve_existing_positional_config_sources() -> None:
+    sources = ConfigSources("pattern", None, False, "env.file", True, "7d", "30s")
+    assert sources.dotenv is False
+    assert sources.dotenv_path == "env.file"
+    assert sources.remote is True
+    assert sources.vault_max_age == "7d"
+    assert sources.vault_keyring_timeout == "30s"
+    assert sources.settings is None
+    assert sources.resolved is None
+
+
 def test_public_symbols_resolve_the_same_declared_snapshot(tmp_path: Path) -> None:
     schema = AppSettingsSchema(
         settings=(Setting("cli.output", "str", "Output", default="rich"),),
@@ -36,6 +47,7 @@ def test_public_symbols_resolve_the_same_declared_snapshot(tmp_path: Path) -> No
     )
     (tmp_path / ".example.toml").write_text('[cli]\noutput = "json"\n')
     expected = resolve_settings(schema, tmp_path, env={}, global_dir=tmp_path / "none")
+    assert isinstance(expected, ResolvedSettings)
     assert expected.get("cli.output") == "json"
 
     sources = ConfigSources(
