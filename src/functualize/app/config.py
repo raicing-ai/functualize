@@ -28,11 +28,13 @@ from functualize._primitives.entry_point_groups import PLUGINS
 
 if TYPE_CHECKING:
     from functualize._config import ResolutionChain
+    from functualize._config.settings_resolution import ResolvedSettings
     from functualize._types.protocols import (
         JobProvider,
         JobTransform,
         ModulePreFilter,
     )
+    from functualize._types.settings import AppSettingsSchema
 
 __all__ = [
     "ConfigSources",
@@ -116,6 +118,10 @@ class ConfigSources:
 
     file_pattern: str = r"^config\.(\w+)\.(\w+)$"
     config_resolution_chain: ResolutionChain | None = None
+    settings: AppSettingsSchema | None = None
+    """The settings vocabulary to resolve; None uses the built-in declaration."""
+    resolved: ResolvedSettings | None = None
+    """A supplied snapshot, useful when an embedding host already resolved it."""
     dotenv: bool = True
     dotenv_path: str | None = None
     remote: bool = False

@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from functualize._app.workflow_facade import WorkflowScopeFacade
     from functualize._config import ResolutionChain
     from functualize._config.registry import ProviderRegistry
+    from functualize._config.settings_resolution import ResolvedSettings
     from functualize._discovery.pipeline import ResolutionPipeline
     from functualize._discovery.registry import JobRegistry
     from functualize._engine.agent_step import AgentStepRegistry
@@ -182,6 +183,7 @@ class FunctualizeApp:
         self._config_sources = (
             config_sources if config_sources is not None else ConfigSources()
         )
+        self._settings_snapshot: ResolvedSettings | None = self._config_sources.resolved
         self._plugin_sources = (
             plugin_sources if plugin_sources is not None else PluginSources()
         )
@@ -235,6 +237,21 @@ class FunctualizeApp:
             boot_standard(self, perf_timeline)
 
     # ─── Constructor Resolution Helpers ──────────────────────────────────
+
+    @property
+    def settings(self) -> ResolvedSettings:
+        """Resolved declared settings, shared by every delivery surface.
+
+        The snapshot is built on first access so static wiring stays free of
+        configuration-file reads when its host does not use settings.
+        """
+        if self._settings_snapshot is None:
+            from functualize._config.settings_resolution import resolve_settings
+            from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
+
+            schema = self._config_sources.settings or FUNCTUALIZE_SETTINGS
+            self._settings_snapshot = resolve_settings(schema, self._state_root)
+        return self._settings_snapshot
 
     def _is_fully_explicit(self) -> bool:
         """Detect whether all sources are explicitly provided (static wiring)."""
