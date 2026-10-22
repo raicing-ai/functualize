@@ -59,7 +59,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 2 — public seam and kernel consumers
 
-- [ ] **2.1 Public seam** (C4/C5) — **[F]** `src/functualize/app/config.py`,
+- [x] **2.1 Public seam** (C4/C5) — **[F]** `src/functualize/app/config.py`,
   `src/functualize/app/core.py`, `src/functualize/plugin/__init__.py`, `tests/app/test_app_settings.py` (new)
   - Re-exports; `ConfigSources(settings=, resolved=)`; `FunctualizeApp.settings`.
 - [ ] **2.2 `_config` readers** — **[F]** `src/functualize/_config/project_dirs.py`,

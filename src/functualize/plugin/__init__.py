@@ -9,6 +9,7 @@ Usage:
     from functualize.plugin import DisplayProvider, PanelProvider, ThemeProvider
 """
 
+from functualize._config.settings_resolution import ResolvedSettings, resolve_settings
 from functualize._discovery.providers import Job, StaticProvider
 from functualize._events.bus import EventBus, StructuredEvent
 from functualize._events.hooks import HookEvent
@@ -169,6 +170,8 @@ __all__ = [
     # write a plugin. They stay internal until something needs to name one.
     "PluginHost",
     "AppSettingsSchema",
+    "ResolvedSettings",
+    "resolve_settings",
     "CommandNode",
     "CommandProvider",
     "DEFAULT_SIGIL",
