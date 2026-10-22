@@ -49,7 +49,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   - `EnvSource(prefix=)`, `LayerSource`, list merge = `_merge_lists_dedup` (`_cli/config.py:287`).
   - Gate: the 0.1 matrix resolves to the pinned values; F3a → `rich`; AC28: only
     `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES` is read for `extra_directories`.
-- [ ] **1.3 Builtins split** (F10, AC25) — **[F]** `src/functualize/_cli/builtins.py` →
+- [x] **1.3 Builtins split** (F10, AC25) — **[F]** `src/functualize/_cli/builtins.py` →
   `src/functualize/_cli/builtins/` (`__init__.py`, `_cache.py`, `_data.py`,
   `_workflow.py`, `_run.py`, `_builtin.py`, `_config.py`, `_domains.py`,
   `_skills.py`, `_info.py`, `_helpers.py`)
