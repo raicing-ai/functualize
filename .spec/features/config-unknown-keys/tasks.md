@@ -65,7 +65,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 - [x] **2.2 `_config` readers** — **[F]** `src/functualize/_config/project_dirs.py`,
   `src/functualize/_config/merge.py`, `src/functualize/_config/vault_declarations.py`
   - Gate: `uv run pytest tests/config -q`; the AC13 walk over these files → 0.
-- [ ] **2.3 Fingerprint** — **[F]** `src/functualize/_discovery/filter_factory.py`,
+- [x] **2.3 Fingerprint** — **[F]** `src/functualize/_discovery/filter_factory.py`,
   `tests/discovery/test_discovery_hash.py`
   - Gate: an unset config's digest equals the pinned digest.
 
