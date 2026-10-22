@@ -99,8 +99,9 @@ class GraphModel:
     def is_effecting(self, node: str) -> bool:
         """Does ``node`` do something the world remembers?
 
-        An effecting step must run exactly once across a crash and a resume;
-        a pure one is replayed. The default is pure, because the framework
+        An effecting step in flight is never re-run without a decision, and is exactly-once once that decision is made;
+        a raise is the job's own account, even if its effect already happened.
+        A pure one is replayed. The default is pure, because the framework
         cannot tell them apart by looking and guessing wrong in that direction
         re-runs a refund.
         """
@@ -159,6 +160,13 @@ class StepStatus:
     #: A human stopped it. Terminal by design and **not** a failure: recorded
     #: as one, it invites exactly the retry that can never succeed.
     CANCELLED = "cancelled"
+    #: An effecting step's job was entered and has not yet been recorded as
+    #: finished: a crash here leaves the world's state unknown.
+    ATTEMPTING = "attempting"
+    #: A resumed walk found an attempt it cannot account for, and asked.
+    IN_DOUBT = "in_doubt"
+    #: The step ended by blocking (`StepBlocked`) — an ending, not a doubt.
+    BLOCKED = "blocked"
 
 
 #: The outcomes a replay may skip over.
@@ -416,6 +424,10 @@ class FrontierWalk:
         inputs: Mapping[str, Any] | None = None,
         status: str = StepStatus.SUCCESS,
         completed_at: str = "",
+        attempt: int = 0,
+        started_at: datetime | None = None,
+        effecting: bool | None = None,
+        reusable_override: bool | None = None,
     ) -> list[str]:
         """Record ``node`` as finished and expand the frontier past it.
 
@@ -433,6 +445,8 @@ class FrontierWalk:
         from functualize._primitives.fingerprint import classify_return_value
 
         reusable, kind, type_name, stored = classify_return_value(return_value)
+        if reusable_override is False:
+            reusable, kind, stored = False, "missing_recovery_value", None
 
         # The branch is resolved before the write: a choice already recorded
         # for this scope wins, so replay follows the branch the walk took
@@ -476,7 +490,11 @@ class FrontierWalk:
                     # Recorded on the step, not looked up from the declaration
                     # on resume (`durable-run-layer`/T9): a resume may meet a
                     # declaration that has since changed.
-                    effecting=self._graph.is_effecting(node),
+                    effecting=self._graph.is_effecting(node)
+                    if effecting is None
+                    else effecting,
+                    attempt=attempt,
+                    started_at=started_at,
                 )
             )
         return [] if finished else runnable
@@ -549,6 +567,7 @@ class FrontierWalk:
         tools: Sequence[Mapping[str, Any]] = (),
         when: datetime | None = None,
         scope_status: str = WalkState.BLOCKED,
+        supersedes: str | None = None,
     ) -> str:
         """Open (or rejoin) the gate request through the runtime port.
 
@@ -572,6 +591,7 @@ class FrontierWalk:
             model=model,
             tools=tuple(tools),
             scope_status=scope_status,
+            supersedes=supersedes,
         )
         with self._runtime_store.transaction() as tx:
             tx.workflows.suspend(command)
@@ -719,6 +739,9 @@ class FrontierWalk:
         result_kind: str | None = None,
         result_type: str | None = None,
         inputs: Mapping[str, Any] | None = None,
+        attempt: int = 0,
+        started_at: datetime | None = None,
+        effecting: bool = False,
     ) -> None:
         """A step record that moves neither position nor status.
 
@@ -739,6 +762,9 @@ class FrontierWalk:
                     result_kind=result_kind,
                     result_type=result_type,
                     inputs=inputs,
+                    effecting=effecting,
+                    attempt=attempt,
+                    started_at=started_at,
                 )
             )
 

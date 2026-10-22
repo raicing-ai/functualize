@@ -332,7 +332,7 @@ def _reopen(
         scope_id=scope_id,
         generation=lease.generation if lease else 0,
         gate_name=gate,
-        position=gate,
+        position=_recovered_step(app, scope, gate) or gate,
         now=now,
         schema=record.get("input_schema"),
         prompt=record.get("prompt"),
@@ -376,14 +376,32 @@ def _walk_has_passed(app: Any, scope: dict[str, Any], gate: str) -> bool:
     if not downstream:
         return False
 
+    recovered = _recovered_step(app, scope, gate)
     position = scope.get("position")
-    if isinstance(position, str) and position in downstream:
+    if isinstance(position, str) and position in downstream and position != recovered:
         return True
 
     steps = scope.get("steps") or {}
     return any(
-        key.split("::", 1)[0] in downstream for key in steps if isinstance(key, str)
+        key.split("::", 1)[0] in downstream
+        and not (
+            key.split("::", 1)[0] == recovered
+            and isinstance(record, dict)
+            and record.get("status") in ("attempting", "in_doubt")
+        )
+        for key, record in steps.items()
+        if isinstance(key, str)
     )
+
+
+def _recovered_step(app: Any, scope: dict[str, Any], gate: str) -> str | None:
+    """Resolve a derived recovery gate through its live declaration."""
+    workflow = scope.get("workflow")
+    descriptor = app.get_job(workflow) if isinstance(workflow, str) else None
+    declaration = getattr(
+        getattr(descriptor, "function", None), "__functualize_workflow__", None
+    )
+    return declaration.recovered_step(gate) if declaration is not None else None
 
 
 def _downstream_of(app: Any, scope: dict[str, Any], gate: str) -> set[str]:
@@ -405,7 +423,8 @@ def _downstream_of(app: Any, scope: dict[str, Any], gate: str) -> set[str]:
         )
 
     seen: set[str] = set()
-    frontier = list(adjacency.get(gate, []))
+    recovered = _recovered_step(app, scope, gate)
+    frontier = [recovered] if recovered is not None else list(adjacency.get(gate, []))
     while frontier:
         node = frontier.pop()
         if node in seen or node == gate:

@@ -22,11 +22,23 @@ Scoped to workflow-declaring jobs, so the flags stay off every ordinary job's
 
 from __future__ import annotations
 
+import asyncio
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
+from functualize_mcp._workflow_tools import WorkflowToolProvider
+from pydantic import BaseModel
+
+from functualize._app.state import AppState
+from functualize.app import FunctualizeApp
+from functualize.app._workflow_answer import _downstream_of
+from functualize.app.utils import ScopeStore, answer_gate
+from functualize.job import RunStatus
+from functualize.types import RunRequest
+from functualize.workflow import END, Edge, Gate, Step, workflow
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
@@ -117,6 +129,43 @@ def grouped_walk(log: Log) -> str:
     return "done"
 """
 
+_EFFECT_JOBS = """
+from pathlib import Path
+
+from functualize import workflow
+from functualize.job import job
+from functualize.workflow import END, Edge, Step
+
+
+class Crash(BaseException):
+    pass
+
+
+@job
+def charge() -> str:
+    marker = Path("effect-markers")
+    marker.write_text(marker.read_text() + "x" if marker.exists() else "x")
+    once = Path("crash-once")
+    if not once.exists():
+        once.write_text("yes")
+        raise Crash()
+    return "receipt"
+
+
+@job
+def after() -> str:
+    Path("after-marker").write_text("done")
+    return "done"
+
+
+@workflow(
+    steps=[Step(charge, effecting=True), Step(after)],
+    edges=[Edge("charge", "after"), Edge("after", END)],
+)
+def recover() -> str:
+    return "recovered"
+"""
+
 
 def _project(tmp_path: Path) -> Path:
     (tmp_path / ".functualize.toml").write_text(
@@ -130,6 +179,12 @@ def _project(tmp_path: Path) -> Path:
     (jobs / "w.py").write_text(_JOBS)
     (jobs / "g.py").write_text(_GROUPED)
     return tmp_path
+
+
+def _effect_project(tmp_path: Path) -> Path:
+    project = _project(tmp_path)
+    (project / "jobs" / "w.py").write_text(_EFFECT_JOBS)
+    return project
 
 
 def _run(project: Path, surface: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -325,3 +380,179 @@ def test_the_flag_is_declared_nowhere_in_the_source() -> None:
     assert result.stdout.strip() == "", (
         f"--scope-id is still declared as a click option:\n{result.stdout}"
     )
+
+
+@pytest.mark.parametrize("surface", SURFACES)
+@pytest.mark.parametrize("answer_mode", ["builtin", "fused"])
+def test_recovery_answer_surfaces_keep_effect_once(
+    surface: str, answer_mode: str, tmp_path: Path
+) -> None:
+    project = _effect_project(tmp_path)
+    first = _run(project, surface, "recover")
+    assert first.returncode != 0
+    assert (project / "effect-markers").read_text() == "x"
+    scopes = ScopeStore.for_project(project).scope_ids()
+    assert len(scopes) == 1
+    scope = scopes[0]
+    blocked = _run(project, surface, "recover", "--wf-resume", scope)
+    assert blocked.returncode == 5, blocked.stdout + blocked.stderr
+    assert (project / "effect-markers").read_text() == "x"
+
+    invalid = _run(
+        project,
+        surface,
+        "builtin",
+        "workflow",
+        "answer",
+        scope,
+        "charge-in-doubt",
+        "--input",
+        '{"outcome": "maybe"}',
+    )
+    assert "answered" not in invalid.stdout.lower()
+    assert _run(project, surface, "recover", "--wf-resume", scope).returncode == 5
+
+    payload = '{"outcome": "ran", "value": "receipt"}'
+    if answer_mode == "builtin":
+        answered = _run(
+            project,
+            surface,
+            "builtin",
+            "workflow",
+            "answer",
+            scope,
+            "charge-in-doubt",
+            "--input",
+            payload,
+        )
+        assert answered.returncode == 0, answered.stdout + answered.stderr
+        resumed = _run(project, surface, "recover", "--wf-resume", scope)
+    else:
+        resumed = _run(
+            project,
+            surface,
+            "recover",
+            "--wf-resume",
+            scope,
+            "--wf-input",
+            payload,
+        )
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+    assert (project / "effect-markers").read_text() == "x"
+    assert (project / "after-marker").read_text() == "done"
+
+    reopened = _run(
+        project,
+        surface,
+        "builtin",
+        "workflow",
+        "answer",
+        scope,
+        "charge-in-doubt",
+        "--reopen",
+        "--input",
+        payload,
+    )
+    assert reopened.returncode != 0
+    assert "passed" in reopened.stdout + reopened.stderr
+
+
+@pytest.mark.parametrize("answer_surface", ["api", "mcp"])
+def test_recovery_answer_and_reopen_follow_the_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer_surface: str
+) -> None:
+    """An in-doubt record is still at the step; its success has passed it."""
+    project = tmp_path / "effect"
+    (project / ".functualize").mkdir(parents=True)
+    monkeypatch.chdir(project)
+    AppState.reset()
+    app = FunctualizeApp(name="recovery-answer")
+    calls: list[str] = []
+
+    class Crash(BaseException):
+        pass
+
+    class Approval(BaseModel):
+        approved: bool
+
+    def charge() -> str:
+        calls.append("charge")
+        if len(calls) == 1:
+            raise Crash()
+        return "receipt"
+
+    def after() -> str:
+        calls.append("after")
+        return "done"
+
+    @workflow(
+        steps=[
+            Step("charge", effecting=True),
+            Gate(name="approval", awaits=Approval),
+            Step("after"),
+        ],
+        edges=[
+            Edge("charge", "approval"),
+            Edge("approval", "after"),
+            Edge("after", END),
+        ],
+    )
+    def release() -> str:
+        return "released"
+
+    for name, function in (("charge", charge), ("after", after), ("release", release)):
+        app.register_dynamic_job(name, function)
+
+    def run() -> Any:
+        return app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="s1"
+            )
+        )
+
+    with pytest.raises(Crash):
+        run()
+    assert run().status is RunStatus.BLOCKED
+    store = ScopeStore.for_project(project)
+    provider = WorkflowToolProvider(app, store=store)
+
+    def submit(values: dict[str, Any] | None = None, **kwargs: Any) -> dict[str, Any]:
+        if answer_surface == "api":
+            return answer_gate(app, store, "s1", "charge-in-doubt", values, **kwargs)
+        return asyncio.run(
+            provider._answer_gate(
+                values or {}, workflow_id="s1", gate="charge-in-doubt", **kwargs
+            )
+        )
+
+    scope = store.get_scope("s1")
+
+    invalid = submit({"outcome": "maybe"})
+    assert invalid["status"] == "drafted"
+    assert store.get_gate("s1", "charge-in-doubt")["payload"] is None
+
+    accepted = submit({"outcome": "ran", "value": "receipt"}, mode="replace")
+    assert accepted["status"] == "answered"
+    reopened = submit(reopen=True, commit=False)
+    assert reopened["status"] == "drafted"
+    assert store.get_scope("s1")["position"] == "charge"
+    assert (
+        submit({"outcome": "ran", "value": "receipt"}, mode="replace")["status"]
+        == "answered"
+    )
+    assert run().status is RunStatus.BLOCKED
+    assert calls == ["charge"]
+    refused = submit(reopen=True)
+    assert refused["error"] == "gate_already_consumed"
+    assert _downstream_of(app, scope, "charge-in-doubt") == {
+        "charge",
+        "approval",
+        "after",
+    }
+    assert (
+        answer_gate(app, store, "s1", "approval", {"approved": True})["status"]
+        == "answered"
+    )
+    assert run().status is RunStatus.SUCCESS
+    assert calls == ["charge", "after"]
+    AppState.reset()

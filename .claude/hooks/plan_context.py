@@ -13,6 +13,7 @@ defenses, which surfaces the text to the user instead of treating it as context.
 
 import json
 import sys
+from contextlib import suppress
 
 CONTEXT = """\
 Execution discipline in this repository, for the plan that was just approved:
@@ -65,8 +66,6 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
+    with suppress(Exception):
         main()
-    except Exception:
-        pass
     sys.exit(0)

@@ -12,7 +12,10 @@ step — and adds no method to it. The rules the module holds:
 
 - **One live request per (scope, gate).** Reopening a gate does not rewrite
   the answered request: it cancels it, archives it under ``superseded``, and
-  opens a new one seeded with the old answer as a draft.
+  opens a new one seeded with the old answer as a draft. A walk asking the
+  gate a new question after its last answer was consumed names that request
+  as ``supersedes``: the spent request is archived the same way, unanswered
+  by anything the new one inherits.
 - **Candidates are append-only.** Appending to a request that is not ``open``
   raises before anything is written, so a recorded answer is final.
 - **Consumption has one writer.** Only the walk moving past the gate marks a
@@ -149,6 +152,7 @@ def open_request(
     model: str,
     tools: tuple[Any, ...],
     now: datetime,
+    supersedes: str | None = None,
 ) -> str:
     """Open the gate's request, or return the id of the one already live.
 
@@ -158,13 +162,52 @@ def open_request(
     gate with no live request (never opened, or fully superseded) gets a new
     record, and a superseded history already on the record is carried
     forward rather than dropped.
+
+    ``supersedes`` names a **consumed** request whose answer must not answer
+    this ask: an answer used once is spent, and a later question on the same
+    gate needs its own. That request is moved onto the gate's ``superseded``
+    history (reason ``superseded``) and a fresh request opens in its place.
+    Naming a request that is still open or accepted refuses — retiring an
+    answer nobody used would lose it — and naming one already in the
+    history is the replay of a supersede that landed, so the live request
+    is reused as without it.
     """
     record = store.get_gate(scope_id, gate_name)
-    if record is not None and _status(record) in (*_LIVE, "consumed"):
+    if (
+        supersedes is None
+        and record is not None
+        and _status(record) in (*_LIVE, "consumed")
+    ):
         return _request_id(scope_id, gate_name, record)
     with store.batch():
         current = store.get_gate(scope_id, gate_name)
-        if current is not None and _status(current) in (*_LIVE, "consumed"):
+        if current is None and supersedes is not None:
+            raise ValueError(
+                f"gate {gate_name!r} has no request; {supersedes!r} cannot be "
+                "superseded"
+            )
+        superseded = list(current.get("superseded", [])) if current else []
+        if current is not None and _names(scope_id, gate_name, current, supersedes):
+            if _status(current) != "consumed":
+                raise ValueError(
+                    f"request {supersedes!r} on gate {gate_name!r} is "
+                    f"{_status(current)!r}, not consumed — only a spent answer "
+                    "can be superseded"
+                )
+            archived = dict(current)
+            archived.pop("superseded", None)
+            archived["superseded_reason"] = "superseded"
+            archived["superseded_at"] = _iso(now)
+            superseded.append(archived)
+        elif current is not None and _status(current) in (*_LIVE, "consumed"):
+            if supersedes is not None and not _archived(
+                scope_id, gate_name, superseded, supersedes
+            ):
+                raise ValueError(
+                    f"gate {gate_name!r} holds request "
+                    f"{_request_id(scope_id, gate_name, current)!r}; "
+                    f"{supersedes!r} is not a request it recorded"
+                )
             return _request_id(scope_id, gate_name, current)
         fresh: dict[str, Any] = {
             "request_id": request_id,
@@ -177,12 +220,34 @@ def open_request(
             "payload": None,
             "blocked_at": _iso(now),
         }
-        if current is not None and current.get("superseded"):
+        if superseded:
             # A superseded history rides along with the next request — the
             # archive is the gate's, not any one request's.
-            fresh["superseded"] = list(current["superseded"])
+            fresh["superseded"] = superseded
         store.put_gate(scope_id, gate_name, fresh)
     return request_id
+
+
+def _names(
+    scope_id: str, gate_name: str, record: dict[str, Any], request_id: str | None
+) -> bool:
+    """Whether ``request_id`` is the request this gate record currently holds."""
+    return request_id is not None and (
+        _request_id(scope_id, gate_name, record) == request_id
+    )
+
+
+def _archived(
+    scope_id: str,
+    gate_name: str,
+    history: list[Any],
+    request_id: str,
+) -> bool:
+    """Whether ``request_id`` is already on the gate's superseded history."""
+    return any(
+        isinstance(entry, dict) and _names(scope_id, gate_name, entry, request_id)
+        for entry in history
+    )
 
 
 def append_candidate(

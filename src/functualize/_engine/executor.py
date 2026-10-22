@@ -2155,6 +2155,10 @@ class JobExecutionEngine:
             # `reusable_return_value` reads.
             for step in self._runtime_store.workflows.steps(scope_id):
                 if step.step_key.split("::", 1)[0] == ref.name:
+                    if step.result_kind == "missing_recovery_value":
+                        raise ValueError(
+                            f"effecting step {ref.name!r} was confirmed ran without a return value"
+                        )
                     record = {
                         "status": step.status,
                         "return_value": step.result,

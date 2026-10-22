@@ -83,6 +83,20 @@ def _walk(declaration: WorkflowDeclaration, store: ScopeStore) -> WorkflowWalker
 
 
 class TestTheDigestIsOverTheGraph:
+    def test_pure_digest_is_unchanged_and_effecting_adds_only_two_entries(self) -> None:
+        pure = WorkflowDeclaration(nodes=(Step("refund"),))
+        effecting = WorkflowDeclaration(nodes=(Step("refund", effecting=True),))
+        assert graph_digest(_two_steps()) == "9486974a3042ba94"
+        assert pure.shape().to_dict() == {"steps": [{"step": "refund"}], "edges": []}
+        assert effecting.shape().to_dict() == {
+            "steps": [
+                {"step": "refund", "effecting": True},
+                {"gate": "refund-in-doubt", "model": "InDoubt", "recovers": "refund"},
+            ],
+            "edges": [],
+        }
+        assert graph_digest(effecting) != graph_digest(pure)
+
     def test_the_same_graph_digests_the_same(self) -> None:
         assert graph_digest(_two_steps()) == graph_digest(_two_steps())
 

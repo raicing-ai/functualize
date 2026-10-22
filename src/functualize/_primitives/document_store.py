@@ -352,8 +352,13 @@ class _DocumentWorkflowReader:
 
 
 def _step_record(cmd: CompleteStep | RecordStep) -> dict[str, Any]:
-    """A step command as the legacy step record the walk has always written."""
-    return {
+    """A step command as the legacy step record the walk has always written.
+
+    `attempt` and `started_at` are written only when the command carries them:
+    only an effecting step's attempt sets them, so a pure step's record keeps
+    exactly the keys it has always had.
+    """
+    record: dict[str, Any] = {
         "status": cmd.status,
         "return_value": cmd.result if cmd.reusable else None,
         "return_value_reusable": cmd.reusable,
@@ -363,6 +368,11 @@ def _step_record(cmd: CompleteStep | RecordStep) -> dict[str, Any]:
         "completed_at": _completed_at(cmd),
         "effecting": cmd.effecting,
     }
+    if cmd.attempt:
+        record["attempt"] = cmd.attempt
+    if cmd.started_at is not None:
+        record["started_at"] = _iso(cmd.started_at)
+    return record
 
 
 def _epilogue_record(cmd: RecordStep) -> dict[str, Any]:
@@ -406,7 +416,15 @@ def _step_view(scope_id: str, key: str, record: dict[str, Any]) -> StepView:
         inputs=record.get("inputs"),
         effecting=bool(record.get("effecting")),
         completed_at=_parse(completed) if completed else None,
+        attempt=_attempt_of(record),
+        started_at=_parse(record.get("started_at")),
     )
+
+
+def _attempt_of(record: dict[str, Any]) -> int:
+    """The record's attempt number, zero when absent — every pure step's."""
+    attempt = record.get("attempt")
+    return attempt if isinstance(attempt, int) and attempt > 0 else 0
 
 
 def _lease_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -1103,9 +1121,11 @@ class _DocumentTransaction:
 
         `open_request` owns the record shape and the one-live-request rule:
         a request already open, accepted or consumed for this gate is reused
-        as-is, so a re-entering walk keeps the id it blocked with. `model`
-        and `tools` ride on the command so a surface that answers over MCP
-        can learn the question without the declaring module.
+        as-is, so a re-entering walk keeps the id it blocked with — unless
+        the command names a consumed request it `supersedes`, which is
+        archived and replaced by a fresh one. `model` and `tools` ride on
+        the command so a surface that answers over MCP can learn the
+        question without the declaring module.
         """
         with self._held(scopes, cmd.scope_id, cmd.generation):
             gate_requests.open_request(
@@ -1118,6 +1138,7 @@ class _DocumentTransaction:
                 model=cmd.model,
                 tools=cmd.tools,
                 now=cmd.now,
+                supersedes=cmd.supersedes,
             )
             scopes.set_position(cmd.scope_id, cmd.position)
             scopes.set_scope_status(cmd.scope_id, cmd.scope_status)

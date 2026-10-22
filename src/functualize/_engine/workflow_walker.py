@@ -36,6 +36,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from functualize._engine.decision_keys import ROUTED_TO_END, failure_key, notify_key
+from functualize._engine.effect_recovery import EffectRecovery
 from functualize._engine.frontier import END as _FRONTIER_END
 from functualize._engine.frontier import (
     TERMINAL_SUCCESS,
@@ -198,6 +199,7 @@ class _NodeRun:
     value: Any
     inputs: dict[str, Any] | None = None
     replayed: bool = False
+    reusable: bool | None = None
     #: Where a **failed** node's declared `OnFailure` sends the walk, or None.
     #:
     #: Carried on the run rather than routed inside the handler because the
@@ -219,6 +221,14 @@ class _Ledger:
     executed: list[str] = field(default_factory=list)
     replayed: list[str] = field(default_factory=list)
     results: dict[str, Any] = field(default_factory=dict)
+
+
+def _remember_value(ledger: _Ledger, name: str, run: _NodeRun) -> None:
+    """A missing recovery value cannot masquerade as a `FromStep` result."""
+    if run.reusable is False and run.value is None:
+        ledger.results.pop(name, None)
+    else:
+        ledger.results[name] = run.value
 
 
 def graph_model_of(declaration: WorkflowDeclaration) -> GraphModel:
@@ -326,6 +336,7 @@ class WorkflowWalker:
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
         self._gates = GateService()
+        self._recovery = EffectRecovery(self)
         self._emit = emit
         self._notifiers = notifiers
         self._heartbeat_interval_seconds = _heartbeat_interval_seconds
@@ -570,7 +581,7 @@ class WorkflowWalker:
                 ledger.replayed.append(name)
             else:
                 ledger.executed.append(name)
-            ledger.results[name] = run.value
+            _remember_value(ledger, name, run)
             if run.failure_route is not None:
                 # A routed failure does not advance the frontier: the node did
                 # not succeed, so nothing downstream of it is unblocked. Only
@@ -580,9 +591,7 @@ class WorkflowWalker:
                 if run.failure_route != ROUTED_TO_END:
                     pending.append((run.failure_route, iteration))
                 continue
-            pending.extend(
-                (nxt, iteration) for nxt in self._advance(name, run.value, run.inputs)
-            )
+            pending.extend((nxt, iteration) for nxt in self._advance(name, run))
             back = self._loop_back(name, run.value, iteration)
             if back is not None:
                 pending.append((back, iteration + 1))
@@ -616,8 +625,14 @@ class WorkflowWalker:
         scope status change: the walk is continuing down a declared route, and
         a workflow that recovers is not a failed workflow.
         """
+        record = self._walk.step(self._key(name))
         self._walk.record(
-            self._key(name), StepStatus.FAILED, completed_at=datetime.now(UTC)
+            self._key(name),
+            StepStatus.FAILED,
+            completed_at=datetime.now(UTC),
+            attempt=record.attempt if record else 0,
+            started_at=record.started_at if record else None,
+            effecting=record.effecting if record else False,
         )
 
     def _failure_route(self, name: str, exc: BaseException) -> str | None:
@@ -763,6 +778,8 @@ class WorkflowWalker:
         ledger: _Ledger,
     ) -> _NodeRun | WalkReport:
         """A step: replay its recorded value, or run the job it names."""
+        if node.effecting:
+            return self._recovery.service(name, ledger)
         record = self._walk.step(self._key(name))
         if record is not None and record.status in TERMINAL_SUCCESS:
             return _NodeRun(record.result, replayed=True)
@@ -871,16 +888,18 @@ class WorkflowWalker:
         upcoming = set(pending) | descendants(self._predecessors, list(pending))
         return not (set(preds) & upcoming)
 
-    def _advance(
-        self, name: str, value: Any, inputs: dict[str, Any] | None = None
-    ) -> list[str]:
+    def _advance(self, name: str, run: _NodeRun) -> list[str]:
         """Record ``name`` as done and return the nodes it unblocks."""
+        record = self._walk.step(self._key(name))
         return self._walk.complete(
             name,
-            choice=self._choice_for(name, value),
+            choice=self._choice_for(name, run.value),
             args_hash=_iteration_hash(self._iteration),
-            return_value=value,
-            inputs=inputs,
+            return_value=run.value,
+            inputs=run.inputs,
+            reusable_override=run.reusable,
+            attempt=record.attempt if record else 0,
+            started_at=record.started_at if record else None,
             completed_at=_now(),
         )
 
@@ -1009,6 +1028,7 @@ class WorkflowWalker:
         and a resume look.
         """
         # One unit: the step's record, its position and the scope's status.
+        record = self._walk.step(self._key(node))
         with self._runtime_store.transaction() as tx:
             tx.workflows.complete_step(
                 CompleteStep(
@@ -1019,6 +1039,9 @@ class WorkflowWalker:
                     status=status,
                     position=node,
                     scope_status=_SCOPE_STATUS_FOR[status],
+                    attempt=record.attempt if record else 0,
+                    started_at=record.started_at if record else None,
+                    effecting=record.effecting if record else False,
                 )
             )
         return WalkReport(

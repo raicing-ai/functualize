@@ -547,6 +547,49 @@ Resuming a paused workflow replays it with memoization:
 | Recorded branch choices | Stable — read from state, not re-evaluated |
 | Deposited gate inputs | Stable |
 | `Deps` edges | Stale deps re-run (correctness) |
+| A step interrupted mid-run, declared `effecting=True` | The scope stops at `<step>-in-doubt` — the job is never re-run without a decision, and is exactly-once once that decision is made |
+
+### Effecting steps across a crash
+
+Replay is a bet that a step is cheap to repeat. `Step(job, effecting=True)`
+declares the opposite — the step charges a card, sends a mail, files a
+ticket — and changes what a resume does when the runner died **inside** the
+step:
+
+Before the job runs, the walk commits an `attempting` record for the step,
+numbered per attempt. A resume that finds one cannot tell whether the effect
+happened, so it refuses to guess: it stops the scope `blocked` with a
+`blocked_reason` beginning `in_doubt:` — naming the step, the attempt, and
+the start time — and opens the derived recovery gate `<step>-in-doubt`. The
+step's job is not entered again until that gate is answered.
+
+The answer is an `InDoubt` model: `outcome` is required and must be `ran` or
+`did_not_run`; `value` is optional. Anything else is refused and the gate
+stays open. The verdict is binding:
+
+- `{"outcome": "ran"}` — the walk records success and continues **without
+  calling the job**. With `"value": ...` that value is the step's result;
+  without one, a downstream `FromJob`/`FromStep` on the step fails loudly
+  rather than invent a value.
+- `{"outcome": "did_not_run"}` — the job runs again as the next attempt, by
+  explicit choice. If that attempt is interrupted too, the scope stops in
+  doubt again; the earlier answer never settles the new doubt.
+
+Answer it through the same surfaces as any other gate — `func builtin
+workflow answer <id> <step>-in-doubt --input '{"outcome": "ran"}'`, the
+`--wf-resume <id> --wf-input` flags on the job, the `answer_gate` API, or
+the MCP gate tools. A raise inside an effecting step stays the job's own
+account, even if its effect already happened — failure routing is unchanged.
+
+**Notification limitation.** `Notify(on="blocked")` is keyed per declaration
+and scope, so an earlier blocked stop may prevent a later in-doubt stop in
+the same scope from sending another notification. The stop is not hidden:
+`status` and `blocked_reason` still expose it.
+
+A workflow that declares an effecting step digests differently from the same
+graph without the flag — the shape gains the effecting marker and the
+recovery gate. A scope parked under the old digest is refused on resume with
+the existing graph-changed error, once, when the declaration first changes.
 
 ### Where a paused workflow actually lives
 

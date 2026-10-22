@@ -111,6 +111,37 @@ class TestDeclarationInScan:
 
 
 class TestScanWarmCacheParity:
+    def test_version_21_workflow_shape_is_rebuilt_on_warm_boot(
+        self, tmp_path: Path, jobs_dir: Path
+    ) -> None:
+        (jobs_dir / "effect.py").write_text(
+            "from functualize import workflow\n"
+            "from functualize.job import job\n"
+            "from functualize.workflow import Step\n"
+            "@job\n"
+            "def refund(): pass\n"
+            "@workflow(steps=[Step(refund, effecting=True)], edges=[])\n"
+            "def flow(): pass\n"
+        )
+        first = _make_provider(tmp_path, jobs_dir).list_jobs()
+        flow = next(job for job in first if job.name == "flow")
+        assert flow.workflow is not None
+        assert flow.workflow.to_dict()["steps"][1]["recovers"] == "refund"
+
+        path = _cache_file(tmp_path)
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        cached["version"] = 21
+        for entry in cached["entries"].values():
+            if entry["name"] == "flow":
+                entry["workflow"] = {"steps": [{"step": "refund"}], "edges": []}
+        path.write_text(json.dumps(cached), encoding="utf-8")
+
+        rebuilt = _make_provider(tmp_path, jobs_dir).list_jobs()
+        flow = next(job for job in rebuilt if job.name == "flow")
+        assert flow.workflow is not None
+        assert flow.workflow.to_dict()["steps"][1]["recovers"] == "refund"
+        assert json.loads(path.read_text(encoding="utf-8"))["version"] == 22
+
     def test_declaration_survives_warm_cache_read(
         self, tmp_path: Path, jobs_dir: Path
     ) -> None:
