@@ -694,7 +694,7 @@ class TestCurrentDivergences:
             == "rich"
         )
 
-    def test_f3b_shell_file_split_flips_in_3_1(
+    def test_f3b_shell_file_converges_in_3_1(
         self,
         config_tree: tuple[Path, Path],
         monkeypatch: pytest.MonkeyPatch,
@@ -708,23 +708,23 @@ class TestCurrentDivergences:
             .effective_values()
             .get("shell.program")
         )
-        from functualize._app.boot import build_resolution_chain
-
-        class _Registry:
-            def list_format_providers(self) -> list[object]:
-                return []
-
-            def list_remote_providers(self) -> list[object]:
-                return []
-
-        chain = build_resolution_chain(str(project), "functualize", _Registry())
-        from functualize._engine.executor import JobExecutionEngine
-
-        monkeypatch.setattr(
-            JobExecutionEngine, "_live_resolution_chain", lambda self: chain
+        from functualize.app import (
+            ConfigSources,
+            FunctualizeApp,
+            JobSources,
+            PluginSources,
         )
-        engine = object.__new__(JobExecutionEngine)
-        assert engine._resolve_shell_program() is None
+
+        monkeypatch.chdir(project)
+        app = FunctualizeApp(
+            "functualize",
+            job_sources=JobSources(functions=[]),
+            config_sources=ConfigSources(),
+            plugin_sources=PluginSources(entry_point_group="", explicit_plugins=[]),
+        )
+        assert app._execution_engine._resolve_shell_program() == (
+            "/bin/from-dotfunctualize"
+        )
         assert store_value == "/bin/from-dotfunctualize"
 
     def test_shell_and_plugin_env_names_flip_in_1_2(self) -> None:

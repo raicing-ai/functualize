@@ -57,6 +57,11 @@ from functualize._types.errors import (
     SubstrateInstallError,
 )
 from functualize._types.from_job import declared_dependency_names
+from functualize._types.functualize_settings import (
+    FUNCTUALIZE_SETTINGS,
+    PLUGINS_STRICT,
+    SHELL_SUDO_PASSWORD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -395,6 +400,9 @@ def build_engine(
 
     app: Any = host
 
+    def _setting_value(name: str) -> Any:
+        return resolve_declared_setting(app, name)
+
     def _config_view_factory(
         *, section_prefix: str, scope: Literal["group", "job"] = "job"
     ) -> Any:
@@ -413,6 +421,7 @@ def build_engine(
         max_invoke_depth=app._execution_config.max_invoke_depth,
         plugin_config_registry=app.plugin_config_registry,
         host=host,
+        settings_resolver=_setting_value,
         gate_registry=app._gate_registry,
         # Landed on another branch (agent-step-port) while this construction
         # site was being consolidated, so it reached `boot.py`'s two inline
@@ -2079,15 +2088,67 @@ def validate_job_deps(app: Any) -> None:
 def _resolve_plugins_strict(app: Any) -> bool:
     """Resolve the ``plugins.strict`` boolean from config (default False)."""
     try:
-        resolved = app._resolution_chain.resolve("strict", "plugins")
+        value = app.settings.get(PLUGINS_STRICT.name)
+    except AttributeError:
+        # Older embedding hosts supply only the legacy resolution chain.
+        try:
+            value = app._resolution_chain.resolve(
+                PLUGINS_STRICT.key, PLUGINS_STRICT.section
+            ).value
+        except Exception:
+            return False
     except Exception:
         return False
-    value = resolved.value
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "on")
     return bool(value)
+
+
+def resolve_declared_setting(app: Any, name: str) -> Any:
+    """Read the app snapshot, with the stored vault value for a secret setting.
+
+    Vault lookup remains deferred until a consumer asks for the secret. Boot
+    installs this callable in the engine; it never opens the keyring simply
+    because a vault exists or because unrelated settings were resolved.
+    """
+    schema = app._config_sources.settings or FUNCTUALIZE_SETTINGS
+    setting = schema.setting(name)
+    if setting is None:
+        return None
+    snapshot = app.settings
+    value = snapshot.get(name)
+    if app._config_sources.resolved is not None:
+        return value
+    if app._config_sources.config_resolution_chain is not None:
+        # An explicitly supplied chain is the host's resolution contract.
+        # Keep reading it live, including after refresh replaces the chain.
+        try:
+            return app._resolution_chain.resolve(setting.key, setting.section).value
+        except Exception:
+            return value
+    if name != SHELL_SUDO_PASSWORD.name:
+        if value is None:
+            # A refreshed legacy chain can still supply a setting absent from
+            # the declaration's file/env layers (for example an injected
+            # DefaultSource). Its live answer remains observable.
+            try:
+                return app._resolution_chain.resolve(setting.key, setting.section).value
+            except Exception:
+                pass
+        return value
+    if snapshot.provenance.get(name) == "cli":
+        return value
+    chain = getattr(app, "_resolution_chain", None)
+    if chain is None:
+        return value
+    for source in chain.sources:
+        if getattr(source, "source_id", None) == "vault":
+            stored = source.get(setting.key, setting.section)
+            if stored is not None:
+                return stored
+    return value
 
 
 def validate_plugin_ext_metadata(app: Any) -> None:
