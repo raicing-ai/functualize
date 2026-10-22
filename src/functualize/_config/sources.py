@@ -35,8 +35,10 @@ from functualize._types.enums import ConfigFileRole
 from functualize._types.naming import normalize_name
 
 if TYPE_CHECKING:
+    from functualize._config.settings_layers import SettingsLayer
     from functualize._events import EventBus
     from functualize._types import FormatProvider
+    from functualize._types.settings import AppSettingsSchema
 
 
 @runtime_checkable
@@ -203,7 +205,9 @@ class EnvSource:
         """Return 'environ' source identifier."""
         return "environ"
 
-    def __init__(self, environ: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, environ: dict[str, str] | None = None, *, prefix: str = ""
+    ) -> None:
         """Initialize the environment source.
 
         Args:
@@ -211,6 +215,10 @@ class EnvSource:
                 Useful for testing.
         """
         self._environ = environ
+        self._prefix = prefix.rstrip("_").upper()
+
+    def _prefixed(self, key: str) -> str:
+        return f"{self._prefix}_{key}" if self._prefix else key
 
     def _get_environ(self) -> dict[str, str]:
         """Get the environment dict (os.environ or injected override)."""
@@ -226,7 +234,7 @@ class EnvSource:
         scope: Literal["group", "job"] = "job",
     ) -> Any | None:
         """Retrieve a value from environment variables."""
-        env_key = self._build_env_key(key, section, scope)
+        env_key = self._prefixed(self._build_env_key(key, section, scope))
         environ = self._get_environ()
         return environ.get(env_key)
 
@@ -238,7 +246,7 @@ class EnvSource:
         scope: Literal["group", "job"] = "job",
     ) -> bool:
         """Check if the environment variable exists."""
-        env_key = self._build_env_key(key, section, scope)
+        env_key = self._prefixed(self._build_env_key(key, section, scope))
         environ = self._get_environ()
         return env_key in environ
 
@@ -247,13 +255,13 @@ class EnvSource:
         environ = self._get_environ()
         if scope == "group":
             flattened = section.upper().replace("-", "_").replace(".", "_")
-            prefix = f"{flattened}__"
+            prefix = self._prefixed(f"{flattened}__")
             return {
                 env_key[len(prefix) :].lower()
                 for env_key in environ
                 if env_key.startswith(prefix)
             }
-        prefix = f"{section.upper().replace('-', '_')}_"
+        prefix = self._prefixed(f"{section.upper().replace('-', '_')}_")
         return {
             env_key[len(prefix) :].lower()
             for env_key in environ
@@ -292,6 +300,48 @@ class EnvSource:
         if section:
             return f"{section}_{key}".upper().replace("-", "_").replace(".", "_")
         return key.upper().replace("-", "_").replace(".", "_")
+
+
+class LayerSource:
+    """Expose one discovered settings file through the Source protocol."""
+
+    def __init__(self, layer: SettingsLayer, schema: AppSettingsSchema) -> None:
+        self.layer = layer
+        self.schema = schema
+
+    @property
+    def source_type(self) -> str:
+        return self.layer.kind
+
+    @property
+    def source_id(self) -> str:
+        return str(self.layer.path)
+
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
+        name = f"{section}.{key}" if section else key
+        return self.schema.value_in(self.layer.values, name)
+
+    def has(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> bool:
+        return self.get(key, section, scope=scope) is not None
+
+    def keys(self, section: str, *, scope: Literal["group", "job"] = "job") -> set[str]:
+        return {
+            setting.key
+            for setting in self.schema.settings
+            if setting.section == section and self.has(setting.key, section)
+        }
 
 
 class RemoteSource:
