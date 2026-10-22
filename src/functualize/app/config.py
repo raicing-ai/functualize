@@ -118,10 +118,6 @@ class ConfigSources:
 
     file_pattern: str = r"^config\.(\w+)\.(\w+)$"
     config_resolution_chain: ResolutionChain | None = None
-    settings: AppSettingsSchema | None = None
-    """The settings vocabulary to resolve; None uses the built-in declaration."""
-    resolved: ResolvedSettings | None = None
-    """A supplied snapshot, useful when an embedding host already resolved it."""
     dotenv: bool = True
     dotenv_path: str | None = None
     remote: bool = False
@@ -168,6 +164,11 @@ class ConfigSources:
     not here, for the same cold-boot reason as ``vault_max_age`` above, and
     ``tests/config/test_vault_keyring_timeout.py`` asserts the two agree.
     """
+
+    settings: AppSettingsSchema | None = None
+    """The settings vocabulary to resolve; None uses the built-in declaration."""
+    resolved: ResolvedSettings | None = None
+    """A supplied snapshot, useful when an embedding host already resolved it."""
 
 
 @dataclass(frozen=True)
