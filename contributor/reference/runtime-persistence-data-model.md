@@ -15,15 +15,16 @@ Migrated from the data-model chapter of the `runtime-persistence-engine-owned` r
 evictable sets are data (`_types/lifecycle.py`, no logic), `_primitives/transitions.py` refuses a
 pair no table carries, and every stored writer calls it — `ScopeStore.set_scope_status` (`SCOPE`),
 `RunStore.open_run` for the run's creation edge, and `RunStore.close_run` (`RUN`) for its moves. §2's
-tables are no longer a target: revision `0001` creates them name for name, and §5's fence is the
-predicate the relational writer actually runs (`_transaction.py`'s `fence_sql`). What FUN-17 landed is
-the vocabulary and the ports that
+tables are no longer a target: the shipped revisions create them name for name — `0001` the tables,
+`0002` the step record metadata, `0003` the interaction provenance, the decision pair and the
+delivery claim — and §5's fence is the predicate the relational writer actually runs
+(`_transaction.py`'s `fence_sql`). What FUN-17 landed is the vocabulary and the ports that
 carry them (`_types/persistence.py`), the honest `StoreProfile` of the document backend
 (`_primitives/document_store.py`), and the first transition that went
 through the port — the walk's claim, which since FUN-19 is one of the walk's own commands rather than
 the only one (`contributor/adr/033-the-walks-scope-io-goes-through-the-selected-store.md`). FUN-18 landed the machines, the check and the retention policy;
 FUN-19 landed the tables, the migration runner and the relational retention statement (§7, §6).
-Anything below that reads as present tense has been re-read against the tree at `3110c6ae`; a
+Anything below that reads as present tense has been re-read against the tree at `71b423a7`; a
 still-forward-looking item says so.
 
 ## 1. State machines, before any table
@@ -247,11 +248,17 @@ one with a new ID. `deposit_gate_input` refuses a second accepted answer with
 `gate_already_answered`. **Still transitional:** the document backend stores these records inside
 `scopes.json`, so candidates and evaluations are not yet independently durable. The legacy
 `ScopeStore.deposit_gate_payload` helper remains for old callers; it does not use the new candidate
-guard. The durable interaction slice will replace this nested representation.
+guard. The durable interaction slice replaces this nested representation on the relational store
+(revision `0003`, §2.4); the document backend keeps it until its own store catches up.
 
 ## 2. Schema
 
-These are the shipped names: revision `0001` creates exactly these tables, column for column.
+These are the shipped names, column for column. Revision `0001` creates every table below except the
+decision pair; `0002` adds `workflow_steps.result_kind`, `result_type` and `effecting`; `0003` adds the
+interaction provenance and decision columns, `input_decisions` / `input_decision_observations`, the
+evidence reference and the outbox claim token. `runtime_cutover` also ships in `0001`, but its shape
+belongs to the marker that records which store owns a file's runtime data
+(`plugins/substrates/functualize-substrate-sqlite/README.md` § *The marker*), not to this model.
 **Constraints and ownership are the contract.**
 
 ### 2.1 Runtime identity
@@ -285,7 +292,7 @@ group.
 | Table | Essential fields | Invariants / indexes |
 |---|---|---|
 | `workflow_scopes` | namespace, id, workflow, graph_digest, status, position, lease_owner, lease_expires_at, **lease_generation** (`INTEGER NOT NULL DEFAULT 0`), created_at, updated_at, terminal_at | PK (namespace, id); index (status) for resumable; index (lease_expires_at). `terminal_at` is set when the scope enters an **evictable** status (D1) and cleared when a retry re-enters `running` — it is the only column that records when a scope stopped, so an age-based retention query has to use it |
-| `workflow_steps` | scope_id, step_key, iteration, status, inputs JSON, result JSON, reusable, started_at, completed_at | unique (scope_id, step_key, iteration) |
+| `workflow_steps` | scope_id, step_key, iteration, status, inputs JSON, result JSON, result_kind, result_type, **effecting** (`INTEGER NOT NULL DEFAULT 0`, `CHECK (effecting IN (0, 1))`), reusable, started_at, completed_at | unique (scope_id, step_key, iteration); the three columns between `result` and `reusable` arrive in revision `0002`, where a pre-existing row reads back with neither `result_kind` nor `result_type` set and `effecting = 0` |
 | `workflow_branches` | scope_id, decision_key, chosen_target, chosen_at | unique (scope_id, decision_key); **immutable once written** |
 | `scope_state` | scope_id, key, value JSON, version, updated_at | unique (scope_id, key); **every write carries the fence** |
 | `scope_events` | scope_id, seq, type, payload JSON, occurred_at, run_id | unique (scope_id, seq); append only |
@@ -306,21 +313,24 @@ current claim per aggregate, and every transition already conditions that row.
 
 | Table | Essential fields | Invariants |
 |---|---|---|
-| `input_requests` | id, scope_id, gate_key, generation, status, schema JSON, prompt JSON, created_at, resolved_at | PK `id`; partial unique (scope_id, gate_key, generation) `WHERE status = 'open'` — one OPEN request per gate per generation; the `status` column is `CHECK (status IN (…))` generated from §1.4 |
-| `input_candidates` | id, request_id, ordinal, source, outcome, detail, errors JSON, payload JSON, evidence JSON, created_at | append only; evaluation recorded at submission; `evidence` is nullable — a strategy rung's own record (the decision rung's `decision-evidence/1`), written only by the gate and opaque to storage, hence JSON per §3 |
-| `outbox` | id, namespace, aggregate_type, aggregate_id, topic, payload JSON, idempotency_key, status, available_at, claimed_at, published_at, attempts, last_error | unique idempotency_key where present; index (status, available_at) |
-| `artifact_refs` | id, run_id, scope_id, step_key, kind, uri, digest, size, media_type, created_at | metadata only — bytes live in a workspace provider |
+| `input_requests` | id, scope_id, run_id, gate_key, generation, position, status, schema JSON, prompt JSON, created_at, resolved_at | PK `id`; partial unique (scope_id, gate_key, generation) `WHERE status = 'open'` — one OPEN request per gate per generation; the `status` column is `CHECK (status IN (…))` generated from §1.4; `run_id` and `position` (revision `0003`) are the request's causal identity — the run that opened the gate and where in the graph — so a request is attributable without reading the scope document |
+| `input_candidates` | id, request_id, ordinal, source, outcome, detail, errors JSON, payload JSON, evidence JSON, created_at, resolver_class, channel, schema_id, schema_version, payload_hash, supersedes_candidate_id | append only; evaluation recorded at submission; `evidence` is nullable — a strategy rung's own record (the decision rung's `decision-evidence/1`), written only by the gate and opaque to storage, hence JSON per §3; the six columns after `created_at` land in revision `0003` and answer who answered through which channel, against which schema identity and version, the digest of the payload, and which candidate this one supersedes |
+| `input_decisions` | request_id, accepted_id, policy_id, policy_version, decided_at | revision `0003`; PK `request_id` — one decision per request, refused for an already decided one; `accepted_id` references the accepted candidate; `policy_id` / `policy_version` name the policy that decided, so a policy change is visible after the fact; **append only** — a trigger aborts an `UPDATE` |
+| `input_decision_observations` | request_id, position, candidate_id | revision `0003`; PK (request_id, position) — the candidate ids the decision observed, in order; index `input_decision_observations_candidate` (candidate_id); **append only**; rows cascade with the decision |
+| `outbox` | id, namespace, aggregate_type, aggregate_id, topic, payload JSON, idempotency_key, status, available_at, claimed_at, claim_token, published_at, attempts, last_error | unique idempotency_key where present; index (status, available_at); `claim_token` (revision `0003`) is stamped by the claiming `UPDATE` and is the predicate `published` and `failed` are conditioned on, so a second dispatcher's acknowledgement cannot settle a row it never took — it is cleared only when a failure returns the row to `pending` |
+| `artifact_refs` | id, run_id, scope_id, step_key, kind, uri, digest, size, media_type, created_at, candidate_id | metadata only — bytes live in a workspace provider; `candidate_id` (revision `0003`) links the reference to the candidate it evidences, with index `artifact_refs_candidate` and a cascade from the candidate |
 
 `input_candidates` being append-only matters more than it looks: the public deposit path now
 refuses a second accepted answer instead of replacing the first, and an invalid submission remains
 readable as its own candidate. The legacy direct payload helper is the remaining exception.
 
-**Landed at the port on the document backend:** `InputRequest` carries request identity,
-`InputWriter` appends candidates with recorded evaluations, and the walk is the single writer of
-consumption. Their representation on the document backend is nested under each gate in `scopes.json`; the
-`input_requests` and `input_candidates` tables above exist in the relational store (revision `0001`,
-written by `_run_sql.py`), so what is still pending is the document backend catching up, not the
-schema. `EffectWriter` carries the intended effect shape, and
+**Landed at the port:** `InputRequest` carries request identity, `InputWriter` appends candidates
+with recorded evaluations, and the walk is the single writer of consumption. The relational store
+writes the rows above through `_run_sql.py` — `input_requests` and `input_candidates` since
+revision `0001`, their provenance columns, the decision pair and the evidence reference since
+revision `0003` — so on SQLite the interaction record no longer depends on the scope document. On the
+document backend those same records are still nested under each gate in `scopes.json`; that store
+catching up is what remains, not the schema. `EffectWriter` carries the intended effect shape, and
 `EffectWriter` says plainly that recording the intent is all that happens inside the transaction —
 claiming a row, calling the provider and acknowledging the result run outside it. The document
 backend declares `durable_outbox=False`, so its `EffectWriter.append` **refuses with**
@@ -555,22 +565,25 @@ whose `tests/test_migrations.py` is the evidence for each refusal below:
   happens before engine construction (ADR-027, landed).
 - A partially applied revision is a **boot refusal with repair steps**, never a silent continue.
 - Tests start from every supported historical schema, not only an empty database — today that is
-  empty → `0001` plus the refusal cases in `tests/test_migrations.py`; the rule binds a second
-  revision.
+  empty → `0003` (three ledger rows), a version-1 file upgraded through `0002` to `0003` with
+  defaulted step metadata, and a legacy documents-only file, plus the refusal cases in
+  `tests/test_migrations.py`.
 - `create_all()` is acceptable only for a brand-new empty database. It is not an upgrade mechanism —
   which is precisely the defect `CREATE TABLE IF NOT EXISTS` produced in the substrate plugin.
 - Revision `0001` is the one that creates the schema; every later revision is an ordered upgrade, and
   the runner **refuses** on a checksum mismatch, a gap in the sequence, or a database ahead of the
   code — it never repairs by guessing.
 
-**Landed.** The runner exists in the relational provider (`sqlite-runtime-provider`): revision `0001`
-(`_schema/0001_runtime_schema.sql`, frozen and checksummed) creates the schema, `migrate()` applies it
-during boot step 6.5 before the store is built or a job can run, and it refuses on a checksum
-mismatch, a gap in the sequence, a database ahead of the code, runtime tables with no ledger, and
-partial state. The document backend still declares `versioned_migrations=False` and has no schema
-version at all, so none of the above runs for it — it remains the built-in store when no
-`runtime_store.url` is configured. What §2's tables and the list above were waiting for is therefore
-here, and the discipline binds every later revision in the relational provider.
+**Landed.** The runner exists in the relational provider (`sqlite-runtime-provider`): revisions
+`0001` → `0003` (`_schema/0001_runtime_schema.sql`, `0002_step_record_metadata.sql`,
+`0003_gate_interactions.sql`, each frozen and checksummed) create and upgrade the schema, `migrate()`
+applies them in order during boot step 6.5 before the store is built or a job can run, and it
+refuses on a checksum mismatch, a gap in the sequence, a database ahead of the code, runtime tables
+with no ledger, and partial state. The document backend still declares
+`versioned_migrations=False` and has no schema version at all, so none of the above runs for it — it
+remains the built-in store when no `runtime_store.url` is configured. What §2's tables and the list
+above were waiting for is therefore here, and the discipline binds every later revision in the
+relational provider.
 
 ## See also
 
