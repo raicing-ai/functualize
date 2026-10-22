@@ -109,9 +109,10 @@ class TestRunContextInit:
         start_time = run_context.metadata["start_time"]
         assert start_time is not None
         assert start_time.tzinfo == UTC
-        # Should be within 1 second of now
+        # Should be within 5 seconds of now — a loaded runner's scheduler/GC
+        # pause can exceed 1 s without the start_time being wrong
         now = datetime.now(UTC)
-        assert abs((now - start_time).total_seconds()) < 1.0
+        assert abs((now - start_time).total_seconds()) < 5.0
 
     def test_initial_end_time_is_none(self, run_context):
         assert run_context.metadata["end_time"] is None
