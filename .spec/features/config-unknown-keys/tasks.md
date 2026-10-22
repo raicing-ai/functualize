@@ -41,7 +41,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 1 — resolver, layers, mechanical split
 
-- [ ] **1.1 Layers** (C5, §3.2) — **[F]** `src/functualize/_config/settings_layers.py` (new),
+- [x] **1.1 Layers** (C5, §3.2) — **[F]** `src/functualize/_config/settings_layers.py` (new),
   `tests/config/test_settings_layers.py` (new)
   - Gate: AC24's fixture gives exactly the root-stopped layers; global last.
 - [ ] **1.2 Resolver** (C5, §3.3) — **[F]** `src/functualize/_config/settings_resolution.py` (new),
