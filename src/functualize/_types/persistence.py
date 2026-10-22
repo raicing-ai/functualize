@@ -248,6 +248,10 @@ class CompleteStep:
     #: Whether the step was declared to affect the outside world, recorded on
     #: the step rather than looked up from a possibly-changed declaration.
     effecting: bool = False
+    #: Which attempt this was — an effecting step's attempts are numbered from 1.
+    attempt: int = 0
+    #: When this attempt began — the recovery question names it.
+    started_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -294,6 +298,10 @@ class RecordStep:
     result_type: str | None = None
     inputs: Mapping[str, Any] | None = None
     effecting: bool = False
+    #: Which attempt this was — an effecting step's attempts are numbered from 1.
+    attempt: int = 0
+    #: When this attempt began — the recovery question names it.
+    started_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -362,6 +370,8 @@ class SuspendAtGate:
     #: The run executing when the gate opened — the causal run of every
     #: answer to this request. ``None`` when no run was recorded.
     run_id: str | None = None
+    #: A consumed request this one replaces — one answer must not settle a later doubt.
+    supersedes: str | None = None
 
 
 @dataclass(frozen=True)
@@ -703,6 +713,10 @@ class StepView:
     result_type: str | None = None
     inputs: Mapping[str, Any] | None = None
     effecting: bool = False
+    #: Which attempt the record belongs to, as the walk wrote it.
+    attempt: int = 0
+    #: When that attempt began, as the walk wrote it.
+    started_at: datetime | None = None
     completed_at: datetime | None = None
 
 

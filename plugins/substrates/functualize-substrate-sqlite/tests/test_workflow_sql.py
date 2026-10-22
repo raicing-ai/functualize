@@ -603,6 +603,155 @@ def test_record_step_persists_the_step_metadata_columns(
     assert view.reusable and view.effecting and view.result_kind == "json"
 
 
+def test_an_attempt_round_trips_through_record_and_complete(
+    store: SqliteRuntimeStore,
+) -> None:
+    held = _held(store)
+    started = T0 - timedelta(seconds=30)
+    with store.transaction() as tx:
+        tx.workflows.record_step(
+            RecordStep(
+                "s1",
+                held,
+                "charge::",
+                T0,
+                None,
+                status="attempting",
+                effecting=True,
+                attempt=2,
+                started_at=started,
+            )
+        )
+    attempting = store.workflows.step("s1", "charge::")
+    assert attempting is not None and attempting.status == "attempting"
+    assert (attempting.attempt, attempting.started_at) == (2, started)
+    assert attempting.completed_at is None
+
+    with store.transaction() as tx:
+        tx.workflows.complete_step(
+            CompleteStep(
+                "s1",
+                held,
+                "charge::",
+                T0,
+                effecting=True,
+                attempt=2,
+                started_at=started,
+            )
+        )
+    assert _row(
+        store, "SELECT status, attempt, started_at, completed_at FROM workflow_steps"
+    ) == [("success", 2, iso(started), iso(T0))]
+    [done] = store.workflows.steps("s1")
+    assert (done.attempt, done.started_at) == (2, started)
+
+
+def test_a_pure_step_stores_attempt_0_and_no_start(store: SqliteRuntimeStore) -> None:
+    held = _held(store)
+    with store.transaction() as tx:
+        tx.workflows.complete_step(CompleteStep("s1", held, "pure::", T0, result="v"))
+
+    assert _row(store, "SELECT attempt, started_at FROM workflow_steps") == [(0, None)]
+    view = store.workflows.step("s1", "pure::")
+    assert view is not None and (view.attempt, view.started_at) == (0, None)
+
+
+def _consumed(store: SqliteRuntimeStore, gen: int, request_id: str) -> None:
+    """A request answered and used, with the scope moved back to running."""
+    _suspend(store, gen, request_id)
+    with store.transaction() as tx:
+        tx.inputs.append(
+            GateCandidate(
+                candidate_id=f"cand-{request_id}",
+                request_id=request_id,
+                ordinal=0,
+                source="cli",
+                submitted_at=T0,
+                evaluation=CandidateEvaluation(outcome=EvaluationOutcome.ACCEPTED),
+                payload={"approved": True},
+            )
+        )
+    with store.transaction() as tx:
+        tx.inputs.consume(ConsumeInput("s1", gen, request_id, T0))
+        tx.workflows.complete_step(
+            CompleteStep("s1", gen, "noop", T0, position="approve")
+        )
+
+
+def _ask_again(
+    store: SqliteRuntimeStore, gen: int, request_id: str, supersedes: str
+) -> None:
+    with store.transaction() as tx:
+        tx.workflows.suspend(
+            SuspendAtGate(
+                "s1",
+                gen,
+                "approve",
+                request_id,
+                "approve",
+                T0 + timedelta(seconds=1),
+                supersedes=supersedes,
+            )
+        )
+
+
+def test_supersedes_opens_a_fresh_request_after_a_consumed_one(
+    store: SqliteRuntimeStore,
+) -> None:
+    gen = _held(store)
+    _consumed(store, gen, "req-1")
+    _ask_again(store, gen, "req-2", supersedes="req-1")
+
+    assert _row(store, "SELECT id, status FROM input_requests ORDER BY id") == [
+        ("req-1", "consumed"),
+        ("req-2", "open"),
+    ]
+    current = store.inputs.for_gate("s1", "approve")
+    assert current is not None
+    assert (current.request_id, current.status) == ("req-2", "open")
+
+    with store.transaction() as tx:  # the replay reuses the fresh request
+        tx.workflows.complete_step(
+            CompleteStep("s1", gen, "noop", T0, position="approve")
+        )
+    _ask_again(store, gen, "req-3", supersedes="req-1")
+    assert _row(store, "SELECT id FROM input_requests ORDER BY id") == [
+        ("req-1",),
+        ("req-2",),
+    ]
+
+
+def test_supersedes_refuses_an_unconsumed_or_unknown_request(
+    store: SqliteRuntimeStore,
+) -> None:
+    gen = _held(store)
+    _consumed(store, gen, "req-1")
+    with pytest.raises(ValueError, match="req-nonesuch"):
+        _ask_again(store, gen, "req-2", supersedes="req-nonesuch")
+    _ask_again(store, gen, "req-2", supersedes="req-1")
+    with store.transaction() as tx:
+        tx.inputs.append(
+            GateCandidate(
+                candidate_id="cand-2",
+                request_id="req-2",
+                ordinal=0,
+                source="cli",
+                submitted_at=T0,
+                evaluation=CandidateEvaluation(outcome=EvaluationOutcome.ACCEPTED),
+                payload={"approved": False},
+            )
+        )
+        tx.workflows.complete_step(
+            CompleteStep("s1", gen, "noop", T0, position="approve")
+        )
+    with pytest.raises(ValueError, match="not consumed"):
+        _ask_again(store, gen, "req-3", supersedes="req-2")
+    assert _row(store, "SELECT id, status FROM input_requests ORDER BY id") == [
+        ("req-1", "consumed"),
+        ("req-2", "accepted"),
+    ]
+
+
 def test_record_branch_replays_the_same_target_and_refuses_a_different_one(
     store: SqliteRuntimeStore,
 ) -> None:

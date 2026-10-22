@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize._types.enums import ConfigFileRole
+from functualize._types.naming import CommandPath
 
 if TYPE_CHECKING:
     from functualize._types.enums import RunStatus
@@ -265,6 +266,11 @@ class JobDescriptor:
     #: warm boot has no function to ask, so the fact is recorded here.
     #: Empty means "same as func_name" (dynamic and synthetic descriptors).
     python_name: str = ""
+
+    @property
+    def command_path(self) -> CommandPath:
+        """The shell path derived from this descriptor's group and identity."""
+        return CommandPath.of(self.group, self.name)
 
     @property
     def func_name(self) -> str:

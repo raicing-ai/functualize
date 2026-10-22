@@ -32,6 +32,7 @@ from functualize._types.workflow import (
     OnFailure,
     Step,
     _EndSentinel,
+    recovery_gate_name,
 )
 
 _NODE_TYPES = (Step, Gate, AgentStep)
@@ -76,6 +77,17 @@ def _validate_workflow_graph(
         if name in node_names:
             raise ValueError(f"Duplicate workflow node name '{name}'")
         node_names.add(name)
+
+    recovery_names = {
+        recovery_gate_name(node.name)
+        for node in nodes
+        if isinstance(node, Step) and node.effecting
+    }
+    collision = node_names & recovery_names
+    if collision:
+        raise ValueError(
+            f"Workflow node name '{sorted(collision)[0]}' conflicts with a recovery gate"
+        )
 
     for edge in edges:
         if not isinstance(edge, (Edge, ConditionalEdge, Loop, OnFailure)):

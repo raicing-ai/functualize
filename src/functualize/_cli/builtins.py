@@ -2832,6 +2832,16 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.adapters.cli import _show_info_impl
 
         _show_info_impl(app, job=job, show_env_vars=show_env_vars)
+        from functualize._cli.info import collision_projection, render_collision_notice
+
+        collisions_by_name = collision_projection(app)
+        for descriptor in app.get_jobs():
+            if job is not None and job != descriptor.name:
+                continue
+            for collision in collisions_by_name.get(descriptor.name, ()):
+                click.echo(
+                    render_collision_notice(str(descriptor.command_path), collision)
+                )
 
         # Display resolution info (import_libs, anchor, convention dirs)
         if cli_config is not None:
@@ -2928,8 +2938,10 @@ def register_builtin_commands(cli_group: Any) -> None:
             job_catalog,
             job_detail,
             render_catalog_text,
+            render_collision_notice,
             resolve_renderer,
         )
+        from functualize.types import CommandPath
 
         app, cli_config = _info_app_and_config(ctx)
         renderer = resolve_renderer(json_out, cli_config)
@@ -2942,11 +2954,14 @@ def register_builtin_commands(cli_group: Any) -> None:
             if renderer == "json":
                 _emit_json(detail)
                 return
-            click.echo(f"{detail['name']}  {detail['summary']}".rstrip())
+            path = str(CommandPath.of(detail["group"], detail["name"]))
+            click.echo(f"{path}  {detail['summary']}".rstrip())
             if detail["group"]:
                 click.echo(f"  group: {detail['group']}")
             if detail["source_file"]:
                 click.echo(f"  source: {detail['source_file']}")
+            for collision in detail.get("collisions", ()):
+                click.echo(f"  {render_collision_notice(path, collision)}")
             if detail["requires_tty"]:
                 click.echo("  requires a terminal")
             if detail["dependencies"]:

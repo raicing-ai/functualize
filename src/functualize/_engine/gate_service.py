@@ -29,8 +29,10 @@ is a pure function of the node's declaration.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Final
 
 from functualize._engine.recording import InputRecorder
 from functualize._engine.recording.input_recorder import schema_identity
@@ -49,7 +51,35 @@ if TYPE_CHECKING:
     )
     from functualize._types.workflow import Gate
 
-__all__ = ["GateService"]
+__all__ = ["GateAsk", "GateService"]
+
+
+class _Default(Enum):
+    """The ladder a gate declares, as opposed to ``None`` — no ladder at all."""
+
+    LADDER = "declared"
+
+
+_DEFAULT: Final = _Default.LADDER
+
+
+@dataclass(frozen=True)
+class GateAsk:
+    """How the walk asks a gate this time, when that is not the gate's own way.
+
+    The default reproduces a declared gate exactly: the request stands at the
+    gate's own node with no prompt, and the ladder is the one its strategy
+    declares. A caller asking on another node's behalf overrides the parts
+    that differ — ``position`` (the node the scope stops at), ``prompt``
+    (what the asker is told), ``ladder`` (the strategies tried; ``None``
+    tries none and blocks) and ``supersedes`` (a consumed request whose
+    answer was for an earlier question: it is neither replayed nor reused).
+    """
+
+    position: str | None = None
+    prompt: Any = None
+    ladder: Sequence[str] | None | _Default = _DEFAULT
+    supersedes: str | None = None
 
 
 def _gate_strategy_list(gate: Gate, prompt_gates: bool) -> list[str] | None:
@@ -74,6 +104,13 @@ def _gate_strategy_list(gate: Gate, prompt_gates: bool) -> list[str] | None:
     return ["prompt", "resolve"] if prompt_gates else None
 
 
+def _ladder(gate: Gate, prompt_gates: bool, ask: GateAsk) -> list[str] | None:
+    """The strategies to try: the ask's when it names them, else the gate's."""
+    if ask.ladder is _DEFAULT:
+        return _gate_strategy_list(gate, prompt_gates)
+    return None if ask.ladder is None else list(ask.ladder)
+
+
 class GateService:
     """Services gate nodes: replay, ladder, block — recorded, not recomputed."""
 
@@ -88,6 +125,7 @@ class GateService:
         prompt_gates: bool,
         *,
         ledger: _Ledger,
+        ask: GateAsk = GateAsk(),  # noqa: B008 — frozen, so one shared default is safe
     ) -> _NodeRun | WalkReport:
         """Answer a gate node for the walk: run, replay, or block it.
 
@@ -102,6 +140,8 @@ class GateService:
         )
 
         resolution = walk.resolution(node.name)
+        if resolution is not None and (resolution.request.request_id == ask.supersedes):
+            resolution = None  # a spent answer to an earlier question
         blocked_reason = ""
 
         # 1. Replay: the recorded answer is the answer — never re-evaluated.
@@ -116,7 +156,7 @@ class GateService:
                 return _NodeRun(payload, replayed=True)
 
         # 2. The ladder: one candidate per rung, ordinals continuing.
-        strategies = _gate_strategy_list(node, prompt_gates)
+        strategies = _ladder(node, prompt_gates, ask)
         outcome: LadderOutcome | None = None
         if strategies is not None and registry is not None:
             # The walk's results so far, and the gate's declared decision: a
@@ -132,11 +172,12 @@ class GateService:
             if resolution is not None:
                 request_id = resolution.request.request_id
                 if outcome.model is None:
-                    self._open(walk, node)
+                    self._open(walk, node, ask)
             else:
                 request_id = self._open(
                     walk,
                     node,
+                    ask,
                     scope_status="running" if outcome.model is not None else "blocked",
                 )
             schema_id, schema_version = schema_identity(node.awaits)
@@ -158,7 +199,7 @@ class GateService:
 
         # 3. Block: open the request under a stable id and stop here.
         if outcome is None:
-            self._open(walk, node)
+            self._open(walk, node, ask)
         return WalkReport(
             WalkOutcome.BLOCKED,
             walk.scope_id,
@@ -216,7 +257,12 @@ class GateService:
         )
 
     def _open(
-        self, walk: FrontierWalk, node: Gate, *, scope_status: str = "blocked"
+        self,
+        walk: FrontierWalk,
+        node: Gate,
+        ask: GateAsk,
+        *,
+        scope_status: str = "blocked",
     ) -> str:
         """Record the request, position and lifecycle status in one unit.
 
@@ -225,9 +271,9 @@ class GateService:
         """
         return walk.open_request(
             node.name,
-            position=node.name,
+            position=node.name if ask.position is None else ask.position,
             schema=node.awaits.model_json_schema(),
-            prompt=None,
+            prompt=ask.prompt,
             model=getattr(node.awaits, "__name__", ""),
             tools=[
                 {"tool": spec.name, "bound": sorted(spec.bound)}
@@ -235,6 +281,7 @@ class GateService:
             ],
             scope_status=scope_status,
             run_id=current_run_id(),
+            supersedes=ask.supersedes,
         )
 
     def _recorded_payload(

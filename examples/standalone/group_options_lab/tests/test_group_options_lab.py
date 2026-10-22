@@ -99,6 +99,51 @@ class TestJobBodies:
         assert not hasattr(status, "JOB_GROUP")
 
 
+class TestCommandPaths:
+    """A job's shell spelling is a value on its descriptor, not string surgery.
+
+    `deploy.web.run` is the job's identity -- what `rc.invoke`, `deps=` and the
+    JSON listings use. `glab deploy web run` is how a person types it. A tool
+    that prints commands for people reads `descriptor.command_path`; one that
+    calls jobs keeps using the name.
+    """
+
+    @pytest.fixture(scope="class")
+    def app(self):
+        import os
+
+        from functualize.app import FunctualizeApp, JobSources
+
+        cwd = os.getcwd()
+        os.chdir(_ROOT)
+        try:
+            app = FunctualizeApp(
+                name="glab", job_sources=JobSources(directories=["jobs"], lazy=True)
+            )
+            app.get_jobs()
+            yield app
+        finally:
+            os.chdir(cwd)
+
+    def test_a_grouped_job_is_typed_with_spaces(self, app):
+        from functualize.types import CommandPath
+
+        descriptor = app.get_job("deploy.web.run")
+        assert descriptor.name == "deploy.web.run"
+        assert str(descriptor.command_path) == "deploy web run"
+        assert descriptor.command_path.segments == ("deploy", "web", "run")
+        assert descriptor.command_path == CommandPath.of("deploy.web", "deploy.web.run")
+
+    def test_the_ungrouped_control_is_its_own_path(self, app):
+        assert str(app.get_job("status").command_path) == "status"
+
+    def test_a_literal_dot_in_a_leaf_is_not_a_group(self):
+        from functualize.types import CommandPath
+
+        assert CommandPath.of(None, "tools.lint").segments == ("tools.lint",)
+        assert str(CommandPath.of("ci", "ci.tools.lint")) == "ci tools.lint"
+
+
 class _FakeRunContext:
     def log(self, *args, **kwargs) -> None:
         pass

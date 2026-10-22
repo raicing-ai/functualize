@@ -144,6 +144,16 @@ def app_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 class TestMidPathFlagsReachAnAppsOwnEntryPoint:
+    def test_dotted_group_token_is_refused_but_spaced_flags_still_run(
+        self, app_cli
+    ) -> None:
+        dotted = app_cli(["deploy.web", "run", "v1.2"])
+        assert dotted.exit_code != 0
+        assert "navigate groups with spaces" in dotted.output
+        spaced = app_cli(["deploy", "--env", "prod", "web", "run", "v1.2"])
+        assert spaced.exit_code == 0, spaced.output
+        assert "env=prod" in spaced.output
+
     def test_the_outer_groups_flag_is_accepted_mid_path(self, app_cli) -> None:
         result = app_cli(["deploy", "--env", "prod", "web", "run", "v1.2"])
         assert result.exit_code == 0, result.output

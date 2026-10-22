@@ -472,8 +472,12 @@ class TestStaleTokenClearing:
     def _make_command_tui(self, pending: PendingExecution) -> FunctualizeInlineTUI:
         from functualize._cli.tui.bar import BarReadiness
         from functualize._cli.tui.focus import FocusMode
+        from functualize.app.utils import build_group_trie
 
         tui = _make_tui_stub(pending)
+        # The bar resolves through the navigation trie the app's jobs build,
+        # so the stub's navigation must contain the job its bar names.
+        tui._group_trie_cache = build_group_trie([(None, pending.job_name, "job")])
         tui._focus_state = MagicMock()
         tui._focus_state.mode = FocusMode.NORMAL
         tui._last_recognized_job = pending.job_name

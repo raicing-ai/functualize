@@ -47,6 +47,7 @@ from functualize._types.persistence import (
     CancelWorkflow,
     Claimed,
     ClaimWorkflow,
+    CompleteStep,
     ConsumeInput,
     MoveScope,
     RecordBranch,
@@ -463,6 +464,48 @@ class TestTheInputsAggregate:
             )
         assert store.scope_store.get_gate("wf-1", "approve") == retired
 
+    def test_supersedes_opens_a_fresh_request_after_a_consumed_one(
+        self, store: DocumentRuntimeStore
+    ) -> None:
+        self._suspend(store)
+        with store.transaction() as tx:
+            tx.inputs.append(self._accepted())
+        with store.transaction() as tx:
+            tx.workflows.resume(
+                ResumeWorkflow(
+                    scope_id="wf-1",
+                    owner="w2",
+                    gate_name="approve",
+                    now=NOW,
+                    lease_seconds=300,
+                    force=True,  # the suspending walk never released in-test
+                )
+            )
+        generation = store.scope_store.generation_for("wf-1") or 2
+        with store.transaction() as tx:
+            tx.inputs.consume(ConsumeInput("wf-1", generation, self.REQUEST_ID, NOW))
+        with store.transaction() as tx:
+            tx.workflows.suspend(
+                SuspendAtGate(
+                    scope_id="wf-1",
+                    generation=generation,
+                    gate_name="approve",
+                    request_id="req_next",
+                    position="approve",
+                    now=NOW,
+                    prompt="Approve again?",
+                    supersedes=self.REQUEST_ID,
+                )
+            )
+        current = store.inputs.for_gate("wf-1", "approve")
+        assert current is not None
+        assert (current.request_id, current.status) == ("req_next", "open")
+        record = store.scope_store.get_gate("wf-1", "approve") or {}
+        [archived] = record["superseded"]
+        assert archived["request_id"] == self.REQUEST_ID
+        assert archived["status"] == "consumed"
+        assert archived["superseded_reason"] == "superseded"
+
     def test_a_legacy_record_projects_through_the_port(
         self, store: DocumentRuntimeStore
     ) -> None:
@@ -566,6 +609,77 @@ class TestTheWalkRecordsCommands:
         assert again is not None and again.status == "success"
         epilogue = fresh.workflows.step("s1", "__epilogue__")
         assert epilogue is not None and epilogue.result == "body"
+
+    def test_an_attempt_round_trips_through_record_and_complete(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        claimed = _claim(store, "s1")
+        started = NOW - timedelta(seconds=30)
+        with store.transaction() as tx:
+            tx.workflows.record_step(
+                RecordStep(
+                    "s1",
+                    claimed.generation,
+                    "charge::",
+                    NOW,
+                    None,
+                    status="attempting",
+                    effecting=True,
+                    attempt=2,
+                    started_at=started,
+                )
+            )
+        attempting = _fresh(tmp_path).workflows.step("s1", "charge::")
+        assert attempting is not None and attempting.status == "attempting"
+        assert (attempting.attempt, attempting.started_at) == (2, started)
+        with store.transaction() as tx:
+            tx.workflows.complete_step(
+                CompleteStep(
+                    "s1",
+                    claimed.generation,
+                    "charge::",
+                    NOW,
+                    effecting=True,
+                    attempt=2,
+                    started_at=started,
+                )
+            )
+        done = _fresh(tmp_path).workflows.step("s1", "charge::")
+        assert done is not None and done.status == "success"
+        assert (done.attempt, done.started_at) == (2, started)
+
+    def test_a_pure_step_record_is_byte_identical_to_the_legacy_shape(
+        self, store: DocumentRuntimeStore, tmp_path: Path
+    ) -> None:
+        claimed = _claim(store, "s1")
+        with store.transaction() as tx:
+            tx.workflows.complete_step(
+                CompleteStep(
+                    "s1",
+                    claimed.generation,
+                    "pure::",
+                    NOW,
+                    result="v",
+                    reusable=True,
+                    result_kind="json",
+                    result_type="str",
+                    inputs={"n": 1},
+                )
+            )
+        record = store.scope_store.get_step("s1", "pure::")
+        assert record == {
+            "status": "success",
+            "return_value": "v",
+            "return_value_reusable": True,
+            "return_value_kind": "json",
+            "return_value_type": "str",
+            "inputs": {"n": 1},
+            "completed_at": NOW.isoformat(),
+            "effecting": False,
+        }
+        view = _fresh(tmp_path).workflows.step("s1", "pure::")
+        assert view is not None
+        assert (view.attempt, view.started_at) == (0, None)
 
     def test_record_branch_replays_the_same_target_and_refuses_a_different_one(
         self, store: DocumentRuntimeStore, tmp_path: Path

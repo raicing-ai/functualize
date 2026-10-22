@@ -23,6 +23,32 @@ from functualize._types.enums import RunStatus
 from functualize.app.core import request_for
 from functualize.types import RunRequest
 
+
+@pytest.mark.parametrize("effecting", [False, True])
+def test_boot_refuses_effecting_nested_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, effecting: bool
+) -> None:
+    from functualize._types.errors import WorkflowDeclarationError
+    from functualize.app import FunctualizeApp, JobSources
+
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "nested.py").write_text(
+        "from functualize import workflow\n"
+        "from functualize.workflow import Step\n"
+        "@workflow(steps=[], edges=[])\n"
+        "def child(): pass\n"
+        f"@workflow(steps=[Step(child, effecting={effecting})], edges=[])\n"
+        "def parent(): pass\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    if effecting:
+        with pytest.raises(WorkflowDeclarationError, match="Effecting step 'child'"):
+            FunctualizeApp("nested", job_sources=JobSources(directories=["jobs"]))
+    else:
+        FunctualizeApp("nested", job_sources=JobSources(directories=["jobs"]))
+
+
 _JOBS = '''
 from pydantic import BaseModel, Field
 

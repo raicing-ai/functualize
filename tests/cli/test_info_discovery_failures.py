@@ -24,8 +24,11 @@ lands, this command moves with every other, not ahead of them.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
+
+from tests.conftest import surfaces
 
 GOOD = (
     '"""Demo jobs."""\n'
@@ -256,3 +259,118 @@ class TestAJobNameCollisionIsReportedHereToo:
         report = _report(cli_run, root)
 
         assert report["discovery_failures"] == []
+
+
+@surfaces("func")
+def test_collision_projection_is_narrow_full_and_legacy_compatible(
+    cli_run, project_tree
+) -> None:
+    root = project_tree(jobs={"wheels.py": TWO_SPELLINGS})
+    for _ in range(2):  # cold and cache-backed reports
+        report = _report(cli_run, root)
+        failure = next(
+            item
+            for item in report["discovery_failures"]
+            if item["error_type"] == "JobNameCollision"
+        )
+        assert set(failure) == {"module", "path", "error_type", "message"}
+        (row,) = report["jobs"]
+        assert row["name"] == "build-wheel"
+        (collision,) = row["collisions"]
+        assert set(collision) == {
+            "canonical_name",
+            "dropped_python_name",
+            "dropped_source_file",
+            "registered_python_name",
+            "registered_source_file",
+        }
+        assert collision["canonical_name"] == "build-wheel"
+        assert {
+            collision["dropped_python_name"],
+            collision["registered_python_name"],
+        } == {
+            "build_wheel",
+            "buildWheel",
+        }
+        assert collision["dropped_source_file"].endswith("wheels.py")
+        assert collision["registered_source_file"] == row["source_file"]
+
+        narrow = cli_run(["builtin", "info", "jobs", "--json"], cwd=root)
+        assert narrow.exit_code == 0, narrow.stderr
+        (catalog_row,) = json.loads(narrow.stdout)
+        assert catalog_row["collisions"] == row["collisions"]
+        text = cli_run(["builtin", "info", "jobs"], cwd=root)
+        assert text.exit_code == 0, text.stderr
+        assert "JobNameCollision: build-wheel" in text.stdout
+        assert "wheels.py" in text.stdout
+
+
+@surfaces("func")
+def test_two_file_collision_joins_both_real_paths(cli_run, project_tree) -> None:
+    root = project_tree(
+        jobs={
+            "a.py": 'JOB_GROUP = "tools"\ndef status() -> None:\n    pass\n',
+            "b.py": 'JOB_GROUP = "tools"\ndef status_() -> None:\n    pass\n',
+        }
+    )
+    for _ in range(2):
+        report = _report(cli_run, root)
+        row = next(item for item in report["jobs"] if item["name"] == "tools.status")
+        (collision,) = row["collisions"]
+        files = {
+            collision["registered_source_file"],
+            collision["dropped_source_file"],
+        }
+        assert {path.rsplit("/", 1)[-1] for path in files} == {"a.py", "b.py"}
+        assert collision["registered_source_file"] == row["source_file"]
+        text = cli_run(["builtin", "info", "jobs"], cwd=root)
+        assert "JobNameCollision: tools status" in text.stdout
+        assert "a.py" in text.stdout and "b.py" in text.stdout
+        rich = cli_run(["builtin", "info"], cwd=root)
+        assert rich.exit_code == 0, rich.stderr
+        assert "JobNameCollision: tools status" in rich.stdout
+        assert "a.py" in rich.stdout and "b.py" in rich.stdout
+
+
+def test_three_claimants_are_projected_against_the_final_winner() -> None:
+    from functualize._cli.info import collision_projection
+    from functualize._types.discovery_report import job_name_collision
+    from functualize.types import JobDescriptor
+
+    def finding(dropped: str, kept: str):
+        return job_name_collision(
+            canonical_name="tools.status",
+            kept_module=kept,
+            kept_python_name=kept,
+            dropped_module=dropped,
+            dropped_python_name=dropped,
+            dropped_path=f"/{dropped}.py",
+            kept_path=f"/{kept}.py",
+        )
+
+    findings = [finding("first", "second"), finding("second", "third")]
+    final = JobDescriptor(
+        name="tools.status",
+        group="tools",
+        python_name="third",
+        source_file="/third.py",
+    )
+    pipeline = SimpleNamespace(
+        _providers=[
+            SimpleNamespace(provider=SimpleNamespace(discovery_failures=findings))
+        ],
+        collisions=[],
+    )
+    app = SimpleNamespace(get_jobs=lambda: [final], _resolution_pipeline=pipeline)
+
+    projection = collision_projection(app)
+    assert {item["dropped_python_name"] for item in projection["tools.status"]} == {
+        "first",
+        "second",
+    }
+    assert {item["registered_python_name"] for item in projection["tools.status"]} == {
+        "third"
+    }
+    assert {item["registered_source_file"] for item in projection["tools.status"]} == {
+        "/third.py"
+    }

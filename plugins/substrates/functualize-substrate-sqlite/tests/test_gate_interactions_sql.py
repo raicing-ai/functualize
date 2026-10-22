@@ -179,7 +179,7 @@ def test_a_revision_2_file_migrates_with_its_rows_intact(tmp_path: Path) -> None
                 ),
             ]
         )
-        assert migrate(driver) == 3
+        assert migrate(driver) == 4
         assert driver.query(
             "SELECT id, status, run_id, position FROM input_requests"
         ) == [("req_old", "open", None, None)]
@@ -187,12 +187,12 @@ def test_a_revision_2_file_migrates_with_its_rows_intact(tmp_path: Path) -> None
         driver.close()
 
 
-def test_revision_3_is_shipped_verbatim() -> None:
+def test_revision_4_is_shipped_verbatim() -> None:
     sql = (
         resources.files("functualize_substrate_sqlite")
-        .joinpath("_schema", "0003_gate_interactions.sql")
+        .joinpath("_schema", "0004_gate_interactions.sql")
         .read_text(encoding="utf-8")
     )
-    assert SHIPPED_MIGRATIONS[2].sql == sql
+    assert SHIPPED_MIGRATIONS[3].sql == sql
     # Additive only: every statement creates or alters, nothing drops.
     assert "DROP " not in sql.upper()

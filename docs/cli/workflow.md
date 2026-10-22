@@ -224,6 +224,24 @@ reads a draft, only a committed answer.
 results recorded after it, so correcting it in place would leave those results
 downstream of an input that no longer exists.
 
+### The recovery gate an effecting step opens
+
+`Step(job, effecting=True)` promises the step's job is never re-run without a
+decision after an interrupted attempt. When a resume finds one — the runner
+died inside the step — the scope stops `blocked` with a `blocked_reason`
+beginning `in_doubt:` and a derived gate named `<step>-in-doubt` open:
+
+```bash
+func builtin workflow answer rel-1 charge-in-doubt \
+  --input '{"outcome": "ran"}'
+```
+
+`outcome` is required: `ran` (the walk continues without calling the job; an
+optional `value` becomes the step's result) or `did_not_run` (the job runs
+again as the next attempt). Anything outside that schema is refused and the
+gate stays open. `--reopen` is refused once the walk has passed the step,
+exactly as for any other gate.
+
 ## `func builtin workflow resume`
 
 ```

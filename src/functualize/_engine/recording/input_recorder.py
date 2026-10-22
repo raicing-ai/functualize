@@ -146,6 +146,7 @@ class InputRecorder:
         tools: tuple[Mapping[str, Any], ...] = (),
         scope_status: str = "blocked",
         run_id: str | None = None,
+        supersedes: str | None = None,
     ) -> SuspendAtGate:
         """Build the gate request with the status the walk reached.
 
@@ -167,6 +168,7 @@ class InputRecorder:
             tools=tools,
             scope_status=scope_status,
             run_id=run_id,
+            supersedes=supersedes,
         )
 
     def ladder_candidates(
