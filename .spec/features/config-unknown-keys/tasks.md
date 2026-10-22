@@ -44,7 +44,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 - [x] **1.1 Layers** (C5, §3.2) — **[F]** `src/functualize/_config/settings_layers.py` (new),
   `tests/config/test_settings_layers.py` (new)
   - Gate: AC24's fixture gives exactly the root-stopped layers; global last.
-- [ ] **1.2 Resolver** (C5, §3.3) — **[F]** `src/functualize/_config/settings_resolution.py` (new),
+- [x] **1.2 Resolver** (C5, §3.3) — **[F]** `src/functualize/_config/settings_resolution.py` (new),
   `src/functualize/_config/sources.py`, `tests/config/test_settings_resolution.py` (new)
   - `EnvSource(prefix=)`, `LayerSource`, list merge = `_merge_lists_dedup` (`_cli/config.py:287`).
   - Gate: the 0.1 matrix resolves to the pinned values; F3a → `rich`; AC28: only
