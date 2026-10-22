@@ -46,12 +46,30 @@ def test_pinned_precedence_matrix_and_f3a(tmp_path: Path) -> None:
         == "rich"
     )
 
-    # F3a: the old store crossed the root marker and returned the parent.
+    # Parent-stopped case with a global value: the global JSON value wins.
     (project / ".functualize.toml").write_text('[cli]\noutput = "rich"\n')
     (global_dir / "config.toml").write_text('[cli]\noutput = "json"\n')
     assert output(nested) == "json"
     (nested / ".functualize.toml").write_text('[cli]\noutput = "rich"\n')
     assert output(nested) == "rich"
+
+
+def test_f3a_root_stops_parent_and_uses_declared_default(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    nested = project / "nested"
+    nested.mkdir(parents=True)
+    (project / ".functualize.toml").write_text('[cli]\noutput = "json"\n')
+    (nested / ".functualize.toml").write_text("root = true\n")
+
+    resolved = resolve_settings(
+        FUNCTUALIZE_SETTINGS, nested, global_dir=tmp_path / "empty-global", env={}
+    )
+
+    assert resolved.get("cli.output") == "rich"
+    assert resolved.provenance["cli.output"] == "default"
+    assert tuple(
+        layer.path for layer in resolved.layers if layer.kind == "project"
+    ) == (nested / ".functualize.toml",)
 
 
 def test_only_canonical_extra_directories_env_name(tmp_path: Path) -> None:
