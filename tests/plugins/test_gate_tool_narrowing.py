@@ -26,10 +26,14 @@ from functualize_mcp._workflow_tools import GateToolPolicy, WorkflowToolProvider
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
+from functualize._primitives.walk_reads import resolve_bound_values
+from functualize._types.enums import RunStatus
+from functualize._types.errors import FromStepUnavailableError
+from functualize.app._workflow_control import call_gate_tool, resume_scope
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import ScopeStore
 from functualize.types import RunRequest
-from functualize.workflow import END, Edge, Gate, Step, Tool, workflow
+from functualize.workflow import END, ConditionalEdge, Edge, Gate, Step, Tool, workflow
 
 
 @pytest.fixture(autouse=True)
@@ -364,6 +368,109 @@ class TestCallGateTool:
         assert result["error"] == "tool_not_permitted"
 
 
+class TestCoreAndMcpGateToolParity:
+    def test_skipped_bound_node_names_the_scope_in_both_paths(self) -> None:
+        from functualize._types.from_job import FromStep
+
+        app = FunctualizeApp(name="skipped-bound")
+
+        def choose() -> str:
+            return "skip"
+
+        def optional() -> str:
+            return "recorded"
+
+        def inspect(allowed: str) -> str:
+            return allowed
+
+        @workflow(
+            steps=[
+                Step(choose),
+                Step(optional),
+                Gate(
+                    "approval",
+                    awaits=RefundDecision,
+                    tools=[Tool(inspect, allowed=FromStep("optional"))],
+                ),
+            ],
+            edges=[
+                ConditionalEdge(
+                    "choose",
+                    lambda _: "skip",
+                    {"take": "optional", "skip": "approval"},
+                ),
+                Edge("optional", "approval"),
+                Edge("approval", END),
+            ],
+        )
+        def walk() -> None:
+            pass
+
+        for name, function in (
+            ("choose", choose),
+            ("optional", optional),
+            ("inspect", inspect),
+            ("walk", walk),
+        ):
+            app.register_dynamic_job(name, function)
+        result = app.execute(
+            RunRequest(
+                job_name="walk", surface="app.execute", workflow_scope_id="scope-7"
+            )
+        )
+        assert result.status is RunStatus.BLOCKED
+        tools = WorkflowToolProvider(app, store=_store())
+        plugin = asyncio.run(tools._call_gate_tool("scope-7", "inspect", {}))
+        core = call_gate_tool(app, tools.store, "scope-7", "inspect", {})
+        assert plugin == core
+        assert plugin["error"] == "tool_unresolvable"
+        assert "FromStep('optional')" in plugin["message"]
+        assert "scope-7" in plugin["message"]
+        assert "outside a walk" not in plugin["message"]
+
+    def test_bound_value_reaches_both_paths(self) -> None:
+        app, tools = _blocked([Tool("issue_refund", cap_cents=5000)])
+        args = {"order_id": "A", "amount_cents": 9999}
+        plugin = asyncio.run(tools._call_gate_tool("run-1", "issue_refund", args))
+        core = call_gate_tool(app, tools.store, "run-1", "issue_refund", args)
+        assert plugin == core
+        assert plugin["return_value"] == "refunded 5000"
+
+    def test_missing_scope_has_the_same_error_envelope(self) -> None:
+        app, tools = _blocked([Tool("issue_refund", cap_cents=5000)])
+        plugin = asyncio.run(tools._call_gate_tool("missing", "issue_refund", {}))
+        core = call_gate_tool(app, tools.store, "missing", "issue_refund", {})
+        assert (
+            plugin
+            == core
+            == {
+                "error": "workflow_not_found",
+                "message": "No workflow scope 'missing'.",
+            }
+        )
+
+    def test_declaration_load_exception_has_the_same_error_envelope(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app, tools = _blocked([Tool("issue_refund", cap_cents=5000)])
+
+        def fail(_name: str) -> None:
+            raise RuntimeError("declaration unavailable")
+
+        monkeypatch.setattr(app.execution_engine, "materialize_job", fail)
+        plugin = asyncio.run(tools._call_gate_tool("run-1", "issue_refund", {}))
+        core = call_gate_tool(app, tools.store, "run-1", "issue_refund", {})
+        assert (
+            plugin
+            == core
+            == {
+                "error": "tool_unresolvable",
+                "message": "Cannot load gate policy for 'issue_refund' from workflow "
+                "'refund_request': RuntimeError: declaration unavailable",
+            }
+        )
+
+
 class TestRecordedNotMemoized:
     def test_a_call_is_recorded(self) -> None:
         _app_, tools = _blocked(["order_history"])
@@ -647,31 +754,74 @@ class TestBoundFromStep:
         )
         assert result["return_value"] == "REFUSED /etc/passwd"
 
+    def test_tool_binding_reads_an_earlier_gate_answer(self) -> None:
+        from functualize._types.from_job import FromStep
+
+        app = FunctualizeApp(name="gate-answer-bound")
+
+        def read_answer(answer: dict[str, bool]) -> bool:
+            return answer["approve"]
+
+        @workflow(
+            steps=[
+                Gate("approve", awaits=RefundDecision),
+                Gate(
+                    "inspect",
+                    awaits=RefundDecision,
+                    tools=[Tool("read_answer", answer=FromStep("approve"))],
+                ),
+            ],
+            edges=[Edge("approve", "inspect"), Edge("inspect", END)],
+        )
+        def walk() -> None:
+            pass
+
+        app.register_dynamic_job("read_answer", read_answer)
+        app.register_dynamic_job("walk", walk)
+        store = _store()
+        app.execute(
+            RunRequest(
+                job_name="walk", surface="app.execute", workflow_scope_id="gate-answer"
+            )
+        )
+        assert (
+            resume_scope(app, store, "gate-answer", input={"approve": True})["status"]
+            == "blocked"
+        )
+        tools = WorkflowToolProvider(app, store=store)
+        result = asyncio.run(tools._call_gate_tool("gate-answer", "read_answer", {}))
+        assert result["return_value"] is True
+
     def test_the_marker_is_replaced_not_passed_through(self) -> None:
         from functualize._types.from_job import FromStep
 
         _app_obj, tools = self._vfs_app()
         scope = tools.store.get_scope("run-1") or {}
-        resolved = tools._resolve_bound(scope, {"allowed": FromStep("setup-vfs")})
+        resolved = resolve_bound_values(
+            (scope.get("steps") or {}).items(), {"allowed": FromStep("setup-vfs")}
+        )
 
         assert resolved["allowed"] == ["src/a.py", "src/b.py"]
 
-    def test_an_unrecorded_step_resolves_to_none(self) -> None:
-        """The walk may legitimately not have reached it; the job's own
-        signature is the right place for that to be an error."""
+    def test_an_unrecorded_step_has_a_named_failure(self) -> None:
         from functualize._types.from_job import FromStep
 
         _app_obj, tools = self._vfs_app()
         scope = tools.store.get_scope("run-1") or {}
 
-        assert tools._resolve_bound(scope, {"x": FromStep("no-such-step")}) == {
-            "x": None
-        }
+        with pytest.raises(FromStepUnavailableError) as caught:
+            resolve_bound_values(
+                (scope.get("steps") or {}).items(), {"x": FromStep("no-such-step")}
+            )
+        assert "FromStep('no-such-step')" in str(caught.value)
+        assert "x" in str(caught.value)
 
     def test_plain_bound_values_are_untouched(self) -> None:
         _app_obj, tools = self._vfs_app()
         scope = tools.store.get_scope("run-1") or {}
-        assert tools._resolve_bound(scope, {"cap": 5000}) == {"cap": 5000}
+        assert resolve_bound_values(
+            (scope.get("steps") or {}).items(), {"cap": 5000}
+        ) == {"cap": 5000}
 
     def test_the_agent_cannot_override_the_allowlist(self) -> None:
         """The guarantee is not secrecy — it is that the value is not the

@@ -1580,6 +1580,11 @@ def register_builtin_commands(cli_group: Any) -> None:
             raise SystemExit(_workflow_exits.get(result["error"], 1))
         if fmt != "json":
             click.echo(result.get("message") or f"Walk ended: {result['status']}.")
+            if (
+                result.get("status") == "success"
+                and result.get("return_value") is not None
+            ):
+                click.echo(result["return_value"])
         raise SystemExit(_resume_exit(result))
 
     def _resume_exit(result: dict[str, Any]) -> int:

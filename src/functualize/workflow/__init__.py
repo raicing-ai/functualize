@@ -14,8 +14,9 @@ Public API:
     - Edge: Directed connection between two workflow nodes.
     - ConditionalEdge: Branching connection based on runtime condition.
     - END: Sentinel marking workflow termination.
-    - FromStep: A read of this walk's recorded result for one step, used to
-      bind a gate tool's argument (``Tool(read_file, allowed=FromStep(...))``).
+    - FromStep: A read of this walk's recorded result for one step or gate —
+      on a step's or the epilogue's parameter, or bound to a gate tool's
+      argument (``Tool(read_file, allowed=FromStep(...))``).
     - ChoiceDecision: A gate's declared decision (``Gate(decide=...)``) — which
       field a decision provider fills, from which step's result, and the
       thresholds a proposal must clear. Provisional: outside the names 1.0
