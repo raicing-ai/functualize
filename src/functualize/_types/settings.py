@@ -177,6 +177,7 @@ class AppSettingsSchema:
             )
         )
 
+    # TRANSITIONAL(config-unknown-keys/6.1): vocabulary check consumes this.
     def keys_in(self, section: str) -> frozenset[str]:
         """Declared keys accepted in one file section."""
         return frozenset(
@@ -192,6 +193,7 @@ class AppSettingsSchema:
             None,
         )
 
+    # TRANSITIONAL(config-unknown-keys/1.2): the resolver consumes this in wave 1.
     def value_in(self, values: Mapping[str, Any], name: str) -> Any | None:
         """Read a declared key from a file table, preferring its canonical place."""
         setting = self.setting(name)

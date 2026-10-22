@@ -20,7 +20,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 0 — pin and declare
 
-- [ ] **0.1 Pin** (AC14) — **[F]** `tests/config/test_settings_pin.py` (new)
+- [x] **0.1 Pin** (AC14) — **[F]** `tests/config/test_settings_pin.py` (new)
   - Literal expectations at `bb3aac77`: `SETTINGS_ORDER`, defaults, choices,
     bounds, descriptions, `cli_flag`, `phase`, env names, `_RECOGNIZED_*`,
     `LIST_KEYS`, `PROJECT_CONFIG_CANDIDATES` names, fingerprint fields, the
@@ -30,7 +30,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     changes it: `F3a`, `F3b`, the `shell.*`/`plugins.strict` env names,
     `FUNCTUALIZE_EXTRA_DIRECTORIES` (M6, flipped in 1.2) and the PEP 723 `skill`
     key (M5, flipped in 6.4).
-- [ ] **0.2 Declaration** (C4) — **[F]** `src/functualize/_types/settings.py`,
+- [x] **0.2 Declaration** (C4) — **[F]** `src/functualize/_types/settings.py` (existing, additive),
   `src/functualize/_types/functualize_settings.py` (new),
   `tests/config/test_functualize_settings.py` (new)
   - Every name of the pin, declared once, with constants. `extend()` raises
