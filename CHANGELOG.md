@@ -58,6 +58,44 @@ line names both functions, both files, and the one that runs. In
 `builtin info jobs --json` the affected row gains a `collisions` array; its
 `name` and the existing `discovery_failures` objects are unchanged.
 
+### Changed — a workflow scope shows its recorded route on every store
+
+`func builtin workflow show` and the MCP `get_workflow_state` /
+`list_workflows` tools now report what a walk decided, not only what it ran. The
+projection carries two objects: `branches` holds the conditional choices and
+`failure_routes` holds `OnFailure` routes, a route to `END` reading `"END"`. The
+text form prints `Branches:` and `Failure routes:` on every `show`, `-` when
+empty, so an empty map is no longer indistinguishable from a route that was
+never read. Entries appear in the order they were recorded.
+
+Relational projects now show their recorded branches; they previously reported
+`{}` for every scope. Documents projects keep the same records but read them
+differently: failure routes move out of `branches` into `failure_routes`, and the
+internal notification markers are no longer listed. A script that read
+`branches["publish\u0000onfailure"]` should read
+`failure_routes["publish"]`; the NUL-delimited key was never documented. What is
+recorded, `workflow_branches` and `scopes.json` are unchanged, with no migration:
+records written after this change are stored in recording order, and existing
+records keep the order they were stored in.
+
+Store authors implement `WorkflowReader.branches`, one bulk read of a scope's
+decision records, checked by `run_baseline` as `record branch and branches`. A
+store that implements the port and omits it is non-conformant. On a store that
+cannot list a scope's records, every operator surface now refuses instead of
+reporting `{}`: CLI exit `2` with an `Error:` line naming the store and the
+missing member, MCP error code `scope_store_unreadable`. That reaches the
+`--wf-show` flag surface and MCP `resume_workflow`, which previously answered
+with a traceback or `workflow_not_found` for a scope that existed.
+
+Node names may no longer contain NUL: `Step`, `Gate` and `AgentStep` refuse it
+with `ValueError`, beside the existing empty-name refusal, because the decision
+key already uses NUL as its separator.
+
+Recorded in
+[ADR-034](contributor/adr/034-operator-surfaces-read-decision-records-in-bulk.md),
+which links ADR-033 (a walk's scope I/O goes through the selected store) and
+ADR-025 (the engine owns what a transition means).
+
 ### Changed — scoped vault entries resolve by address and environment
 
 `vault put`, `inspect`, and `remove` accept a group address, a leaf job, or a

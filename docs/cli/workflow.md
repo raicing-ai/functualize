@@ -182,6 +182,54 @@ returns — asserted byte-identical by a test, not merely intended. This replace
 `state`, which emitted five fields over records that had held all of the above
 all along.
 
+### The recorded route
+
+Two lines report what the walk decided, in the order it decided it:
+
+```none
+Branches: score-submission -> approve
+Failure routes: publish -> rollback
+```
+
+| JSON key | Text label | Holds |
+|---|---|---|
+| `branches` | `Branches:` | conditional choices — `{source node: chosen condition label}` |
+| `failure_routes` | `Failure routes:` | `OnFailure` routes — `{failed node: target node}`; a route to `END` reads `"END"` |
+
+Both keys are always present and both lines are always printed, with `-` when
+the map is empty — an absent line cannot tell *nothing was recorded* from
+*nothing was read*:
+
+```none
+Branches: -
+Failure routes: -
+```
+
+Bookkeeping records a walk writes for its own use — the notification markers —
+are **not** listed. They are neither a branch nor a route, and they were
+previously mixed into `branches` on documents projects.
+
+This is the same on both stores. A documents project reads its `scopes.json`;
+a relational project reads `workflow_branches`, in one query per scope rather
+than one per record, so `list` costs one extra read per listed scope and nothing
+per record.
+
+A store that cannot list a scope's records is refused rather than reported as
+empty, because `{}` would be a confident answer to a question nobody could ask:
+
+```none
+$ func builtin workflow show deploy-77aa
+Error: the runtime store 'pg' cannot list a scope's recorded branches
+(WorkflowReader.branches is missing), so a workflow's route would read as none
+where some may exist. Upgrade the plugin that provides 'pg'.
+$ echo $?
+2
+```
+
+The MCP surfaces return the same refusal with the error code
+`scope_store_unreadable`. A store author implements
+`WorkflowReader.branches`; `run_baseline` checks it.
+
 ## `func builtin workflow answer`
 
 ```

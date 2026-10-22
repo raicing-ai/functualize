@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Generator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
@@ -21,6 +22,7 @@ from functualize._cli.builtins import register_builtin_commands
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import ExitCode, ScopeStore
 from functualize.job import RunStatus
+from functualize.plugin import RecordBranch
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
@@ -216,6 +218,29 @@ class TestCliDrivesABlockedWorkflow:
         # projection the MCP tool has always returned.
         assert [g["gate"] for g in detail["pending_gates"]] == ["approval"]
         assert detail["steps"], "the graph was omitted — this is the old summary"
+
+    def test_show_text_names_recorded_and_empty_routes(
+        self, app: FunctualizeApp, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        app.execute(
+            RunRequest(
+                job_name="release", surface="app.execute", workflow_scope_id="rel-1"
+            )
+        )
+        runtime = app.workflow_runtime_store()
+        view = runtime.workflows.workflow("rel-1")
+        assert view is not None and view.generation is not None
+        with runtime.transaction() as tx:
+            tx.workflows.record_branch(
+                RecordBranch(
+                    "rel-1", view.generation, "build", "approval", datetime.now(UTC)
+                )
+            )
+
+        assert _run_cli(app, ["builtin", "workflow", "show", "rel-1"]) == 0
+        output = capsys.readouterr().out
+        assert "Branches: build -> approval" in output
+        assert "Failure routes: -" in output
 
     def test_cancel_marks_the_scope_cancelled(self, app: FunctualizeApp) -> None:
         app.execute(
