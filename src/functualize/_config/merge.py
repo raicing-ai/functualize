@@ -5,6 +5,8 @@ Only imports from stdlib — no internal package dependencies.
 
 from typing import Any
 
+from functualize._types.functualize_settings import ROOT_KEY
+
 
 def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge overlay into base.
@@ -33,7 +35,7 @@ def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
 def merge_config_layers(
     layers: list[dict[str, Any]],
     *,
-    root_key: str = "root",
+    root_key: str = ROOT_KEY,
 ) -> dict[str, Any]:
     """Deep-merge config layers with root-stop semantics.
 
