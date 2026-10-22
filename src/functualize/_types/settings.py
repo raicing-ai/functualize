@@ -25,8 +25,9 @@ nothing is lost and there is still a single spelling of a setting's identity.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
+from typing import Any
 
 __all__ = ["AppSettingsSchema", "Setting", "SettingsSources"]
 
@@ -48,6 +49,13 @@ class Setting:
             settings-only knob. Consumed by C3.1; nothing reads it yet.
         phase: ``"early"`` marks a setting whose flag must be honoured by the
             pre-boot argv scan, before app construction. Consumed by C3.2.
+        places: File sections that may contain this key. The dotted name's
+            section is canonical, even when an accepted legacy place comes
+            first in this tuple.
+        listed: Whether to show the setting in an interactive settings list.
+        surface: The delivery surface that owns this setting, if any.
+        env: Explicit environment-variable name; otherwise the schema derives
+            one from its prefix and the canonical dotted name.
     """
 
     name: str
@@ -60,6 +68,10 @@ class Setting:
     max_items: int | None = None
     cli_flag: str | None = None
     phase: str | None = None
+    places: tuple[str, ...] = ()
+    listed: bool = True
+    surface: str | None = None
+    env: str | None = None
 
     @property
     def section(self) -> str:
@@ -76,6 +88,14 @@ class Setting:
         """The bare key inside :attr:`section`."""
         _, _, key = self.name.rpartition(".")
         return key
+
+    @property
+    def accepted_places(self) -> tuple[str, ...]:
+        """Canonical section first, followed by accepted legacy sections."""
+        return (
+            self.section,
+            *(place for place in self.places if place != self.section),
+        )
 
 
 @dataclass(frozen=True)
@@ -130,6 +150,58 @@ class AppSettingsSchema:
     file_section_prefixes: Mapping[str, str] = field(
         default_factory=_default_file_section_prefixes
     )
+    freeform_sections: frozenset[str] = frozenset()
+
+    def extend(self, *settings: Setting) -> AppSettingsSchema:
+        """Return a new schema with additional settings, rejecting name clashes."""
+        existing = {setting.name for setting in self.settings}
+        added: set[str] = set()
+        for setting in settings:
+            if setting.name in existing or setting.name in added:
+                raise ValueError(f"setting {setting.name!r} is already declared")
+            added.add(setting.name)
+        return replace(self, settings=(*self.settings, *settings))
+
+    def setting(self, name: str) -> Setting | None:
+        """Find a setting by its canonical dotted name."""
+        return next(
+            (setting for setting in self.settings if setting.name == name), None
+        )
+
+    def sections(self) -> frozenset[str]:
+        """File sections that the declaration recognizes."""
+        return frozenset(
+            (
+                *self.freeform_sections,
+                *(place for s in self.settings for place in s.accepted_places if place),
+            )
+        )
+
+    def keys_in(self, section: str) -> frozenset[str]:
+        """Declared keys accepted in one file section."""
+        return frozenset(
+            setting.key
+            for setting in self.settings
+            if section in setting.accepted_places
+        )
+
+    def flag(self, spelling: str) -> Setting | None:
+        """Find the setting controlled by a root CLI option."""
+        return next(
+            (setting for setting in self.settings if setting.cli_flag == spelling),
+            None,
+        )
+
+    def value_in(self, values: Mapping[str, Any], name: str) -> Any | None:
+        """Read a declared key from a file table, preferring its canonical place."""
+        setting = self.setting(name)
+        if setting is None:
+            return None
+        for place in setting.accepted_places:
+            table = values if not place else values.get(place)
+            if isinstance(table, Mapping) and setting.key in table:
+                return table[setting.key]
+        return None
 
     def env_var_for(self, setting: Setting) -> str:
         """The environment variable that overrides ``setting``.
@@ -137,6 +209,8 @@ class AppSettingsSchema:
         Byte-identical to the shipped ``env_var_for`` when
         ``env_prefix == "FUNCTUALIZE"``.
         """
+        if setting.env is not None:
+            return setting.env
         if setting.section:
             return f"{self.env_prefix}_{setting.section.upper()}_{setting.key.upper()}"
         return f"{self.env_prefix}_{setting.key.upper()}"
