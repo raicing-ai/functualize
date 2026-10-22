@@ -174,7 +174,14 @@ def build_command_line(
     if trie is None:
         return _emit_positional_then_named([job_name], job_overrides)
 
-    segments = job_name.split(".")
+    pending = list(trie.root.children.values())
+    segments: tuple[str, ...] = (job_name,)
+    while pending:
+        node = pending.pop()
+        if node.payload == job_name:
+            segments = node.path
+            break
+        pending.extend(node.children.values())
     specs = {spec.group: spec for spec in group_option_specs_on_path(trie, job_name)}
 
     path_tokens: list[str] = []

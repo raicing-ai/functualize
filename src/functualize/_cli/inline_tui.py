@@ -174,7 +174,7 @@ def _run_handoff(app: FunctualizeApp, tokens: list[str]) -> None:
     # the same resolution the in-panel worker and the CLI perform.
     resolution = resolve_tui_command(build_group_option_trie(app), tokens)
     if resolution.dotted_token is not None:
-        spaced = resolution.dotted_token.replace(".", " ")
+        spaced = " ".join(resolution.dotted_path or ())
         print(
             f"Error: '{resolution.dotted_token}' — navigate groups with spaces, "
             f"e.g. `{spaced}`.",

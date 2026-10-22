@@ -24,6 +24,40 @@ graph-changed error, once, when the declaration first changes.
 
 Recorded in [ADR-035](contributor/adr/035-an-interrupted-effecting-step-stops-in-doubt.md).
 
+### Fixed — every shell surface prints the command you can type, and warns about a job-name collision
+
+A grouped job has a dotted identity (`suite.inventory`) and a command path
+(`suite inventory`). Several surfaces printed the identity where a person
+needed the path, so a copied line failed: the "Did you mean" hint
+(`func suite.inventory`), a leaf's usage line (`Usage: inventory [OPTIONS]`),
+the non-TTY `func` listing, and in the TUI the SmartBar's completions, a job
+picked from the browser and recent presets. They now print the path (usage
+lines with the program name), and a printed line runs as shown. Surfaces that
+already spaced a name by replacing its dots (the blocked-run resume line, the
+TUI's browser rows, pre-flight header and refusal hints) take the path from
+the job instead, so a dot inside one job's own name (`tools.lint`) is no
+longer split into two words.
+
+**Breaking:** the shell walks groups one word at a time on both `func` and an
+app's own entry point. `func suite.inventory` is refused with a hint naming
+`func suite inventory`. Programmatic references keep the dotted identity:
+`rc.invoke`, `deps=`, `FromJob`, `[aliases]` targets, state keys, MCP tool
+names and `--json` output.
+
+`func --help` now lists the project's top-level jobs and groups beside
+`builtin`, and still prints for a project that fails to load. The TUI
+navigates groups from the discovered jobs even when no `GroupOptions` are
+declared. `functualize.types.CommandPath` and `JobDescriptor.command_path`
+expose the path to application code.
+
+When two functions normalize to one job name, one of them still runs, and
+the collision is still a warning. It is now shown wherever the command is:
+one stderr line before the job runs, under the command in group help and
+`builtin info jobs`, and on the TUI's browser row and pre-flight panel. The
+line names both functions, both files, and the one that runs. In
+`builtin info jobs --json` the affected row gains a `collisions` array; its
+`name` and the existing `discovery_failures` objects are unchanged.
+
 ### Changed — scoped vault entries resolve by address and environment
 
 `vault put`, `inspect`, and `remove` accept a group address, a leaf job, or a

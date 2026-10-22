@@ -202,6 +202,7 @@ class ResolutionPipeline:
                                 dropped_module=_module_of(job),
                                 dropped_python_name=job.python_name or job.name,
                                 dropped_path=job.source_file or "<provider>",
+                                kept_path=incumbent.source_file or "<provider>",
                             )
                         )
                     continue

@@ -7,6 +7,7 @@ uses j/k (wrapping). Enter selects the current row and posts JobSelected.
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from textual.message import Message
@@ -21,14 +22,14 @@ if TYPE_CHECKING:
 __all__ = ["JobBrowserPanel"]
 
 
-def _display_command(job_name: str) -> str:
-    """The name as the shell spells it: `deploy web run`, not `deploy.web.run`.
+def _display_command(job: JobDescriptor) -> str:
+    """Render the descriptor's actual shell path.
 
     The browser is where a user first meets a job, so it must show the form
     they can type. The dotted name stays the canonical identity — selecting a
     row still posts it — and only the rendering changes.
     """
-    return job_name.replace(".", " ")
+    return str(job.command_path)
 
 
 def _normalize_for_filter(text: str) -> str:
@@ -83,6 +84,7 @@ class JobBrowserPanel(Widget):
         self._cursor_row: int = 0
         self._row_count: int = 0
         self._table: DataTable[str] | None = None
+        self._notices: dict[str, Sequence[str]] = {}
         self._populated: bool = False
 
     # ------------------------------------------------------------------
@@ -105,11 +107,20 @@ class JobBrowserPanel(Widget):
     # Public API
     # ------------------------------------------------------------------
 
-    def set_jobs(self, jobs: list[JobDescriptor]) -> None:
+    def set_jobs(
+        self,
+        jobs: list[JobDescriptor],
+        notices: Mapping[str, Sequence[str]] | None = None,
+    ) -> None:
         """Populate the table with job descriptors.
 
         Clears existing rows and rebuilds. Resets cursor to row 0.
+
+        ``notices`` maps a row's displayed path to the collision findings
+        reachable through it -- the same lines ``func`` prints on stderr. A
+        row with findings is marked and shows the first one as its description.
         """
+        self._notices = dict(notices or {})
         self._jobs = list(jobs)
         self._filtered_jobs = list(jobs)
         self._row_count = len(jobs)
@@ -123,12 +134,18 @@ class JobBrowserPanel(Widget):
             return
         self._table.clear()
         for job in self._filtered_jobs:
-            name = _display_command(job.name)
-            source = self._derive_source_label(job)
-            description = self._derive_description(job)
-            self._table.add_row(name, source, description)
+            self._table.add_row(*self._row_cells(job))
         self._populated = True
         self._sync_table_cursor()
+
+    def _row_cells(self, job: JobDescriptor) -> tuple[str, str, str]:
+        """The name, source and description cells for one row."""
+        name = _display_command(job)
+        notices = self._notices.get(name)
+        if not notices:
+            return name, self._derive_source_label(job), self._derive_description(job)
+        more = f" (+{len(notices) - 1} more)" if len(notices) > 1 else ""
+        return f"{name} ⚠", self._derive_source_label(job), f"{notices[0]}{more}"
 
     @property
     def active_filter(self) -> str:
@@ -147,7 +164,10 @@ class JobBrowserPanel(Widget):
         else:
             q = _normalize_for_filter(query)
             self._filtered_jobs = [
-                j for j in self._jobs if q in _normalize_for_filter(j.name)
+                j
+                for j in self._jobs
+                if q in _normalize_for_filter(str(j.command_path))
+                or q in _normalize_for_filter(j.name)
             ]
         self._row_count = len(self._filtered_jobs)
         self._cursor_row = 0
@@ -159,10 +179,7 @@ class JobBrowserPanel(Widget):
             return
         self._table.clear()
         for job in self._filtered_jobs:
-            name = _display_command(job.name)
-            source = self._derive_source_label(job)
-            description = self._derive_description(job)
-            self._table.add_row(name, source, description)
+            self._table.add_row(*self._row_cells(job))
         self._sync_table_cursor()
 
     def get_available_actions(self, focused: bool) -> list[tuple[str, str]]:

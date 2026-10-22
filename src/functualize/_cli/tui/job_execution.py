@@ -560,7 +560,7 @@ def run_job(app: FunctualizeInlineTUI, tokens: list[str]) -> None:
         output_log.write(
             f"[bold red]Error:[/bold red] '{resolution.dotted_token}' — navigate "
             f"groups with spaces, e.g. "
-            f"[bold]{resolution.dotted_token.replace('.', ' ')}[/bold]."
+            f"[bold]{' '.join(resolution.dotted_path or ())}[/bold]."
         )
         return
     if resolution.bad_flag is not None:

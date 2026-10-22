@@ -160,9 +160,17 @@ class TestFiltering:
 
     def test_the_job_browser_shows_the_spaced_command(self) -> None:
         from functualize._cli.tui.panels.job_browser import _display_command
+        from functualize.types import JobDescriptor
 
-        assert _display_command("deploy.web.run") == "deploy web run"
-        assert _display_command("status") == "status"
+        assert (
+            _display_command(JobDescriptor(name="deploy.web.run", group="deploy.web"))
+            == "deploy web run"
+        )
+        assert _display_command(JobDescriptor(name="status", group=None)) == "status"
+        assert (
+            _display_command(JobDescriptor(name="tools.lint", group=None))
+            == "tools.lint"
+        )
 
     def test_the_job_browser_filter_takes_all_three_separators(self) -> None:
         """Dots, spaces and hyphens all mean the same job."""

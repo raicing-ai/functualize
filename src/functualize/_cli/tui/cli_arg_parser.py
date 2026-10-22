@@ -97,9 +97,8 @@ def build_group_option_trie(func_app: Any) -> Any:
     The same inputs the CLI's ``_dispatch_group`` feeds the trie (the job list
     plus the cached ``{group: GroupOptionsSpec}`` map), so
     ``group_options_on_path`` resolves inheritance identically wherever it is
-    called (scrutiny D2 — one resolver). ``None`` when there are no group
-    options or the cache is unreadable: the caller then treats every flag as a
-    job argument, the pre-S6b behavior.
+    called (scrutiny D2 — one resolver). Jobs always form the navigation trie;
+    absent group options leave its option map empty.
 
     The heavy imports are function-local so this module stays import-light on
     the pre-boot path that pulls in ``parse_cli_args_to_kwargs``.
@@ -118,20 +117,22 @@ def build_group_option_trie(func_app: Any) -> Any:
         # group-options section, so reading the cache before it would miss a
         # project's options on the very first call.
         jobs = func_app.get_jobs()
-        specs = read_group_options_from_cache(
-            resolve_cache_path(Path.cwd()),
-            discovery_hash=discovery_hash_for(func_app),
-        )
-        if not specs:
-            return None
+        try:
+            specs = read_group_options_from_cache(
+                resolve_cache_path(Path.cwd()),
+                discovery_hash=discovery_hash_for(func_app),
+            )
+        except Exception as exc:
+            logger.debug("build_group_option_trie: no group options (%s)", exc)
+            specs = {}
         return build_group_trie(
             [(j.group, j.name, "job") for j in jobs],
             [],
             group_options=specs,
         )
     except Exception as exc:
-        # No group trie → every flag is treated as a job argument (pre-S6b
-        # behavior), which is a safe degradation, not a failure to surface.
+        # Discovery or trie construction failed; the caller retains its
+        # identity-based completion fallback.
         logger.debug("build_group_option_trie: no trie (%s)", exc)
         return None
 
@@ -139,18 +140,18 @@ def build_group_option_trie(func_app: Any) -> Any:
 def group_option_specs_on_path(trie: Any, job_name: str) -> list[Any]:
     """The group-option specs a job inherits, outermost first (or ``[]``).
 
-    The job's group path is its dotted name minus the final (function) segment
-    — ``deploy.web.run`` sits at ``deploy.web`` — the same construction the job
-    name is built from. An ungrouped job (no dot) inherits nothing. Delegates
-    the walk to the trie so the "group path = name minus function" rule and the
-    inheritance order live in one place.
+    Find the identity in the trie, then use its actual path. A literal dot in
+    one leaf is not a group boundary.
     """
     if trie is None:
         return []
-    segments = job_name.split(".")
-    if len(segments) < 2:
-        return []
-    return list(trie.group_options_on_path(segments[:-1]))
+    pending = list(trie.root.children.values())
+    while pending:
+        node = pending.pop()
+        if node.payload == job_name:
+            return list(trie.group_options_on_path(node.path[:-1]))
+        pending.extend(node.children.values())
+    return []
 
 
 class TuiCommandResolution:
@@ -165,6 +166,8 @@ class TuiCommandResolution:
         dotted_token: A path token the user spelled with a dot
             (``deploy.web.run``). The TUI navigates by spaces, so this is a
             refusal, reported rather than silently accepted.
+        dotted_path: The trie's full path for ``dotted_token`` — the spelling
+            the refusal offers instead. Set exactly when ``dotted_token`` is.
         bad_flag: A ``-``-prefixed token no consumed ancestor declares.
     """
 
@@ -172,6 +175,7 @@ class TuiCommandResolution:
         "args",
         "bad_flag",
         "bad_flag_hint",
+        "dotted_path",
         "dotted_token",
         "group_values",
         "job_name",
@@ -185,11 +189,13 @@ class TuiCommandResolution:
         dotted_token: str | None = None,
         bad_flag: str | None = None,
         bad_flag_hint: str | None = None,
+        dotted_path: tuple[str, ...] | None = None,
     ) -> None:
         self.job_name = job_name
         self.args = args
         self.group_values = group_values
         self.dotted_token = dotted_token
+        self.dotted_path = dotted_path
         self.bad_flag = bad_flag
         self.bad_flag_hint = bad_flag_hint
 
@@ -203,15 +209,11 @@ def resolve_tui_command(trie: Any, tokens: list[str]) -> TuiCommandResolution:
     flags fall out of that reuse: ``deploy --env prod web run`` binds ``--env``
     to the ``deploy`` declaration here exactly as it does on the command line.
 
-    **The dotted spelling is refused.** ``walk_group_path`` accepts
-    ``deploy.web.run`` (the CLI allows it as a convenience), but the shell
-    presents groups and jobs as space-separated, and offering two spellings in
-    a surface with live completion would teach the wrong one. A path token
-    containing a dot is reported in ``dotted_token`` for the caller to explain.
+    A dotted token crossing group edges is reported in ``dotted_token`` for
+    the caller to explain. A literal dot inside one leaf stays valid.
 
-    ``trie`` may be ``None`` (no group options / unreadable cache); the walk is
-    then skipped and the first token is taken as the job name, which is the
-    pre-S6b behavior for an ungrouped project.
+    ``trie`` may be ``None`` if discovery failed; the first token is then
+    treated as a job identity by the existing fallback.
     """
     if not tokens:
         return TuiCommandResolution(None, [], {})
@@ -223,11 +225,14 @@ def resolve_tui_command(trie: Any, tokens: list[str]) -> TuiCommandResolution:
 
     walk = walk_group_path(trie, tokens)
 
-    # Only *path* tokens are checked: an argument value may legitimately
-    # contain a dot (`--file a.txt`), and those live in `remaining`.
-    dotted = next((token for token in walk.consumed if "." in token), None)
-    if dotted is not None:
-        return TuiCommandResolution(None, [], {}, dotted_token=dotted)
+    if walk.bad_path is not None:
+        return TuiCommandResolution(
+            None,
+            [],
+            {},
+            dotted_token=walk.remaining[0],
+            dotted_path=walk.bad_path,
+        )
 
     node = walk.node
     job_name = node.payload if getattr(node, "has_payload", False) else None
