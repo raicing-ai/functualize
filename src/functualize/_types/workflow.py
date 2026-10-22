@@ -36,7 +36,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
+from functools import cache
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args, get_origin
 
 from functualize._types.decision import decision_shape
 from functualize._types.job_declaration import _ref_name
@@ -46,6 +47,11 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from functualize._types.decision import ChoiceDecision
+
+    class InDoubt(BaseModel):
+        outcome: Literal["ran", "did_not_run"]
+        value: Any = None
+
 
 __all__ = [
     "END",
@@ -58,6 +64,7 @@ __all__ = [
     "Notify",
     "OnFailure",
     "IMPLIED_CAPABILITIES",
+    "InDoubt",
     "Step",
     "Tool",
     "ToolRef",
@@ -129,8 +136,10 @@ class Step:
             itself. Nothing else: a step does not define behavior, it points
             at behavior that is already declared and independently runnable.
         effecting: This step does something the world remembers — charges a
-            card, sends a mail, files a ticket. It must run **exactly once**
-            across a crash and a resume.
+            card, sends a mail, files a ticket. An in-flight effecting step is
+            never re-run without a decision, and is exactly-once once that
+            decision is made; a raise is the job's own account, even if its
+            effect already happened.
 
             Default `False`, and that default is the honest one: the framework
             cannot tell an effecting step from a pure one by looking at it, and
@@ -138,16 +147,18 @@ class Step:
             nothing is replayed, which is the behaviour every workflow has had
             until now.
 
-            What the flag buys is an **outbox**: the step's completion record is
-            committed in the same locked batch as the walk's position, so a
-            crash can leave the effect done and the record absent only if it
-            lands between the effect and a write that is itself atomic. See
-            `_engine/frontier.complete`.
+            What the flag buys is a **record of intent**: before the job runs,
+            the walk commits an `attempting` step record, numbered per attempt.
+            A resume that finds one — the runner died between the effect and
+            the record's completion — refuses to enter the job again on its
+            own: it stops the scope blocked at the derived gate
+            `<step>-in-doubt` and waits for an operator verdict, `ran` or
+            `did_not_run`, through the same surfaces as any other gate. See
+            `_engine/effect_recovery.py`.
 
             > It does not make the effect itself transactional — nothing here
-            > can. It makes the *record* of the effect commit with the walk's
-            > progress, which is what a resume reads to decide whether to run
-            > the step again.
+            > can. It makes the *doubt* explicit: a resume asks instead of
+            > guessing, which is what keeps the effect from running twice.
     """
 
     job: str | Callable[..., Any]
@@ -168,6 +179,38 @@ class Step:
     def name(self) -> str:
         """The graph key for this node (the referenced job's name)."""
         return _job_ref_name(self.job)
+
+
+def recovery_gate_name(step: str) -> str:
+    """Address an effecting step's recovery question beside that step."""
+    canonical = _job_ref_name(step)
+    group, dot, leaf = canonical.rpartition(".")
+    return f"{group}{dot}{leaf}-in-doubt"
+
+
+@cache
+def _in_doubt_model() -> type[InDoubt]:
+    """Create the answer model only when a recovery gate is used."""
+    from pydantic import BaseModel, ConfigDict
+
+    class _InDoubt(BaseModel):
+        """An operator's answer to whether an effecting attempt ran."""
+
+        model_config = ConfigDict(extra="forbid", title="InDoubt")
+
+        outcome: Literal["ran", "did_not_run"]
+        value: Any = None
+
+    _InDoubt.__name__ = "InDoubt"
+    _InDoubt.__qualname__ = "InDoubt"
+    return cast("type[InDoubt]", _InDoubt)
+
+
+def __getattr__(name: str) -> Any:
+    """Expose the recovery answer model without loading it for every import."""
+    if name == "InDoubt":
+        return _in_doubt_model()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class Tool:
@@ -613,7 +656,7 @@ class Loop:
 
     A cycle declared with ordinary :class:`Edge`\ s is refused at decoration
     time (`workflow-graph-semantics`/T1), because the walk prunes nodes it has
-    already visited and such a graph therefore ran its cycle exactly once, in
+    already visited and such a graph therefore ran its cycle a single time, in
     silence. `Loop` is the declaration that says *how many times*, which is the
     one thing the graph could not previously express.
 
@@ -721,6 +764,8 @@ class WorkflowNodeShape:
     kind: str  # "step" | "gate" | "agent"
     model: str | None = None
     decision: Mapping[str, Any] | None = None
+    effecting: bool = False
+    recovers: str | None = None
 
 
 @dataclass(frozen=True)
@@ -781,6 +826,8 @@ class WorkflowShape:
                 # and digests — byte-for-byte as it did before the field.
                 if node.decision is not None:
                     entry |= {"decision": dict(node.decision)}
+                if node.recovers is not None:
+                    entry["recovers"] = node.recovers
                 nodes.append(entry)
             elif node.kind == "agent":
                 # Its own key, not "step": an agent step runs no registered
@@ -788,7 +835,10 @@ class WorkflowShape:
                 # that does not exist.
                 nodes.append({"agent": node.name})
             else:
-                nodes.append({"step": node.name})
+                entry = {"step": node.name}
+                if node.effecting:
+                    entry["effecting"] = True
+                nodes.append(entry)
 
         edges: list[dict[str, Any]] = []
         for edge in self.edges:
@@ -830,12 +880,19 @@ class WorkflowShape:
                         kind="gate",
                         model=raw.get("model"),
                         decision=decision,
+                        recovers=raw.get("recovers"),
                     )
                 )
             elif "agent" in raw:
                 nodes.append(WorkflowNodeShape(name=str(raw["agent"]), kind="agent"))
             elif "step" in raw:
-                nodes.append(WorkflowNodeShape(name=str(raw["step"]), kind="step"))
+                nodes.append(
+                    WorkflowNodeShape(
+                        name=str(raw["step"]),
+                        kind="step",
+                        effecting=raw.get("effecting", False),
+                    )
+                )
             else:
                 return None
 
@@ -1005,10 +1062,42 @@ class WorkflowDeclaration:
 
     def node(self, name: str) -> Step | Gate | AgentStep | None:
         """Look up a node by its graph key."""
+        name = _job_ref_name(name)
         for node in self.nodes:
             if node.name == name:
                 return node
+        for gate in self.recovery_gates():
+            if gate.name == name:
+                return gate
         return None
+
+    def recovery_gate(self, step: str) -> Gate | None:
+        """The declared recovery question for an effecting step, if any."""
+        step = _job_ref_name(step)
+        for node in self.nodes:
+            if isinstance(node, Step) and node.name == step and node.effecting:
+                return Gate(name=recovery_gate_name(step), awaits=_in_doubt_model())
+        return None
+
+    def recovered_step(self, gate: str) -> str | None:
+        """The effecting step addressed by a derived gate, if any."""
+        gate = _job_ref_name(gate)
+        for node in self.nodes:
+            if (
+                isinstance(node, Step)
+                and node.effecting
+                and recovery_gate_name(node.name) == gate
+            ):
+                return node.name
+        return None
+
+    def recovery_gates(self) -> tuple[Gate, ...]:
+        """Derived gates in step declaration order."""
+        return tuple(
+            Gate(name=recovery_gate_name(node.name), awaits=_in_doubt_model())
+            for node in self.nodes
+            if isinstance(node, Step) and node.effecting
+        )
 
     def step_refs(self) -> tuple[str | Callable[..., Any], ...]:
         """Every `Step`'s job reference, in declaration order.
@@ -1020,7 +1109,10 @@ class WorkflowDeclaration:
 
     def gates(self) -> tuple[Gate, ...]:
         """Every `Gate` node, in declaration order."""
-        return tuple(node for node in self.nodes if isinstance(node, Gate))
+        return (
+            *tuple(node for node in self.nodes if isinstance(node, Gate)),
+            *self.recovery_gates(),
+        )
 
     def outgoing(self, source: str) -> tuple[Edge | ConditionalEdge, ...]:
         """Every edge leaving ``source``."""
@@ -1063,8 +1155,18 @@ class WorkflowDeclaration:
                     if isinstance(node, Gate) and node.decide is not None
                     else None
                 ),
+                effecting=isinstance(node, Step) and node.effecting,
             )
             for node in self.nodes
+        )
+        nodes += tuple(
+            WorkflowNodeShape(
+                name=gate.name,
+                kind="gate",
+                model="InDoubt",
+                recovers=self.recovered_step(gate.name),
+            )
+            for gate in self.recovery_gates()
         )
 
         def _target(value: str | _EndSentinel) -> str | None:

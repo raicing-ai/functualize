@@ -130,6 +130,7 @@ def validate_workflow_declarations(app: Any = None, *, registry: Any = None) -> 
     from functualize._primitives.graph import GraphCycleError, topological_order
     from functualize._types.errors import WorkflowDeclarationError
     from functualize._types.naming import resolve_name
+    from functualize._types.workflow import Step
 
     registered: dict[str, Any] = (
         registry if registry is not None else app.job_registry._registered_jobs
@@ -180,6 +181,16 @@ def validate_workflow_declarations(app: Any = None, *, registry: Any = None) -> 
             continue
         workflow_names.add(name)
         nesting[name] = [_resolve(ref, name) for ref in declaration.step_refs()]
+        for node in declaration.nodes:
+            if not isinstance(node, Step) or not node.effecting:
+                continue
+            target = _resolve(node.job, name)
+            step_fn = getattr(registered[target], "function", None)
+            if getattr(step_fn, "__functualize_workflow__", None) is not None:
+                raise WorkflowDeclarationError(
+                    f"Effecting step '{node.name}' of workflow '{name}' "
+                    "cannot run a workflow job"
+                )
 
     _validate_workflow_from_job_refs(registered, nesting, _resolve)
 

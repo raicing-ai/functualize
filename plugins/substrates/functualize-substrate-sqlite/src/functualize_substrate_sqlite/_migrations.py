@@ -102,6 +102,7 @@ def _load(version: int, name: str) -> Migration:
 SHIPPED_MIGRATIONS: tuple[Migration, ...] = (
     _load(1, "runtime_schema"),
     _load(2, "step_record_metadata"),
+    _load(3, "step_attempt"),
 )
 
 
@@ -113,6 +114,15 @@ _CREATED = re.compile(
     r"(?:IF\s+NOT\s+EXISTS\s+)?"
     "[\"'`\\[]?"
     r"([A-Za-z_][A-Za-z0-9_]*)",
+    re.IGNORECASE,
+)
+
+#: The columns a revision's SQL adds to an existing table, as ``(table,
+#: column)`` — the on-disk half of an ``ALTER TABLE`` revision, which creates
+#: no object for `_CREATED` to find.
+_ADDED = re.compile(
+    r"ALTER\s+TABLE\s+[\"'`\[]?([A-Za-z_][A-Za-z0-9_]*)[\"'`\]]?\s+"
+    r"ADD\s+(?:COLUMN\s+)?[\"'`\[]?([A-Za-z_][A-Za-z0-9_]*)",
     re.IGNORECASE,
 )
 
@@ -206,14 +216,20 @@ def _check_ledger(ledger: dict[int, str], shipped: dict[int, Migration]) -> None
 def _check_objects(
     driver: SqlDriver, ledger: dict[int, str], shipped: dict[int, Migration]
 ) -> None:
-    """Every applied revision's objects exist; a missing one is partial state."""
+    """Every applied revision's objects and added columns exist; a missing
+    one is partial state."""
     present = {row[0] for row in driver.query("SELECT name FROM sqlite_master")}
+    columns: dict[str, set[str]] = {}
     for version in sorted(ledger):
-        missing = sorted(
-            name
-            for name in _CREATED.findall(shipped[version].sql)
-            if name not in present
-        )
+        sql = shipped[version].sql
+        missing = sorted(name for name in _CREATED.findall(sql) if name not in present)
+        for table, column in _ADDED.findall(sql):
+            if table not in columns:
+                columns[table] = {
+                    str(row[1]) for row in driver.query(f"PRAGMA table_info({table})")
+                }
+            if column not in columns[table]:
+                missing.append(f"{table}.{column}")
         if missing:
             raise MigrationRefused(
                 f"The {_LEDGER} ledger records revision {version}, but its "

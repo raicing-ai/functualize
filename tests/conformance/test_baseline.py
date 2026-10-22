@@ -13,12 +13,20 @@ from __future__ import annotations
 import ast
 import os
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from functualize.app import FunctualizeApp, JobSources
-from functualize.plugin import RuntimeStore, RuntimeStoreConfig
+from functualize.plugin import (
+    CompleteStep,
+    RecordStep,
+    RuntimeStore,
+    RuntimeStoreConfig,
+    StepView,
+    SuspendAtGate,
+)
 from functualize.testing.conformance import run_baseline
 from functualize.testing.conformance.baseline import BASELINE
 
@@ -54,6 +62,23 @@ STORES: dict[str, Callable[[Path], RuntimeStore]] = {
     "documents": documents_store,
     "sqlite": sqlite_store,
 }
+
+
+def test_new_port_fields_preserve_existing_constructor_defaults() -> None:
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    assert (
+        CompleteStep("scope", 1, "step", now).attempt,
+        CompleteStep("scope", 1, "step", now).started_at,
+    ) == (0, None)
+    assert (
+        RecordStep("scope", 1, "step", now, None).attempt,
+        RecordStep("scope", 1, "step", now, None).started_at,
+    ) == (0, None)
+    assert (
+        StepView("scope", "step", 0, "success").attempt,
+        StepView("scope", "step", 0, "success").started_at,
+    ) == (0, None)
+    assert SuspendAtGate("scope", 1, "gate", "request", "gate", now).supersedes is None
 
 
 @pytest.mark.parametrize("store", sorted(STORES))
