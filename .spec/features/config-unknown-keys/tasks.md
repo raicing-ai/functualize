@@ -71,11 +71,16 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 3 — boot, engine, adapters (F3b, F7, STATUS #22)
 
-- [ ] **3.1 Boot and engine** (AC17) — **[F]** `src/functualize/_app/boot.py`,
+- [x] **3.1 Boot and engine** (AC17) — **[F]** `src/functualize/_app/boot.py`,
   `src/functualize/_engine/executor.py`, `tests/engine/test_shell_settings_source.py` (new)
   - Before moving, pin today's vault path for `sudo_password` (risk 1).
     `plugins.strict` and `shell.*` are then read from `app.settings`. Boot
     re-resolves `secret` settings with the vault source.
+  - *Gate:* `tests/engine/test_shell_settings_source.py` 4 passed (vault pin,
+    shell program, plugin strict and lazy vault); settings pin 11 passed;
+    `uv run lint-imports` 7 kept / 0 broken. The broader engine suite has two
+    pre-existing read-only `app.settings` monkeypatch failures in
+    `tests/engine/test_ambient_constructs.py:180,193`.
 - [ ] **3.2 Public adapters** (AC19) — **[F]** `src/functualize/app/adapters/cli.py`,
   `src/functualize/app/adapters/surface_gate.py`, `tests/adapters/test_surface_gate.py`
   - No `_cli` import. Generated flags come from the schema. The surface gate
