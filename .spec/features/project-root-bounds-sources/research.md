@@ -76,3 +76,25 @@ Code facts checked for the amendment on branch `c2a81c9`:
 - A nested `.functualize/` with no nested config file, run from `nested/sub/`: `['outer-only']`. The nested project's own job is missing while `Mode` names the nested folder. This is a pre-existing defect: convention `jobs/` is collected only at walk-A config-hit levels plus cwd.
 - `.functualize/.functualize.toml` with `root = true` works as a marker, but `func builtin config path` lists only cwd's `pyproject.toml` and `.functualize.toml` (`_cli/builtins.py:2418-2467`).
 - `pyproject.toml` without `[tool.functualize]` is not a marker; with the table and `root = true`, it behaves like `.functualize.toml`.
+
+## Plan retrieval 2 (2026-10-22, branch `f30285c`, after "confirm B1 and D2 data rule")
+
+### Walk C and project identity census
+
+- `rg -n "find_functualize_dir" src plugins --type py`: definition at `_primitives/locator.py:484`. There are 7 importers: `_primitives/cache_format.py:29`, `_primitives/fresh_format.py:43`, `_config/vault_paths.py:37`, `_config/project_dirs.py:44`, `_app/impl.py:32`, and `_app/__init__.py:57` (a re-export in `__all__`). Calls: `cache_format.py:313`, `fresh_format.py:148`, `vault_paths.py:63`, `project_dirs.py:613`, `impl.py:81`, `impl.py:146`.
+- Readers that pass `Path.cwd()` into a walk-C consumer: `_cli/main.py:970`, `:2062`; `app/adapters/cli.py:548`; `_cli/tui/cli_arg_parser.py:122`; `_cli/tui/display_provider_discovery.py:131`; `_cli/completions/data.py:143`; `_cli/builtins.py:584`, `:808`, `:826`, `:842`; `functualize_mcp/_translator.py:54`. Threading a boundary through them is why the stop belongs in the primitive (`plan.md` C3).
+- Identity hashed from cwd or start: `cache_format.py:316`, `fresh_format.py:151`, `app/utils.py:1884`, `:2049`, `_app/boot.py:1319`, `_app/impl.py:92`, `:159`. The vault file is keyed by project root (`vault_paths.py:66-80`), while its key lookups at `boot.py:1319`, `utils.py:1884` and `:2049` use cwd. Both built-in key providers ignore `project_id` (`_config/vault_keys.py:155-160`, `:235-250`), so the key is per machine.
+- Constraint: `tests/conftest.py::_isolate_state_root` patches `fresh_format`'s own binding of `find_functualize_dir`, and the `locator.py` docstring says both formats must bind it unqualified.
+
+### Baselines
+
+- N4 (nested `root = true`, no nested `.functualize/`): `func builtin data show` from `nested` and from `nested/sub` → `Mode: project (.functualize/ found at …/outer/.functualize)`, `Freshness path: …/outer/.functualize/fresh.json`.
+- Standalone without a root (control, H2): `dir` → `…/cache/functualize/7a585e998736/fresh.json`; `dir/sub` → `…/ddcd051f4c69/fresh.json`. Fragmenting per cwd is today's behaviour, and it stays for projects without a root.
+
+### P4: explicit `--config-directory` crosses the root (decision D4)
+
+Nested `root = true`, ancestor `config.base.toml` `[greeter.greet] greeting = "ANCESTOR"`, `nested/cfg/config.base.toml` without the key, `func --config-directory cfg greeter greet` → `GREETING = ANCESTOR`. `app/adapters/cli.py:1016-1017` stores the choice in `app._config_path`, and `refresh()` rebuilds through `_app/impl.py::_build_resolution_chain` → `_app/boot.py::build_resolution_chain`, whose `FileSource` locator layers `config_path → ~` (`boot.py:1396-1401`). The builder cannot distinguish explicit from discovered.
+
+### Tests referencing the identity and walk-B symbols
+
+`rg -l "find_functualize_dir|resolve_cache_path|resolve_fresh_location|resolve_fresh_path|project_root_for|vault_path_for_project|compute_project_id|discover_config_path|build_resolution_chain" tests` → 34 files (listed by `rg`; T9 runs them all).

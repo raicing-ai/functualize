@@ -5,7 +5,9 @@
 - Shape Intent: SD/17104898, version 13, `Authority = Approved`, Model A with the owner's D1(a), D2(b), D3(b) scope decisions, read 2026-10-21. The recommended details within D3(b) and the D2 migration gate await confirmation.
 - Multica MCH-188: `Shape state = approved`, read 2026-10-20.
 - Specify draft: confirmed by the member on 2026-10-20 (MCH-188, "Confirm spec draft").
-- **Revised in Specify, 2026-10-21 — awaiting confirmation.** The owner selected D1(a), D2(b), and D3(b) after the first Plan. That Plan and its task graph assumed D2(a)/D3(a) and have been withdrawn. The behavior below follows the v13 shape's recommended B1 design for D3(b); it is not an implementation authorization.
+- **Confirmed 2026-10-22** ("confirm B1 and D2 data rule", MCH-188).
+- **Pending D4 (Plan, 2026-10-22):** the explicit `--config-directory` wording in Behavior 9 and AC11; see `plan.md` § D4. Recommended (a) is written below and marked.
+- *Earlier:* **Revised in Specify, 2026-10-21.** The owner selected D1(a), D2(b), and D3(b) after the first Plan. That Plan and its task graph assumed D2(a)/D3(a) and have been withdrawn. The behavior below follows the v13 shape's recommended B1 design for D3(b); it is not an implementation authorization.
 
 ## Problem
 
@@ -40,7 +42,7 @@ A nested project can declare `root = true` while an ancestor's project file stil
 - **AC7 — cache parity:** AC1–AC5 give the same inventory after a prior run has populated the discovery cache.
 - **AC9 — settings layers (D1):** With ancestor `[cli] show_timing = true` above nested `root = true`, the settings catalog's layer list excludes the ancestor file and `cli.show_timing` resolves to its default, the same answer as `func builtin config show`.
 - **AC10 — project identity (D2):** With nested `root = true` and no nested `.functualize/`, an ancestor convention plugin does not run. The nested root and its subdirectory resolve the same isolated state/cache/vault identity. The ancestor's existing records and vault remain intact and are not selected. A documented migration procedure is verified before release.
-- **AC11 — job config (D3):** An ancestor `config.base.toml` above a nested root contributes no job value, even when a nested base file omits that key. Nested base and active environment overlays retain their precedence; a global value remains available. The same answer holds after refresh and for a programmatic app launched in the marked tree. With no root marker, inheritance is unchanged. An explicitly selected config directory and supplied resolution chain retain their documented behavior.
+- **AC11 — job config (D3):** An ancestor `config.base.toml` above a nested root contributes no job value, even when a nested base file omits that key. Nested base and active environment overlays retain their precedence; a global value remains available. The same answer holds after refresh and for a programmatic app launched in the marked tree. With no root marker, inheritance is unchanged. An explicitly selected config directory and supplied resolution chain retain their documented behavior. *Pending D4, recommended (a):* local job-config layering that starts from an explicitly selected directory also stops at the nearest root marker at or above that directory; a selected directory outside any root project layers exactly as today.
 - **AC8 — regression and release note:** A regression test fails against the pre-fix behavior and passes after the change. The hand-written `CHANGELOG.md` entry under `## [Unreleased]` / `### Fixed` explains the root stop and the migration choice: remove `root = true` for inheritance, or explicitly declare a shared path while retaining the stop.
 
 ## Boundaries
