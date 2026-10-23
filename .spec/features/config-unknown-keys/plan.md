@@ -1,4 +1,8 @@
-# config-unknown-keys — Plan (Revision 4)
+# config-unknown-keys — Plan (Revision 5)
+
+> **Revision 5 (2026-10-23).** This revision corrects one invariant this plan
+> stated too broadly, and adds the surface vocabulary (F16). It changes no
+> AFTER shape for settings. See §6 (M8) and `tasks.md` → *Revision 5*.
 
 ## Alignment
 
@@ -92,7 +96,10 @@ live experiments (F3a, F3b).
  vocabulary statements: _cli/data/func_settings._BASE_SETTINGS (+ tui_settings registered at import),
  _cli/config._RECOGNIZED_*, _config/project_dirs.LIST_KEYS, _discovery/filter_factory fingerprint fields,
  _types/flag_grammar + _cli/main click options + _cli/dispatch parsing (flags), docs tables
- public → internal leaks: app/adapters/cli.py, app/adapters/surface_gate.py → _cli.data.func_settings
+ public → _cli settings reads: app/adapters/cli.py, app/adapters/surface_gate.py → _cli.data.func_settings;
+   app/commands.py → _cli.config.resolve_cli_config
+ public → _cli other edges (rev5, measured at 40c2a503, 15 sites in all): _cli.orchestrator (surface
+   vocabulary, F16); _cli.builtins, _cli.info, _cli.inline_tui, _cli.annotation_utils (delivery — M8)
 ```
 
 **Smells (catalogue names) and forbidden patterns in the BEFORE:**
@@ -129,8 +136,13 @@ Introduced-smell check:
   and MCH-194's `_types/naming.py`.
 - No peer-layer import: `_config` → `_types` only; `_app`/`_engine` receive
   `ResolvedSettings` as data via `ConfigSources`.
-- `_cli` → public re-exports only. The public `app/adapters` stop importing
-  `_cli`.
+- `_cli` → public re-exports only. **No public folder reads a setting, a
+  settings store or a settings vocabulary through `_cli`.** Every settings
+  read goes through `app.settings` / the declaration (AC31). Rev3/rev4 wrote
+  this as "the public `app/adapters` stop importing `_cli`". That was broader
+  than `spec.md` F7, AC21 and contracts C5/C6 require: they put the adapters'
+  *settings* reads on the public seam, and say nothing about the delivery
+  imports listed under M8.
 
 ### AFTER
 
@@ -149,7 +161,9 @@ Introduced-smell check:
 [app]      config.py                   FUNCTUALIZE_SETTINGS, constants, SettingsLayer, ResolvedSettings, resolve_settings;
                                        ConfigSources(settings=…, resolved=…)
            core / FunctualizeApp       .settings -> ResolvedSettings
-           adapters/cli.py, surface_gate.py   read app.settings / schema (no _cli import)
+           adapters/cli.py, surface_gate.py   read app.settings / schema (no settings import from _cli; delivery edges: M8)
+           adapters/surface_gate.py    + RenderSurface preference ladder (moved from _cli/orchestrator.py, F16)
+[_types]   enums.py                    + RenderSurface — the one statement of the surface values
 [_app]     boot                        plugins.strict from app.settings; vault re-resolution of secret settings
 [_engine]  executor                    shell.* from app.settings (data), never the job chain
 [_cli]     dispatch / main             flags generated from the schema → Mapping[Setting, value] → resolve_settings
@@ -221,6 +235,7 @@ tests/spec ratchets: vocabulary literals, read-position literals, settings-file 
 | M6 | the one environment name of `extra_directories`/`exclude_patterns` | **closed** (`01a15ee0`): `[discovery]` canonical — `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES`, `FUNCTUALIZE_DISCOVERY_EXCLUDE_PATTERNS`; `FUNCTUALIZE_EXTRA_DIRECTORIES` is no longer read. Both keys keep both accepted file places |
 | M7 | the god classes and long functions in files this plan edits | **closed** (`01a15ee0`): (a) — PR 2 on this issue and branch line, after PR 1 merges, with its own architecture pass before any engine/TUI edit |
 | D3 | the status word `used` | answered: kept, with the v3 meaning, plus the annotation |
+| M8 | the 9 public→`_cli` **delivery** imports that are not settings: `app/adapters/cli.py:838` `:1360` `:1621` (`_cli.info`), `:953` (`_cli.builtins`), `:1255` and `app/adapters/tui.py:54` (`_cli.inline_tui`), `app/commands.py:356` (`_cli.builtins.get_builtin`), `app/adapters/click_params.py:92` `:722` (`_cli.annotation_utils`) | **open — for the maintainer.** (a) record as the documented delivery layer (`contributor/architecture/codemaps/dependencies.md:80-90` lists `app/adapters/*` and `_cli/*` as one delivery layer; no import-linter contract forbids it; each import is function-local by design to avoid the `app` ↔ `_cli` cycle). (b) treat the package-level `app` ↔ `_cli` cycle as a found issue and put it in **PR 2's architecture pass**, which already decomposes `FunctualizeInlineTUI` (the `inline_tui` path), as an adapter extension seam. Recommended: **(b)**, because the cycle is real at the package level, the no-leftovers rule applies, and PR 2's pass is where the delivery layer is being reshaped anyway. Either way PR 1 does not change these 9 sites; 8.1 pins them so the outcome is visible |
 
 ## Surviving smells
 
@@ -229,6 +244,7 @@ tests/spec ratchets: vocabulary literals, read-position literals, settings-file 
 | Forbidden: god class (pre-existing) | `JobExecutionEngine` `_engine/executor.py:205-2772` (2568 lines), `FunctualizeInlineTUI` `_cli/tui/app.py:125-2828` (2704 lines) | Not introduced and not grown: PR 1 replaces one settings read in each. **Maintainer-accepted for PR 1 only** (M7 = (a)); PR 2 on this issue decomposes them after PR 1 merges | Answered (M7) — owner: PR 2 |
 | *Long Method* (pre-existing, files edited; AST at `bb3aac77`) | `_cli/main.py` `_run_cli` 358 (`:2033`), `_dispatch_group` 278 (`:959`), `_handle_job` 250 (`:1353`), `cli_app` 224 (`:229`), `_handle_single_file` 219 (`:1670`); `_app/boot.py` `boot_standard` 463, `boot_static` 241, `wire_children_to_pipeline` 157; `app/utils.py` `auto_discover` 192, `vault_sync` 185; `app/adapters/cli.py` `_register_callback` 217; `_engine/executor.py` `_execute_lifecycle` 359 | Same as above. `resolve_cli_config` (306) and `_extract_global_options` (164) are **removed** by this plan, not surviving. `register_builtin_commands` (2326) is split in PR 1 (task 1.3) | Answered (M7) — owner: PR 2 |
 | Logic in `_types` | `AppSettingsSchema.extend/keys_in/value_in/flag` | Pure queries on frozen data; established idiom | No; named for the review |
+| Package-level cycle `functualize.app` ↔ `functualize._cli` (pre-existing) | the 9 delivery imports of M8 | Not introduced, not grown; function-local imports keep it import-safe. Disposition is M8 | **Yes** (M8) |
 
 Every other smell named in §2 is removed by a task in `tasks.md`.
 

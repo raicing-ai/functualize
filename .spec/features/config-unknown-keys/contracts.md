@@ -169,7 +169,10 @@ def resolve_settings(schema: AppSettingsSchema, layers: Sequence[SettingsLayer],
 `SettingsFileInfo`, `CliConfig`'s own resolution, `LIST_KEYS` literal,
 `_DISCOVERY_FINGERPRINT_FIELDS` literal, `OPTIONAL_VALUE_VALID_SET` (renamed
 `GLOBAL_OPTION_ACCEPTED_VALUES`), the hand-written settings click options,
-`_KNOWN_TOOL_KEYS` and `ScriptMetadata.skill` (M5), and the top-level
+`_KNOWN_TOOL_KEYS` and `ScriptMetadata.skill` (M5), `FUNC_SCHEMA` (a second name
+for the declaration; rev5, row 6.3), `functualize._cli.orchestrator` (rev5, row 4.4:
+`RenderSurface` → `functualize.types`, the preference ladder → `app/adapters/surface_gate.py`),
+and the top-level
 environment name `FUNCTUALIZE_EXTRA_DIRECTORIES` (M6; one name per setting,
 `AppSettingsSchema.env_var_for`).
 `FuncSettingsStore` stays as the TUI's editor and write-back, over
