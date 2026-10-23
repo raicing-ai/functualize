@@ -1,4 +1,4 @@
-# config-unknown-keys — Specification (Revision 4)
+# config-unknown-keys — Specification (Revision 5)
 
 A key that is not a functualize setting is not accepted in silence, and the
 settings vocabulary that decides it is stated **once**. Every reader, resolver,
@@ -58,6 +58,8 @@ $ func builtin info --json | grep -c -i 'roots\|outptu\|definitely'
 | F13 | A TRANSITIONAL in a file this change rewrites, deferred to "a separate follow-up" | `_types/flag_grammar.py` `OPTIONAL_VALUE_VALID_SET` rename |
 | F14 | A job or group named like a settings section is ambiguous | a job `shell`, `cli`, `discovery`, `plugins`, `vault`, `tui` or `aliases` shares its config table with settings |
 | F15 | `[tool.functualize] skill` in a PEP 723 script is accepted and read by nothing | `.spec/STATUS.md` #29, `_cli/pep723.py:53` `frozenset({"job", "skill"})` — **M5 closed: removed** (§3.10) |
+| F16 | The surface values `{"panel", "stdout"}` are stated four times (rev5) | `_cli/orchestrator.py:28-29` (`RenderSurface`), `:76-79` (`_parse`), `job/decorators.py:115` (`_VALID_SURFACE_HINTS`), `_types/functualize_settings.py:43` (`tui.default_surface` choices); the public surface gate reaches it through `_cli` (`app/adapters/surface_gate.py:75`) |
+| F17 | Public folders import `_cli` 15 times in 5 files (rev5, measured at `40c2a503`) | 6 are settings or surface reads (`app/adapters/cli.py:1212`, `:1274`, `:1303`; `surface_gate.py:74`, `:75`; `app/commands.py:340`), which this spec removes. 9 are delivery wiring (`cli.py:838`, `:953`, `:1255`, `:1360`, `:1621`; `app/adapters/tui.py:54`; `commands.py:356`; `click_params.py:92`, `:722`) — decision **M8** (`plan.md` §6) |
 
 ## 2. Users and stories
 
@@ -236,6 +238,8 @@ unknown key. Nothing else about script handling changes.
 | AC27 | `config.base.toml` with `[shell] program = …` | a finding names the file and `.functualize.toml` `[shell]` as the place it belongs; exit 0 |
 | AC28 (M6) | `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES=/x` | `/x` is an extra directory; `FUNCTUALIZE_EXTRA_DIRECTORIES=/x` alone is not read; the pin's env-name table has exactly one name per setting |
 | AC29 (M5) | a PEP 723 script with `[tool.functualize] skill = "s"` | the existing unknown-key warning names `skill`; `job` is still honoured; `ScriptMetadata` has no `skill` field |
+| AC30 (F16) | the source tree | the surface values are stated only by `RenderSurface` in `_types/enums.py`; the `tui.default_surface` choices and the `surface_hint` validation derive from it; `functualize._cli.orchestrator` no longer exists |
+| AC31 (F7, F17) | the source tree | no import of `functualize._cli.data`, `functualize._cli.config` or `functualize._cli.orchestrator` from any public folder; the 9 delivery imports of M8 are pinned, so their outcome is a visible edit |
 
 ## 5. Out of scope
 

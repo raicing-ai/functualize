@@ -1,10 +1,23 @@
-# config-unknown-keys — Tasks (Revision 4)
+# config-unknown-keys — Tasks (Revision 5)
 
-Base `bb3aac77` (rebased 2026-10-21; `git merge-base --is-ancestor origin/master HEAD` → 0),
-branch `sdd/config-unknown-keys`. Spec AC1–AC29, contracts C1–C6, plan rev4.
-M1–M7 are closed (`01a15669`, `01a15ee0`). **Execute is gated on one thing:**
-the maintainer's confirmation of this task list. Everything here is PR 1;
-PR 2 (M7) gets its own plan after PR 1 merges.
+> **Revision 5 (2026-10-23), an amendment, not a rewrite.** Rows 0.1–3.1 are
+> unchanged and keep their delivered state. Row 3.2 had no satisfiable route
+> at branch head `40c2a503` (`GATE_UNREACHABLE`, MCH-190 `01a1658b`). Its
+> "no `_cli` import" clause covered 15 public→`_cli` imports, which fall into
+> three different concerns, and its "generated flags" clause needs the
+> schema-backed catalog that rows 4.1–5.1 create. Rev5 gives every import an
+> owning row, re-sequences the flag clause to 5.1, adds row 4.4 (surface
+> vocabulary, F16), and puts the one remaining question to the maintainer as
+> decision **M8** (`plan.md` §6). Base for this amendment: branch head
+> `40c2a5035b61`, `origin/master` `b3e624bd`.
+
+Base `bb3aac77` (rebased 2026-10-21; `git merge-base --is-ancestor origin/master HEAD` → 0;
+since rebased by Execute onto `b3e624bd`), branch `sdd/config-unknown-keys`. Spec
+AC1–AC31, contracts C1–C6, plan rev5. M1–M7 are closed (`01a15669`, `01a15ee0`);
+the rev4 task list was confirmed (`01a1632b`). **Rev5 execution of row 3.2 and
+beyond is gated on** the maintainer's confirmation of this amendment. M8 does
+not gate PR 1, because PR 1 leaves those 9 sites unchanged and pins them in 8.1.
+Everything here is PR 1; PR 2 (M7) gets its own plan after PR 1 merges.
 
 Authoring-time measurements (2026-10-21, `bb3aac77`): 13 vocabulary
 collection literals in 6 files; 91 read-position key literals in 9 files;
@@ -81,10 +94,28 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     `uv run lint-imports` 7 kept / 0 broken. The broader engine suite has two
     pre-existing read-only `app.settings` monkeypatch failures in
     `tests/engine/test_ambient_constructs.py:180,193`.
-- [ ] **3.2 Public adapters** (AC19) — **[F]** `src/functualize/app/adapters/cli.py`,
-  `src/functualize/app/adapters/surface_gate.py`, `tests/adapters/test_surface_gate.py`
-  - No `_cli` import. Generated flags come from the schema. The surface gate
-    reads `app.settings`. STATUS #22's test passes when run alone.
+- [ ] **3.2 Public adapters read settings from `app.settings`** (AC19; rev5 narrowed) —
+  **[F]** `src/functualize/app/adapters/surface_gate.py`, `src/functualize/app/adapters/cli.py`,
+  `tests/adapters/test_surface_gate.py`, `tests/cli/test_bare_invocation_launch.py`
+  - The surface gate's `tui.default_surface` read (`surface_gate.py:74`,
+    `FuncSettingsStore.discover()` at `:81`) becomes
+    `app.settings.value(DEFAULT_SURFACE)`. `app` is already in scope at the
+    caller, `wants_stdout_surface(app, …)` (`surface_gate.py:44`).
+  - `_inline_tui_enabled()` (`cli.py:1205`, store read at `:1212-1215`) takes
+    `app` from `_handle_bare_invocation(ctx, app)` (`:1229`) and reads
+    `app.settings.value(INLINE_TUI)`. The hand-rolled `"false"/"0"/"no"/"off"`
+    parse goes, because the resolver types the value.
+  - *Gate:* AC19. STATUS #22's test passes on its own, and `tests/adapters/`
+    is green when run alone. `rg -n '_cli\.data\.func_settings' src/functualize/app/adapters/surface_gate.py`
+    → 0. In `cli.py` exactly 2 remain, `:1274` and `:1303`, both owned by 5.1.
+  - *Not this row (rev5):*
+    - "Generated flags come from the schema" moves to **5.1**, where the
+      schema-backed catalog exists.
+    - `surface_gate.py:75` (`_cli.orchestrator`) moves to **4.4**.
+    - The delivery imports (`cli.py:838`, `:953`, `:1255`, `:1360`, `:1621`;
+      `tui.py:54`; `commands.py:356`; `click_params.py:92`, `:722`) are
+      decision **M8**.
+    - `commands.py:340` (`resolve_cli_config`) moves to **4.2**.
 
 ## Wave 4 — CLI (M2 b, M3, M4)
 
@@ -100,6 +131,10 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     `resolve_cli_config`'s own resolution, `resolve_cli_config_layers` and
     `SettingsFileInfo`. The warning tests (`test_cli_config.py:108,125,190`,
     `test_cli_config_vault.py:85`) become `config path` assertions.
+  - *Rev5 addition:* **[F]** += `src/functualize/app/commands.py`. The settings
+    read at `:340-342` (`from functualize._cli.config import resolve_cli_config`;
+    `obj["cli_config"] = resolve_cli_config()`) takes the `CliConfig` projection
+    of `app.settings` instead. Gate: `rg -n '_cli\.config' src/functualize/app` → 0.
 - [ ] **4.3 Settings store and TUI** (M4) — **[F]** `src/functualize/_cli/data/func_settings.py`,
   `src/functualize/_cli/data/settings_schema.py`, `src/functualize/_cli/tui/__init__.py`,
   `src/functualize/_cli/tui/settings_panel.py`, `src/functualize/_cli/tui/settings_validator.py`,
@@ -109,15 +144,49 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   - Remove the registries, `FuncSetting`, `_spec`, `_as_setting` and the
     import-time registration. Rows come from the schema (`surface="tui"`);
     values come from `app.settings`.
+- [ ] **4.4 Surface vocabulary** (F16; AC30; rev5 new) — **[F]** `src/functualize/_types/enums.py`,
+  `src/functualize/types/__init__.py`, `src/functualize/_types/functualize_settings.py`,
+  `src/functualize/job/decorators.py`, `src/functualize/app/adapters/surface_gate.py`,
+  `src/functualize/_cli/orchestrator.py` (deleted), `src/functualize/_cli/tui/job_execution.py`,
+  `tests/cli/test_surface_resolution.py`, `tests/test_public_api_surface.py`
+  - `RenderSurface` (`_cli/orchestrator.py:18-30`) moves to `_types/enums.py`
+    beside the other enums, re-exported from `functualize.types`.
+  - The preference ladder `resolve_surface`/`explicit_surface` (`:33-71`)
+    moves to the public `app/adapters/surface_gate.py`, the direct-run gate
+    both command paths already share. `_cli/tui/job_execution.py:599` imports
+    it from there (`_cli` → public). `_cli/orchestrator.py` is deleted; its
+    only consumers are `surface_gate.py:75` and `job_execution.py:599`.
+  - One statement of `{"panel", "stdout"}`, today four: the enum
+    (`orchestrator.py:28-29`), `_parse` (`:76-79`), `job/decorators.py:115`
+    `_VALID_SURFACE_HINTS`, and `_types/functualize_settings.py:43` choices.
+    The setting's choices and the decorator's valid hints derive from
+    `RenderSurface`'s non-exclusive members; parsing is enum value lookup.
+  - *Gate:* AC30. `rg -n '"panel"|"stdout"' src/functualize --glob '*.py'`
+    leaves only `_types/enums.py` and docstrings. The surface-resolution and
+    public-API-surface tests are green. `rg -n '_cli\.orchestrator' src` → 0.
 
 ## Wave 5 — main and utils
 
-- [ ] **5.1 `_cli/main.py`** — **[F]** `src/functualize/_cli/main.py`
+- [ ] **5.1 `_cli/main.py` and generated root flags** — **[F]** `src/functualize/_cli/main.py`,
+  `src/functualize/app/adapters/cli.py` (rev5 added)
   - Generated options replace the 16 decorators at `:140-223` (`@click.pass_context`
     `:228`). The typed flag layer replaces `cli_flags` (`:327-343`, `:2130-2134`).
     `PLUGINS_DISABLED` reads (`:383-385`, `:618-620`, `:1279-1281`, `:1437-1439`),
     `ALIASES` (`:772`, `:778`) and `JOBS_DIRECTORIES` (`:1790`) go through
     `app.settings`/`value_in`.
+  - *Moved here from 3.2 (rev5):* "generated flags come from the schema".
+    - `_setting_flag_specs` (`cli.py:1263`) reads the app's declaration
+      (`app.settings.schema`), not the live legacy catalog `FUNC_SCHEMA`
+      (`:1274`).
+    - `_apply_setting_overrides` (`:1296`) feeds the typed flag layer of
+      `resolve_settings` instead of `FuncSettingsStore` (`:1303`).
+    - `func`'s root options and `CliAdapter`'s root options (`:1197`) are the
+      same generated list, so the 16 hand-written decorators go in this row.
+      Switching the generator in wave 3 would have given project apps the
+      11 declared flags (`--discovery-depth` … `--require-job-prefix`)
+      before the typed flag layer could honour them.
+  - *Gate:* AC22. `_generated_setting_options()` yields the 11 declared flags;
+    `func --help` lists each once; `rg -n '_cli\.data\.func_settings' src/functualize/app` → 0.
 - [ ] **5.2 `app/utils.py`** — **[F]** `src/functualize/app/utils.py`
   - Document reads (`:750-753`, `:972-1032`) and the `overrides`/`effective`
     plumbing (`:843-867`) go through the declaration.
@@ -134,7 +203,13 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   - A new `error_type` on #118's `DiscoveryFailure` (`_types/discovery_report.py:78`),
     built beside `job_name_collision` (`:152`). No second channel.
 - [ ] **6.3 Example** (F7; AC21) — **[F]** `examples/standalone/deploy_tool/deploy_tool/main.py`,
-  `examples/standalone/deploy_tool/tests/test_deploy_tool.py`
+  `examples/standalone/deploy_tool/tests/test_deploy_tool.py`,
+  `src/functualize/_cli/data/func_settings.py`, `tests/cli/test_settings_store_second_app.py` (rev5 added)
+  - *Rev5 addition:* delete `FUNC_SCHEMA` (`func_settings.py:512`), a second
+    name for the declaration that no row removed. Its last caller after 5.1 is
+    `deploy_tool/main.py:105-109`, which this row rewrites; the test pin at
+    `test_settings_store_second_app.py:193-194` asserts against
+    `FUNCTUALIZE_SETTINGS` instead. Gate: `rg -n '\bFUNC_SCHEMA\b' src examples` → 0.
 - [ ] **6.4 PEP 723** (M5 closed: remove; AC29) — **[F]** `src/functualize/_cli/pep723.py`, `tests/cli/test_pep723_skill_key.py`, `tests/standalone/test_pep723.py`
   - `_KNOWN_TOOL_KEYS` (`_cli/pep723.py:53`, today `frozenset({"job", "skill"})`) gives way to
     `SCRIPT_METADATA` (`job` only). `ScriptMetadata.skill` and the
@@ -153,7 +228,15 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 8 — keep it single, docs, fixtures
 
-- [ ] **8.1 Ratchets** (AC12, AC13, AC18, AC20, AC22) — **[F]** `tests/spec/test_settings_ratchet.py` (new)
+- [ ] **8.1 Ratchets** (AC12, AC13, AC18, AC20, AC22, AC30, AC31) — **[F]** `tests/spec/test_settings_ratchet.py` (new)
+  - *Rev5 addition:*
+    - AC31: no import of `functualize._cli.data`, `functualize._cli.config`
+      or `functualize._cli.orchestrator` from `functualize.app`, `.job`,
+      `.types`, `.plugin` or `.workflow`.
+    - AC30: the surface values are stated only in `_types/enums.py`.
+    - The public→`_cli` delivery imports are pinned at today's set (15 sites
+      at `40c2a503` minus the 6 this revision assigns), so M8's outcome is a
+      visible edit to that pin.
 - [ ] **8.2 Off the run path** (AC10) — **[F]** `tests/cli/test_config_vocabulary_run_path.py` (new)
 - [ ] **8.3 Fixtures** (F11; AC26) — **[F]** `tests/_cli/test_runtime_detection.py`,
   `tests/_cli/test_self_doctor.py`, `tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py`,
@@ -180,7 +263,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     { "id": 1, "tasks": ["1.1", "1.2", "1.3"] },
     { "id": 2, "tasks": ["2.1", "2.2", "2.3"] },
     { "id": 3, "tasks": ["3.1", "3.2"] },
-    { "id": 4, "tasks": ["4.1", "4.2", "4.3"] },
+    { "id": 4, "tasks": ["4.1", "4.2", "4.3", "4.4"] },
     { "id": 5, "tasks": ["5.1", "5.2"] },
     { "id": 6, "tasks": ["6.1", "6.2", "6.3", "6.4"] },
     { "id": 7, "tasks": ["7.1", "7.2"] },
