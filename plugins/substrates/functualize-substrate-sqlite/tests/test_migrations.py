@@ -169,6 +169,43 @@ def test_an_applied_revision_whose_column_is_gone_is_refused(
     assert refused.value.version == 3
 
 
+def test_a_pre_merge_revision_3_gate_database_is_refused_naming_the_renumber(
+    driver: LocalSqliteDriver,
+) -> None:
+    """A database built while the gate SQL was revision 3 refuses at boot.
+
+    Before the branch merged with the step-attempt work, this package shipped
+    the gate-interactions SQL as revision 3; the merged set keeps step_attempt
+    at 3 and moves the same bytes to 4. A pre-merge database records them
+    under version 3, so boot refuses — nothing applied, the renumbering
+    named, and one remedy: rebuild. No data migration shipped for it.
+    """
+    pre_merge = [
+        *SHIPPED_MIGRATIONS[:2],
+        Migration(3, "gate_interactions", SHIPPED_MIGRATIONS[3].sql),
+    ]
+    assert migrate(driver, pre_merge) == 3
+    ledger_before = driver.query(
+        "SELECT version, checksum FROM schema_migrations WHERE version = 3"
+    )
+
+    with pytest.raises(MigrationRefused, match="renumbered") as refused:
+        migrate(driver)
+
+    assert refused.value.version == 3
+    assert refused.value.expected_checksum == SHIPPED_MIGRATIONS[2].checksum
+    assert refused.value.actual_checksum == SHIPPED_MIGRATIONS[3].checksum
+    assert "rebuild" in refused.value.repair
+    # Refused, not repaired: the ledger and the schema are untouched.
+    assert (
+        driver.query(
+            "SELECT version, checksum FROM schema_migrations WHERE version = 3"
+        )
+        == ledger_before
+    )
+    assert driver.query("SELECT count(*) FROM schema_migrations") == [(3,)]
+
+
 def test_a_second_run_is_a_no_op(driver: LocalSqliteDriver) -> None:
     migrate(driver)
     schema = driver.query("SELECT sql FROM sqlite_master ORDER BY name")

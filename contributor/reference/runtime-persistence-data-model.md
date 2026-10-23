@@ -568,7 +568,12 @@ whose `tests/test_migrations.py` is the evidence for each refusal below:
 - A partially applied revision is a **boot refusal with repair steps**, never a silent continue.
 - Tests start from every supported historical schema, not only an empty database — today that is
   empty → `0004` (four ledger rows), a version-1 file upgraded through `0002` to `0004` with
-  defaulted step metadata, and a legacy documents-only file, plus the refusal cases in
+  defaulted step metadata, a legacy documents-only file, and one **unsupported-by-design**
+  historical: a pre-merge database whose revision 3 is the gate-interactions SQL (the branch-only
+  spelling before the renumbering that settled step_attempt at 3 and gate_interactions at 4).
+  That database is refused at boot with the renumbering named and one remedy — rebuild; the
+  identical SQL is not re-ledgered from 3 to 4, because no release carried the branch-only
+  numbering and no data migration shipped for it — plus the refusal cases in
   `tests/test_migrations.py`.
 - `create_all()` is acceptable only for a brand-new empty database. It is not an upgrade mechanism —
   which is precisely the defect `CREATE TABLE IF NOT EXISTS` produced in the substrate plugin.
