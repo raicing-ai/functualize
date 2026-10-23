@@ -1728,6 +1728,61 @@ def register_runtime_store_factory(app: Any, factory: Any) -> None:
     factories.append((_claimant(app, factory), factory))
 
 
+def register_effect_receiver(app: Any, receiver: Any) -> None:
+    """Register a consumer for one outbox topic, before boot selects a store.
+
+    Registering a receiver is what declares that this configuration needs
+    ``durable_outbox=True`` — there is no configuration key for the
+    requirement, and adding one would let a project claim the capability
+    without consuming an effect (``_app/effects.receiver_requirements`` reads
+    this registry, and the step 6.5 refusal it feeds names the setting to
+    change). One receiver per topic: a second would make delivery order
+    observable and delivery itself ambiguous, so it is refused rather than
+    chained. The window is :func:`register_runtime_store_factory`'s — a
+    receiver registered after selection could miss the boot drain and every
+    intent it should have consumed, so it is refused, never silently kept for
+    a drain that will not come.
+
+    The registry is created here, as the factories list is: the facade has a
+    line budget and this function is its only writer.
+
+    Raises:
+        TypeError: ``receiver`` does not satisfy `EffectReceiver`.
+        SubstrateInstallError: Boot already selected the store.
+        ValueError: Its topic is empty, or already registered.
+    """
+    from functualize._types.persistence import EffectReceiver
+
+    if not isinstance(receiver, EffectReceiver):
+        raise TypeError(
+            f"an effect receiver must provide a 'topic' attribute and a "
+            f"receive(effect) method; {receiver!r} does not, and a receiver "
+            f"that cannot be called must fail where it is registered, not at "
+            f"the first delivery."
+        )
+    topic = receiver.topic
+    if not isinstance(topic, str) or not topic:
+        raise ValueError(
+            "an effect receiver's topic must be a non-empty string; a receiver "
+            "for no topic consumes nothing and hides that it was never wired."
+        )
+    if _store_is_selected(app):
+        raise SubstrateInstallError(
+            "boot already selected this app's runtime store; a receiver "
+            "registered now would miss the boot drain and every committed "
+            "intent it exists to consume. Register it from the plugin's "
+            "registration call, which runs before boot selects."
+        )
+    receivers: dict[str, Any] = app.__dict__.setdefault("_effect_receivers", {})
+    if topic in receivers:
+        raise ValueError(
+            f"an effect receiver for topic {topic!r} is already registered; "
+            f"one receiver consumes a topic, because two make delivery order "
+            f"observable and delivery itself ambiguous. Disable one of them."
+        )
+    receivers[topic] = receiver
+
+
 def _store_is_selected(app: Any) -> bool:
     """True once boot step 6.5 has built the engine with its substrate."""
     engine = getattr(app, "_execution_engine", None)

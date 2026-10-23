@@ -35,13 +35,20 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Final
 
 from functualize._engine.recording import InputRecorder
+from functualize._engine.recording.input_recorder import schema_identity
+from functualize._events.run_log import current_run_id
+from functualize._types.gate_resolution import EvaluationOutcome
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from functualize._engine.frontier import FrontierWalk
     from functualize._engine.workflow_walker import WalkReport, _Ledger, _NodeRun
-    from functualize._types.gate_resolution import GateResolution, LadderOutcome
+    from functualize._types.gate_resolution import (
+        GateCandidate,
+        GateResolution,
+        LadderOutcome,
+    )
     from functualize._types.workflow import Gate
 
 __all__ = ["GateAsk", "GateService"]
@@ -173,15 +180,18 @@ class GateService:
                     ask,
                     scope_status="running" if outcome.model is not None else "blocked",
                 )
+            schema_id, schema_version = schema_identity(node.awaits)
+            now = datetime.now(UTC)
+            earlier = resolution.candidates if resolution is not None else ()
             candidates = self._recorder.ladder_candidates(
                 request_id,
                 outcome,
-                first_ordinal=len(resolution.candidates)
-                if resolution is not None
-                else 0,
-                now=datetime.now(UTC),
+                first_ordinal=len(earlier),
+                now=now,
+                schema_id=schema_id,
+                schema_version=schema_version,
             )
-            walk.record_candidates(candidates)
+            self._record(walk, node, request_id, earlier, candidates, outcome, now)
             if outcome.model is not None:
                 walk.consume(request_id)
                 return _NodeRun(outcome.model.model_dump(), replayed=True)
@@ -200,6 +210,52 @@ class GateService:
             results=ledger.results,
         )
 
+    def _record(
+        self,
+        walk: FrontierWalk,
+        node: Gate,
+        request_id: str,
+        earlier: Sequence[GateCandidate],
+        candidates: Sequence[GateCandidate],
+        outcome: LadderOutcome,
+        now: datetime,
+    ) -> None:
+        """Record the rungs; an accepted rung brings its decision and intent.
+
+        The decision observes every candidate the request held before this
+        ladder plus the rungs up to the accepted one; its policy is the
+        ladder, versioned by the rungs it ran. All of it is one unit.
+        """
+        accepted = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.evaluation.outcome is EvaluationOutcome.ACCEPTED
+            ),
+            None,
+        )
+        if accepted is None:
+            walk.record_candidates(candidates)
+            return
+        policy_id, policy_version = self._recorder.ladder_policy(
+            [name for name, _evaluation, _payload in outcome.rungs]
+        )
+        decision = self._recorder.decided(
+            request_id,
+            [*earlier, *candidates],
+            accepted.candidate_id,
+            policy_id=policy_id,
+            policy_version=policy_version,
+            now=now,
+        )
+        walk.record_candidates(
+            candidates,
+            decision=decision,
+            effect=self._recorder.accepted_effect(
+                decision, scope_id=walk.scope_id, gate_name=node.name
+            ),
+        )
+
     def _open(
         self,
         walk: FrontierWalk,
@@ -208,7 +264,11 @@ class GateService:
         *,
         scope_status: str = "blocked",
     ) -> str:
-        """Record the request, position and lifecycle status in one unit."""
+        """Record the request, position and lifecycle status in one unit.
+
+        The run executing now is the request's causal run: every answer the
+        request collects traces back to it.
+        """
         return walk.open_request(
             node.name,
             position=node.name if ask.position is None else ask.position,
@@ -220,6 +280,7 @@ class GateService:
                 for spec in node.tool_specs()
             ],
             scope_status=scope_status,
+            run_id=current_run_id(),
             supersedes=ask.supersedes,
         )
 

@@ -924,13 +924,15 @@ class WorkflowWalker:
     def _notify(self, report: WalkReport) -> None:
         """Fire the declared notifications for the status the walk ended in.
 
-        **The outbox, applied to an effect that is not a step.** The record
-        that a notification fired is committed *before* the provider is called,
-        so a crash can lose one and can never send one twice — at-most-once, in
-        the direction that matters: a resumed workflow must not page the
-        on-call again for a failure they have already seen. That is
-        `Step(effecting=True)`'s rule, with the same asymmetry and the same
-        reason.
+        **Record first, at-most-once.** The record that a notification
+        fired is committed *before* the provider is called, so a crash can
+        lose one and can never send one twice: a resumed workflow must not
+        page the on-call again for a failure they have already seen.
+
+        That is deliberately not the transactional-outbox rule. The outbox
+        (ADR-034) makes the opposite trade — at-least-once delivery with
+        receiver dedup — for effects that must not be lost; a `Notify` would
+        rather drop one than repeat one, and goes straight to the provider.
 
         Recorded in the scope's **branch** store, where `OnFailure` already
         keeps its chosen route (T3): one place a resume reads one kind of fact
