@@ -2180,13 +2180,13 @@ class JobExecutionEngine:
 
             records = step_records(self._runtime_store, scope_id)
             for key, record in records.items():
-                if (
-                    key.split("::", 1)[0] == ref.name
-                    and record.get("return_value_kind") == "missing_recovery_value"
-                ):
+                if key.split("::", 1)[0] != ref.name:
+                    continue
+                if record.get("return_value_kind") == "missing_recovery_value":
                     raise ValueError(
                         f"effecting step {ref.name!r} was confirmed ran without a return value"
                     )
+                break
             result = read_node(records, ref.name, expected_type)
             if isinstance(result, Recorded) and result.value is not None:
                 return result.value
