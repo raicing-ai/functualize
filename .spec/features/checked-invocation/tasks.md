@@ -72,7 +72,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
     status value and, when present, `ExcClass: message`. `TestFrozenShape`
     (0.1) still green.
 
-- [ ] **1.2 `EmissionRecord` + `RunRequest.capture` + reset** (C5; B7) —
+- [x] **1.2 `EmissionRecord` + `RunRequest.capture` + reset** (C5; B7) —
   **[F]** `src/functualize/_types/run_request.py`,
   `tests/engine/test_nested_delivery_inputs.py`
   - `EmissionRecord`: a `@dataclass` with `emitted: list[Any]` and
