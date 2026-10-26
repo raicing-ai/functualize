@@ -157,7 +157,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
 
 ## Wave 5 — through the user's door
 
-- [ ] **5.1 CLI integration** (AC1, AC2, AC6, AC8, AC9) — **[F]**
+- [x] **5.1 CLI integration** (AC1, AC2, AC6, AC8, AC9) — **[F]**
   `tests/integration/test_checked_invocation_cli.py` (new)
   - CliRunner over `app.cli_command` (the
     `tests/context/test_invoke_failure_hook.py` pattern). An isolated `HOME`
