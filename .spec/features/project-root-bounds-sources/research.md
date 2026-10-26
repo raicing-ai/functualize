@@ -98,3 +98,10 @@ Nested `root = true`, ancestor `config.base.toml` `[greeter.greet] greeting = "A
 ### Tests referencing the identity and walk-B symbols
 
 `rg -l "find_functualize_dir|resolve_cache_path|resolve_fresh_location|resolve_fresh_path|project_root_for|vault_path_for_project|compute_project_id|discover_config_path|build_resolution_chain" tests` → 34 files (listed by `rg`; T9 runs them all).
+
+## Plan retrieval 3 (2026-10-26): smell 2 census
+
+- `rg -n '"\.functualize/\.functualize\.toml"|"\.functualize\.toml"|/ "\.functualize\.toml"' src --type py` → 8 hits in 6 files: `_config/project_dirs.py:136-137`, `_cli/tui/app.py:952`, `:955`, `_cli/tui/panels/config_files.py:274`, `_cli/builtins.py:2420`, `_types/settings.py:98-99`.
+- `rg -n 'tool\.get\("functualize"\)|"tool\.functualize"\)' src --type py` → `_config/project_dirs.py:123`, `_cli/config.py:805-806`, `_cli/pep723.py:152` (script header; different file kind), plus the `_types/settings.py:105` default prefix.
+- `SettingsSources.project_file_names` is public (`functualize/plugin/__init__.py:116`, `docs/api/plugins.md:242-263`). `rg -n project_file_names src plugins` finds it read by no production code; only `tests/core/test_settings_schema_types.py:153` asserts it.
+- G19 baseline: from `outer/nested/sub` with `root = true` in `outer/nested/.functualize/.functualize.toml`, `func builtin config path` prints `✗ missing` for xdg `config.toml`, `sub/pyproject.toml` and `sub/.functualize.toml`. The project's real config file is not shown.

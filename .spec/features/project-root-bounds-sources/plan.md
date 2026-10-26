@@ -6,11 +6,12 @@
 - **Member confirmations:** spec confirmed 2026-10-20; "confirm B1 and D2 data rule" 2026-10-22 (MCH-188).
 - **Surfaces in scope, in the shape's words:** "Which job sources a nested project with `root = true` resolves"; "The same rule for the other walked directory kinds"; "A nested root's TUI settings list and save targets exclude ancestor project files"; "A `root = true` marker bounds the search for `.functualize/`"; "use the marker's directory as one stable identity for every subdirectory"; "A nested root excludes implicit [job-config] files above its marker, even when a nested file is missing a key".
 - **Surfaces out of scope, in the shape's words:** "The upward walk when **no** layer declares `root = true`"; "The XDG global layer `~/.config/functualize/config.toml`"; "Job-name collisions between nested and ancestor jobs (MCH-189's shape)"; "N5's disappearing job without a root marker, and `builtin config path` omitting `.functualize/.functualize.toml`".
-- **One open point the shape left to Plan:** "An explicit `--config-directory` is an intentional override; Plan must test its existing upward semantics and document the result rather than silently narrowing it." It was measured (`research.md` § *Plan retrieval 2*, P4) and is put to the member as **D4**. `spec.md` Behavior 9 and AC11 carry the recommended answer, marked *pending D4*.
+- **One open point the shape left to Plan:** "An explicit `--config-directory` is an intentional override; Plan must test its existing upward semantics and document the result rather than silently narrowing it." It was measured (`research.md` § *Plan retrieval 2*, P4) and put to the member as D4. **Decided 2026-10-26: D4 (a)** (MCH-188, "D4 a, smells 2 need to be fixed in this scope, tasks approved").
+- **Surviving smell 2 promoted into scope (2026-10-26).** The duplicated project-config file list is fixed here; see § *Smell 2 fix*. One consequence that changes a surface (`func builtin config path`) is put to the member as **D5**.
 
 ## Workflow state
 
-WorkflowMode `REPOSITORY_NATIVE` (`.claude/rules/spec-workflow.md`, `.claude/commands/agentic-plan.md`). CurrentPhase `Plan`, complete. Execute is **not** authorized until the member answers D4 and reviews `tasks.md` and *Surviving smells*. The withdrawn first Plan (`73851a5`, D2a/D3a) is superseded by this one.
+WorkflowMode `REPOSITORY_NATIVE` (`.claude/rules/spec-workflow.md`, `.claude/commands/agentic-plan.md`). CurrentPhase `Plan`, complete. Tasks approved by the member 2026-10-26; D4 answered (a). Execute may start; only task T5d waits on **D5**. The withdrawn first Plan (`73851a5`, D2a/D3a) is superseded by this one.
 
 ## Architecture gate
 
@@ -117,6 +118,48 @@ Measured on `f30285c`: nested `root = true`, `--config-directory nested/cfg` (ke
 - `design-patterns-refactoring` (user-level; Refactoring.Guru catalogue): smell names above. Fixes applied: *Move Method* to consolidate the Shotgun Surgery into `project_root.py`, and *Extract Function* for the predicate.
 - The repo's `python-design-patterns`: not loadable in this Multica runtime (the repo's Claude project settings do not load). Its stated principles (single responsibility, separation of concerns) match C1.
 
+## Smell 2 fix: one declaration of the project config files (added 2026-10-26)
+
+**What is duplicated.** One fact, "which files in a directory are project config, in what order, and which table of `pyproject.toml` holds the settings", is written out six times. Census: `rg -n '"\.functualize/\.functualize\.toml"|"\.functualize\.toml"|/ "\.functualize\.toml"' src --type py` → 8 hits in 6 files; `rg -n 'tool\.get\("functualize"\)|"tool\.functualize"\)' src --type py` → 4 hits.
+
+| Copy | Role | Read by production code? |
+|---|---|---|
+| `_types/settings.py:96-105` `SettingsSources.project_file_names` + `_default_file_section_prefixes` | **public plugin API** (`functualize.plugin`, `docs/api/plugins.md:242-263`) | the prefixes yes (`AppSettingsSchema.section_prefix_for`); `project_file_names` **no** (only `tests/core/test_settings_schema_types.py:153`) |
+| `_config/project_dirs.py:106-138` `PROJECT_CONFIG_CANDIDATES` + `_extract_functualize_section` | walk A (moves to `_primitives/project_root.py` in T2) | yes |
+| `_cli/config.py:800-807` `_functualize_table` | settings-store read of one file | yes |
+| `_cli/builtins.py:2419-2420` | `func builtin config path`: two files, cwd only | yes (the formerly separate `config path` defect) |
+| `_cli/tui/app.py:950-956` | "create a new settings file" candidates in cwd | yes (write hint) |
+| `_cli/tui/panels/config_files.py:274-276` | fallback list when no app is loaded | yes |
+
+Smells by catalogue name: **Duplicate Code**, plus **Speculative Generality** on `project_file_names`, which is a public, documented field that no production code reads.
+
+**AFTER: `_types/settings.py` is the one declaration; everything derives from it.**
+
+```
+ _types/settings.py   PROJECT_FILE_NAMES, PROJECT_FILE_SECTION_PREFIXES   ← the only literals
+       ▲                      (SettingsSources / AppSettingsSchema defaults point at them; public API unchanged)
+       │ imports (foundation → types: legal)
+ _primitives/project_root.py  PROJECT_CONFIG_CANDIDATES = derived (name, section extractor)
+                              project_config_file_table(path) -> (values, prefix)
+       ▲
+ _config/project_dirs.py (re-export) ─► app/utils.py  list_project_config_files, project_config_file_table (public)
+                                              ▲ public API only
+ _cli/config.py, _cli/data/func_settings.py ──┘  (_functualize_table deleted)
+ _cli/tui/app.py, _cli/tui/panels/config_files.py, _cli/builtins.py
+        ── names from functualize.plugin.SettingsSources().project_file_names (public)
+```
+
+- **No public API change.** `SettingsSources.project_file_names` and the `pyproject.toml` prefix keep their names, defaults and docs. They become the declaration production code actually reads, which removes the Speculative Generality: the documented field now means what it says for `func`.
+- **Not a duplicate, kept:** `_cli/pep723.py:152` reads `[tool.functualize]` from a *script header* (PEP 723), a different file kind with its own two keys (`job`, `skill`). `_cli/tui/panels/config_files.py:275` `functualize.toml` is the legacy *job-config* file name, not a project config file.
+- **Candidate check:** the derived candidate list must equal today's literally (same names, same order, same `pyproject.toml` extractor semantics). T2 pins that with a test, so walk A cannot drift.
+
+### D5: should `func builtin config path` list the real project layers?
+
+Today it checks two fixed files in the current directory only (`_cli/builtins.py:2419-2420`), so from a subdirectory it shows the project's files as missing, and it never shows `.functualize/.functualize.toml`. Once the list has one source, this surface is the last hand-written copy.
+
+- **(a) Recommended:** `config path` lists `list_project_config_files(cwd)`, i.e. the bounded walk-A files (D1), plus the global file, keeping the `✓ used / ✗ missing` shape. From a subdirectory it shows the files that actually apply; `.functualize/.functualize.toml` appears; nothing above a root appears (AC6). This closes the defect previously recorded as separate.
+- **(b)** Take the names from the one source but keep cwd-only behaviour. The duplicate goes, and the misleading output stays.
+
 ## Technical approach
 
 1. **`_primitives/project_root.py` (new).** Move `PROJECT_CONFIG_CANDIDATES` and `_extract_functualize_section` here from `_config/project_dirs.py`, unchanged. Add:
@@ -149,6 +192,10 @@ Measured on `f30285c`: nested `root = true`, `--config-directory nested/cfg` (ke
 | `src/functualize/_app/boot.py` | composition root | T6 |
 | `src/functualize/_app/impl.py` | composition root | T7 |
 | tests: three new e2e gate files, unit pins, the migration test | tests | T1a–T1c, T2, T3, T8 |
+| `src/functualize/_types/settings.py` | `_types` | T2 (smell 2: named constants) |
+| `src/functualize/_cli/config.py`, `src/functualize/_cli/data/func_settings.py` | `_cli` | T5b (smell 2) |
+| `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/panels/config_files.py` | `_cli` | T5c (smell 2) |
+| `src/functualize/_cli/builtins.py` | `_cli` | T5d (smell 2 + D5) |
 | `docs/guides/configuration.md`, `CHANGELOG.md`, `codemaps/modules.md` | docs | T8 |
 
 ## Risks
@@ -163,8 +210,7 @@ Measured on `f30285c`: nested `root = true`, `--config-directory nested/cfg` (ke
 
 | Smell | Where | Why it survives | Maintainer review? |
 |---|---|---|---|
-| **Long Method** | `app/utils.py::auto_discover` | Unchanged length except removing two walk blocks. Splitting it is a refactor with no behaviour mandate, and mixing refactor and fix breaks the separation rule | **yes** |
-| **Duplicate Code** (file-name list) | `_types/settings.py:96-100` `project_file_names` vs `_primitives/project_root.py::PROJECT_CONFIG_CANDIDATES` | The `_types` tuple carries file names for the settings store's section prefixes; the candidate list carries extractors. Unifying them changes the settings-store API, outside this scope | **yes** |
+| **Long Method** | `app/utils.py::auto_discover` | Unchanged length except removing two walk blocks. Splitting it is a refactor with no behaviour mandate, and mixing refactor and fix breaks the separation rule | reviewed 2026-10-26: the member asked to fix smell 2 only, so this stays |
 | **Large module** | `_app/boot.py` (2 305 lines), `_app/impl.py` (1 752) | Pre-existing; this change edits three functions in place | no |
 
 Nothing on the *Forbidden Patterns* list is in the AFTER: C2 (implicit `Callable` port) and C4 (global state) were rejected for that reason. There is no backward-compat shim: `locator.find_functualize_dir` moves and its six importers are updated.

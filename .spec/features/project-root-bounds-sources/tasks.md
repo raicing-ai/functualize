@@ -1,6 +1,6 @@
 # Tasks — project root bounds discovered sources (D1a · D2b · D3b/B1)
 
-Execute is **not** authorized until the member answers **D4** (`plan.md` § D4) and reviews this list and `plan.md` § *Surviving smells*.
+**Tasks approved by the member 2026-10-26** ("D4 a, smells 2 need to be fixed in this scope, tasks approved"). D4 = (a). Smell 2 was added as T5b–T5d and widens T2 and T5, within the approved shape. **T5d alone waits on D5**; every other task may execute.
 
 ## Baseline (authoring time, branch `f30285c`, `func` from `uv sync --frozen --all-extras --all-packages`, `HOME`/`XDG_*` isolated)
 
@@ -26,6 +26,7 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
 | G16 user-global `$XDG_CONFIG_HOME/<app>/` job value under a root | AC11 | not measured | still applies |
 | G17 `--config-directory nested/cfg` (key missing), ancestor has it | D4 | `ANCESTOR` | D4 (a): `hello-default` |
 | G18 programmatic `FunctualizeApp(name=…)` inside the root tree, then `app.refresh()` | AC11 | not measured | same as G12 on boot and after refresh |
+| G19 `func builtin config path` from `outer/nested/sub` (nested `root = true` in `.functualize/.functualize.toml`) | AC12 / D5 | lists `sub/pyproject.toml` ✗ and `sub/.functualize.toml` ✗ only | D5 (a): lists `nested/.functualize/.functualize.toml` ✓ and nothing under `outer/` |
 
 ## Wave 0 — red gates (disjoint new files)
 
@@ -41,11 +42,13 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
 
 ## Wave 1 — the one owner of "where a project stops"
 
-- [ ] **T2 — `_primitives/project_root.py`, and move walk C into it** `[F: src/functualize/_primitives/project_root.py (new), src/functualize/_primitives/locator.py, src/functualize/_primitives/cache_format.py, src/functualize/_primitives/fresh_format.py, src/functualize/_config/vault_paths.py, src/functualize/_config/project_dirs.py, src/functualize/_app/impl.py, src/functualize/_app/__init__.py, tests/primitives/test_project_root.py (new)]`
+- [ ] **T2 — `_primitives/project_root.py`, and move walk C into it** `[F: src/functualize/_types/settings.py, src/functualize/_primitives/project_root.py (new), src/functualize/_primitives/locator.py, src/functualize/_primitives/cache_format.py, src/functualize/_primitives/fresh_format.py, src/functualize/_config/vault_paths.py, src/functualize/_config/project_dirs.py, src/functualize/_app/impl.py, src/functualize/_app/__init__.py, tests/primitives/test_project_root.py (new)]`
   - Inputs: `plan.md` § Technical approach 1–2.
-  - Create the module: `PROJECT_CONFIG_CANDIDATES` and `_extract_functualize_section` (moved verbatim from `project_dirs.py:106-138`), `is_root_config`, `project_config_at`, `find_project_boundary`, `find_functualize_dir` (moved from `locator.py:484-523`, docstring kept, now bounded), `project_identity_dir`.
+  - Smell 2: in `_types/settings.py`, name the two literals as module constants (`PROJECT_FILE_NAMES`, `PROJECT_FILE_SECTION_PREFIXES`) and point the `SettingsSources` / `AppSettingsSchema` defaults at them. The public API is unchanged.
+  - Create the module: `PROJECT_CONFIG_CANDIDATES` **derived** from those constants (a name with a section prefix becomes `(name, extractor for that table)`), replacing `_extract_functualize_section` from `project_dirs.py:106-138`; `project_config_file_table(path) -> (values, prefix)`; `is_root_config`, `project_config_at`, `find_project_boundary`, `find_functualize_dir` (moved from `locator.py:484-523`, docstring kept, now bounded), `project_identity_dir`.
   - The 7 importers switch their import line only. `cache_format`/`fresh_format` keep the **unqualified** binding.
   - Gate G-C: `rg -n "find_functualize_dir" src plugins --type py | rg "_primitives.locator import|^\S+locator.py:\d+:def "`. Authoring time: 2 `import … from locator` lines (`_app/__init__.py:57`, `_app/impl.py:32`), plus 4 multi-line imports (`cache_format.py:29`, `fresh_format.py:43`, `vault_paths.py:37`, `project_dirs.py:44`), plus the definition. After: 0. `rg -n "PROJECT_CONFIG_CANDIDATES\s*[:=]" src` → exactly 1 hit, in `project_root.py`.
+  - Unit pin (smell 2): the derived `PROJECT_CONFIG_CANDIDATES` resolves exactly as today's literal list on a fixture with all three files, and with a `pyproject.toml` lacking the table.
   - Unit pins: the boundary for every marker form (N7: `pyproject.toml [tool.functualize]`, `.functualize.toml`, `.functualize/.functualize.toml`); a `pyproject.toml` without the table is not a marker; `"true"` (string) does not stop; `.functualize/` *at* the boundary is found; above it, it is not; identity for N4, N6 and standalone.
   - Acceptance: `uv run pytest tests/primitives/test_project_root.py tests/test_resource_locator.py tests/test_state_root_isolation.py tests/config/test_vault_paths.py -q` green; `uv run lint-imports` clean.
 
@@ -62,7 +65,7 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
 ## Wave 3 — consumers (disjoint files)
 
 - [ ] **T5 — `app/utils.py`** `[F: src/functualize/app/utils.py]`
-  - `auto_discover` (both branches) and `list_project_config_files` read `project_config_layers` (D1). Vault-key ids at `:1884` and `:2049` use `project_root_for`.
+  - `auto_discover` (both branches) and `list_project_config_files` read `project_config_layers` (D1). Vault-key ids at `:1884` and `:2049` use `project_root_for`. Re-export `project_config_file_table` publicly (consumed by T5b).
   - Gate G-A: `rg -n "resolve_all_candidates\(PROJECT_CONFIG_CANDIDATES\)" src plugins` → exactly 1 (authoring: 4; this task removes `utils.py:510`, `:932`, `:988`). Gate G-ID: `rg -n "compute_project_id\(Path\(cwd\)" src/functualize/app/utils.py` → 0 (authoring: 2).
   - Reachability: commit, then revert `auto_discover` to the inline walk and watch G1–G4 go red; restore. Repeat for `list_project_config_files` with G8.
   - Acceptance: T1a all green; `tests/cli/test_auto_discover.py tests/test_auto_discover.py tests/test_auto_discover_bug_condition.py tests/test_auto_discover_preservation.py tests/cli/test_func_settings_store.py tests/cli/test_single_file_cwd_isolation.py` green.
@@ -75,7 +78,21 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
   - Gate G-ID: `rg -n "compute_project_id\(str\((cwd|project_root)\)\)" src/functualize/_app/impl.py` → 0 (authoring: 2, `:92` and `:159`).
   - Acceptance: T1b all green (including G9's plugin half, via T2's bounded walk C); `tests/discovery/test_child_project_cache.py tests/discovery/test_cached_provider_wiring.py tests/integration/test_cold_warm_history_parity.py` green.
 
-## Wave 4 — migration proof and the record
+## Wave 4 — smell 2 in `_cli` (disjoint files)
+
+- [ ] **T5b — Settings store reads through the one source** `[F: src/functualize/_cli/config.py, src/functualize/_cli/data/func_settings.py]`
+  - Delete `_cli/config.py::_functualize_table` (`:800-807`) and `func_settings.py::_functualize_table_of` (`:917-921`); both callers use the public `functualize.app.utils.project_config_file_table`.
+  - Gate G-S2b: `rg -n 'tool\.get\("functualize"\)|"tool\.functualize"\)' src --type py`. Authoring time: 4 hits (`project_dirs.py:123`, `_cli/config.py:805`, `:806`, `_cli/pep723.py:152`) plus `_types/settings.py:105`. After T2 + T5b: only `_types/settings.py` and `_cli/pep723.py:152` (a script header, a different file kind, see `plan.md`).
+  - Acceptance: `tests/cli/test_func_settings_store.py tests/cli/test_settings_store_second_app.py tests/core/test_settings_schema_types.py tests/cli/test_config_builtin.py` green; T1a G8 green.
+- [ ] **T5c — TUI file lists take names from the one source** `[F: src/functualize/_cli/tui/app.py, src/functualize/_cli/tui/panels/config_files.py]`
+  - `app.py:950-956` (new-file candidates) and `config_files.py:274-276` (fallback) take the project file names from `functualize.plugin.SettingsSources().project_file_names`. Display order, labels and cwd behaviour are unchanged; the legacy job-config name `functualize.toml` stays a literal (not a project file).
+  - Acceptance: `tests/_cli/test_settings_files_pilot.py tests/cli/test_config_files_panel.py tests/cli/test_config_file_discovery.py` green.
+- [ ] **T5d — `config path` lists the real project layers** `[F: src/functualize/_cli/builtins.py]` — **waits on D5**
+  - D5 (a): replace `:2419-2420` and the two hand-checked files with `list_project_config_files(cwd)` plus the global file, keeping the `✓ used / ✗ missing` line shape. D5 (b): only take the two names from the one source.
+  - Gate G-S2a: `rg -n '"\.functualize/\.functualize\.toml"|"\.functualize\.toml"|/ "\.functualize\.toml"' src --type py`. Authoring time: 8 hits in 6 files (`project_dirs.py:136`, `:137`, `tui/app.py:952`, `:955`, `config_files.py:274`, `builtins.py:2420`, `_types/settings.py:98`, `:99`). After T2 + T5c + T5d: exactly the 2 in `_types/settings.py`.
+  - Acceptance: G19 per D5; `tests/cli/test_config_builtin.py tests/cli/test_config_files_env_status.py` green.
+
+## Wave 5 — migration proof and the record
 
 - [ ] **T8 — Verified migration procedure and docs** `[F: tests/cli/test_root_boundary_migration.py (new), docs/guides/configuration.md, CHANGELOG.md, contributor/architecture/codemaps/modules.md]`
   - The test replays N4 with real data, first on the pre-fix build (via a git worktree of `f30285c`). Ancestor `runs.json`/`scopes.json` come from running jobs, and a vault entry comes from `func builtin vault put`, with `FUNCTUALIZE_VAULT_KEY` set. Then, on HEAD:
@@ -84,12 +101,12 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
   - Docs: a new `docs/guides/configuration.md` section, "Project boundaries and `root = true`", with the shape's declaration table, the four walks, before/after, and the migration steps exactly as the test runs them. `CHANGELOG.md` → `## [Unreleased]` → `### Fixed`: one entry covering sources, settings, job config, and state/vault identity, with both migrations. `modules.md:89`: name `project_root.py` as the owner. No tracker key in any text.
   - Acceptance: `uv run pytest tests/cli/test_root_boundary_migration.py -q` green; `rg -n "root = true" docs/guides/configuration.md` ≥ 1 (authoring: 0).
 
-## Wave 5 — checkpoint
+## Wave 6 — checkpoint
 
 - [ ] **T9 — Full verification** `[F: none — read-only]` `[verify-e2e:cli]`
   - `uv run ruff check src/ tests/ plugins/ examples/`; `uv run ruff format --check …`; `uv run mypy src/`; `uv run lint-imports`; `uv run pytest -x -q --no-header` (log to `/tmp/functualize-pytest.log`); `uv run pytest tests/perf/test_startup_budget.py -q` (R1); `uv run pytest examples/project/shared_plugins/tests -q` (R4, inheritance without a root).
   - AC6: from G1's tree, `func builtin config path` lists no `outer/` file as `✓ used`; `func builtin info` *Config Resolution* names the nested anchor; G9's `Mode:` line says standalone.
-  - AC8: T1a–T1c are red on `f30285c` and green on head.
+  - AC8: T1a–T1c are red on `f30285c` and green on head. AC12: gates G-S2a and G-S2b at their after-counts.
   - `uv run python .github/scripts/dead_code_delta.py origin/master HEAD`: expect no `NEW_DEAD` (`find_project_boundary`, `project_identity_dir`, `project_config_layers`, `is_root_config` each have production callers).
   - Acceptance: every command passes; outputs pasted into the hand-off.
 
@@ -102,8 +119,9 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
     { "id": 1, "tasks": ["T2"] },
     { "id": 2, "tasks": ["T3", "T4"] },
     { "id": 3, "tasks": ["T5", "T6", "T7"] },
-    { "id": 4, "tasks": ["T8"] },
-    { "id": 5, "tasks": ["T9"] }
+    { "id": 4, "tasks": ["T5b", "T5c", "T5d"] },
+    { "id": 5, "tasks": ["T8"] },
+    { "id": 6, "tasks": ["T9"] }
   ]
 }
 ```
