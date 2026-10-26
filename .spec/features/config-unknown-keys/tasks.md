@@ -168,7 +168,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   - *Rev6 gate:* `rg -n '\b(SettingsFileInfo|resolve_cli_config_layers)\b'
     src/functualize/_cli/data/func_settings.py` → 0 before row 8.1 removes
     their definitions.
-- [ ] **4.4 Surface vocabulary** (F16; AC30; rev5 new) — **[F]** `src/functualize/_types/enums.py`,
+- [x] **4.4 Surface vocabulary** (F16; AC30; rev5 new) — **[F]** `src/functualize/_types/enums.py`,
   `src/functualize/types/__init__.py`, `src/functualize/_types/functualize_settings.py`,
   `src/functualize/job/decorators.py`, `src/functualize/app/adapters/surface_gate.py`,
   `src/functualize/_cli/orchestrator.py` (deleted), `src/functualize/_cli/tui/job_execution.py`,
@@ -194,6 +194,14 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     `6430a88e` that scoped search returns 7 hits: two enum values and five
     explanatory mentions. The surface-resolution and public-API-surface tests
     are green. `rg -n '_cli\.orchestrator' src` → 0.
+    - *Observed at `3fa45fd8`:* the scoped search returns the same 7 hits —
+      `PANEL`/`STDOUT` values in `_types/enums.py:20-21` and five
+      docstring/comment mentions (`decorators.py:125,130,136`,
+      `surface_gate.py:8`, `job_execution.py:594`); `_VALID_SURFACE_HINTS`
+      and the setting's choices both derive from `SURFACE_PREFERENCES`.
+      `rg -n '_cli\.orchestrator' src` → 0; the module is gone.
+      `pytest tests/cli/test_surface_resolution.py tests/test_public_api_surface.py`
+      → 57 passed.
   - *Out-of-scope baseline (rev6):* the repo-wide search returns 19 hits.
     Six executable hits cannot be removed by this row: 4.3 owns
     `_cli/data/settings_schema.py:43` and `_cli/data/func_settings.py:169`;
