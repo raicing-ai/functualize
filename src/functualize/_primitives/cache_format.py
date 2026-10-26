@@ -27,7 +27,10 @@ from functualize._primitives.locator import (
     _xdg_cache_dir,
     compute_project_id,
 )
-from functualize._primitives.project_root import find_functualize_dir
+from functualize._primitives.project_root import (
+    find_functualize_dir,
+    find_project_boundary,
+)
 
 # Current cache file format version. Bump on any incompatible format change.
 # v4: FieldDescriptor gained is_stdin/stdin_flag (Stdin() marker fidelity in the
@@ -301,7 +304,9 @@ def resolve_cache_path(start: Path) -> Path:
     readers that must not boot the app (CLI routing fast path, `func cache`
     commands) agree with the writer on the file location:
     - Declared-project mode (.functualize/ found upward): that directory.
-    - Standalone mode: XDG platform cache keyed by project_id of `start`.
+    - Standalone mode: XDG platform cache keyed by project_id of the project
+      boundary (the directory declaring `root = true`), else of `start` — so
+      a root and its subfolders share one cache.
 
     Args:
         start: Project root (or cwd) to resolve from.
@@ -313,7 +318,7 @@ def resolve_cache_path(start: Path) -> Path:
     functualize_dir = find_functualize_dir(start)
     if functualize_dir is not None:
         return functualize_dir / CACHE_FILENAME
-    project_id = compute_project_id(str(start))
+    project_id = compute_project_id(str(find_project_boundary(start) or start))
     return _xdg_cache_dir() / "functualize" / project_id / CACHE_FILENAME
 
 

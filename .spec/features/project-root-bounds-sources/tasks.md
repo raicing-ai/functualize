@@ -64,10 +64,12 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
   - Acceptance: the 14 tests of `test_merge_config_layers.py` pass unmodified; `tests/cli/test_config_upward_walk.py tests/config/test_project_dirs.py` green.
   - Done 2026-10-26. G-A (`project_dirs.py` part): **1** hit, `project_dirs.py:176`, inside `project_config_layers`. Acceptance: **42 passed** (the 14 merge tests unmodified; 4 new `project_config_layers` pins in `test_project_dirs.py`).
   - Reachability: `func <job>` → `boot_standard` step 3.5 → `resolve_project_directories` → `resolve_project_config` → `project_config_layers` / `merge_config_layers`. Sabotage (committed first): both stops `if False and …` → **5 failed** (`test_root_true_stops_processing`, `test_first_layer_is_root`, `test_custom_root_key`, `test_the_layers_end_at_the_root`, and the boot-path `test_root_true_stops_the_inheritance`); restored. The remaining walk-A consumers (`auto_discover`, `list_project_config_files`) are wired in T5.
-- [ ] **T4 — Standalone identity keyed by the boundary** `[F: src/functualize/_primitives/cache_format.py, src/functualize/_primitives/fresh_format.py, src/functualize/_config/vault_paths.py]`
+- [x] **T4 — Standalone identity keyed by the boundary** `[F: src/functualize/_primitives/cache_format.py, src/functualize/_primitives/fresh_format.py, src/functualize/_config/vault_paths.py]`
   - Standalone ids at `cache_format.py:316` and `fresh_format.py:151` become `compute_project_id(str(find_project_boundary(start) or start))`; `vault_paths.project_root_for` returns `project_identity_dir(start)`.
   - Gate G-ID (this task's part): those 2 `compute_project_id(str(start))` hits → 0.
   - Acceptance: T1b G9 (state half), G10 and G11 green; `tests/test_state_root_isolation.py tests/config/test_vault_paths.py tests/cli/test_state_mode_report.py` green.
+  - Done 2026-10-26. G-ID (T4 part): `rg -c "compute_project_id\(str\(start\)\)"` over the two formats → **0** (authoring 2). Acceptance: **22 passed** (T1b 4/4 with T2+T4, plus the three listed files).
+  - Reachability: `func builtin data show` → `fresh_format.resolve_fresh_location` (standalone id); `func` CLI fast path → `cache_format.resolve_cache_path`; vault boot → `_build_dormant_vault_source` → `vault_path_for_project` → `project_root_for`. Sabotage (committed first): standalone ids back to `start` and `project_root_for` back to `start` → **3 failed** (T1b `test_g9_root_and_subfolder_share_one_standalone_identity`, and two `test_vault_paths.py` identity tests); restored. Disclosed gap: the *root-without-folder* branch of `project_root_for` has no end-to-end observer until T8 puts a vault entry from the nested root.
 
 ## Wave 3 — consumers (disjoint files)
 

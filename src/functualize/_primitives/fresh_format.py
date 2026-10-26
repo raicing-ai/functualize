@@ -41,7 +41,10 @@ from functualize._primitives.locator import (
     _xdg_cache_dir,
     compute_project_id,
 )
-from functualize._primitives.project_root import find_functualize_dir
+from functualize._primitives.project_root import (
+    find_functualize_dir,
+    find_project_boundary,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -123,7 +126,9 @@ def resolve_fresh_location(start: Path) -> tuple[Path, str, Path | None]:
     - ``project`` — a ``.functualize/`` directory was found walking upward, and
       the ledger lives inside it, versioned with the code it describes.
     - ``standalone`` — no such directory, so the ledger goes to the XDG cache
-      keyed by ``project_id`` of ``start``.
+      keyed by ``project_id`` of the project boundary (the directory declaring
+      ``root = true``), else of ``start``. A root and every subfolder of it
+      therefore share one ledger even without a ``.functualize/``.
 
     Standalone is the fallback rather than the failure: ``func`` is meant to run
     over loose scripts anywhere on the filesystem, and littering a
@@ -148,7 +153,7 @@ def resolve_fresh_location(start: Path) -> tuple[Path, str, Path | None]:
     functualize_dir = find_functualize_dir(start)
     if functualize_dir is not None:
         return functualize_dir / FRESH_FILENAME, "project", functualize_dir
-    project_id = compute_project_id(str(start))
+    project_id = compute_project_id(str(find_project_boundary(start) or start))
     path = _xdg_cache_dir() / "functualize" / project_id / FRESH_FILENAME
     return path, "standalone", None
 
