@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from functualize._app.state import AppState
 from functualize.app.config import JobSources
 from functualize.app.core import FunctualizeApp
-from functualize.job import RunContext, Stdout
+from functualize.job import Deps, RunContext, Stdout, job
 from functualize.types import JobFailedError, JobResult, RunRequest, RunStatus
 
 
@@ -211,6 +211,27 @@ class TestCapture:
         assert inner.metadata["emitted"] == ({"from": "grand"},)
         assert result.metadata["emitted"] == ()
         assert capsys.readouterr().out == ""
+
+    def test_a_captured_childs_dependency_is_not_captured(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Only `invoke` states `capture`; every other nested run inherits the
+        reset in `nested_request`, so a dependency writes as it does today."""
+
+        def prep(out: Stdout) -> None:
+            out.emit({"from": "prep"})
+
+        @job(deps=Deps("prep"))
+        def child(out: Stdout) -> None:
+            out.emit({"from": "child"})
+
+        def parent(rc: RunContext) -> JobResult:
+            return rc.invoke("child", capture=True)
+
+        result = _child_result(_run({"prep": prep, "child": child, "parent": parent}))
+
+        assert result.metadata["emitted"] == ({"from": "child"},)
+        assert capsys.readouterr().out == '{"from":"prep"}\n'
 
     def test_awaits_input_and_capture_keys_sit_side_by_side(self) -> None:
         def child(out: Stdout) -> None:
