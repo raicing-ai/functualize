@@ -30,7 +30,10 @@ from typing import TYPE_CHECKING, Any
 
 from functualize._primitives import compute_project_id
 from functualize._primitives.locator import ResourceLocator
-from functualize._primitives.project_root import find_functualize_dir
+from functualize._primitives.project_root import (
+    find_functualize_dir,
+    project_identity_dir,
+)
 from functualize._types.errors import SubstrateInstallError
 
 if TYPE_CHECKING:
@@ -67,7 +70,9 @@ def _is_dynamic(descriptor: Any) -> bool:
 def build_resource_locator(cwd: Path | None = None) -> ResourceLocator:
     """Build a ResourceLocator based on mode detection.
 
-    - Standalone mode (no .functualize/ dir): write to XDG platform cache
+    - Standalone mode (no .functualize/ dir): write to XDG platform cache,
+      keyed by ``project_identity_dir`` — the ``root = true`` directory when
+      there is one, so a root and its subfolders share one store
     - Declared-project mode (.functualize/ exists): write to .functualize/
 
     Args:
@@ -90,7 +95,7 @@ def build_resource_locator(cwd: Path | None = None) -> ResourceLocator:
         )
     else:
         # Standalone mode: read from CWD + upward; write to XDG cache
-        project_id = compute_project_id(str(cwd))
+        project_id = compute_project_id(str(project_identity_dir(cwd)))
         return (
             ResourceLocator()
             .search_explicit(str(cwd))
@@ -121,7 +126,10 @@ def build_cached_provider(
             In declared-project mode the effective project root becomes the
             parent of the discovered .functualize/ directory, so cache
             location and deps-hash keying don't depend on the invocation
-            subdirectory. In standalone mode this path itself is the root.
+            subdirectory. In standalone mode the root is
+            ``project_identity_dir`` — the ``root = true`` directory when there
+            is one, else this path itself — matching
+            ``cache_format.resolve_cache_path``.
         pre_filter: Optional ModulePreFilter to filter modules before import.
         job_filter: Optional JobFilter applied per descriptor on cache read
             (the ``require_job_*`` settings).
@@ -157,7 +165,13 @@ def build_cached_provider(
         )
         project_root = functualize_dir.parent
     else:
-        project_id = compute_project_id(str(project_root))
+        # A child project (``ancestor_search=False``) is its own identity, as
+        # before (ADR-011); anything else is keyed by its project's identity.
+        identity = (
+            project_identity_dir(project_root) if ancestor_search else project_root
+        )
+        project_root = identity
+        project_id = compute_project_id(str(identity))
         locator = (
             ResourceLocator()
             .search_platform_cache(project_id)
