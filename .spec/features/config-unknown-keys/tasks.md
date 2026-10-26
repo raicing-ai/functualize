@@ -123,11 +123,15 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 4 — CLI (M2 b, M3, M4)
 
-- [ ] **4.1 Pre-boot scan and flag parsing** — **[F]** `src/functualize/_cli/dispatch.py`,
+- [x] **4.1 Pre-boot scan and flag parsing** — **[F]** `src/functualize/_cli/dispatch.py`,
   `src/functualize/_types/flag_grammar.py`, `tests/_cli/test_dispatch_flags.py` (new)
   - Flags are read from the schema and parsed into `Mapping[Setting, value]`.
     `_extract_global_options` is decomposed. `OPTIONAL_VALUE_VALID_SET` is
     renamed `GLOBAL_OPTION_ACCEPTED_VALUES` (F13).
+  - *Gate:* declared flag parsing and early phase scan: 139 focused CLI tests
+    passed; `mypy src/` found no issues in 413 source files; `lint-imports`
+    7 kept / 0 broken. The old accepted-values spelling remains an alias
+    while public callers migrate.
 - [ ] **4.2 `_cli/config.py`** (F9) — **[F]** `src/functualize/_cli/config.py`,
   `tests/cli/test_cli_config.py`, `tests/cli/test_cli_config_vault.py`, `tests/cli/test_resolve_cli_config.py`
   - `CliConfig` becomes a projection of `ResolvedSettings`. Delete

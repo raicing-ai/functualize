@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 from functualize._cli.builtins import BUILTIN_NAMES as _BUILTIN_NAMES
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     # Annotation-only, and deliberately so: this module is on the pre-boot
     # routing fast path, where importing the public facade eagerly would undo
@@ -28,14 +28,17 @@ if TYPE_CHECKING:
         GroupTrie,
         TrieNode,
     )
+    from functualize.plugin import Setting
 
 from functualize.app.utils import (
     GLOBAL_BOOL_FLAGS,
     GLOBAL_OPTIONS_ALWAYS_VALUE,
     GLOBAL_OPTIONS_WITH_VALUE,
-    OPTIONAL_VALUE_VALID_SET,
     ExitCode,
     match_group_flag,
+)
+from functualize.app.utils import (
+    OPTIONAL_VALUE_VALID_SET as GLOBAL_OPTION_ACCEPTED_VALUES,
 )
 
 
@@ -143,6 +146,7 @@ def detect_mode(
 
     # Skip global options to find the first positional argument
     i = 0
+    setting_flags = _setting_flag_specs()
     while i < len(args):
         arg = args[i]
 
@@ -151,7 +155,7 @@ def detect_mode(
             i += 1
             continue
 
-        if arg in GLOBAL_OPTIONS_ALWAYS_VALUE:
+        if arg in GLOBAL_OPTIONS_ALWAYS_VALUE or arg in setting_flags:
             # Value-required flag — it consumes the next token as its value
             # unless a pre-boot-owned token stands there (a known global flag
             # or `--version`), which means the value is missing.
@@ -259,32 +263,28 @@ class ParsedGlobalOptions:
     prompt_gates: bool = False  # --prompt-gates: prompt for gate fields during walk
     force: bool = False  # --force: run even when up to date
     first_positional_index: int = -1  # index into argv[1:] of first positional
+    setting_overrides: Mapping[Setting, Any] = field(default_factory=dict)
 
 
-def _extract_global_options(
-    argv: list[str],
-) -> tuple[ParsedGlobalOptions, dict[str, Any]]:
-    """Parse global options from argv without consuming positional args.
+def _setting_flag_specs() -> dict[str, Setting]:
+    """Read the declared flags through the live schema bridge.
 
-    Scans argv[1:] for recognized global flags and their values. Positional
-    arguments and unrecognized flags are left untouched. The original argv
-    list is NOT mutated.
-
-    Returns:
-        (parsed_options, cli_flags_dict) where cli_flags_dict contains only
-        non-None overrides suitable for passing to resolve_cli_config().
-
-    Raises:
-        SystemExit: If --log-level has an invalid value.
+    The bridge remains until the catalog's 6.3 retirement; preboot scanning
+    must see newly registered settings without another flag table edit.
     """
-    first_positional_index: int = -1
+    from functualize._cli.data.func_settings import FUNC_SCHEMA
 
-    if len(argv) <= 1:
-        opts = ParsedGlobalOptions(first_positional_index=-1)
-        return opts, {}
+    return {
+        setting.cli_flag: setting
+        for setting in FUNC_SCHEMA.settings
+        if setting.cli_flag is not None
+    }
 
-    args = argv[1:]
-    state = _OptionAccumulator()
+
+def _scan_global_tokens(
+    args: list[str], state: _OptionAccumulator, setting_flags: dict[str, Setting]
+) -> int:
+    """Consume declared and built-in global flags up to the first positional."""
     i = 0
 
     while i < len(args):
@@ -327,17 +327,18 @@ def _extract_global_options(
         # Handle --option=value style for recognized options
         if arg.startswith("--") and "=" in arg:
             flag_part, _, value_part = arg.partition("=")
-            if flag_part in GLOBAL_OPTIONS_WITH_VALUE:
+            if flag_part in GLOBAL_OPTIONS_WITH_VALUE or flag_part in setting_flags:
                 _assign_option(flag_part, value_part, state)
+                if setting := setting_flags.get(flag_part):
+                    _assign_setting(setting, value_part, state)
                 i += 1
                 continue
             else:
                 # Unrecognized --flag=value — this is a positional/unrecognized
-                first_positional_index = i
-                break
+                return i
 
         # Handle --option VALUE style for recognized options
-        if arg in GLOBAL_OPTIONS_ALWAYS_VALUE:
+        if arg in GLOBAL_OPTIONS_ALWAYS_VALUE or arg in setting_flags:
             next_index = i + 1
             next_token = args[next_index] if next_index < len(args) else None
             if not value_required_takes_next(arg, next_token):
@@ -347,18 +348,46 @@ def _extract_global_options(
                 print(missing_value_message(arg), file=sys.stderr)
                 raise SystemExit(ExitCode.USAGE)
             _assign_option(arg, args[next_index], state)
+            if setting := setting_flags.get(arg):
+                _assign_setting(setting, args[next_index], state)
             i += 2
             continue
 
         # Unrecognized flag (starts with - but not in our sets) — stop.
         # This is NOT consumed; left for job-level parsing.
         if arg.startswith("-"):
-            first_positional_index = i
-            break
+            return i
 
         # Found a positional argument — stop scanning.
-        first_positional_index = i
-        break
+        return i
+
+    return -1
+
+
+def _extract_global_options(
+    argv: list[str],
+) -> tuple[ParsedGlobalOptions, dict[str, Any]]:
+    """Parse global options from argv without consuming positional args.
+
+    Scans argv[1:] for recognized global flags and their values. Positional
+    arguments and unrecognized flags are left untouched. The original argv
+    list is NOT mutated.
+
+    Returns:
+        (parsed_options, cli_flags_dict) where cli_flags_dict contains only
+        non-None overrides suitable for passing to resolve_cli_config().
+
+    Raises:
+        SystemExit: If --log-level has an invalid value.
+    """
+    first_positional_index: int = -1
+
+    if len(argv) <= 1:
+        opts = ParsedGlobalOptions(first_positional_index=-1)
+        return opts, {}
+
+    state = _OptionAccumulator()
+    first_positional_index = _scan_global_tokens(argv[1:], state, _setting_flag_specs())
 
     # Validate --log-level
     if state.log_level is not None:
@@ -393,6 +422,7 @@ def _extract_global_options(
         prompt_gates=state.prompt_gates,
         force=state.force,
         first_positional_index=first_positional_index,
+        setting_overrides=state.setting_overrides,
     )
 
     # Build cli_flags dict with only non-None values
@@ -450,6 +480,7 @@ class _OptionAccumulator:
         "output",
         "prompt_gates",
         "force",
+        "setting_overrides",
     )
 
     def __init__(self) -> None:
@@ -472,6 +503,26 @@ class _OptionAccumulator:
         self.output: str | None = None
         self.prompt_gates: bool = False
         self.force: bool = False
+        self.setting_overrides: dict[Setting, Any] = {}
+
+
+def _assign_setting(setting: Setting, value: str, state: _OptionAccumulator) -> None:
+    """Type a declared flag once and retain its Setting identity."""
+    if setting.type == "list":
+        state.setting_overrides.setdefault(setting, []).append(value)
+    elif setting.type == "int":
+        try:
+            state.setting_overrides[setting] = int(value)
+        except ValueError:
+            print(
+                f"Error: {setting.cli_flag} must be a valid integer, got '{value}'.",
+                file=sys.stderr,
+            )
+            raise SystemExit(ExitCode.USAGE) from None
+    elif setting.type == "bool":
+        state.setting_overrides[setting] = value.lower() in ("true", "1")
+    else:
+        state.setting_overrides[setting] = value
 
 
 def _assign_option(
@@ -525,14 +576,14 @@ def _assign_option(
             state.exclude = []
         state.exclude.append(value)
     elif flag == "--perf-report":
-        if value not in OPTIONAL_VALUE_VALID_SET["--perf-report"][0]:
+        if value not in GLOBAL_OPTION_ACCEPTED_VALUES["--perf-report"][0]:
             print(invalid_value_message(flag, value), file=sys.stderr)
             raise SystemExit(ExitCode.USAGE)
         state.perf_report = value
     elif flag == "--perf-filter":
         state.perf_filter = value
     elif flag == "--emit-format":
-        if value not in OPTIONAL_VALUE_VALID_SET["--emit-format"][0]:
+        if value not in GLOBAL_OPTION_ACCEPTED_VALUES["--emit-format"][0]:
             print(invalid_value_message(flag, value), file=sys.stderr)
             raise SystemExit(ExitCode.USAGE)
         state.output = value
@@ -545,7 +596,7 @@ def invalid_value_message(flag: str, value: str) -> str:
     ``--flag value`` — so the two ways of typing the same mistake get the
     same answer, naming the flag and its accepted values.
     """
-    valid_values = OPTIONAL_VALUE_VALID_SET[flag][0]
+    valid_values = GLOBAL_OPTION_ACCEPTED_VALUES[flag][0]
     return (
         f"Error: {flag} must be one of "
         f"{{{', '.join(sorted(valid_values))}}}, got '{value}'."
@@ -558,7 +609,7 @@ def missing_value_message(flag: str) -> str:
     A flag with a selection table names its accepted values so the repair is
     on the same line; every other value-required flag gets the plain form.
     """
-    valid_entry = OPTIONAL_VALUE_VALID_SET.get(flag)
+    valid_entry = GLOBAL_OPTION_ACCEPTED_VALUES.get(flag)
     if valid_entry is None:
         return f"Error: {flag} requires a value."
     valid_values = valid_entry[0]
@@ -589,6 +640,13 @@ def scan_early_setting_flags(argv: list[str]) -> int:
     )
 
     specs = dict(early_flag_specs())
+    specs.update(
+        {
+            flag: setting.name
+            for flag, setting in _setting_flag_specs().items()
+            if setting.phase == "early"
+        }
+    )
     if not specs:
         # The common case — nothing ships `phase="early"`, so the scan costs
         # one catalog read and never walks argv.
@@ -766,7 +824,11 @@ def is_known_global_flag(token: str) -> bool:
     option". See ``_dispatch_group``.
     """
     flag = token.split("=", 1)[0]
-    return flag in GLOBAL_OPTIONS_WITH_VALUE or flag in GLOBAL_BOOL_FLAGS
+    return (
+        flag in GLOBAL_OPTIONS_WITH_VALUE
+        or flag in GLOBAL_BOOL_FLAGS
+        or flag in _setting_flag_specs()
+    )
 
 
 def is_reserved_pre_boot_token(token: str) -> bool:
