@@ -21,6 +21,14 @@ exactly what it does today.
   recommended and accepted S1 in comment
   `01a177e2-43ac-7db8-83d1-21948b9b0a3e` (2026-10-26T11:04:39Z).
   Execute is authorised against the confirmed contracts and task graph.
+- **Amended 2026-10-26.** `EmissionRecord` is placed in
+  `_types/run_request.py`, beside the annotation that names it, not in
+  `_types/stdout.py`: `get_type_hints(RunRequest)` resolves the annotation in
+  that module's globals and the module may import nothing from `functualize`.
+  Nothing is re-exported from `_types/stdout.py`. `contracts.md` C5,
+  `plan.md` §4 and its file table, and `tasks.md` 1.2's `[F]` set follow the
+  placement. Behaviour is unchanged. Maintainer, 2026-10-26: "I choose (a)"
+  (comment `01a17859-e237-7681-94c5-543f294fee87`).
 
 Original planning base: `master` `b3e624bd`, measured 2026-10-24. Execution
 base: `11ed0e82`, remeasured 2026-10-26; the public-surface set moved ten lines

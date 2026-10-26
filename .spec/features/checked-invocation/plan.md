@@ -6,6 +6,11 @@ Original planning base `master` `b3e624bd`; execution base `11ed0e82`, branch
 `sdd/checked-invocation`.
 Execute is authorised for the confirmed task graph.
 
+> **Amended 2026-10-26** — `EmissionRecord` moved from `_types/stdout.py` to
+> `_types/run_request.py` (below, §4, the §5 file table and C5 in
+> `## Surviving smells`). The record is in `spec.md` →
+> `## Authority and status`.
+
 ## Alignment
 
 **Shape intent:** *Shape Intent — Checked Invocation and Captured Child
@@ -162,7 +167,7 @@ AFTER                                                   layer
                 │
                 ▼
  WiredInvoke.__call__                                      _engine (peer)
-   record = EmissionRecord() if capture else None ──────▶ _types/stdout.py  (NEW, dataclass)
+   record = EmissionRecord() if capture else None ──────▶ _types/run_request.py (NEW, dataclass)
    nested_request(..., capture=record) ─────────────────▶ _types/run_request.py
    engine.run(request)                                        (field `capture`; reset in
         │ DI: _make_stdout(ctx)                                nested_request ⇒ not transitive)
@@ -221,17 +226,21 @@ which both the hook (`:520`) and `parallel` (`:587`) use. The stub
 `Invoke.__call__` and `parallel` docstrings name the method. Export through
 `types/__init__.py`.
 
-**Capture.** `EmissionRecord` goes in `_types/stdout.py`. `RunRequest.capture`
-goes in `_types/run_request.py`: `compare=False`, left out of the hand-written
-`__hash__`, and reset to `None` in `nested_request`'s field dict beside
-`parent_run_id` (`:373`). `WiredStdout.__init__(…, record=None)`: when set,
-`emit` appends `value` and returns, and `write` appends `data` and returns.
-Both check the record **before** the `"none"`/`None` early returns
-(`stdout.py:90`, `:113`), so B4 holds. `_make_stdout` passes
-`request.capture`. `Invoke.__call__` (stub and wired) gains `capture: bool =
-False`. `WiredInvoke` builds the record, passes it, and merges the tuples
-through `_with_metadata`. The `awaits_input` block (`:499-515`) moves onto the
-same helper.
+**Capture.** `EmissionRecord` goes in `_types/run_request.py`, beside the
+annotation that names it: `get_type_hints(RunRequest)` resolves every
+annotation against that module's globals, and that module may import nothing
+from `functualize` (`tests/types/test_run_request.py:88-117`), so a definition
+in `_types/stdout.py` would be unreachable. `RunRequest.capture` goes in the
+same module: `compare=False`, left out of the hand-written `__hash__`, and
+reset to `None` in `nested_request`'s field dict beside `parent_run_id`
+(`:373`). `_types/stdout.py` is unchanged. `WiredStdout.__init__(…,
+record=None)`: when set, `emit` appends `value` and returns, and `write`
+appends `data` and returns. Both check the record **before** the
+`"none"`/`None` early returns (`stdout.py:90`, `:113`), so B4 holds.
+`_make_stdout` passes `request.capture`. `Invoke.__call__` (stub and wired)
+gains `capture: bool = False`. `WiredInvoke` builds the record, passes it, and
+merges the tuples through `_with_metadata`. The `awaits_input` block
+(`:499-515`) moves onto the same helper.
 
 **Docs, example, ADR.** As `spec.md` §C. The quickstart
 `examples/quickstart/step3_invoke/weather.py` gains the checked call and one
@@ -249,8 +258,7 @@ Files, from the retrieval hit sets (`rg` and serena, 2026-10-24):
 | `src/functualize/_types/errors.py` | new `JobFailedError` |
 | `src/functualize/_types/descriptors.py` | `JobResult` `:476-493` |
 | `src/functualize/types/__init__.py` | export, `:16-23`, `__all__` `:58-95` |
-| `src/functualize/_types/stdout.py` | new `EmissionRecord` |
-| `src/functualize/_types/run_request.py` | field `:191-221`, `__hash__` `:232-257`, reset `:364-374` |
+| `src/functualize/_types/run_request.py` | new `EmissionRecord`; field `:191-221`, `__hash__` `:232-257`, reset `:364-374` |
 | `src/functualize/_engine/capabilities/stdout.py` | `WiredStdout` `:31-134`, `_make_stdout` `:145-170` |
 | `src/functualize/_engine/capabilities/invoke.py` | stub `:100-162`; wired `:352-545`; hook `:520`; parallel `:587` |
 | `tests/test_public_api_surface.py` | `:243-289` (C4) |
@@ -318,6 +326,25 @@ the metadata key `writes`. These are the options recorded in `spec.md` §4.
   forbids. The maintainer confirmed deletion if dead; a production constructor
   scan found none. Removal is routed to a separate follow-up after this feature
   merges, because it changes a public export and deserves its own reviewable diff.
+- **C5 — a stdout-channel record living in the request module**
+  (`EmissionRecord`, `_types/run_request.py`). The catalogue has no exact name
+  for it, and by placement the nearest is a mild *Inappropriate Intimacy*: a
+  type that describes what a child's `Stdout` catches sits in the module named
+  after the request. *Accepted because* a source-reading guard outranks module
+  placement. `EmissionRecord` is named by `RunRequest.capture`'s annotation, and
+  `tests/types/test_run_request.py:111-117` resolves every annotation with
+  `get_type_hints(RunRequest)`, which looks them up in that module's globals;
+  `:88-109` refuses any `functualize*` import there, `TYPE_CHECKING` included
+  (the guard walks `ast.ImportFrom` and `ast.Import`). A definition in
+  `_types/stdout.py` would be unreachable from the annotation that names it.
+  The alternative — a re-export in `_types/stdout.py` — forces an `__all__` on a
+  module that deliberately has none (it exports nothing today), gives one
+  concept two import names, and adds surface with no caller. Field-level detail
+  is unchanged: `compare=False`, absent from the hand-written `__hash__`
+  (`run_request.py:232`), reset to `None` in `nested_request`'s field dict
+  beside `parent_run_id` (`:360-374`). **Accepted by the maintainer
+  2026-10-26:** “I choose (a)”; `EmissionRecord` stays in
+  `_types/run_request.py` and nothing is re-exported from `_types/stdout.py`.
 
 ## 7. Risks
 

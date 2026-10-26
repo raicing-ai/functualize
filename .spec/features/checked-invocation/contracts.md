@@ -4,6 +4,10 @@ What a user can name, call or read after this change. The behaviour is in
 `spec.md`; decisions D1–D5 were confirmed 2026-10-26, and each contract below
 is authorised. Original planning base `b3e624bd`; execution base `11ed0e82`.
 
+> **Amended 2026-10-26** — C5's `EmissionRecord` lives in
+> `_types/run_request.py` per the maintainer's *"I choose (a)"*; see
+> `spec.md` → `## Authority and status` for the amendment record.
+
 ## C1 — `JobResult.raise_for_status()` (FOSS-106)
 
 ```python
@@ -167,8 +171,9 @@ gains one field, which no door sets:
 capture: EmissionRecord | None = field(default=None, compare=False)
 ```
 
-`EmissionRecord` is a plain `@dataclass` in `_types/stdout.py`, holding
-`emitted: list[Any]` and `writes: list[str | bytes]`. It is **not** exported.
+`EmissionRecord` is a plain `@dataclass` in `_types/run_request.py`, holding
+`emitted: list[Any]` and `writes: list[str | bytes]`. It is **not** exported,
+and `_types/stdout.py` gains nothing: a re-export there would be dead surface,
+forcing an `__all__` on a module that deliberately has none.
 `request_from_envelope` never sets the field, so HTTP, Lambda and MCP requests
-cannot capture. It is recorded in `plan.md` → `## Surviving smells` for
-maintainer review.
+cannot capture. It is recorded in `plan.md` → `## Surviving smells` (C5).

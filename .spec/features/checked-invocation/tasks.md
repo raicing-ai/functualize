@@ -8,6 +8,10 @@ contracts C1–C5, plan §2–§7.
 > `01a177e2-43ac-7db8-83d1-21948b9b0a3e` at 2026-10-26T11:04:39Z.
 > S4's deletion is routed to a separate follow-up. This parseable task graph
 > satisfies the `src/functualize/**` write gate; Execute follows its wave order.
+>
+> **Amended 2026-10-26** — task 1.2's `[F]` set drops `_types/stdout.py`:
+> `EmissionRecord` lives in `_types/run_request.py`. The record is in `spec.md`
+> → `## Authority and status`.
 
 Authoring-time measurements (2026-10-24, `b3e624bd`):
 
@@ -69,8 +73,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
     (0.1) still green.
 
 - [ ] **1.2 `EmissionRecord` + `RunRequest.capture` + reset** (C5; B7) —
-  **[F]** `src/functualize/_types/stdout.py`,
-  `src/functualize/_types/run_request.py`,
+  **[F]** `src/functualize/_types/run_request.py`,
   `tests/engine/test_nested_delivery_inputs.py`
   - `EmissionRecord`: a `@dataclass` with `emitted: list[Any]` and
     `writes: list[str | bytes]`, both `field(default_factory=list)`. Not in any
