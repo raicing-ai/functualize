@@ -7,6 +7,7 @@ seam are in place.
 
 from __future__ import annotations
 
+from functualize._types.enums import SURFACE_PREFERENCES, RenderSurface
 from functualize._types.settings import AppSettingsSchema, Setting
 
 __all__ = [
@@ -39,8 +40,8 @@ DEFAULT_SURFACE = Setting(
     "tui.default_surface",
     "enum",
     "Where a job renders when run from the TUI",
-    default="panel",
-    choices=("panel", "stdout"),
+    default=RenderSurface.PANEL.value,
+    choices=SURFACE_PREFERENCES,
     surface="tui",
 )
 SHOW_SESSION_STAMP = Setting(

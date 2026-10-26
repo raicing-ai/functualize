@@ -21,6 +21,7 @@ import inspect
 from collections.abc import Callable
 from typing import Any, Literal, TypeVar, overload
 
+from functualize._types.enums import SURFACE_PREFERENCES
 from functualize._types.job_declaration import (
     Deps,
     Exec,
@@ -112,7 +113,7 @@ def job(
 
 
 #: Render-surface names a job may declare a preference for.
-_VALID_SURFACE_HINTS = ("stdout", "panel")
+_VALID_SURFACE_HINTS = tuple(reversed(SURFACE_PREFERENCES))
 
 
 def surface_hint(surface: str) -> Callable[[F], F]:

@@ -25,8 +25,46 @@ from __future__ import annotations
 from typing import Any
 
 from functualize._types.functualize_settings import DEFAULT_SURFACE
+from functualize.types import RenderSurface
 
-__all__ = ["wants_ambient", "wants_stdout_surface"]
+__all__ = [
+    "explicit_surface",
+    "resolve_surface",
+    "wants_ambient",
+    "wants_stdout_surface",
+]
+
+
+def resolve_surface(
+    *,
+    requires_tty: bool,
+    hint: str | None = None,
+    setting: str | None = None,
+    framework_default: RenderSurface = RenderSurface.PANEL,
+) -> RenderSurface:
+    """Resolve terminal ownership: hard TTY, hint, setting, then default.
+
+    The caller enforces the terminal capability floor for EXCLUSIVE jobs.
+    """
+    if requires_tty:
+        return RenderSurface.EXCLUSIVE
+    return _parse_surface(hint) or _parse_surface(setting) or framework_default
+
+
+def explicit_surface(
+    hint: str | None, setting: str | None = None
+) -> RenderSurface | None:
+    """Resolve only explicit job and setting preferences, without a default."""
+    return _parse_surface(hint) or _parse_surface(setting)
+
+
+def _parse_surface(value: str | None) -> RenderSurface | None:
+    """Parse a preference into a non-exclusive surface, or None."""
+    try:
+        surface = RenderSurface(value)
+    except ValueError:
+        return None
+    return surface if surface is not RenderSurface.EXCLUSIVE else None
 
 
 def wants_ambient(app: Any, descriptor: Any) -> bool:
@@ -73,8 +111,6 @@ def _explicit_stdout_preference(app: Any, descriptor: Any) -> bool:
     exception collapses to "no preference".
     """
     try:
-        from functualize._cli.orchestrator import RenderSurface, explicit_surface
-
         hint = getattr(descriptor, "surface_hint", None)
         setting: str | None = None
         try:

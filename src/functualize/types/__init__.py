@@ -25,6 +25,7 @@ from functualize._types.enums import (
     ConfigFileRole,
     EnvironmentSource,
     JobPhase,
+    RenderSurface,
     RunStatus,
     RunType,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "CommandPath",
     "FieldDescriptor",
     "RunStatus",
+    "RenderSurface",
     "RunType",
     "JobPhase",
     "CacheInfo",
