@@ -47,6 +47,7 @@ from functualize._cli.data.settings_schema import (
     validate_against,
 )
 from functualize._cli.data.toml_writer import write_toml_section
+from functualize.app.utils import project_config_file_table
 from functualize.plugin import AppSettingsSchema, Setting
 
 if TYPE_CHECKING:
@@ -688,7 +689,7 @@ class FuncSettingsStore:
         if any(info.path == path for info in self._layers):
             return
         prefix = self._schema.section_prefix_for(path.name)
-        values, _ = _functualize_table_of(path) if path.is_file() else ({}, prefix)
+        values, _ = project_config_file_table(path) if path.is_file() else ({}, prefix)
         self._layers.insert(
             0,
             SettingsFileInfo(
@@ -914,18 +915,11 @@ class FuncSettingsStore:
         self.refresh()
 
 
-def _functualize_table_of(path: Path) -> tuple[dict[str, Any], str]:
-    """Parse a file's functualize-scoped table (see _cli.config)."""
-    from functualize._cli.config import _functualize_table
-
-    return _functualize_table(path)
-
-
 def _refreshed_values(info: SettingsFileInfo) -> tuple[dict[str, Any], str]:
     """Re-parse one layer's file from disk."""
     if not info.path.is_file():
         return {}, info.section_prefix
-    return _functualize_table_of(info.path)
+    return project_config_file_table(info.path)
 
 
 def _is_writable(path: Path) -> bool:

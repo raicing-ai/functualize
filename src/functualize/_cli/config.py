@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from functualize.app.config import ConfigSources, DiscoveryConfig
-from functualize.app.utils import resolve_user_config_dir
+from functualize.app.utils import project_config_file_table, resolve_user_config_dir
 
 # Recognized top-level sections in the global config
 _RECOGNIZED_SECTIONS = frozenset({"discovery", "cli", "aliases", "tui", "vault"})
@@ -797,16 +797,6 @@ def _parse_toml_or_empty(path: Path) -> dict[str, Any]:
         return {}
 
 
-def _functualize_table(path: Path) -> tuple[dict[str, Any], str]:
-    """Return (functualize-scoped values, section prefix) for a config file."""
-    data = _parse_toml_or_empty(path)
-    if path.name == "pyproject.toml":
-        tool = data.get("tool")
-        section = tool.get("functualize") if isinstance(tool, dict) else None
-        return (section if isinstance(section, dict) else {}, "tool.functualize")
-    return (data, "")
-
-
 def resolve_cli_config_layers(cwd: Path | None = None) -> list[SettingsFileInfo]:
     """Return every settings file layer, in precedence order (winner first).
 
@@ -824,7 +814,7 @@ def resolve_cli_config_layers(cwd: Path | None = None) -> list[SettingsFileInfo]
 
     layers: list[SettingsFileInfo] = []
     for _directory, file_path in list_project_config_files(effective_cwd):
-        values, prefix = _functualize_table(file_path)
+        values, prefix = project_config_file_table(file_path)
         layers.append(
             SettingsFileInfo(
                 path=file_path, kind="project", section_prefix=prefix, values=values
