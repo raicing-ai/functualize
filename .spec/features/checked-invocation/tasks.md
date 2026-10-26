@@ -171,7 +171,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
   - Gate: green. The PR body carries the before/after transcripts of AC1 and
     AC8, produced by `func` on the branch (`spec.md` §1 commands).
 
-- [ ] **5.2 Docs** (§C; AC15 docs half) — **[F]** `docs/api/context.md`,
+- [x] **5.2 Docs** (§C; AC15 docs half) — **[F]** `docs/api/context.md`,
   `docs/guides/composition.md`, `docs/api/types.md`,
   `docs/guides/run-context.md`
   - At the anchors in plan §5, with no second guide.

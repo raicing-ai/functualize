@@ -177,7 +177,7 @@ So `func --perf-report json deploy` consumes `json` as the report format, while 
 Note that `auto` is both `--emit-format`'s absent-flag default *and* a typeable value, so a caller can name the default explicitly. The set's name still says "optional", which no longer describes it — every member is value-required — a transitional name whose rename is a separate follow-up.
 
 !!! warning "`--emit-format` governs `out.emit()` and nothing else"
-    A job's *return value* is never rendered at any format, and `print()` ignores the flag entirely. It was called `--output` until 2026-09-10 and renamed precisely because that name promises to control "the command's output" and does not. There is deliberately no alias: pre-alpha, the constitution says delete rather than shim.
+    A job's *return value* is never rendered at any format, and `print()` ignores the flag entirely. The same holds for a child a job invokes — its `out.emit()` renders at the run's format — except under `rc.invoke(..., capture=True)`, which records the child's emissions as data at every format, `none` included. It was called `--output` until 2026-09-10 and renamed precisely because that name promises to control "the command's output" and does not. There is deliberately no alias: pre-alpha, the constitution says delete rather than shim.
 
 !!! note "`--version` is absent from `GLOBAL_BOOL_FLAGS`"
     It is handled by a pre-boot fast path in `_cli/main.py` and is position-aware — recognised only before the first positional argument. `--help` and `-h` *are* listed, because Click needs to see them to render per-command help.

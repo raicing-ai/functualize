@@ -109,6 +109,62 @@ result = rc.invoke("slow-job", timeout=30.0, batch_size=100)
 
 **Returns:** `JobResult` with status, duration, return_value, and exception.
 
+The result is **unchecked**: a failed child is a value, and the parent carries
+on unless it looks. To stop the parent when the child did not do its work,
+check the result where you bind it:
+
+```python
+result = rc.invoke("build").raise_for_status()
+```
+
+`raise_for_status()` returns the same result when its status is `SUCCESS`,
+`SKIPPED` or `BLOCKED` — the statuses `invoke.parallel` does not raise for —
+and otherwise raises `JobFailedError` (from `functualize.types`). The error
+carries the child's `job_name`, `status` and `exception`, and the whole
+`result`, so `err.result.metadata` is there too. It is raised *from* the
+child's exception, so the child's frames stay attached. Uncaught, it fails the
+parent: the parent's status is `FAILURE`, `func` exits 1, and stderr reads
+`Error: JobFailedError: job 'build' did not succeed (Failure): RuntimeError: …`
+(`--log-level DEBUG` prints the full chained traceback instead). Every
+`JobResult` has the method, including the one `app.execute(...)` returns and
+each item of `invoke.parallel(..., raise_on_failure=False)`.
+
+**Capturing a child's output.** By default a child's `out.emit()` and
+`out.write()` reach the caller's stdout, one document per call, and only its
+return value comes back as data. `capture=True` takes them back instead:
+
+```python
+report = rc.invoke("report", capture=True)
+rows = report.metadata["emitted"]    # the values passed to out.emit()
+chunks = report.metadata["writes"]   # the payloads passed to out.write()
+```
+
+- Both keys are tuples, in call order, and always present under capture —
+  empty when the child emitted nothing or declares no `Stdout`. Without
+  capture neither key exists.
+- Values are recorded **as passed**, `None` included. Nothing is serialized,
+  re-parsed or redacted, so an object no format could render comes back as
+  itself.
+- Captured output is recorded **instead of** written: none of it reaches
+  stdout, and the parent decides what to emit. This holds at every
+  `--emit-format`, `none` included — the format governs rendering to the
+  stream, and capture bypasses the stream.
+- Capture is not transitive. A grandchild the child invokes without
+  `capture=True` writes to stdout as usual; one invoked with it is captured
+  into the child's result. Dependency runs and workflow steps the child
+  triggers are never captured.
+- A captured child that times out returns `TIMEOUT` with what it emitted up to
+  the deadline. Its thread cannot be interrupted and may keep running; anything
+  it emits after the deadline is discarded, not written.
+- Captured values are held by reference in the result for as long as the
+  parent keeps it. There is no cap.
+- `capture` is a control input, like `timeout`: it never reaches the child as
+  an argument. `invoke.parallel` does not accept it.
+
+The two compose: `rc.invoke("report", capture=True).raise_for_status()` raises
+for a failed `report`, and `err.result.metadata["emitted"]` still holds what it
+emitted before it failed.
+
 #### `rc.invoke_parallel(jobs)`
 
 Invoke multiple jobs concurrently through `Invoke.parallel()`.
@@ -157,7 +213,9 @@ cannot be interrupted and may finish after the batch call returns.
 
 `raise_on_failure` belongs to `Invoke.parallel` only. `rc.invoke_parallel(jobs)`
 uses the safe default and does not accept the option; `Invoke.__call__` invokes
-one child and returns its `JobResult`.
+one child and returns its `JobResult` unchecked. Check that one with
+`.raise_for_status()`, which raises for exactly the statuses this method's
+default raises for.
 
 ---
 
