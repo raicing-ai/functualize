@@ -58,7 +58,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
     **TRANSITIONAL(run-tags/1.1, 3.1)**. Brought live by 3.1, which calls
     `merge_layers` before boot.
 
-- [ ] **1.2 — `--run-tag` is a value-taking global flag** (C2; AC10 first half)
+- [x] **1.2 — `--run-tag` is a value-taking global flag** (C2; AC10 first half)
   - **[F]** `src/functualize/_types/flag_grammar.py`,
     `src/functualize/_cli/dispatch.py`,
     `tests/types/test_flag_grammar_roundtrip.py`,

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from functualize._cli.dispatch import _extract_global_options
+from functualize._cli.dispatch import Mode, _extract_global_options, detect_mode
 
 
 class TestExtractGlobalOptionsLogLevel:
@@ -71,6 +71,31 @@ class TestExtractGlobalOptionsImportLibs:
         """--import-libs=./vendor style works."""
         opts, _ = _extract_global_options(["func", "--import-libs=./vendor", "deploy"])
         assert opts.import_libs == ["./vendor"]
+
+
+class TestExtractRunTags:
+    def test_repeated_and_equals_flags_keep_raw_order(self) -> None:
+        opts, cli_flags = _extract_global_options(
+            ["func", "--run-tag", "url:https://x", "--run-tag=model:opus", "job"]
+        )
+        assert opts.run_tags == ["url:https://x", "model:opus"]
+        assert opts.first_positional_index == 3
+        assert "run_tags" not in cli_flags
+
+    def test_missing_value_refuses_existing_way(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(SystemExit) as error:
+            _extract_global_options(["func", "--run-tag", "--force"])
+        assert error.value.code == 2
+        assert capsys.readouterr().err == "Error: --run-tag requires a value.\n"
+
+    def test_detect_mode_skips_run_tag_value(self) -> None:
+        mode, effective = detect_mode(
+            ["func", "--run-tag", "harness:claude", "release"],
+            job_names={"release"},
+        )
+        assert (mode, effective) == (Mode.JOB, ["release"])
 
 
 class TestExtractGlobalOptionsPassthrough:
