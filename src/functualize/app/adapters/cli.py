@@ -195,6 +195,14 @@ class FallbackGroup(NormalizingGroup):
         except click.UsageError as _exc:
             if "No such command" not in str(_exc):
                 raise
+            path = _dotted_group_path(self, args[0])
+            if path is not None:
+                program = ctx.find_root().info_name or "app"
+                raise click.UsageError(
+                    f"'{args[0]}' crosses a group; navigate groups with spaces: "
+                    f"{program} {' '.join(path)}",
+                    ctx=ctx,
+                ) from None
 
             @click.command(name=args[0], hidden=True)
             @click.pass_context
@@ -206,12 +214,37 @@ class FallbackGroup(NormalizingGroup):
                     all_args = [args[0], *remaining_args]
                     app_obj = obj.get("app")
                     fallbacks = obj.get("fallbacks", [])
-                    exit_code = _run_fallback_chain(all_args, app_obj, fallbacks)
+                    exit_code = _run_fallback_chain(
+                        all_args,
+                        app_obj,
+                        fallbacks,
+                        program=ctx.find_root().info_name,
+                    )
                     raise SystemExit(exit_code)
                 _show_command_not_found(args[0], None)
                 raise SystemExit(1)
 
             return args[0], _fallback_cmd, args[1:]
+
+
+def _dotted_group_path(group: click.Group, token: str) -> tuple[str, ...] | None:
+    """Return a tree path only when one token crosses existing group edges."""
+    if "." not in token or token in group.commands:
+        return None
+    from functualize.app.utils import normalize_segment
+
+    node: click.Command = group
+    path: list[str] = []
+    for segment in token.split("."):
+        if not isinstance(node, click.Group):
+            return None
+        key = segment if segment in node.commands else normalize_segment(segment)
+        child = node.commands.get(key)
+        if child is None:
+            return None
+        path.append(key)
+        node = child
+    return tuple(path) if len(path) > 1 else None
 
 
 # ─── Panel derivation ────────────────────────────────────────────────────
@@ -349,9 +382,11 @@ def _build_job_command(
         func = None
         config_class = None
 
-    # Grouped jobs register under their bare function name inside the
+    # Grouped jobs register under their command-path leaf inside the
     # sub-group; top-level jobs register under their canonical name.
-    command_name = descriptor.func_name if descriptor.group else descriptor.name
+    command_name = (
+        descriptor.command_path.segments[-1] if descriptor.group else descriptor.name
+    )
 
     if func is not None and not getattr(func, "__functualize_lazy__", False):
         command: click.Command = create_job_click_command(
@@ -667,6 +702,8 @@ def _run_fallback_chain(
     args: list[str],
     app: object,
     fallbacks: list[FallbackCommand],
+    *,
+    program: str | None = None,
 ) -> int:
     """Try each fallback in order; first match wins.
 
@@ -680,7 +717,7 @@ def _run_fallback_chain(
     # Last resort: route through discovered jobs
     cmd = args[0] if args else ""
     if cmd and app is not None:
-        exit_code = _try_discovered_job(cmd, args[1:], app)
+        exit_code = _try_discovered_job(cmd, args[1:], app, program=program)
         if exit_code is not None:
             return exit_code
 
@@ -688,7 +725,13 @@ def _run_fallback_chain(
     return 1
 
 
-def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int | None:
+def _try_discovered_job(
+    cmd: str,
+    remaining_args: list[str],
+    app: object,
+    *,
+    program: str | None = None,
+) -> int | None:
     """Attempt to execute a discovered job by name. Returns exit code or None."""
     from functualize.app import FunctualizeApp
 
@@ -701,6 +744,14 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
         return None
 
     descriptor = matching[0]
+    invocation_program = program or app.name
+    if descriptor.group and "." in cmd:
+        print(
+            f"Error: '{cmd}' crosses a group; navigate groups with spaces: "
+            f"{invocation_program} {descriptor.command_path}",
+            file=sys.stderr,
+        )
+        return 2
 
     # run-request-entry (T6/T11): this fallback is one of the app-CLI job
     # paths — a job registered after the click tree was built. It names no
@@ -728,7 +779,12 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
         app=app,
         command_name=cmd,
     )
-    return invoke_command_capturing(command, remaining_args, "none", prog_name=cmd)
+    return invoke_command_capturing(
+        command,
+        remaining_args,
+        "none",
+        prog_name=f"{invocation_program} {descriptor.command_path}",
+    )
 
 
 def _show_command_not_found(cmd: str, app: object) -> None:
@@ -751,6 +807,7 @@ def _show_command_not_found(cmd: str, app: object) -> None:
         if isinstance(app, FunctualizeApp):
             jobs = app.get_jobs()
             job_names = [j.name for j in jobs]
+            descriptors_by_name = {j.name: j for j in jobs}
             from functualize.app.utils import suggest_similar_commands
 
             suggestions = suggest_similar_commands(cmd, job_names)
@@ -758,9 +815,17 @@ def _show_command_not_found(cmd: str, app: object) -> None:
                 # The list is capped by `suggest_similar_commands` itself, at
                 # the same number `func` shows. A second, smaller slice here
                 # is how the two doors answered one question differently.
+                # Render every row before printing the header, so a row that
+                # cannot be rendered never leaves an empty "Did you mean:".
+                rows = [
+                    f"  {app.name} {descriptors_by_name[s].command_path}"
+                    if s in descriptors_by_name
+                    else f"  {app.name} {s}"
+                    for s in suggestions
+                ]
                 print("\nDid you mean:", file=sys.stderr)
-                for s in suggestions:
-                    print(f"  {s}", file=sys.stderr)
+                for row in rows:
+                    print(row, file=sys.stderr)
     except Exception:
         pass
 

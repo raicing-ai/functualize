@@ -317,14 +317,15 @@ class SqlWorkflowWriter:
         tx.stage(
             "INSERT INTO workflow_steps (namespace_id, scope_id, step_key, iteration, "
             "status, result, reusable, result_kind, result_type, inputs, effecting, "
-            "completed_at) "
-            "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
+            "attempt, started_at, completed_at) "
+            "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
             f"WHERE {fence_sql} "
             "ON CONFLICT (namespace_id, scope_id, step_key, iteration) DO UPDATE SET "
             "status = excluded.status, result = excluded.result, "
             "reusable = excluded.reusable, result_kind = excluded.result_kind, "
             "result_type = excluded.result_type, inputs = excluded.inputs, "
-            "effecting = excluded.effecting, "
+            "effecting = excluded.effecting, attempt = excluded.attempt, "
+            "started_at = excluded.started_at, "
             f"completed_at = excluded.completed_at WHERE {fence_sql}",
             (
                 tx.namespace,
@@ -338,6 +339,8 @@ class SqlWorkflowWriter:
                 cmd.result_type,
                 dumps(dict(cmd.inputs or {})),
                 int(cmd.effecting),
+                cmd.attempt,
+                None if cmd.started_at is None else iso(cmd.started_at),
                 _completed_at(cmd),
                 *fence_args,
                 *fence_args,
@@ -346,19 +349,29 @@ class SqlWorkflowWriter:
         tx.update_scope(cmd.scope_id)
 
     def suspend(self, cmd: SuspendAtGate) -> None:
+        """Open the gate's request — or reuse the live one — and stop the scope.
+
+        A request already open, accepted or consumed for the gate is reused,
+        unless the command names the consumed one it ``supersedes``: that row
+        keeps its ``consumed`` status and a fresh open row becomes the gate's
+        newest, which is the request every reader takes for the gate.
+        """
         tx = self._tx
         tx.require_fence(cmd.scope_id, cmd.generation)
         current = tx.ensure_scope(cmd.scope_id, cmd.now)
         target = require_transition(SCOPE, current.status, cmd.scope_status)
-        if tx.open_requests_for(cmd.scope_id, cmd.gate_name, _LIVE_REQUEST) is None:
+        live_id = tx.open_requests_for(cmd.scope_id, cmd.gate_name, _LIVE_REQUEST)
+        if cmd.supersedes is not None and self._spent(cmd, cmd.supersedes) == live_id:
+            live_id = None
+        if live_id is None:
             fence, fence_args = tx.fence_sql(cmd.scope_id, cmd.generation)
             live = ", ".join(f"'{s}'" for s in _LIVE_REQUEST)
             tx.stage(
                 "INSERT INTO input_requests (id, namespace_id, scope_id, gate_key, "
-                "generation, status, schema, prompt, created_at) "
-                f"SELECT ?, ?, ?, ?, ?, 'open', ?, ?, ? WHERE {fence} AND NOT EXISTS ("
+                "generation, status, schema, prompt, created_at, run_id, position) "
+                f"SELECT ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ? WHERE {fence} AND NOT EXISTS ("
                 "SELECT 1 FROM input_requests WHERE namespace_id = ? AND scope_id = ? "
-                f"AND gate_key = ? AND status IN ({live}))",
+                f"AND gate_key = ? AND status IN ({live}) AND id IS NOT ?)",
                 (
                     cmd.request_id,
                     tx.namespace,
@@ -368,16 +381,44 @@ class SqlWorkflowWriter:
                     dumps(cmd.schema),
                     dumps(cmd.prompt),
                     iso(cmd.now),
+                    cmd.run_id,
+                    cmd.position,
                     *fence_args,
                     tx.namespace,
                     cmd.scope_id,
                     cmd.gate_name,
+                    cmd.supersedes,
                 ),
             )
             tx.update_request(
                 cmd.request_id, RequestRow(cmd.scope_id, cmd.gate_name, "open")
             )
         self._move(cmd.scope_id, cmd.generation, target, cmd.now, position=cmd.position)
+
+    def _spent(self, cmd: SuspendAtGate, supersedes: str) -> str:
+        """The consumed request ``supersedes`` names, verified.
+
+        Refuses a request this gate never recorded, and one whose answer is
+        not consumed — retiring an answer nobody used would lose it. A named
+        request that is no longer the gate's newest is the replay of a
+        supersede that already landed; the caller then reuses the live one.
+        """
+        named = self._tx.request(supersedes)
+        if named is None or (named.scope_id, named.gate_key) != (
+            cmd.scope_id,
+            cmd.gate_name,
+        ):
+            raise ValueError(
+                f"gate {cmd.gate_name!r} on scope {cmd.scope_id!r}: "
+                f"{supersedes!r} is not a request it recorded"
+            )
+        if named.status != "consumed":
+            raise ValueError(
+                f"request {supersedes!r} on gate {cmd.gate_name!r} is "
+                f"{named.status!r}, not consumed — only a spent answer can be "
+                "superseded"
+            )
+        return supersedes
 
     def resume(self, cmd: ResumeWorkflow) -> None:
         """Reclaim the scope at a new generation and set it running, in this unit.

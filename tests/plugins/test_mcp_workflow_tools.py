@@ -154,6 +154,29 @@ async def test_sqlite_operator_tools_use_the_selected_runtime_store() -> None:
     )
 
 
+async def test_sqlite_resume_with_gate_input_returns_a_clean_error() -> None:
+    app = _gated_app(sqlite=True)
+    app.execute(
+        RunRequest(
+            job_name="trip_planner",
+            surface="app.execute",
+            workflow_scope_id="sql-run",
+        )
+    )
+
+    result = await WorkflowToolProvider(app)._resume_workflow(
+        "sql-run", {"budget": "high"}
+    )
+
+    assert result == {
+        "error": "workflow_not_found",
+        "message": "No workflow scope 'sql-run'.",
+    }
+    assert (
+        app.workflow_runtime_store().workflows.workflow("sql-run").status == "blocked"
+    )
+
+
 class TestGetWorkflowState:
     async def test_unknown_scope_is_an_error(self) -> None:
         result = await _provider(_gated_app())._get_workflow_state("nope")

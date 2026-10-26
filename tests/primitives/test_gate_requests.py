@@ -190,6 +190,75 @@ class TestSupersedeKeepsTheCandidates:
         consume_request(store, "wf-1", "approve", "req_2", NOW)
 
 
+class TestSupersedesRetiresASpentAnswer:
+    """A new question on a gate whose last answer the walk already used.
+
+    Without ``supersedes`` a consumed request is reused (above); naming it
+    archives it and opens a fresh request, so the spent answer cannot answer
+    the new question.
+    """
+
+    def _consumed(self, store: ScopeStore) -> None:
+        _open(store)
+        append_candidate(store, "wf-1", "approve", _accepted("cand_1"))
+        consume_request(store, "wf-1", "approve", "req_1", NOW)
+
+    def _ask_again(self, store: ScopeStore, request_id: str, supersedes: str) -> str:
+        return open_request(
+            store,
+            "wf-1",
+            "approve",
+            request_id=request_id,
+            schema={"type": "object"},
+            prompt="Approve again?",
+            model="Approval",
+            tools=(),
+            now=NOW.replace(hour=13),
+            supersedes=supersedes,
+        )
+
+    def test_a_consumed_request_is_archived_and_a_fresh_one_opens(
+        self, store: ScopeStore
+    ) -> None:
+        self._consumed(store)
+        assert self._ask_again(store, "req_2", supersedes="req_1") == "req_2"
+        record = store.get_gate("wf-1", "approve") or {}
+        assert record["request_id"] == "req_2"
+        assert record["status"] == "open"
+        assert record["payload"] is None and record["candidates"] == []
+        assert record["prompt"] == "Approve again?"
+        assert "draft" not in record, "a spent answer seeds nothing"
+        [archived] = record["superseded"]
+        assert archived["request_id"] == "req_1"
+        assert archived["status"] == "consumed"
+        assert archived["superseded_reason"] == "superseded"
+        assert [c.candidate_id for c in candidates_for(archived)] == ["cand_1"]
+
+    def test_replaying_the_supersede_reuses_the_fresh_request(
+        self, store: ScopeStore
+    ) -> None:
+        self._consumed(store)
+        self._ask_again(store, "req_2", supersedes="req_1")
+        before = store.get_gate("wf-1", "approve")
+        assert self._ask_again(store, "req_3", supersedes="req_1") == "req_2"
+        assert store.get_gate("wf-1", "approve") == before
+
+    def test_an_unconsumed_answer_is_not_superseded(self, store: ScopeStore) -> None:
+        _open(store)
+        append_candidate(store, "wf-1", "approve", _accepted("cand_1"))
+        before = store.get_gate("wf-1", "approve")
+        with pytest.raises(ValueError, match="not consumed"):
+            self._ask_again(store, "req_2", supersedes="req_1")
+        assert store.get_gate("wf-1", "approve") == before
+
+    def test_a_request_the_gate_never_held_is_refused(self, store: ScopeStore) -> None:
+        self._consumed(store)
+        before = store.get_gate("wf-1", "approve")
+        with pytest.raises(ValueError, match="req_nonesuch"):
+            self._ask_again(store, "req_2", supersedes="req_nonesuch")
+        assert store.get_gate("wf-1", "approve") == before
+
+
 class TestEvidenceRidesTheCandidate:
     def test_a_candidate_with_evidence_stores_and_reads_it_back(
         self, store: ScopeStore

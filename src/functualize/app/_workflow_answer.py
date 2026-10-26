@@ -29,19 +29,31 @@ the case where a second actor must review before the gate opens.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from functualize._engine.recording import InputRecorder
+from functualize._engine.recording.input_recorder import (
+    VALIDATION_POLICY,
+    schema_identity,
+)
 from functualize._gate._evaluation import evaluate_submission
 from functualize._primitives import gate_requests
 from functualize._types.errors import GateNotFoundError, InputRequestNotOpenError
 from functualize._types.gate_resolution import EvaluationOutcome
+from functualize._types.persistence import EPILOGUE_STEP_KEY
 from functualize.app._workflow_resume import (
     _canonical_gate,
+    _is_runtime_store,
+    _port_resolution,
     _resolution_view,
     _resolve_gate_model,
     pending_gates,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from functualize._types.gate_resolution import EvidenceRef
 
 __all__ = ["answer_gate", "gate_draft", "resolve_gate"]
 
@@ -73,6 +85,10 @@ def resolve_gate(
     addressed one workflow and one gate, and a miss is a typo, not a survey
     result.
     """
+    if _is_runtime_store(store):
+        return _resolve_gate_port(
+            store, scope_id, gate, include_answered=include_answered
+        )
     if scope_id is not None and gate is not None:
         # Both named: there is nothing to disambiguate, so this path must not
         # consult the pending set at all. It did, and `--reopen` could not
@@ -145,7 +161,14 @@ def gate_draft(app: Any, store: Any, scope_id: str, gate: str) -> dict[str, Any]
     ``missing`` and ``invalid`` come from the same ``ValidationError`` the commit
     path already produces, so the two can never describe the same draft
     differently.
+
+    On a ``RuntimeStore`` the draft *is* the newest non-accepted candidate's
+    payload (spec §3.5): a relational store records drafts only as
+    submissions, so what has been supplied so far is read back off the
+    candidate that supplied it.
     """
+    if _is_runtime_store(store):
+        return _gate_draft_port(app, store, scope_id, gate)
     scope = store.get_scope(scope_id)
     if scope is None:
         return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
@@ -186,8 +209,17 @@ def answer_gate(
     commit: bool = True,
     reopen: bool = False,
     source: str = "api",
+    evidence: Sequence[EvidenceRef] = (),
 ) -> dict[str, Any]:
     """Record input for a gate. Never runs anything.
+
+    One answer path, two record seams: over a scope document the candidate
+    and its decision land on the gate record (``gate_requests``); over a
+    ``RuntimeStore`` they land in one transaction unit as ``inputs.append``
+    and ``inputs.decide``, with the outbox intent beside them on a store
+    whose profile declares one — and the dispatcher drains **after** the unit
+    commits, never before, so an effect is never dispatched against an
+    uncommitted decision.
 
     Args:
         values: Fields to merge into (or replace) the draft.
@@ -195,12 +227,31 @@ def answer_gate(
         unset: Field names to remove from the draft.
         clear: Discard the draft entirely, before applying ``values``.
         commit: Attempt to validate-and-answer at the end. On by default, so
-            the one-shot flow is unchanged.
+            the one-shot flow is unchanged. Refused on a ``RuntimeStore``,
+            which records drafts only as submissions.
         reopen: Move an answered payload back into the draft first.
+        source: The surface answering (``cli``, ``mcp``, ``api``).
+        evidence: References plus digests to attach to the submission —
+            pointers to bytes stored elsewhere, never the bytes.
 
     Returns a flat result dict carrying the draft report, plus ``status``:
     ``"answered"`` when the gate was committed, ``"drafted"`` when it was not.
     """
+    if _is_runtime_store(store):
+        return _answer_gate_port(
+            app,
+            store,
+            scope_id,
+            gate,
+            values,
+            mode=mode,
+            unset=unset,
+            clear=clear,
+            commit=commit,
+            reopen=reopen,
+            source=source,
+            evidence=evidence,
+        )
     scope = store.get_scope(scope_id)
     if scope is None:
         return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
@@ -250,17 +301,43 @@ def answer_gate(
     resolution = _resolution_view(
         store, scope_id, gate, store.get_gate(scope_id, gate) or {}
     )
+    schema_id, schema_version = schema_identity(model)
+    now = datetime.now(UTC)
+    earlier = gate_requests.candidates_for(store.get_gate(scope_id, gate) or {})
+    supersedes = _newest_unaccepted(earlier)
     candidate = InputRecorder().submitted(
         resolution["request_id"],
         source,
         evaluation,
         validated if validated is not None else dict(draft),
-        ordinal=len(resolution["candidates"]),
-        now=datetime.now(UTC),
+        ordinal=len(earlier),
+        now=now,
+        schema_id=schema_id,
+        schema_version=schema_version,
+        supersedes=supersedes,
+        evidence=evidence,
+    )
+    decision = (
+        InputRecorder().decided(
+            resolution["request_id"],
+            [*earlier, candidate],
+            candidate.candidate_id,
+            policy_id=VALIDATION_POLICY,
+            policy_version=schema_version,
+            now=now,
+        )
+        if evaluation.outcome is EvaluationOutcome.ACCEPTED
+        else None
     )
     try:
-        # TRANSITIONAL(FUN-21): this candidate still lands in the scope document.
-        gate_requests.append_candidate(store, scope_id, gate, candidate)
+        # One unit: the candidate, and — when it accepts — its decision. A
+        # decision recorded beside the accepted candidate is what a later
+        # reader reconciles the acceptance against (spec §3.2), so the two
+        # never commit separately.
+        with store.batch():
+            gate_requests.append_candidate(store, scope_id, gate, candidate)
+            if decision is not None:
+                gate_requests.record_decision(store, scope_id, gate, decision)
     except InputRequestNotOpenError:
         return _error(
             "gate_already_answered",
@@ -289,6 +366,360 @@ def answer_gate(
 # ----------------------------------------------------------------------
 # Internals
 # ----------------------------------------------------------------------
+
+
+def _newest_unaccepted(candidates: Any) -> str | None:
+    """The newest candidate an accepted one does not supersede, by id.
+
+    A surface submission supersedes the newest non-accepted candidate
+    (spec §3.1) — that is the draft it corrects, on both seams.
+    """
+    for candidate in reversed(list(candidates)):
+        if candidate.evaluation.outcome is not EvaluationOutcome.ACCEPTED:
+            return str(candidate.candidate_id)
+    return None
+
+
+def _port_canonical_gate(
+    app: Any, store: Any, scope_id: str, view: Any, gate: str
+) -> str:
+    """Resolve a gate reference against what the port knows of the scope.
+
+    The request the walk recorded names the gate canonically; the declared
+    workflow is the wider set a typo can be checked against. Between them a
+    reference spelled the way Python spells it reaches the gate the walk
+    recorded under its declared name, exactly as ``_canonical_gate`` does over
+    a scope document's ``gates`` mapping.
+    """
+    known: list[str] = []
+    request = store.inputs.for_gate(scope_id, gate)
+    if request is not None:
+        known.append(request.gate_name)
+    try:
+        entry = app.execution_engine.materialize_job(view.workflow)
+        declaration = entry.function.__functualize_workflow__
+        known.extend(
+            node.name
+            for node in declaration.nodes
+            if getattr(node, "awaits", None) is not None and node.name not in known
+        )
+    except Exception:
+        # The declaration is the wider set, not the authority: a scope whose
+        # workflow module went missing still addresses its recorded gate.
+        pass
+    return _canonical_gate(sorted(known), gate, scope_id=scope_id)
+
+
+def _resolve_gate_port(
+    store: Any, scope_id: str | None, gate: str | None, *, include_answered: bool
+) -> tuple[str, str] | dict[str, Any]:
+    """`resolve_gate` over the port: joint addressing against open requests.
+
+    The survey lists what ``inputs.awaiting`` answers — the open requests —
+    and the both-named path resolves against the recorded request's own name,
+    whatever the request's status, because that is how ``--reopen`` addresses
+    the answered gate it exists to correct. ``resolve_gate``'s public
+    signature carries no app, so the declared-graph typo check the
+    app-carrying seams get is not available here; the recorded name is the
+    authority for what the walk blocked on.
+    """
+    if scope_id is not None:
+        view = store.workflows.workflow(scope_id)
+        if view is None:
+            return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
+        if gate is not None:
+            request = store.inputs.for_gate(scope_id, gate)
+            known = [request.gate_name] if request is not None else []
+            return scope_id, _canonical_gate(known, gate, scope_id=scope_id)
+
+    candidates: list[tuple[str, str]] = []
+    for request in store.inputs.awaiting():
+        if scope_id is not None and request.scope_id != scope_id:
+            continue
+        if gate is None:
+            candidates.append((request.scope_id, request.gate_name))
+            continue
+        try:
+            resolved = _canonical_gate(
+                [request.gate_name], gate, scope_id=request.scope_id
+            )
+        except GateNotFoundError:
+            continue
+        candidates.append((request.scope_id, resolved))
+
+    if not candidates:
+        where = f" in '{scope_id}'" if scope_id else ""
+        what = f"'{gate}'" if gate else "any gate"
+        return {
+            "error": "gate_not_found",
+            "message": (
+                f"No workflow is awaiting {what}{where}. "
+                "Run `func builtin workflow list` to see what is."
+            ),
+        }
+    if len(candidates) > 1:
+        return {
+            "error": "ambiguous_gate",
+            "message": (
+                f"{len(candidates)} gates match. Name both the workflow id and "
+                "the gate."
+            ),
+            "candidates": [
+                {"workflow_id": sid, "gate": name} for sid, name in candidates
+            ],
+        }
+    return candidates[0]
+
+
+def _gate_draft_port(app: Any, store: Any, scope_id: str, gate: str) -> dict[str, Any]:
+    """`gate_draft` over the port: the draft is the last submission's payload."""
+    view = store.workflows.workflow(scope_id)
+    if view is None:
+        return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
+    gate = _port_canonical_gate(app, store, scope_id, view, gate)
+    request = store.inputs.for_gate(scope_id, gate)
+    if request is None:
+        return _error(
+            "gate_not_found",
+            f"Workflow '{scope_id}' has no gate '{gate}' awaiting an answer.",
+        )
+    model, error = _resolve_gate_model(app, {"workflow": view.workflow}, gate)
+    if error is not None:
+        return error
+
+    target = _newest_unaccepted_target(store.inputs.candidates_for(request.request_id))
+    draft = (
+        dict(target.payload)
+        if target is not None and isinstance(target.payload, dict)
+        else {}
+    )
+    missing, invalid = _validation_report(model, draft)
+    schema = request.schema
+    if schema is None and hasattr(model, "model_json_schema"):
+        schema = model.model_json_schema()
+
+    return {
+        "workflow_id": scope_id,
+        "gate": gate,
+        "model": model.__name__,
+        "input_schema": schema or {},
+        "draft": draft,
+        "satisfied": sorted(k for k in draft if k not in {e["field"] for e in invalid}),
+        "missing": missing,
+        "invalid": invalid,
+        "complete": not missing and not invalid,
+        "answered": request.status in ("accepted", "consumed"),
+        "resolution": _port_resolution(store, request),
+    }
+
+
+def _newest_unaccepted_target(candidates: Any) -> Any:
+    """The newest non-accepted candidate — the submission a draft continues."""
+    for candidate in reversed(list(candidates)):
+        if candidate.evaluation.outcome is not EvaluationOutcome.ACCEPTED:
+            return candidate
+    return None
+
+
+def _answer_gate_port(
+    app: Any,
+    store: Any,
+    scope_id: str,
+    gate: str,
+    values: dict[str, Any] | None,
+    *,
+    mode: str,
+    unset: list[str] | None,
+    clear: bool,
+    commit: bool,
+    reopen: bool,
+    source: str,
+    evidence: Sequence[EvidenceRef],
+) -> dict[str, Any]:
+    """`answer_gate` over the port seam: one unit, then the drain.
+
+    The submission, its decision and — on a store whose profile declares
+    ``durable_outbox`` — its effect intent commit as **one** transaction unit
+    (the same shape ``FrontierWalk.record_candidates`` gives a ladder
+    acceptance), and the dispatcher drains only after that unit has committed.
+    Every submission is recorded, valid or not (D-5): an invalid attempt is a
+    candidate, and it is the draft the next submission continues.
+    """
+    view = store.workflows.workflow(scope_id)
+    if view is None:
+        return _error("workflow_not_found", f"No workflow scope '{scope_id}'.")
+    gate = _port_canonical_gate(app, store, scope_id, view, gate)
+    model, error = _resolve_gate_model(app, {"workflow": view.workflow}, gate)
+    if error is not None:
+        return error
+
+    request = store.inputs.for_gate(scope_id, gate)
+    if not commit:
+        # Refused before anything is written: a relational store records
+        # drafts only as submissions, so there is no draft slot to hold an
+        # uncommitted answer in (spec §3.5).
+        return _error(
+            "draft_requires_commit",
+            f"A relational store records drafts only as submissions; answer "
+            f"gate '{gate}' in one commit, or use --show to read the draft "
+            "its last submission holds.",
+        )
+    if reopen:
+        refusal = _reopen_port(app, store, view, scope_id, gate, request)
+        if refusal is not None:
+            return refusal
+        request = store.inputs.for_gate(scope_id, gate)
+    if request is None:
+        return _error(
+            "gate_not_found",
+            f"Workflow '{scope_id}' has no gate '{gate}' awaiting an answer.",
+        )
+    if request.status != "open":
+        return _error(
+            "gate_already_answered",
+            f"Gate '{gate}' is already answered. Use --reopen to correct it.",
+        )
+
+    # The draft is the newest non-accepted candidate's payload — the same
+    # candidate this submission supersedes.
+    recorded = list(store.inputs.candidates_for(request.request_id))
+    target = _newest_unaccepted_target(recorded)
+    draft = (
+        {}
+        if clear
+        else (
+            dict(target.payload)
+            if target is not None and isinstance(target.payload, dict)
+            else {}
+        )
+    )
+    if mode == "replace":
+        draft = dict(values or {})
+    elif values:
+        draft.update(values)
+    for key in unset or []:
+        draft.pop(key, None)
+
+    evaluation, validated = evaluate_submission(model, draft)
+    schema_id, schema_version = schema_identity(model)
+    now = datetime.now(UTC)
+    candidate = InputRecorder().submitted(
+        request.request_id,
+        source,
+        evaluation,
+        validated if validated is not None else dict(draft),
+        ordinal=len(recorded),
+        now=now,
+        schema_id=schema_id,
+        schema_version=schema_version,
+        supersedes=target.candidate_id if target is not None else None,
+        evidence=evidence,
+    )
+    if evaluation.outcome is EvaluationOutcome.INVALID:
+        with store.transaction() as tx:
+            tx.inputs.append(candidate)
+        report = _gate_draft_port(app, store, scope_id, gate)
+        report["invalid"] = [
+            {"field": field, "message": message} for field, message in evaluation.errors
+        ]
+        report["complete"] = False
+        report["status"] = "drafted"
+        report["message"] = _drafted_message(gate, report)
+        return report
+
+    decision = InputRecorder().decided(
+        request.request_id,
+        [*recorded, candidate],
+        candidate.candidate_id,
+        policy_id=VALIDATION_POLICY,
+        policy_version=schema_version,
+        now=now,
+    )
+    effect = InputRecorder().accepted_effect(
+        decision, scope_id=scope_id, gate_name=gate
+    )
+    durable = bool(store.profile.durable_outbox)
+    with store.transaction() as tx:
+        tx.inputs.append(candidate)
+        tx.inputs.decide(decision)
+        if durable:
+            tx.effects.append(
+                effect.namespace,
+                effect.topic,
+                effect.payload,
+                effect.idempotency_key,
+            )
+    # After the commit — never before it. An effect dispatched against an
+    # uncommitted decision is the failure mode the recovery proof (wave 4)
+    # exists to show absent; on a store without an outbox this drains
+    # nothing and the answer is none the less durable for it.
+    from functualize._app.effects import drain
+
+    drain(app, store)
+
+    answered = _gate_draft_port(app, store, scope_id, gate)
+    answered["status"] = "answered"
+    answered["message"] = (
+        f"Gate '{gate}' answered. Continue with: "
+        f"func builtin workflow resume {scope_id}"
+    )
+    return answered
+
+
+def _reopen_port(
+    app: Any, store: Any, view: Any, scope_id: str, gate: str, request: Any
+) -> dict[str, Any] | None:
+    """Supersede the accepted answer over the port, or refuse. None on success.
+
+    The same refusal `_reopen` gives a scope document, from the port's own
+    facts: the walk having passed the gate is read off the recorded steps and
+    position, not off a document.
+    """
+    if request is None or request.status not in ("accepted", "consumed"):
+        return _error("gate_not_answered", f"Gate '{gate}' has no answer to reopen.")
+    if _walk_has_passed_port(app, store, view, gate):
+        return {
+            "error": "gate_already_consumed",
+            "message": (
+                f"The walk has already passed gate '{gate}' (position: "
+                f"{view.position}). Its answer produced the results "
+                "recorded after it, so it cannot be corrected in place. Start a "
+                "fresh run."
+            ),
+            "gate": gate,
+            "position": view.position,
+        }
+    command = InputRecorder().superseding(
+        scope_id=scope_id,
+        gate_name=gate,
+        request_id=request.request_id,
+        now=datetime.now(UTC),
+    )
+    with store.transaction() as tx:
+        tx.inputs.supersede(command)
+    return None
+
+
+def _walk_has_passed_port(app: Any, store: Any, view: Any, gate: str) -> bool:
+    """`_walk_has_passed` over the port's steps and position.
+
+    The epilogue is a step keyed ``__epilogue__`` here rather than a scope
+    field; everything else — the downstream set from the declared graph, the
+    position, any step record after the gate — is the same evidence read from
+    the store the walk actually wrote.
+    """
+    steps = list(store.workflows.steps(view.scope_id))
+    if any(step.step_key.split("::", 1)[0] == EPILOGUE_STEP_KEY for step in steps):
+        return True
+
+    downstream = _downstream_of(app, {"workflow": view.workflow}, gate)
+    if not downstream:
+        return False
+
+    position = view.position
+    if isinstance(position, str) and position in downstream:
+        return True
+    return any(step.step_key.split("::", 1)[0] in downstream for step in steps)
 
 
 def _reopen(
@@ -332,7 +763,7 @@ def _reopen(
         scope_id=scope_id,
         generation=lease.generation if lease else 0,
         gate_name=gate,
-        position=gate,
+        position=_recovered_step(app, scope, gate) or gate,
         now=now,
         schema=record.get("input_schema"),
         prompt=record.get("prompt"),
@@ -376,14 +807,32 @@ def _walk_has_passed(app: Any, scope: dict[str, Any], gate: str) -> bool:
     if not downstream:
         return False
 
+    recovered = _recovered_step(app, scope, gate)
     position = scope.get("position")
-    if isinstance(position, str) and position in downstream:
+    if isinstance(position, str) and position in downstream and position != recovered:
         return True
 
     steps = scope.get("steps") or {}
     return any(
-        key.split("::", 1)[0] in downstream for key in steps if isinstance(key, str)
+        key.split("::", 1)[0] in downstream
+        and not (
+            key.split("::", 1)[0] == recovered
+            and isinstance(record, dict)
+            and record.get("status") in ("attempting", "in_doubt")
+        )
+        for key, record in steps.items()
+        if isinstance(key, str)
     )
+
+
+def _recovered_step(app: Any, scope: dict[str, Any], gate: str) -> str | None:
+    """Resolve a derived recovery gate through its live declaration."""
+    workflow = scope.get("workflow")
+    descriptor = app.get_job(workflow) if isinstance(workflow, str) else None
+    declaration = getattr(
+        getattr(descriptor, "function", None), "__functualize_workflow__", None
+    )
+    return declaration.recovered_step(gate) if declaration is not None else None
 
 
 def _downstream_of(app: Any, scope: dict[str, Any], gate: str) -> set[str]:
@@ -405,7 +854,8 @@ def _downstream_of(app: Any, scope: dict[str, Any], gate: str) -> set[str]:
         )
 
     seen: set[str] = set()
-    frontier = list(adjacency.get(gate, []))
+    recovered = _recovered_step(app, scope, gate)
+    frontier = [recovered] if recovered is not None else list(adjacency.get(gate, []))
     while frontier:
         node = frontier.pop()
         if node in seen or node == gate:

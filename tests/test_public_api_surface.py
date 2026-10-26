@@ -236,6 +236,16 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "RuntimeStoreConfig",
         "PreparedStore",
         "RuntimeStoreFactory",
+        # The outbox and gate interaction evidence (ADR-034).
+        "SupersedeRequest",
+        "EffectIntent",
+        "EffectView",
+        "EffectQueue",
+        "OutboxStore",
+        "EffectReceiver",
+        "EvidenceRef",
+        "GateDecision",
+        "GATE_ACCEPTED_TOPIC",
         "IllegalTransition",
         "RuntimeStoreCapabilityError",
         "RuntimeStoreSelectionError",
@@ -261,6 +271,9 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "MissingValueError",
         "RUN_SURFACES",
         "JobResult",
+        # The shell spelling of a job, beside its dotted identity: one value
+        # every human surface renders, so none re-derives it from the name.
+        "CommandPath",
         "JobDescriptor",
         "FieldDescriptor",
         "RunStatus",

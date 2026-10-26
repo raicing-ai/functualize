@@ -8,7 +8,9 @@ The design package's list (`08-delivery-and-tests.md`), one check each:
 4. corrupt-data policy;
 5. event sequence monotonicity;
 6. close / reopen durability;
-7. walk command and reader round trips.
+7. walk command and reader round trips;
+8. an effecting step's attempt, and a gate asked again after its answer was
+   used.
 
 Every check talks to the store through the public port only — commands in,
 questions out — so a third-party backend runs exactly what the shipped ones
@@ -32,6 +34,7 @@ from functualize.plugin import (
     ClaimWorkflow,
     CompleteStep,
     Conflict,
+    ConsumeInput,
     EvaluationOutcome,
     FinishAttempt,
     GateCandidate,
@@ -419,6 +422,34 @@ def record_branch_and_branch(make_store: MakeStore, root: Path) -> None:
     store.close()
 
 
+def record_branch_and_branches(make_store: MakeStore, root: Path) -> None:
+    """A bulk reader keeps decision order before and after reopening."""
+    store = make_store(root)
+    gen = _claim(store, "branches")
+    with store.transaction() as tx:
+        tx.workflows.record_branch(
+            RecordBranch("branches", gen, "fork", "left", _at(1))
+        )
+        tx.workflows.record_branch(
+            RecordBranch("branches", gen, "join", "right", _at(2))
+        )
+
+    def assert_branches(current: RuntimeStore) -> None:
+        reader = getattr(current.workflows, "branches", None)
+        assert callable(reader), "WorkflowReader.branches is missing"
+        assert list(reader("branches").items()) == [
+            ("fork", "left"),
+            ("join", "right"),
+        ]
+        assert reader("missing") == {}
+
+    assert_branches(store)
+    store.close()
+    reopened = make_store(root)
+    assert_branches(reopened)
+    reopened.close()
+
+
 def move_and_workflow(make_store: MakeStore, root: Path) -> None:
     store = make_store(root)
     gen = _claim(store, "move")
@@ -466,6 +497,109 @@ def candidate_answer_has_no_legacy_deposit(make_store: MakeStore, root: Path) ->
     store.close()
 
 
+# -- 8: attempts and a gate asked again --------------------------------------
+
+
+def attempt_round_trips_through_record_and_complete(
+    make_store: MakeStore, root: Path
+) -> None:
+    store = make_store(root)
+    gen = _claim(store, "attempt")
+    with store.transaction() as tx:
+        tx.workflows.record_step(
+            RecordStep(
+                "attempt",
+                gen,
+                "charge",
+                _at(1),
+                None,
+                status="attempting",
+                effecting=True,
+                attempt=1,
+                started_at=_at(1),
+            )
+        )
+    attempting = store.workflows.step("attempt", "charge")
+    assert attempting is not None, "the attempt record was not read back"
+    assert (attempting.status, attempting.attempt, attempting.started_at) == (
+        "attempting",
+        1,
+        _at(1),
+    ), attempting
+    assert attempting.effecting and attempting.completed_at is None, attempting
+    with store.transaction() as tx:
+        tx.workflows.complete_step(
+            CompleteStep(
+                "attempt",
+                gen,
+                "charge",
+                _at(2),
+                effecting=True,
+                attempt=1,
+                started_at=_at(1),
+            )
+        )
+    done = store.workflows.step("attempt", "charge")
+    assert done is not None
+    assert (done.status, done.attempt, done.started_at, done.completed_at) == (
+        "success",
+        1,
+        _at(1),
+        _at(2),
+    ), done
+    store.close()
+
+
+def pure_step_has_no_attempt(make_store: MakeStore, root: Path) -> None:
+    store = make_store(root)
+    gen = _claim(store, "pure")
+    with store.transaction() as tx:
+        tx.workflows.record_step(RecordStep("pure", gen, "read", _at(1), _at(1)))
+        tx.workflows.complete_step(CompleteStep("pure", gen, "sum", _at(2)))
+    for key in ("read", "sum"):
+        step = store.workflows.step("pure", key)
+        assert step is not None, f"{key!r} was not read back"
+        assert (step.attempt, step.started_at, step.effecting) == (0, None, False), step
+    store.close()
+
+
+def supersedes_reopens_a_gate_after_a_consumed_request(
+    make_store: MakeStore, root: Path
+) -> None:
+    store = make_store(root)
+    gen = _claim(store, "again")
+    with store.transaction() as tx:
+        tx.workflows.suspend(
+            SuspendAtGate("again", gen, "approve", "first", "approve", _at(1))
+        )
+    with store.transaction() as tx:
+        tx.inputs.append(
+            GateCandidate(
+                "answer",
+                "first",
+                0,
+                "conformance",
+                _at(2),
+                CandidateEvaluation(EvaluationOutcome.ACCEPTED),
+                {"approved": True},
+            )
+        )
+    with store.transaction() as tx:
+        tx.inputs.consume(ConsumeInput("again", gen, "first", _at(3)))
+        tx.workflows.move(MoveScope("again", gen, "running", "approve", _at(3)))
+    with store.transaction() as tx:
+        tx.workflows.suspend(
+            SuspendAtGate(
+                "again", gen, "approve", "second", "approve", _at(4), supersedes="first"
+            )
+        )
+    request = store.inputs.for_gate("again", "approve")
+    assert request is not None, "the gate has no request after the supersede"
+    assert (request.request_id, request.status) == ("second", "open"), request
+    assert store.inputs.candidates_for("second") == ()
+    store.close()
+
+
 #: The checks, in the design package's order — ``(name, check)``.
 BASELINE: tuple[tuple[str, Callable[[MakeStore, Path], None]], ...] = (
     ("run tree and recent history", run_tree_and_recent_history),
@@ -482,9 +616,19 @@ BASELINE: tuple[tuple[str, Callable[[MakeStore, Path], None]], ...] = (
     ("release and workflow", release_and_workflow),
     ("record step and steps", record_step_and_steps),
     ("record branch and branch", record_branch_and_branch),
+    ("record branch and branches", record_branch_and_branches),
     ("move and workflow", move_and_workflow),
     ("state and state", state_and_state),
     ("candidate answer has no legacy deposit", candidate_answer_has_no_legacy_deposit),
+    (
+        "attempt round trips through record and complete",
+        attempt_round_trips_through_record_and_complete,
+    ),
+    ("pure step has no attempt", pure_step_has_no_attempt),
+    (
+        "supersedes reopens a gate after a consumed request",
+        supersedes_reopens_a_gate_after_a_consumed_request,
+    ),
 )
 
 

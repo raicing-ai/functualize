@@ -72,15 +72,10 @@ def make_lazy_command(
         # an app blocked forever; `pitfalls.md` §23 is this exact pair of
         # constructors diverging.
         #
-        # `--wf-status`/`--wf-show` exit from inside here without running the
-        # job, which is why it sits above the engine call.
-        scope_id = None
-        if getattr(descriptor, "workflow", None) is not None:
-            from functualize.app.adapters.workflow_flags import apply_workflow_flags
-
-            scope_id = apply_workflow_flags(app, descriptor.name, kwargs)
-        if scope_id is None:
-            scope_id = getattr(app, "_workflow_scope_id", None)
+        # It runs inside `prelude_refusal` below, with the engine call:
+        # `--wf-status`/`--wf-show` read the scope before anything runs, so an
+        # unreadable store has to be refused there (exit 2), not escape as a
+        # traceback.
 
         # Capability floor (surface-architecture.md §5): a job that owns the
         # terminal (declares `tty: TTY`) cannot run where there is none. Refuse
@@ -163,6 +158,20 @@ def make_lazy_command(
         from functualize.app.adapters._request_builder import build_request
 
         with live_ctx, prelude_refusal():
+            # The `--wf-*` family resolves here, inside the refusal mapping: it
+            # can end the invocation (`--wf-status`/`--wf-show`) and it reads the
+            # selected store, so a scope whose route cannot be read must map to
+            # the usage exit both doors agree on.
+            scope_id = None
+            if getattr(descriptor, "workflow", None) is not None:
+                from functualize.app.adapters.workflow_flags import (
+                    apply_workflow_flags,
+                )
+
+                scope_id = apply_workflow_flags(app, descriptor.name, kwargs)
+            if scope_id is None:
+                scope_id = getattr(app, "_workflow_scope_id", None)
+
             request = build_request(
                 job_name=descriptor.name,
                 kwargs=kwargs,

@@ -138,6 +138,8 @@ class BufferedTransaction:
         self._runs: dict[str, str] = {}
         self._attempts: dict[tuple[str, int], str] = {}
         self._held_generations: dict[str, int] = {}
+        #: Requests this unit recorded a decision for — one per request.
+        self.decided: set[str] = set()
         #: Scopes this unit staged a write for, or claimed — where an event
         #: that names no run belongs, when there is exactly one.
         self.scopes_written: set[str] = set()

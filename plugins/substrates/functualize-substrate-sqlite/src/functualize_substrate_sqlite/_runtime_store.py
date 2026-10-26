@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from functualize.plugin import StoreProfile
+from functualize_substrate_sqlite._outbox_sql import SqlEffectQueue
 from functualize_substrate_sqlite._readers import (
     SqlInputReader,
     SqlRunReader,
@@ -26,6 +27,7 @@ from functualize_substrate_sqlite._transaction import (
 
 if TYPE_CHECKING:
     from functualize.plugin import (
+        EffectQueue,
         InputReader,
         RunReader,
         RuntimeTransaction,
@@ -64,7 +66,11 @@ SQLITE_PROFILE = StoreProfile(
 
 
 class SqliteRuntimeStore:
-    """The selected runtime store when ``runtime_store.url`` names ``sqlite``."""
+    """The selected runtime store when ``runtime_store.url`` names ``sqlite``.
+
+    An ``OutboxStore``: it declares ``durable_outbox=True``, so it also hands
+    out :attr:`effects`, the queue a dispatcher claims committed intents from.
+    """
 
     profile: StoreProfile = SQLITE_PROFILE
 
@@ -84,6 +90,7 @@ class SqliteRuntimeStore:
         self.runs: RunReader = SqlRunReader(driver, namespace)
         self.workflows: WorkflowReader = SqlWorkflowReader(driver, namespace)
         self.inputs: InputReader = SqlInputReader(driver, namespace)
+        self.effects: EffectQueue = SqlEffectQueue(driver, namespace)
 
     @property
     def driver(self) -> SqlDriver:

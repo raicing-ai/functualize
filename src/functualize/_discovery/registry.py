@@ -465,7 +465,11 @@ class JobRegistry:
                     kept_python_name=attr_name,
                     dropped_module=existing.module_path or "<unknown>",
                     dropped_python_name=existing_raw or registry_key,
-                    dropped_path=getattr(module, "__file__", "") or "<unknown>",
+                    dropped_path=inspect.getsourcefile(existing.function)
+                    or existing.module_path,
+                    kept_path=str(source_file_path)
+                    if source_file_path
+                    else "<unknown>",
                 )
                 # This scanner is no longer on either boot path: the eager
                 # branch registers the provider's descriptors, and the two

@@ -33,6 +33,7 @@ from functualize.app.utils import (
     gate_draft,
     resolve_gate,
 )
+from functualize.job import RunStatus
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
@@ -409,6 +410,59 @@ class TestTheDraftReport:
 
 
 class TestDepositedCandidates:
+    @pytest.mark.parametrize(
+        ("identity", "group", "path"),
+        [
+            ("flow.grouped-release", "flow", "flow grouped-release"),
+            ("tools.release", None, "tools.release"),
+        ],
+    )
+    def test_deposit_hint_uses_the_descriptor_path(
+        self,
+        app: FunctualizeApp,
+        project: Path,
+        identity: str,
+        group: str | None,
+        path: str,
+    ) -> None:
+        """A grouped job resumes by spaces; a literal-dot leaf keeps its dot."""
+
+        @workflow(
+            steps=[
+                Step("build"),
+                Gate(name="approve", awaits=Approval),
+                Step("deploy"),
+            ],
+            edges=[
+                Edge(source="build", target="approve"),
+                Edge(source="approve", target="deploy"),
+                Edge(source="deploy", target=END),
+            ],
+        )
+        def grouped_release() -> str:
+            return "shipped"
+
+        app.register_dynamic_job(identity, grouped_release, group=group)
+        result = app.execute(
+            RunRequest(
+                job_name=identity,
+                surface="app.execute",
+                workflow_scope_id="grouped-1",
+            )
+        )
+        assert result.status is RunStatus.BLOCKED
+        store = ScopeStore.for_project(project)
+        answer = deposit_gate_input(
+            app,
+            store,
+            "grouped-1",
+            "approve",
+            {"approved": True, "reason": "ok"},
+        )
+        assert answer["message"].endswith(
+            f"<your entry point> {path} --wf-resume grouped-1"
+        )
+
     def test_invalid_input_is_recorded_without_answering(
         self, app: FunctualizeApp, store: ScopeStore
     ) -> None:
@@ -435,6 +489,7 @@ class TestDepositedCandidates:
 
         record = store.get_gate("rel-1", "approve")
         assert result["status"] == "input_accepted"
+        assert "<your entry point> release --wf-resume rel-1" in result["message"]
         assert result["request_id"] == record["request_id"]
         assert [c["ordinal"] for c in record["candidates"]] == [0, 1]
         assert [c["outcome"] for c in record["candidates"]] == [

@@ -89,6 +89,7 @@ def resolve_name_collisions(
                     dropped_module=previous.module_path or previous.source_file,
                     dropped_python_name=previous.python_name or previous.name,
                     dropped_path=previous.source_file,
+                    kept_path=descriptor.source_file,
                 )
             )
         kept[descriptor.name] = descriptor

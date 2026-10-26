@@ -922,7 +922,7 @@ def _exit_quietly_on_broken_pipe() -> None:
     raise SystemExit(0)
 
 
-def _report_blocked(result: Any) -> None:
+def _report_blocked(result: Any, command_path: str | None = None) -> None:
     """Explain a gate pause on stderr, tiered by log level (S5 T39).
 
     A blocked run is the one outcome a *script* most needs to act on, so the
@@ -963,14 +963,7 @@ def _report_blocked(result: Any) -> None:
             f"(run `{program} builtin workflow list` to find the scope)",
             file=sys.stderr,
         )
-    if scope and job_name:
-        # The *command path*, not the job name. A job is addressed as
-        # `audit.audit-run` and invoked as `audit audit-run` — its group is a
-        # command group, and neither surface has a top-level command with a dot
-        # in it. Printing the dotted form gives the reader
-        # `No such command 'audit.audit-run'`, which is worse than printing
-        # nothing: it looks like the resume feature is the thing that is broken.
-        command_path = job_name.replace(".", " ")
+    if scope and job_name and command_path:
         # One line that finishes the run, rather than one that starts another
         # attempt at it. `--scope-id` re-invoked the job and blocked again
         # unless the gate had been answered separately; `--wf-resume
@@ -1078,51 +1071,60 @@ def build_job_engine_callback(
         #
         # Both dispatch paths call the same `apply_workflow_flags`
         # (`pitfalls.md` §23). `lazy_command.py` is the other one.
-        scope_id = workflow_scope_id
-        if _declares_workflow(function):
-            from functualize.app.adapters.workflow_flags import apply_workflow_flags
+        #
+        # It sits **inside** `prelude_refusal`, not above it: `--wf-show` reads
+        # the scope's recorded route before any job runs, so an unreadable store
+        # is refused there. Outside this mapping that refusal escaped as a
+        # traceback and exit 1, while the same condition on `builtin workflow
+        # show` exited 2 (contracts §6.2).
+        with prelude_refusal():
+            scope_id = workflow_scope_id
+            if _declares_workflow(function):
+                from functualize.app.adapters.workflow_flags import (
+                    apply_workflow_flags,
+                )
 
-            scope_id = apply_workflow_flags(app_ref, name, kwargs) or scope_id
-        if scope_id is None:
-            # The programmatic seam, kept deliberately: an embedded host sets
-            # this attribute directly. It has no CLI spelling.
-            scope_id = getattr(app_ref, "_workflow_scope_id", None)
+                scope_id = apply_workflow_flags(app_ref, name, kwargs) or scope_id
+            if scope_id is None:
+                # The programmatic seam, kept deliberately: an embedded host
+                # sets this attribute directly. It has no CLI spelling.
+                scope_id = getattr(app_ref, "_workflow_scope_id", None)
 
-        # The config-model split and stdin resolution used to happen here.
-        # Both moved into `engine.run()` at run-request/T11: they are the same
-        # work whichever door was used, and this one only ever did it for
-        # click. `stdin_markers` still shapes the click *parameters* above —
-        # that half genuinely is this module's business.
+            # The config-model split and stdin resolution used to happen here.
+            # Both moved into `engine.run()` at run-request/T11: they are the
+            # same work whichever door was used, and this one only ever did it
+            # for click. `stdin_markers` still shapes the click *parameters*
+            # above — that half genuinely is this module's business.
 
-        from functualize.app.adapters.surface_gate import wants_stdout_surface
+            from functualize.app.adapters.surface_gate import wants_stdout_surface
 
-        _descriptor = (
-            app_ref.get_job(name)
-            if app_ref is not None and getattr(app_ref, "get_job", None)
-            else None
-        )
-        live_ctx: Any = contextlib.nullcontext()
-        if wants_stdout_surface(app_ref, _descriptor, uses_live=uses_live):
-            with contextlib.suppress(ImportError):
-                from functualize.ui import stdout_live_session
-
-                live_ctx = stdout_live_session(app_ref, _descriptor)
-
-        with live_ctx, prelude_refusal():
-            from functualize.app.adapters._request_builder import build_request
-
-            request = build_request(
-                job_name=name,
-                kwargs=kwargs,
-                group_option_values=group_option_values,
-                workflow_scope_id=scope_id,
-                surface=surface,
-                prompt_gates=prompt_gates,
-                output_format=output_format,
-                force=force,
-                app=app_ref,
+            _descriptor = (
+                app_ref.get_job(name)
+                if app_ref is not None and getattr(app_ref, "get_job", None)
+                else None
             )
-            result = app_ref.execution_engine.run(request)  # type: ignore[union-attr]
+            live_ctx: Any = contextlib.nullcontext()
+            if wants_stdout_surface(app_ref, _descriptor, uses_live=uses_live):
+                with contextlib.suppress(ImportError):
+                    from functualize.ui import stdout_live_session
+
+                    live_ctx = stdout_live_session(app_ref, _descriptor)
+
+            with live_ctx:
+                from functualize.app.adapters._request_builder import build_request
+
+                request = build_request(
+                    job_name=name,
+                    kwargs=kwargs,
+                    group_option_values=group_option_values,
+                    workflow_scope_id=scope_id,
+                    surface=surface,
+                    prompt_gates=prompt_gates,
+                    output_format=output_format,
+                    force=force,
+                    app=app_ref,
+                )
+                result = app_ref.execution_engine.run(request)  # type: ignore[union-attr]
         return deliver_job_result(result, name, app_ref)
 
     return wrapper
@@ -1296,7 +1298,19 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
     # silently saying nothing.
     if (line := report_line(result.status)) is not None:
         if result.status is RunStatus.BLOCKED:
-            _report_blocked(result)
+            # The resume line names the *command path*, never the dotted
+            # identity: `audit.audit-run` answers `No such command`, and a
+            # literal-dot leaf (`tools.lint`) must not be split into two words.
+            # The descriptor owns that spelling, so ask it rather than the name.
+            descriptor = (
+                app_ref.get_job(name)
+                if app_ref is not None and callable(getattr(app_ref, "get_job", None))
+                else None
+            )
+            _report_blocked(
+                result,
+                str(descriptor.command_path) if descriptor is not None else None,
+            )
         elif result.status is RunStatus.REFUSED:
             _report_refused(result)
         else:
