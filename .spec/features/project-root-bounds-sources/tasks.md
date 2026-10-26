@@ -59,9 +59,11 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
 
 ## Wave 2 — walk A, identity fallbacks (disjoint files)
 
-- [ ] **T3 — Bounded walk A** `[F: src/functualize/_config/merge.py, src/functualize/_config/project_dirs.py, tests/config/test_merge_config_layers.py, tests/config/test_project_dirs.py]`
+- [x] **T3 — Bounded walk A** `[F: src/functualize/_config/merge.py, src/functualize/_config/project_dirs.py, tests/config/test_merge_config_layers.py, tests/config/test_project_dirs.py]`
   - `merge_config_layers` uses `is_root_config` (default key); `project_config_layers(cwd, *, search_ancestors=True)`; `resolve_project_config` uses it. Gate G-A (`project_dirs.py` part): `rg -n "resolve_all_candidates\(PROJECT_CONFIG_CANDIDATES\)" src/functualize/_config/project_dirs.py` → 1 hit, inside `project_config_layers`.
   - Acceptance: the 14 tests of `test_merge_config_layers.py` pass unmodified; `tests/cli/test_config_upward_walk.py tests/config/test_project_dirs.py` green.
+  - Done 2026-10-26. G-A (`project_dirs.py` part): **1** hit, `project_dirs.py:176`, inside `project_config_layers`. Acceptance: **42 passed** (the 14 merge tests unmodified; 4 new `project_config_layers` pins in `test_project_dirs.py`).
+  - Reachability: `func <job>` → `boot_standard` step 3.5 → `resolve_project_directories` → `resolve_project_config` → `project_config_layers` / `merge_config_layers`. Sabotage (committed first): both stops `if False and …` → **5 failed** (`test_root_true_stops_processing`, `test_first_layer_is_root`, `test_custom_root_key`, `test_the_layers_end_at_the_root`, and the boot-path `test_root_true_stops_the_inheritance`); restored. The remaining walk-A consumers (`auto_discover`, `list_project_config_files`) are wired in T5.
 - [ ] **T4 — Standalone identity keyed by the boundary** `[F: src/functualize/_primitives/cache_format.py, src/functualize/_primitives/fresh_format.py, src/functualize/_config/vault_paths.py]`
   - Standalone ids at `cache_format.py:316` and `fresh_format.py:151` become `compute_project_id(str(find_project_boundary(start) or start))`; `vault_paths.project_root_for` returns `project_identity_dir(start)`.
   - Gate G-ID (this task's part): those 2 `compute_project_id(str(start))` hits → 0.
