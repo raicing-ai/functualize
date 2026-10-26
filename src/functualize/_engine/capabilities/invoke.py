@@ -8,6 +8,7 @@ at runtime. This module provides the type contract.
 from __future__ import annotations
 
 import concurrent.futures
+import dataclasses
 import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -16,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from functualize._engine.capabilities.spec import CapabilitySpec
 from functualize._types.outcome import Family, is_failure
-from functualize._types.run_request import nested_request
+from functualize._types.run_request import EmissionRecord, nested_request
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -80,6 +81,17 @@ def _child_failed(status: RunStatus) -> bool:
     return is_failure(status, family=Family.TOOL)
 
 
+def _with_metadata(result: JobResult, extra: Mapping[str, Any]) -> JobResult:
+    """``result`` with ``extra`` merged over its metadata; nothing else changes.
+
+    ``JobResult`` is frozen and gains no field for what ``invoke`` adds, so the
+    additions ride the metadata — the ``_awaits_input`` keys and capture's
+    ``emitted``/``writes``. One rebuild, so a field added to the result cannot
+    be dropped by one of two hand-written copies.
+    """
+    return dataclasses.replace(result, metadata={**result.metadata, **extra})
+
+
 @dataclass(frozen=True)
 class InvokeResult:
     """Lightweight result type for job invocations via the Invoke capability.
@@ -120,6 +132,7 @@ class Invoke:
         gate_strategy: GateStrategy | str | list[GateStrategy | str] | None = None,
         timeout: float | None = None,
         group_option_values: Mapping[str, Any] | None = None,
+        capture: bool = False,
         **kwargs: Any,
     ) -> JobResult:
         """Invoke a job by name or function reference.
@@ -134,6 +147,21 @@ class Invoke:
             force_gate: Dispatch gate strategy even when fully resolved.
             gate_strategy: Override configured gate strategy for this invocation.
             timeout: Optional timeout in seconds.
+            capture: Record what the child passes to its ``Stdout`` instead of
+                writing it. The result's ``metadata["emitted"]`` holds the
+                ``out.emit()`` values and ``metadata["writes"]`` the
+                ``out.write()`` payloads, each a tuple in call order and as
+                passed, ``None`` included; both are present (and empty when
+                the child emitted nothing) under capture, and absent without
+                it. Nothing the child records reaches stdout, at any
+                ``--emit-format``, ``none`` included. Not transitive: a
+                grandchild the child invokes without ``capture=True`` writes
+                as usual. A child that times out returns ``TIMEOUT`` with what
+                it recorded up to the deadline; anything later is discarded,
+                and not written. The values are held by reference for as long
+                as the result is kept, and are **not redacted** — secret
+                masking applies to what is written, and nothing is. A control
+                input: it never reaches the child as an argument.
             **kwargs: Arguments to pass to the job.
 
         A single invocation returns its JobResult whatever the child's
@@ -374,6 +402,7 @@ class WiredInvoke(Invoke):
         gate_strategy: GateStrategy | str | list[GateStrategy | str] | None = None,
         timeout: float | None = None,
         group_option_values: Mapping[str, Any] | None = None,
+        capture: bool = False,
         **kwargs: Any,
     ) -> JobResult:
         """Invoke a job by name or function reference (engine-wired).
@@ -384,7 +413,6 @@ class WiredInvoke(Invoke):
         the model's JSON schema is attached to the result metadata.
         """
         from functualize._events.hooks import HookEvent
-        from functualize._types.descriptors import JobResult as _JobResult
         from functualize._types.errors import RecursionLimitError
 
         # --- Resolve job_or_fn ---
@@ -478,6 +506,22 @@ class WiredInvoke(Invoke):
 
         # --- Execute child job via engine ---
         parent_scope = self._workflow_scope
+        # The child's `Stdout` appends here instead of writing (`_make_stdout`);
+        # `nested_request` resets it a hop further down, so it is not transitive.
+        record = EmissionRecord() if capture else None
+        # What the parent receives. Filled at the deadline when the child times
+        # out — the thread cannot be stopped, and what it records afterwards
+        # is discarded — otherwise once the child has returned.
+        captured: dict[str, Any] | None = None
+
+        def _captured(source: EmissionRecord) -> dict[str, Any]:
+            nonlocal captured
+            if captured is None:
+                captured = {
+                    "emitted": tuple(source.emitted),
+                    "writes": tuple(source.writes),
+                }
+            return captured
 
         def _do_execute() -> JobResult:
             # Surface `invoke` (contracts §5). parent_scope is carried
@@ -501,30 +545,36 @@ class WiredInvoke(Invoke):
                     parent_run_id=self._parent_run_id,
                     cwd=self._cwd,
                     job_directory=registered_job.job_directory,
+                    capture=record,
                 )
             )
 
         if timeout is not None:
-            result = self._execute_with_timeout(_do_execute, job_name, timeout)
+            result = self._execute_with_timeout(
+                _do_execute,
+                job_name,
+                timeout,
+                on_timeout=(
+                    (lambda: _captured(record)) if record is not None else None
+                ),
+            )
         else:
             result = _do_execute()
 
         # --- Handle awaits_input metadata ---
         if awaits_input is not None:
-            schema_info = awaits_input.model_json_schema()
-            result = _JobResult(
-                status=result.status,
-                return_value=result.return_value,
-                duration_ms=result.duration_ms,
-                metadata={
-                    **result.metadata,
+            result = _with_metadata(
+                result,
+                {
                     "_awaits_input": True,
-                    "_input_schema": schema_info,
+                    "_input_schema": awaits_input.model_json_schema(),
                     "_available_tools": available_tools,
                 },
-                exception=result.exception,
-                job_name=result.job_name,
             )
+
+        # --- Handle capture metadata ---
+        if record is not None:
+            result = _with_metadata(result, _captured(record))
 
         # --- Fire INVOKE_FAILURE hook ---
         # The hook, `parallel` and `raise_for_status()` ask one question, so a
@@ -700,8 +750,15 @@ class WiredInvoke(Invoke):
         execute_fn: Callable[[], Any],
         job_name: str,
         timeout: float,
+        *,
+        on_timeout: Callable[[], object] | None = None,
     ) -> JobResult:
-        """Execute a job with a timeout."""
+        """Execute a job with a timeout.
+
+        ``on_timeout`` runs at the deadline, before this waits for the worker
+        thread to finish — it is the only moment that is still "up to the
+        timeout".
+        """
         from functualize._types.descriptors import JobResult as _JobResult
         from functualize._types.enums import RunStatus
 
@@ -712,6 +769,8 @@ class WiredInvoke(Invoke):
                 return cast("JobResult", future.result(timeout=timeout))
             except concurrent.futures.TimeoutError:
                 elapsed_ms = (time.perf_counter() - start_time) * 1000
+                if on_timeout is not None:
+                    on_timeout()
                 return _JobResult(
                     status=RunStatus.TIMEOUT,
                     duration_ms=elapsed_ms,

@@ -192,9 +192,6 @@ def _make_stdout(ctx: Any) -> WiredStdout:
     #
     # `capture` is set only on a request `invoke(..., capture=True)` built for
     # its child; it is the parent's record, so the child records into it.
-    # TRANSITIONAL(checked-invocation/4.1): no production site sets `capture`
-    # yet, so every run takes the writing path; `invoke`'s `capture=` keyword is
-    # what reaches this, and its engine-level test is what sabotages it.
     return WiredStdout(
         output_format=(request.output_format if request is not None else "auto")
         or "auto",

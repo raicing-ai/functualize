@@ -133,7 +133,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
 
 ## Wave 4 — capture (`invoke.py`, part 2)
 
-- [ ] **4.1 `capture=` keyword and the one rebuild helper** (C3; B1–B10;
+- [x] **4.1 `capture=` keyword and the one rebuild helper** (C3; B1–B10;
   AC8–AC14 at engine level) — **[F]**
   `src/functualize/_engine/capabilities/invoke.py`,
   `tests/engine/test_invoke_capture.py`
