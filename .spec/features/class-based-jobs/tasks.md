@@ -48,7 +48,7 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
   - **Acceptance:** new suite green; `uv run lint-imports` still 7 kept.
   - **Reachability:** `TRANSITIONAL(no production caller until 3.1 constructs a proxy)`. No sabotage: there is no path to observe yet.
 
-- [ ] **1.2 — `@job` accepts a class** (C1, D4; spec F1)
+- [x] **1.2 — `@job` accepts a class** (C1, D4; spec F1)
   - **[F]** `src/functualize/job/decorators.py`, `tests/job/test_job_class_decorator.py` (new)
   - **Inputs:** `plan.md` §4.1; `job/decorators.py:46-111` (`apply` at 104-106,
     bare-vs-parameterized branch at 109-111).
