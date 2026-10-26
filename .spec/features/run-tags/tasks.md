@@ -96,7 +96,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
   - **Reachability:** `_run_cli` → `_extract_global_options` →
     `_assign_option`; measured live after 3.1 (`func --run-tag a:b release`).
 
-- [ ] **1.3 — `[run] tags` is a recognized global-config section** (C3;
+- [x] **1.3 — `[run] tags` is a recognized global-config section** (C3;
       AC11, AC12)
   - **[F]** `src/functualize/_cli/config.py`, `tests/cli/test_cli_config.py`
   - **Inputs:** `plan.md` §4.4; `_cli/config.py:26` (`_RECOGNIZED_SECTIONS`),
