@@ -20,7 +20,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
 
 ## Wave 0
 
-- [ ] **1.1 — One tag grammar, one merge, one refusal type** (C1, C7;
+- [x] **1.1 — One tag grammar, one merge, one refusal type** (C1, C7;
       AC3–AC7, AC9 first half)
   - **[F]** `src/functualize/_cli/run_tags.py` (new),
     `tests/cli/test_run_tags.py` (new)
