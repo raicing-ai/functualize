@@ -88,7 +88,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
 
 ## Wave 2 — public export; the recording `Stdout`
 
-- [ ] **2.1 Export and pin** (C4; AC7) — **[F]**
+- [x] **2.1 Export and pin** (C4; AC7) — **[F]**
   `src/functualize/types/__init__.py`, `tests/test_public_api_surface.py`
   - Gate: the C4 diff exactly. `uv run pytest tests/test_public_api_surface.py`
     green. `git diff --stat` on the test file → 1 file, +3 lines. No other

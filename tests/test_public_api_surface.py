@@ -259,6 +259,9 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "report_line",
         "status_from_wire",
         "wire_value",
+        # Raised by JobResult.raise_for_status(), the checked lane for a
+        # child a parent invoked; public beside the result it carries.
+        "JobFailedError",
         # The request a run is made from (run-request-entry F1 T1).
         "RunRequest",
         "RunSurface",
