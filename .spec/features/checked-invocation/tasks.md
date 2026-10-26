@@ -180,7 +180,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
     files, and `rg -n "raise_for_status" docs/api/context.md` → ≥2 (the
     `rc.invoke` reference and the `invoke.parallel` pointer at `:158-160`).
 
-- [ ] **5.3 Example caller** (AC15 example half; `adding-public-api.md` §8) —
+- [x] **5.3 Example caller** (AC15 example half; `adding-public-api.md` §8) —
   **[F]** `examples/quickstart/step3_invoke/weather.py`,
   `examples/quickstart/step3_invoke/test_step3.py`
   - `morning_report` checks `forecast` with `.raise_for_status()`, takes one
