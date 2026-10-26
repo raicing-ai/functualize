@@ -12,18 +12,26 @@ Two intents (see ``_types/stdout.py``):
 Explicit emission is **never surface-suppressed**: unlike the removed implicit
 return-value emission, ``emit``/``write`` always write, on a TTY too. The job
 author asked for it.
+
+The one exception is a child its parent invoked with ``capture=True``: its
+request carries an ``EmissionRecord``, and every ``emit``/``write`` is appended
+there instead of written — under any format, ``none`` included, and before
+serialization or redaction, so the parent receives the values themselves.
 """
 
 from __future__ import annotations
 
 import sys
 from collections.abc import Iterable
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
 
 from functualize._engine.capabilities.spec import CapabilitySpec
 from functualize._primitives.stdout_emitter import StdoutEmitter
 from functualize._types.redaction import redact
 from functualize._types.stdout import Stdout
+
+if TYPE_CHECKING:
+    from functualize._types.run_request import EmissionRecord
 
 __all__ = ["WiredStdout"]
 
@@ -44,6 +52,9 @@ class WiredStdout:
             via :meth:`add_secrets`.
         stream: Destination stream. Defaults to ``sys.stdout``, bound lazily so
             a redirect installed after construction is still honored.
+        record: Where to record instead of writing. When set, ``emit`` and
+            ``write`` append their argument unchanged and nothing reaches the
+            stream. ``None`` (the default) writes as described above.
     """
 
     def __init__(
@@ -52,6 +63,7 @@ class WiredStdout:
         *,
         secrets: frozenset[str] | set[str] | None = None,
         stream: IO[Any] | None = None,
+        record: EmissionRecord | None = None,
     ) -> None:
         self._format = output_format or "auto"
         # Mutable, and read fresh on every write. DI wiring runs before config
@@ -62,6 +74,7 @@ class WiredStdout:
         # redacted the wrong string.
         self._secrets: set[str] = set(secrets or ())
         self._stream = stream
+        self._record = record
 
     def add_secrets(self, values: Iterable[str]) -> None:
         """Add values to mask in anything written from now on.
@@ -86,7 +99,14 @@ class WiredStdout:
 
         A ``"none"`` format suppresses output entirely; ``None`` emits nothing
         regardless of format.
+
+        With a record, ``value`` is appended unchanged and nothing is written.
         """
+        # Ahead of the suppression below: a captured child's `none` format and
+        # its `None` values are still the parent's to see.
+        if self._record is not None:
+            self._record.emitted.append(value)
+            return
         if self._format == "none" or value is None:
             return
         if not self._secrets:
@@ -109,7 +129,12 @@ class WiredStdout:
         ``bytes`` go to the underlying binary buffer when the stream has one
         (a real stdout); text-only streams (a ``StringIO`` in tests) receive a
         UTF-8 decode instead.
+
+        With a record, ``data`` is appended unchanged and nothing is written.
         """
+        if self._record is not None:
+            self._record.writes.append(data)
+            return
         if self._format == "none":
             return
         if isinstance(data, (bytes, bytearray)):
@@ -164,9 +189,16 @@ def _make_stdout(ctx: Any) -> WiredStdout:
     # No `secrets=` here: config is resolved *after* DI wiring, so the values
     # are not known yet. `_arm_output_redaction` fills them in from the model
     # the job actually receives.
+    #
+    # `capture` is set only on a request `invoke(..., capture=True)` built for
+    # its child; it is the parent's record, so the child records into it.
+    # TRANSITIONAL(checked-invocation/4.1): no production site sets `capture`
+    # yet, so every run takes the writing path; `invoke`'s `capture=` keyword is
+    # what reaches this, and its engine-level test is what sabotages it.
     return WiredStdout(
         output_format=(request.output_format if request is not None else "auto")
         or "auto",
+        record=(request.capture if request is not None else None),
     )
 
 

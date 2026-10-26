@@ -94,7 +94,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
     green. `git diff --stat` on the test file → 1 file, +3 lines. No other
     `EXPECTED_EXPORTS` set changes.
 
-- [ ] **2.2 `WiredStdout` records when given a record** (B2–B4; AC12, AC13 at
+- [x] **2.2 `WiredStdout` records when given a record** (B2–B4; AC12, AC13 at
   unit level) — **[F]** `src/functualize/_engine/capabilities/stdout.py`,
   `tests/engine/test_stdout_record.py` (new)
   - `WiredStdout(..., record=None)`. `emit`/`write` append and return
