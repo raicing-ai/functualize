@@ -73,11 +73,14 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
 
 ## Wave 3 — consumers (disjoint files)
 
-- [ ] **T5 — `app/utils.py`** `[F: src/functualize/app/utils.py]`
+- [x] **T5 — `app/utils.py`** `[F: src/functualize/app/utils.py]`
   - `auto_discover` (both branches) and `list_project_config_files` read `project_config_layers` (D1). Vault-key ids at `:1884` and `:2049` use `project_root_for`. Re-export `project_config_file_table` publicly (consumed by T5b).
   - Gate G-A: `rg -n "resolve_all_candidates\(PROJECT_CONFIG_CANDIDATES\)" src plugins` → exactly 1 (authoring: 4; this task removes `utils.py:510`, `:932`, `:988`). Gate G-ID: `rg -n "compute_project_id\(Path\(cwd\)" src/functualize/app/utils.py` → 0 (authoring: 2).
   - Reachability: commit, then revert `auto_discover` to the inline walk and watch G1–G4 go red; restore. Repeat for `list_project_config_files` with G8.
   - Acceptance: T1a all green; `tests/cli/test_auto_discover.py tests/test_auto_discover.py tests/test_auto_discover_bug_condition.py tests/test_auto_discover_preservation.py tests/cli/test_func_settings_store.py tests/cli/test_single_file_cwd_isolation.py` green.
+  - Done 2026-10-26. G-A: **1** (`project_dirs.py:176`). G-ID: **0**. T1a **9 passed**. Acceptance list: 87 passed, 5 skipped, 2 failed — `test_func_settings_store.py::TestChainPrecedence::test_default_when_nothing_sets_it` (and, under `-n 4` only, `test_global_beats_default`) raise `StopIteration` looking up a `tui.*` setting the catalog had not registered; the same test fails identically on the pre-change merge head `d8c68f3` (`-p no:randomly`, 1 failed / 21 passed), so it is pre-existing and order-dependent, not caused here.
+  - Reachability: `func`/`func builtin info jobs` → `_cli` → `functualize.app.utils.auto_discover` → `project_config_layers`; TUI settings → `FuncSettingsStore.discover` → `resolve_cli_config_layers` → `list_project_config_files` → `project_config_layers`. Sabotage (committed first): `auto_discover` back to the inline walk → G1, G2, G3, G4, G7 ×2 **red**; `list_project_config_files` back to the inline walk → G8 **red**; each restored.
+  - Not covered by an `examples/` caller: the newly exported `project_config_file_table` (public-API example rule, `contributor/reference/public-api-example-coverage.md`); flagged for review.
 - [ ] **T6 — Walk B, both stages (B1), and the vault key id** `[F: src/functualize/_app/boot.py]`
   - `discover_config_path` stops at `find_project_boundary(cwd)` when that is reached before `~`. `build_resolution_chain`'s `FileSource` locator uses `stop = find_project_boundary(Path(config_path)) or Path.home()` (D4 (a)). `build_vault_source` (`:1319`) uses `project_root_for(Path.cwd())`.
   - Reachability: the production path is `FunctualizeApp` boot → `_app/boot.py:1013` → `discover_config_path`; boot and `refresh()` → `_app/impl.py::_build_resolution_chain` → `build_resolution_chain`. Sabotage each stop separately (commit first): reverting stage 1 turns G12 red; reverting stage 2 turns G13 red.

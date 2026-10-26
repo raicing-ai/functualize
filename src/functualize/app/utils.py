@@ -24,6 +24,7 @@ from functualize._config.merge import merge_config_layers
 from functualize._config.project_dirs import (
     PROJECT_CONFIG_CANDIDATES,
     collect_convention_directories,
+    project_config_layers,
     read_toml_file,
     resolve_effective_directories,
     resolve_effective_directories_from_layers,
@@ -65,6 +66,7 @@ from functualize._primitives.parameter_types import (
     is_cli_value_type,
 )
 from functualize._primitives.plugin_kinds import PluginKind, classify_group
+from functualize._primitives.project_root import project_config_file_table
 from functualize._primitives.run_store import RunStore, new_run_id, runner_identity
 from functualize._primitives.scope_format import (
     SCOPES_LIMIT,
@@ -261,6 +263,7 @@ __all__ = [
     "is_display_provider",
     "JobMaterializationError",
     "list_project_config_files",
+    "project_config_file_table",
     "NodeKind",
     "pending_gates",
     "read_display_modules_from_cache",
@@ -489,12 +492,13 @@ def _first_existing_candidate_file(
 def list_project_config_files(cwd: Path) -> list[tuple[Path, Path]]:
     """List individual project config file candidates, without merging.
 
-    Performs the same upward walk + platform-user search as
-    ``resolve_project_config``, but returns the resolved file path found in
-    each directory instead of a merged config dict. This is the single
-    source of truth for "which files could a project-level config write go
-    to" — callers building a file picker/target selector should use this
-    instead of re-implementing the directory walk.
+    Reads the same layers as ``resolve_project_config`` (walk A, ending at the
+    project root), but returns the resolved file path found in each directory
+    instead of a merged config dict. This is the single source of truth for
+    "which files could a project-level config write go to" — callers building
+    a file picker/target selector should use this instead of re-implementing
+    the directory walk. A file above a ``root = true`` layer is another
+    project's, and is not listed.
 
     Args:
         cwd: The current working directory to start searching from.
@@ -503,11 +507,7 @@ def list_project_config_files(cwd: Path) -> list[tuple[Path, Path]]:
         List of (directory, file_path) tuples in priority order (nearest
         first), one per directory that has a matching candidate file.
     """
-    locator = (
-        ResourceLocator().search_upward(start=cwd).search_platform_user("functualize")
-    )
-
-    results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
+    results = project_config_layers(cwd)
 
     files: list[tuple[Path, Path]] = []
     for directory, _config in results:
@@ -894,9 +894,10 @@ def auto_discover(
                     Clamped to [0, 5]. Negative values → 0.
                     Deprecated in favor of ``overrides.scan_depth``;
                     kept for backward compatibility.
-        search_ancestors: When True (default), use ResourceLocator.search_upward()
-                    for full upward-walk config resolution. When False, only check
-                    the given CWD directory for config (local-only mode).
+        search_ancestors: When True (default), walk upward for config
+                    (``project_config_layers``), ending at the project root.
+                    When False, only check the given CWD directory for config
+                    (local-only mode).
 
     Returns:
         DiscoveryResult with anchor, job_sources, import_libs, merged_config,
@@ -922,14 +923,9 @@ def auto_discover(
 
     # --- Config resolution ---
     if search_ancestors:
-        # Full upward-walk using ResourceLocator + candidate-based matching
-        locator = (
-            ResourceLocator()
-            .search_upward(start=cwd)
-            .search_platform_user("functualize")
-        )
-
-        results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
+        # Walk A, ending at the project root: nothing above a `root = true`
+        # layer contributes jobs, libraries or convention directories.
+        results = project_config_layers(cwd)
 
         if results:
             # Extract layers in priority order (nearest first)
@@ -980,12 +976,8 @@ def auto_discover(
                 config_directories.append(dir_str)
 
     else:
-        # Local-only mode: ResourceLocator-based but CWD-only (no upward walk)
-        locator = (
-            ResourceLocator().search_explicit(cwd).search_platform_user("functualize")
-        )
-
-        results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
+        # Local-only mode: CWD-only (no upward walk)
+        results = project_config_layers(cwd, search_ancestors=False)
 
         if results:
             layers = [config for (_directory, config) in results]
@@ -1858,6 +1850,7 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
         KeyStatus,
         resolve_vault_key,
     )
+    from functualize._config.vault_paths import project_root_for
     from functualize._primitives.locator import compute_project_id
     from functualize.app.vault import VaultKeyStatus, vault_key_state
 
@@ -1881,7 +1874,7 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
         # Unlocked, so a silent read answers at once; the short bound only
         # guards a hung backend.
         lookup = resolve_vault_key(
-            compute_project_id(Path(cwd) if cwd is not None else Path.cwd()),
+            compute_project_id(project_root_for(cwd)),
             access=KeyAccess.BOUNDED,
             timeout=2.0,
         )
@@ -1976,6 +1969,7 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
         describe_key_failure,
         resolve_vault_key,
     )
+    from functualize._config.vault_paths import project_root_for
     from functualize._primitives.locator import compute_project_id
     from functualize._types.enums import ConfigFileRole
     from functualize.app.vault import VaultIdentity, resolve_vault_identity
@@ -2046,7 +2040,7 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
             path=path,
         )
 
-    project_id = compute_project_id(Path(cwd) if cwd is not None else Path.cwd())
+    project_id = compute_project_id(project_root_for(cwd))
     # Bounded like a job run: sync also runs from scripts, where an unbounded
     # wait on a locked keyring is the hang this exists to remove.
     timeout = app_keyring_timeout(app)
