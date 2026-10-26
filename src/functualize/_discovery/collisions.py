@@ -54,7 +54,11 @@ def claim_order(descriptor: JobDescriptor) -> tuple[str, str]:
       alphabetically, and this key sorts them the same way — so preserving
       "last claimant wins" preserves the function a project already runs.
     """
-    return (descriptor.source_file or "", descriptor.python_name or descriptor.name)
+    identity = descriptor.python_name or descriptor.name
+    # TRANSITIONAL(class-based-jobs/3.1): Class descriptors arrive later.
+    if descriptor.owner_class:
+        identity = f"{descriptor.owner_class}.{identity}"
+    return (descriptor.source_file or "", identity)
 
 
 def resolve_name_collisions(

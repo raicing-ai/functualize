@@ -104,7 +104,7 @@ tasks in five waves.
   - **Acceptance:** AC-7's warm-cache half is testable from here on.
   - **Reachability:** `TRANSITIONAL(round-trip only; the cache path is exercised by 4.1)`.
 
-- [ ] **2.2 — the cache key and the claim order know the class** (C3; spec AC-10)
+- [x] **2.2 — the cache key and the claim order know the class** (C3; spec AC-10)
   - **[F]** `src/functualize/_discovery/cached_provider.py`, `src/functualize/_discovery/collisions.py`, `tests/discovery/test_class_identity.py` (new)
   - **Inputs:** `plan.md` §4.3; `schema.md` §2; `cached_provider.py:528-600`
     (`_entry_key` 545, `_add_entry` 547-550, `_claim_name` 552-570);

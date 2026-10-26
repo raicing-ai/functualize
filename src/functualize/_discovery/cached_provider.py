@@ -542,7 +542,11 @@ class CachedDirectoryScanProvider:
         (a static provider, a dynamic registration), so the job name is the
         fallback and behaviour for those is unchanged.
         """
-        return f"{descriptor.source_file}::{descriptor.python_name or descriptor.name}"
+        identity = descriptor.python_name or descriptor.name
+        # TRANSITIONAL(class-based-jobs/3.1): Class descriptors arrive later.
+        if descriptor.owner_class:
+            identity = f"{descriptor.owner_class}.{identity}"
+        return f"{descriptor.source_file}::{identity}"
 
     def _add_entry(self, descriptor: JobDescriptor) -> None:
         """Add a descriptor to both the entries dict and the name index."""
