@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from functualize._types.workflow import (
     END,
+    AgentStep,
     ConditionalEdge,
     Edge,
     Gate,
@@ -26,6 +27,26 @@ class Approval(BaseModel):
     """Gate schema used across these tests."""
 
     approved: bool = False
+
+
+@pytest.mark.parametrize(
+    ("make_node", "kind", "name"),
+    [
+        (lambda: Step("name\x00onfailure"), "Step", "name\x00onfailure"),
+        (lambda: Gate(name="gate\x00x", awaits=Approval), "Gate", "gate\x00x"),
+        (
+            lambda: AgentStep(name="agent\x00x", instructions="Review"),
+            "AgentStep",
+            "agent\x00x",
+        ),
+    ],
+)
+def test_node_names_refuse_nul(make_node, kind: str, name: str) -> None:
+    with pytest.raises(ValueError) as refused:
+        make_node()
+    assert str(refused.value) == (
+        f"{kind} name must not contain a NUL character ('\\x00'): {name!r}"
+    )
 
 
 class TestDeclarationAttachment:

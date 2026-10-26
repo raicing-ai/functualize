@@ -234,9 +234,9 @@ DocumentRuntimeStore (_primitives/document_store.py) → ScopeStore / RunStore /
 SqliteRuntimeStore (plugin)                           → relational tables, one batch per unit
 ```
 
-Reads come back through `WorkflowReader` (`workflow`, `step`, `steps`, `branch`, `state`) and
-`InputReader` (`for_gate`, `request`, `candidates_for`, `deposited_answer`). A command under a
-generation that is no longer current lands nothing; the store refuses it. The four non-walk
-`ScopeStore` sites (`executor._scope_store`, `_scope_for`, `_close_scope`, and
-`capabilities/state.py`'s `ScopeBackedStateStore`) are allowlisted by
+Reads come back through `WorkflowReader` (`workflow`, `step`, `steps`, `branch`, `branches`,
+`state`) and `InputReader` (`for_gate`, `request`, `candidates_for`, `deposited_answer`). A
+command under a generation that is no longer current lands nothing; the store refuses it. The
+four non-walk `ScopeStore` sites (`executor._scope_store`, `_scope_for`,
+`_close_scope`, and `capabilities/state.py`'s `ScopeBackedStateStore`) are allowlisted by
 `tests/spec/test_the_walk_writes_only_through_the_port.py`.
