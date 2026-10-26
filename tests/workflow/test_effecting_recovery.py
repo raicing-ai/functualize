@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Annotated, Any
 
 import pytest
@@ -12,6 +13,7 @@ from tests._support.engine_storage import port_for
 from tests.conformance.sqlite_hooks import _prepared_store
 
 from functualize._app.state import AppState
+from functualize._engine.executor import JobExecutionEngine
 from functualize._engine.frontier import FrontierWalk, StepStatus, step_key
 from functualize._engine.recording import InputRecorder
 from functualize._engine.workflow_walker import (
@@ -177,6 +179,36 @@ def test_ran_without_value_is_not_reusable_or_invented(isolated_project: Path) -
     assert calls == ["charge"]
     assert _run(app).status is not RunStatus.SUCCESS
     assert calls == ["charge"]
+
+
+def test_from_job_uses_first_iteration_before_later_missing_recovery_value() -> None:
+    """A later loop record cannot overrule the value selected by read_node."""
+    steps = [
+        SimpleNamespace(
+            step_key="charge::iteration-0",
+            status="success",
+            result="OLD",
+            reusable=True,
+            result_kind="json",
+            result_type=None,
+        ),
+        SimpleNamespace(
+            step_key="charge::iteration-1",
+            status="success",
+            result=None,
+            reusable=False,
+            result_kind="missing_recovery_value",
+            result_type=None,
+        ),
+    ]
+    engine = SimpleNamespace(
+        _state_store=lambda: SimpleNamespace(),
+        _runtime_store=SimpleNamespace(
+            workflows=SimpleNamespace(steps=lambda scope_id: steps)
+        ),
+    )
+
+    assert JobExecutionEngine._from_job_value(engine, FromJob("charge"), "s1") == "OLD"
 
 
 def test_second_attempt_asks_a_new_question(isolated_project: Path) -> None:

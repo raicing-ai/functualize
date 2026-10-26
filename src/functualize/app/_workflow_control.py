@@ -798,7 +798,7 @@ def call_gate_tool(
             bound=entry["bound"],
         )
 
-    bound_values, failure = _bound_values(app, scope, tool)
+    bound_values, failure = _bound_values(app, scope, tool, scope_id)
     if failure is not None:
         return failure
 
@@ -841,44 +841,8 @@ def call_gate_tool(
     }
 
 
-def _resolve_bound(scope: dict[str, Any], bound: dict[str, Any]) -> dict[str, Any]:
-    """Replace each ``FromStep`` marker with this scope's recorded result.
-
-    Without this the marker object itself was handed to the job as the argument
-    value — so ``Tool(read_file, allowed=FromStep("setup-vfs"))`` passed a
-    ``FromStep`` where a file list was expected, and the narrowing the gate
-    exists to enforce silently did not happen.
-
-    A step with no record resolves to None rather than raising: the walk may
-    legitimately not have reached it, and the job's own signature is the right
-    place for that to be an error.
-    """
-    from functualize._primitives.fingerprint import reusable_return_value
-    from functualize._types.from_job import FromStep
-
-    if not any(isinstance(v, FromStep) for v in bound.values()):
-        return dict(bound)
-
-    steps = scope.get("steps") or {}
-    resolved: dict[str, Any] = {}
-    for arg, value in bound.items():
-        if not isinstance(value, FromStep):
-            resolved[arg] = value
-            continue
-        record = next(
-            (
-                r
-                for key, r in steps.items()
-                if key.split("::", 1)[0] == value.name and isinstance(r, dict)
-            ),
-            None,
-        )
-        resolved[arg] = reusable_return_value(record, job_name=value.name)
-    return resolved
-
-
 def _bound_values(
-    app: Any, scope: dict[str, Any], tool: str
+    app: Any, scope: dict[str, Any], tool: str, scope_id: str
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """The gate's pinned argument *values*, from the live declaration.
 
@@ -897,7 +861,16 @@ def _bound_values(
                 # *no* bound values — the cap the gate exists to enforce would
                 # simply not apply.
                 if spec.name == _canonical(tool):
-                    return _resolve_bound(scope, spec.bound), None
+                    from functualize._primitives.walk_reads import (
+                        resolve_bound_values,
+                    )
+
+                    return resolve_bound_values(
+                        (scope.get("steps") or {}).items(),
+                        spec.bound,
+                        reader=tool,
+                        scope_id=scope_id,
+                    ), None
     except Exception as exc:
         return {}, _error(
             "tool_unresolvable",

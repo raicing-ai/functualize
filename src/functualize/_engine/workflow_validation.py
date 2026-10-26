@@ -22,6 +22,18 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _workflow_ancestors(declaration: Any) -> dict[str, set[str]]:
+    """Every node ordered before each reader in a declaration."""
+    from functualize._primitives.graph import descendants
+
+    successors: dict[str, list[str]] = {node.name: [] for node in declaration.nodes}
+    for node in declaration.nodes:
+        for target in declaration.successors(node.name):
+            successors.setdefault(node.name, []).append(target)
+            successors.setdefault(target, [])
+    return {name: set(descendants(successors, [name])) for name in successors}
+
+
 def _validate_workflow_from_job_refs(
     registered: dict[str, Any], nesting: dict[str, list[str]], resolve: Any
 ) -> None:
@@ -37,7 +49,6 @@ def _validate_workflow_from_job_refs(
     the graph never ordered is a bug in the graph. Caught here rather than
     mid-walk, when a scope is already open and half its steps have run.
     """
-    from functualize._primitives.graph import descendants
     from functualize._types.errors import WorkflowDeclarationError
     from functualize._types.from_job import from_job_refs
 
@@ -49,21 +60,13 @@ def _validate_workflow_from_job_refs(
         if declaration is None:
             continue
 
-        # `descendants(m, [x])` yields every node that depends on x under m.
-        # Feeding it the *successors* map therefore yields every node that
-        # reaches x — x's ancestors, which is what "ordered before it" means.
-        successors: dict[str, list[str]] = {node.name: [] for node in declaration.nodes}
-        for node in declaration.nodes:
-            for target in declaration.successors(node.name):
-                successors.setdefault(node.name, []).append(target)
-                successors.setdefault(target, [])
-
-        in_graph = set(successors)
+        ancestors_by_node = _workflow_ancestors(declaration)
+        in_graph = set(ancestors_by_node)
         for step_name in step_names:
             step_fn = getattr(registered.get(step_name), "function", None)
             if step_fn is None:
                 continue
-            ancestors = set(descendants(successors, [step_name]))
+            ancestors = ancestors_by_node.get(step_name, set())
             for param, ref in from_job_refs(step_fn).items():
                 if not ref.run:
                     continue  # a read-only reference orders nothing
@@ -108,6 +111,79 @@ def _validate_workflow_from_job_refs(
                         f"says 'after'. Add an edge "
                         f"'{target}' -> '{step_name}', or remove one of the two."
                     )
+
+
+def _validate_workflow_from_step_refs(
+    registered: dict[str, Any], nesting: dict[str, list[str]], resolve: Any
+) -> None:
+    """A walk read must name a node already ordered before its reader."""
+    from functualize._types.errors import WorkflowDeclarationError
+    from functualize._types.from_job import (
+        FromStep,
+        from_step_refs,
+        mixed_source_params,
+    )
+    from functualize._types.workflow import Gate, Step
+
+    for workflow_name in nesting:
+        workflow_fn = getattr(registered.get(workflow_name), "function", None)
+        declaration = getattr(workflow_fn, "__functualize_workflow__", None)
+        if declaration is None:
+            continue
+        ancestors_by_node = _workflow_ancestors(declaration)
+        in_graph = set(ancestors_by_node)
+
+        def check_signature(
+            function: Any,
+            reader: str,
+            before: set[str],
+            workflow_name: str = workflow_name,
+            in_graph: set[str] = in_graph,
+        ) -> None:
+            for parameter in mixed_source_params(function):
+                raise WorkflowDeclarationError(
+                    f"Workflow '{workflow_name}' reader '{reader}' parameter "
+                    f"'{parameter}' declares both FromJob and FromStep"
+                )
+            for parameter, source in from_step_refs(function).items():
+                node = source.ref.name
+                if node not in in_graph:
+                    why = "is not a node in this workflow"
+                elif node not in before:
+                    why = f"is not ordered before reader '{reader}'"
+                else:
+                    continue
+                raise WorkflowDeclarationError(
+                    f"Workflow '{workflow_name}' reader '{reader}' parameter "
+                    f"'{parameter}' reads FromStep('{node}'), but {why}"
+                )
+
+        for node in declaration.nodes:
+            before = ancestors_by_node.get(node.name, set())
+            if isinstance(node, Step):
+                target = resolve(node.job, workflow_name)
+                function = getattr(registered.get(target), "function", None)
+                if function is not None:
+                    check_signature(function, node.name, before)
+            elif isinstance(node, Gate):
+                for tool in node.tool_specs():
+                    for parameter, value in tool.bound.items():
+                        if not isinstance(value, FromStep):
+                            continue
+                        target = value.name
+                        if target not in in_graph:
+                            why = "is not a node in this workflow"
+                        elif target not in before:
+                            why = f"is not ordered before reader '{node.name}'"
+                        else:
+                            continue
+                        raise WorkflowDeclarationError(
+                            f"Workflow '{workflow_name}' Gate '{node.name}' "
+                            f"tool '{tool.name}' reader '{node.name}' "
+                            f"parameter '{parameter}' reads FromStep('{target}'), "
+                            f"but {why}"
+                        )
+        check_signature(workflow_fn, workflow_name, in_graph)
 
 
 def validate_workflow_declarations(app: Any = None, *, registry: Any = None) -> None:
@@ -193,6 +269,7 @@ def validate_workflow_declarations(app: Any = None, *, registry: Any = None) -> 
                 )
 
     _validate_workflow_from_job_refs(registered, nesting, _resolve)
+    _validate_workflow_from_step_refs(registered, nesting, _resolve)
 
     if not workflow_names:
         return

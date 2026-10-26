@@ -40,6 +40,8 @@ engine's job, because only the engine knows the run.
 
 from __future__ import annotations
 
+import inspect
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 from functualize._types.annotations import resolved_hints
@@ -51,10 +53,13 @@ if TYPE_CHECKING:
 __all__ = [
     "FromJob",
     "FromStep",
+    "FromStepParam",
     "from_job_types",
     "declared_dependency_names",
     "from_job_names",
     "from_job_refs",
+    "from_step_refs",
+    "mixed_source_params",
 ]
 
 
@@ -244,7 +249,7 @@ def from_job_types(func: Callable[..., Any]) -> dict[str, Any]:
 
 
 class FromStep:
-    """A read of *this walk's* recorded result for one step (resolved Q20).
+    """A read of *this walk's* recorded result for one node (resolved Q20).
 
     ``FromStep`` and :class:`FromJob` answer different questions, and the
     difference is why this is a separate name rather than a flag:
@@ -253,12 +258,17 @@ class FromStep:
                   ``FromJob`` in a signature        ``FromStep``
     ============  ===============================  =========================
     may run it    yes — it is a dependency edge     **never**
-    resolves in   fingerprints, or a scope          this scope's steps only
+    resolves in   fingerprints, or a scope          this walk's nodes
     upstream      may not have run yet              has already run
     ============  ===============================  =========================
 
-    Used where a value is read from inside a walk that has already produced
-    it — a gate tool's bound argument, and the epilogue body::
+    The node is a ``Step`` or a ``Gate`` — a gate's record is its answer — and
+    the read is written in one of three positions:
+
+    - **a step job's parameter**, ``Annotated[T, FromStep("node")]``;
+    - **the epilogue body's parameter**, the same annotation on the
+      ``@workflow`` function itself;
+    - **a gate tool's bound argument**, ``Tool(job, arg=FromStep("node"))``::
 
         Gate(
             name="review",
@@ -267,8 +277,19 @@ class FromStep:
         )
 
     The agent may call `read_file`, but `allowed` is fixed to whatever
-    `setup-vfs` returned *in this scope* — so the tool is scoped to exactly
+    `setup-vfs` returned *in this walk* — so the tool is scoped to exactly
     those files and a call outside them is inexpressible rather than refused.
+
+    Boot refuses a name that is not a node of the workflow, and a step or gate
+    reader naming a node the graph does not order before it — including a
+    gate's binding naming its own gate; an earlier gate is allowed and reads
+    that gate's answer. The epilogue may read any node, because it runs after
+    ``END``. At run time a node a conditional branch skipped yields the
+    parameter's declared default, and with none the run fails with
+    :class:`~functualize._types.errors.FromStepUnavailableError` naming the
+    node, the parameter and the reader — as does a job run outside a walk,
+    including one invoked from inside a step. An explicit argument wins over
+    the read.
 
     **Why not ``FromJob`` here.** In a gate-tool binding ``run=True`` is not
     merely unused, it is unmeaningful: the agent invokes the tool on demand,
@@ -325,3 +346,50 @@ class FromStep:
 
     def __hash__(self) -> int:
         return hash(("FromStep", self.name))
+
+
+@dataclass(frozen=True)
+class FromStepParam:
+    """A walk read and the signature facts needed to resolve it later."""
+
+    ref: FromStep
+    declared_type: Any
+    has_default: bool
+
+
+def from_step_refs(func: Callable[..., Any]) -> dict[str, FromStepParam]:
+    """Extract ``FromStep`` parameters from resolved annotation metadata.
+
+    The declared type is the first ``Annotated`` argument.  Only the presence
+    of a default is captured here; execution leaves the default on the
+    function signature and consults it if this walk skipped the named node.
+    """
+    parameters = inspect.signature(func).parameters
+    refs: dict[str, FromStepParam] = {}
+    for name, annotation in resolved_hints(func).items():
+        if name == "return" or get_origin(annotation) is not Annotated:
+            continue
+        args = get_args(annotation)
+        for meta in args[1:]:
+            if isinstance(meta, FromStep):
+                refs[name] = FromStepParam(
+                    ref=meta,
+                    declared_type=args[0],
+                    has_default=parameters[name].default is not inspect.Parameter.empty,
+                )
+                break
+    return refs
+
+
+def mixed_source_params(func: Callable[..., Any]) -> tuple[str, ...]:
+    """Parameters declaring both job and walk sources in one annotation."""
+    mixed: list[str] = []
+    for name, annotation in resolved_hints(func).items():
+        if name == "return" or get_origin(annotation) is not Annotated:
+            continue
+        metadata = get_args(annotation)[1:]
+        if any(isinstance(meta, FromJob) for meta in metadata) and any(
+            isinstance(meta, FromStep) for meta in metadata
+        ):
+            mixed.append(name)
+    return tuple(mixed)
