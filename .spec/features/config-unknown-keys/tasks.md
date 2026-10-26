@@ -1,4 +1,14 @@
-# config-unknown-keys — Tasks (Revision 5)
+# config-unknown-keys — Tasks (Revision 6)
+
+> **Revision 6 (2026-10-26), an execution amendment to rev5.** Rows 3.2 and
+> 4.1 are complete at `6430a88e` (base `origin/master` `11ed0e82`);
+> 4.4 has code moved but remains unchecked.
+> Row 4.4's repo-wide literal gate was unreachable (19 hits, six executable
+> hits outside its [F] scope); its gate now checks only its surface sites and
+> names the other owners. Row 4.2 retains `read_global_config`,
+> `SettingsFileInfo`, and `resolve_cli_config_layers` while 4.3 and 7.1 still
+> call them. Their deletion moves to 8.1, after those callers are rewritten;
+> no wave is restarted. Row 7.1 owns the last `read_global_config` caller.
 
 > **Revision 5 (2026-10-23), an amendment, not a rewrite.** Rows 0.1–3.1 are
 > unchanged and keep their delivered state. Row 3.2 had no satisfiable route
@@ -14,8 +24,8 @@
 Base `bb3aac77` (rebased 2026-10-21; `git merge-base --is-ancestor origin/master HEAD` → 0;
 since rebased by Execute onto `b3e624bd`), branch `sdd/config-unknown-keys`. Spec
 AC1–AC31, contracts C1–C6, plan rev5. M1–M7 are closed (`01a15669`, `01a15ee0`);
-the rev4 task list was confirmed (`01a1632b`). **Rev5 execution of row 3.2 and
-beyond is gated on** the maintainer's confirmation of this amendment. M8 does
+the rev4 task list was confirmed (`01a1632b`); execution has reached wave 4.
+Revision 6 corrects two unreachable task gates. M8 does
 not gate PR 1, because PR 1 leaves those 9 sites unchanged and pins them in 8.1.
 Everything here is PR 1; PR 2 (M7) gets its own plan after PR 1 merges.
 
@@ -132,12 +142,15 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     passed; `mypy src/` found no issues in 413 source files; `lint-imports`
     7 kept / 0 broken. The old accepted-values spelling remains an alias
     while public callers migrate.
-- [ ] **4.2 `_cli/config.py`** (F9) — **[F]** `src/functualize/_cli/config.py`,
+- [ ] **4.2 `_cli/config.py`** (F9; rev6 staged removal) — **[F]** `src/functualize/_cli/config.py`,
   `tests/cli/test_cli_config.py`, `tests/cli/test_cli_config_vault.py`, `tests/cli/test_resolve_cli_config.py`
   - `CliConfig` becomes a projection of `ResolvedSettings`. Delete
-    `read_global_config`, `_RECOGNIZED_*`, `resolve_env_overrides`,
-    `resolve_cli_config`'s own resolution, `resolve_cli_config_layers` and
-    `SettingsFileInfo`. The warning tests (`test_cli_config.py:108,125,190`,
+    `_RECOGNIZED_*`, `resolve_env_overrides`, and `resolve_cli_config`'s own
+    resolution. Keep `read_global_config`, `resolve_cli_config_layers`, and
+    `SettingsFileInfo` temporarily, marked `TRANSITIONAL(config-unknown-keys/8.1)`
+    at their definitions: 4.3 still calls the layer symbols and 7.1 still
+    calls `read_global_config` from `config show`. Row 8.1 deletes all three
+    after those callers have moved. The warning tests (`test_cli_config.py:108,125,190`,
     `test_cli_config_vault.py:85`) become `config path` assertions.
   - *Rev5 addition:* **[F]** += `src/functualize/app/commands.py`. The settings
     read at `:340-342` (`from functualize._cli.config import resolve_cli_config`;
@@ -152,6 +165,9 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   - Remove the registries, `FuncSetting`, `_spec`, `_as_setting` and the
     import-time registration. Rows come from the schema (`surface="tui"`);
     values come from `app.settings`.
+  - *Rev6 gate:* `rg -n '\b(SettingsFileInfo|resolve_cli_config_layers)\b'
+    src/functualize/_cli/data/func_settings.py` → 0 before row 8.1 removes
+    their definitions.
 - [ ] **4.4 Surface vocabulary** (F16; AC30; rev5 new) — **[F]** `src/functualize/_types/enums.py`,
   `src/functualize/types/__init__.py`, `src/functualize/_types/functualize_settings.py`,
   `src/functualize/job/decorators.py`, `src/functualize/app/adapters/surface_gate.py`,
@@ -164,14 +180,26 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     both command paths already share. `_cli/tui/job_execution.py:599` imports
     it from there (`_cli` → public). `_cli/orchestrator.py` is deleted; its
     only consumers are `surface_gate.py:75` and `job_execution.py:599`.
-  - One statement of `{"panel", "stdout"}`, today four: the enum
+  - One statement of the render-surface pair across this row's four original
+    sites: the enum
     (`orchestrator.py:28-29`), `_parse` (`:76-79`), `job/decorators.py:115`
     `_VALID_SURFACE_HINTS`, and `_types/functualize_settings.py:43` choices.
     The setting's choices and the decorator's valid hints derive from
     `RenderSurface`'s non-exclusive members; parsing is enum value lookup.
-  - *Gate:* AC30. `rg -n '"panel"|"stdout"' src/functualize --glob '*.py'`
-    leaves only `_types/enums.py` and docstrings. The surface-resolution and
-    public-API-surface tests are green. `rg -n '_cli\.orchestrator' src` → 0.
+  - *Gate (rev6 scope):* AC30. Run
+    `rg -n '"panel"|"stdout"' src/functualize/_types/enums.py src/functualize/types/__init__.py src/functualize/_types/functualize_settings.py src/functualize/job/decorators.py src/functualize/app/adapters/surface_gate.py src/functualize/_cli/tui/job_execution.py`.
+    These are this row's surviving production files; review each hit:
+    executable value literals remain only as `PANEL` and `STDOUT` in
+    `_types/enums.py`; the other hits are docstrings or comments. At
+    `6430a88e` that scoped search returns 7 hits: two enum values and five
+    explanatory mentions. The surface-resolution and public-API-surface tests
+    are green. `rg -n '_cli\.orchestrator' src` → 0.
+  - *Out-of-scope baseline (rev6):* the repo-wide search returns 19 hits.
+    Six executable hits cannot be removed by this row: 4.3 owns
+    `_cli/data/settings_schema.py:43` and `_cli/data/func_settings.py:169`;
+    this feature has no removal row for `_types/outcome.py:52`,
+    `_cli/tui/models/focus_state.py:36`, `_cli/tui/focus.py:29`, or
+    `ui/stdout_surface.py:91`. Do not use repo-wide zero as this row's gate.
 
 ## Wave 5 — main and utils
 
@@ -230,18 +258,29 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   **[F]** `src/functualize/_cli/builtins/_config.py`, `tests/cli/test_config_builtin.py`
   - Lists `settings_layers()`; status from `ResolvedSettings.contributes`;
     annotations; `config show` provenance from the snapshot (removes
-    `_determine_source`).
+    `_determine_source` and its `read_global_config` call). Gate:
+    `rg -n '\bread_global_config\b' src/functualize/_cli/builtins/_config.py`
+    → 0; the definition remains until 8.1.
 - [ ] **7.2 `info --json`** (C2; AC3, AC16) — **[F]** `src/functualize/_cli/info.py`,
   `tests/cli/test_info_unknown_keys.py` (new)
 
 ## Wave 8 — keep it single, docs, fixtures
 
 - [ ] **8.1 Ratchets** (AC12, AC13, AC18, AC20, AC22, AC30, AC31) — **[F]** `tests/spec/test_settings_ratchet.py` (new)
+  - *Rev6 [F] addition:* `src/functualize/_cli/config.py` and its affected
+    `tests/cli/test_cli_config.py`, `tests/cli/test_cli_config_vault.py`,
+    `tests/cli/test_resolve_cli_config.py`. Delete the transitional
+    `read_global_config`, `SettingsFileInfo`, and `resolve_cli_config_layers`
+    definitions after 4.3 and 7.1 have removed their callers. Gate:
+    `rg -n '\b(read_global_config|SettingsFileInfo|resolve_cli_config_layers)\b'
+    src/functualize --glob '*.py'` → 0, and the affected CLI config tests pass.
   - *Rev5 addition:*
     - AC31: no import of `functualize._cli.data`, `functualize._cli.config`
       or `functualize._cli.orchestrator` from `functualize.app`, `.job`,
       `.types`, `.plugin` or `.workflow`.
-    - AC30: the surface values are stated only in `_types/enums.py`.
+    - AC30: the render-surface pair has one executable declaration in
+      `_types/enums.py` across 4.4's surface sites. The six executable hits
+      listed in 4.4 have their stated owners or are outside this feature.
     - The public→`_cli` delivery imports are pinned at today's set (15 sites
       at `40c2a503` minus the 6 this revision assigns), so M8's outcome is a
       visible edit to that pin.
@@ -261,6 +300,16 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 - [ ] **9.1** The five gates; `dead_code_delta.py origin/master HEAD`; the live
   F1/F3a/F3b repros; an ADR for the one-declaration rule; then the
   deletion-only cleanup commit.
+  - *Rev6 delta disposition:* `_cli/builtins/_helpers.py:381` assigns
+    `_functualize_panel` dynamically in `_mount`; `NormalizingGroup.format_commands`
+    reads that attribute through `_PANEL_ATTR` in `app/adapters/cli.py:158`.
+    The reported `NEW_DEAD` finding is a static-analysis false positive, not a
+    deletion task. Recheck the help-panel tests and record this classification
+    with the final delta report.
+  - The issue report `01a17856-37ac` records
+    `tests/cli/test_workflow_answer_relational.py::…::test_resume_with_fused_input_answers_and_advances`
+    as red on `master`. Check it against the base before classifying it as a
+    branch regression; its separate ticket owns any baseline repair.
 
 ## Task Dependency Graph
 
