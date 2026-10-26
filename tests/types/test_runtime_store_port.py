@@ -62,7 +62,14 @@ TRANSACTION_MEMBERS = {"runs", "workflows", "inputs", "events", "effects"}
 
 #: The inputs aggregate's two writers: a candidate arrives evaluated, and
 #: consumption is a separate command rather than an argument of a deposit.
-INPUT_WRITER_MEMBERS = {"append", "consume"}
+INPUT_WRITER_MEMBERS = {
+    "append",
+    "consume",
+    # The decision beside an acceptance, and reopen through the port
+    # (gate-interactions-outbox).
+    "decide",
+    "supersede",
+}
 
 #: The inputs reader's questions. `request` and `candidates_for` are the
 #: resolution read — asking by request id, which is the whole point of the id.
@@ -71,6 +78,8 @@ INPUT_READER_MEMBERS = {
     "awaiting",
     "request",
     "candidates_for",
+    # The recorded decision on a request (gate-interactions-outbox).
+    "decision",
     # The walk's own gate, newest request first (workflow-persistence-atomic).
     "for_gate",
     # TRANSITIONAL(FUN-21): the legacy bare-payload answer, ruling R-1.

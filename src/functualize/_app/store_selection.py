@@ -105,6 +105,12 @@ def select_runtime_store(app: Any) -> tuple[RuntimeStore, StoreSubstrate]:
     boot.check_required_capabilities(
         prepared.store.profile, boot._required_capabilities(app)
     )
+    # The capability check reads the profile; this one holds the profile to
+    # the store's type, so ``durable_outbox=True`` keeps one meaning — a
+    # store that can actually be drained.
+    from functualize._app.effects import check_outbox_agreement
+
+    check_outbox_agreement(prepared.store)
     substrate = prepared.substrate or substrate_for_project(app.fresh_root)
     return prepared.store, substrate
 

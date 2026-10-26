@@ -6,19 +6,23 @@ Each stages into the unit's batch and returns ``None`` (`contracts.md` §1.3):
   attempt is finished in place or, for a retry, inserted beside the others.
   Attempts are never rewritten once terminal (``(run_id, attempt_no)`` is
   unique);
-- **inputs** — candidates are appended, never replaced; a request accepts at
-  most one answer, and consumption is a separate, fenced, idempotent write;
+- **inputs** — candidates are appended, never replaced, with their
+  provenance and their evidence *references* (``artifact_refs`` rows — a
+  reference and a digest, never the bytes); a request accepts at most one
+  answer and records one decision beside it; consumption is a separate,
+  fenced, idempotent write; reopen cancels the accepted request and opens a
+  new one in the same batch;
 - **events** — ``seq`` is assigned in the statement, per run or per scope,
   so it is strictly increasing even for several events in one batch, and the
   tables refuse ``UPDATE`` by trigger;
 - **effects** — an outbox row is recorded in the transition's own batch, so it
-  exists exactly when the transition does. Dispatch is someone else's
-  (FUN-21); recording is all that happens here.
+  exists exactly when the transition does. Claiming and acknowledging it is
+  `_outbox_sql.SqlEffectQueue`'s, outside any transition.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -26,12 +30,17 @@ from functualize._primitives.run_store import new_run_id
 from functualize._primitives.transitions import require_transition
 from functualize._types.errors import InputRequestNotOpenError
 from functualize._types.gate_resolution import EvaluationOutcome
-from functualize._types.lifecycle import ATTEMPT, RUN
-from functualize_substrate_sqlite._transaction import RequestRow, dumps, iso
+from functualize._types.lifecycle import ATTEMPT, INPUT_REQUEST, RUN
+from functualize_substrate_sqlite._transaction import RequestRow, dumps, iso, parse_iso
 
 if TYPE_CHECKING:
-    from functualize._types.gate_resolution import GateCandidate
-    from functualize.plugin import ConsumeInput, FinishAttempt, StartAttempt
+    from functualize._types.gate_resolution import GateCandidate, GateDecision
+    from functualize.plugin import (
+        ConsumeInput,
+        FinishAttempt,
+        StartAttempt,
+        SupersedeRequest,
+    )
     from functualize_substrate_sqlite._transaction import BufferedTransaction
 
 __all__ = ["SqlEffectWriter", "SqlEventWriter", "SqlInputWriter", "SqlRunWriter"]
@@ -191,10 +200,11 @@ class SqlInputWriter:
         evaluation = candidate.evaluation
         tx.stage(
             "INSERT INTO input_candidates (id, request_id, ordinal, source, outcome, "
-            "detail, errors, payload, evidence, created_at) "
-            "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM "
-            "input_requests WHERE id = ? AND (status = 'open' OR (status = 'accepted' "
-            "AND ? = 'not_reached')))",
+            "detail, errors, payload, evidence, created_at, resolver_class, channel, "
+            "schema_id, schema_version, payload_hash, supersedes_candidate_id) "
+            "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS "
+            "(SELECT 1 FROM input_requests WHERE id = ? AND (status = 'open' OR "
+            "(status = 'accepted' AND ? = 'not_reached')))",
             (
                 candidate.candidate_id,
                 candidate.request_id,
@@ -208,10 +218,38 @@ class SqlInputWriter:
                 if evaluation.evidence is not None
                 else None,
                 iso(candidate.submitted_at),
+                candidate.resolver_class or None,
+                candidate.channel or None,
+                candidate.schema_id or None,
+                candidate.schema_version or None,
+                candidate.payload_hash or None,
+                candidate.supersedes_candidate_id,
                 candidate.request_id,
                 outcome.value,
             ),
         )
+        for index, ref in enumerate(candidate.evidence_refs):
+            # Conditional on the candidate having landed: a refused candidate
+            # must not leave evidence pointing at a row that does not exist.
+            tx.stage(
+                "INSERT INTO artifact_refs (id, namespace_id, scope_id, step_key, "
+                "kind, uri, digest, size, media_type, created_at, candidate_id) "
+                "SELECT ?, ?, ?, ?, 'gate-evidence', ?, ?, ?, ?, ?, ? WHERE EXISTS "
+                "(SELECT 1 FROM input_candidates WHERE id = ?)",
+                (
+                    f"{candidate.candidate_id}#evidence{index}",
+                    tx.namespace,
+                    request.scope_id,
+                    request.gate_key,
+                    ref.ref,
+                    ref.digest,
+                    ref.size,
+                    ref.media_type,
+                    iso(candidate.submitted_at),
+                    candidate.candidate_id,
+                    candidate.candidate_id,
+                ),
+            )
         if outcome is EvaluationOutcome.ACCEPTED:
             tx.stage(
                 "UPDATE input_requests SET status = 'accepted', resolved_at = ? "
@@ -224,6 +262,104 @@ class SqlInputWriter:
             )
         else:
             tx.scopes_written.add(request.scope_id)
+
+    def decide(self, decision: GateDecision) -> None:
+        """Record why the request was accepted, and the ids it observed.
+
+        Refused unless this unit's view shows the request ``accepted`` — the
+        accepted candidate is appended first, in the same unit — and refused
+        for a request already decided, here or on disk.
+        """
+        tx = self._tx
+        request = tx.request(decision.request_id)
+        if request is None or request.status != "accepted":
+            status = "missing" if request is None else request.status
+            raise ValueError(
+                f"request {decision.request_id!r} is {status!r}; a decision "
+                "records an acceptance"
+            )
+        decided = decision.request_id in tx.decided or bool(
+            tx.driver.query(
+                "SELECT 1 FROM input_decisions WHERE request_id = ?",
+                (decision.request_id,),
+            )
+        )
+        if decided:
+            raise ValueError(f"request {decision.request_id!r} is already decided")
+        tx.decided.add(decision.request_id)
+        tx.stage(
+            "INSERT INTO input_decisions (request_id, accepted_id, policy_id, "
+            "policy_version, decided_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                decision.request_id,
+                decision.accepted_id,
+                decision.policy_id,
+                decision.policy_version,
+                iso(decision.decided_at),
+            ),
+        )
+        for position, candidate_id in enumerate(decision.observed_candidate_ids):
+            tx.stage(
+                "INSERT INTO input_decision_observations (request_id, position, "
+                "candidate_id) VALUES (?, ?, ?)",
+                (decision.request_id, position, candidate_id),
+            )
+
+    def supersede(self, cmd: SupersedeRequest) -> None:
+        """Cancel the accepted request and open its successor, in this batch.
+
+        The successor copies the question — schema, prompt, generation, causal
+        run and position — so a reader of the new request sees the gate it
+        reopens. The withdrawn request keeps every candidate and its decision.
+        """
+        tx = self._tx
+        request = tx.request(cmd.request_id)
+        if request is None or (request.scope_id, request.gate_key) != (
+            cmd.scope_id,
+            cmd.gate_name,
+        ):
+            raise ValueError(
+                f"gate {cmd.gate_name!r} of {cmd.scope_id!r} holds no request "
+                f"{cmd.request_id!r}"
+            )
+        if request.status != "accepted":
+            raise ValueError(
+                f"request {cmd.request_id!r} is {request.status!r}, not accepted — "
+                "only an answered gate can be reopened"
+            )
+        require_transition(INPUT_REQUEST, request.status, "cancelled")
+        now = iso(cmd.now)
+        latest = tx.driver.query(
+            "SELECT MAX(created_at) FROM input_requests WHERE namespace_id = ? "
+            "AND scope_id = ? AND gate_key = ?",
+            (tx.namespace, cmd.scope_id, cmd.gate_name),
+        )[0][0]
+        # A reopen can use the same clock tick as the withdrawn request. Keep
+        # creation order explicit so for_gate never breaks that tie by ULID.
+        successor_at = parse_iso(now) + timedelta(microseconds=1)
+        if latest is not None:
+            successor_at = max(
+                successor_at, parse_iso(latest) + timedelta(microseconds=1)
+            )
+        tx.stage(
+            "UPDATE input_requests SET status = 'cancelled', resolved_at = ? "
+            "WHERE id = ? AND status = 'accepted'",
+            (now, cmd.request_id),
+        )
+        tx.stage(
+            "INSERT INTO input_requests (id, namespace_id, scope_id, gate_key, "
+            "generation, status, schema, prompt, created_at, run_id, position) "
+            "SELECT ?, namespace_id, scope_id, gate_key, generation, 'open', schema, "
+            "prompt, ?, run_id, position FROM input_requests "
+            "WHERE id = ? AND status = 'cancelled'",
+            (cmd.new_request_id, iso(successor_at), cmd.request_id),
+        )
+        tx.update_request(
+            cmd.request_id, RequestRow(cmd.scope_id, cmd.gate_name, "cancelled")
+        )
+        tx.update_request(
+            cmd.new_request_id, RequestRow(cmd.scope_id, cmd.gate_name, "open")
+        )
 
     def consume(self, cmd: ConsumeInput) -> None:
         """Retire the accepted answer the walk moved on; idempotent when consumed."""

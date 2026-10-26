@@ -368,8 +368,8 @@ class SqlWorkflowWriter:
             live = ", ".join(f"'{s}'" for s in _LIVE_REQUEST)
             tx.stage(
                 "INSERT INTO input_requests (id, namespace_id, scope_id, gate_key, "
-                "generation, status, schema, prompt, created_at) "
-                f"SELECT ?, ?, ?, ?, ?, 'open', ?, ?, ? WHERE {fence} AND NOT EXISTS ("
+                "generation, status, schema, prompt, created_at, run_id, position) "
+                f"SELECT ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ? WHERE {fence} AND NOT EXISTS ("
                 "SELECT 1 FROM input_requests WHERE namespace_id = ? AND scope_id = ? "
                 f"AND gate_key = ? AND status IN ({live}) AND id IS NOT ?)",
                 (
@@ -381,6 +381,8 @@ class SqlWorkflowWriter:
                     dumps(cmd.schema),
                     dumps(cmd.prompt),
                     iso(cmd.now),
+                    cmd.run_id,
+                    cmd.position,
                     *fence_args,
                     tx.namespace,
                     cmd.scope_id,

@@ -13,9 +13,9 @@ winning answer survived. Here the question is a request with an id, every
 proposed answer is a candidate carrying its evaluation, and the evaluation is
 recorded once at submission rather than recomputed on read.
 
-Nothing here is exported from a public package yet: the first consumer that
-needs these names outside the engine is the Slack gate resolver, and the export
-decision waits for it.
+``EvidenceRef``, ``GateDecision`` and ``GATE_ACCEPTED_TOPIC`` are exported
+from ``functualize.plugin``: an outbox receiver reads them (ADR-034). The rest
+waits for the first consumer outside the engine that needs it.
 """
 
 from __future__ import annotations
@@ -24,18 +24,27 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
     from functualize._types.persistence import InputRequest
 
 __all__ = [
+    "GATE_ACCEPTED_TOPIC",
     "CandidateEvaluation",
     "EvaluationOutcome",
+    "EvidenceRef",
     "GateCandidate",
+    "GateDecision",
     "GateResolution",
     "LadderOutcome",
 ]
+
+#: The outbox topic an accepted gate answer publishes, on a store that has an
+#: outbox. One topic for every resolver — person, agent or policy — because a
+#: receiver cares that the gate was decided, not who decided it; the payload
+#: says who.
+GATE_ACCEPTED_TOPIC: Final = "gate.accepted"
 
 
 class EvaluationOutcome(StrEnum):
@@ -89,6 +98,27 @@ class CandidateEvaluation:
 
 
 @dataclass(frozen=True)
+class EvidenceRef:
+    """Evidence attached to an answer: where its bytes live, and their digest.
+
+    A reference, never the bytes. A runtime row is the wrong home for an
+    attachment — it is copied into every read of the request, and a store
+    that keeps rows in one file grows with every screenshot — so the record
+    carries only what identifies the bytes and what proves they are the ones
+    that were attached. ``ref`` is opaque here (a path, a URI, an artifact
+    id); ``digest`` is ``sha256:<64 hex>``, checked by the recorder.
+
+    A matching digest proves the bytes at ``ref`` are the attached ones. It
+    cannot prove who produced them — that is the candidate's attribution.
+    """
+
+    ref: str
+    digest: str
+    media_type: str | None = None
+    size: int | None = None
+
+
+@dataclass(frozen=True)
 class GateCandidate:
     """One proposed answer to a gate request.
 
@@ -105,6 +135,17 @@ class GateCandidate:
     ``ordinal`` orders the candidates within one request. The recorder mints
     it and continues it across ladders, so two strategy runs on one request
     read as one sequence rather than two unrelated lists.
+
+    The provenance fields answer an audit's questions without a second
+    lookup, and the recorder fills them all; they default to empty only so a
+    record written before they existed still reads. ``resolver_class`` is
+    ``human``, ``agent``, ``program`` or ``policy``; ``channel`` is the
+    surface (``cli``, ``mcp``) or the strategy that produced the candidate.
+    ``schema_id``/``schema_version`` name the model the payload was evaluated
+    against, the version being the digest of its JSON schema, and
+    ``payload_hash`` the digest of the payload as submitted.
+    ``supersedes_candidate_id`` names the earlier, unaccepted candidate this
+    one corrects — the correction is a new row, the earlier one is untouched.
     """
 
     candidate_id: str
@@ -114,6 +155,13 @@ class GateCandidate:
     submitted_at: datetime
     evaluation: CandidateEvaluation
     payload: Any = None
+    resolver_class: str = ""
+    channel: str = ""
+    schema_id: str = ""
+    schema_version: str = ""
+    payload_hash: str = ""
+    supersedes_candidate_id: str | None = None
+    evidence_refs: tuple[EvidenceRef, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -139,6 +187,29 @@ class LadderOutcome:
 
 
 @dataclass(frozen=True)
+class GateDecision:
+    """Why a request was accepted: the policy, and exactly what it looked at.
+
+    Recorded once, in the unit that records the accepted candidate, and never
+    recomputed. ``observed_candidate_ids`` is the candidate set as it stood
+    at that moment, in ordinal order and including the accepted one — a
+    reader asking "what did the gate weigh" gets that list, not whichever
+    rows happen to exist when the question is asked.
+
+    ``policy_id`` names the rule that accepted (``gate.validate`` for a
+    surface answer, ``gate.ladder`` for a strategy rung) and
+    ``policy_version`` pins which version of it.
+    """
+
+    request_id: str
+    accepted_id: str
+    policy_id: str
+    policy_version: str
+    observed_candidate_ids: tuple[str, ...]
+    decided_at: datetime
+
+
+@dataclass(frozen=True)
 class GateResolution:
     """A request and every candidate it collected, as a reader finds them.
 
@@ -148,9 +219,12 @@ class GateResolution:
     model classes' current behaviour rather than a record of what happened.
 
     ``accepted_id`` names the accepted candidate when there is one, ``None``
-    while the request is open and unanswered.
+    while the request is open and unanswered. ``decision`` is the recorded
+    :class:`GateDecision`, ``None`` while undecided or for a record written
+    before decisions were.
     """
 
     request: InputRequest
     candidates: tuple[GateCandidate, ...] = ()
     accepted_id: str | None = None
+    decision: GateDecision | None = None

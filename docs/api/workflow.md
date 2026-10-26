@@ -231,6 +231,60 @@ A plugin implementing a notifier receives one `Notification` per fired `Notify(o
 
 ---
 
+## Effect Receivers
+
+A gate's acceptance can carry an effect to the outside world. On a store whose
+profile declares `durable_outbox=True` (SQLite), the accepted candidate, its
+`GateDecision` and the effect intent commit in **one** transaction, and the
+intent is handed to the receiver registered for its topic — `gate.accepted` —
+**at least once**. Exactly-once application is the receiver's, via the
+`idempotency_key`:
+
+```python
+from functualize.plugin import EffectReceiver, EffectView
+
+
+class GateAuditor:
+    """Receives each accepted gate, applying every key exactly once."""
+
+    topic = "gate.accepted"
+
+    def __init__(self) -> None:
+        self._applied: set[str] = set()
+
+    def receive(self, effect: EffectView) -> None:
+        if effect.idempotency_key in self._applied:
+            return  # at-least-once delivery: a redelivery is a no-op
+        self._applied.add(effect.idempotency_key)
+        ...  # apply the effect
+
+
+def register(app) -> None:
+    app.extensions.register_effect_receiver(GateAuditor())
+```
+
+| Member | Type | Description |
+|---|---|---|
+| `topic` | `str` | The topic this receiver consumes — `"gate.accepted"`. One receiver per topic; a second for the same topic raises `ValueError`. |
+| `receive(effect)` | `Callable` | Apply the effect. Returning acknowledges it; raising reschedules it with a backoff. May be called more than once for the same intent — deduplicate on `effect.idempotency_key`. |
+
+`EffectView` carries the intent's identity: `effect_id`, `topic`, `payload`,
+`idempotency_key`, `attempts`, and the claim fields. The payload of a
+`gate.accepted` intent is `{"request_id", "scope_id", "gate", "accepted_id",
+"policy_id", "policy_version"}`.
+
+Registration is a plugin's declaration that this configuration needs a
+durable outbox: it must happen before boot selects the store (a later
+registration raises `SubstrateInstallError`, having missed the boot drain),
+and boot refuses a selected store whose profile lacks `durable_outbox`,
+naming `runtime_store.url` and the receivers' topics.
+
+A runnable receiver — key-deduplicating, registered as a plugin, tested
+against a real answered gate — lives in
+[`examples/plugins/effect_receiver/`](https://github.com/raicing-ai/functualize/tree/master/examples/plugins/effect_receiver/).
+
+---
+
 ## Internal Location
 
 Workflow types live in `functualize._types.workflow`:

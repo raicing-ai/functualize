@@ -54,7 +54,7 @@ from functualize._types.errors import (
     CrossAggregateRefusedError,
     InputRequestNotOpenError,
 )
-from functualize._types.gate_resolution import GateCandidate
+from functualize._types.gate_resolution import GateCandidate, GateDecision
 from functualize._types.persistence import (
     EPILOGUE_STEP_KEY,
     CancelWorkflow,
@@ -87,6 +87,7 @@ from functualize._types.persistence import (
     StateBatch,
     StepView,
     StoreProfile,
+    SupersedeRequest,
     SuspendAtGate,
     WorkflowQuery,
     WorkflowReader,
@@ -526,6 +527,13 @@ class _DocumentInputReader:
             return ()
         return gate_requests.candidates_for(located[2])
 
+    def decision(self, request_id: str) -> GateDecision | None:
+        """The decision recorded on the request's gate record, if any."""
+        located = _locate_request(self._scopes, request_id)
+        if located is None:
+            return None
+        return gate_requests.decision_for(*located)
+
     def _requests(self, scope_id: str) -> Sequence[InputRequest]:
         record = self._scopes.get_scope(scope_id)
         if record is None:
@@ -746,6 +754,12 @@ class _DocumentInputWriter:
         self._txn.append(candidate)
 
     def consume(self, cmd: ConsumeInput) -> None:
+        self._txn.append(cmd)
+
+    def decide(self, decision: GateDecision) -> None:
+        self._txn.append(decision)
+
+    def supersede(self, cmd: SupersedeRequest) -> None:
         self._txn.append(cmd)
 
 
@@ -1006,6 +1020,10 @@ class _DocumentTransaction:
             self._append_candidate(command, scopes())
         elif isinstance(command, ConsumeInput):
             self._consume_input(command, scopes())
+        elif isinstance(command, GateDecision):
+            self._decide(command, scopes())
+        elif isinstance(command, SupersedeRequest):
+            self._supersede(command, scopes())
         elif isinstance(command, _AppendEvent):
             self._append_event(command, scopes, runs)
         elif isinstance(command, _AppendEffect):
@@ -1138,6 +1156,8 @@ class _DocumentTransaction:
                 model=cmd.model,
                 tools=cmd.tools,
                 now=cmd.now,
+                run_id=cmd.run_id,
+                position=cmd.position,
                 supersedes=cmd.supersedes,
             )
             scopes.set_position(cmd.scope_id, cmd.position)
@@ -1180,6 +1200,24 @@ class _DocumentTransaction:
         if located is None:
             raise InputRequestNotOpenError(candidate.request_id, "missing")
         gate_requests.append_candidate(scopes, located[0], located[1], candidate)
+
+    def _decide(self, decision: GateDecision, scopes: ScopeStore) -> None:
+        """Record the decision on the request's gate record, after its candidate."""
+        located = _locate_request(scopes, decision.request_id)
+        if located is None:
+            raise InputRequestNotOpenError(decision.request_id, "missing")
+        gate_requests.record_decision(scopes, located[0], located[1], decision)
+
+    def _supersede(self, cmd: SupersedeRequest, scopes: ScopeStore) -> None:
+        """Withdraw the gate's accepted answer and open the new request."""
+        gate_requests.supersede_request(
+            scopes,
+            cmd.scope_id,
+            cmd.gate_name,
+            new_request_id=cmd.new_request_id,
+            now=cmd.now,
+            request_id=cmd.request_id,
+        )
 
     def _consume_input(self, cmd: ConsumeInput, scopes: ScopeStore) -> None:
         """Retire the request the walk is moving past, under the fence."""

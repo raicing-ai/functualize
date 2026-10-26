@@ -99,10 +99,21 @@ def _load(version: int, name: str) -> Migration:
 
 
 #: Every revision this package ships, in order. Append only.
+#: The order carries one settled renumbering: this package briefly shipped the
+#: gate-interactions SQL as revision 3 (on the branch, before it merged with
+#: the step-attempt work, which also shipped a revision 3). The ledger cannot
+#: record two revision 3s, so the merged set keeps step_attempt at 3 and moves
+#: gate_interactions — byte-identical SQL — to 4. A database built before that
+#: merge records the gate bytes under version 3 and is **refused** at boot,
+#: with the renumbering named and one remedy: rebuild the database from the
+#: current schema. No data migration is offered because none shipped — no
+#: release carried the branch-only numbering, so nothing but pre-merge branch
+#: databases ever held it.
 SHIPPED_MIGRATIONS: tuple[Migration, ...] = (
     _load(1, "runtime_schema"),
     _load(2, "step_record_metadata"),
     _load(3, "step_attempt"),
+    _load(4, "gate_interactions"),
 )
 
 
@@ -202,6 +213,29 @@ def _check_ledger(ledger: dict[int, str], shipped: dict[int, Migration]) -> None
     for version, recorded in sorted(ledger.items()):
         migration = shipped[version]
         if recorded != migration.checksum:
+            # The recorded bytes may be a shipped revision under another
+            # number — the one case a checksum mismatch is not an edit: the
+            # revision was renumbered after this database was built.
+            renamed = next(
+                (
+                    other
+                    for other in shipped.values()
+                    if other.version != version and other.checksum == recorded
+                ),
+                None,
+            )
+            if renamed is not None:
+                raise MigrationRefused(
+                    f"Revision {version} was applied as {renamed.name!r}, which "
+                    f"this code ships as revision {renamed.version}: the revision "
+                    "was renumbered after this database was built.",
+                    version=version,
+                    expected_checksum=migration.checksum,
+                    actual_checksum=recorded,
+                    repair="renumbered revisions are never re-ledgered; rebuild "
+                    "this database from the current schema. No data migration "
+                    "shipped for the renumbering.",
+                )
             raise MigrationRefused(
                 f"Revision {version} ({migration.name}) was applied with a different "
                 f"text than this code ships.",

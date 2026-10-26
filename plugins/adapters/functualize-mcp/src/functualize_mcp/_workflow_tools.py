@@ -175,7 +175,7 @@ class WorkflowToolProvider:
 
     @property
     def operator_store(self) -> Any:
-        """The selected store for list, show, cancel and reclaim."""
+        """The selected store for list, show, answer, draft, resume, cancel and reclaim."""
         if self._operator_store is None:
             from functualize.app.utils import selected_workflow_store
 
@@ -314,13 +314,15 @@ class WorkflowToolProvider:
         unset: list[str] | None = None,
         clear: bool = False,
     ) -> dict[str, Any]:
-        resolved = resolve_gate(self.store, workflow_id, gate, include_answered=reopen)
+        resolved = resolve_gate(
+            self.operator_store, workflow_id, gate, include_answered=reopen
+        )
         if isinstance(resolved, dict):
             return resolved
         scope_id, gate_name = resolved
         return answer_gate(
             self._app,
-            self.store,
+            self.operator_store,
             scope_id,
             gate_name,
             values,
@@ -352,11 +354,11 @@ class WorkflowToolProvider:
     async def _get_gate_draft(
         self, workflow_id: str | None = None, gate: str | None = None
     ) -> dict[str, Any]:
-        resolved = resolve_gate(self.store, workflow_id, gate)
+        resolved = resolve_gate(self.operator_store, workflow_id, gate)
         if isinstance(resolved, dict):
             return resolved
         scope_id, gate_name = resolved
-        return gate_draft(self._app, self.store, scope_id, gate_name)
+        return gate_draft(self._app, self.operator_store, scope_id, gate_name)
 
     _get_gate_draft.__name__ = "get_gate_draft"
     _get_gate_draft.__qualname__ = "get_gate_draft"

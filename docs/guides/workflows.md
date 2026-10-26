@@ -702,6 +702,63 @@ filesystem is durable and keep the default layout.
 `func builtin data show` reports where each one actually is, which is the
 command to run when a resume cannot find its scope.
 
+### Gate effects are delivered at least once
+
+Answering a gate is a state change with a side effect behind it, and the two
+cannot be separated by a crash. On a store that declares a durable outbox —
+SQLite does — the accepted answer, the decision that accepted it and the
+*intent* to announce it commit as **one transaction**: a crash leaves all
+three or none, so there is never an answered gate nobody heard about, and
+never an announcement for an answer that never happened.
+
+Delivery of that intent is **at least once**, not exactly once. A dispatcher
+hands each committed intent to the receiver registered for its topic
+(`gate.accepted`), and a process that dies between the receiver and the
+acknowledgement gets the intent redelivered — by the next boot, the next
+answer, the next resume. So the receiver applies each effect's
+`idempotency_key` **once**: the key is stable (`gate.accepted:<request_id>`),
+and deduplicating on it is what turns at-least-once delivery into
+exactly-once application. This is the contract; nothing built on the outbox
+promises a single delivery.
+
+A receiver is a plugin, registered before boot selects the store:
+
+```python
+class GateAuditor:
+    topic = "gate.accepted"
+
+    def __init__(self) -> None:
+        self.applied: set[str] = set()
+
+    def receive(self, effect) -> None:
+        if effect.idempotency_key in self.applied:
+            return  # a redelivery: already applied
+        self.applied.add(effect.idempotency_key)
+        ...  # record the acceptance where the outside world reads it
+
+
+def register(app):
+    app.extensions.register_effect_receiver(GateAuditor())
+```
+
+One receiver per topic; a second for the same topic is refused. Registering
+one declares that this project's store must have a durable outbox — boot
+refuses to come up on the document store with a receiver registered, naming
+`runtime_store.url` as the setting to change, because silently dropping every
+committed intent is the failure this whole arrangement exists to prevent.
+
+The runnable example is
+[`examples/plugins/effect_receiver/`](https://github.com/raicing-ai/functualize/tree/master/examples/plugins/effect_receiver/):
+a key-deduplicating receiver, its plugin registration, and a test that
+answers a real gate over SQLite and watches the delivery arrive.
+
+`Notify` is the deliberate opposite: a notification whose record commits
+before the provider call, delivered at-most-once — it would rather drop one
+than repeat one. When a notification must survive a crash, it is an outbox
+receiver, not a `Notify`.
+
+---
+
 ### Writing your own
 
 A substrate is six methods — `read`, `write`, `lock`, `clear`, `delete`,

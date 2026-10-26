@@ -7,8 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed — an interrupted effecting step stops in doubt instead of re-running
+### Added — gate answers are durable, evidenced, and delivered at least once
+A gate's question and every answer it collects are now first-class records on
+the selected store: the request carries the causal identity of the walk that
+opened it (run, workflow, step, generation), and each candidate carries its
+resolver class and channel, schema identity and version, payload hash,
+supersession, and evidence stored by reference plus digest — never as bytes.
+Every acceptance records the decision that made it: the policy identity and
+version, and the exact candidate ids it observed. The `answer`/`resume`
+commands, `--wf-input`, and the MCP gate tools all address the store selected
+by `runtime_store.url`; with SQLite selected, nothing reads `scopes.json`.
+On a store with a durable outbox (SQLite), the accepted answer, its decision
+and its effect intent commit in **one** transaction, and the intent is
+delivered to the registered receiver **at least once** — redelivered after a
+crash between delivery and acknowledgement, recovered by the next boot, and
+applied exactly once by a receiver that deduplicates on the intent's
+`idempotency_key`. A plugin registers a receiver for the `gate.accepted`
+topic with `app.extensions.register_effect_receiver(...)`; registering one
+declares that the project's store must have a durable outbox, and boot
+refuses the document store with the setting to change. `Notify` keeps its
+record-first, at-most-once rule and is documented as deliberately not the
+outbox. The decision is ADR-034; a runnable receiver ships in
+`examples/plugins/effect_receiver/`.
 
+### Changed — an interrupted effecting step stops in doubt instead of re-running
 `Step(job, effecting=True)` now writes an `attempting` record before its job
 runs. A resume that finds one — the runner died between the effect and the
 record's completion — stops the scope `blocked` at the derived gate
@@ -21,11 +43,8 @@ opens the question again. Steps that declare nothing replay exactly as
 before. A workflow that declares an effecting step digests differently: a
 scope parked under the old digest is refused on resume with the existing
 graph-changed error, once, when the declaration first changes.
-
 Recorded in [ADR-035](contributor/adr/035-an-interrupted-effecting-step-stops-in-doubt.md).
-
 ### Fixed — every shell surface prints the command you can type, and warns about a job-name collision
-
 A grouped job has a dotted identity (`suite.inventory`) and a command path
 (`suite inventory`). Several surfaces printed the identity where a person
 needed the path, so a copied line failed: the "Did you mean" hint
@@ -37,19 +56,16 @@ already spaced a name by replacing its dots (the blocked-run resume line, the
 TUI's browser rows, pre-flight header and refusal hints) take the path from
 the job instead, so a dot inside one job's own name (`tools.lint`) is no
 longer split into two words.
-
 **Breaking:** the shell walks groups one word at a time on both `func` and an
 app's own entry point. `func suite.inventory` is refused with a hint naming
 `func suite inventory`. Programmatic references keep the dotted identity:
 `rc.invoke`, `deps=`, `FromJob`, `[aliases]` targets, state keys, MCP tool
 names and `--json` output.
-
 `func --help` now lists the project's top-level jobs and groups beside
 `builtin`, and still prints for a project that fails to load. The TUI
 navigates groups from the discovered jobs even when no `GroupOptions` are
 declared. `functualize.types.CommandPath` and `JobDescriptor.command_path`
 expose the path to application code.
-
 When two functions normalize to one job name, one of them still runs, and
 the collision is still a warning. It is now shown wherever the command is:
 one stderr line before the job runs, under the command in group help and

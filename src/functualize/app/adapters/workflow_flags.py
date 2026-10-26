@@ -421,23 +421,18 @@ def apply_workflow_flags(
 def _record(app: Any, outcome: WorkflowFlagOutcome) -> None:
     """Answer the gate ``--wf-input`` names, before the walk starts.
 
-    The document path uses :func:`answer_gate`; the relational path appends
-    one evaluated candidate through the selected input writer. A refusal
-    exits here before the walk can re-enter its still-open gate.
+    One path for every store: :func:`resolve_gate` then :func:`answer_gate`
+    over the selected store, the same doors ``func builtin workflow answer``
+    and the MCP ``answer_gate`` tool use, so a fused answer and a standalone
+    one record the same candidate, decision and outbox intent. A refusal
+    exits here before the walk can re-enter its still-open gate; an input
+    that does not validate is recorded as a candidate and exits as a usage
+    error, as an incomplete draft always has.
     """
     from functualize.app.utils import GateNotFoundError, answer_gate, resolve_gate
 
     gate, values = outcome.deposit  # type: ignore[misc]
     store = _store(app)
-    if isinstance(store, RuntimeStore):
-        assert outcome.scope_id is not None
-        from functualize.app._workflow_control import _record_port_input
-
-        result = _record_port_input(app, store, outcome.scope_id, gate, values)
-        if "error" in result:
-            click.echo(f"Error: {result['message']}", err=True)
-            raise SystemExit(_usage() if result["error"] == "validation_error" else 1)
-        return
     try:
         resolved = resolve_gate(store, outcome.scope_id, gate)
         if isinstance(resolved, dict):

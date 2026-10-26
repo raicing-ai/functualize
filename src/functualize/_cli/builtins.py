@@ -1123,6 +1123,10 @@ def register_builtin_commands(cli_group: Any) -> None:
         "gate_already_consumed": int(ExitCode.USAGE),
         "tool_not_permitted": int(ExitCode.USAGE),
         "argument_not_permitted": int(ExitCode.USAGE),
+        # The two refusals a relational store gives the answer verbs: it
+        # keeps drafts only as submissions, and has no step deletion.
+        "draft_requires_commit": int(ExitCode.USAGE),
+        "epilogue_retry_unsupported": int(ExitCode.USAGE),
     }
 
     def _workflow_store(ctx: Any) -> Any:
@@ -1132,7 +1136,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         return ScopeStore(_workflow_app_ref(ctx).substrate)
 
     def _workflow_operator_store(ctx: Any) -> Any:
-        """The selected store for list, show, cancel and reclaim."""
+        """The selected store for list, show, answer, resume, cancel and reclaim."""
         from functualize.app.utils import selected_workflow_store
 
         return selected_workflow_store(_workflow_app_ref(ctx))
@@ -1448,7 +1452,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import answer_gate, gate_draft
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store(ctx)
+        # The selected store: the relational port when one is configured, so
+        # the answer lands where the walk that blocked reads it.
+        store = _workflow_operator_store(ctx)
 
         values = _parse_set(set_pairs)
         if input_json is not None:
@@ -1551,7 +1557,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import resume_scope
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store(ctx)
+        store = _workflow_operator_store(ctx)
 
         payload = None
         if input_json is not None:
@@ -1578,7 +1584,9 @@ def register_builtin_commands(cli_group: Any) -> None:
             )
 
         if fmt == "json":
-            click.echo(json.dumps(result, indent=2))
+            # A walk that ran carries its run's metadata — enums and a start
+            # time — which plain `json.dumps` refuses; render them as text.
+            click.echo(json.dumps(result, indent=2, default=_json_text))
         if "error" in result:
             if fmt != "json":
                 click.echo(f"Error: {result['message']}", err=True)
@@ -1591,6 +1599,12 @@ def register_builtin_commands(cli_group: Any) -> None:
             ):
                 click.echo(result["return_value"])
         raise SystemExit(_resume_exit(result))
+
+    def _json_text(value: Any) -> Any:
+        """An enum's value, a timestamp's ISO form, anything else's ``str``."""
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return getattr(value, "value", None) or str(value)
 
     def _resume_exit(result: dict[str, Any]) -> int:
         """The walk's own outcome as an exit code.
