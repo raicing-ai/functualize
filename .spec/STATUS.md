@@ -4171,3 +4171,5 @@ The whole-feature gate covering those cases passed (2283 passed, 389 skipped),
 as did the standalone group-options example (18 tests), Ruff check and format,
 mypy, and all seven import contracts; the dead-code delta reported no new
 findings.
+
+Checked invocation and captured child output are recorded in [ADR-036](../contributor/adr/036-checked-invocation-and-capture.md).

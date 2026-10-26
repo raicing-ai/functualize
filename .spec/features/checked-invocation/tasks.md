@@ -191,7 +191,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
 
 ## Wave 6 — the record
 
-- [ ] **6.1 ADR, changelog, status** — **[F]**
+- [x] **6.1 ADR, changelog, status** — **[F]**
   `contributor/adr/036-checked-invocation-and-capture.md` (new),
   `CHANGELOG.md`, `.spec/STATUS.md`
   - The ADR records D1–D5 as answered, S1 and S4, and the retirement of
