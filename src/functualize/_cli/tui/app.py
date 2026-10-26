@@ -90,6 +90,7 @@ from functualize._cli.tui.sync import (
     sync_pending_overrides_to_bar,
 )
 from functualize._cli.tui.theme_manager import ThemeManager
+from functualize.plugin import SettingsSources
 from functualize.types import EnvironmentSource
 
 if TYPE_CHECKING:
@@ -950,11 +951,14 @@ class FunctualizeInlineTUI(App[int]):
     def _settings_file_candidates(self) -> list[NewFileCandidate]:
         """Conventional locations for a `func` settings file."""
         cwd = Path.cwd()
+        project_names = SettingsSources().project_file_names
+        # The picker displays the dedicated file before the shared file, even
+        # though the resolver probes the shared file first.
         raw: list[tuple[Path, str]] = [
-            (cwd / ".functualize.toml", "project settings"),
-            (cwd / "pyproject.toml", "project settings under [tool.functualize]"),
+            (cwd / project_names[1], "project settings"),
+            (cwd / project_names[0], "project settings under [tool.functualize]"),
             (
-                cwd / ".functualize" / ".functualize.toml",
+                cwd / project_names[2],
                 "project settings (convention directory)",
             ),
             (self._settings_store.global_path, "global — every project"),
