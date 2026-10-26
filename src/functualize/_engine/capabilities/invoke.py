@@ -68,6 +68,18 @@ override it and because a caller cannot reason about a number it cannot see.
 """
 
 
+def _child_failed(status: RunStatus) -> bool:
+    """Did an invoked child fail, as its parent sees it?
+
+    The one answer behind the ``INVOKE_FAILURE`` hook, ``parallel``'s
+    ``raise_on_failure`` and ``JobResult.raise_for_status()``: a child crosses a
+    tool boundary into its parent, so it is :attr:`Family.TOOL`'s rule.
+    ``SUCCESS``, ``SKIPPED`` and ``BLOCKED`` are not failures; ``TIMEOUT``,
+    ``CANCELLED`` and ``UNKNOWN`` are, beside ``FAILURE`` and ``REFUSED``.
+    """
+    return is_failure(status, family=Family.TOOL)
+
+
 @dataclass(frozen=True)
 class InvokeResult:
     """Lightweight result type for job invocations via the Invoke capability.
@@ -124,7 +136,9 @@ class Invoke:
             timeout: Optional timeout in seconds.
             **kwargs: Arguments to pass to the job.
 
-        A single invocation returns its JobResult. For a batch, use
+        A single invocation returns its JobResult whatever the child's
+        outcome; call ``.raise_for_status()`` on it to raise
+        ``JobFailedError`` when the child failed. For a batch, use
         ``parallel``; it raises on failed children by default and accepts
         ``raise_on_failure=False`` to return all results.
 
@@ -371,7 +385,6 @@ class WiredInvoke(Invoke):
         """
         from functualize._events.hooks import HookEvent
         from functualize._types.descriptors import JobResult as _JobResult
-        from functualize._types.enums import RunStatus
         from functualize._types.errors import RecursionLimitError
 
         # --- Resolve job_or_fn ---
@@ -514,10 +527,11 @@ class WiredInvoke(Invoke):
             )
 
         # --- Fire INVOKE_FAILURE hook ---
-        # A refusal is a way for a child invoke to not have done its work, so
-        # the hook that exists to notice that must see it. `== FAILURE` let a
-        # refused child pass by silently.
-        if result.status in (RunStatus.FAILURE, RunStatus.REFUSED):
+        # The hook, `parallel` and `raise_for_status()` ask one question, so a
+        # child that timed out or was cancelled is a failure to all three. A
+        # hand-kept tuple here let a refused child, and later a timed-out one,
+        # pass the hook silently while the parent's own check raised.
+        if _child_failed(result.status):
             failure_hooks = hook_registry._global_hooks.get(
                 HookEvent.INVOKE_FAILURE, []
             )
@@ -569,7 +583,9 @@ class WiredInvoke(Invoke):
                 (``func builtin parallel --output grouped|prefixed``); a caller
                 cannot reconstruct it from the returned results.
             raise_on_failure: Raise after collection when a child has a failed
-                tool status. Set to ``False`` to receive all ordered results.
+                tool status — the statuses ``JobResult.raise_for_status()``
+                raises for. Set to ``False`` to receive all ordered results and
+                check each with ``raise_for_status()``.
 
         Returns:
             One JobResult per input, in input order, when no child failed or
@@ -584,7 +600,7 @@ class WiredInvoke(Invoke):
             failed = [
                 (index, result)
                 for index, result in enumerate(results, start=1)
-                if is_failure(result.status, family=Family.TOOL)
+                if _child_failed(result.status)
             ]
             if failed:
                 details = ", ".join(

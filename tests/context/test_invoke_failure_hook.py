@@ -1,6 +1,6 @@
 """Tests for INVOKE_FAILURE hook integration (Task 8.3).
 
-Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6
+Requirements: 21.1, 21.2, 21.3, 21.4, 21.5
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class TestInvokeFailureHook:
         assert received[0]["status"] == RunStatus.FAILURE
 
     def test_invoke_failure_not_fired_on_success(self, tmp_path):
-        """INVOKE_FAILURE does NOT fire when child succeeds (Req 21.6)."""
+        """INVOKE_FAILURE does NOT fire when child succeeds."""
         source = """\
             from functualize.job.context import RunContext
 
@@ -105,8 +105,12 @@ class TestInvokeFailureHook:
 
         assert received == []
 
-    def test_invoke_failure_not_fired_on_timeout(self, tmp_path):
-        """INVOKE_FAILURE does NOT fire when child times out (Req 21.6)."""
+    def test_invoke_failure_fired_on_timeout(self, tmp_path):
+        """INVOKE_FAILURE fires when a child times out.
+
+        A timed-out child did not do its work, and `raise_for_status()` raises
+        for it, so the hook agrees. The hook used to exempt timeouts.
+        """
         source = """\
             import time
             from functualize.job.context import RunContext
@@ -125,7 +129,7 @@ class TestInvokeFailureHook:
         received = []
         app.hook_registry.register_global(
             HookEvent.INVOKE_FAILURE,
-            lambda rc, name, depth, result: received.append(name),
+            lambda rc, name, depth, result: received.append((name, result.status)),
         )
 
         import click.testing
@@ -133,7 +137,7 @@ class TestInvokeFailureHook:
         runner = click.testing.CliRunner()
         runner.invoke(app.cli_command, ["parent_job"])
 
-        assert received == []
+        assert received == [("slow-job", RunStatus.TIMEOUT)]
 
 
 class TestInvokeFailureBeforeEnd:

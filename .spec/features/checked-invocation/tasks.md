@@ -109,7 +109,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
 
 ## Wave 3 — one predicate (`invoke.py`, part 1)
 
-- [ ] **3.1 `_child_failed` behind the hook and `parallel`** (A6, D3; AC4, AC5)
+- [x] **3.1 `_child_failed` behind the hook and `parallel`** (A6, D3; AC4, AC5)
   — **[F]** `src/functualize/_engine/capabilities/invoke.py`,
   `tests/context/test_invoke_failure_hook.py`,
   `tests/hooks/test_invoke_failure_properties.py`,
