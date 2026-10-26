@@ -556,10 +556,14 @@ its signature, and nothing in the listing path calls it.
     must-not-change sentence is about function entry points, and a class entry
     point is not one;
   - the name is a `FunctionDef`, or the source cannot be resolved → today's
-    path exactly: one descriptor, `function=None`, no import. If
-    materialisation then finds a class, it raises a `JobMaterializationError`
-    naming the entry point rather than registering a function-shaped job for a
-    class — a finding, never a wrong job.
+    path exactly: one descriptor, `function=None`, no import. At first use, if
+    the resolved object is a class, the record is a `JobMaterializationError`
+    whose message names the entry point and the class and says the entry point
+    declares a *job class* where a job *function* was expected — it must not
+    claim an import failure, because the module imported fine and the name
+    resolved. The message is built at the raise site (no new public exception
+    class). The unresolvable-source case is the documented limitation D10
+    accepts: a finding at first use, never a wrong job.
 - **Materialisation.** `_import_real_function` (`lazy_wrapper.py:64-138`) gets a
   class branch after `module = importlib.import_module(module_path)` (`:129`):
   `getattr(module, descriptor.owner_class)` then the method, then
@@ -655,13 +659,15 @@ output pasted into the hand-off. Example projects run separately:
   module's source and imported only when the source says it is a class. The
   alternative — importing to classify — would falsify the must-not-change
   sentence about function entry points.
-- **D10 (needs maintainer review):** methods inherited from a base that lives in
+- **D10 (confirmed 2026-10-26T13:28:04Z, comment 01a17865-90c3: accept —
+  option A):** methods inherited from a base that lives in
   **another module** are enumerated live at materialisation and are therefore
   complete for a job-directory class and for `StaticProvider`, but for an
   entry-point class they are enumerated from the live import too (§4.6 imports
   on the class branch) — so the only residual gap is a distribution whose
   module source cannot be located at all. *Recommendation:* accept; the
-  fallback is a finding, not a wrong job.
+  fallback is a finding, not a wrong job. Option A obliges two guards: the
+  unlocatable-source test in task 3.4 and the `isclass` guard in task 3.5.
 
 ## Surviving smells
 

@@ -253,7 +253,14 @@ tasks in five waves.
     set; `StaticProvider([Postgres])` yields the same descriptors as the
     directory scan of the same module; `StaticProvider([Job(function=Postgres)])`
     raises `ValueError`; the same class from both sources collides per 3.3; a
-    malformed entry point is still warned and skipped, unchanged.
+    malformed entry point is still warned and skipped, unchanged; an
+    unlocatable-source case — a zipimport fixture: a `.whl` on `sys.path`
+    whose module is the entry-point target and whose source `open()` cannot
+    read (`NotADirectoryError`, errno 20) — `list_jobs()` returns exactly one
+    descriptor with `function=None` and the module never enters `sys.modules`;
+    first materialisation raises `JobMaterializationError` whose message names
+    the entry point and the class and does not contain `failed to import
+    module`.
   - **Invariants:** "enumeration imports nothing" holds for function entry
     points; `find_spec` imports parent packages only — asserted by checking the
     job module is absent from `sys.modules`.
@@ -276,14 +283,22 @@ tasks in five waves.
     the unconditional `self.config_class = _detect_config_class(real_fn)` at
     `:200` becomes the function path only, so no detection runs on
     a proxy; the synthetic-source branch, the import lock and the `sys.path`
-    handling above it are untouched.
+    handling above it are untouched. On the function branch, after `getattr(module,
+    descriptor.attribute_name)` (`:131-132`), an `isclass` check: a class
+    reached where a function was expected raises the materialisation error
+    naming the entry point and the class, and is never handed to
+    `_build_descriptor`, whose `callable()` test (`providers.py:853-855`,
+    `func = obj if callable(obj) else lambda: None`) accepts a class because a
+    class is callable.
   - **Tests (unit):** a warm descriptor (no `function`) materialises to a proxy
     whose `job_class` is the class and whose `method_name` is the method, and
     whose `__functualize_job__` is the descriptor's declaration object (`is`);
     `_ensure_materialized` keeps `config_class` as the job class; a
     missing class or method raises the existing materialisation error type with
     the descriptor's identity in the message; a plain-function descriptor takes
-    the unchanged path.
+    the unchanged path; a plain descriptor whose attribute resolves to a class
+    raises the materialisation error naming the entry point and the class —
+    the `isclass` guard, with `_build_descriptor` never reached.
   - **Invariants:** no second import lock, no `sys.path` change.
   - **Acceptance:** a lazy boot reaches a class job.
   - **Reachability:** reachable from `LazyJobFunction.materialize` directly,
