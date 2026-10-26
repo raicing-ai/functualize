@@ -2,7 +2,11 @@
 
 from dataclasses import fields
 
-from functualize.types import JobResult, RunStatus
+import pytest
+
+from functualize._types.errors import JobFailedError
+from functualize.app.core import FunctualizeApp
+from functualize.types import JobResult, RunRequest, RunStatus
 
 
 class TestFrozenShape:
@@ -23,3 +27,46 @@ class TestFrozenShape:
 
         assert first == second
         assert hash(first) == hash(second)
+
+
+class TestStatusTable:
+    @pytest.mark.parametrize("status", list(RunStatus))
+    @pytest.mark.parametrize("exception", [None, RuntimeError("boom failed")])
+    def test_every_status_with_and_without_an_exception(
+        self, status: RunStatus, exception: RuntimeError | None
+    ) -> None:
+        result = JobResult(status, None, 0.0, {"source": "child"}, exception, "boom")
+        if status in {RunStatus.SUCCESS, RunStatus.SKIPPED, RunStatus.BLOCKED}:
+            assert result.raise_for_status() is result
+            return
+
+        with pytest.raises(JobFailedError) as raised:
+            result.raise_for_status()
+
+        error = raised.value
+        assert error.result is result
+        assert error.job_name == "boom"
+        assert error.status is status
+        assert error.exception is exception
+        assert error.__cause__ is exception
+        assert "boom" in str(error)
+        assert status.value in str(error)
+        if exception is not None:
+            assert "RuntimeError: boom failed" in str(error)
+
+
+class TestProductionResult:
+    def test_app_execute_result_reaches_the_checked_method(self) -> None:
+        def fail() -> None:
+            raise RuntimeError("child failed")
+
+        app = FunctualizeApp(name="checked-result")
+        app.register_dynamic_job("fail", fail)
+
+        result = app.execute(RunRequest(job_name="fail", surface="app.execute"))
+
+        assert result.status is RunStatus.FAILURE
+        with pytest.raises(JobFailedError) as raised:
+            result.raise_for_status()
+        assert raised.value.result is result
+        assert raised.value.job_name == "fail"

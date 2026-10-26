@@ -52,7 +52,7 @@ sabotage**: commit first, break the named call, watch the named test fail,
 
 ## Wave 1 — vocabulary (`_types`)
 
-- [ ] **1.1 `JobFailedError` + `JobResult.raise_for_status()`** (C1, C2; A1–A3,
+- [x] **1.1 `JobFailedError` + `JobResult.raise_for_status()`** (C1, C2; A1–A3,
   AC3) — **[F]** `src/functualize/_types/errors.py`,
   `src/functualize/_types/descriptors.py`,
   `tests/types/test_job_result_raise_for_status.py`
