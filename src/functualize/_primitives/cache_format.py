@@ -26,8 +26,8 @@ from typing import Any
 from functualize._primitives.locator import (
     _xdg_cache_dir,
     compute_project_id,
-    find_functualize_dir,
 )
+from functualize._primitives.project_root import find_functualize_dir
 
 # Current cache file format version. Bump on any incompatible format change.
 # v4: FieldDescriptor gained is_stdin/stdin_flag (Stdin() marker fidelity in the

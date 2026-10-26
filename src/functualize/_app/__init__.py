@@ -54,7 +54,7 @@ from functualize._app.impl import (
     shutdown_plugins,
 )
 from functualize._app.state import AppState
-from functualize._primitives.locator import find_functualize_dir
+from functualize._primitives.project_root import find_functualize_dir
 
 __all__ = [
     # Boot orchestration

@@ -28,7 +28,32 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-__all__ = ["AppSettingsSchema", "Setting", "SettingsSources"]
+__all__ = [
+    "PROJECT_FILE_NAMES",
+    "PROJECT_FILE_SECTION_PREFIXES",
+    "AppSettingsSchema",
+    "Setting",
+    "SettingsSources",
+]
+
+
+#: func's project config files, in the order each directory is probed — the
+#: first one present wins for that directory. **The only spelling of this
+#: list.** The upward project walk (``_primitives/project_root.py``) derives its
+#: candidates from it, and ``SettingsSources.project_file_names`` defaults to
+#: it, so the documented field is the list ``func`` actually reads.
+PROJECT_FILE_NAMES: tuple[str, ...] = (
+    "pyproject.toml",
+    ".functualize.toml",
+    ".functualize/.functualize.toml",
+)
+
+#: ``{file name: table}`` for the project files that are *shared* with other
+#: tools, so func's settings live in a table of their own. A file not named here
+#: is func's alone and holds its settings at the top level.
+PROJECT_FILE_SECTION_PREFIXES: Mapping[str, str] = MappingProxyType(
+    {"pyproject.toml": "tool.functualize"}
+)
 
 
 @dataclass(frozen=True)
@@ -93,16 +118,12 @@ class SettingsSources:
     """
 
     global_file_name: str = "config.toml"
-    project_file_names: tuple[str, ...] = (
-        "pyproject.toml",
-        ".functualize.toml",
-        ".functualize/.functualize.toml",
-    )
+    project_file_names: tuple[str, ...] = PROJECT_FILE_NAMES
     env: bool = True
 
 
 def _default_file_section_prefixes() -> Mapping[str, str]:
-    return MappingProxyType({"pyproject.toml": "tool.functualize"})
+    return PROJECT_FILE_SECTION_PREFIXES
 
 
 @dataclass(frozen=True)

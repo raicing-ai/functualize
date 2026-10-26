@@ -41,8 +41,11 @@ from typing import Any
 from functualize._config.merge import merge_config_layers
 from functualize._primitives.locator import (
     ResourceLocator,
-    find_functualize_dir,
     xdg_config_dir,
+)
+from functualize._primitives.project_root import (
+    PROJECT_CONFIG_CANDIDATES,
+    find_functualize_dir,
 )
 
 __all__ = [
@@ -101,41 +104,6 @@ def read_toml_file(path: Path) -> dict[str, Any] | None:
     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         _warn(f"{path}: {exc}")
         return {}
-
-
-def _extract_functualize_section(path: Path) -> dict[str, Any] | None:
-    """Extract [tool.functualize] section from a pyproject.toml file.
-
-    Args:
-        path: Path to the pyproject.toml file.
-
-    Returns:
-        The dict under [tool.functualize] if present, or None.
-    """
-    try:
-        content = path.read_bytes()
-        data = tomllib.loads(content.decode("utf-8"))
-    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
-        return None
-
-    tool = data.get("tool", {})
-    if isinstance(tool, dict):
-        section = tool.get("functualize")
-        if isinstance(section, dict):
-            return section
-    return None
-
-
-# Candidate list for project config resolution.
-# Order within the list defines priority per directory (first match wins):
-# 1. pyproject.toml [tool.functualize] section (highest priority — standard location)
-# 2. Plain .functualize.toml at directory root
-# 3. .functualize/.functualize.toml (convention directory)
-PROJECT_CONFIG_CANDIDATES: list[str | tuple[str, Any]] = [
-    ("pyproject.toml", _extract_functualize_section),
-    ".functualize.toml",
-    ".functualize/.functualize.toml",
-]
 
 
 def _flatten_dedup_resolve(

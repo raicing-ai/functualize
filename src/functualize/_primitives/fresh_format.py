@@ -40,8 +40,8 @@ from typing import TYPE_CHECKING, Any
 from functualize._primitives.locator import (
     _xdg_cache_dir,
     compute_project_id,
-    find_functualize_dir,
 )
+from functualize._primitives.project_root import find_functualize_dir
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

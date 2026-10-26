@@ -29,7 +29,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize._primitives import compute_project_id
-from functualize._primitives.locator import ResourceLocator, find_functualize_dir
+from functualize._primitives.locator import ResourceLocator
+from functualize._primitives.project_root import find_functualize_dir
 from functualize._types.errors import SubstrateInstallError
 
 if TYPE_CHECKING:

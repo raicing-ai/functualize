@@ -34,8 +34,8 @@ from pathlib import Path
 from functualize._primitives.locator import (
     _xdg_data_dir,
     compute_project_id,
-    find_functualize_dir,
 )
+from functualize._primitives.project_root import find_functualize_dir
 
 __all__ = ["project_root_for", "vault_path_for_project"]
 
