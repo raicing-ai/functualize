@@ -22,8 +22,9 @@ exactly what it does today.
   `01a177e2-43ac-7db8-83d1-21948b9b0a3e` (2026-10-26T11:04:39Z).
   Execute is authorised against the confirmed contracts and task graph.
 
-Base: `master` `b3e624bd`. Every citation and count below was re-measured on
-that head on 2026-10-24.
+Original planning base: `master` `b3e624bd`, measured 2026-10-24. Execution
+base: `11ed0e82`, remeasured 2026-10-26; the public-surface set moved ten lines
+to `tests/test_public_api_surface.py:253-299`, while cited engine anchors stayed.
 
 ## 1. Problem
 

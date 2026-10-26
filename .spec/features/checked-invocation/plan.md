@@ -2,7 +2,8 @@
 
 Drafted 2026-10-24 against `spec.md`; confirmed by the maintainer on
 2026-10-26 in comment `01a177e2-43ac-7db8-83d1-21948b9b0a3e`.
-Base `master` `b3e624bd`, branch `sdd/checked-invocation`.
+Original planning base `master` `b3e624bd`; execution base `11ed0e82`, branch
+`sdd/checked-invocation`.
 Execute is authorised for the confirmed task graph.
 
 ## Alignment

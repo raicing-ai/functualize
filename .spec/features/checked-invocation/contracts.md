@@ -2,7 +2,7 @@
 
 What a user can name, call or read after this change. The behaviour is in
 `spec.md`; decisions D1–D5 were confirmed 2026-10-26, and each contract below
-is authorised. Base `b3e624bd`.
+is authorised. Original planning base `b3e624bd`; execution base `11ed0e82`.
 
 ## C1 — `JobResult.raise_for_status()` (FOSS-106)
 
@@ -120,13 +120,13 @@ The two key strings are a **documented contract**, not module-level names.
 They are pinned by a behaviour test (`tasks.md` 3.2), not by the export set.
 That is consistent with the shape page, which pins *names* in
 `tests/test_public_api_surface.py`, and that file pins `__all__` and nothing
-else (`tests/test_public_api_surface.py:359-548`, five classes, all over
+else (`tests/test_public_api_surface.py:369-558`, five classes, all over
 `__all__`).
 
 ## C4 — the pinned public surface: the test diff Execute owes
 
 One name, one module, one line, measured against `EXPECTED_EXPORTS` at
-`tests/test_public_api_surface.py:243-289`:
+`tests/test_public_api_surface.py:253-299`:
 
 ```diff
      "functualize.types": {

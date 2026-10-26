@@ -1,6 +1,7 @@
 # checked-invocation — Tasks
 
-Base `master` `b3e624bd`, branch `sdd/checked-invocation`. Spec AC1–AC16,
+Original planning base `master` `b3e624bd`; execution base `11ed0e82`, branch
+`sdd/checked-invocation`. Spec AC1–AC16,
 contracts C1–C5, plan §2–§7.
 
 > **Executable.** The maintainer confirmed D1–D5 and accepted S1 in comment
@@ -19,6 +20,13 @@ Authoring-time measurements (2026-10-24, `b3e624bd`):
 
 If `master` has moved when wave 0 starts, rebase first and re-run these.
 
+Execution remeasurement (2026-10-26, rebased on `11ed0e82`): the two
+constructor/capture queries still have zero hits; `INVOKE_FAILURE` still occurs
+in four production files; serena finds four production `nested_request` sites;
+the six-file baseline is 105 passed, 5 skipped; `lint-imports` is 7 kept,
+0 broken. The `functualize.types` surface set moved to
+`tests/test_public_api_surface.py:253-299`; the cited engine anchors did not move.
+
 **Every task's gate also includes:** `uv run ruff check` and `ruff format --check`
 on the touched files; `uv run mypy src/`; `uv run lint-imports` (7 kept);
 the step tier
@@ -29,17 +37,17 @@ sabotage**: commit first, break the named call, watch the named test fail,
 
 ## Wave 0 — pin today
 
-- [ ] **0.1 Pin the unchanged surfaces** (AC7 shape half, AC9 default half) —
+- [x] **0.1 Pin the unchanged surfaces** (AC7 shape half, AC9 default half) —
   **[F]** `tests/types/test_job_result_raise_for_status.py` (new),
   `tests/engine/test_invoke_capture.py` (new)
   - `TestFrozenShape`: `dataclasses.fields(JobResult)` names, order and
-    `compare`/`hash` flags equal the literal at `b3e624bd`. Two equal results
+    `compare`/`hash` flags equal the literal at `11ed0e82`. Two equal results
     compare equal and hash equal. `exception` is excluded from both.
   - `TestDefaultPathUnchanged`: through a real app, a parent invokes a child
     that emits `{"step": "a"}`, then emits its own document. Stdout is exactly
     `{"step":"a"}\n{"step":"parent"}\n` under `--emit-format json`, and the
     child's returned metadata has neither `"emitted"` nor `"writes"`.
-  - Gate: both classes are **green at `b3e624bd`** before any `src/` change.
+  - Gate: both classes are **green at `11ed0e82`** before any `src/` change.
     This is a pin, not a red test.
 
 ## Wave 1 — vocabulary (`_types`)
