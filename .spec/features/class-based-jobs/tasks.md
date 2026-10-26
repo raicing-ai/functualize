@@ -18,7 +18,7 @@ Authoring-time gate runs (2026-10-21, at `8ef1381`):
 
 ## Wave 0
 
-- [ ] **1.1 — `ClassJobMethod`, the instance-free callable of a class job** (C1; spec F1)
+- [x] **1.1 — `ClassJobMethod`, the instance-free callable of a class job** (C1; spec F1)
   - **[F]** `src/functualize/_types/class_job.py` (new), `tests/types/test_class_job.py` (new)
   - **Inputs:** `plan.md` §4.4; `schema.md` §6; `_types/annotations.resolved_hints`.
   - **Do:** `ClassJobMethod(job_class, method_name, declaration)` exposing
