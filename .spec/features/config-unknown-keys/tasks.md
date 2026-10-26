@@ -142,7 +142,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     passed; `mypy src/` found no issues in 413 source files; `lint-imports`
     7 kept / 0 broken. The old accepted-values spelling remains an alias
     while public callers migrate.
-- [ ] **4.2 `_cli/config.py`** (F9; rev6 staged removal) — **[F]** `src/functualize/_cli/config.py`,
+- [x] **4.2 `_cli/config.py`** (F9; rev6 staged removal) — **[F]** `src/functualize/_cli/config.py`,
   `tests/cli/test_cli_config.py`, `tests/cli/test_cli_config_vault.py`, `tests/cli/test_resolve_cli_config.py`
   - `CliConfig` becomes a projection of `ResolvedSettings`. Delete
     `_RECOGNIZED_*`, `resolve_env_overrides`, and `resolve_cli_config`'s own
@@ -156,6 +156,49 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     read at `:340-342` (`from functualize._cli.config import resolve_cli_config`;
     `obj["cli_config"] = resolve_cli_config()`) takes the `CliConfig` projection
     of `app.settings` instead. Gate: `rg -n '_cli\.config' src/functualize/app` → 0.
+  - *Result:* `CliConfig` and its projection live in `src/functualize/app/config.py`
+    (`CliConfig.from_settings(ResolvedSettings)`); `_cli/config.py` re-exports the
+    type and keeps `resolve_cli_config(*, cli_flags=None, cwd=None)` with its
+    exact signature, its body now one `resolve_app_settings(...)` call into the
+    projection. The type had to move: the app layer may not name
+    `functualize._cli.config` (literal gate), and `_cli` may not import
+    `_config` (`_cli uses public API only`), so the app layer — which may import
+    `_config` — is the only home both sides can reach. `builtin_context_obj`
+    now reads `app.settings` and degrades to a warning as before, leaving
+    `cli_config` unset when there is no app.
+  - *Retained, marked `TRANSITIONAL(config-unknown-keys/8.1)`:*
+    `read_global_config`, `resolve_cli_config_layers`, `SettingsFileInfo`, and
+    `_RECOGNIZED_SECTIONS`/`_RECOGNIZED_TOP_LEVEL_KEYS`/`_RECOGNIZED_KEYS`.
+    The tables could not be deleted with `read_global_config` still in place —
+    it is their only consumer and its warning behaviour is unchanged — so they
+    go with it in 8.1.
+  - *Deleted:* `resolve_env_overrides`, `_get_value`, `_merge_lists_dedup`,
+    `_parse_bool_env`, `_resolve_import_libs` (its absolutise-and-dedup
+    behaviour survives as `_absolute_import_libs` inside the projection).
+    `rg -n 'resolve_env_overrides|_merge_lists_dedup|_parse_bool_env|_get_value|_resolve_import_libs' src tests docs` → 0.
+  - *Observed:* the row's three warning tests (`test_cli_config.py:108,125,190`)
+    and `test_cli_config_vault.py:85` are now `builtin config path` assertions
+    (`TestConfigPathAfterUnknownKeys`, `test_an_unknown_vault_key_still_reports_the_file`):
+    an unknown key changes neither the reported file nor the exit code, and
+    resolve time stays silent. Feature property tests of the deleted helpers
+    went with them; environment-name and precedence coverage stays with the
+    shared resolver's own suites (`tests/config/test_env_name_rule_parity.py`,
+    `tests/config/test_env_overlay_properties.py`).
+    `rg -n '_cli\.config' src/functualize/app` → 0 (exit 1).
+    `pytest tests/cli/test_cli_config.py tests/cli/test_cli_config_vault.py tests/cli/test_resolve_cli_config.py tests/cli/test_config_properties.py tests/cli/test_handlers.py tests/standalone/test_cli.py tests/config/test_settings_pin.py`
+    → 77 passed, 12 skipped. `pytest tests/cli tests/config tests/standalone tests/_cli`
+    → 4100 passed, 685 skipped, 1 failed
+    (`test_workflow_answer_relational.py::TestCliAnswerAndResume::test_resume_with_fused_input_answers_and_advances`),
+    which reproduces on a pristine `3fa45fd8` extraction (`workflow_not_found`,
+    `No workflow scope 'rel-1'`) and is untouched by this row. `mypy` clean on
+    the three modules; `lint-imports` 7 kept / 0 broken; `ruff check` and
+    `ruff format --check` clean. A live probe of the projection resolves
+    `output`/`show_timing`/`scan_depth`/`aliases`/`anchor`/`vault.keyring_timeout`/
+    `discovery.extra_directories` from a project file and absolutises
+    `import_libs` against the anchor.
+  - *Residual:* `read_global_config`'s unknown-key warning path is no longer
+    pinned by a test — this row moved those assertions to `config path` — and
+    the function is removed in 8.1.
 - [ ] **4.3 Settings store and TUI** (M4) — **[F]** `src/functualize/_cli/data/func_settings.py`,
   `src/functualize/_cli/data/settings_schema.py`, `src/functualize/_cli/tui/__init__.py`,
   `src/functualize/_cli/tui/settings_panel.py`, `src/functualize/_cli/tui/settings_validator.py`,

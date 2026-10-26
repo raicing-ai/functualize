@@ -19,8 +19,11 @@ accidental mutation during the application lifecycle.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import re
+import sys
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize._discovery import Job
@@ -37,6 +40,7 @@ if TYPE_CHECKING:
     from functualize._types.settings import AppSettingsSchema
 
 __all__ = [
+    "CliConfig",
     "ConfigSources",
     "DiscoveryConfig",
     "ExecutionConfig",
@@ -252,3 +256,173 @@ class DiscoveryConfig:
     #: nine are strings and tuples, and a filter object is hashable only if
     #: its own type is.
     pre_filter: ModulePreFilter | None = None
+
+
+# =============================================================================
+# CliConfig — the CLI layer's projection of the shared settings resolution
+# =============================================================================
+
+_VALID_OUTPUT_FORMATS = frozenset({"rich", "plain", "json"})
+
+# Alias name validation pattern: starts with letter, then alphanumeric/underscore/dash
+_ALIAS_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
+_ALIAS_MAX_LENGTH = 32
+
+
+def _warn(msg: str) -> None:
+    """Emit a warning to stderr."""
+    print(f"Warning: {msg}", file=sys.stderr)
+
+
+def _validate_aliases(aliases_raw: Mapping[str, Any]) -> dict[str, str]:
+    """Validate alias names against pattern and max length, warn on invalid."""
+    validated: dict[str, str] = {}
+    for name, target in aliases_raw.items():
+        if not isinstance(target, str):
+            _warn(f"alias '{name}': value must be a string, skipping")
+            continue
+        if len(name) > _ALIAS_MAX_LENGTH:
+            _warn(
+                f"alias '{name}': name exceeds {_ALIAS_MAX_LENGTH} characters, skipping"
+            )
+            continue
+        if not _ALIAS_PATTERN.match(name):
+            _warn(
+                f"alias '{name}': name does not match pattern "
+                f"[a-zA-Z][a-zA-Z0-9_-]*, skipping"
+            )
+            continue
+        validated[name] = target
+    return validated
+
+
+def _absolute_import_libs(items: Any, anchor: Path) -> tuple[str, ...]:
+    """Absolutise import_lib entries against ``anchor``, deduplicating resolved paths."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items or ():
+        path = Path(str(item))
+        if not path.is_absolute():
+            path = anchor / path
+        resolved = str(path.resolve())
+        if resolved not in seen:
+            seen.add(resolved)
+            result.append(resolved)
+    return tuple(result)
+
+
+@dataclass(frozen=True)
+class CliConfig:
+    """Fully resolved CLI tool configuration (merged from all sources)."""
+
+    discovery: DiscoveryConfig
+    output: str  # "rich" | "plain" | "json"
+    show_timing: bool
+    aliases: dict[str, str]
+    dotenv: bool
+    dotenv_path: str | None
+    scan_depth: int = (
+        0  # Resolved from config escalation (CLI flag takes precedence externally)
+    )
+    import_libs: tuple[str, ...] = ()
+    anchor: Path | None = None  # Directory containing the nearest config file
+    # `[vault] keyring_timeout`, unparsed: the app layer parses it, and only
+    # when it is about to consult the keyring.
+    vault_keyring_timeout: str | None = None
+
+    @classmethod
+    def from_settings(cls, settings: ResolvedSettings) -> CliConfig:
+        """Project a :class:`ResolvedSettings` onto this CLI-facing view."""
+        values = settings.values
+
+        output = str(values.get("cli.output", "rich"))
+        if output not in _VALID_OUTPUT_FORMATS:
+            _warn(
+                f"[cli].output: invalid value '{output}', "
+                f"must be one of {sorted(_VALID_OUTPUT_FORMATS)}, falling back to 'rich'"
+            )
+            output = "rich"
+
+        try:
+            scan_depth = int(values.get("discovery.scan_depth", 0))
+        except (TypeError, ValueError):
+            scan_depth = 0
+
+        anchor = next(
+            (layer.path.parent for layer in settings.layers if layer.kind == "project"),
+            None,
+        )
+
+        aliases_raw: dict[str, Any] = {}
+        for layer in settings.layers:
+            layer_aliases = layer.values.get("aliases")
+            if isinstance(layer_aliases, dict):
+                for name, target in layer_aliases.items():
+                    aliases_raw.setdefault(name, target)
+
+        decorators = values.get("discovery.require_job_decorators")
+        discovery = DiscoveryConfig(
+            exclude_patterns=tuple(values.get("discovery.exclude_patterns", ()) or ()),
+            extra_directories=tuple(
+                values.get("discovery.extra_directories", ()) or ()
+            ),
+            require_file_prefix=values.get("discovery.require_file_prefix"),
+            require_file_postfix=values.get("discovery.require_file_postfix"),
+            require_file_import=values.get("discovery.require_file_import"),
+            require_file_marker=values.get("discovery.require_file_marker"),
+            require_job_decorators=tuple(decorators)
+            if decorators is not None
+            else None,
+            require_job_prefix=values.get("discovery.require_job_prefix"),
+            require_job_postfix=values.get("discovery.require_job_postfix"),
+        )
+
+        vault_keyring_timeout = None
+        if settings.provenance.get("vault.keyring_timeout") not in (None, "default"):
+            vault_keyring_timeout = values.get("vault.keyring_timeout")
+
+        return cls(
+            discovery=discovery,
+            output=output,
+            show_timing=bool(values.get("cli.show_timing", False)),
+            aliases=_validate_aliases(aliases_raw),
+            dotenv=bool(values.get("dotenv", False)),
+            dotenv_path=values.get("dotenv_path"),
+            scan_depth=scan_depth,
+            import_libs=_absolute_import_libs(
+                values.get("import_libs", ()), anchor or Path.cwd()
+            ),
+            anchor=anchor,
+            vault_keyring_timeout=vault_keyring_timeout,
+        )
+
+    def config_sources(self) -> ConfigSources:
+        """The `ConfigSources` every `func` door hands its app.
+
+        One construction rather than one per door, so a setting added here
+        reaches every entry point at once — four doors agreeing and a fifth
+        not is a defect this repository has already shipped.
+        """
+        return ConfigSources(
+            dotenv=self.dotenv,
+            dotenv_path=self.dotenv_path,
+            vault_keyring_timeout=self.vault_keyring_timeout,
+        )
+
+
+def resolve_app_settings(
+    cwd: Path | None = None,
+    *,
+    flags: Mapping[str, Any] | None = None,
+    global_dir: Path | None = None,
+) -> ResolvedSettings:
+    """Resolve the ``func`` settings schema against ``cwd`` and ``flags``."""
+    from functualize._config.settings_resolution import resolve_settings
+    from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
+
+    return resolve_settings(
+        FUNCTUALIZE_SETTINGS,
+        cwd or Path.cwd(),
+        flags=flags,
+        global_dir=global_dir,
+    )

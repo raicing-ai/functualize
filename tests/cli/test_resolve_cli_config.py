@@ -18,14 +18,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from functualize._cli.config import (
-    CliConfig,
-    _merge_lists_dedup,
-    _parse_bool_env,
-    _validate_aliases,
-    resolve_cli_config,
-)
-from functualize.app.config import DiscoveryConfig
+from functualize._cli.config import CliConfig, resolve_cli_config
+from functualize.app.config import DiscoveryConfig, _validate_aliases
 from functualize.app.utils import resolve_user_config_dir
 
 if TYPE_CHECKING:
@@ -344,46 +338,14 @@ class TestListMerge:
         assert "existing/*" in config.discovery.exclude_patterns
         assert "new_pattern/*" in config.discovery.exclude_patterns
 
-    def test_merge_lists_dedup_function(self):
-        """Direct test of _merge_lists_dedup helper."""
-        result = _merge_lists_dedup(["a", "b", "c"], ["b", "d", "e"])
-        assert result == ("a", "b", "c", "d", "e")
-
-    def test_merge_lists_dedup_none_inputs(self):
-        """_merge_lists_dedup handles None inputs gracefully."""
-        assert _merge_lists_dedup(None, None) == ()
-        assert _merge_lists_dedup(["a"], None) == ("a",)
-        assert _merge_lists_dedup(None, ["b"]) == ("b",)
-
 
 # =============================================================================
 # resolve_cli_config — boolean parsing
 # =============================================================================
 
 
-class TestBooleanParsing:
-    """Tests for boolean environment variable parsing."""
-
-    def test_parse_bool_env_true_values(self):
-        """true/1 → True (case-insensitive)."""
-        assert _parse_bool_env("true") is True
-        assert _parse_bool_env("True") is True
-        assert _parse_bool_env("TRUE") is True
-        assert _parse_bool_env("1") is True
-
-    def test_parse_bool_env_false_values(self):
-        """false/0 → False (case-insensitive)."""
-        assert _parse_bool_env("false") is False
-        assert _parse_bool_env("False") is False
-        assert _parse_bool_env("FALSE") is False
-        assert _parse_bool_env("0") is False
-
-    def test_parse_bool_env_invalid_returns_none(self):
-        """Invalid boolean strings return None."""
-        assert _parse_bool_env("yes") is None
-        assert _parse_bool_env("no") is None
-        assert _parse_bool_env("2") is None
-        assert _parse_bool_env("") is None
+class TestShowTimingResolution:
+    """show_timing comes through the shared settings resolver."""
 
     def test_show_timing_env_var_parsed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

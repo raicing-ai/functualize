@@ -1,9 +1,9 @@
-"""Unit tests for _cli/config.py — read_global_config, resolve_env_overrides.
+"""Unit tests for _cli/config.py — read_global_config and ``config path``.
 
 Tests cover:
 - Missing files → empty dict
 - TOML syntax errors → warning + empty dict
-- Unrecognized keys → warning + ignored
+- Unrecognized keys are tolerated by ``config path``
 - Type mismatches → warning + section ignored
 - Permission errors → warning + empty dict
 - FUNCTUALIZE_* env var mapping
@@ -19,12 +19,14 @@ Requirements: 1.2–1.8, 4.1–4.6
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
-from functualize._cli.config import read_global_config, resolve_env_overrides
+import click
+from click.testing import CliRunner, Result
+
+from functualize._cli.builtins._config import register_config
+from functualize._cli.config import read_global_config
 
 if TYPE_CHECKING:
     import pytest
@@ -97,44 +99,6 @@ class TestReadGlobalConfig:
         assert "unknown_section" not in result
         assert result["cli"]["output"] == "json"
 
-    def test_unrecognized_key_in_recognized_section_warns(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ):
-        """Unrecognized key in recognized section → warn, ignore key (Req 1.5)."""
-        config = tmp_path / "config.toml"
-        config.write_text(
-            "[discovery]\n"
-            'require_file_import = "functualize"\n'
-            'bogus_key = "should_warn"\n'
-        )
-
-        result = read_global_config(tmp_path)
-
-        assert result["discovery"]["require_file_import"] == "functualize"
-        assert "bogus_key" not in result.get("discovery", {})
-        captured = capsys.readouterr()
-        assert "bogus_key" in captured.err
-        assert "Warning:" in captured.err
-
-    def test_unrecognized_key_other_keys_still_returned(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ):
-        """Unrecognized keys don't prevent valid keys from being returned (Req 1.5)."""
-        config = tmp_path / "config.toml"
-        config.write_text(
-            '[cli]\noutput = "json"\nshow_timing = true\ninvalid_key = "bad"\n'
-        )
-
-        result = read_global_config(tmp_path)
-
-        # Valid keys are still present
-        assert result["cli"]["output"] == "json"
-        assert result["cli"]["show_timing"] is True
-        # Invalid key was filtered out
-        assert "invalid_key" not in result["cli"]
-        captured = capsys.readouterr()
-        assert "invalid_key" in captured.err
-
     def test_permission_error_warns_and_returns_empty(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ):
@@ -179,24 +143,6 @@ class TestReadGlobalConfig:
         assert "Warning:" in captured.err
         assert "not a table" in captured.err
 
-    def test_discovery_section_filters_recognized_keys_only(self, tmp_path: Path):
-        """Only recognized keys are kept in the discovery section."""
-        config = tmp_path / "config.toml"
-        config.write_text(
-            "[discovery]\n"
-            'require_file_prefix = "job_"\n'
-            'require_file_postfix = "_task"\n'
-            'extra_directories = ["~/jobs"]\n'
-            'unknown = "ignored"\n'
-        )
-
-        result = read_global_config(tmp_path)
-
-        assert result["discovery"]["require_file_prefix"] == "job_"
-        assert result["discovery"]["require_file_postfix"] == "_task"
-        assert result["discovery"]["extra_directories"] == ["~/jobs"]
-        assert "unknown" not in result["discovery"]
-
     def test_multiple_unrecognized_top_level_sections_all_ignored(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ):
@@ -218,123 +164,67 @@ class TestReadGlobalConfig:
 
 
 # =============================================================================
-# resolve_env_overrides tests
+# config path tolerates keys it does not recognize
 # =============================================================================
 
 
-class TestResolveEnvOverrides:
-    """Tests for resolve_env_overrides()."""
+def _config_path() -> Result:
+    group = click.Group(name="func")
+    register_config(group)
+    return CliRunner().invoke(group, ["config", "path"])
 
-    def test_maps_discovery_env_var(self):
-        """FUNCTUALIZE_DISCOVERY_REQUIRE_FILE_IMPORT → discovery.require_file_import."""
-        env = {"FUNCTUALIZE_DISCOVERY_REQUIRE_FILE_IMPORT": "functualize"}
-        with patch.dict(os.environ, env, clear=False):
-            result = resolve_env_overrides()
 
-        assert result["discovery"]["require_file_import"] == "functualize"
+class TestConfigPathAfterUnknownKeys:
+    """Unknown keys are the config path's business, not resolve-time noise."""
 
-    def test_maps_cli_env_var(self):
-        """FUNCTUALIZE_CLI_OUTPUT → cli.output."""
-        env = {"FUNCTUALIZE_CLI_OUTPUT": "json"}
-        with patch.dict(os.environ, env, clear=False):
-            result = resolve_env_overrides()
+    def _write_global(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
+    ) -> Path:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+        path = tmp_path / "xdg" / "functualize" / "config.toml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+        return path
 
-        assert result["cli"]["output"] == "json"
-
-    def test_maps_cli_show_timing(self):
-        """FUNCTUALIZE_CLI_SHOW_TIMING → cli.show_timing."""
-        env = {"FUNCTUALIZE_CLI_SHOW_TIMING": "true"}
-        with patch.dict(os.environ, env, clear=False):
-            result = resolve_env_overrides()
-
-        assert result["cli"]["show_timing"] == "true"
-
-    def test_empty_string_skipped(self):
-        """Empty string values are treated as unset."""
-        env = {"FUNCTUALIZE_DISCOVERY_REQUIRE_FILE_IMPORT": ""}
-        with patch.dict(os.environ, env, clear=False):
-            result = resolve_env_overrides()
-
-        # Should not include the empty value
-        assert "discovery" not in result or "require_file_import" not in result.get(
-            "discovery", {}
+    def test_a_bogus_key_in_a_recognized_section(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        global_path = self._write_global(
+            tmp_path,
+            monkeypatch,
+            '[discovery]\nrequire_file_import = "functualize"\nbogus_key = "x"\n',
         )
+        result = _config_path()
+        assert result.exit_code == 0
+        assert f"✓ used    {global_path}" in result.output
+        assert "unrecognized key" not in result.output
+        assert "Warning:" not in result.output
 
-    def test_multiple_env_vars(self):
-        """Multiple FUNCTUALIZE_* vars collected into nested dict."""
-        env = {
-            "FUNCTUALIZE_DISCOVERY_REQUIRE_FILE_IMPORT": "functualize",
-            "FUNCTUALIZE_DISCOVERY_REQUIRE_FILE_PREFIX": "job_",
-            "FUNCTUALIZE_CLI_OUTPUT": "plain",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            result = resolve_env_overrides()
+    def test_an_invalid_cli_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        global_path = self._write_global(
+            tmp_path,
+            monkeypatch,
+            '[cli]\noutput = "json"\nshow_timing = true\ninvalid_key = "bad"\n',
+        )
+        result = _config_path()
+        assert result.exit_code == 0
+        assert f"✓ used    {global_path}" in result.output
+        assert "unrecognized key" not in result.output
+        assert "Warning:" not in result.output
 
-        assert result["discovery"]["require_file_import"] == "functualize"
-        assert result["discovery"]["require_file_prefix"] == "job_"
-        assert result["cli"]["output"] == "plain"
-
-    def test_non_functualize_vars_ignored(self):
-        """Env vars without FUNCTUALIZE_ prefix are ignored."""
-        env = {"HOME": "/home/user", "PATH": "/usr/bin"}
-        with patch.dict(os.environ, env, clear=False):
-            result = resolve_env_overrides()
-
-        # HOME and PATH should not appear
-        assert "home" not in result
-        assert "path" not in result
-
-    def test_single_word_after_prefix_skipped(self):
-        """FUNCTUALIZE_SOMETHING with no underscore after section → skipped."""
-        # Clear existing FUNCTUALIZE_ vars to isolate
-        clean_env = {
-            k: v for k, v in os.environ.items() if not k.startswith("FUNCTUALIZE_")
-        }
-        clean_env["FUNCTUALIZE_NOSECTION"] = "value"
-        with patch.dict(os.environ, clean_env, clear=True):
-            result = resolve_env_overrides()
-
-        # Single word can't be split into section + key, so skipped
-        assert result == {}
-
-    def test_case_insensitive_section_and_key(self):
-        """Section and key are lowercased from the env var name."""
-        env = {"FUNCTUALIZE_DISCOVERY_REQUIRE_FILE_IMPORT": "pkg"}
-        with patch.dict(os.environ, env, clear=False):
-            result = resolve_env_overrides()
-
-        # Section and key should be lowercased
-        assert "discovery" in result
-        assert "require_file_import" in result["discovery"]
-
-    def test_dotenv_maps_to_top_level_key(self):
-        """FUNCTUALIZE_DOTENV → top-level {"dotenv": ...}, not skipped."""
-        env = {"FUNCTUALIZE_DOTENV": "true"}
-        with patch.dict(os.environ, env, clear=False):
-            result = resolve_env_overrides()
-
-        assert result["dotenv"] == "true"
-
-    def test_dotenv_path_maps_to_top_level_key(self):
-        """FUNCTUALIZE_DOTENV_PATH → {"dotenv_path": ...}, not {"dotenv": {"path": ...}}."""
-        env = {"FUNCTUALIZE_DOTENV_PATH": ".env.local"}
-        with patch.dict(os.environ, env, clear=False):
-            result = resolve_env_overrides()
-
-        assert result["dotenv_path"] == ".env.local"
-        # Must NOT create a nested "dotenv" section that shadows the boolean
-        assert not isinstance(result.get("dotenv"), dict)
-
-    def test_other_top_level_keys_map_directly(self):
-        """FUNCTUALIZE_IMPORT_LIBS / EXTRA_DIRECTORIES → top-level keys."""
-        env = {
-            "FUNCTUALIZE_IMPORT_LIBS": "lib",
-            "FUNCTUALIZE_EXTRA_DIRECTORIES": "extra",
-            "FUNCTUALIZE_JOBS_DIRECTORIES": "jobs",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            result = resolve_env_overrides()
-
-        assert result["import_libs"] == "lib"
-        assert result["extra_directories"] == "extra"
-        assert result["jobs_directories"] == "jobs"
+    def test_an_unknown_discovery_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        global_path = self._write_global(
+            tmp_path,
+            monkeypatch,
+            '[discovery]\nrequire_file_prefix = "job_"\nunknown = "ignored"\n',
+        )
+        result = _config_path()
+        assert result.exit_code == 0
+        assert f"✓ used    {global_path}" in result.output
+        assert "unrecognized key" not in result.output
+        assert "Warning:" not in result.output

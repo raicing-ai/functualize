@@ -744,7 +744,11 @@ class TestCurrentDivergences:
     ) -> None:
         monkeypatch.setenv("FUNCTUALIZE_EXTRA_DIRECTORIES", "legacy")
         monkeypatch.setenv("FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES", "canonical")
-        assert cli_config.resolve_env_overrides()["extra_directories"] == "legacy"
+        from functualize._config.settings_resolution import resolve_settings
+        from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
+
+        resolved = resolve_settings(FUNCTUALIZE_SETTINGS, Path.cwd())
+        assert resolved.get("discovery.extra_directories") == ("canonical",)
 
     def test_pep723_skill_flips_in_6_4(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
