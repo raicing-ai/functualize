@@ -38,9 +38,10 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
   - Gates G9–G11. Mark it `real_state_root`: the subject is the state path itself, so the autouse sandbox must not redirect it (marker defined in `pyproject.toml` `[tool.pytest.ini_options].markers`). G10 hashes the ancestor files before and after.
   - Acceptance: on HEAD, G9 fails (the `[audit]` line and the ancestor `Mode`), G10 passes trivially, and G11 passes.
   - Observed (2026-10-26, `f30285c` and the `master` merge, identical): `uv run pytest tests/cli/test_root_boundary_identity.py` → **3 failed, 1 passed**. Red: G9 ×2 (`[audit] nested-only: success`; `Mode: project (… outer/.functualize)`). Green: G11. **Deviation from the authored prediction:** G10 is *red* on HEAD, not trivially green — the test hashes across the nested job run as well as the two reads, and on HEAD that run writes `cache.json`, `runs.json` and a plugin `.pyc` into `outer/.functualize/`. It is the D2 leak itself, so the stronger gate was kept; the Factory Designer may amend the row.
-- [ ] **T1c — Job-config gates** `[F: tests/cli/test_root_boundary_job_config.py (new)]`
+- [x] **T1c — Job-config gates** `[F: tests/cli/test_root_boundary_job_config.py (new)]`
   - Gates G12–G18, with a `BaseModel` config parameter whose table is `[greeter.greet]`. Print the value **and** the contributing file, using `func builtin info --job greeter.greet` (*JobConfig* table, `Source` column), as the shape's "Required falsifiers" demand.
   - Acceptance: on HEAD, G12, G13 and G17 fail; G14 and G15 pass; G16 and G18 record their HEAD value in this task.
+  - Observed (2026-10-26, `f30285c` and the `master` merge, identical): `uv run pytest tests/cli/test_root_boundary_job_config.py` → **4 failed, 4 passed**. Red: G12, G13, G17 (`ANCESTOR`), G18 with a root. Green: G14 (`NESTED-DEV` over `NESTED-BASE`), G15 (`ANCESTOR`), G16, G18 without a root. HEAD values: **G16** = `USER-GLOBAL`, from `$XDG_DATA_HOME/functualize/config.base.toml` — the user-global job-config source is `search_platform_user`, i.e. the XDG *data* directory, not `$XDG_CONFIG_HOME/<app>/` as the row says, so the gate uses the real location; **G18** = `ANCESTOR` on boot and `ANCESTOR` after `refresh()` under a root (and without one).
 
 ## Wave 1 — the one owner of "where a project stops"
 
