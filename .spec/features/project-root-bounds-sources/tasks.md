@@ -30,9 +30,10 @@ Tree: `outer/.functualize.toml` (empty unless stated) and `outer/.functualize/jo
 
 ## Wave 0 — red gates (disjoint new files)
 
-- [ ] **T1a — Source and settings gates** `[F: tests/cli/test_root_boundary_sources.py (new)]`
+- [x] **T1a — Source and settings gates** `[F: tests/cli/test_root_boundary_sources.py (new)]`
   - Gates G1–G8 through the public CLI, using the `_run_func` idiom (`uv run --project <repo> func …`, `tests/cli/test_eliminate_fallback_e2e.py:75-86`) with `HOME`/`XDG_*` under `tmp_path`. G8 runs in-process with `monkeypatch.chdir`.
   - Acceptance: on HEAD, G5 and G6 pass; G1–G4, G7 (union case) and G8 fail with the baseline values. Record the counts here. Commit the red tests.
+  - Observed (2026-10-26, `f30285c` and its merge with `master` `11ed0e8`, identical): `uv run pytest tests/cli/test_root_boundary_sources.py` → **7 failed, 2 passed**. Red: G1, G2 (`+ shared-job`), G3 (`+ extra-job`), G4 (`LIB 1`), G7 ×2 (cold/warm union; warm union after the root appears), G8 (ancestor file in the chain, value `true`). Green: G5, G6.
 - [ ] **T1b — Identity and state gates** `[F: tests/cli/test_root_boundary_identity.py (new)]` `[real_state_root]`
   - Gates G9–G11. Mark it `real_state_root`: the subject is the state path itself, so the autouse sandbox must not redirect it (marker defined in `pyproject.toml` `[tool.pytest.ini_options].markers`). G10 hashes the ancestor files before and after.
   - Acceptance: on HEAD, G9 fails (the `[audit]` line and the ancestor `Mode`), G10 passes trivially, and G11 passes.
