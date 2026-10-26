@@ -3,13 +3,10 @@
 Base `master` `b3e624bd`, branch `sdd/checked-invocation`. Spec AC1–AC16,
 contracts C1–C5, plan §2–§7.
 
-> **Not yet executable.** `spec.md` is awaiting the maintainer's confirmation
-> (D1–D5), and so are this task list and the `## Surviving smells` entries
-> marked for review (S1, S4). The presence of this file satisfies the
-> `src/functualize/**` write gate **mechanically**, but it is not
-> authorisation. Execute starts only after the confirmation is recorded on the
-> carrying issue. If an answer changes D1–D5, the rows it names are revised
-> first.
+> **Executable.** The maintainer confirmed D1–D5 and accepted S1 in comment
+> `01a177e2-43ac-7db8-83d1-21948b9b0a3e` at 2026-10-26T11:04:39Z.
+> S4's deletion is routed to a separate follow-up. This parseable task graph
+> satisfies the `src/functualize/**` write gate; Execute follows its wave order.
 
 Authoring-time measurements (2026-10-24, `b3e624bd`):
 

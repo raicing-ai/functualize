@@ -1,10 +1,9 @@
 # checked-invocation — Plan
 
-Drafted 2026-10-24 against `spec.md`, which is still unconfirmed (see its
-*Authority and status*). Base `master` `b3e624bd`, branch `sdd/checked-invocation`.
-**This plan does not authorise Execute.** The maintainer confirms the spec
-(D1–D5), the task list, and the `## Surviving smells` entries marked for review
-first.
+Drafted 2026-10-24 against `spec.md`; confirmed by the maintainer on
+2026-10-26 in comment `01a177e2-43ac-7db8-83d1-21948b9b0a3e`.
+Base `master` `b3e624bd`, branch `sdd/checked-invocation`.
+Execute is authorised for the confirmed task graph.
 
 ## Alignment
 
@@ -276,10 +275,11 @@ Baseline at `b3e624bd`, measured 2026-10-24:
 
 ## 6. Decisions
 
-D1–D5 are stated with evidence and a recommendation in `spec.md` §4. None is
-an architecture blocker: AFTER-3 is the same shape under every answer except
-D4 = tee, and that would change only `WiredStdout`'s record branch (record and
-then also write).
+D1–D5 were confirmed on 2026-10-26: D1 raises one `JobFailedError(result)`
+chained from `result.exception`; D2 places the error in `_types/errors.py` and
+exports it from `functualize.types` only; D3 widens `INVOKE_FAILURE` to the
+shared failure predicate; D4 diverts captured output into the record; D5 names
+the metadata key `writes`. These are the options recorded in `spec.md` §4.
 
 ## Surviving smells
 
@@ -292,7 +292,9 @@ then also write).
   precedent: `parent_scope: Any | None` is already a live object on the request
   (`:202`). And `nested_request`'s reset gives non-transitivity for free (B7),
   where AFTER-2 got it wrong. It is kept out of equality and the hash, and no
-  door can set it from an envelope. **Needs maintainer review: yes.**
+  door can set it from an envelope. **Accepted by the maintainer 2026-10-26:**
+  “S1 accept”; `RunRequest.capture` stays outside equality and the hash, and
+  nested-request reset makes capture non-transitive.
   `RunRequest` is public (`functualize.types`), so this is a field on a public
   type, even though only `WiredInvoke` sets it.
 - **S2 — Primitive Obsession: two string metadata keys** (`"emitted"`,
@@ -308,12 +310,13 @@ then also write).
   (`docs/api/context.md:149-151`). A fifth family member would be a new public
   enum value for an identical set (*Speculative Generality*). **Needs
   maintainer review: no.**
-- **S4 — `InvokeResult` stays** (*Speculative Generality / Lazy Class*,
+- **S4 — `InvokeResult` stays for this feature** (*Speculative Generality / Lazy Class*,
   `invoke.py:71-83`, re-exported from `functualize.job.capabilities`). Nothing
   constructs it. Deleting it is a public-surface removal that neither ticket
   asked for, and doing it here would be the silent scope growth the dispatch
-  forbids. **Needs maintainer review: yes**, as a follow-up question only:
-  *delete `InvokeResult` in its own change?*
+  forbids. The maintainer confirmed deletion if dead; a production constructor
+  scan found none. Removal is routed to a separate follow-up after this feature
+  merges, because it changes a public export and deserves its own reviewable diff.
 
 ## 7. Risks
 

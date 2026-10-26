@@ -17,11 +17,10 @@ exactly what it does today.
   2026-10-24).
 - **Lanes:** FOSS-106 (checked lane, §A) and FOSS-107 (capture, §B), both
   `Accepted` in Jira and read live on 2026-10-24.
-- **Status: drafted 2026-10-24 and awaiting the maintainer's confirmation**
-  (`/agentic-specify` step 6). Decisions **D1–D5** below are written as
-  recommended and marked; each one is open until it is answered. `plan.md`
-  and `tasks.md` were drafted against this text in the same pass, following
-  the `skill-router` precedent. They do **not** authorise Execute.
+- **Status: confirmed 2026-10-26.** The maintainer confirmed D1–D5 as
+  recommended and accepted S1 in comment
+  `01a177e2-43ac-7db8-83d1-21948b9b0a3e` (2026-10-26T11:04:39Z).
+  Execute is authorised against the confirmed contracts and task graph.
 
 Base: `master` `b3e624bd`. Every citation and count below was re-measured on
 that head on 2026-10-24.
@@ -251,9 +250,9 @@ capture records regardless.
 `docs/api/context.md` reference rather than restating it. There is no second
 guide (shape *Boundaries*).
 
-## 4. Decisions (open until the maintainer answers)
+## 4. Decisions (confirmed 2026-10-26)
 
-| # | Question | Recommended (written above) | Alternative | Why |
+| # | Decision | Confirmed option | Alternative considered | Why |
 |---|---|---|---|---|
 | **D1** | Raise shape when the child has an exception | one type, `raise JobFailedError(result) from result.exception` | re-raise the child's own exception, and use a new type only when there is none (FOSS-106 *Deliverable 1*) | The approved shape names one type carrying identity. The boundary prints one line (A4), and a re-raise prints `RuntimeError: boom failed` without saying which child. A re-raise also mutates the child's exception's `__traceback__`, and that object is the one on the child's own result. `invoke.parallel` already chains (`invoke.py:599`). |
 | **D2** | Name and home of the error | `JobFailedError` in `_types/errors.py`, exported from `functualize.types` beside `JobResult` | `InvokeError` (mirrors `ShellError` for `Shell`) | The method sits on every `JobResult`, including `app.execute`'s (A8), so an `Invoke`-named error misnames half its callers. `Job…Error` is the file's family (`JobNotFoundError`, `JobDependencyError`, `JobMaterializationError`). `functualize.types` already exports an error a boundary must catch (`MissingValueError`, `types/__init__.py:11-15`). |

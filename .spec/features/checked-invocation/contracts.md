@@ -1,8 +1,8 @@
 # checked-invocation — External contracts
 
 What a user can name, call or read after this change. The behaviour is in
-`spec.md`; decisions D1–D5 are open, and each contract below is written as
-recommended. Base `b3e624bd`.
+`spec.md`; decisions D1–D5 were confirmed 2026-10-26, and each contract below
+is authorised. Base `b3e624bd`.
 
 ## C1 — `JobResult.raise_for_status()` (FOSS-106)
 
