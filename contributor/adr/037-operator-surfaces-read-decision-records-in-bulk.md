@@ -1,4 +1,4 @@
-# ADR-034: The Operator Surfaces Read a Scope's Decision Records in Bulk, and the Engine Sorts Them
+# ADR-037: The Operator Surfaces Read a Scope's Decision Records in Bulk, and the Engine Sorts Them
 
 **Status**: accepted
 **Date**: 2026-10-20
