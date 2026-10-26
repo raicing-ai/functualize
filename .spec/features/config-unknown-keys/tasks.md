@@ -94,7 +94,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     `uv run lint-imports` 7 kept / 0 broken. The broader engine suite has two
     pre-existing read-only `app.settings` monkeypatch failures in
     `tests/engine/test_ambient_constructs.py:180,193`.
-- [ ] **3.2 Public adapters read settings from `app.settings`** (AC19; rev5 narrowed) —
+- [x] **3.2 Public adapters read settings from `app.settings`** (AC19; rev5 narrowed) —
   **[F]** `src/functualize/app/adapters/surface_gate.py`, `src/functualize/app/adapters/cli.py`,
   `tests/adapters/test_surface_gate.py`, `tests/cli/test_bare_invocation_launch.py`
   - The surface gate's `tui.default_surface` read (`surface_gate.py:74`,
@@ -108,6 +108,10 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   - *Gate:* AC19. STATUS #22's test passes on its own, and `tests/adapters/`
     is green when run alone. `rg -n '_cli\.data\.func_settings' src/functualize/app/adapters/surface_gate.py`
     → 0. In `cli.py` exactly 2 remain, `:1274` and `:1303`, both owned by 5.1.
+    Observed: STATUS test 1 passed alone; adapters 135 passed, 6 skipped;
+    targeted adapter/bare tests 33 passed; settings pin 11 passed;
+    `lint-imports` 7 kept, 0 broken. The surface gate has zero store imports;
+    `cli.py` retains the two 5.1 imports.
   - *Not this row (rev5):*
     - "Generated flags come from the schema" moves to **5.1**, where the
       schema-backed catalog exists.

@@ -15,15 +15,17 @@ gets a StdoutSurface that would fight it for the terminal.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from functualize._types.enums import RunStatus
+from functualize.app import ConfigSources, FunctualizeApp, JobSources, PluginSources
 from functualize.app.adapters.surface_gate import wants_stdout_surface
+
+if TYPE_CHECKING:
+    import pytest
 
 # =============================================================================
 # Helpers
@@ -42,64 +44,22 @@ def _descriptor(**overrides: Any) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
-@pytest.fixture
-def settings_catalog() -> Iterator[Callable[[bool], None]]:
-    """Take the process-global settings catalog under test control.
+def _app_with_surface(setting: str | None = None) -> SimpleNamespace:
+    class _Settings:
+        def get(self, name: str, default: Any = None) -> Any:
+            assert name == "tui.default_surface"
+            return setting if setting is not None else default
 
-    `tui.*` is not in the base catalog; the shell registers it as an import
-    side effect of `_cli.tui`. A test that reads the catalog is therefore
-    coupled to every import any *other* test performed in the same process.
-    Under `-n auto` xdist balances dynamically, so which worker runs this file
-    -- and what that worker imported first -- varies between runs: the
-    env-override test below passed for a long time and then began failing with
-    no relevant change. Verified directly: it fails run alone and passes when
-    preceded by `tests/tui_audit`. Both tests now state which catalog they
-    mean.
+    return SimpleNamespace(settings=_Settings())
 
-    Yields a callable: pass True to register the shell's settings, False for
-    an empty catalog. The prior contents are restored either way.
-    """
-    from functualize._cli.data.func_settings import (
-        clear_registered_settings,
-        register_settings,
-        registered_settings,
-        tui_settings,
+
+def _standard_app() -> FunctualizeApp:
+    return FunctualizeApp(
+        "example",
+        job_sources=JobSources(functions=[]),
+        config_sources=ConfigSources(),
+        plugin_sources=PluginSources(entry_point_group="", explicit_plugins=[]),
     )
-
-    saved = registered_settings()
-
-    def use(with_shell: bool) -> None:
-        clear_registered_settings()
-        if with_shell:
-            register_settings(*tui_settings())
-
-    try:
-        yield use
-    finally:
-        clear_registered_settings()
-        register_settings(*saved)
-
-
-class _NoSettingsStore:
-    """FuncSettingsStore stand-in stating no preference."""
-
-    @classmethod
-    def discover(cls, *args: Any, **kwargs: Any) -> _NoSettingsStore:
-        return cls()
-
-    def effective_values(self) -> dict[str, str]:
-        return {}
-
-
-class _StdoutSettingsStore(_NoSettingsStore):
-    """FuncSettingsStore stand-in with tui.default_surface = stdout."""
-
-    def effective_values(self) -> dict[str, str]:
-        return {"tui.default_surface": "stdout"}
-
-
-def _patch_settings(store: type) -> Any:
-    return patch("functualize._cli.data.func_settings.FuncSettingsStore", store)
 
 
 # =============================================================================
@@ -109,114 +69,82 @@ def _patch_settings(store: type) -> Any:
 
 class TestWantsStdoutSurface:
     def test_uses_live_opens_the_gate(self) -> None:
-        with _patch_settings(_NoSettingsStore):
-            assert wants_stdout_surface(object(), _descriptor(), uses_live=True)
+        assert wants_stdout_surface(_app_with_surface(), _descriptor(), uses_live=True)
 
     def test_no_preference_keeps_gate_closed(self) -> None:
         """The regression fence: a plain job gets no surface."""
-        with _patch_settings(_NoSettingsStore):
-            assert not wants_stdout_surface(object(), _descriptor(), uses_live=False)
+        assert not wants_stdout_surface(
+            _app_with_surface(), _descriptor(), uses_live=False
+        )
 
     def test_stdout_hint_opens_the_gate(self) -> None:
-        with _patch_settings(_NoSettingsStore):
-            assert wants_stdout_surface(
-                object(), _descriptor(surface_hint="stdout"), uses_live=False
-            )
+        assert wants_stdout_surface(
+            _app_with_surface(), _descriptor(surface_hint="stdout"), uses_live=False
+        )
 
     def test_panel_hint_is_ignored_on_direct_runs(self) -> None:
-        with _patch_settings(_NoSettingsStore):
-            assert not wants_stdout_surface(
-                object(), _descriptor(surface_hint="panel"), uses_live=False
-            )
+        assert not wants_stdout_surface(
+            _app_with_surface(), _descriptor(surface_hint="panel"), uses_live=False
+        )
 
     def test_stdout_setting_opens_the_gate(self) -> None:
-        with _patch_settings(_StdoutSettingsStore):
-            assert wants_stdout_surface(object(), _descriptor(), uses_live=False)
+        assert wants_stdout_surface(
+            _app_with_surface("stdout"), _descriptor(), uses_live=False
+        )
 
     def test_env_override_opens_the_gate(
-        self, monkeypatch: Any, tmp_path: Any, settings_catalog: Any
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """FUNCTUALIZE_TUI_DEFAULT_SURFACE=stdout flows through the real
-        settings store's env layer.
-
-        The registration is explicit because it is a *precondition*, not
-        scenery. `tui.*` is not in the base catalog — the shell registers it
-        as an import side effect of `_cli.tui` — so without this line the
-        assertion turns on whether some earlier test in the same worker
-        happened to import the shell, which under `-n auto` is not stable
-        between runs.
-        """
+        """The declared env setting opens the direct-run gate."""
         monkeypatch.chdir(tmp_path)  # no project config layers interfering
         monkeypatch.setenv("FUNCTUALIZE_TUI_DEFAULT_SURFACE", "stdout")
-        settings_catalog(with_shell=True)
-        assert wants_stdout_surface(object(), _descriptor(), uses_live=False)
+        app = _standard_app()
+        assert app.settings.get("tui.default_surface") == "stdout"
+        assert wants_stdout_surface(app, _descriptor(), uses_live=False)
 
-    def test_the_setting_is_inert_until_the_shell_registers_it(
-        self, monkeypatch: Any, tmp_path: Any, settings_catalog: Any
+    def test_the_setting_is_active_without_shell_registration(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """Pins a **known gap**, not a desired behaviour.
-
-        A direct `func <job>` run under true-lazy boot never imports
-        `_cli.tui`, so `tui.default_surface` is never registered, so neither
-        the env override nor a `tui.default_surface` line in a config file
-        reaches the gate this module exists to drive. `.get()` returns None
-        and `_explicit_stdout_preference`'s broad `except Exception` would
-        hide any difference anyway.
-
-        Recorded here so the gap is visible rather than latent. When the owner
-        fixes it — by registering the shell's settings on the direct-run path,
-        or by moving `default_surface` into the base catalog — this test fails
-        and should be deleted.
-
-        The first assertion is what gives the test teeth. Without it, "an
-        empty catalog yields no preference" is true by construction and stays
-        green even after the gap is closed; it is `_BASE_SETTINGS` — the
-        catalog a process that never launched the shell actually has — that
-        makes this a statement about the product.
-        """
+        """A direct run reads the declaration even without TUI registration."""
         from functualize._cli.data.func_settings import _BASE_SETTINGS
 
-        assert not any(s.name == "tui.default_surface" for s in _BASE_SETTINGS), (
-            "tui.default_surface reached the base catalog: the gap below is "
-            "closed and this test should be deleted"
-        )
+        assert not any(s.name == "tui.default_surface" for s in _BASE_SETTINGS)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("FUNCTUALIZE_TUI_DEFAULT_SURFACE", "stdout")
-        settings_catalog(with_shell=False)
-        assert not wants_stdout_surface(object(), _descriptor(), uses_live=False)
+        (tmp_path / ".functualize.toml").write_text(
+            '[tui]\ndefault_surface = "stdout"\n'
+        )
+        app = _standard_app()
+        assert wants_stdout_surface(app, _descriptor(), uses_live=False)
 
     def test_requires_tty_outranks_stdout_preference(self) -> None:
         """HARD rung wins: an EXCLUSIVE job never gets a StdoutSurface."""
-        with _patch_settings(_StdoutSettingsStore):
-            assert not wants_stdout_surface(
-                object(),
-                _descriptor(surface_hint="stdout", requires_tty=True),
-                uses_live=False,
-            )
+        assert not wants_stdout_surface(
+            _app_with_surface("stdout"),
+            _descriptor(surface_hint="stdout", requires_tty=True),
+            uses_live=False,
+        )
 
     def test_hint_beats_absent_setting_and_never_raises(self) -> None:
-        class _ExplodingStore:
-            @classmethod
-            def discover(cls, *args: Any, **kwargs: Any) -> Any:
+        class _ExplodingSettings:
+            def get(self, name: str, default: Any = None) -> Any:
                 raise RuntimeError("settings unavailable")
 
-        with _patch_settings(_ExplodingStore):
-            # Settings failure collapses to "no preference"...
-            assert not wants_stdout_surface(object(), _descriptor(), uses_live=False)
-            # ...but the hint rung still works.
-            assert wants_stdout_surface(
-                object(), _descriptor(surface_hint="stdout"), uses_live=False
-            )
+        app = SimpleNamespace(settings=_ExplodingSettings())
+        assert not wants_stdout_surface(app, _descriptor(), uses_live=False)
+        assert wants_stdout_surface(
+            app, _descriptor(surface_hint="stdout"), uses_live=False
+        )
 
     def test_none_descriptor_is_tolerated(self) -> None:
-        with _patch_settings(_NoSettingsStore):
-            assert not wants_stdout_surface(object(), None, uses_live=False)
+        assert not wants_stdout_surface(_app_with_surface(), None, uses_live=False)
 
     def test_eligible_ambient_opens_the_gate(self) -> None:
         with patch(
             "functualize._engine.ambient.has_eligible_ambient", return_value=True
         ):
-            assert wants_stdout_surface(object(), _descriptor(), uses_live=False)
+            assert wants_stdout_surface(
+                _app_with_surface(), _descriptor(), uses_live=False
+            )
 
 
 # =============================================================================
@@ -240,6 +168,7 @@ class TestLazyCommandPath:
             **descriptor_kwargs,
         )
         app = MagicMock()
+        app.settings.get.return_value = None
         app.execution_engine.materialize_job.return_value = MagicMock()
         # A real JobResult, not a mock: the lazy path now hands its result to
         # the same boundary handler the eager path uses (so cold and warm agree
@@ -255,10 +184,7 @@ class TestLazyCommandPath:
         )
 
         session = MagicMock()
-        with (
-            _patch_settings(_NoSettingsStore),
-            patch("functualize.ui.stdout_live_session", session),
-        ):
+        with patch("functualize.ui.stdout_live_session", session):
             command = make_lazy_command(descriptor, app, surface="app.cli")
             command.callback()
         return session
@@ -283,6 +209,7 @@ class TestCreateJobCommandPath:
             """A plain job."""
 
         app = MagicMock()
+        app.settings.get.return_value = None
         engine = MagicMock(spec=JobExecutionEngine)
         # A real status, not a MagicMock attribute: `deliver_job_result` now
         # routes every status through `exit_code_for_status`, so a mock that
@@ -296,10 +223,7 @@ class TestCreateJobCommandPath:
         app.get_job.return_value = descriptor
 
         session = MagicMock()
-        with (
-            _patch_settings(_NoSettingsStore),
-            patch("functualize.ui.stdout_live_session", session),
-        ):
+        with patch("functualize.ui.stdout_live_session", session):
             command = create_job_command("my_job", my_job, None, app)
             command()
         return session

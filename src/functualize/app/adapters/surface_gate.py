@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from functualize._types.functualize_settings import DEFAULT_SURFACE
+
 __all__ = ["wants_ambient", "wants_stdout_surface"]
 
 
@@ -61,27 +63,22 @@ def wants_stdout_surface(app: Any, descriptor: Any, *, uses_live: bool) -> bool:
     # would fight the job for the terminal.
     if getattr(descriptor, "requires_tty", False):
         return False
-    return _explicit_stdout_preference(descriptor)
+    return _explicit_stdout_preference(app, descriptor)
 
 
-def _explicit_stdout_preference(descriptor: Any) -> bool:
+def _explicit_stdout_preference(app: Any, descriptor: Any) -> bool:
     """True when hint or setting explicitly resolves to STDOUT.
 
     Best-effort: a settings-read failure must never break a run, so any
     exception collapses to "no preference".
     """
     try:
-        from functualize._cli.data.func_settings import FuncSettingsStore
         from functualize._cli.orchestrator import RenderSurface, explicit_surface
 
         hint = getattr(descriptor, "surface_hint", None)
         setting: str | None = None
         try:
-            setting = (
-                FuncSettingsStore.discover()
-                .effective_values()
-                .get("tui.default_surface")
-            )
+            setting = app.settings.get(DEFAULT_SURFACE.name)
         except Exception:
             setting = None
         return explicit_surface(hint, setting) is RenderSurface.STDOUT

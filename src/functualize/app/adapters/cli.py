@@ -34,6 +34,7 @@ from rich.table import Table
 from functualize._app.state import AppState
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import EnvironmentSource
+from functualize._types.functualize_settings import INLINE_TUI
 from functualize.app.adapters.click_params import (
     create_callback_click_command,
     create_job_click_command,
@@ -1202,20 +1203,18 @@ class CliAdapter:
 # ─── Bare invocation: launch the shell, or print help (C3.3) ────────────
 
 
-def _inline_tui_enabled() -> bool:
+def _inline_tui_enabled(app: FunctualizeApp) -> bool:
     """The `cli.inline_tui` setting — does a bare TTY invocation open a shell?
 
     Defaults to true, so a project app gets the shell without configuring
     anything. Setting it false is the opt-out for a tool that wants a bare
     invocation to behave like a conventional CLI and print its help.
     """
-    from functualize._cli.data.func_settings import FuncSettingsStore
-
     try:
-        value = FuncSettingsStore.discover().effective_values().get("cli.inline_tui")
-    except (OSError, ValueError):
+        value = app.settings.get(INLINE_TUI.name)
+    except (OSError, ValueError, AttributeError):
         return True
-    return str(value).strip().lower() not in ("false", "0", "no", "off")
+    return value is not False
 
 
 def _bare_tty_available() -> bool:
@@ -1237,7 +1236,7 @@ def _handle_bare_invocation(ctx: click.Context, app: FunctualizeApp) -> None:
     - No TTY → print help. There is no terminal to hand a shell, and a piped
       or CI invocation wants something parseable, not a refusal.
     """
-    if not _inline_tui_enabled() or not _bare_tty_available():
+    if not _inline_tui_enabled(app) or not _bare_tty_available():
         click.echo(ctx.get_help())
         ctx.exit(0)
 
