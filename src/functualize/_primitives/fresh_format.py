@@ -201,6 +201,10 @@ def atomic_write_json(path: Path | str, payload: dict[str, Any]) -> None:
     The caller supplies the payload including its own ``format_version``; only
     the discipline lives here.
 
+    Preserve mapping insertion order on disk. Workflow decisions are displayed
+    in recording order, and scope retention evicts the oldest inserted record;
+    sorting JSON members would silently change both outcomes after a reload.
+
     ``_cli/`` has five other ``mkstemp`` writers (``self_update``, ``manifest``,
     ``package_ops``, ``config_snapshot_store``, ``toml_writer``). They stage a
     binary, a registry, and a TOML file — different payloads, different layer,
@@ -214,7 +218,7 @@ def atomic_write_json(path: Path | str, payload: dict[str, Any]) -> None:
     )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
+            json.dump(payload, handle, indent=2)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_name, target)

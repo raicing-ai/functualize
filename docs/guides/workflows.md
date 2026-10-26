@@ -457,6 +457,39 @@ So a value reaches a step the same way it reaches any job:
 def signoff(parsed: Annotated[Parsed, FromJob("lab.report")]) -> None: ...
 ```
 
+- **From a step or gate of this walk**, with [`FromStep`](#fromstep). It reads
+  only this walk's record for that node and never runs anything — which also
+  makes it the way to read a gate's answer.
+
+### Reading a gate's answer
+
+A gate's answer is that gate's record in the walk. A later step, or the
+epilogue, declares it like any other walk read:
+
+```python
+from typing import Annotated
+from pydantic import BaseModel
+from functualize.workflow import END, Edge, FromStep, Gate, Step, workflow
+
+class Approval(BaseModel):
+    ok: bool
+
+def deploy(approval: Annotated[Approval, FromStep("approve")]) -> str:
+    return "deployed" if approval.ok else "held"
+
+@workflow(
+    steps=[Step(build), Gate("approve", awaits=Approval), Step(deploy)],
+    edges=[Edge("build", "approve"), Edge("approve", "deploy"), Edge("deploy", END)],
+)
+def release(approval: Annotated[Approval, FromStep("approve")]) -> str:
+    return f"approved={approval.ok}"
+```
+
+The run blocks at `approve`; `func builtin workflow resume <scope> --input
+'{"ok": true}'` answers it, and `deploy` and the body both receive
+`Approval(ok=True)` — in a fresh process too, because the value comes from the
+walk's record, not from memory.
+
 The **mid-path flag layer is the exception**: it belongs to the command line
 that typed it, so `func lab --strict release` does not set `--strict` for the
 walk's steps. To steer a whole walk, set a layer each job reads for itself —
@@ -494,7 +527,11 @@ The body's return value IS the workflow job's return value. An empty body is leg
 
 ## `FromStep`
 
-`FromStep` reads *this walk's* recorded result for one step. Its use is binding a gate tool's argument, so the tool is scoped to exactly what an earlier step produced:
+`FromStep("x")` reads *this walk's* recorded result for one node `x` — a step, or a gate, whose record is its answer. The same rule holds in all three places it can be written:
+
+- **A step job's parameter** — `def act(plan: Annotated[Plan, FromStep("plan")])`.
+- **The epilogue body's parameter** — the same annotation on the `@workflow` function.
+- **A gate tool's bound argument**, so the tool is scoped to exactly what an earlier node produced:
 
 ```python
 from functualize.workflow import Gate, Tool, FromStep
@@ -506,9 +543,17 @@ Gate(
 )
 ```
 
-The agent may call `read_file`, but `allowed` is fixed to whatever `setup-vfs` returned in this scope — a call outside those files is inexpressible rather than refused.
+The agent may call `read_file`, but `allowed` is fixed to whatever `setup-vfs` returned in this walk — a call outside those files is inexpressible rather than refused.
 
-`FromStep` is distinct from [`FromJob`](#) because it can **never** trigger a run: it only reads a step the graph has already ordered and executed. Take the referenced step by name (`FromStep("setup-vfs")`) or by the decorated function (`FromStep(setup_vfs)`); both normalize to the same canonical name.
+Which node a read may name is checked at boot, not mid-walk:
+
+- A name that is not a node of the workflow is refused.
+- A step or gate may read only a node the graph orders **before** it. A gate's tool binding may therefore name an *earlier* gate — and gets that gate's answer — but never its own gate or a later node.
+- The epilogue runs after `END`, so it may read any node.
+
+At run time, a node a conditional branch skipped has no record. The parameter's declared default is used; with no default the run fails, naming `FromStep('<node>')`, the parameter and the reader. A job run outside a walk — standalone, or invoked with `Invoke` from inside a step — fails the same way: it is not part of the walk, so there is nothing for it to read. An argument passed explicitly wins over the read.
+
+`FromStep` is distinct from [`FromJob`](#) because it can **never** trigger a run: it only reads a node the graph has already ordered and executed. Take the referenced node by name (`FromStep("setup-vfs")`) or by the decorated function (`FromStep(setup_vfs)`); both normalize to the same canonical name.
 
 ---
 

@@ -229,6 +229,14 @@ class SqlWorkflowReader:
         )
         return str(rows[0][0]) if rows else None
 
+    def branches(self, scope_id: str) -> dict[str, str]:
+        rows = self._driver.query(
+            "SELECT decision_key, chosen_target FROM workflow_branches "
+            "WHERE namespace_id = ? AND scope_id = ? ORDER BY rowid",
+            (self._namespace, scope_id),
+        )
+        return {str(key): str(target) for key, target in rows}
+
     def state(self, scope_id: str) -> dict[str, Any]:
         rows = self._driver.query(
             "SELECT key, value FROM scope_state "

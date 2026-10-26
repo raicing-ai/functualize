@@ -33,7 +33,7 @@ from __future__ import annotations
 import functools
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from functualize.app.utils import (
     LIVE_STATUSES as _LIVE_STATUSES,
@@ -437,84 +437,6 @@ class WorkflowToolProvider:
         "runs twice. Args: workflow_id; tool — a name from the gate's tools; "
         "args — the remaining arguments."
     )
-
-    @staticmethod
-    def _resolve_bound(scope: dict[str, Any], bound: dict[str, Any]) -> dict[str, Any]:
-        """Replace each `FromStep` marker with this scope's recorded result.
-
-        Without this the marker object itself was handed to the job as the
-        argument value — so `Tool(read_file, allowed=FromStep("setup-vfs"))`
-        passed a `FromStep` where a file list was expected, and the narrowing
-        the gate exists to enforce silently did not happen.
-
-        A step with no record resolves to None rather than raising: the walk
-        may legitimately not have reached it, and the job's own signature is
-        the right place for that to be an error.
-        """
-        from functualize._primitives.fingerprint import reusable_return_value
-        from functualize._types.from_job import FromStep
-
-        if not any(isinstance(v, FromStep) for v in bound.values()):
-            return dict(bound)
-
-        steps = scope.get("steps") or {}
-        resolved: dict[str, Any] = {}
-        for arg, value in bound.items():
-            if not isinstance(value, FromStep):
-                resolved[arg] = value
-                continue
-            record = next(
-                (
-                    r
-                    for key, r in steps.items()
-                    if key.split("::", 1)[0] == value.name and isinstance(r, dict)
-                ),
-                None,
-            )
-            resolved[arg] = reusable_return_value(record, job_name=value.name)
-        return resolved
-
-    def _bound_values(
-        self, scope: dict[str, Any], tool: str
-    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-        """The gate's pinned argument *values*, from the live declaration.
-
-        Only the parameter *names* are persisted — a bound value is arbitrary
-        and need not be JSON-safe. Reading the values here costs nothing
-        extra, because running the job requires materializing its module
-        anyway.
-        """
-        workflow_name = scope.get("workflow")
-        try:
-            # The one member this plugin needs that `PluginHost` does not
-            # carry. `materialize_job` lives on the execution engine, and a
-            # single call site did not earn the engine a place on an
-            # eleven-member port -- putting it there would bless handing every
-            # plugin the whole engine to serve this line (`contracts.md` §1).
-            #
-            # `cast` rather than `app: Any` on the constructor: this way the
-            # escape is one visible line instead of erasing all eleven members
-            # for the other five methods of this class. Behaviour is
-            # unchanged -- a host without the attribute raises `AttributeError`
-            # into the same `except` below, exactly as before.
-            engine = cast("Any", self._app).execution_engine
-            entry = engine.materialize_job(workflow_name)
-            declaration = entry.function.__functualize_workflow__
-            for node in declaration.gates():
-                for spec in node.tool_specs():
-                    # `spec.name` is canonical; `tool` is whatever the agent
-                    # typed. Comparing them raw silently found no spec and ran
-                    # the job with *no* bound values — the cap the gate exists
-                    # to enforce would simply not apply.
-                    if spec.name == _canonical(tool):
-                        return self._resolve_bound(scope, spec.bound), None
-        except Exception as exc:
-            return {}, _error(
-                "tool_unresolvable",
-                f"Cannot load gate policy for '{tool}' from workflow "
-                f"'{workflow_name}': {type(exc).__name__}: {exc}",
-            )
-        return {}, None
 
     @_refuse_unreadable_scopes
     async def _cancel_workflow(self, workflow_id: str) -> dict[str, Any]:

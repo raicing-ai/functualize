@@ -972,6 +972,16 @@ class WorkflowReader(Protocol):
 
     def branch(self, scope_id: str, decision_key: str) -> str | None: ...
 
+    def branches(self, scope_id: str) -> Mapping[str, str]:
+        """Every decision record of one scope, in one read.
+
+        Raw: ``{decision_key: chosen_target}`` exactly as ``RecordBranch``
+        wrote them, bookkeeping keys included — sorting records into kinds is
+        the engine's, never a store's. Iterates in recording order. An unknown
+        scope, or one with no records, is an empty mapping, never an error.
+        """
+        ...
+
     def state(self, scope_id: str) -> Mapping[str, Any]: ...
 
 
