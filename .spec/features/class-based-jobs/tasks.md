@@ -82,7 +82,7 @@ tasks in five waves.
 
 ## Wave 1
 
-- [ ] **2.1 — descriptor provenance `owner_class` and cache version 23** (C3; spec AC-7, AC-10)
+- [x] **2.1 — descriptor provenance `owner_class` and cache version 23** (C3; spec AC-7, AC-10)
   - **[F]** `src/functualize/_types/descriptors.py`, `src/functualize/_primitives/cache_format.py`, `tests/types/test_descriptor_owner_class.py` (new), `tests/discovery/test_nfkc_cache_rebuild.py`, `tests/discovery/test_job_declaration_discovery.py`
   - **Inputs:** `plan.md` §4.3; `schema.md` §1, §3;
     `_types/descriptors.py:215-473` (`to_dict` 290-328, `from_dict` 331-473,

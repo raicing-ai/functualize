@@ -210,6 +210,8 @@ class JobDescriptor:
             job degrades. Does not force EXCLUSIVE or trigger refusal.
         uses_live: True if the signature declares a ``live: Live`` capability — a
             live-display channel bound per surface (always injected, degrading).
+        owner_class: Python class name for a class method job, or None for a
+            plain function. Retained through the discovery cache.
     """
 
     name: str
@@ -266,6 +268,10 @@ class JobDescriptor:
     #: warm boot has no function to ask, so the fact is recorded here.
     #: Empty means "same as func_name" (dynamic and synthetic descriptors).
     python_name: str = ""
+    #: The declaring job class, when this descriptor represents one of its
+    #: methods. None for plain function jobs.
+    # TRANSITIONAL(class-based-jobs/3.1): Discovery does not populate this yet.
+    owner_class: str | None = None
 
     @property
     def command_path(self) -> CommandPath:
@@ -322,6 +328,7 @@ class JobDescriptor:
             ),
             "from_job_deps": list(self.from_job_deps),
             "python_name": self.python_name,
+            "owner_class": self.owner_class,
             "workflow": (
                 self.workflow.to_dict() if self.workflow is not None else None
             ),
@@ -469,6 +476,7 @@ class JobDescriptor:
             # v10 — absent in pre-v10 entries and for every non-workflow job.
             from_job_deps=tuple(data.get("from_job_deps") or ()),
             python_name=data.get("python_name") or "",
+            owner_class=data.get("owner_class") or None,
             workflow=workflow,
         )
 

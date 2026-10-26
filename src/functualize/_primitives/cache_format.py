@@ -157,7 +157,10 @@ from functualize._primitives.locator import (
 # before the existing spelling rule. A v21 descriptor may retain an older
 # identity such as `ǆ-ops.run-it`, so rebuilding the discovery cache ensures
 # warm boot agrees with cold discovery. Persisted job state is not migrated.
-CACHE_VERSION = 22
+# v23 (2026-10-26): class method descriptors carry their declaring class.
+# A v22 entry cannot retain that provenance, so rebuild it before class-aware
+# cache keys and collision claims are used.
+CACHE_VERSION = 23
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"
