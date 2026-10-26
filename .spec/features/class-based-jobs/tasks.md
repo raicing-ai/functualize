@@ -83,7 +83,7 @@ tasks in five waves.
 ## Wave 1
 
 - [ ] **2.1 — descriptor provenance `owner_class` and cache version 23** (C3; spec AC-7, AC-10)
-  - **[F]** `src/functualize/_types/descriptors.py`, `src/functualize/_primitives/cache_format.py`, `tests/types/test_descriptor_owner_class.py` (new)
+  - **[F]** `src/functualize/_types/descriptors.py`, `src/functualize/_primitives/cache_format.py`, `tests/types/test_descriptor_owner_class.py` (new), `tests/discovery/test_nfkc_cache_rebuild.py`, `tests/discovery/test_job_declaration_discovery.py`
   - **Inputs:** `plan.md` §4.3; `schema.md` §1, §3;
     `_types/descriptors.py:215-473` (`to_dict` 290-328, `from_dict` 331-473,
     `required_keys` 343-353, `python_name` 471); `_primitives/cache_format.py:156-160`.
@@ -96,6 +96,9 @@ tasks in five waves.
   - **Tests (unit):** round trip preserves `owner_class`; a payload without the
     key deserialises to `None`; `to_dict` always writes the key; a payload with
     `version: 22` is not accepted by the cache reader; `CACHE_VERSION == 23`.
+    Update the NFKC rebuild assertion from `== 22` to `== CACHE_VERSION`;
+    update the declaration-cache version pin from `== CACHE_VERSION == 22`
+    to `== CACHE_VERSION == 23`.
   - **Invariants:** every existing descriptor key keeps its name and type;
     `python_name` stays undotted.
   - **Acceptance:** AC-7's warm-cache half is testable from here on.
