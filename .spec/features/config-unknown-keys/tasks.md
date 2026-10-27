@@ -447,7 +447,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   `tests/discovery/test_reserved_section_names.py` (new)
   - A new `error_type` on #118's `DiscoveryFailure` (`_types/discovery_report.py:78`),
     built beside `job_name_collision` (`:152`). No second channel.
-- [ ] **6.3 Example** (F7; AC21) — **[F]** `examples/standalone/deploy_tool/deploy_tool/main.py`,
+- [x] **6.3 Example** (F7; AC21) — **[F]** `examples/standalone/deploy_tool/deploy_tool/main.py`,
   `examples/standalone/deploy_tool/tests/test_deploy_tool.py`,
   `src/functualize/_cli/data/func_settings.py`, `src/functualize/_cli/dispatch.py`,
   `src/functualize/app/adapters/settings_flags.py`, `src/functualize/app/adapters/__init__.py`,
@@ -490,6 +490,23 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     the three named CLI test files. `rg -n 'from functualize\._' examples/standalone/deploy_tool/deploy_tool/main.py`
     → 0; the example tests, dispatch/early-flag tests, and second-app pin pass.
     This row leaves 6.1, 6.2, and 6.4 closed and changes no Wave 7 dependency.
+  - *Observed at `50d8cd45`:* both `rg` gates → 0 (the `FUNC_SCHEMA` search is
+    also 0 repo-wide outside `.spec/`). Example tests 23 passed; the dispatch,
+    early-flag, registration and second-app files 57 passed, 1 skipped (the
+    `app` surface of the `func`-only `main()` pin). Production paths:
+    `deploy_tool.main:main` → `boot_settings` → `early_setting_flags` →
+    `resolve_settings` → `ConfigSources(resolved=…)`; `_cli/main.py:main` →
+    `scan_early_setting_flags` → `early_setting_flags(FUNCTUALIZE_SETTINGS, …)`
+    → pre-boot storage. Sabotaging each link fails a named test. `func`'s 11
+    declared flags are all `phase="early"`, so its scan now records them
+    (it recorded none through the retired projection). Each scan replaces the
+    previous scan's record.
+  - *Dead-code delta (`0b668977..50d8cd45`), advisory:* 1 NEW_DEAD, 4
+    TESTS_ONLY, all in `func_settings.py`'s legacy registry and all UNMARKED.
+    `early_flag_specs` lost its dispatch caller. `register_settings`,
+    `registered_settings`, `clear_registered_settings` and
+    `FuncSettingsStore.set_cli_override` lost their example callers. No row
+    names their deletion yet.
 - [x] **6.4 PEP 723** (M5 closed: remove; AC29) — **[F]** `src/functualize/_cli/pep723.py`, `tests/cli/test_pep723_skill_key.py`, `tests/standalone/test_pep723.py`
   - `_KNOWN_TOOL_KEYS` (`_cli/pep723.py:53`, today `frozenset({"job", "skill"})`) gives way to
     `SCRIPT_METADATA` (`job` only). `ScriptMetadata.skill` and the
