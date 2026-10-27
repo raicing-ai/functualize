@@ -449,12 +449,47 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     built beside `job_name_collision` (`:152`). No second channel.
 - [ ] **6.3 Example** (F7; AC21) — **[F]** `examples/standalone/deploy_tool/deploy_tool/main.py`,
   `examples/standalone/deploy_tool/tests/test_deploy_tool.py`,
-  `src/functualize/_cli/data/func_settings.py`, `tests/cli/test_settings_store_second_app.py` (rev5 added)
-  - *Rev5 addition:* delete `FUNC_SCHEMA` (`func_settings.py:512`), a second
-    name for the declaration that no row removed. Its last caller after 5.1 is
-    `deploy_tool/main.py:105-109`, which this row rewrites; the test pin at
-    `test_settings_store_second_app.py:193-194` asserts against
-    `FUNCTUALIZE_SETTINGS` instead. Gate: `rg -n '\bFUNC_SCHEMA\b' src examples` → 0.
+  `src/functualize/_cli/data/func_settings.py`, `src/functualize/_cli/dispatch.py`,
+  `src/functualize/app/adapters/settings_flags.py`, `src/functualize/app/adapters/__init__.py`,
+  `tests/cli/test_settings_store_second_app.py`, `tests/_cli/test_dispatch_flags.py`,
+  `tests/cli/test_early_setting_flags.py`, `tests/cli/test_settings_registration.py`
+  - **Do — declaration:** `functualize.plugin.FUNCTUALIZE_SETTINGS` is the public
+    base catalog. Declare the example's two `functualize.plugin.Setting` values
+    without module-import side effects. Use `FUNCTUALIZE_SETTINGS.extend(*own)`
+    as the sanctioned extension point; pass its **complete** `settings` tuple
+    into the app's `AppSettingsSchema` with `DEPLOY_TOOL` env prefix, file names,
+    and `tool.deploy-tool` section, through `ConfigSources(settings=...)` at
+    construction. `extend` rejects duplicate names; a tuple of only the two
+    deploy settings would silently drop built-in keys. Remove the example's
+    private `FuncSetting`, `SettingSchema`, `register_settings`, `FUNC_SCHEMA`,
+    and `FuncSettingsStore` imports and its registration call; test values via
+    the public app snapshot/resolver. No new `plugin/` export is needed.
+  - **Do — pre-boot flags:** add and export a schema-parameterized public
+    `early_setting_flags(schema, argv)` in `functualize.app.adapters` (implementation
+    in `settings_flags.py`, package export in `__init__.py`). It returns passed
+    `phase="early"` flags keyed by declared setting name, accepts both `--flag x`
+    and `--flag=x`, ignores ordinary flags, and leaves a missing value for Click
+    to reject. Before constructing `deploy-tool`, use this result with public
+    `resolve_settings(schema, cwd, flags=...)`, then pass the snapshot through
+    `ConfigSources(resolved=...)`; its `--config-profile` affects the first app
+    snapshot, with no process-wide registration. `_cli/dispatch.py` uses the
+    same helper with `FUNCTUALIZE_SETTINGS` for `func`'s pre-boot scan; its
+    existing pre-boot override storage remains transitional until AC20/8.1.
+    The example calls the new public export, satisfying public-API example
+    coverage. Pin both entry paths, including flag precedence and no job import.
+  - **Do — retired alias:** `_cli/dispatch.py:275-279` is a production caller
+    of `FUNC_SCHEMA`, and the three listed CLI test files also call it; the
+    example is not its last caller. Read the base declaration through public
+    `FUNCTUALIZE_SETTINGS` in dispatch, replace the tests' live-registry fixtures
+    with explicit schemas, and delete `FUNC_SCHEMA` plus its projection-only
+    bridge from `func_settings.py`. Retain `FUNC_SETTINGS` only for its other
+    legacy callers pending AC20/8.1; do not rebuild an app catalog from it.
+  - **Gate:** `rg -n '\bFUNC_SCHEMA\b' src examples tests/_cli/test_dispatch_flags.py tests/cli/test_early_setting_flags.py tests/cli/test_settings_registration.py tests/cli/test_settings_store_second_app.py`
+    → 0 after the scoped callers and definition are removed; the current hit
+    set is `func_settings.py`, `_cli/dispatch.py`, `deploy_tool/main.py`, and
+    the three named CLI test files. `rg -n 'from functualize\._' examples/standalone/deploy_tool/deploy_tool/main.py`
+    → 0; the example tests, dispatch/early-flag tests, and second-app pin pass.
+    This row leaves 6.1, 6.2, and 6.4 closed and changes no Wave 7 dependency.
 - [x] **6.4 PEP 723** (M5 closed: remove; AC29) — **[F]** `src/functualize/_cli/pep723.py`, `tests/cli/test_pep723_skill_key.py`, `tests/standalone/test_pep723.py`
   - `_KNOWN_TOOL_KEYS` (`_cli/pep723.py:53`, today `frozenset({"job", "skill"})`) gives way to
     `SCRIPT_METADATA` (`job` only). `ScriptMetadata.skill` and the
