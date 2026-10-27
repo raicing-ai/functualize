@@ -35,10 +35,12 @@ __all__ = [
     "command_schemas",
     "collision_notices",
     "collision_projection",
+    "is_strict_collision",
     "render_catalog_text",
     "render_collision_notice",
     "render_report_text",
     "resolve_renderer",
+    "strict_collision_messages",
 ]
 
 #: The three renderings, matching the ``[cli] output`` vocabulary.
@@ -108,40 +110,87 @@ def _group_options_class_names(app: FunctualizeApp) -> frozenset[str]:
         return frozenset()
 
 
-def collision_projection(app: FunctualizeApp) -> dict[str, list[dict[str, str]]]:
-    """Join typed findings to each final registered claimant by identity.
+def _typed_collisions(app: FunctualizeApp) -> list[Any]:
+    """The typed collision findings this app's discovery recorded, in order.
 
-    The discovery failure payload remains four keys. This in-memory view is
-    used only for affected job rows and human notices.
+    Read by attribute access, not by import: ``_cli`` may not import
+    ``_discovery`` (constitution). The same walk :func:`discovery_failures`
+    does, kept separate because the projection needs the finding — and its own
+    message — rather than the four-key payload.
     """
-    descriptors = {descriptor.name: descriptor for descriptor in app.get_jobs()}
     pipeline = getattr(app, "_resolution_pipeline", None)
     findings: list[Any] = []
     for entry in getattr(pipeline, "_providers", ()) or ():
         provider = getattr(entry, "provider", entry)
         findings.extend(getattr(provider, "discovery_failures", ()) or ())
     findings.extend(getattr(pipeline, "collisions", ()) or ())
+    return findings
 
-    result: dict[str, list[dict[str, str]]] = {}
-    seen: set[tuple[str, str, str]] = set()
-    for finding in findings:
+
+def is_strict_collision(record: dict[str, Any]) -> bool:
+    """Whether this projection record is a strict collision's.
+
+    The plain record names a survivor and the claimant it displaced. The strict
+    one names every claimant and no survivor at all, so its shape is its
+    marker — and the plain record never carries ``claimants``, which is what
+    keeps the two from being confusable by a truthiness test.
+    """
+    return "claimants" in record
+
+
+def collision_projection(app: FunctualizeApp) -> dict[str, list[dict[str, Any]]]:
+    """Join typed findings to each final registered claimant by identity.
+
+    The discovery failure payload remains four keys. This in-memory view is
+    used only for affected job rows and human notices.
+
+    A strict collision is projected under its canonical name even though it has
+    no registered descriptor — neither claimant registered, so there is no
+    survivor to join to and no dropped claimant to name. The finding's own
+    message already names every definition and its file, and that message is
+    what the invocation prints. Requiring a descriptor is what made the strict
+    shape unrepresentable here.
+    """
+    descriptors = {descriptor.name: descriptor for descriptor in app.get_jobs()}
+    result: dict[str, list[dict[str, Any]]] = {}
+    seen: set[tuple[str, ...]] = set()
+    for finding in _typed_collisions(app):
         detail = getattr(finding, "collision", None)
         if detail is None:
             continue
-        descriptor = descriptors.get(detail.canonical_name)
+        name = detail.canonical_name
+        claimants = getattr(detail, "claimants", ()) or ()
+        if claimants:
+            message = str(getattr(finding, "message", "") or "")
+            key = (name, "strict", message)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.setdefault(name, []).append(
+                {
+                    "canonical_name": name,
+                    "claimants": [
+                        {"name": str(claimant), "source_file": str(source)}
+                        for claimant, source in claimants
+                    ],
+                    "message": message,
+                }
+            )
+            continue
+        descriptor = descriptors.get(name)
         if descriptor is None:
             continue
         key = (
-            detail.canonical_name,
+            name,
             detail.dropped_python_name,
             detail.dropped_source_file,
         )
         if key in seen:
             continue
         seen.add(key)
-        result.setdefault(detail.canonical_name, []).append(
+        result.setdefault(name, []).append(
             {
-                "canonical_name": detail.canonical_name,
+                "canonical_name": name,
                 "dropped_python_name": detail.dropped_python_name,
                 "dropped_source_file": detail.dropped_source_file,
                 "registered_python_name": descriptor.python_name
@@ -151,13 +200,34 @@ def collision_projection(app: FunctualizeApp) -> dict[str, list[dict[str, str]]]
             }
         )
     for collisions in result.values():
+        # Both shapes sort by the same two fields: the strict record has
+        # neither, and one list only ever holds one shape, so the fallbacks
+        # keep plain ordering byte-identical and give a strict list a stable
+        # (message) order.
         collisions.sort(
             key=lambda item: (
-                item["dropped_source_file"],
-                item["dropped_python_name"],
+                item.get("dropped_source_file", ""),
+                item.get("dropped_python_name", ""),
             )
         )
     return result
+
+
+def strict_collision_messages(app: FunctualizeApp) -> dict[str, str]:
+    """The refusal text of every strict collision, keyed by canonical name.
+
+    A name here is declared by a class job and at least one other claimant, so
+    nothing is registered under it and the registry has nothing to say about
+    it. The one caller is the invocation: it prints this and exits
+    ``ExitCode.USAGE``, because the name the user typed is real and the reason
+    it cannot run is a contradiction between files rather than a typo.
+    """
+    return {
+        name: record["message"]
+        for name, records in collision_projection(app).items()
+        for record in records
+        if is_strict_collision(record)
+    }
 
 
 def render_collision_notice(path: str, collision: dict[str, str]) -> str:
@@ -178,15 +248,25 @@ def collision_notices(app: FunctualizeApp) -> dict[str, list[str]]:
     The one source for every human surface that warns about a collision -- the
     invocation, group help, the TUI row and pre-flight -- so they cannot word
     or path the same finding differently. A clean job has no entry.
+
+    A strict collision's name is deliberately absent: no claimant is
+    registered, so there is no command path to render a survivor notice
+    against. Its one surface is :func:`strict_collision_messages`.
     """
     descriptors = {descriptor.name: descriptor for descriptor in app.get_jobs()}
-    return {
-        name: [
-            render_collision_notice(str(descriptors[name].command_path), collision)
+    notices: dict[str, list[str]] = {}
+    for name, collisions in collision_projection(app).items():
+        descriptor = descriptors.get(name)
+        if descriptor is None:
+            continue
+        lines = [
+            render_collision_notice(str(descriptor.command_path), collision)
             for collision in collisions
+            if not is_strict_collision(collision)
         ]
-        for name, collisions in collision_projection(app).items()
-    }
+        if lines:
+            notices[name] = lines
+    return notices
 
 
 def job_catalog(app: FunctualizeApp) -> list[dict[str, Any]]:
@@ -194,10 +274,16 @@ def job_catalog(app: FunctualizeApp) -> list[dict[str, Any]]:
 
     Deliberately shallow: names, summaries and the few flags that change how a
     job may be called. ``job_detail`` is the deep view.
+
+    A name no claimant registered — a strict collision — is the one row that
+    is not a job. It appears anyway, because "your job is not here" is answered
+    by showing the name and both definitions, not by omitting it.
     """
     catalog: list[dict[str, Any]] = []
     collisions_by_name = collision_projection(app)
+    registered: set[str] = set()
     for descriptor in sorted(app.get_jobs(), key=lambda d: d.name):
+        registered.add(descriptor.name)
         entry: dict[str, Any] = {
             "name": descriptor.name,
             "group": descriptor.group,
@@ -208,6 +294,28 @@ def job_catalog(app: FunctualizeApp) -> list[dict[str, Any]]:
         if collisions := collisions_by_name.get(descriptor.name):
             entry["collisions"] = collisions
         catalog.append(entry)
+
+    # A strict collision's name is a name the user wrote, and the listing is
+    # where they look for it. It has no descriptor — neither claimant
+    # registered — so it gets a row of its own rather than a detail view: the
+    # summary is the fact, and the finding alongside it names both definitions.
+    for name in sorted(collisions_by_name):
+        if name in registered:
+            continue
+        strict = [c for c in collisions_by_name[name] if is_strict_collision(c)]
+        if not strict:
+            continue
+        catalog.append(
+            {
+                "name": name,
+                "group": name.rpartition(".")[0] or None,
+                "summary": "Name collision: neither definition is registered.",
+                "parameters": [],
+                "requires_tty": False,
+                "collisions": strict,
+            }
+        )
+    catalog.sort(key=lambda entry: entry["name"])
     return catalog
 
 
@@ -472,7 +580,15 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
             "name": app.configuration.active_environment(),
             "source": getattr(app.configuration.environment_source(), "value", None),
         },
-        "jobs": [job_detail(app, entry["name"]) for entry in job_catalog(app)],
+        # A strict collision's name has a catalog row but no job: nothing is
+        # registered under it, so `job_detail` answers None and there is no
+        # honest detail to carry. `discovery_failures` is where that name is
+        # explained, with both definitions and both files.
+        "jobs": [
+            detail
+            for entry in job_catalog(app)
+            if (detail := job_detail(app, entry["name"])) is not None
+        ],
     }
 
     # After the jobs key, deliberately: building it is what forces the scan
@@ -537,7 +653,9 @@ def render_catalog_text(catalog: list[dict[str, Any]]) -> list[str]:
         if collisions := entry.get("collisions"):
             path = str(CommandPath.of(entry.get("group"), entry["name"]))
             lines.extend(
-                f"  {render_collision_notice(path, collision)}"
+                f"  {collision['message']}"
+                if is_strict_collision(collision)
+                else f"  {render_collision_notice(path, collision)}"
                 for collision in collisions
             )
     return lines

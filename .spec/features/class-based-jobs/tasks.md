@@ -357,7 +357,7 @@ tasks in five waves.
   - **Reachability:** sabotage the rebind to pass the proxy → the run fails with
     the proxy's `RuntimeError`; restore.
 
-- [ ] **4.2 — the strict collision reaches the CLI and the programmatic caller** (C5; spec AC-6)
+- [x] **4.2 — the strict collision reaches the CLI and the programmatic caller** (C5; spec AC-6)
   - **[F]** `src/functualize/_cli/info.py`, `src/functualize/_cli/main.py`, `src/functualize/_engine/capabilities/invoke.py`, `src/functualize/_app/impl.py`, `tests/cli/test_class_collision_surfaces.py` (new)
   - **Inputs:** `plan.md` §4.5; `_cli/info.py:111-211`, `:413-435`;
     `_cli/main.py:937-946`, `:1494-1502`, `:1540-1558`;

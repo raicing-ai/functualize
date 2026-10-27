@@ -372,7 +372,7 @@ class WiredInvoke(Invoke):
         from functualize._events.hooks import HookEvent
         from functualize._types.descriptors import JobResult as _JobResult
         from functualize._types.enums import RunStatus
-        from functualize._types.errors import RecursionLimitError
+        from functualize._types.errors import JobNotFoundError, RecursionLimitError
 
         # --- Resolve job_or_fn ---
         job_name = self._resolve_job_name(job_or_fn)
@@ -408,7 +408,18 @@ class WiredInvoke(Invoke):
             )
 
         # --- Look up registered job ---
-        registered_job = self._engine.get_job(job_name)
+        try:
+            registered_job = self._engine.get_job(job_name)
+        except (KeyError, JobNotFoundError) as exc:
+            # C5: a strictly colliding name is declared, not mistyped. It has
+            # no registration to look up, so this is the only place the
+            # caller can learn why — and the finding's message, naming both
+            # definitions and both files, is the answer. Every other unknown
+            # name keeps the failure it raised.
+            message = self._strict_collision_message(job_name)
+            if message is None:
+                raise
+            raise JobNotFoundError(job_name, message=message) from exc
         # From here the resolved name is the one of record. `job_name` is
         # whatever the caller typed; hooks, gate context and the state store
         # all describe the job that *ran*, and an observer cannot correlate
@@ -678,6 +689,38 @@ class WiredInvoke(Invoke):
         raise TypeError(
             f"job_or_fn must be a str or callable, got {type(job_or_fn).__name__}"
         )
+
+    def _strict_collision_message(self, job_name: str) -> str | None:
+        """Discovery's refusal for a name no claimant registered, or ``None``.
+
+        A strict collision — a class job and at least one other definition
+        claiming the same name — registers neither claimant, so the engine
+        registry has nothing under the name at all. The finding already names
+        every definition and its file, and that text is the contract; a bare
+        "not found in engine registry" would send the caller hunting for a
+        typo in a name they declared.
+
+        Reached by attribute access rather than import: ``_engine`` and
+        ``_discovery`` are peers, and reading the finding's own message here
+        is cheaper than a port member that only this one refusal would use.
+        """
+        host = getattr(self._engine, "host", None)
+        pipeline = getattr(host, "_resolution_pipeline", None)
+        findings: list[Any] = []
+        for entry in getattr(pipeline, "_providers", ()) or ():
+            provider = getattr(entry, "provider", entry)
+            findings.extend(getattr(provider, "discovery_failures", ()) or ())
+        findings.extend(getattr(pipeline, "collisions", ()) or ())
+        for finding in findings:
+            detail = getattr(finding, "collision", None)
+            if getattr(detail, "canonical_name", None) != job_name:
+                continue
+            if not (getattr(detail, "claimants", ()) or ()):
+                continue
+            message = str(getattr(finding, "message", "") or "")
+            if message:
+                return message
+        return None
 
     def _execute_with_timeout(
         self,
