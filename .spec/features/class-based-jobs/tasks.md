@@ -128,7 +128,7 @@ tasks in five waves.
 ## Wave 2
 
 - [ ] **3.1 — discovery: a module's job classes become descriptors** (C1, C2; spec F1, F1-a, F1-b)
-  - **[F]** `src/functualize/_discovery/sync.py`, `tests/discovery/test_class_jobs.py` (new)
+  - **[F]** `src/functualize/_discovery/sync.py`, `src/functualize/_types/descriptors.py`, `src/functualize/_discovery/cached_provider.py`, `tests/discovery/test_class_jobs.py` (new)
   - **Inputs:** `plan.md` §4.2; `sync.py:210-308`, `:377-432`;
     `_discovery/naming.py:58-64`; `_types/job_declaration.py:484-521`; the
     `Postgres`/`Database`/`TunedPostgres` examples in `contracts.md` C1–C2.
