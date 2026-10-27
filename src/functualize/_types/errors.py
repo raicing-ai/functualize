@@ -95,6 +95,30 @@ class WorkflowDeclarationError(Exception):
         super().__init__(message)
 
 
+class FromStepUnavailableError(Exception):
+    """A walk-local node value cannot be supplied to a declared reader."""
+
+    def __init__(
+        self,
+        *,
+        node: str,
+        parameter: str,
+        reader: str,
+        scope_id: str | None,
+        reason: str,
+    ) -> None:
+        self.node = node
+        self.parameter = parameter
+        self.reader = reader
+        self.scope_id = scope_id
+        self.reason = reason
+        scope = scope_id if scope_id is not None else "outside a walk"
+        super().__init__(
+            f"{reader} parameter '{parameter}' cannot read "
+            f"FromStep('{node}') in {scope}: {reason}"
+        )
+
+
 class GroupOptionsConflictError(Exception):
     """Raised at discovery when two modules bind ``GroupOptions`` to one group.
 

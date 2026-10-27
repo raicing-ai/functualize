@@ -20,8 +20,9 @@ from typing import Annotated
 import pytest
 
 from functualize._app.state import AppState
+from functualize._primitives.walk_reads import resolve_bound_values
 from functualize._types.enums import RunStatus
-from functualize._types.errors import WorkflowDeclarationError
+from functualize._types.errors import FromStepUnavailableError, WorkflowDeclarationError
 from functualize._types.from_job import FromJob, FromStep
 from functualize.app.core import FunctualizeApp, request_for
 from functualize.job import Deps, RunContext, job
@@ -270,9 +271,7 @@ class TestCellFsResumeAndMissing:
         )
         assert result["return_value"] == "contents src/a.py"
 
-    def test_a_binding_to_an_unreached_step_resolves_to_none(self) -> None:
-        """The walk may legitimately not have reached it; the tool's own
-        signature decides whether that is an error."""
+    def test_a_binding_to_an_unreached_step_has_a_named_failure(self) -> None:
         app = self._gated()
         app.execute(
             RunRequest(job_name="wf", surface="app.execute", workflow_scope_id="FS2")
@@ -283,4 +282,9 @@ class TestCellFsResumeAndMissing:
         tools = WorkflowToolProvider(app)
         scope = tools.store.get_scope("FS2") or {}
 
-        assert tools._resolve_bound(scope, {"x": FromStep("never-ran")}) == {"x": None}
+        with pytest.raises(FromStepUnavailableError) as caught:
+            resolve_bound_values(
+                (scope.get("steps") or {}).items(), {"x": FromStep("never-ran")}
+            )
+        assert "FromStep('never-ran')" in str(caught.value)
+        assert "x" in str(caught.value)

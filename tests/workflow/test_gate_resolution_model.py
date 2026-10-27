@@ -309,3 +309,148 @@ def test_legacy_gate_record_resumes_with_zero_candidates(
     assert _run(app).status is RunStatus.SUCCESS
     assert _resolution(app, store)["candidates"] == []
     assert _resolution(app, store)["request_status"] == "consumed"
+
+
+# -- GateAsk: the gate asked on another node's behalf ------------------------
+
+
+class _SpyRegistry:
+    """Records the ladder each evaluation was asked to run; accepts nothing."""
+
+    def __init__(self) -> None:
+        self.ladders: list[list[str]] = []
+
+    def evaluate(self, model: Any, *, gate_strategy: list[str], **_: Any) -> Any:
+        from functualize._types.gate_resolution import (
+            CandidateEvaluation,
+            EvaluationOutcome,
+            LadderOutcome,
+        )
+
+        self.ladders.append(list(gate_strategy))
+        failed = CandidateEvaluation(EvaluationOutcome.FAILED, detail="spy")
+        return LadderOutcome(
+            rungs=tuple((name, failed, None) for name in gate_strategy),
+            blocked_reason="spy refused every rung",
+        )
+
+
+class _FakeWalk:
+    """The `FrontierWalk` surface `GateService.service` uses, recorded."""
+
+    scope_id = "scope-1"
+
+    def __init__(self, resolution: Any = None) -> None:
+        self._resolution = resolution
+        self.opened: list[dict[str, Any]] = []
+        self.consumed: list[str] = []
+
+    def resolution(self, gate_name: str) -> Any:
+        return self._resolution
+
+    def open_request(self, gate_name: str, **kwargs: Any) -> str:
+        self.opened.append(kwargs)
+        return "req-new"
+
+    def record_candidates(self, candidates: Any) -> None:
+        pass
+
+    def consume(self, request_id: str) -> None:
+        self.consumed.append(request_id)
+
+    def gate_payload(self, gate_name: str) -> Any:
+        return None
+
+
+def _service(walk: _FakeWalk, registry: Any, **ask: Any) -> Any:
+    from functualize._engine.gate_service import GateAsk, GateService
+    from functualize._engine.workflow_walker import _Ledger
+
+    gate = Gate(name="approval", awaits=Approval, strategy="prompt")
+    return GateService().service(
+        gate, walk, registry, True, ledger=_Ledger(), ask=GateAsk(**ask)
+    )
+
+
+def test_the_default_ask_runs_the_declared_ladder() -> None:
+    registry = _SpyRegistry()
+    walk = _FakeWalk()
+    report = _service(walk, registry)
+
+    assert registry.ladders == [["prompt", "resolve"]]
+    assert report.blocked_reason == "spy refused every rung"
+    [opened] = walk.opened
+    assert opened["position"] == "approval" and opened["prompt"] is None
+    assert opened["supersedes"] is None
+
+
+def test_an_ask_ladder_replaces_the_declared_one_and_never_asks_resolve() -> None:
+    registry = _SpyRegistry()
+    _service(_FakeWalk(), registry, ladder=["prompt"])
+
+    assert registry.ladders == [["prompt"]]
+    assert all("resolve" not in ladder for ladder in registry.ladders)
+
+
+def test_an_ask_with_no_ladder_blocks_without_evaluating() -> None:
+    registry = _SpyRegistry()
+    walk = _FakeWalk()
+    report = _service(walk, registry, ladder=None)
+
+    assert registry.ladders == []
+    assert report.blocked_on == "approval" and len(walk.opened) == 1
+
+
+def test_an_ask_stands_at_its_position_and_supersedes_a_spent_answer() -> None:
+    from datetime import UTC, datetime
+
+    from functualize._types.gate_resolution import (
+        CandidateEvaluation,
+        EvaluationOutcome,
+        GateCandidate,
+        GateResolution,
+    )
+    from functualize._types.persistence import InputRequest
+
+    spent = GateResolution(
+        request=InputRequest(
+            "req-old", "scope-1", "approval", 1, "consumed", datetime.now(UTC)
+        ),
+        candidates=(
+            GateCandidate(
+                "cand-old",
+                "req-old",
+                0,
+                "cli",
+                datetime.now(UTC),
+                CandidateEvaluation(EvaluationOutcome.ACCEPTED),
+                {"approved": True},
+            ),
+        ),
+        accepted_id="cand-old",
+    )
+    walk = _FakeWalk(spent)
+    report = _service(
+        walk,
+        None,
+        position="charge",
+        prompt={"step": "charge", "attempt": 1},
+        ladder=None,
+        supersedes="req-old",
+    )
+
+    assert report.blocked_on == "approval", "the spent answer was replayed"
+    [opened] = walk.opened
+    assert opened["position"] == "charge"
+    assert opened["prompt"] == {"step": "charge", "attempt": 1}
+    assert opened["supersedes"] == "req-old"
+    assert walk.consumed == []
+
+
+def test_no_new_step_status_is_a_replayable_success() -> None:
+    from functualize._engine.frontier import TERMINAL_SUCCESS, StepStatus
+
+    assert {"success"} == TERMINAL_SUCCESS
+    new = {StepStatus.ATTEMPTING, StepStatus.IN_DOUBT, StepStatus.BLOCKED}
+    assert new == {"attempting", "in_doubt", "blocked"}
+    assert not new & TERMINAL_SUCCESS

@@ -633,20 +633,30 @@ operator-facing account is in `docs/cli/workflow.md`; the two-walker and
 cleanup proofs are in `tests/engine/test_walk_claims_through_the_port.py` and
 `tests/engine/test_timeout_is_lease_expiry.py`.
 
-### Gate resolution requests — behavior delivered, durable evidence open
+### Gate interactions, evidence, and the transactional outbox — delivered
 
-AC-1 and AC-2 are delivered on `feat/gate-resolution-model`: a gate request has
-a minted `request_id` stable across resume, and candidates carry their ordinal,
-source, and evaluation recorded at submission. The read projection returns
-those verdicts without recomputing them. The storage location is
-**`TRANSITIONAL(FUN-21)`**: the document backend still stores requests and
-candidates inside each gate record in `scopes.json`.
+Delivered on `feat/gate-interactions-outbox` (ADR-034): a gate request and its
+candidates are first-class rows with causal run/workflow/step/generation
+identity; every candidate carries resolver class and channel, schema identity
+and version, payload hash, supersession and evidence by reference plus digest
+(`EvidenceRef`, no bytes in any runtime row); every acceptance records one
+`GateDecision` naming the policy identity and version and the exact candidate
+ids it observed; and on a store whose profile declares `durable_outbox=True`
+the acceptance and its `gate.accepted` effect intent commit in **one**
+transaction, delivered **at least once** with consumer dedup on
+`gate.accepted:<request_id>` — claimed under a lease, redelivered after a lost
+acknowledgement, recovered by the next boot (proven against a real `os._exit`
+in `tests/workflow/test_gate_outbox_recovery.py`).
 
-**AC-3 remains open**, pending FUN-18's tables and legal transitions, FUN-19's
-durable provider, and FUN-21's interaction/evidence slice and answer-surface
-migration. Interaction evidence is not yet durable and readable independently
-of the scope document. The **FUN-4 issue must not close** until AC-3 is
-delivered, even if this parallel branch merges first.
+The answer surfaces (`answer`, `resume`, `--wf-input`, the MCP gate tools)
+address the **selected** store through `selected_workflow_store`; on SQLite
+nothing reads `scopes.json`, and the document backend serves the same one
+answer path through its own record seam. `Notify` keeps its record-first,
+at-most-once rule and is documented as deliberately not the outbox.
+
+AC-3 of FUN-4 is satisfied by this slice: interaction evidence is durable and
+readable independently of the scope document. The legacy
+`_record_port_input` path is removed.
 
 The maintainer approved D-1 through D-5 as Option A:
 
@@ -914,6 +924,70 @@ validated and read by nothing — the worst of the three states, because a user
 who wrote it got neither an error nor an expansion.
 
 ## Completed
+
+### An interrupted effecting step stops in doubt, never re-run without a decision (2026-10-20, `sdd/effecting-step-recovery`)
+
+**The decision worth keeping.** *A `Step(effecting=True)` whose runner died
+mid-run is never re-run on the resume's own authority.* Before the job is
+handed control, the walk commits an `attempting` record through the scope
+transaction — the attempt number, the start time, `effecting: true`. Every
+ending replaces it (`success`, `failed`, `cancelled`, a routed failure, a
+fingerprint skip; a `BLOCKED` ending is an ending, not doubt). A resume that
+finds `attempting` cannot know whether the effect happened, so it refuses to
+guess: it records `in_doubt`, stops the scope `blocked` on the derived
+recovery gate `<step>-in-doubt` — the reason beginning `in_doubt:` and naming
+the step, the attempt and the start time — and runs nothing downstream until
+the gate is answered. The delivery boundary, stated honestly: attempts are
+**at least once** (the effect may have happened before the crash), and
+execution becomes **exactly-once only through the recorded decision**. Nothing
+observes an effect from outside the store — any write after the effect can be
+lost in the same crash — so the engine records the one fact it can know, that
+control was handed to the job, and asks when that fact is not enough.
+
+**Rules that outlive the feature:**
+
+- **The attempt precedes the job, in the same durable channel.**
+  `EffectRecovery.begin` writes `attempting` through the walk's scope
+  transaction before the job callback runs; there is no window where the job
+  holds control without a recorded attempt.
+- **Nobody answers by default.** The recovery gate's answer is
+  `{"outcome": "ran" | "did_not_run"}` with an optional `value`, and
+  `outcome` has no default. The gate is never answered by the config chain
+  (`resolve`), an AI strategy, a decision provider, a cancelled or empty
+  prompt, or a timeout — it has none. Ctrl+C and no-TTY leave it pending.
+- **The verdict is binding and per-doubt.** `ran` completes the step without
+  calling the job; without a `value` the return is marked not reusable, so a
+  downstream `FromJob`/`FromStep` on the step fails loudly instead of reading
+  an invented value. `did_not_run` discards the attempt and runs attempt
+  *n+1* — a repeat by explicit choice, the only way the at-least-once
+  delivery shows as one. An answer is keyed to its `(attempt, iteration)`;
+  after `did_not_run`, a second crash asks again and never replays the first
+  answer.
+- **A raise is the job's own account.** Failure routing is unchanged: an
+  effecting job that raises after its effect happened must say so itself.
+  Doubt is for interruptions, not raises.
+- **Pure steps pay nothing.** A step that declares nothing records no attempt
+  and replays exactly as before; a workflow with no effecting step digests
+  byte-for-byte as before. Declaring the flag changes the shape and the graph
+  digest (the flag plus the recovery gate), so a scope parked under the old
+  digest is refused once with the existing graph-changed error — the pre-1.0
+  stance. `effecting=True` on a step whose job is itself a workflow is
+  refused at boot validation, and a declared node named `<step>-in-doubt` is
+  refused at declaration time.
+
+**Known limitation.** `Notify(on="blocked")` is keyed per declaration and
+scope, so an earlier blocked stop may swallow the notification for a later
+in-doubt stop in the same scope. The stop is not hidden: `status` and
+`blocked_reason` still expose it.
+
+Pinned by `tests/workflow/test_effecting_recovery.py` (the attempt, the
+verdict, per-pass doubt, the no-strategy refusal) and the real-`SIGKILL` suite
+in `tests/integration/test_crash_and_resume.py` (kill inside the effect before
+the step returns; a killed effect never enters again without a verdict; a kill
+in child work stops the effecting parent at doubt). Recorded in
+[ADR-035](../contributor/adr/035-an-interrupted-effecting-step-stops-in-doubt.md).
+The full feature record (spec, contracts, research, plan, tasks) stays
+recoverable from the branch history at `ab69419a^` (PR #120).
 
 ### The freshness key counts resolved group options (2026-10-14, `fix/freshness-key-group-options`)
 

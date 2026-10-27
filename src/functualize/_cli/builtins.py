@@ -1123,6 +1123,10 @@ def register_builtin_commands(cli_group: Any) -> None:
         "gate_already_consumed": int(ExitCode.USAGE),
         "tool_not_permitted": int(ExitCode.USAGE),
         "argument_not_permitted": int(ExitCode.USAGE),
+        # The two refusals a relational store gives the answer verbs: it
+        # keeps drafts only as submissions, and has no step deletion.
+        "draft_requires_commit": int(ExitCode.USAGE),
+        "epilogue_retry_unsupported": int(ExitCode.USAGE),
     }
 
     def _workflow_store(ctx: Any) -> Any:
@@ -1132,7 +1136,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         return ScopeStore(_workflow_app_ref(ctx).substrate)
 
     def _workflow_operator_store(ctx: Any) -> Any:
-        """The selected store for list, show, cancel and reclaim."""
+        """The selected store for list, show, answer, resume, cancel and reclaim."""
         from functualize.app.utils import selected_workflow_store
 
         return selected_workflow_store(_workflow_app_ref(ctx))
@@ -1198,10 +1202,15 @@ def register_builtin_commands(cli_group: Any) -> None:
                     f"  {name}: {record.get('status')} -> {record.get('return_value')!r}"
                 )
 
-        branches = detail.get("branches") or {}
-        if branches:
-            chosen = ", ".join(f"{src} -> {tgt}" for src, tgt in branches.items())
-            click.echo(f"Branches: {chosen}")
+        # Always printed, `-` when empty: an absent line cannot tell "nothing
+        # was recorded" from "nothing was read".
+        for label, key in (
+            ("Branches", "branches"),
+            ("Failure routes", "failure_routes"),
+        ):
+            entries = detail.get(key) or {}
+            listed = ", ".join(f"{src} -> {tgt}" for src, tgt in entries.items())
+            click.echo(f"{label}: {listed or '-'}")
 
         gates = detail.get("pending_gates") or []
         if not gates:
@@ -1443,7 +1452,9 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import answer_gate, gate_draft
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store(ctx)
+        # The selected store: the relational port when one is configured, so
+        # the answer lands where the walk that blocked reads it.
+        store = _workflow_operator_store(ctx)
 
         values = _parse_set(set_pairs)
         if input_json is not None:
@@ -1546,7 +1557,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.utils import resume_scope
 
         app = _workflow_app_ref(ctx)
-        store = _workflow_store(ctx)
+        store = _workflow_operator_store(ctx)
 
         payload = None
         if input_json is not None:
@@ -1573,14 +1584,27 @@ def register_builtin_commands(cli_group: Any) -> None:
             )
 
         if fmt == "json":
-            click.echo(json.dumps(result, indent=2))
+            # A walk that ran carries its run's metadata — enums and a start
+            # time — which plain `json.dumps` refuses; render them as text.
+            click.echo(json.dumps(result, indent=2, default=_json_text))
         if "error" in result:
             if fmt != "json":
                 click.echo(f"Error: {result['message']}", err=True)
             raise SystemExit(_workflow_exits.get(result["error"], 1))
         if fmt != "json":
             click.echo(result.get("message") or f"Walk ended: {result['status']}.")
+            if (
+                result.get("status") == "success"
+                and result.get("return_value") is not None
+            ):
+                click.echo(result["return_value"])
         raise SystemExit(_resume_exit(result))
+
+    def _json_text(value: Any) -> Any:
+        """An enum's value, a timestamp's ISO form, anything else's ``str``."""
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return getattr(value, "value", None) or str(value)
 
     def _resume_exit(result: dict[str, Any]) -> int:
         """The walk's own outcome as an exit code.

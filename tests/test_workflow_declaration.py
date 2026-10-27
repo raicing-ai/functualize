@@ -12,9 +12,11 @@ from pydantic import BaseModel
 
 from functualize._types.workflow import (
     END,
+    AgentStep,
     ConditionalEdge,
     Edge,
     Gate,
+    InDoubt,
     Step,
     WorkflowDeclaration,
 )
@@ -25,6 +27,26 @@ class Approval(BaseModel):
     """Gate schema used across these tests."""
 
     approved: bool = False
+
+
+@pytest.mark.parametrize(
+    ("make_node", "kind", "name"),
+    [
+        (lambda: Step("name\x00onfailure"), "Step", "name\x00onfailure"),
+        (lambda: Gate(name="gate\x00x", awaits=Approval), "Gate", "gate\x00x"),
+        (
+            lambda: AgentStep(name="agent\x00x", instructions="Review"),
+            "AgentStep",
+            "agent\x00x",
+        ),
+    ],
+)
+def test_node_names_refuse_nul(make_node, kind: str, name: str) -> None:
+    with pytest.raises(ValueError) as refused:
+        make_node()
+    assert str(refused.value) == (
+        f"{kind} name must not contain a NUL character ('\\x00'): {name!r}"
+    )
 
 
 class TestDeclarationAttachment:
@@ -120,6 +142,40 @@ class TestDeclarationQueries:
     def test_gates(self) -> None:
         """Gates are enumerable for schema publication."""
         assert [g.name for g in self._declaration().gates()] == ["approve"]
+
+    def test_effecting_step_declares_an_addressable_recovery_gate(self) -> None:
+        declaration = WorkflowDeclaration(
+            nodes=(Step("billing.refund", effecting=True),)
+        )
+        gate = declaration.recovery_gate("billing.refund")
+        assert gate == Gate(name="billing.refund-in-doubt", awaits=InDoubt)
+        assert declaration.node("billing.refund_in_doubt") == gate
+        assert declaration.recovered_step("billing.refund_in_doubt") == "billing.refund"
+        assert declaration.gates() == (gate,)
+        assert declaration.nodes == (Step("billing.refund", effecting=True),)
+
+    def test_recovery_answer_has_no_default_and_refuses_extra_fields(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            InDoubt()
+        with pytest.raises(ValidationError):
+            InDoubt.model_validate({"outcome": "maybe"})
+        with pytest.raises(ValidationError):
+            InDoubt.model_validate({"outcome": "ran", "guess": True})
+        assert InDoubt.model_validate({"outcome": "ran"}).value is None
+
+    def test_recovery_gate_name_collision_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="conflicts with a recovery gate"):
+
+            @workflow(
+                steps=[
+                    Step("refund", effecting=True),
+                    Gate(name="refund-in-doubt", awaits=Approval),
+                ],
+                edges=[],
+            )
+            def flow() -> None: ...
 
     def test_successors_follow_edges(self) -> None:
         """One-hop successors come from outgoing edges."""

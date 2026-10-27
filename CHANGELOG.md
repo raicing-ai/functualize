@@ -51,8 +51,44 @@ declares its subject class in this form. `examples/standalone/job_classes_lab`
 is the runnable version, including a class job whose name collides with a
 function.
 
-### Fixed — every shell surface prints the command you can type, and warns about a job-name collision
+### Added — gate answers are durable, evidenced, and delivered at least once
+A gate's question and every answer it collects are now first-class records on
+the selected store: the request carries the causal identity of the walk that
+opened it (run, workflow, step, generation), and each candidate carries its
+resolver class and channel, schema identity and version, payload hash,
+supersession, and evidence stored by reference plus digest — never as bytes.
+Every acceptance records the decision that made it: the policy identity and
+version, and the exact candidate ids it observed. The `answer`/`resume`
+commands, `--wf-input`, and the MCP gate tools all address the store selected
+by `runtime_store.url`; with SQLite selected, nothing reads `scopes.json`.
+On a store with a durable outbox (SQLite), the accepted answer, its decision
+and its effect intent commit in **one** transaction, and the intent is
+delivered to the registered receiver **at least once** — redelivered after a
+crash between delivery and acknowledgement, recovered by the next boot, and
+applied exactly once by a receiver that deduplicates on the intent's
+`idempotency_key`. A plugin registers a receiver for the `gate.accepted`
+topic with `app.extensions.register_effect_receiver(...)`; registering one
+declares that the project's store must have a durable outbox, and boot
+refuses the document store with the setting to change. `Notify` keeps its
+record-first, at-most-once rule and is documented as deliberately not the
+outbox. The decision is ADR-034; a runnable receiver ships in
+`examples/plugins/effect_receiver/`.
 
+### Changed — an interrupted effecting step stops in doubt instead of re-running
+`Step(job, effecting=True)` now writes an `attempting` record before its job
+runs. A resume that finds one — the runner died between the effect and the
+record's completion — stops the scope `blocked` at the derived gate
+`<step>-in-doubt` and never re-runs the job without a decision; the step is
+exactly-once once that decision is made. The gate's answer schema is
+`{"outcome": "ran" | "did_not_run"}`, with an optional `value`, answered
+through the existing gate surfaces. `ran` completes the step without calling
+the job; `did_not_run` permits the next attempt, and a later interruption
+opens the question again. Steps that declare nothing replay exactly as
+before. A workflow that declares an effecting step digests differently: a
+scope parked under the old digest is refused on resume with the existing
+graph-changed error, once, when the declaration first changes.
+Recorded in [ADR-035](contributor/adr/035-an-interrupted-effecting-step-stops-in-doubt.md).
+### Fixed — every shell surface prints the command you can type, and warns about a job-name collision
 A grouped job has a dotted identity (`suite.inventory`) and a command path
 (`suite inventory`). Several surfaces printed the identity where a person
 needed the path, so a copied line failed: the "Did you mean" hint
@@ -64,19 +100,16 @@ already spaced a name by replacing its dots (the blocked-run resume line, the
 TUI's browser rows, pre-flight header and refusal hints) take the path from
 the job instead, so a dot inside one job's own name (`tools.lint`) is no
 longer split into two words.
-
 **Breaking:** the shell walks groups one word at a time on both `func` and an
 app's own entry point. `func suite.inventory` is refused with a hint naming
 `func suite inventory`. Programmatic references keep the dotted identity:
 `rc.invoke`, `deps=`, `FromJob`, `[aliases]` targets, state keys, MCP tool
 names and `--json` output.
-
 `func --help` now lists the project's top-level jobs and groups beside
 `builtin`, and still prints for a project that fails to load. The TUI
 navigates groups from the discovered jobs even when no `GroupOptions` are
 declared. `functualize.types.CommandPath` and `JobDescriptor.command_path`
 expose the path to application code.
-
 When two functions normalize to one job name, one of them still runs, and
 the collision is still a warning. It is now shown wherever the command is:
 one stderr line before the job runs, under the command in group help and
@@ -84,6 +117,44 @@ one stderr line before the job runs, under the command in group help and
 line names both functions, both files, and the one that runs. In
 `builtin info jobs --json` the affected row gains a `collisions` array; its
 `name` and the existing `discovery_failures` objects are unchanged.
+
+### Changed — a workflow scope shows its recorded route on every store
+
+`func builtin workflow show` and the MCP `get_workflow_state` /
+`list_workflows` tools now report what a walk decided, not only what it ran. The
+projection carries two objects: `branches` holds the conditional choices and
+`failure_routes` holds `OnFailure` routes, a route to `END` reading `"END"`. The
+text form prints `Branches:` and `Failure routes:` on every `show`, `-` when
+empty, so an empty map is no longer indistinguishable from a route that was
+never read. Entries appear in the order they were recorded.
+
+Relational projects now show their recorded branches; they previously reported
+`{}` for every scope. Documents projects keep the same records but read them
+differently: failure routes move out of `branches` into `failure_routes`, and the
+internal notification markers are no longer listed. A script that read
+`branches["publish\u0000onfailure"]` should read
+`failure_routes["publish"]`; the NUL-delimited key was never documented. What is
+recorded, `workflow_branches` and `scopes.json` are unchanged, with no migration:
+records written after this change are stored in recording order, and existing
+records keep the order they were stored in.
+
+Store authors implement `WorkflowReader.branches`, one bulk read of a scope's
+decision records, checked by `run_baseline` as `record branch and branches`. A
+store that implements the port and omits it is non-conformant. On a store that
+cannot list a scope's records, every operator surface now refuses instead of
+reporting `{}`: CLI exit `2` with an `Error:` line naming the store and the
+missing member, MCP error code `scope_store_unreadable`. That reaches the
+`--wf-show` flag surface and MCP `resume_workflow`, which previously answered
+with a traceback or `workflow_not_found` for a scope that existed.
+
+Node names may no longer contain NUL: `Step`, `Gate` and `AgentStep` refuse it
+with `ValueError`, beside the existing empty-name refusal, because the decision
+key already uses NUL as its separator.
+
+Recorded in
+[ADR-034](contributor/adr/034-operator-surfaces-read-decision-records-in-bulk.md),
+which links ADR-033 (a walk's scope I/O goes through the selected store) and
+ADR-025 (the engine owns what a transition means).
 
 ### Changed — scoped vault entries resolve by address and environment
 

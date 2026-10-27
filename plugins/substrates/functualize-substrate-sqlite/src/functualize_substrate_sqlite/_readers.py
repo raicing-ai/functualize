@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING, Any
 from functualize._types.gate_resolution import (
     CandidateEvaluation,
     EvaluationOutcome,
+    EvidenceRef,
     GateCandidate,
+    GateDecision,
 )
 from functualize.plugin import (
     EventView,
@@ -180,7 +182,7 @@ class SqlWorkflowReader:
 
     _STEP_COLUMNS = (
         "step_key, iteration, status, result, reusable, result_kind, "
-        "result_type, inputs, effecting, completed_at"
+        "result_type, inputs, effecting, completed_at, attempt, started_at"
     )
 
     @staticmethod
@@ -197,6 +199,8 @@ class SqlWorkflowReader:
             inputs=_json(row[7]),
             effecting=bool(row[8]),
             completed_at=_time(row[9]),
+            attempt=row[10],
+            started_at=_time(row[11]),
         )
 
     def step(self, scope_id: str, step_key: str, iteration: int = 0) -> StepView | None:
@@ -225,6 +229,14 @@ class SqlWorkflowReader:
         )
         return str(rows[0][0]) if rows else None
 
+    def branches(self, scope_id: str) -> dict[str, str]:
+        rows = self._driver.query(
+            "SELECT decision_key, chosen_target FROM workflow_branches "
+            "WHERE namespace_id = ? AND scope_id = ? ORDER BY rowid",
+            (self._namespace, scope_id),
+        )
+        return {str(key): str(target) for key, target in rows}
+
     def state(self, scope_id: str) -> dict[str, Any]:
         rows = self._driver.query(
             "SELECT key, value FROM scope_state "
@@ -237,7 +249,10 @@ class SqlWorkflowReader:
 class SqlInputReader:
     """Open requests, workspace-wide waiting, and recorded candidates."""
 
-    _COLUMNS = "id, scope_id, gate_key, generation, status, created_at, schema, prompt, resolved_at"
+    _COLUMNS = (
+        "id, scope_id, gate_key, generation, status, created_at, schema, prompt, "
+        "resolved_at, run_id, position"
+    )
 
     def __init__(self, driver: SqlDriver, namespace: str) -> None:
         self._driver = driver
@@ -255,6 +270,8 @@ class SqlInputReader:
             schema=_json(row[6]),
             prompt=_json(row[7]),
             resolved_at=_time(row[8]),
+            run_id=row[9],
+            position=row[10],
         )
 
     def open_for(self, scope_id: str) -> InputRequest | None:
@@ -306,11 +323,14 @@ class SqlInputReader:
     def candidates_for(self, request_id: str) -> tuple[GateCandidate, ...]:
         rows = self._driver.query(
             "SELECT c.id, c.ordinal, c.source, c.outcome, c.detail, c.errors, "
-            "c.payload, c.evidence, c.created_at FROM input_candidates AS c "
+            "c.payload, c.evidence, c.created_at, c.resolver_class, c.channel, "
+            "c.schema_id, c.schema_version, c.payload_hash, "
+            "c.supersedes_candidate_id FROM input_candidates AS c "
             "JOIN input_requests AS r ON r.id = c.request_id "
             "WHERE r.namespace_id = ? AND c.request_id = ? ORDER BY c.ordinal",
             (self._namespace, request_id),
         )
+        evidence = self._evidence(request_id)
         return tuple(
             GateCandidate(
                 candidate_id=row[0],
@@ -325,6 +345,55 @@ class SqlInputReader:
                     evidence=_json(row[7]),
                 ),
                 payload=_json(row[6]),
+                resolver_class=row[9] or "",
+                channel=row[10] or "",
+                schema_id=row[11] or "",
+                schema_version=row[12] or "",
+                payload_hash=row[13] or "",
+                supersedes_candidate_id=row[14],
+                evidence_refs=evidence.get(row[0], ()),
             )
             for row in rows
+        )
+
+    def _evidence(self, request_id: str) -> dict[str, tuple[EvidenceRef, ...]]:
+        """Every evidence reference on the request's candidates, by candidate."""
+        rows = self._driver.query(
+            "SELECT a.candidate_id, a.uri, a.digest, a.media_type, a.size "
+            "FROM artifact_refs AS a JOIN input_candidates AS c "
+            "ON c.id = a.candidate_id WHERE a.namespace_id = ? AND "
+            "c.request_id = ? AND a.kind = 'gate-evidence' ORDER BY a.id",
+            (self._namespace, request_id),
+        )
+        found: dict[str, list[EvidenceRef]] = {}
+        for candidate_id, uri, digest, media_type, size in rows:
+            found.setdefault(candidate_id, []).append(
+                EvidenceRef(
+                    ref=uri, digest=digest or "", media_type=media_type, size=size
+                )
+            )
+        return {key: tuple(value) for key, value in found.items()}
+
+    def decision(self, request_id: str) -> GateDecision | None:
+        rows = self._driver.query(
+            "SELECT d.accepted_id, d.policy_id, d.policy_version, d.decided_at "
+            "FROM input_decisions AS d JOIN input_requests AS r "
+            "ON r.id = d.request_id WHERE r.namespace_id = ? AND d.request_id = ?",
+            (self._namespace, request_id),
+        )
+        if not rows:
+            return None
+        accepted_id, policy_id, policy_version, decided_at = rows[0]
+        observed = self._driver.query(
+            "SELECT candidate_id FROM input_decision_observations "
+            "WHERE request_id = ? ORDER BY position",
+            (request_id,),
+        )
+        return GateDecision(
+            request_id=request_id,
+            accepted_id=accepted_id,
+            policy_id=policy_id,
+            policy_version=policy_version,
+            observed_candidate_ids=tuple(row[0] for row in observed),
+            decided_at=parse_iso(decided_at),
         )

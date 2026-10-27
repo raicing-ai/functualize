@@ -162,9 +162,10 @@ scope and a topology you then have to maintain.
 ### C5. `Gate(tools=[Tool(...)])` + `FromStep` — bounded AI handoff
 
 `Tool(job, **bound)` narrows what a gate may call and fixes some of its
-arguments; `FromStep("step")` binds a tool argument to an earlier step's
-recorded result. Together they let an agent act at a pause without handing it
-the whole job registry.
+arguments; `FromStep("node")` binds a tool argument to an earlier step's or
+gate's recorded result in this walk. Together they let an agent act at a pause
+without handing it the whole job registry. The same `FromStep` on a later
+step's or the epilogue's parameter reads the gate's answer.
 
 ---
 

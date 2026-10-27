@@ -25,7 +25,15 @@ from typing import Annotated
 
 import pytest
 
-from functualize._types.from_job import FromJob, FromStep, from_job_refs
+from functualize._types.errors import FromStepUnavailableError
+from functualize._types.from_job import (
+    FromJob,
+    FromStep,
+    FromStepParam,
+    from_job_refs,
+    from_step_refs,
+    mixed_source_params,
+)
 
 MODULE = """
 {future_import}
@@ -230,3 +238,79 @@ class TestFromStep:
         """Distinct types on purpose — the whole point is that the position
         determines which operation is meant."""
         assert FromStep("build") != FromJob("build")
+
+
+STEP_MODULE = """
+{future_import}
+from typing import Annotated
+from functualize.job import FromJob
+from functualize.workflow import FromStep
+
+def only_step(value: Annotated[int, FromStep("source")]) -> int:
+    return value
+
+def with_default(value: Annotated[str, FromStep("optional")] = "fallback") -> str:
+    return value
+
+def mixed(value: Annotated[int, FromJob("job"), FromStep("node")]) -> int:
+    return value
+
+def unrelated(value: Annotated[int, "note"] = 1) -> int:
+    return value
+"""
+
+
+@pytest.mark.parametrize("use_future", [False, True], ids=["live", "pep563"])
+class TestFromStepRefs:
+    def _step_module(self, use_future: bool) -> ModuleType:
+        source = STEP_MODULE.format(
+            future_import="from __future__ import annotations" if use_future else ""
+        )
+        module = ModuleType(f"fromstep_jobs_{use_future}")
+        exec(compile(source, module.__name__, "exec"), module.__dict__)
+        return module
+
+    def test_ref_type_and_absent_default_are_extracted(self, use_future: bool) -> None:
+        module = self._step_module(use_future)
+        assert from_step_refs(module.only_step) == {
+            "value": FromStepParam(FromStep("source"), int, False)
+        }
+        assert from_job_refs(module.only_step) == {}
+
+    def test_declared_default_is_detected(self, use_future: bool) -> None:
+        module = self._step_module(use_future)
+        assert from_step_refs(module.with_default) == {
+            "value": FromStepParam(FromStep("optional"), str, True)
+        }
+
+    def test_mixed_sources_are_named_without_hiding_either(
+        self, use_future: bool
+    ) -> None:
+        module = self._step_module(use_future)
+        assert mixed_source_params(module.mixed) == ("value",)
+        assert from_step_refs(module.mixed)["value"].ref == FromStep("node")
+        assert from_job_refs(module.mixed)["value"] == FromJob("job")
+        assert mixed_source_params(module.only_step) == ()
+
+    def test_unrelated_annotations_are_ignored(self, use_future: bool) -> None:
+        module = self._step_module(use_future)
+        assert from_step_refs(module.unrelated) == {}
+
+
+def test_from_step_unavailable_error_carries_context() -> None:
+    error = FromStepUnavailableError(
+        node="approve",
+        parameter="answer",
+        reader="act",
+        scope_id="run-1",
+        reason="node was skipped",
+    )
+    assert (
+        error.node,
+        error.parameter,
+        error.reader,
+        error.scope_id,
+        error.reason,
+    ) == ("approve", "answer", "act", "run-1", "node was skipped")
+    assert "FromStep('approve')" in str(error)
+    assert "answer" in str(error) and "act" in str(error)
