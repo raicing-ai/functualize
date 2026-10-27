@@ -31,7 +31,12 @@ from functualize._config.errors import (
 from functualize._config.merge import deep_merge
 from functualize._config.roles import classify, parse_slot
 from functualize._types.descriptors import ConfigFileInfo
+from functualize._types.discovery_report import (
+    record_discovery_finding,
+    reserved_section_table,
+)
 from functualize._types.enums import ConfigFileRole
+from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
 from functualize._types.naming import normalize_name
 
 if TYPE_CHECKING:
@@ -886,6 +891,7 @@ class FileSource:
             parse_start = time.perf_counter()
 
             config = provider.parse(path)
+            self._report_reserved_section_tables(path, config)
 
             duration_ms = (time.perf_counter() - parse_start) * 1000
             key_count = sum(
@@ -903,6 +909,37 @@ class FileSource:
 
         self._per_file_configs = parsed_configs
         self._merged_config = self._merge(parsed_configs, unparsed)
+
+    def _report_reserved_section_tables(
+        self, path: str, config: dict[str, Any]
+    ) -> None:
+        """Report a top-level table named like a declared settings section.
+
+        ``[shell] program = …`` in a job config file is a settings table in
+        the wrong document: the setting is read from ``.functualize.toml``, so
+        the table reaches no job and nothing says so. Moving it is the fix, and
+        moving it is only obvious once the file is named -- hence a record that
+        names the file and the document the table belongs in.
+
+        Advisory, like every discovery finding: the table still merges exactly
+        as before, and the caller's chain is unaffected.
+
+        Args:
+            path: The file the table was read from.
+            config: That file's parsed top level.
+        """
+        for key, value in config.items():
+            if not isinstance(value, dict):
+                continue
+            if key not in FUNCTUALIZE_SETTINGS.sections():
+                continue
+            record_discovery_finding(
+                reserved_section_table(
+                    section=key,
+                    module=Path(path).stem,
+                    path=path,
+                )
+            )
 
     def _merge(
         self,

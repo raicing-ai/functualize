@@ -17,6 +17,14 @@ situation, one per registration path:
 The rule lives here so a fifth path cannot invent a fifth answer, which is how
 the first four happened.
 
+One name can also be a *settings section* — a job called ``shell`` answers to
+the word a settings table is spelled with — and a job nobody can configure
+without renaming a table is the same kind of silence, so the reserved-name
+check runs here too, on the same pass over the same descriptors. Every
+registration path that dedupes therefore gets it; a path that forgets to call
+this function loses the report as well as the dedupe, which is one gap to
+find, not two.
+
 ``_discovery`` peers may import each other; both provider modules import this.
 """
 
@@ -27,7 +35,9 @@ from typing import TYPE_CHECKING
 from functualize._types.discovery_report import (
     job_name_collision,
     record_discovery_finding,
+    reserved_section_name,
 )
+from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -68,6 +78,12 @@ def resolve_name_collisions(
     to parse or import, which is the same user-visible fact: a job the user
     wrote is not in the CLI.
 
+    Each candidate is also checked against the declared settings sections: a
+    job or group whose address is one of those is recorded as a reserved name,
+    whether or not it collides with another claimant. The job still registers
+    — the record says a ``[shell]`` table will not configure it, not that it
+    is unavailable.
+
     Recording is a no-op outside a collection scope, so a caller that is not
     scanning loses nothing by calling this.
 
@@ -78,7 +94,9 @@ def resolve_name_collisions(
         The surviving descriptors, in :func:`claim_order`.
     """
     kept: dict[str, JobDescriptor] = {}
+    sections = FUNCTUALIZE_SETTINGS.sections()
     for descriptor in sorted(descriptors, key=claim_order):
+        _record_reserved_section(descriptor, sections)
         previous = kept.get(descriptor.name)
         if previous is not None and previous is not descriptor:
             record_discovery_finding(
@@ -94,3 +112,40 @@ def resolve_name_collisions(
             )
         kept[descriptor.name] = descriptor
     return list(kept.values())
+
+
+def _record_reserved_section(
+    descriptor: JobDescriptor, sections: frozenset[str]
+) -> None:
+    """Record ``descriptor`` if its address is a declared settings section."""
+    for segment in _address_segments(descriptor):
+        if segment in sections:
+            record_discovery_finding(
+                reserved_section_name(
+                    name=_address(descriptor),
+                    section=segment,
+                    module=descriptor.module_path or descriptor.source_file,
+                    path=descriptor.source_file,
+                )
+            )
+            return
+
+
+def _address(descriptor: JobDescriptor) -> str:
+    """The dotted name a user types for this descriptor."""
+    if descriptor.group:
+        return f"{descriptor.group}.{descriptor.name}"
+    return descriptor.name
+
+
+def _address_segments(descriptor: JobDescriptor) -> list[str]:
+    """Every name this address passes through: leaf first, then its groups.
+
+    A declared section is a single word, so a group formed by ``shell.deploy``
+    is caught on ``shell`` and a job called ``shell`` on its own name. Leaf
+    first, because the job's own name is the more specific finding.
+    """
+    segments = [descriptor.name]
+    if descriptor.group:
+        segments.extend(reversed(descriptor.group.split(".")))
+    return segments

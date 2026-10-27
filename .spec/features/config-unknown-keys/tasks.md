@@ -442,7 +442,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 - [x] **6.1 Check** (C3; AC4, AC6, AC8, AC9) — **[F]** `src/functualize/_cli/data/config_vocabulary.py` (new),
   `tests/cli/test_config_vocabulary.py` (new)
-- [ ] **6.2 Reserved names** (F14; AC23, AC27) — **[F]** `src/functualize/_types/discovery_report.py`,
+- [x] **6.2 Reserved names** (F14; AC23, AC27) — **[F]** `src/functualize/_types/discovery_report.py`,
   `src/functualize/_discovery/collisions.py`, `src/functualize/_config/sources.py`,
   `tests/discovery/test_reserved_section_names.py` (new)
   - A new `error_type` on #118's `DiscoveryFailure` (`_types/discovery_report.py:78`),

@@ -51,12 +51,20 @@ __all__ = [
     "job_name_collision",
     "record_discovery_failure",
     "record_discovery_finding",
+    "reserved_section_name",
+    "reserved_section_table",
 ]
 
 #: ``DiscoveryFailure.error_type`` for a job-name collision. Not an exception
 #: class name -- the other values in that field are, and a collision is not
 #: raised anywhere -- so it is named here rather than spelled at each site.
 JOB_NAME_COLLISION = "JobNameCollision"
+
+#: ``DiscoveryFailure.error_type`` for a name that is also a declared settings
+#: section. Like :data:`JOB_NAME_COLLISION` this is not an exception class
+#: name: nothing is raised, the job registers, and the record exists so the
+#: one address two different things answer to is never discovered by surprise.
+RESERVED_SECTION_NAME = "ReservedSectionName"
 
 
 @dataclass(frozen=True)
@@ -202,6 +210,86 @@ def job_name_collision(
             dropped_source_file=dropped_path,
             registered_python_name=kept_python_name,
             registered_source_file=kept_path,
+        ),
+    )
+
+
+def reserved_section_name(
+    *,
+    name: str,
+    section: str,
+    module: str,
+    path: str,
+) -> DiscoveryFailure:
+    """The record for a name that is also a declared settings section.
+
+    A job or group called ``shell`` takes the same word a settings table is
+    spelled with, so a ``[shell]`` table in a job config file reads as
+    settings and never reaches that job's own configuration. Nothing is
+    ambiguous to the program -- the job registers and the setting is read from
+    its own document -- but the two-meaning name is worth saying out loud once,
+    which is what this record does.
+
+    Built here for the same reason :func:`job_name_collision` is: one message,
+    written once, reached through the same channel. ``error_type`` carries
+    :data:`RESERVED_SECTION_NAME` rather than a class name because nothing was
+    raised -- ``as_dict`` publishes the same four fields either way, so a
+    surface that lists discovery failures needs no new branch.
+
+    Args:
+        name: The discovered address, dotted for a group (``shell.deploy``).
+        section: The declared settings section the address collides with.
+        module: The module or config file the name came from.
+        path: Path to that file, which is what an operator edits.
+
+    Returns:
+        The failure record, ready to publish.
+    """
+    return DiscoveryFailure(
+        module=module,
+        path=path,
+        error_type=RESERVED_SECTION_NAME,
+        message=(
+            f"{name!r} (in {module!r}) is named after the reserved settings "
+            f"section [{section}]. The job is registered as usual, but a "
+            f"[{section}] table is read as settings, so it never reaches this "
+            f"job's configuration. Rename the job or the group."
+        ),
+    )
+
+
+def reserved_section_table(
+    *,
+    section: str,
+    module: str,
+    path: str,
+) -> DiscoveryFailure:
+    """The record for a settings table found in a job config file.
+
+    Same ``error_type`` as :func:`reserved_section_name` and the same channel:
+    one finding says the *name* is spoken for, the other says the *table* is in
+    the wrong document, and an operator reading ``info`` should not have to
+    learn two vocabularies to see either. What differs is the fix, so it
+    differs in the message -- the table's home is the settings document, and a
+    finding that does not say so leaves the reader to guess.
+
+    Args:
+        section: The declared settings section the table names.
+        module: The config file's stem, named as a module reads.
+        path: Path to the file the table was found in.
+
+    Returns:
+        The failure record, ready to publish.
+    """
+    return DiscoveryFailure(
+        module=module,
+        path=path,
+        error_type=RESERVED_SECTION_NAME,
+        message=(
+            f"[{section}] in {path} is a settings section, not a job's "
+            f"configuration table. Settings are declared in "
+            f".functualize.toml [{section}] (or [tool.functualize] in "
+            f"pyproject.toml); move it there."
         ),
     )
 
