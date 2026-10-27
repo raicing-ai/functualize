@@ -760,11 +760,13 @@ def _scan_cwd_directories(cwd: Path, scan_depth: int) -> list[str]:
     """Scan CWD for directories containing qualifying Python files.
 
     Traverses directories from ``cwd`` up to ``scan_depth`` levels deep,
-    applying the default pre-filter stack (``DefaultModulePreFilter`` +
-    ``ASTModulePreFilter`` via ``AllOf``) to each ``.py`` file found.
+    applying the default pre-filter stack — ``DefaultModulePreFilter``, then
+    ``ASTModulePreFilter`` or ``ClassJobPreFilter`` — to each ``.py`` file
+    found.
 
     A directory "qualifies" if it contains at least one ``.py`` file that
-    passes both pre-filters.
+    passes that stack: a public function, or a public class with a public
+    method (a class-only job module has no top-level function at all).
 
     Args:
         cwd: The root directory to scan from.
@@ -775,11 +777,15 @@ def _scan_cwd_directories(cwd: Path, scan_depth: int) -> list[str]:
     """
     from functualize._primitives import (
         AllOf,
+        AnyOf,
         ASTModulePreFilter,
+        ClassJobPreFilter,
         DefaultModulePreFilter,
     )
 
-    pre_filter = AllOf(DefaultModulePreFilter(), ASTModulePreFilter())
+    pre_filter = AllOf(
+        DefaultModulePreFilter(), AnyOf(ASTModulePreFilter(), ClassJobPreFilter())
+    )
     qualifying: list[str] = []
 
     def _check_directory(directory: Path) -> bool:

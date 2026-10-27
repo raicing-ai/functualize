@@ -9,6 +9,7 @@ Only imports from `_types/`, `_primitives/`, `_events/`, and stdlib.
 
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 import sys
@@ -428,11 +429,12 @@ class JobExecutionEngine:
         config_class = entry.config_class
         if config_class is None:
             return None
-        config_view = self._make_config_view(job_name)
+        section, scope = self._config_section(job_name, entry.method_name)
+        config_view = self._make_config_view(section, scope=scope)
         if self._config_resolver is not None:
             return self._config_resolver(
                 config_class=config_class,
-                job_name=job_name,
+                job_name=section,
                 config_view=config_view,
                 cli_values={},
             )
@@ -500,6 +502,28 @@ class JobExecutionEngine:
             raise DIValidationError(errors)
 
         return new_entry
+
+    def _config_section(
+        self, job_name: str, method_name: str | None
+    ) -> tuple[str, str]:
+        """The ``(section, scope)`` a job's configuration comes from.
+
+        A class job reads **one** section — its group's — however many methods
+        it has: ``[pg]`` and ``PG__HOST``, the same identity
+        ``func builtin vault put --group pg`` writes under (C1, D2). Reading
+        ``[pg.start]`` instead would ask the author for a section per method,
+        which is the shape the class does not have.
+
+        A function job keeps its own name as the section, unchanged. The group
+        is read off the registered entry because the engine never sees a
+        descriptor.
+        """
+        if method_name is not None:
+            entry = self._registered_jobs.get(job_name)
+            group = entry.group if entry is not None else None
+            if group:
+                return group, "group"
+        return job_name, "job"
 
     def _make_config_view(self, section_prefix: str, *, scope: str = "job") -> Any:
         """Create a config view using the injected factory.
@@ -850,6 +874,7 @@ class JobExecutionEngine:
                 cwd=request.cwd,
                 job_directory=request.job_directory,
                 config_class=job.config_class,
+                method_name=job.method_name,
                 parent_scope=request.parent_scope,
                 workflow_scope_id=request.workflow_scope_id,
                 run_dependencies=request.run_dependencies,
@@ -1178,6 +1203,7 @@ class JobExecutionEngine:
         cwd: Path | None = None,
         job_directory: Path | None = None,
         config_class: type | None = None,
+        method_name: str | None = None,
         parent_scope: Any | None = None,
         workflow_scope_id: str | None = None,
         run_dependencies: bool = True,
@@ -1204,6 +1230,9 @@ class JobExecutionEngine:
                 the two disagree (T5).
             job_directory: Directory containing the job source file.
             config_class: Optional Pydantic model for config validation.
+            method_name: For a class job, the method this run executes. Its
+                receiver is the config instance resolved below, never an
+                argument — so it is bound here, not passed in ``kwargs``.
             parent_scope: WorkflowScope to propagate to child context.
             workflow_scope_id: For a `@workflow` job, the scope to resume.
                 Omitted, each invocation walks a fresh scope (§A.7).
@@ -1256,6 +1285,7 @@ class JobExecutionEngine:
             parent_scope=parent_scope,
             request=request,
             run_id=run_id,
+            method_name=method_name,
         )
 
         declaration = getattr(function, "__functualize_workflow__", None)
@@ -1322,7 +1352,8 @@ class JobExecutionEngine:
         if RunContext not in (context.capabilities or {}):
             if context.capabilities is None:
                 context.capabilities = {}
-            job_config = self._make_config_view(job_name)
+            section, scope = self._config_section(job_name, method_name)
+            job_config = self._make_config_view(section, scope=scope)
             rc = RunContext(
                 name=job_name,
                 config=job_config,
@@ -1717,7 +1748,10 @@ class JobExecutionEngine:
                 from functualize._engine.capabilities.runcontext import RunContext
 
                 # Build a config view using the injected factory
-                job_config = self._make_config_view(context.job_name)
+                section, scope = self._config_section(
+                    context.job_name, context.method_name
+                )
+                job_config = self._make_config_view(section, scope=scope)
 
                 rc = RunContext(
                     name=context.job_name,
@@ -1844,7 +1878,8 @@ class JobExecutionEngine:
         # than statically: the config-view class is discovered at boot, so it
         # cannot be a key in a registry written at import time.
         if self._config_view_type is not None and type_ is self._config_view_type:
-            return self._make_config_view(context.job_name)
+            section, scope = self._config_section(context.job_name, context.method_name)
+            return self._make_config_view(section, scope=scope)
 
         spec = SPEC_BY_TYPE.get(type_)
         if spec is None or spec.factory is None:
@@ -2329,7 +2364,18 @@ class JobExecutionEngine:
         )
 
         sig = inspect.signature(function)
-        hints = resolved_hints(function)
+        # A class job's rebind replaces `context.function` with a
+        # `functools.partial`, and the freshness hash reads this through it.
+        # `inspect.signature` follows a partial to its `func` and drops the
+        # receiver it pre-bound, but `get_type_hints` does not — it answers
+        # `{}`, so a PEP 563 annotation would go unresolved and a
+        # `GroupOptions` parameter would silently vanish from the args hash.
+        # `resolved_hints` deliberately swallows that failure, so nothing else
+        # would notice.
+        hints_subject = (
+            function.func if isinstance(function, functools.partial) else function
+        )
+        hints = resolved_hints(hints_subject)
         found: list[tuple[str, Any]] = []
         for param_name, param in sig.parameters.items():
             annotation = hints.get(param_name, param.annotation)
@@ -2568,8 +2614,11 @@ class JobExecutionEngine:
 
         rc = context.capabilities.get(RunContext) if context.capabilities else None
 
-        # Build a config view using the injected factory
-        config_view = self._make_config_view(job_name)
+        # Build a config view using the injected factory. A class job's
+        # section is its group's, not its method job name — see
+        # `_config_section`.
+        section, scope = self._config_section(job_name, context.method_name)
+        config_view = self._make_config_view(section, scope=scope)
 
         # Extract CLI values from call_kwargs that match config fields
         cli_values: dict[str, Any] = {}
@@ -2587,14 +2636,14 @@ class JobExecutionEngine:
             if self._config_resolver is not None:
                 return self._config_resolver(
                     config_class=config_class,
-                    job_name=job_name,
+                    job_name=section,
                     config_view=config_view,
                     cli_values=values,
                 )
             return config_class(**values)
 
         config_instance = self._resolve_with_prompt(
-            _resolve, config_class, job_name, cli_values
+            _resolve, config_class, section, cli_values
         )
 
         # Set on RunContext's job_config
@@ -2630,6 +2679,19 @@ class JobExecutionEngine:
                 context.call_kwargs[param_name] = config_instance
                 context.injected.add(param_name)
                 break
+
+        if context.method_name is not None:
+            # F1 "instance per run": the instance `_config` just built from the
+            # resolved values *is* the receiver. Rebinding here — the only
+            # place that holds both the instance and the function — is what
+            # keeps the engine from growing a second lifecycle for jobs that
+            # happen to be methods. The local `function` in
+            # `_execute_lifecycle` stays the proxy, which is what its argument
+            # validation and group-option resolution must read; only the
+            # callable that actually runs is rebound.
+            context.function = functools.partial(
+                getattr(context.config_class, context.method_name), config_instance
+            )
 
     def _execute_with_lifecycle(self, context: ExecutionContext) -> JobResult:
         """Execute a job with hooks, middleware, and instrumentation.

@@ -209,6 +209,52 @@ class DisplayClassPreFilter:
         return _fingerprint(type(self).__name__)
 
 
+class ClassJobPreFilter:
+    """Check for job-class definitions via AST parsing.
+
+    Parses the source file's AST and returns True if any top-level public
+    class body defines at least one public method. That is the smallest shape
+    a job class can take, because a class job contributes one job per public
+    method; a class with no public method contributes none, and a private
+    class is a helper exactly as a ``_``-prefixed function is.
+
+    Without this, a module whose only job is a class — ``jobs/pg.py`` holding
+    ``@job class Postgres`` and nothing else — never qualifies and is never
+    imported, so the class job does not exist as far as discovery is
+    concerned.
+
+    Decorators are deliberately not consulted. Discovery admits an
+    *undecorated* public function the same way, and deciding which classes are
+    job classes from syntax would be a second, textual opinion about a
+    question ``extract_module`` already answers from the imported object.
+    This filter only decides whether reading the file is worth it.
+
+    Satisfies the ``ModulePreFilter`` Protocol via structural typing.
+    """
+
+    def should_import(self, source_file: Path) -> bool:
+        """Return True if a top-level public class has a public method."""
+        try:
+            source = source_file.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(source_file))
+        except (OSError, SyntaxError) as exc:
+            record_discovery_failure(source_file, exc)
+            return False
+
+        for node in ast.iter_child_nodes(tree):
+            if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):
+                continue
+            for stmt in node.body:
+                if isinstance(
+                    stmt, ast.FunctionDef | ast.AsyncFunctionDef
+                ) and not stmt.name.startswith("_"):
+                    return True
+        return False
+
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__)
+
+
 class GroupOptionsPreFilter:
     """Check for a bound ``GroupOptions`` declaration via AST parsing.
 

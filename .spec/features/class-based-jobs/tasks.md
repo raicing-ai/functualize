@@ -309,7 +309,7 @@ tasks in five waves.
 
 ## Wave 3
 
-- [ ] **4.1 — registration and the receiver** (C1, C6; spec F1, AC-2, AC-3, AC-4, AC-7, AC-11)
+- [x] **4.1 — registration and the receiver** (C1, C6; spec F1, AC-2, AC-3, AC-4, AC-7, AC-11)
   - **[F]** `src/functualize/_types/descriptors.py`, `src/functualize/_engine/context.py`, `src/functualize/_engine/executor.py`, `src/functualize/_app/boot.py`, `tests/engine/test_class_job_receiver.py` (new), `tests/cli/test_class_job_acceptance.py` (new)
   - **Inputs:** `plan.md` §4.4; `schema.md` §4, §5; `_types/descriptors.py:552-579`;
     `_engine/context.py:94-107`; `executor.py:1220-1259`, `:2555-2632`,

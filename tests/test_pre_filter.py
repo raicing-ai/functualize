@@ -10,6 +10,7 @@ from functualize._primitives.pre_filter import (
     AllOf,
     AnyOf,
     ASTModulePreFilter,
+    ClassJobPreFilter,
     DefaultModulePreFilter,
     GlobExcludePreFilter,
     ImportModulePreFilter,
@@ -143,6 +144,77 @@ class TestASTModulePreFilter:
         f.write_text("class Foo:\n    def bar(self):\n        pass\n")
         # Only top-level function defs count
         assert ASTModulePreFilter().should_import(f) is False
+
+
+# ---------------------------------------------------------------------------
+# ClassJobPreFilter
+# ---------------------------------------------------------------------------
+
+
+class TestClassJobPreFilter:
+    """A class job's module has no top-level function, so it needs its own arm.
+
+    The check is syntactic and deliberately decorator-blind: it decides whether
+    reading the file is worth it, and ``extract_module`` decides from the
+    imported object which classes are job classes.
+    """
+
+    def test_allows_file_with_public_class_and_public_method(
+        self, tmp_path: Path
+    ) -> None:
+        f = tmp_path / "pg.py"
+        f.write_text("class Postgres:\n    def start(self) -> None:\n        pass\n")
+        assert ClassJobPreFilter().should_import(f) is True
+
+    def test_allows_an_undecorated_class(self, tmp_path: Path) -> None:
+        f = tmp_path / "pg.py"
+        f.write_text(
+            "from pydantic import BaseModel\n"
+            "class Postgres(BaseModel):\n"
+            "    host: str = 'localhost'\n"
+            "    def start(self) -> None:\n"
+            "        pass\n"
+        )
+        assert ClassJobPreFilter().should_import(f) is True
+
+    def test_allows_async_method(self, tmp_path: Path) -> None:
+        f = tmp_path / "pg.py"
+        f.write_text("class Postgres:\n    async def start(self):\n        pass\n")
+        assert ClassJobPreFilter().should_import(f) is True
+
+    def test_rejects_class_with_only_private_methods(self, tmp_path: Path) -> None:
+        f = tmp_path / "pg.py"
+        f.write_text("class Postgres:\n    def _present(self) -> None:\n        pass\n")
+        assert ClassJobPreFilter().should_import(f) is False
+
+    def test_rejects_private_class(self, tmp_path: Path) -> None:
+        f = tmp_path / "pg.py"
+        f.write_text("class _Helper:\n    def start(self) -> None:\n        pass\n")
+        assert ClassJobPreFilter().should_import(f) is False
+
+    def test_rejects_nested_class(self, tmp_path: Path) -> None:
+        f = tmp_path / "pg.py"
+        f.write_text(
+            "def factory():\n"
+            "    class Inner:\n"
+            "        def start(self) -> None:\n"
+            "            pass\n"
+        )
+        assert ClassJobPreFilter().should_import(f) is False
+
+    def test_rejects_class_with_no_methods(self, tmp_path: Path) -> None:
+        f = tmp_path / "types.py"
+        f.write_text("class Point:\n    x: int = 0\n")
+        assert ClassJobPreFilter().should_import(f) is False
+
+    def test_rejects_syntax_error(self, tmp_path: Path) -> None:
+        f = tmp_path / "broken.py"
+        f.write_text("class (\n")
+        assert ClassJobPreFilter().should_import(f) is False
+
+    def test_rejects_nonexistent_file(self, tmp_path: Path) -> None:
+        f = tmp_path / "missing.py"
+        assert ClassJobPreFilter().should_import(f) is False
 
 
 # ---------------------------------------------------------------------------

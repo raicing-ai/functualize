@@ -295,8 +295,11 @@ class JobDescriptor:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict for cache persistence.
 
-        Uses config_fields if populated, otherwise falls back to parameters.
-        Enum defaults are converted via .value attribute. Non-JSON-serializable
+        ``config_fields`` carries what the CLI configures the job with, which
+        for a plain function is its parameters. A class method's two lists are
+        different — the class's fields and the method's own arguments — so
+        ``parameters`` is persisted beside it rather than folded in. Enum
+        defaults are converted via .value attribute. Non-JSON-serializable
         defaults are converted to None.
         """
         fields = self.config_fields if self.config_fields else self.parameters
@@ -314,6 +317,9 @@ class JobDescriptor:
             "content_hash": self.content_hash,
             "docstring": self.docstring,
             "config_fields": [_field_to_dict(f) for f in fields],
+            # v24 — a class method's own arguments, which `config_fields` (the
+            # class's fields) does not hold.
+            "parameters": [_field_to_dict(f) for f in self.parameters],
             "dependencies": dict(self.dependencies),
             "metadata": metadata_dict,
             "requires_tty": self.requires_tty,
@@ -409,6 +415,15 @@ class JobDescriptor:
             except ValueError as e:
                 raise ValueError(f"Invalid config_fields[{i}]: {e}") from e
 
+        # v24 — a method job's own arguments. Absent in a v23 entry, where
+        # `config_fields` already held the parameters of every other job.
+        parameters = []
+        for i, field_data in enumerate(data.get("parameters") or []):
+            try:
+                parameters.append(_field_from_dict(field_data))
+            except ValueError as e:
+                raise ValueError(f"Invalid parameters[{i}]: {e}") from e
+
         # Validate dependencies dict values
         for key, value in data["dependencies"].items():
             if not isinstance(key, str):
@@ -454,6 +469,9 @@ class JobDescriptor:
             content_hash=data["content_hash"],
             docstring=data["docstring"],
             config_fields=config_fields,
+            # v24 — a method job's own arguments; empty for every other job,
+            # whose `config_fields` already is its parameter list.
+            parameters=parameters,
             dependencies=data["dependencies"],
             metadata=metadata_value,
             # Capability markers (v5) — default False for pre-v5 cache entries.
@@ -567,6 +585,12 @@ class RegisteredJob:
         group: Job group name (None for top-level jobs).
         module_path: Module path or file path where the job was defined.
         job_directory: Directory containing the job source file (None if unknown).
+        method_name: For a class job, the method the job runs. The engine
+            binds ``getattr(config_class, method_name)`` to the run's resolved
+            config instance, which is the receiver; ``None`` for a function
+            job. Read from the descriptor's ``python_name`` at registration —
+            the engine never sees a descriptor.
+
         dependencies: Names of the jobs this one depends on — declared `Deps`
             plus signature-derived `FromJob` parameters, already resolved.
 
@@ -584,6 +608,7 @@ class RegisteredJob:
     module_path: str
     job_directory: Path | None = None
     dependencies: tuple[str, ...] = ()
+    method_name: str | None = None
 
 
 # =============================================================================

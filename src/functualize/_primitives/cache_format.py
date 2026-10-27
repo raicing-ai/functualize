@@ -160,7 +160,12 @@ from functualize._primitives.locator import (
 # v23 (2026-10-26): class method descriptors carry their declaring class.
 # A v22 entry cannot retain that provenance, so rebuild it before class-aware
 # cache keys and collision claims are used.
-CACHE_VERSION = 23
+# v24 (2026-10-27): a class method descriptor's `parameters` (the method's own
+# arguments) are persisted next to `config_fields` (the class's fields). A v23
+# entry only kept `config_fields`, so a warm boot listed a method job with no
+# arguments while the cold one listed `--force`. Rebuild rather than read a
+# catalog that disagrees with itself.
+CACHE_VERSION = 24
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"

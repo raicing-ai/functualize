@@ -2013,6 +2013,11 @@ def register_descriptors(app: Any, descriptors: list[Any]) -> None:
     LazyJobFunction proxy: NO module import happens here; the engine
     materializes the entry on first use.
 
+    A class job (`descriptor.owner_class` set) takes one path for both
+    boot shapes: its function is the method's proxy (cold: the live one,
+    warm: the lazy one that materializes to it), and its config class is
+    the job class itself — never detected from a signature.
+
     Args:
         app: The FunctualizeApp instance.
         descriptors: List of JobDescriptor instances to register.
@@ -2025,19 +2030,33 @@ def register_descriptors(app: Any, descriptors: list[Any]) -> None:
 
     for descriptor in descriptors:
         live_fn = getattr(descriptor, "function", None)
-        if live_fn is not None and callable(live_fn):
-            fn: Any = live_fn
+        # A class job registers its method's proxy, cold or warm, and takes no
+        # other path: its config class is the class itself (never a
+        # signature-detected model) and its receiver is that class's method.
+        # This arm comes first so `adopt_descriptor_declaration` and
+        # `_detect_config_class` are unreachable for a class job rather than
+        # merely unnecessary. `method_name` is the descriptor's `python_name`
+        # — `JobDescriptor` needs no field of its own for it.
+        if descriptor.owner_class is not None:
+            fn: Any = live_fn if live_fn is not None else LazyJobFunction(descriptor)
+            config_class = getattr(fn, "job_class", None)
+            method_name = descriptor.python_name
+        elif live_fn is not None and callable(live_fn):
+            fn = live_fn
             adopt_descriptor_declaration(descriptor, live_fn)
             config_class = _detect_config_class(live_fn)
+            method_name = None
         else:
             fn = LazyJobFunction(descriptor)
             config_class = None
+            method_name = None
         entry = RegisteredJob(
             name=descriptor.name,
             function=fn,
             config_class=config_class,
             group=descriptor.group,
             module_path=descriptor.module_path,
+            method_name=method_name,
             # From the descriptor, which survives a warm boot; `live_fn` is
             # None there, so reading deps off the function would lose them.
             dependencies=declared_dependency_names(
