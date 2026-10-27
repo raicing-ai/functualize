@@ -5,7 +5,7 @@ Tests cover:
 - _toml_value(): formatting Python values as TOML strings
 - _determine_source(): which config source provided a value
 - config show: output format and source annotations (integration-style)
-- config path: status indicators (✓ used / ○ found / ✗ missing)
+- config path: resolved layers, contributions, and unknown-key annotations
 - config edit: editor resolution, template creation, no-editor error
 
 Requirements: 16.1–16.6
@@ -302,6 +302,59 @@ class TestConfigShow:
         assert 'r = "run"' in output
         assert "source: global" in output
 
+    def test_source_comes_from_the_resolved_snapshot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stopped parent cannot claim a value the global layer supplies."""
+        import click
+        from click.testing import CliRunner
+
+        for key in list(os.environ):
+            if key.startswith("FUNCTUALIZE_"):
+                monkeypatch.delenv(key, raising=False)
+        parent = tmp_path / "project"
+        parent.mkdir()
+        (parent / ".functualize.toml").write_text('[cli]\noutput = "plain"\n')
+        nested = parent / "nested"
+        nested.mkdir()
+        (nested / ".functualize.toml").write_text("root = true\n")
+        global_path = tmp_path / "xdg" / "functualize" / "config.toml"
+        global_path.parent.mkdir(parents=True)
+        global_path.write_text('[cli]\noutput = "json"\n')
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+        monkeypatch.chdir(nested)
+
+        app = click.Group(name="func")
+        from functualize._cli.builtins import register_builtin_commands
+
+        register_builtin_commands(app)
+        result = CliRunner().invoke(app, ["builtin", "config", "show"])
+
+        assert result.exit_code == 0
+        assert 'output = "json"  # source: global' in result.output
+        assert 'output = "plain"' not in result.output
+
+    def test_env_source_outranks_file_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import click
+        from click.testing import CliRunner
+
+        (tmp_path / ".functualize.toml").write_text(
+            'root = true\n[cli]\noutput = "plain"\n'
+        )
+        monkeypatch.setenv("FUNCTUALIZE_CLI_OUTPUT", "json")
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+        monkeypatch.chdir(tmp_path)
+        app = click.Group(name="func")
+        from functualize._cli.builtins import register_builtin_commands
+
+        register_builtin_commands(app)
+        result = CliRunner().invoke(app, ["builtin", "config", "show"])
+
+        assert result.exit_code == 0
+        assert 'output = "json"  # source: env' in result.output
+
 
 # =============================================================================
 # config path integration tests
@@ -394,10 +447,10 @@ class TestConfigPath:
         assert "pyproject.toml" in output
         assert "[tool.functualize]" in output
 
-    def test_pyproject_without_tool_functualize_shows_found(
+    def test_pyproject_without_tool_functualize_is_not_a_layer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        """pyproject.toml without [tool.functualize] → shows '○ found'."""
+        """A file without the app table does not participate in resolution."""
         import click
         from click.testing import CliRunner
 
@@ -417,8 +470,58 @@ class TestConfigPath:
 
         assert result.exit_code == 0
         output = result.output
-        assert "○ found" in output
-        assert "no [tool.functualize]" in output
+        assert str(pyproject) not in output
+
+    def test_nearest_project_layer_only_when_root_stops_walk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import click
+        from click.testing import CliRunner
+
+        parent = tmp_path / "project"
+        parent.mkdir()
+        parent_path = parent / ".functualize.toml"
+        parent_path.write_text('[cli]\noutput = "plain"\n')
+        nested = parent / "nested"
+        nested.mkdir()
+        nested_path = nested / ".functualize.toml"
+        nested_path.write_text('root = true\n[cli]\noutput = "json"\n')
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+        monkeypatch.chdir(nested)
+        app = click.Group(name="func")
+        from functualize._cli.builtins import register_builtin_commands
+
+        register_builtin_commands(app)
+        result = CliRunner().invoke(app, ["builtin", "config", "path"])
+
+        assert result.exit_code == 0
+        assert f"✓ used    {nested_path}" in result.output
+        assert str(parent_path) not in result.output
+
+    def test_shadowed_and_unknown_only_files_are_found_with_an_annotation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import click
+        from click.testing import CliRunner
+
+        project_path = tmp_path / ".functualize.toml"
+        project_path.write_text('root = true\n[cli]\noutput = "json"\n')
+        global_path = tmp_path / "xdg" / "functualize" / "config.toml"
+        global_path.parent.mkdir(parents=True)
+        global_path.write_text('[cli]\noutput = "plain"\noutptu = "oops"\n')
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+        monkeypatch.chdir(tmp_path)
+        app = click.Group(name="func")
+        from functualize._cli.builtins import register_builtin_commands
+
+        register_builtin_commands(app)
+        result = CliRunner().invoke(app, ["builtin", "config", "path"])
+
+        assert result.exit_code == 0
+        assert f"✓ used    {project_path}" in result.output
+        assert f"○ found   {global_path}" in result.output
+        assert 'unknown key "cli.outptu"' in result.output
+        assert 'did you mean "cli.output"?' in result.output
 
 
 # =============================================================================

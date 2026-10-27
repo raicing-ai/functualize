@@ -7,10 +7,9 @@ from typing import TYPE_CHECKING
 from . import (
     _CONFIG_TEMPLATE,
     Path,
-    _determine_source,
-    _emit_config_field,
     _mount,
     _resolve_editor,
+    _toml_value,
     subprocess,
 )
 
@@ -44,130 +43,60 @@ def register_config(builtin_app: click.Group) -> None:
     @config_app.command("show")
     def config_show() -> None:
         """Display resolved config in TOML with source annotations."""
-        from functualize._cli.config import read_global_config, resolve_cli_config
-        from functualize.app.utils import (
-            resolve_project_config,
-            resolve_user_config_dir,
-        )
+        from functualize.app.config import CliConfig, resolve_app_settings
+        from functualize.app.utils import resolve_user_config_dir
 
-        cli_config = resolve_cli_config()
-        config_dir = resolve_user_config_dir()
-        global_config = read_global_config(config_dir)
-        _anchor, project_config = resolve_project_config(Path.cwd())
+        snapshot = resolve_app_settings(
+            Path.cwd(), global_dir=resolve_user_config_dir()
+        )
+        cli_config = CliConfig.from_settings(snapshot)
+        layer_kinds = {str(layer.path): layer.kind for layer in snapshot.layers}
+
+        def emit(lines: list[str], section: str, key: str, value: object) -> None:
+            if value is None:
+                lines.append(f"# {key} = (not set)")
+                return
+            source = snapshot.provenance.get(f"{section}.{key}", "default")
+            lines.append(
+                f"{key} = {_toml_value(value)}  # source: {layer_kinds.get(source, source)}"
+            )
 
         # Build TOML output with source annotations
         lines: list[str] = []
         lines.append("[discovery]")
 
         dc = cli_config.discovery
-        _emit_config_field(
+        emit(lines, "discovery", "exclude_patterns", list(dc.exclude_patterns))
+        emit(lines, "discovery", "extra_directories", list(dc.extra_directories))
+        emit(lines, "discovery", "require_file_prefix", dc.require_file_prefix)
+        emit(lines, "discovery", "require_file_postfix", dc.require_file_postfix)
+        emit(lines, "discovery", "require_file_import", dc.require_file_import)
+        emit(lines, "discovery", "require_file_marker", dc.require_file_marker)
+        emit(
             lines,
-            "exclude_patterns",
-            list(dc.exclude_patterns),
-            dc.exclude_patterns,
-            project_config,
-            global_config,
             "discovery",
-        )
-        _emit_config_field(
-            lines,
-            "extra_directories",
-            list(dc.extra_directories),
-            dc.extra_directories,
-            project_config,
-            global_config,
-            "discovery",
-        )
-        _emit_config_field(
-            lines,
-            "require_file_prefix",
-            dc.require_file_prefix,
-            dc.require_file_prefix,
-            project_config,
-            global_config,
-            "discovery",
-        )
-        _emit_config_field(
-            lines,
-            "require_file_postfix",
-            dc.require_file_postfix,
-            dc.require_file_postfix,
-            project_config,
-            global_config,
-            "discovery",
-        )
-        _emit_config_field(
-            lines,
-            "require_file_import",
-            dc.require_file_import,
-            dc.require_file_import,
-            project_config,
-            global_config,
-            "discovery",
-        )
-        _emit_config_field(
-            lines,
-            "require_file_marker",
-            dc.require_file_marker,
-            dc.require_file_marker,
-            project_config,
-            global_config,
-            "discovery",
-        )
-        _emit_config_field(
-            lines,
             "require_job_decorators",
             list(dc.require_job_decorators) if dc.require_job_decorators else None,
-            dc.require_job_decorators,
-            project_config,
-            global_config,
-            "discovery",
         )
-        _emit_config_field(
-            lines,
-            "require_job_prefix",
-            dc.require_job_prefix,
-            dc.require_job_prefix,
-            project_config,
-            global_config,
-            "discovery",
-        )
-        _emit_config_field(
-            lines,
-            "require_job_postfix",
-            dc.require_job_postfix,
-            dc.require_job_postfix,
-            project_config,
-            global_config,
-            "discovery",
-        )
+        emit(lines, "discovery", "require_job_prefix", dc.require_job_prefix)
+        emit(lines, "discovery", "require_job_postfix", dc.require_job_postfix)
 
         lines.append("")
         lines.append("[cli]")
-        _emit_config_field(
-            lines,
-            "output",
-            cli_config.output,
-            cli_config.output,
-            project_config,
-            global_config,
-            "cli",
-        )
-        _emit_config_field(
-            lines,
-            "show_timing",
-            cli_config.show_timing,
-            cli_config.show_timing,
-            project_config,
-            global_config,
-            "cli",
-        )
+        emit(lines, "cli", "output", cli_config.output)
+        emit(lines, "cli", "show_timing", cli_config.show_timing)
 
         lines.append("")
         lines.append("[aliases]")
         for alias_name, alias_target in sorted(cli_config.aliases.items()):
-            source = _determine_source(
-                alias_name, alias_target, project_config, global_config, "aliases"
+            source = next(
+                (
+                    layer.kind
+                    for layer in snapshot.layers
+                    if isinstance(layer.values.get("aliases"), dict)
+                    and alias_name in layer.values["aliases"]
+                ),
+                "default",
             )
             lines.append(f'{alias_name} = "{alias_target}"  # source: {source}')
 
@@ -179,60 +108,28 @@ def register_config(builtin_app: click.Group) -> None:
     @config_app.command("path")
     def config_path() -> None:
         """Show config file paths with status (✓ used / ○ found / ✗ missing)."""
+        from functualize._cli.data.config_vocabulary import (
+            describe,
+            unknown_keys_in_layers,
+        )
+        from functualize.app.config import resolve_app_settings
         from functualize.app.utils import resolve_user_config_dir
+        from functualize.plugin import FUNCTUALIZE_SETTINGS
 
-        config_dir = resolve_user_config_dir()
-        global_path = config_dir / "config.toml"
-        cwd = Path.cwd()
-        pyproject_path = cwd / "pyproject.toml"
-        functualize_toml_path = cwd / ".functualize.toml"
-
-        # Determine global config status
-        if global_path.exists():
-            try:
-                import tomllib as _tomllib
-
-                content = global_path.read_bytes()
-                data = _tomllib.loads(content.decode("utf-8"))
-                # Check if any section has actual key-value pairs
-                has_values = any(
-                    (isinstance(v, dict) and v) or (not isinstance(v, dict))
-                    for v in data.values()
-                )
-                if has_values:
-                    click.echo(f"  ✓ used    {global_path}")
-                else:
-                    click.echo(f"  ○ found   {global_path}")
-            except Exception:
-                click.echo(f"  ○ found   {global_path}")
-        else:
-            click.echo(f"  ✗ missing {global_path}")
-
-        # Determine project config status
-        pyproject_has_functualize = False
-        if pyproject_path.exists():
-            try:
-                import tomllib as _tomllib
-
-                content = pyproject_path.read_bytes()
-                data = _tomllib.loads(content.decode("utf-8"))
-                tool_section = data.get("tool", {})
-                if isinstance(tool_section, dict) and "functualize" in tool_section:
-                    pyproject_has_functualize = True
-                    click.echo(f"  ✓ used    {pyproject_path} [tool.functualize]")
-                else:
-                    click.echo(f"  ○ found   {pyproject_path} (no [tool.functualize])")
-            except Exception:
-                click.echo(f"  ○ found   {pyproject_path}")
-        else:
-            click.echo(f"  ✗ missing {pyproject_path}")
-
-        # .functualize.toml: only relevant if pyproject doesn't have [tool.functualize]
-        if not pyproject_has_functualize:
-            if functualize_toml_path.exists():
-                click.echo(f"  ✓ used    {functualize_toml_path}")
+        snapshot = resolve_app_settings(
+            Path.cwd(), global_dir=resolve_user_config_dir()
+        )
+        findings = unknown_keys_in_layers(snapshot.layers, FUNCTUALIZE_SETTINGS)
+        for layer in snapshot.layers:
+            if not layer.exists:
+                status = "✗ missing"
+            elif snapshot.contributes.get(layer.path):
+                status = "✓ used   "
             else:
-                click.echo(f"  ✗ missing {functualize_toml_path}")
+                status = "○ found  "
+            section = f" [{layer.section_prefix}]" if layer.section_prefix else ""
+            annotation = describe(tuple(f for f in findings if f.file == layer.path))
+            click.echo(f"  {status} {layer.path}{section}{annotation}")
 
     @config_app.command("edit")
     def config_edit() -> None:
