@@ -140,7 +140,7 @@ class TestScanWarmCacheParity:
         flow = next(job for job in rebuilt if job.name == "flow")
         assert flow.workflow is not None
         assert flow.workflow.to_dict()["steps"][1]["recovers"] == "refund"
-        assert json.loads(path.read_text(encoding="utf-8"))["version"] == 22
+        assert json.loads(path.read_text(encoding="utf-8"))["version"] == CACHE_VERSION
 
     def test_declaration_survives_warm_cache_read(
         self, tmp_path: Path, jobs_dir: Path
