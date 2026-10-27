@@ -433,6 +433,28 @@ def extract_decorator_root_name(node: ast.expr) -> str | None:
     return None
 
 
+def _decorator_root_names(
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
+) -> tuple[str, ...]:
+    """Root names of the decorators on one definition, in source order."""
+    return tuple(
+        name
+        for name in (extract_decorator_root_name(d) for d in node.decorator_list)
+        if name is not None
+    )
+
+
+def _merge_root_names(
+    own: tuple[str, ...], inherited: tuple[str, ...]
+) -> tuple[str, ...]:
+    """``own`` first, then ``inherited`` with anything already seen dropped."""
+    merged = list(own)
+    for name in inherited:
+        if name not in merged:
+            merged.append(name)
+    return tuple(merged)
+
+
 def extract_function_decorators(source_file: Path) -> dict[str, tuple[str, ...]]:
     """Map each top-level function name to its decorator root names (via AST).
 
@@ -443,6 +465,11 @@ def extract_function_decorators(source_file: Path) -> dict[str, tuple[str, ...]]
     (a transparent wrapper leaves no trace on the resulting object), so the
     names are read from the source AST at extraction time and carried on the
     descriptor.
+
+    Top-level functions are keyed by their bare name. Methods are keyed
+    ``"<Class>.<method>"``, and their value also carries the class's own
+    decorators — the class-level ``@job`` is what makes its methods jobs at all
+    (D8), so a ``require_job_decorators`` filter must see it.
 
     Returns an empty mapping when the file cannot be read or parsed; callers
     treat that as "no decorators known", so a job-level decorator filter
@@ -458,14 +485,20 @@ def extract_function_decorators(source_file: Path) -> dict[str, tuple[str, ...]]
     result: dict[str, tuple[str, ...]] = {}
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            names = tuple(
-                name
-                for name in (
-                    extract_decorator_root_name(d) for d in node.decorator_list
-                )
-                if name is not None
-            )
-            result[node.name] = names
+            result[node.name] = _decorator_root_names(node)
+        elif isinstance(node, ast.ClassDef):
+            # One level of nesting, deliberately: a job method lives directly
+            # in its class body, and nothing below that is addressed by a key
+            # this mapping can spell. A class's own decorators belong to every
+            # method in it — ``@job`` on the class is what brings the method
+            # into existence — so they join the method's own under the
+            # class-qualified key, the method's first.
+            class_names = _decorator_root_names(node)
+            for child in node.body:
+                if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                    result[f"{node.name}.{child.name}"] = _merge_root_names(
+                        _decorator_root_names(child), class_names
+                    )
     return result
 
 

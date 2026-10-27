@@ -181,7 +181,7 @@ tasks in five waves.
     `getattr(cls, ...)` → `TunedPostgres` gains two jobs and the test fails;
     restore. `TRANSITIONAL` for the run path until 4.1.
 
-- [ ] **3.2 — decorators recorded from a class body** (C2; spec F4, AC-5)
+- [x] **3.2 — decorators recorded from a class body** (C2; spec F4, AC-5)
   - **[F]** `src/functualize/_primitives/pre_filter.py`, `src/functualize/_primitives/job_filter.py`, `src/functualize/_discovery/sync.py`, `tests/discovery/test_class_job_filter.py` (new)
   - **Inputs:** `plan.md` §4.2; `pre_filter.py:426-469` (`extract_decorator_root_name`
     426-433, the function loop 459-460); `job_filter.py:132-160`;

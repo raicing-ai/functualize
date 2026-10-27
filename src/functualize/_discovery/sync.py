@@ -710,6 +710,17 @@ def class_job_descriptors(
             ),
             exec=method_declaration.exec if method_declaration is not None else None,
         )
+        # ``<Class>.<method>`` first: a method's own decorators are recorded
+        # there together with its class's, because the class's ``@job`` is what
+        # brings the method into existence (D8). The bare name is the fallback
+        # for a source file that yields only top-level keys.
+        method_key = f"{job_class.__name__}.{method_name}"
+        method_decorators = (
+            decorators[method_key]
+            if method_key in decorators
+            else decorators.get(method_name, ())
+        )
+
         proxy = ClassJobMethod(job_class, method_name, declaration=effective)
         parameters = extract_parameters_from_signature(proxy)
         try:
@@ -738,11 +749,7 @@ def class_job_descriptors(
                 source_mtime=source_mtime,
                 content_hash=content_hash,
                 config_fields=config_fields,
-                # Class-qualified key first (3.2 records methods under
-                # ``<Class>.<method>``), bare name second, so a source file that
-                # only yields top-level keys still gives the method its set.
-                decorators=decorators.get(f"{job_class.__name__}.{method_name}", ())
-                or decorators.get(method_name, ()),
+                decorators=method_decorators,
                 # Metadata and capabilities are read off the raw method: the
                 # proxy has no ``__dict__`` of the author's, and plugin dunders
                 # (``__functualize_surface_hint__`` and friends) live there.
