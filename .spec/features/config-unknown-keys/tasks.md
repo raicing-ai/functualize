@@ -199,18 +199,82 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   - *Residual:* `read_global_config`'s unknown-key warning path is no longer
     pinned by a test — this row moved those assertions to `config path` — and
     the function is removed in 8.1.
-- [ ] **4.3 Settings store and TUI** (M4) — **[F]** `src/functualize/_cli/data/func_settings.py`,
-  `src/functualize/_cli/data/settings_schema.py`, `src/functualize/_cli/tui/__init__.py`,
+- [ ] **4.3 Settings store and TUI** (M4; amended at `1ffd5f00`) — **[F]**
+  `src/functualize/_config/settings_layers.py`, `src/functualize/plugin/__init__.py`,
+  `src/functualize/_cli/data/func_settings.py`, `src/functualize/_cli/data/settings_schema.py`,
+  `src/functualize/_cli/data/toml_writer.py`, `src/functualize/_cli/tui/__init__.py`,
   `src/functualize/_cli/tui/settings_panel.py`, `src/functualize/_cli/tui/settings_validator.py`,
-  `src/functualize/_cli/tui/shell_mode.py`, `src/functualize/_cli/tui/app.py` (one read),
-  `src/functualize/_cli/tui/source_chain_providers.py`, `src/functualize/_cli/tui/panels/settings_files.py`,
-  `tests/cli/test_func_settings_store.py`, `tests/cli/test_settings_registration.py`
-  - Remove the registries, `FuncSetting`, `_spec`, `_as_setting` and the
-    import-time registration. Rows come from the schema (`surface="tui"`);
-    values come from `app.settings`.
-  - *Rev6 gate:* `rg -n '\b(SettingsFileInfo|resolve_cli_config_layers)\b'
-    src/functualize/_cli/data/func_settings.py` → 0 before row 8.1 removes
-    their definitions.
+  `src/functualize/_cli/tui/shell_mode.py`, `src/functualize/_cli/tui/app.py`,
+  `src/functualize/_cli/tui/source_chain_providers.py`,
+  `src/functualize/_cli/tui/panels/settings_files.py`, `src/functualize/_cli/tui/job_listing.py`,
+  `tests/config/test_settings_layers.py`, `tests/cli/test_func_settings_store.py`,
+  `tests/cli/test_apply_settings.py`,
+  `tests/cli/test_settings_registration.py`, `tests/cli/test_settings_store_second_app.py`,
+  `tests/_cli/test_settings_panel_catalog.py`, `tests/_cli/test_settings_files_pilot.py`,
+  `tests/_cli/test_source_chain_detail_pilot.py`,
+  `examples/standalone/deploy_tool/deploy_tool/main.py` (public-type example only),
+  `examples/standalone/deploy_tool/tests/test_deploy_tool.py`
+  - **Do — layers and reachability:** export the existing `SettingsLayer` from
+    `functualize.plugin` (`plugin/__init__.py`), beside `ResolvedSettings` and
+    `resolve_settings`. `FuncSettingsStore` takes the app's schema and frozen
+    `app.settings` snapshot when an app exists; standalone `discover(cwd, env)`
+    uses the same public `resolve_settings(schema, cwd, env=…)` entry point.
+    Both obtain `snapshot.layers`, never `_cli.config` or `_config`.
+    `layers`, source-chain entries and the Settings Files panel use those
+    `SettingsLayer` objects. The chain may list each file/env/flag candidate,
+    but its winning value and provenance come from the snapshot; the store
+    must not implement a second precedence resolver.
+    `ensure_layer()` adds an empty prospective layer without reading a file.
+    `refresh()` obtains a replacement snapshot from the already-public
+    `resolve_settings(schema, cwd, flags=…, env=…)`, retaining the store's
+    explicit flag/environment inputs; it never reparses a TOML file itself.
+    Name the exported `SettingsLayer` type in the deploy-tool example's store
+    factory so the new public type has an example caller; 6.3 still owns that
+    example's full private-import cleanup.
+  - **Do — persistence and AC18:** keep `FuncSettingsStore.write()` as the TUI
+    edit coordinator and keep `_cli/data/toml_writer.py` as the atomic text
+    writer. Extend `SettingsLayer` with the original file text, loaded in
+    `_config/settings_layers.py` alongside its parsed values. Before a save,
+    refresh the layer snapshot; validate edits against the app schema, map
+    dotted setting names to the layer's `section_prefix`, and pass that text
+    plus *all* section edits/removals to a read-free writer operation that
+    renders and atomically replaces the file once. The writer must not open
+    the settings path for reading; its existing job-config
+    path may keep its own read. After the save, `refresh()` re-resolves through
+    the layer module. Thus even the read needed to preserve unrelated TOML
+    occurs only in `_config/settings_layers.py`; no second settings parser or
+    public write API is added. Preserve comments, unrelated sections and
+    typed values in the round trip. The running app's boot snapshot remains
+    frozen; the TUI uses the refreshed store snapshot and its existing live
+    apply hook, while other app consumers see the saved file on the next boot.
+  - **Do — catalog and consumers:** remove the TUI's dependence on mutable
+    registries, `FuncSetting`, `_spec`, `_as_setting` and import-time
+    registration. Build SettingsPanel rows/order/defaults and validation from
+    the app schema's
+    `surface="tui"` settings; values/provenance come from the store snapshot,
+    including a prospective file not yet written. The `deploy_tool` example
+    still calls `register_settings`, constructs `FuncSetting`, and imports
+    `SETTINGS_ORDER`/`FUNC_SCHEMA` (`examples/standalone/deploy_tool/deploy_tool/main.py:42-109`,
+    `tests/test_deploy_tool.py:40-77`); retain only that example-facing legacy
+    catalog until 6.3 rewrites the example, mark it
+    `TRANSITIONAL(config-unknown-keys/6.3)`, and do not let it feed the TUI.
+    The adapter's `FUNC_SCHEMA` read is separately transitional to 5.1.
+    Row 6.3 removes the example callers and the remaining legacy names. Update
+    `job_listing.py:144` and the Settings Files builder to consume the new
+    store/layer model. `app/adapters/cli.py:1302,1314` stays owned by 5.1:
+    retain the store's per-instance flag override entry point through this
+    wave, marked `TRANSITIONAL(config-unknown-keys/5.1)`, then remove that
+    public-folder import in 5.1 when flags enter the typed resolver.
+  - *Gate:* `rg -n '\b(SettingsFileInfo|resolve_cli_config_layers)\b'
+    src/functualize/_cli/data/func_settings.py` → 0 before 8.1 deletes their
+    definitions; `rg -n 'tomllib|_functualize_table|read_text\('
+    src/functualize/_cli/data/func_settings.py` → 0. A save test must fail if
+    the writer reads a settings path, then pass with the read confined to
+    `settings_layers.py`; it must cover multiple sections, an unwritten file,
+    preserved unrelated TOML, and the refreshed TUI value/source. Pin a
+    second app's schema and the `root = true` stop through `discover()`.
+    Run the named store/TUI and deploy-tool example tests, then
+    `uv run lint-imports` (7 kept/0 broken).
 - [x] **4.4 Surface vocabulary** (F16; AC30; rev5 new) — **[F]** `src/functualize/_types/enums.py`,
   `src/functualize/types/__init__.py`, `src/functualize/_types/functualize_settings.py`,
   `src/functualize/job/decorators.py`, `src/functualize/app/adapters/surface_gate.py`,
@@ -256,6 +320,11 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 - [ ] **5.1 `_cli/main.py` and generated root flags** — **[F]** `src/functualize/_cli/main.py`,
   `src/functualize/app/adapters/cli.py` (rev5 added)
+  - *4.3 handoff:* remove `_seed_settings_store_from_flags`'s
+    `FuncSettingsStore` import/construction (`app/adapters/cli.py:1302,1314`)
+    and its transitional per-instance override path when generated flags feed
+    the typed resolver. Gate: `rg -n '_cli\.data\.func_settings' src/functualize/app`
+    → 0; 4.3 does not claim this public-folder cleanup.
   - Generated options replace the 16 decorators at `:140-223` (`@click.pass_context`
     `:228`). The typed flag layer replaces `cli_flags` (`:327-343`, `:2130-2134`).
     `PLUGINS_DISABLED` reads (`:383-385`, `:618-620`, `:1279-1281`, `:1437-1439`),
