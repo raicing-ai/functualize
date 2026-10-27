@@ -156,7 +156,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
   - **Reachability:** `_run_cli` → handler → `build_request` → `RunRequest`;
     live proof lands in 3.1.
 
-- [ ] **2.2 — The fourth delivery input through both builders** (C5; AC1)
+- [x] **2.2 — The fourth delivery input through both builders** (C5; AC1)
   - **[F]** `src/functualize/app/adapters/_request_builder.py`,
     `src/functualize/app/adapters/click_params.py`,
     `tests/adapters/test_request_builder.py`
@@ -179,6 +179,12 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
     identically when `run_tags` is omitted.
   - **Acceptance:** `uv run pytest tests/app tests/cli -q` green on the touched
     files; `uv run lint-imports` → 7 kept, 0 broken.
+  - **Inherited gate failure (ruling, 2026-10-27):** the literal pytest command
+    reports only `tests/cli/test_workflow_answer_relational.py::TestCliAnswerAndResume::test_resume_with_fused_input_answers_and_advances`
+    failing (`workflow_not_found`, scope `rel-1`); this node also failed at
+    branch baseline `7496210a` before 2.2 (1 failed, 8 deselected) and on
+    master CI run `40313352680`. The row is accepted with this sole inherited
+    failure disclosed; the command and test remain unchanged.
   - **Reachability:** `_handle_job` → `build_job_engine_callback` →
     `build_request`; exercised end-to-end by 3.1.
 
