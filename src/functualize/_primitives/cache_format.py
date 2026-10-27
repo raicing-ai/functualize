@@ -165,7 +165,14 @@ from functualize._primitives.locator import (
 # entry only kept `config_fields`, so a warm boot listed a method job with no
 # arguments while the cold one listed `--force`. Rebuild rather than read a
 # catalog that disagrees with itself.
-CACHE_VERSION = 24
+# v25 (2026-10-27): a module's own findings (`AbstractJobClass`,
+# `MethodGroupConflict`) are persisted beside its entries and replayed on a warm
+# scan. They are recorded only while the module is *imported*, so a module that
+# both states a finding and yields descriptors reported it on the cold boot and
+# nowhere after it — the finding vanished while the jobs beside it stayed listed.
+# A v24 cache has no such section and its absence is indistinguishable from "this
+# module states nothing", so the bump forces the one rebuild that records it.
+CACHE_VERSION = 25
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"

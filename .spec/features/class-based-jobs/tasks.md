@@ -403,6 +403,32 @@ tasks in five waves.
 
 ## Wave 4
 
+- [x] **5.2 — Checkpoint repair: class-job findings survive a warm cache** (spec AC-7, AC-9; F5)
+  - **[F]** `src/functualize/_discovery/cached_provider.py`, `src/functualize/_primitives/cache_format.py`, `tests/discovery/test_discovery_failures.py`, `tests/cli/test_class_job_acceptance.py`
+  - **Do:** retain the findings a module states about itself (`AbstractJobClass`,
+    `MethodGroupConflict`) beside that module's cache entry, under a new
+    top-level `findings` section keyed by source file, and replay them on the
+    pass that validates the entry instead of importing the file. Re-record
+    them outward in extraction order at the end of `_safe_import` — inside a
+    private collection scope, so the cold list keeps the order and the content
+    it had. Retain only collision-free findings (a collision is re-derived from
+    the retained entries by `_reindex_by_name`) and persist only files in
+    `_known_source_files()`, so the section holds exactly what a warm pass can
+    skip. Drop a file's findings wherever its entries are dropped, and bump
+    `CACHE_VERSION` with the reason: a v24 cache has no such section, and its
+    absence is indistinguishable from "this module states nothing".
+  - **Tests:** a cold provider and a second provider over the same cache file
+    report the same findings for a module carrying an abstract `@job` class
+    *and* a working subclass; `func builtin info --json` twice in the AC-9
+    project (abstract `Database` with `@job`, concrete subclass beside it)
+    reports the same `discovery_failures` row both times; a module whose only
+    outcome is a finding writes nothing to the section and is re-reported.
+  - **Invariants:** AC-9's cold semantics unchanged — the admission rule and
+    what counts as a job do not move; the old-cache recovery path stays silent;
+    no new import on a warm boot.
+  - **Acceptance:** both tests fail at the previous tip and pass here; the
+    cache payload round-trips the section; 5.1's gates re-run at this head.
+
 - [ ] **5.1 — Checkpoint**
   - **[F]** none (verification only).
   - **Do:** `uv run ruff check --fix src/ tests/ plugins/ examples/`,
@@ -431,7 +457,7 @@ tasks in five waves.
     { "id": 1, "tasks": ["2.1", "2.2"] },
     { "id": 2, "tasks": ["3.1", "3.2", "3.3", "3.4", "3.5"] },
     { "id": 3, "tasks": ["4.1", "4.2", "4.3"] },
-    { "id": 4, "tasks": ["5.1"] }
+    { "id": 4, "tasks": ["5.2", "5.1"] }
   ]
 }
 ```

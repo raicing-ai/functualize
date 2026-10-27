@@ -93,6 +93,42 @@ class Postgres(Database):
 CONFIG_BASE = '[pg]\nhost = "db.internal"\nport = 6000\n'
 CONFIG_PROD = '[pg]\nhost = "prod.internal"\n'
 
+#: AC-9's second module: the abstract base gains `@job` while staying abstract,
+#: so it registers nothing and states a finding instead. The concrete subclass
+#: beside it is what makes the finding a warm-cache question — without one, the
+#: module yields no entries and is re-imported, and re-reports, every pass.
+DATABASES = '''\
+from abc import abstractmethod
+
+from pydantic import BaseModel
+
+from functualize.job import Shell, job
+
+@job
+class Database(BaseModel):
+    """Abstract: no job is registered, and discovery says so."""
+
+    host: str = "localhost"
+
+    @abstractmethod
+    def start(self, sh: Shell) -> None: ...
+
+    @abstractmethod
+    def stop(self, sh: Shell) -> None: ...
+
+@job(group="pgpool")
+class PooledPostgres(Database):
+    """Concrete, so this module has cache entries and is skipped when warm."""
+
+    pool_size: int = 20
+
+    def start(self, sh: Shell) -> None:
+        """Start the pool."""
+
+    def stop(self, sh: Shell) -> None:
+        """Stop the pool."""
+'''
+
 
 @pytest.fixture()
 def project(project_tree) -> Path:
@@ -282,6 +318,34 @@ class TestTheWarmCache:
 
         assert cold.exit_code == 0, cold.stderr
         assert json.loads(warm.stdout) == json.loads(cold.stdout)
+
+    def test_a_warm_boot_reports_the_same_finding(self, cli_run, project: Path) -> None:
+        """AC-9, warm: an abstract `@job` class stays reported.
+
+        The finding is stated while the module is imported, and a warm boot is
+        the one boot that does not import it. `databases.py` is the shape that
+        exposes the difference: the abstract class states the finding *and* the
+        concrete subclass beside it fills the cache, so the module is skipped on
+        the second run — and used to go quiet, leaving AC-9 true only on a cold
+        tree.
+        """
+        (project / ".functualize" / "jobs" / "databases.py").write_text(
+            DATABASES, encoding="utf-8"
+        )
+
+        cold = _payload(cli_run(["builtin", "info", "--json"], cwd=project))
+        warm = _payload(cli_run(["builtin", "info", "--json"], cwd=project))
+
+        finding = cold["discovery_failures"]
+        assert [row["error_type"] for row in finding] == ["AbstractJobClass"]
+        assert "start, stop" in finding[0]["message"]
+        assert warm["discovery_failures"] == finding
+        # The finding is reported *beside* the jobs the same module contributes,
+        # which is what makes the second boot skip the import at all.
+        assert {"pgpool.start", "pgpool.stop"} <= {row["name"] for row in warm["jobs"]}
+        assert [row["name"] for row in warm["jobs"]] == [
+            row["name"] for row in cold["jobs"]
+        ]
 
 
 class TestTheVaultEntry:

@@ -37,7 +37,7 @@ def test_plain_function_and_old_payload_have_no_owner_class() -> None:
 
 
 def test_cache_reader_refuses_version_22(tmp_path: Path) -> None:
-    assert CACHE_VERSION == 24
+    assert CACHE_VERSION == 25
     cache_dir = tmp_path / ".functualize"
     cache_dir.mkdir()
     cache_file = cache_dir / CACHE_FILENAME

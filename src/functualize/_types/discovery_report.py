@@ -99,7 +99,15 @@ class ClassJobCollisionDetail:
 
 @dataclass(frozen=True)
 class DiscoveryFailure:
-    """One module discovery could not read, and why.
+    """One finding about a module's discovery, and why it is there.
+
+    Most entries are a module discovery could not read. Two kinds are not: a
+    job-name collision, which is derived from the retained entries rather than
+    raised, and a finding a module states about its own code — an abstract
+    ``@job`` class, a method whose group disagrees with its class — which is
+    recorded while the module is imported and replayed on a pass that validates
+    it instead. Both are still the operator's answer to "why is my job not
+    here", which is the only thing this type is for.
 
     Attributes:
         module: The module's name -- its file stem. Not the dotted import
