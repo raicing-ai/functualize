@@ -186,6 +186,9 @@ class RunRequest:
     ``surface`` has no default. A door must name itself — the coverage audit had
     to reconstruct which door a run came from by reading code, and the run record
     (F5) cannot record what the request never carried.
+
+    ``run_tags`` is fixed for a run; a child receives the exact map and cannot
+    add, change or remove an entry.
     """
 
     job_name: str
@@ -196,6 +199,7 @@ class RunRequest:
     prompt_gates: bool = False
     output_format: str = "auto"
     force: bool = False
+    run_tags: Mapping[str, str] = field(default_factory=lambda: _EMPTY)
 
     # Execution inputs.
     group_option_values: Mapping[str, Any] | None = None

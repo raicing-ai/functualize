@@ -124,7 +124,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
 
 ## Wave 1
 
-- [ ] **2.1 — `RunRequest.run_tags`, copied verbatim to every child** (C4;
+- [x] **2.1 — `RunRequest.run_tags`, copied verbatim to every child** (C4;
       AC17, AC18, AC27, AC28)
   - **[F]** `src/functualize/_types/run_request.py`,
     `tests/engine/test_nested_delivery_inputs.py`
