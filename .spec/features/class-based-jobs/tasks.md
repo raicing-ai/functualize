@@ -202,7 +202,7 @@ tasks in five waves.
   - **Acceptance:** AC-5's `descriptor.decorators` is non-empty for a class job.
   - **Reachability:** covered by 3.1's descriptors, which do carry `decorators=`.
 
-- [ ] **3.3 — a strict collision has a record that survives "neither registered"** (C5; spec F5, AC-6)
+- [x] **3.3 — a strict collision has a record that survives "neither registered"** (C5; spec F5, AC-6)
   - **[F]** `src/functualize/_types/discovery_report.py`, `src/functualize/_discovery/collisions.py`, `tests/discovery/test_class_collisions.py` (new)
   - **Inputs:** `plan.md` §4.5; `schema.md` §7; `_types/discovery_report.py:47-206`;
     `collisions.py:57-96`.

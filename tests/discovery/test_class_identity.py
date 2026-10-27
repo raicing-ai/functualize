@@ -9,7 +9,10 @@ from functualize._discovery.collisions import claim_order, resolve_name_collisio
 from functualize._discovery.providers import DirectoryScanProvider
 from functualize._primitives.locator import ResourceLocator
 from functualize._types.descriptors import JobDescriptor
-from functualize._types.discovery_report import collecting_discovery_failures
+from functualize._types.discovery_report import (
+    CLASS_JOB_NAME_COLLISION,
+    collecting_discovery_failures,
+)
 
 
 def _provider(tmp_path: Path) -> CachedDirectoryScanProvider:
@@ -57,12 +60,17 @@ def test_distinct_classes_keep_both_method_claims(tmp_path: Path) -> None:
             f"{claim_order(descriptor)[0]}::{claim_order(descriptor)[1]}"
         )
 
-    # The strict class-specific diagnostic arrives later; both claims already
-    # reach the existing collision resolver instead of being overwritten.
+    # Both claims reach the collision resolver instead of being overwritten,
+    # and a class job makes the collision strict: neither claim is registered.
     with collecting_discovery_failures() as findings:
-        (winner,) = resolve_name_collisions(provider._entries.values())
-    assert winner.owner_class == "OtherPostgres"
-    assert len(findings) == 1
+        assert resolve_name_collisions(provider._entries.values()) == []
+    (finding,) = findings
+    assert finding.error_type == CLASS_JOB_NAME_COLLISION
+    assert finding.collision is not None
+    assert [name for name, _ in finding.collision.claimants] == [
+        "LocalPostgres.start",
+        "OtherPostgres.start",
+    ]
 
 
 def test_plain_function_identity_is_unchanged_on_directory_scan(tmp_path: Path) -> None:

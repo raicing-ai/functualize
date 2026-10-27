@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from functualize._types.discovery_report import (
+    class_job_name_collision,
     job_name_collision,
     record_discovery_finding,
 )
@@ -55,7 +56,6 @@ def claim_order(descriptor: JobDescriptor) -> tuple[str, str]:
       "last claimant wins" preserves the function a project already runs.
     """
     identity = descriptor.python_name or descriptor.name
-    # TRANSITIONAL(class-based-jobs/3.1): Class descriptors arrive later.
     if descriptor.owner_class:
         identity = f"{descriptor.owner_class}.{identity}"
     return (descriptor.source_file or "", identity)
@@ -66,10 +66,19 @@ def resolve_name_collisions(
 ) -> list[JobDescriptor]:
     """Keep one descriptor per job name, reporting every displaced claimant.
 
-    The **last** claimant in :func:`claim_order` wins, and each loser is
-    recorded through the discovery-failure collector — so it reaches
-    ``builtin info`` and ``builtin self doctor`` alongside a module that failed
-    to parse or import, which is the same user-visible fact: a job the user
+    Two rules, split on whether a class job is a claimant.
+
+    With plain functions the **last** claimant in :func:`claim_order` wins and
+    each loser is recorded — "the same job under two spellings, one of them
+    runs". A class job makes the collision strict: *nobody* is registered,
+    because a class job's name comes from a class the user wrote and ran
+    together with its siblings, so silently running somebody else's function
+    under that name, or one arbitrary method of the class, hides the problem
+    rather than resolving it.
+
+    Either way the record goes through the discovery-failure collector, so it
+    reaches ``builtin info`` and ``builtin self doctor`` alongside a module
+    that failed to parse or import — the same user-visible fact: a job the user
     wrote is not in the CLI.
 
     Recording is a no-op outside a collection scope, so a caller that is not
@@ -81,20 +90,68 @@ def resolve_name_collisions(
     Returns:
         The surviving descriptors, in :func:`claim_order`.
     """
-    kept: dict[str, JobDescriptor] = {}
+    grouped: dict[str, list[JobDescriptor]] = {}
     for descriptor in sorted(descriptors, key=claim_order):
-        previous = kept.get(descriptor.name)
-        if previous is not None and previous is not descriptor:
+        claimants = grouped.setdefault(descriptor.name, [])
+        if not claimants or claimants[-1] is not descriptor:
+            claimants.append(descriptor)
+
+    kept: list[JobDescriptor] = []
+    for name, claimants in grouped.items():
+        if len(claimants) == 1:
+            kept.append(claimants[0])
+        elif all(claimant.owner_class is None for claimant in claimants):
+            kept.append(_last_claimant_wins(name, claimants))
+        else:
             record_discovery_finding(
-                job_name_collision(
-                    canonical_name=descriptor.name,
-                    kept_module=descriptor.module_path or descriptor.source_file,
-                    kept_python_name=descriptor.python_name or descriptor.name,
-                    dropped_module=previous.module_path or previous.source_file,
-                    dropped_python_name=previous.python_name or previous.name,
-                    dropped_path=previous.source_file,
-                    kept_path=descriptor.source_file,
+                class_job_name_collision(
+                    canonical_name=name,
+                    claimants=tuple(
+                        (_qualified_name(claimant), claimant.source_file or "")
+                        for claimant in claimants
+                    ),
+                    # The record names a file an operator can open. Every
+                    # claimant has one, and the first in claim order is the one
+                    # that does not move between boots.
+                    module=claimants[0].module_path or claimants[0].source_file,
+                    path=claimants[0].source_file or "",
                 )
             )
-        kept[descriptor.name] = descriptor
-    return list(kept.values())
+            # Nothing is kept: the name is registered to nobody rather than to
+            # a claimant the user did not choose.
+    return kept
+
+
+def _last_claimant_wins(name: str, claimants: list[JobDescriptor]) -> JobDescriptor:
+    """Resolve a collision between plain functions exactly as before.
+
+    Two spellings of one name have always meant "the last one in claim order
+    runs, the others are reported". A class job is not in that set: the rule
+    for it lives in :func:`resolve_name_collisions`, because it is not a choice
+    between two spellings but a name that cannot be honoured at all.
+    """
+    winner = claimants[0]
+    for descriptor in claimants[1:]:
+        if descriptor is winner:
+            continue
+        record_discovery_finding(
+            job_name_collision(
+                canonical_name=name,
+                kept_module=descriptor.module_path or descriptor.source_file,
+                kept_python_name=descriptor.python_name or descriptor.name,
+                dropped_module=winner.module_path or winner.source_file,
+                dropped_python_name=winner.python_name or winner.name,
+                dropped_path=winner.source_file,
+                kept_path=descriptor.source_file,
+            )
+        )
+        winner = descriptor
+    return winner
+
+
+def _qualified_name(descriptor: JobDescriptor) -> str:
+    """``Class.method`` for a class job, the function's own name otherwise."""
+    leaf = descriptor.python_name or descriptor.name
+    if descriptor.owner_class is None:
+        return leaf
+    return f"{descriptor.owner_class}.{leaf}"
