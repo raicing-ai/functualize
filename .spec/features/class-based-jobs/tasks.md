@@ -272,7 +272,7 @@ tasks in five waves.
     distribution; sabotage the classify call to always return `False` and the
     class entry point yields one function-shaped descriptor.
 
-- [ ] **3.5 — materialisation resolves a method, not an attribute** (C3; spec AC-13)
+- [x] **3.5 — materialisation resolves a method, not an attribute** (C3; spec AC-13)
   - **[F]** `src/functualize/_discovery/lazy_wrapper.py`, `tests/discovery/test_materialize_class_job.py` (new)
   - **Inputs:** `plan.md` §4.6; `lazy_wrapper.py:64-138` (`_import_real_function`,
     `getattr(module, descriptor.attribute_name)` at 131-132), `:141-215`

@@ -978,13 +978,11 @@ class EntryPointProvider:
         broken distribution should not take the whole job list with it, and the
         name stays visible so the user can see what is broken.
 
-        The one exception is the name resolving to a **class**. That is not a
-        broken distribution — it is an entry point that publishes a job class,
-        which is only legal where its source could be read and enumerated. Here
-        the source could not be (`_class_descriptors` declined), so the class
-        is visible for the first time and there is nothing sensible to hand
-        dispatch: the class is not callable as a job, and its methods were never
-        named as jobs.
+        The one exception is the name resolving to a **class**, which is not a
+        broken distribution: it is an entry point that publishes a job class
+        whose source could not be read and enumerated. ``_import_real_function``
+        raises that case as a :class:`JobMaterializationError` and it is
+        re-raised below rather than folded into the warning.
         """
         from functualize._discovery.lazy_wrapper import _import_real_function
 
@@ -1003,25 +1001,6 @@ class EntryPointProvider:
                 e,
             )
             return lazy
-
-        if isinstance(func, type):
-            error = JobMaterializationError(
-                lazy.name, lazy.module_path, lazy.source_file
-            )
-            # Built here, not in the constructor: that message is about an
-            # import that failed, and this import succeeded. Relabelling through
-            # ``args`` is the pattern `_primitives/di.py:relabel` already uses
-            # for the same reason — the error's identity and attributes are
-            # still the right ones, only the rendered text was wrong.
-            error.args = (
-                f"Job '{lazy.name}': entry point '{lazy.name}' in group "
-                f"'{self._group}' names the job class '{func.__name__}' in "
-                f"module '{lazy.module_path}' where a job function was "
-                "expected. A job class names its own jobs, and is enumerated by "
-                "reading its module's source — which this module's entry point "
-                "does not allow (a compiled or zipped distribution).",
-            )
-            raise error
 
         full = self._build_descriptor(lazy.name, func)
         # `_build_descriptor` reads the *function*, so it cannot know where the
