@@ -270,7 +270,6 @@ class JobDescriptor:
     python_name: str = ""
     #: The declaring job class, when this descriptor represents one of its
     #: methods. None for plain function jobs.
-    # TRANSITIONAL(class-based-jobs/3.1): Discovery does not populate this yet.
     owner_class: str | None = None
 
     @property

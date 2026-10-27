@@ -543,7 +543,8 @@ class CachedDirectoryScanProvider:
         fallback and behaviour for those is unchanged.
         """
         identity = descriptor.python_name or descriptor.name
-        # TRANSITIONAL(class-based-jobs/3.1): Class descriptors arrive later.
+        # Two classes may each define ``start`` in one file; the class name is
+        # what keeps their cache entries apart and a collision detectable.
         if descriptor.owner_class:
             identity = f"{descriptor.owner_class}.{identity}"
         return f"{descriptor.source_file}::{identity}"
