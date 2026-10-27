@@ -233,7 +233,7 @@ tasks in five waves.
     scan; sabotage the `owner_class` test into `False` and the strict finding
     becomes a `JobNameCollision`.
 
-- [ ] **3.4 — providers: a class is a source, not an item** (C3; spec AC-13)
+- [x] **3.4 — providers: a class is a source, not an item** (C3; spec AC-13)
   - **[F]** `src/functualize/_discovery/providers.py`, `src/functualize/_discovery/ast_extractor.py`, `tests/discovery/test_provider_class_sources.py` (new)
   - **Inputs:** `plan.md` §4.6; `providers.py:624-693` (`StaticProvider`,
     `_build_descriptor` 658-693), `:700-879` (`EntryPointProvider`,

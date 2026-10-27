@@ -14,14 +14,17 @@ Only imports from `_types/`, `_primitives/`, `_events/`, and Python stdlib.
 from __future__ import annotations
 
 import enum
+import importlib.util
 import inspect
 import logging
+import sys
 import types as builtin_types
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, Any, get_args, get_origin
 
+from functualize._discovery.ast_extractor import class_in_source
 from functualize._discovery.collisions import resolve_name_collisions
 from functualize._primitives import JobFilter, ModulePreFilter, iter_module_files
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
@@ -29,6 +32,7 @@ from functualize._primitives.entry_points import entry_points
 from functualize._primitives.group_options_detection import (
     is_group_options_subclass,
 )
+from functualize._primitives.pre_filter import extract_function_decorators
 from functualize._types import FieldDescriptor, JobDescriptor
 from functualize._types.annotations import resolved_hints
 from functualize._types.discovery_report import (
@@ -36,6 +40,7 @@ from functualize._types.discovery_report import (
     collecting_discovery_failures,
     record_discovery_failure,
 )
+from functualize._types.errors import JobMaterializationError
 from functualize._types.from_job import from_job_names
 from functualize._types.naming import normalize_name, normalize_segment
 from functualize._types.redaction import is_secret_annotation
@@ -455,6 +460,17 @@ class Job:
     group: str | None = None
 
 
+def _module_job_group(module: object) -> str | None:
+    """The module's ``JOB_GROUP``, read the way the directory scan reads it.
+
+    Both class sources substitute this above the class name, so a class found by
+    a scan and the same class handed to a provider must not disagree about its
+    group. Non-string values are ungrouped, as in `_extract_module_jobs`.
+    """
+    raw = getattr(module, "JOB_GROUP", None)
+    return raw if isinstance(raw, str) else None
+
+
 class DirectoryScanProvider:
     """Scan filesystem directories for job modules.
 
@@ -624,14 +640,24 @@ class DirectoryScanProvider:
 class StaticProvider:
     """Wraps pre-imported callables as JobDescriptors with zero I/O.
 
-    Accepts a list of plain callables or Job dataclass instances.
-    Plain callables derive job name from function.__name__.
-    Job instances allow overriding name and group.
+    Accepts a list of plain callables, job classes, or Job dataclass
+    instances. Plain callables derive job name from function.__name__; a job
+    class contributes one job per method, exactly as it does from a directory
+    scan (it is the same helper). Job instances allow overriding name and
+    group for a function.
+
+    A class is a *source*, not an item, so ``Job(function=SomeClass)`` is a
+    ``ValueError``: the class already names its own jobs and its own group, and
+    a wrapper that renamed them would be describing something the class does
+    not say.
 
     Satisfies the JobProvider Protocol via structural typing.
 
     Args:
-        functions: List of callables or Job dataclass instances.
+        functions: List of callables, job classes, or Job dataclass instances.
+
+    Raises:
+        ValueError: If a Job instance wraps a class instead of a function.
     """
 
     def __init__(self, functions: list[Callable[..., Any] | Job]) -> None:
@@ -639,9 +665,9 @@ class StaticProvider:
         self._by_name: dict[str, JobDescriptor] = {}
 
         for item in functions:
-            descriptor = self._build_descriptor(item)
-            self._descriptors.append(descriptor)
-            self._by_name[descriptor.name] = descriptor
+            for descriptor in self._descriptors_for(item):
+                self._descriptors.append(descriptor)
+                self._by_name[descriptor.name] = descriptor
 
     def list_jobs(self) -> Sequence[JobDescriptor]:
         """Return all job descriptors from this source."""
@@ -654,6 +680,48 @@ class StaticProvider:
             canonical = normalize_name(name) or name
             found = self._by_name.get(canonical) if canonical != name else None
         return found
+
+    def _descriptors_for(self, item: Callable[..., Any] | Job) -> list[JobDescriptor]:
+        """One item's descriptors: one for a function, one per method for a class."""
+        if isinstance(item, Job):
+            if isinstance(item.function, type):
+                raise ValueError(
+                    f"Job(function={item.function.__name__}) is not a job: a job "
+                    "class names its own jobs and group; pass the class directly"
+                )
+            return [self._build_descriptor(item)]
+
+        if isinstance(item, type) and "__functualize_job__" in item.__dict__:
+            return self._class_descriptors(item)
+
+        return [self._build_descriptor(item)]
+
+    def _class_descriptors(self, job_class: type) -> list[JobDescriptor]:
+        """Fan a job class out through the same helper the directory scan uses.
+
+        The source file is read for its decorators so a class handed to
+        ``StaticProvider`` describes itself exactly as the same class found by a
+        scan does — a ``require_job_decorators`` filter sees the same roots
+        either way — and the module's own ``JOB_GROUP`` is substituted above the
+        class name, for the same reason: the group is the class's, not the
+        provider's.
+        """
+        # Deferred: ``_discovery.sync`` imports this module while it loads.
+        from functualize._discovery.sync import class_job_descriptors
+
+        source_file = inspect.getsourcefile(job_class) or ""
+        module = sys.modules.get(job_class.__module__)
+        decorators = (
+            extract_function_decorators(Path(source_file)) if source_file else None
+        )
+        descriptors = class_job_descriptors(
+            job_class,
+            module_name=job_class.__module__,
+            job_group=_module_job_group(module) if module is not None else None,
+            source_file=source_file,
+            decorators_by_func=decorators,
+        )
+        return [replace(descriptor, source="<static>") for descriptor in descriptors]
 
     def _build_descriptor(self, item: Callable[..., Any] | Job) -> JobDescriptor:
         """Build a JobDescriptor from a callable or Job dataclass."""
@@ -695,6 +763,33 @@ class StaticProvider:
     def _extract_parameters(self, func: Callable[..., Any]) -> list[FieldDescriptor]:
         """Extract FieldDescriptors from function signature via shared introspection."""
         return extract_parameters_from_signature(func)
+
+
+def _module_source_file(module_path: str) -> Path | None:
+    """The importable module's ``.py`` source, resolved without importing it.
+
+    ``importlib.util.find_spec`` imports *parent packages* only — never the
+    module itself — so asking this question keeps enumeration import-free for
+    the modules it can answer for.
+
+    None is every case the caller must treat as "keep today's lazy
+    descriptor": a module that is not installed, a failure that only the
+    import could explain, a namespace package (``origin`` is None), a compiled
+    module (``.so``/``.pyc``), and a module inside a wheel or zip, whose
+    ``origin`` is a path *inside* the archive rather than a readable file.
+    """
+    try:
+        spec = importlib.util.find_spec(module_path)
+    except (ImportError, AttributeError, ValueError):
+        return None
+    origin = getattr(spec, "origin", None)
+    if not isinstance(origin, str) or not origin.endswith(".py"):
+        return None
+    try:
+        source = Path(origin)
+        return source if source.is_file() else None
+    except OSError:
+        return None
 
 
 class EntryPointProvider:
@@ -778,13 +873,21 @@ class EntryPointProvider:
         return None
 
     def _enumerate(self) -> list[JobDescriptor]:
-        """Build a lazy descriptor per entry point, without loading any.
+        """Build a lazy descriptor per entry point, importing at most one class.
 
         ``EntryPoint.value`` is ``"module:attr"`` or bare ``"module"``. The
         attribute half becomes ``python_name``, which is what
         ``JobDescriptor.attribute_name`` resolves against at materialization —
         so an entry point may name the function whatever it likes and the job
         still carries the entry point's own name.
+
+        A job *class* is the one exception, and it is not a hole in the
+        "imports nothing" rule so much as its boundary: the class names its own
+        jobs and its own group, so it can only be enumerated as a whole. The
+        decision is made from the module's **source** (``class_in_source``); the
+        module is imported only on the yes branch. A function entry point, and
+        a class whose source cannot be read, keep today's single lazy
+        descriptor and import nothing here.
         """
         results: list[JobDescriptor] = []
         for ep in entry_points(group=self._group):
@@ -792,6 +895,12 @@ class EntryPointProvider:
                 module_path, _, attribute = ep.value.partition(":")
                 if not module_path:
                     raise ValueError(f"entry point value {ep.value!r} names no module")
+                module_path = module_path.strip()
+                python_name = attribute.strip() or normalize_segment(ep.name)
+                class_descriptors = self._class_descriptors(module_path, python_name)
+                if class_descriptors is not None:
+                    results.extend(class_descriptors)
+                    continue
                 results.append(
                     JobDescriptor(
                         name=normalize_segment(ep.name),
@@ -804,9 +913,9 @@ class EntryPointProvider:
                         group=None,
                         function=None,
                         source="<entry_point>",
-                        module_path=module_path.strip(),
+                        module_path=module_path,
                         source_file="<entry_point>",
-                        python_name=(attribute.strip() or normalize_segment(ep.name)),
+                        python_name=python_name,
                     )
                 )
             except Exception as e:  # noqa: BLE001 - one bad entry point is not fatal
@@ -818,17 +927,74 @@ class EntryPointProvider:
                 )
         return results
 
+    def _class_descriptors(
+        self, module_path: str, attribute: str
+    ) -> list[JobDescriptor] | None:
+        """One descriptor per method of a job-class entry point, else None.
+
+        None means "not a class I can enumerate", and the caller keeps today's
+        lazy descriptor: the module is uninstalled, compiled, zipped, or the
+        name is a function. Every one of those is answered without importing,
+        because the classifier reads source.
+
+        The descriptors still claim the entry point as their provenance —
+        ``source``/``source_file`` — while keeping the class's own job names:
+        the entry point is where the jobs were found, not what they are called.
+        """
+        source = _module_source_file(module_path)
+        if source is None or not class_in_source(source, attribute):
+            return None
+
+        # Deferred: ``_discovery.sync`` imports this module while it loads.
+        from functualize._discovery.sync import class_job_descriptors
+
+        try:
+            module = importlib.import_module(module_path)
+        except Exception:  # noqa: BLE001 - kept lazy: it may import later
+            return None
+        job_class = getattr(module, attribute, None)
+        if not isinstance(job_class, type):
+            # The source said class and the module disagrees (the name was
+            # rebound, or a decorator returned a callable). Today's lazy
+            # descriptor is the honest answer; materialization will report what
+            # it actually finds.
+            return None
+
+        return [
+            replace(descriptor, source="<entry_point>", source_file="<entry_point>")
+            for descriptor in class_job_descriptors(
+                job_class,
+                module_name=module_path,
+                job_group=_module_job_group(module),
+                source_file=str(source),
+                decorators_by_func=extract_function_decorators(source),
+            )
+        ]
+
     def _materialize(self, lazy: JobDescriptor) -> JobDescriptor:
         """Import ``lazy``'s module and rebuild it with everything readable.
 
         Falls back to the lazy descriptor on failure rather than raising: a
         broken distribution should not take the whole job list with it, and the
         name stays visible so the user can see what is broken.
+
+        The one exception is the name resolving to a **class**. That is not a
+        broken distribution — it is an entry point that publishes a job class,
+        which is only legal where its source could be read and enumerated. Here
+        the source could not be (`_class_descriptors` declined), so the class
+        is visible for the first time and there is nothing sensible to hand
+        dispatch: the class is not callable as a job, and its methods were never
+        named as jobs.
         """
         from functualize._discovery.lazy_wrapper import _import_real_function
 
         try:
             func = _import_real_function(lazy)
+        except JobMaterializationError:
+            # Already says what is wrong, and names the job. Handing it to the
+            # warning below would turn it into a lazy descriptor that fails on
+            # the same path a second time, where `get_job` no longer reports it.
+            raise
         except Exception as e:  # noqa: BLE001 - a broken distribution
             logger.warning(
                 "Failed to load entry point '%s' from group '%s': %s",
@@ -837,6 +1003,25 @@ class EntryPointProvider:
                 e,
             )
             return lazy
+
+        if isinstance(func, type):
+            error = JobMaterializationError(
+                lazy.name, lazy.module_path, lazy.source_file
+            )
+            # Built here, not in the constructor: that message is about an
+            # import that failed, and this import succeeded. Relabelling through
+            # ``args`` is the pattern `_primitives/di.py:relabel` already uses
+            # for the same reason — the error's identity and attributes are
+            # still the right ones, only the rendered text was wrong.
+            error.args = (
+                f"Job '{lazy.name}': entry point '{lazy.name}' in group "
+                f"'{self._group}' names the job class '{func.__name__}' in "
+                f"module '{lazy.module_path}' where a job function was "
+                "expected. A job class names its own jobs, and is enumerated by "
+                "reading its module's source — which this module's entry point "
+                "does not allow (a compiled or zipped distribution).",
+            )
+            raise error
 
         full = self._build_descriptor(lazy.name, func)
         # `_build_descriptor` reads the *function*, so it cannot know where the
