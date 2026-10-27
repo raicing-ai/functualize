@@ -355,6 +355,15 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     example's `register_settings` stay `TRANSITIONAL(config-unknown-keys/5.1)`
     and `…/6.3`. `app/adapters/cli.py` is untouched: its `FUNC_SCHEMA` read is
     5.1's.
+  - *Dead-code delta (`eecd0818..b0bd5178`), advisory:* 1 NEW_DEAD, 1
+    TESTS_ONLY. `_cli/config.py:252 resolve_cli_config_layers` lost its last
+    consumer with this row's store rewrite (no references anywhere, `read_global_config`
+    does not call it), so 8.1's deletion gate at
+    `rg -n '\b(read_global_config|SettingsFileInfo|resolve_cli_config_layers)\b'`
+    can now drop all three in one step. `func_settings.py:178 tui_settings` is
+    reached only from `tests/cli/test_settings_registration.py` and
+    `tests/config/test_settings_pin.py`; it is legacy-catalog setup, deleted with
+    the rest in 6.3/8.1.
 - [x] **4.4 Surface vocabulary** (F16; AC30; rev5 new) — **[F]** `src/functualize/_types/enums.py`,
   `src/functualize/types/__init__.py`, `src/functualize/_types/functualize_settings.py`,
   `src/functualize/job/decorators.py`, `src/functualize/app/adapters/surface_gate.py`,
