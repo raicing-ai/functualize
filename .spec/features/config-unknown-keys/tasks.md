@@ -199,7 +199,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   - *Residual:* `read_global_config`'s unknown-key warning path is no longer
     pinned by a test — this row moved those assertions to `config path` — and
     the function is removed in 8.1.
-- [ ] **4.3 Settings store and TUI** (M4; amended at `1ffd5f00`) — **[F]**
+- [x] **4.3 Settings store and TUI** (M4; amended at `1ffd5f00`) — **[F]**
   `src/functualize/_config/settings_layers.py`, `src/functualize/plugin/__init__.py`,
   `src/functualize/_cli/data/func_settings.py`, `src/functualize/_cli/data/settings_schema.py`,
   `src/functualize/_cli/data/toml_writer.py`, `src/functualize/_cli/tui/__init__.py`,
@@ -275,6 +275,86 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     second app's schema and the `root = true` stop through `discover()`.
     Run the named store/TUI and deploy-tool example tests, then
     `uv run lint-imports` (7 kept/0 broken).
+  - *Result:* `SettingsLayer` now carries the file's `text` and a
+    `SettingsLayer.read(path, kind, section_prefix)` classmethod
+    (`_config/settings_layers.py`), which is the only settings read outside the
+    resolver. It is exported from `functualize.plugin` beside
+    `ResolvedSettings`/`resolve_settings`, together with `FUNCTUALIZE_SETTINGS`,
+    so `_cli` reaches both through the public seam rather than `_config`/`_types`.
+    `FunctualizeApp.settings_schema` (new, `app/core.py`) is the declaration the
+    app was configured with (`config_sources.settings`, else the built-in) and
+    `app.settings` resolves through it; the TUI builds
+    `FuncSettingsStore(func_app.settings_schema, snapshot=func_app.settings,
+    cwd=Path.cwd())`, so the panel and the boot snapshot cannot disagree, and a
+    snapshot passed in is never re-resolved (`TestSnapshotIsTheAnswer` fails if
+    it is).
+  - `refresh()` is `resolve_settings(schema, cwd, flags=…, env=…)` and nothing
+    else; `layers`/`global_path`/`ensure_layer`/`declared_settings(surface=…)`/
+    `effective_values`/`source_labels` read that one snapshot. `write()`
+    refreshes, validates every edit through `setting_schema(setting)`, groups
+    the edits by `schema.section_in_file(setting, path.name)` and makes one
+    `write_toml_sections(path, text, sections)` call.
+  - `toml_writer` gained `SectionEdits` (edits/removals/type hints) and a
+    read-free `write_toml_sections`: one parse of the caller's text per
+    section, one tempfile, one `os.replace`. `write_toml_section` keeps its read
+    for the job-config path.
+  - `SettingsPanel(cwd, id, catalog)` has no module-level `SETTINGS_ORDER` or
+    `_DEFAULT_VALUES`; rows, order, type, choices and description come from the
+    `Setting`s it is handed. `job_listing.py` passes
+    `store.declared_settings(surface="tui")` and loads `effective_values()` /
+    `source_labels()`. The Settings Files builder lists `store.layers`, and
+    `app.py`'s new-file candidates now come from
+    `schema.sources.project_file_names` + `section_prefix_for`, so another
+    app's shell offers its own files and its own table.
+  - The deploy-tool example is the public-type demonstration:
+    `build_app()` passes `ConfigSources(settings=settings_schema())` and
+    `settings_store()` is `FuncSettingsStore(settings_schema(),
+    app_name=APP_NAME)`; `SettingsLayer` reaches it from `functualize.plugin`.
+  - *Gates:* `rg -n 'tomllib|_functualize_table|read_text\(' src/functualize/_cli/data/func_settings.py`
+    → 0 (exit 1); `rg -n 'SettingsFileInfo|resolve_cli_config_layers'
+    src/functualize/_cli/data/func_settings.py` → 0 (exit 1);
+    `uv run lint-imports` → 7 kept, 0 broken; `ruff check` and
+    `ruff format --check` clean over the touched tree.
+  - *Sabotage, recorded both ways:* making `write_toml_sections` read `path`
+    (`text = path.read_text(...)`) fails
+    `TestWrite::test_writer_applies_the_text_it_is_given`
+    (`assert '[extra]' not in '<the file as it is, not as given>'`); restoring
+    gives 66 passed. Making `refresh()` re-parse with
+    `tomllib.loads(layer.path.read_text(...))` puts two hits back in the gate at
+    `func_settings.py:756,760` and fails
+    `TestWrite::test_refreshes_the_snapshot_after_saving`
+    (`assert 'transparent' == 'dark'`); restoring returns the gate to 0 and
+    the file to 32 passed.
+  - *Observed:* `pytest tests/cli tests/config tests/standalone tests/_cli -q
+    -p no:randomly` → 4113 passed, 684 skipped, 1 failed — the pre-existing
+    `tests/cli/test_workflow_answer_relational.py::TestCliAnswerAndResume::test_resume_with_fused_input_answers_and_advances`
+    (`workflow_not_found`, `No workflow scope 'rel-1'`), which also fails at
+    `3fa45fd8` and is untouched here. The two slow classes pass with
+    `--run-slow`. A live example probe: `build_app()` resolves
+    `deploy.environment=dev`, `settings_store().write(global,
+    {"deploy.environment": "staging"})` writes `[deploy]\nenvironment =
+    "staging"` and the refreshed store reports `staging | global config`, with
+    the layer typed by `functualize.plugin.SettingsLayer`. The TUI surface is 7
+    rows (`tui.theme`, `tui.display_auto_switch`, `tui.default_surface`,
+    `tui.show_session_stamp`, `tui.history_retention`,
+    `tui.signature_enabled`, `tui.default_override_target`).
+  - *Deliberate behaviour changes:* (a) a hand-edited invalid value is shown
+    with its file as source instead of being silently dropped — entering an
+    invalid value in the panel is still refused and `write()` raises
+    `ValueError`; (b) the Settings table shows the 7 `surface="tui"` rows
+    instead of the 29 legacy ones; (c) a `pyproject.toml` without a
+    `[tool.functualize]` table is no longer a layer; (d) importing
+    `functualize._cli.tui` no longer registers `tui.*` into the legacy catalog,
+    so `test_importing_the_tui_package_contributes_tui_settings` became
+    `…adds_nothing_to_the_catalog`; (e) the new-file picker's labels follow the
+    declaration (`[tool.functualize]` is now read from the schema).
+  - *Residual:* the display chain lists every candidate rung but does not
+    per-entry validate them — the winning value and provenance still come from
+    the snapshot, and validating every rung would need a second resolver.
+    `FUNC_SCHEMA`, `set_cli_override`, `SETTINGS_ORDER`/`FUNC_SETTINGS` and the
+    example's `register_settings` stay `TRANSITIONAL(config-unknown-keys/5.1)`
+    and `…/6.3`. `app/adapters/cli.py` is untouched: its `FUNC_SCHEMA` read is
+    5.1's.
 - [x] **4.4 Surface vocabulary** (F16; AC30; rev5 new) — **[F]** `src/functualize/_types/enums.py`,
   `src/functualize/types/__init__.py`, `src/functualize/_types/functualize_settings.py`,
   `src/functualize/job/decorators.py`, `src/functualize/app/adapters/surface_gate.py`,

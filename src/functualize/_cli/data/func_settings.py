@@ -39,15 +39,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from functualize._cli.config import SettingsFileInfo, resolve_cli_config_layers
 from functualize._cli.data.settings_schema import (
     SETTING_SCHEMAS,
     SettingSchema,
     ValidationResult,
     validate_against,
 )
-from functualize._cli.data.toml_writer import write_toml_section
-from functualize.plugin import AppSettingsSchema, Setting
+from functualize._cli.data.toml_writer import SectionEdits, write_toml_sections
+from functualize.plugin import (
+    FUNCTUALIZE_SETTINGS,
+    AppSettingsSchema,
+    ResolvedSettings,
+    Setting,
+    SettingsLayer,
+    resolve_settings,
+)
 
 if TYPE_CHECKING:
     from functualize._cli.tui.models.source_chain import ResolvedKey
@@ -72,6 +78,7 @@ __all__ = [
     "SETTINGS_ORDER",
     "env_var_for",
     "func_setting",
+    "setting_schema",
     "validate_func_setting",
 ]
 
@@ -157,6 +164,13 @@ def _tui_spec(key: str, default: str) -> FuncSetting:
     )
 
 
+# TRANSITIONAL(config-unknown-keys/6.3): this `FuncSetting` catalog is no longer
+# what the store resolves or the TUI displays — the declared `Setting` schema is
+# (see `FuncSettingsStore`). What still reads it: `register_settings` and
+# `tui_settings` feed the transitional dispatch flag generation, and the
+# deploy-tool example builds its declaration from `FUNC_SCHEMA`. Task 6.3
+# removes the catalog; nothing new may depend on it, and the Settings panel and
+# the store must not.
 #: The shell's own knobs. **Not** in the base catalog — the shell registers
 #: them (:func:`register_settings`), which is what makes `tui.*` absent from a
 #: project app that never launches one. Kept here rather than in `_cli/tui/`
@@ -560,57 +574,57 @@ def _short_display(path: Path) -> str:
             return str(path)
 
 
-def section_for_file(setting: FuncSetting, info: SettingsFileInfo) -> str:
-    """The full TOML section ``setting`` occupies inside ``info``'s file.
-
-    ``pyproject.toml`` nests everything under ``tool.functualize``; dedicated
-    files use the bare section (or the document top level).
-    """
-    parts = [p for p in (info.section_prefix, setting.section) if p]
-    return ".".join(parts)
-
-
 class FuncSettingsStore:
-    """Resolves, and persists, `func`'s settings with per-file provenance.
+    """Resolves, and persists, an app's declared settings with provenance.
 
-    Construct with :meth:`discover` for normal use; the constructor takes
-    explicit layers so tests can point it at a tmp dir without touching the
-    developer's real home.
+    The store **owns no precedence of its own**. Values and provenance come
+    from ``resolve_settings``, layers come from the same call, and each layer
+    carries the file text a save needs — so the TUI, the CLI and the panel
+    cannot disagree about which file won. What the store adds is what a
+    settings UI asks for and a resolver does not answer: a chain per key to
+    display, a prospective layer for a file that is about to be created, and a
+    save that re-resolves afterwards.
+
+    Construct with :meth:`discover` for normal use, or with an app's schema and
+    frozen snapshot when a host already resolved them.
     """
 
     def __init__(
         self,
-        layers: list[SettingsFileInfo],
-        *,
-        env: dict[str, str] | None = None,
-        catalog: tuple[FuncSetting, ...] | None = None,
         schema: AppSettingsSchema | None = None,
+        *,
+        snapshot: ResolvedSettings | None = None,
+        cwd: Path | None = None,
+        env: Mapping[str, str] | None = None,
         app_name: str = "functualize",
+        global_dir: Path | None = None,
     ) -> None:
         """
         Args:
-            layers: File layers in precedence order (winner first), global
-                last — the shape ``resolve_cli_config_layers`` returns.
+            schema: The app's settings declaration — the env-var prefix, the
+                per-file TOML prefixes, and the settings themselves. ``None``
+                uses func's own, so `func`'s behavior is unchanged and a second
+                app passes its own.
+            snapshot: An already-resolved snapshot to start from (the running
+                app's boot resolution). ``None`` resolves on first use, so a
+                store that is never read never touches a settings file.
+            cwd: Where the upward file walk starts. Defaults to the current
+                directory, read once here rather than on every refresh.
             env: Environment mapping; defaults to ``os.environ``.
-            catalog: The settings this store resolves. ``None`` reads func's
-                **live** catalog at construction.
-            schema: Supplies the env-var prefix and the per-file TOML section
-                prefix. ``None`` uses func's, so func's behavior is unchanged;
-                a second app passes its own.
             app_name: Namespaces the global config file. Defaults to func's.
-
-        The two ``None`` defaults are load-bearing. Writing
-        ``catalog=FUNC_SETTINGS`` in the signature binds the catalog **once,
-        when this module is imported** — so a store built after the shell
-        registered its `tui.*` would still resolve the pre-registration list,
-        and the bug would present as settings that exist in the panel and
-        resolve to nothing.
+            global_dir: The user config directory holding the global file.
+                ``None`` derives it from ``app_name``.
         """
-        self._layers = list(layers)
+        self._schema = FUNCTUALIZE_SETTINGS if schema is None else schema
+        self._snapshot = snapshot
+        self._stale = False
+        self._cwd = Path(cwd) if cwd is not None else Path.cwd()
         self._env = dict(os.environ) if env is None else dict(env)
-        self._catalog = _current_settings() if catalog is None else catalog
-        self._schema = _func_schema() if schema is None else schema
         self._app_name = app_name
+        self._global_dir = global_dir
+        # Layers for files the picker is about to write. Never resolved from:
+        # the snapshot decides every value.
+        self._prospective: list[SettingsLayer] = []
         # Seeded from the pre-boot scan so an `phase="early"` flag is already
         # in effect for the first store anyone builds (C3.2). A late `--flag`
         # recorded via `set_cli_override` simply overwrites the same slot.
@@ -624,124 +638,147 @@ class FuncSettingsStore:
     def set_cli_override(self, name: str, value: str, *, flag: str = "") -> None:
         """Record a root CLI flag's value as the top precedence rung (C3.1).
 
-        Kept out of ``__init__`` because the flags are parsed by the click
-        callback *after* the store exists, and because a store with no
-        overrides must resolve byte-identically to one that never had the
-        method called.
+        TRANSITIONAL(config-unknown-keys/5.1): the adapter that parses the flags
+        is its own row; the override rides into the resolver as ``flags``.
 
         Args:
             name: Dotted setting name.
             value: The value as typed, validated by the caller against the
                 setting's schema.
             flag: The spelling to show as the source label (``--foo``), so the
-                TUI's source chain names the flag rather than a generic
-                "command line".
+                TUI's source chain names the flag rather than a generic label.
         """
         self._cli_overrides[name] = value
         if flag:
             self._cli_labels[name] = flag
+        # The override changes the answer, so the snapshot is stale. Resolved
+        # on next read rather than here: a store nobody reads stays free of
+        # file reads, exactly like one built with no overrides.
+        self._stale = True
 
     @classmethod
     def discover(
         cls,
         cwd: Path | None = None,
         *,
-        env: dict[str, str] | None = None,
+        env: Mapping[str, str] | None = None,
+        schema: AppSettingsSchema | None = None,
+        app_name: str = "functualize",
     ) -> FuncSettingsStore:
-        """Build a store over the files `func` actually consults."""
-        return cls(resolve_cli_config_layers(cwd), env=env)
+        """Build a store over the files this app actually consults."""
+        return cls(schema, cwd=cwd, env=env, app_name=app_name)
 
     # ------------------------------------------------------------------
-    # Layers
+    # Declaration and layers
     # ------------------------------------------------------------------
 
     @property
-    def layers(self) -> list[SettingsFileInfo]:
+    def schema(self) -> AppSettingsSchema:
+        """The declaration this store resolves."""
+        return self._schema
+
+    def declared_settings(self, *, surface: str | None = None) -> tuple[Setting, ...]:
+        """The declared settings, in declaration order, optionally one surface."""
+        settings = tuple(self._schema.settings)
+        if surface is None:
+            return settings
+        return tuple(setting for setting in settings if setting.surface == surface)
+
+    def _resolved(self) -> ResolvedSettings:
+        """The current resolution, computing it once on first use."""
+        if self._snapshot is None or self._stale:
+            self._snapshot = self._resolve_now()
+            self._stale = False
+        return self._snapshot
+
+    def _resolve_now(self) -> ResolvedSettings:
+        return resolve_settings(
+            self._schema,
+            self._cwd,
+            flags=self._cli_overrides,
+            env=self._env,
+            global_dir=self._global_dir or self._default_global_dir(),
+        )
+
+    def _default_global_dir(self) -> Path:
+        """``~/.config/<app_name>`` — the directory the global file lives in."""
+        from functualize.app.utils import resolve_user_config_dir
+
+        return resolve_user_config_dir().parent / self._app_name
+
+    def _all_layers(self) -> tuple[SettingsLayer, ...]:
+        discovered = self._resolved().layers
+        known = {layer.path for layer in discovered}
+        front = [layer for layer in self._prospective if layer.path not in known]
+        return (*front, *discovered)
+
+    @property
+    def layers(self) -> list[SettingsLayer]:
         """The file layers, in precedence order (winner first, global last)."""
-        return list(self._layers)
+        return list(self._all_layers())
 
     @property
     def global_path(self) -> Path:
         """The global config file (may not exist yet)."""
-        for info in self._layers:
-            if info.kind == "global":
-                return info.path
-        # A store is always constructed with a global layer; this fallback
-        # only exists so a hand-built test store cannot crash the TUI.
-        from functualize.app.utils import resolve_user_config_dir
-
-        return (
-            resolve_user_config_dir().parent
-            / self._app_name
-            / self._schema.sources.global_file_name
-        )
+        for layer in self._resolved().layers:
+            if layer.kind == "global":
+                return layer.path
+        # A snapshot always carries a global layer; this fallback only exists
+        # so a host-supplied snapshot cannot crash the TUI.
+        return self._default_global_dir() / self._schema.sources.global_file_name
 
     def ensure_layer(self, path: Path) -> None:
-        """Add a prospective file to the layers if it isn't one already.
+        """Register a file a picker may create, without touching the disk.
 
-        The new-file picker lets a user drill into a file that does not
-        exist yet; without a layer for it, the Detail view would have no
-        chain entry to scope to and a save would have nowhere to go. The
-        prospective layer goes in front — a file created at the cwd is the
-        nearest project file.
+        The new-file picker lets a user drill into a file that does not exist
+        yet; without a layer for it the Detail view would have no chain entry
+        to scope to and a save would have nowhere to go. The prospective layer
+        goes in front — a file created at the cwd is the nearest project file —
+        and contributes **no values**: the snapshot decides those, and a file
+        the walk did not pick must not become a second resolution path.
         """
-        if any(info.path == path for info in self._layers):
+        if any(layer.path == path for layer in self._all_layers()):
             return
-        prefix = self._schema.section_prefix_for(path.name)
-        values, _ = _functualize_table_of(path) if path.is_file() else ({}, prefix)
-        self._layers.insert(
+        self._prospective.insert(
             0,
-            SettingsFileInfo(
-                path=path, kind="project", section_prefix=prefix, values=values
+            SettingsLayer(
+                path, "project", self._schema.section_prefix_for(path.name), {}
             ),
         )
 
     def refresh(self) -> None:
-        """Re-read every file layer from disk.
+        """Re-resolve from disk.
 
-        The store parses at construction; after a save the parsed view is
-        stale, and a Detail view that re-resolves would show the old value.
+        The snapshot is the one place a value comes from, so a save, a flag
+        parsed after boot, and a re-opened Detail view all become visible by
+        throwing it away.
         """
-        refreshed: list[SettingsFileInfo] = []
-        for info in self._layers:
-            values, prefix = _refreshed_values(info)
-            refreshed.append(
-                SettingsFileInfo(
-                    path=info.path,
-                    kind=info.kind,
-                    section_prefix=prefix,
-                    values=values,
-                )
-            )
-        self._layers = refreshed
+        self._snapshot = self._resolve_now()
+        self._stale = False
 
-    def defined_settings(self, info: SettingsFileInfo) -> list[str]:
-        """Which catalog settings ``info``'s file defines (valid values only)."""
+    def defined_settings(self, layer: SettingsLayer) -> list[str]:
+        """Which declared settings ``layer``'s file defines."""
         return [
             setting.name
-            for setting in self._catalog
-            if self._layer_value(setting, info) is not None
+            for setting in self._schema.settings
+            if self._schema.value_in(layer.values, setting.name) is not None
         ]
 
     # ------------------------------------------------------------------
     # Resolution
     # ------------------------------------------------------------------
 
-    def _layer_value(self, setting: FuncSetting, info: SettingsFileInfo) -> str | None:
-        """``setting``'s validated value in one file, or None."""
-        table: Any = info.values
-        if setting.section:
-            table = table.get(setting.section) if isinstance(table, dict) else None
-        if not isinstance(table, dict) or setting.key not in table:
-            return None
-        text = _scalar_to_str(table[setting.key])
-        return text if validate_against(setting.schema, text).valid else None
+    def _layer_value(self, setting: Setting, layer: SettingsLayer) -> str | None:
+        """``setting``'s value in one file as display text, or None."""
+        raw = self._schema.value_in(layer.values, setting.name)
+        return None if raw is None else _scalar_to_str(raw)
 
-    def _env_value(self, setting: FuncSetting) -> str | None:
-        raw = self._env.get(self._schema.env_var_for(_as_setting(setting)))
-        if raw is None or raw == "":
+    def _env_value(self, setting: Setting) -> str | None:
+        """``setting``'s environment value, if the schema reads the environment."""
+        if not self._schema.sources.env:
             return None
-        return raw if validate_against(setting.schema, raw).valid else None
+        raw = self._env.get(self._schema.env_var_for(setting))
+        return raw or None
 
     def resolve(self) -> list[ResolvedKey]:
         """Return each setting's full source chain."""
@@ -752,18 +789,16 @@ class FuncSettingsStore:
             SourceEntry,
         )
 
-        project_layers = [info for info in self._layers if info.kind == "project"]
-        global_layer = next(
-            (info for info in self._layers if info.kind == "global"), None
-        )
+        layers = self._all_layers()
+        project_layers = [layer for layer in layers if layer.kind == "project"]
+        global_layer = next((layer for layer in layers if layer.kind == "global"), None)
 
         keys: list[ResolvedKey] = []
-        for setting in self._catalog:
-            schema = setting.schema
+        for setting in self._schema.settings:
             choices: list[str] | None = None
-            if schema.type == "enum":
-                choices = schema.choices
-            elif schema.type == "bool":
+            if setting.type == "enum" and setting.choices:
+                choices = list(setting.choices)
+            elif setting.type == "bool":
                 choices = ["true", "false"]
 
             chain: list[SourceEntry] = [
@@ -788,23 +823,25 @@ class FuncSettingsStore:
                 )
 
             # Nearest project file wins, so it gets the highest rank in the
-            # project band.
+            # project band. The project band is empty in practice: the global
+            # layer is the only one every store has.
             count = len(project_layers)
-            for index, info in enumerate(project_layers):
+            for index, layer in enumerate(project_layers):
                 chain.append(
                     SourceEntry(
-                        source_id=f"file:{info.path}",
-                        label=_short_display(info.path),
-                        value=self._layer_value(setting, info) or NOT_SET,
-                        writable=_is_writable(info.path),
+                        source_id=f"file:{layer.path}",
+                        label=_short_display(layer.path),
+                        value=self._layer_value(setting, layer) or NOT_SET,
+                        writable=_is_writable(layer.path),
                         precedence=PRECEDENCE_PROJECT_BASE + (count - 1 - index),
                     )
                 )
 
+            env_name = self._schema.env_var_for(setting)
             chain.append(
                 SourceEntry(
-                    source_id=f"env:{env_var_for(setting)}",
-                    label=env_var_for(setting),
+                    source_id=f"env:{env_name}",
+                    label=env_name,
                     value=self._env_value(setting) or NOT_SET,
                     writable=False,
                     precedence=PRECEDENCE_ENV,
@@ -831,39 +868,69 @@ class FuncSettingsStore:
                 ResolvedKey(
                     name=setting.name,
                     chain=chain,
-                    description=schema.description,
-                    type_hint=schema.type,
+                    description=setting.description,
+                    type_hint=setting.type,
                     choices=choices,
                 )
             )
         return keys
 
     def effective_values(self) -> dict[str, str]:
-        """The winning value for each setting, keyed by dotted name."""
-        return {k.name: k.effective_value for k in self.resolve()}
+        """The winning value for each setting, keyed by dotted name.
+
+        Read from the snapshot, not from the chain: the chain is a display of
+        each source's contribution, the snapshot is the answer.
+        """
+        snapshot = self._resolved()
+        return {
+            setting.name: _scalar_to_str(snapshot.values[setting.name])
+            for setting in self._schema.settings
+            if setting.name in snapshot.values
+        }
 
     def source_labels(self) -> dict[str, str]:
-        """The label of the winning source for each setting."""
+        """The label of the winning source for each setting, from provenance."""
+        snapshot = self._resolved()
+        global_path = self.global_path
         labels: dict[str, str] = {}
-        for key in self.resolve():
-            winner = key.winning
-            labels[key.name] = winner.label if winner is not None else "unset"
+        for setting in self._schema.settings:
+            provenance = snapshot.provenance.get(setting.name, "default")
+            if provenance == "default":
+                labels[setting.name] = "default"
+            elif provenance == "cli":
+                labels[setting.name] = self._cli_labels.get(
+                    setting.name, "command line"
+                )
+            elif provenance == "env":
+                labels[setting.name] = self._schema.env_var_for(setting)
+            else:
+                path = Path(provenance)
+                labels[setting.name] = (
+                    "global config" if path == global_path else _short_display(path)
+                )
         return labels
 
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
 
-    def _layer_for(self, path: Path) -> SettingsFileInfo:
-        for info in self._layers:
-            if info.path == path:
-                return info
-        # A file outside the discovered layers (e.g. one the new-file picker
-        # is about to create): derive its shape from the filename.
-        prefix = self._schema.section_prefix_for(path.name)
-        return SettingsFileInfo(
-            path=path, kind="project", section_prefix=prefix, values={}
+    def _layer_for(self, path: Path) -> SettingsLayer:
+        for layer in self._all_layers():
+            if layer.path == path:
+                return layer
+        # A file outside the discovered layers: derive its shape from the
+        # filename. Its text is loaded by :meth:`write` before the save.
+        return SettingsLayer(
+            path, "project", self._schema.section_prefix_for(path.name), {}
         )
+
+    def _text_for(self, layer: SettingsLayer) -> str:
+        """The file's current text, read through the one settings reader."""
+        if layer.text:
+            return layer.text
+        if not layer.path.is_file():
+            return ""
+        return SettingsLayer.read(layer.path, layer.kind, layer.section_prefix).text
 
     def write(
         self,
@@ -874,58 +941,63 @@ class FuncSettingsStore:
         """Persist settings (keyed by dotted name) to one file, atomically.
 
         Edits may span sections (``tui.theme`` and ``cli.output`` in one
-        save); they are grouped and written per section. Values land with
-        their declared type, so ``tui.history_retention`` is written as
-        ``100`` rather than ``"100"``.
+        save); they are grouped by section and written by one call, so a save
+        is a single atomic replacement of the file. Values land with their
+        declared type, so ``tui.history_retention`` is written as ``100``
+        rather than ``"100"``.
+
+        Nothing here opens the file for reading: the text comes from the layer,
+        which read it once, and goes to the writer as data.
 
         Raises:
-            ValueError: If a name is not in the catalog or a value fails its
-                schema — callers should validate before staging, so reaching
-                here is a bug.
+            ValueError: If a name is not declared or a value fails its schema —
+                callers should validate before staging, so reaching here is a
+                bug.
         """
-        info = self._layer_for(path)
+        self.refresh()
+        layer = self._layer_for(path)
+        text = self._text_for(layer)
 
-        by_section: dict[str, tuple[dict[str, str], set[str], dict[str, str]]] = {}
+        sections: dict[str, SectionEdits] = {}
 
-        def _bucket(
-            name: str,
-        ) -> tuple[FuncSetting, tuple[dict[str, str], set[str], dict[str, str]]]:
-            setting = func_setting(name)
+        def _bucket(name: str) -> tuple[Setting, SectionEdits]:
+            setting = next((s for s in self._schema.settings if s.name == name), None)
             if setting is None:
                 raise ValueError(f"Unknown setting: {name}")
-            section = section_for_file(setting, info)
-            return setting, by_section.setdefault(section, ({}, set(), {}))
+            section = self._schema.section_in_file(setting, path.name)
+            return setting, sections.setdefault(section, SectionEdits())
 
         for name, value in edits.items():
-            setting, (section_edits, _removals, hints) = _bucket(name)
-            result = validate_against(setting.schema, value)
+            setting, bucket = _bucket(name)
+            result = validate_against(setting_schema(setting), value)
             if not result.valid:
                 raise ValueError(f"Invalid value for {name!r}: {result.error}")
-            section_edits[setting.key] = value
-            hints[setting.key] = setting.schema.type
+            bucket.edits[setting.key] = value
+            bucket.type_hints[setting.key] = setting.type
 
         for name in removals or set():
-            setting, (_edits, section_removals, _hints) = _bucket(name)
-            section_removals.add(setting.key)
+            setting, bucket = _bucket(name)
+            bucket.removals.add(setting.key)
 
-        for section, (section_edits, section_removals, hints) in by_section.items():
-            write_toml_section(path, section, section_edits, section_removals, hints)
-
+        write_toml_sections(path, text, sections)
         self.refresh()
 
 
-def _functualize_table_of(path: Path) -> tuple[dict[str, Any], str]:
-    """Parse a file's functualize-scoped table (see _cli.config)."""
-    from functualize._cli.config import _functualize_table
+def setting_schema(setting: Setting) -> SettingSchema:
+    """A `SettingSchema` for validating one edited value.
 
-    return _functualize_table(path)
-
-
-def _refreshed_values(info: SettingsFileInfo) -> tuple[dict[str, Any], str]:
-    """Re-parse one layer's file from disk."""
-    if not info.path.is_file():
-        return {}, info.section_prefix
-    return _functualize_table_of(info.path)
+    The panel validates an edit the same way with the same adapter; the store
+    has to keep doing it because a save is reachable without the panel.
+    """
+    return SettingSchema(
+        name=setting.name,
+        type=setting.type,
+        description=setting.description,
+        choices=list(setting.choices) if setting.choices else None,
+        min_value=setting.min_value,
+        max_value=setting.max_value,
+        max_items=setting.max_items,
+    )
 
 
 def _is_writable(path: Path) -> bool:

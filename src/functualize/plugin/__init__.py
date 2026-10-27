@@ -9,6 +9,7 @@ Usage:
     from functualize.plugin import DisplayProvider, PanelProvider, ThemeProvider
 """
 
+from functualize._config.settings_layers import SettingsLayer
 from functualize._config.settings_resolution import ResolvedSettings, resolve_settings
 from functualize._discovery.providers import Job, StaticProvider
 from functualize._events.bus import EventBus, StructuredEvent
@@ -31,6 +32,7 @@ from functualize._types.errors import (
     RuntimeStoreSelectionError,
     SubstrateInstallError,
 )
+from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
 from functualize._types.gate_resolution import (
     GATE_ACCEPTED_TOPIC,
     CandidateEvaluation,
@@ -141,6 +143,7 @@ from functualize.plugin.protocols import (
 
 __all__ = [
     # Event infrastructure
+    "FUNCTUALIZE_SETTINGS",
     "EventBus",
     "HookEvent",
     "StructuredEvent",
@@ -178,6 +181,7 @@ __all__ = [
     "InputMode",
     "InputModeRegistry",
     "Setting",
+    "SettingsLayer",
     "SettingsSources",
     "PromptCollector",
     "Surface",

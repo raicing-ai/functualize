@@ -1,8 +1,8 @@
 """SettingsFilesPanel — the files `func`'s own settings resolve through.
 
 The Settings-side mirror of the Config Files panel: where that panel lists
-the ``config.*`` files a job's config merges from, this one lists the files
-``resolve_cli_config`` consults — project ``.functualize.toml`` /
+the ``config.*`` files a job's config merges from, this one lists the layers
+the settings resolver actually read — project ``.functualize.toml`` /
 ``pyproject.toml [tool.functualize]`` layers plus the global
 ``~/.config/functualize/config.toml``.
 
@@ -77,19 +77,19 @@ def build_settings_file_entries(
     one ``not found`` row we deliberately keep.
     """
     entries: list[ConfigFileEntry] = []
-    for info in store.layers:
-        exists = info.exists
-        if not exists and info.kind != "global":
+    for layer in store.layers:
+        exists = layer.exists
+        if not exists and layer.kind != "global":
             continue
         entries.append(
             ConfigFileEntry(
-                path=info.path,
-                section=info.section_prefix,
-                display_name=_make_display_name(info.path, cwd),
+                path=layer.path,
+                section=layer.section_prefix,
+                display_name=_make_display_name(layer.path, cwd),
                 status="active" if exists else "not_found",
-                fields_from_file=store.defined_settings(info),
+                fields_from_file=store.defined_settings(layer),
                 environment_slot=None,
-                writable=_is_writable(info.path),
+                writable=_is_writable(layer.path),
             )
         )
     return entries

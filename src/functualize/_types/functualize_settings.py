@@ -226,8 +226,6 @@ PLUGINS_DIRECTORIES = Setting(
     listed=False,
 )
 
-# TRANSITIONAL(config-unknown-keys/4.3): the legacy catalog still owns runtime
-# values; the settings store will consume this declaration in task 4.3.
 FUNCTUALIZE_SETTINGS = AppSettingsSchema(
     settings=(
         THEME,

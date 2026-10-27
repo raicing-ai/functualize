@@ -15,7 +15,7 @@ is ``functualize.plugin``, beside ``Surface``/``PromptCollector``.
 The Phase-C contract sketched ``Setting(name, type, default, help, cli_flag,
 phase)``. Adopting that verbatim would have dropped ``section`` and ``key`` —
 which are not decoration: ``section``/``key`` are what place a value inside a
-TOML file (``section_for_file``) and what build its environment variable
+TOML file (``section_in_file``) and what build its environment variable
 (``FUNCTUALIZE_<SECTION>_<KEY>``). They are preserved here as **derived**
 properties of the dotted name, which is exactly the relationship the existing
 catalog already maintains (``_spec`` builds ``name = f"{section}.{key}"``), so
@@ -224,8 +224,8 @@ class AppSettingsSchema:
     def section_in_file(self, setting: Setting, file_name: str) -> str:
         """Full dotted TOML section for ``setting`` inside ``file_name``.
 
-        Mirrors the shipped ``section_for_file``: prefix and section joined,
-        empty parts dropped.
+        What the shipped store used to derive per call: prefix and section
+        joined, empty parts dropped.
         """
         parts = [p for p in (self.section_prefix_for(file_name), setting.section) if p]
         return ".".join(parts)

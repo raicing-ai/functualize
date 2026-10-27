@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from functualize._types.host import SubstrateOffer
     from functualize._types.persistence import RuntimeStore, RuntimeStoreFactory
     from functualize._types.protocols import StoreSubstrate
+    from functualize._types.settings import AppSettingsSchema
     from functualize.job._workflow_scope import WorkflowScope
 
 DEFAULT_CONFIG_FILE_REGEX = r"^config\.(\w+)\.(\w+)$"
@@ -239,6 +240,19 @@ class FunctualizeApp:
     # ─── Constructor Resolution Helpers ──────────────────────────────────
 
     @property
+    def settings_schema(self) -> AppSettingsSchema:
+        """The settings declaration this app resolves.
+
+        Host-supplied when the host declared one, func's own otherwise. The one
+        place that answers "which settings does this app have", so a settings
+        surface can offer exactly the rows the app resolves instead of guessing
+        from a global catalog.
+        """
+        from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
+
+        return self._config_sources.settings or FUNCTUALIZE_SETTINGS
+
+    @property
     def settings(self) -> ResolvedSettings:
         """Resolved declared settings, shared by every delivery surface.
 
@@ -247,10 +261,10 @@ class FunctualizeApp:
         """
         if self._settings_snapshot is None:
             from functualize._config.settings_resolution import resolve_settings
-            from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
 
-            schema = self._config_sources.settings or FUNCTUALIZE_SETTINGS
-            self._settings_snapshot = resolve_settings(schema, self._state_root)
+            self._settings_snapshot = resolve_settings(
+                self.settings_schema, self._state_root
+            )
         return self._settings_snapshot
 
     def _is_fully_explicit(self) -> bool:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from functualize._cli.data.func_settings import (
+    FUNC_SCHEMA,
     FuncSetting,
     FuncSettingsStore,
     clear_preboot_overrides,
@@ -116,7 +117,7 @@ class TestTakesEffectBeforeConstruction:
         )
         scan_early_setting_flags(["--early", "scanned"])
 
-        store = FuncSettingsStore(layers=[], env={})
+        store = FuncSettingsStore(FUNC_SCHEMA, env={})
         assert store.effective_values()["demo.early"] == "scanned"
 
     def test_it_outranks_env(self, clean) -> None:
@@ -125,14 +126,16 @@ class TestTakesEffectBeforeConstruction:
         )
         scan_early_setting_flags(["--early", "scanned"])
 
-        store = FuncSettingsStore(layers=[], env={"FUNCTUALIZE_DEMO_EARLY": "from-env"})
+        store = FuncSettingsStore(
+            FUNC_SCHEMA, env={"FUNCTUALIZE_DEMO_EARLY": "from-env"}
+        )
         assert store.effective_values()["demo.early"] == "scanned"
 
     def test_without_a_scan_the_default_still_wins(self, clean) -> None:
         register_settings(
             _setting("demo.early", default="base", cli_flag="--early", phase="early")
         )
-        store = FuncSettingsStore(layers=[], env={})
+        store = FuncSettingsStore(FUNC_SCHEMA, env={})
         assert store.effective_values()["demo.early"] == "base"
 
     def test_the_source_label_names_the_flag(self, clean) -> None:
@@ -140,7 +143,7 @@ class TestTakesEffectBeforeConstruction:
             _setting("demo.early", default="base", cli_flag="--early", phase="early")
         )
         scan_early_setting_flags(["--early", "scanned"])
-        store = FuncSettingsStore(layers=[], env={})
+        store = FuncSettingsStore(FUNC_SCHEMA, env={})
         assert store.source_labels()["demo.early"] == "--early"
 
 

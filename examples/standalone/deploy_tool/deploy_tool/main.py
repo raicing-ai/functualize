@@ -20,7 +20,7 @@ Run it with ``uv run deploy-tool``.
 
 from __future__ import annotations
 
-from functualize.app import FunctualizeApp, JobSources
+from functualize.app import ConfigSources, FunctualizeApp, JobSources
 from functualize.app.adapters import CliAdapter
 
 APP_NAME = "deploy-tool"
@@ -31,11 +31,15 @@ def build_app() -> FunctualizeApp:
 
     ``name`` is what makes this a separate identity: the settings store
     namespaces its global config file by app name, so `deploy-tool` and `func`
-    cannot read each other's values even on the same machine.
+    cannot read each other's values even on the same machine. The declaration
+    itself travels through ``config_sources``, so the app's boot snapshot and
+    every surface that reads it — flags included — agree about which settings
+    exist.
     """
     return FunctualizeApp(
         name=APP_NAME,
         job_sources=JobSources(directories=["jobs"], lazy=True),
+        config_sources=ConfigSources(settings=settings_schema()),
     )
 
 
@@ -117,15 +121,10 @@ def settings_schema():
 
 
 def settings_store():
-    """A store scoped to this app: its catalog, its env prefix, its files."""
+    """A store scoped to this app: its declaration, its env prefix, its files."""
     from functualize._cli.data.func_settings import FuncSettingsStore
 
-    store = FuncSettingsStore.discover()
-    return FuncSettingsStore(
-        layers=store._layers,
-        schema=settings_schema(),
-        app_name=APP_NAME,
-    )
+    return FuncSettingsStore(settings_schema(), app_name=APP_NAME)
 
 
 def main() -> None:

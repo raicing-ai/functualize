@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from functualize._cli.data.func_settings import (
+    FUNC_SCHEMA,
     PRECEDENCE_CLI,
     PRECEDENCE_ENV,
     FuncSetting,
@@ -108,7 +109,7 @@ class TestPrecedence:
     def test_a_cli_override_wins_over_env(self, clean_registry) -> None:
         register_settings(_setting("demo.colour", cli_flag="--colour"))
         store = FuncSettingsStore(
-            layers=[], env={"FUNCTUALIZE_DEMO_COLOUR": "from-env"}
+            FUNC_SCHEMA, env={"FUNCTUALIZE_DEMO_COLOUR": "from-env"}
         )
         assert store.effective_values()["demo.colour"] == "from-env"
 
@@ -117,7 +118,7 @@ class TestPrecedence:
 
     def test_a_cli_override_wins_over_default(self, clean_registry) -> None:
         register_settings(_setting("demo.colour", default="base", cli_flag="--colour"))
-        store = FuncSettingsStore(layers=[], env={})
+        store = FuncSettingsStore(FUNC_SCHEMA, env={})
         assert store.effective_values()["demo.colour"] == "base"
 
         store.set_cli_override("demo.colour", "from-cli")
@@ -126,7 +127,7 @@ class TestPrecedence:
     def test_the_source_label_names_the_flag(self, clean_registry) -> None:
         """So the TUI's source chain says `--colour`, not "command line"."""
         register_settings(_setting("demo.colour", cli_flag="--colour"))
-        store = FuncSettingsStore(layers=[], env={})
+        store = FuncSettingsStore(FUNC_SCHEMA, env={})
         store.set_cli_override("demo.colour", "from-cli", flag="--colour")
         assert store.source_labels()["demo.colour"] == "--colour"
 
@@ -138,7 +139,7 @@ class TestPrecedence:
         unchanged while no setting declares a flag.
         """
         register_settings(_setting("demo.colour", default="base", cli_flag="--colour"))
-        store = FuncSettingsStore(layers=[], env={})
+        store = FuncSettingsStore(FUNC_SCHEMA, env={})
 
         key = next(k for k in store.resolve() if k.name == "demo.colour")
         assert not [e for e in key.chain if e.source_id.startswith("cli:")]
@@ -146,8 +147,8 @@ class TestPrecedence:
 
     def test_overrides_are_per_store(self, clean_registry) -> None:
         register_settings(_setting("demo.colour", cli_flag="--colour"))
-        a = FuncSettingsStore(layers=[], env={})
-        b = FuncSettingsStore(layers=[], env={})
+        a = FuncSettingsStore(FUNC_SCHEMA, env={})
+        b = FuncSettingsStore(FUNC_SCHEMA, env={})
         a.set_cli_override("demo.colour", "only-a")
 
         assert a.effective_values()["demo.colour"] == "only-a"

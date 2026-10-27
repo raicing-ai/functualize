@@ -122,9 +122,9 @@ class TestDerivedStructuresAreLive:
         """The signature-default trap: `catalog=FUNC_SETTINGS` binds once."""
         register_settings(_setting("demo.alpha", default="hello"))
 
-        from functualize._cli.data.func_settings import FuncSettingsStore
+        from functualize._cli.data.func_settings import FUNC_SCHEMA, FuncSettingsStore
 
-        store = FuncSettingsStore(layers=[], env={})
+        store = FuncSettingsStore(FUNC_SCHEMA, env={})
         assert store.effective_values().get("demo.alpha") == "hello"
 
 
@@ -150,9 +150,14 @@ class TestRegistrationRules:
         assert order == ["demo.b", "demo.a"]
 
 
-class TestImportingTheShellRegisters:
-    def test_importing_the_tui_package_contributes_tui_settings(self) -> None:
-        """Importing `_cli.tui` *is* the shell being present.
+class TestImportingTheShellRegistersNothing:
+    def test_importing_the_tui_package_adds_nothing_to_the_catalog(self) -> None:
+        """The TUI reads its rows from the declaration, not a second registry.
+
+        This used to assert the opposite — that importing `_cli.tui` registered
+        the `tui.*` settings into the legacy catalog. Those declarations now
+        live in `FUNCTUALIZE_SETTINGS`, so an import-time registration would be
+        a duplicate source of truth rather than a feature.
 
         Run in a subprocess: the import is a one-time side effect, so in a
         process where `_cli.tui` is already in `sys.modules` (or where another
@@ -167,9 +172,11 @@ class TestImportingTheShellRegisters:
                 sys.executable,
                 "-c",
                 "from functualize._cli.data import func_settings as fs;"
-                "assert not any(n.startswith('tui.') for n in fs.SETTINGS_ORDER);"
+                "before = tuple(fs.SETTINGS_ORDER);"
                 "import functualize._cli.tui;"
-                "assert 'tui.theme' in fs.SETTINGS_ORDER;"
+                "assert tuple(fs.SETTINGS_ORDER) == before;"
+                "from functualize.plugin import FUNCTUALIZE_SETTINGS;"
+                "assert 'tui.theme' in {s.name for s in FUNCTUALIZE_SETTINGS.settings};"
                 "print('ok')",
             ],
             capture_output=True,

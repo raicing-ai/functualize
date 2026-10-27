@@ -88,14 +88,12 @@ class TestSettingsIdentity:
         """
         from functualize._cli.data.func_settings import FuncSettingsStore
 
-        schema = _main.settings_schema()
         store = FuncSettingsStore(
-            layers=[],
+            _main.settings_schema(),
             env={
                 "FUNCTUALIZE_DEPLOY_ENVIRONMENT": "func-said-so",
                 "DEPLOY_TOOL_DEPLOY_ENVIRONMENT": "prod",
             },
-            schema=schema,
             app_name="deploy-tool",
         )
         assert store.effective_values()["deploy.environment"] == "prod"
@@ -125,15 +123,17 @@ class TestGeneratedFlags:
         from functualize._cli.dispatch import scan_early_setting_flags
 
         assert scan_early_setting_flags(["--config-profile", "staging"]) == 1
-        store = FuncSettingsStore(layers=[], env={}, app_name="deploy-tool")
+        store = FuncSettingsStore(
+            _main.settings_schema(), env={}, app_name="deploy-tool"
+        )
         assert store.effective_values()["deploy.config_profile"] == "staging"
 
     def test_a_generated_flag_outranks_env(self, registered) -> None:
         from functualize._cli.data.func_settings import FuncSettingsStore
 
         store = FuncSettingsStore(
-            layers=[],
-            env={"FUNCTUALIZE_DEPLOY_ENVIRONMENT": "staging"},
+            _main.settings_schema(),
+            env={"DEPLOY_TOOL_DEPLOY_ENVIRONMENT": "staging"},
             app_name="deploy-tool",
         )
         assert store.effective_values()["deploy.environment"] == "staging"
