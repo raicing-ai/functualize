@@ -11,6 +11,11 @@ Un-passed and passed-as-empty stay distinguishable: every option defaults to
 ``None``, and ``None``/``()`` both mean "not given", so a generated flag can
 never invent a precedence rung nobody asked for.
 
+:func:`early_setting_flags` answers the same question *before* there is a
+parser: a setting that declares ``phase="early"`` changes what the app is
+constructed with, so its value has to be read from argv ahead of boot. ``func``
+and an embedded app both call it with their own declaration.
+
 Imports click and nothing heavier — ``_cli/main.py`` builds its root options
 at import time, on the lazy-boot path.
 """
@@ -22,12 +27,13 @@ from typing import TYPE_CHECKING, Any
 import click
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from functualize._types.settings import AppSettingsSchema, Setting
 
 __all__ = [
     "declared_flag_settings",
+    "early_setting_flags",
     "generated_setting_options",
     "option_name_for",
     "passed_setting_flags",
@@ -105,4 +111,51 @@ def passed_setting_flags(
         if value is None or value == ():
             continue
         passed[setting.name] = value
+    return passed
+
+
+def early_setting_flags(
+    schema: AppSettingsSchema, argv: Sequence[str]
+) -> dict[str, Any]:
+    """The ``phase="early"`` flags ``argv`` passes, keyed by declared setting name.
+
+    Read before the app exists, so the result can go straight into
+    :func:`functualize.plugin.resolve_settings` as ``flags`` and the first
+    snapshot already carries it. Keyed like :func:`passed_setting_flags`, but
+    there is no click type yet: a scalar is the text as typed (the last
+    occurrence wins, as it does for click) and the resolver coerces it; a list
+    setting collects every occurrence into a tuple.
+
+    Both ``--flag value`` and ``--flag=value`` are read. Anything else is left
+    alone rather than guessed at: ordinary flags are click's at callback time,
+    and an early flag with nothing after it is a usage error the real parser
+    reports — this scan runs first and must not turn it into a silent misread.
+    """
+    early = {
+        str(setting.cli_flag): setting
+        for setting in declared_flag_settings(schema)
+        if setting.phase == "early"
+    }
+    passed: dict[str, Any] = {}
+    if not early:
+        return passed
+    index = 0
+    while index < len(argv):
+        flag, sep, inline = argv[index].partition("=")
+        setting = early.get(flag)
+        if setting is None:
+            index += 1
+            continue
+        if sep:
+            value = inline
+        elif index + 1 < len(argv):
+            index += 1
+            value = argv[index]
+        else:
+            break
+        if setting.type == "list":
+            passed[setting.name] = (*passed.get(setting.name, ()), value)
+        else:
+            passed[setting.name] = value
+        index += 1
     return passed

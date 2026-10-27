@@ -65,7 +65,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DEFAULT_VALUES",
-    "FUNC_SCHEMA",
     "FUNC_SETTINGS",
     "FuncSetting",
     "FuncSettingsStore",
@@ -164,13 +163,12 @@ def _tui_spec(key: str, default: str) -> FuncSetting:
     )
 
 
-# TRANSITIONAL(config-unknown-keys/6.3): this `FuncSetting` catalog is no longer
-# what the store resolves or the TUI displays — the declared `Setting` schema is
-# (see `FuncSettingsStore`). What still reads it: `register_settings` and
-# `tui_settings` feed the transitional dispatch flag generation, and the
-# deploy-tool example builds its declaration from `FUNC_SCHEMA`. Task 6.3
-# removes the catalog; nothing new may depend on it, and the Settings panel and
-# the store must not.
+# TRANSITIONAL(config-unknown-keys/8.1): this `FuncSetting` catalog is no longer
+# what the store resolves, the TUI displays, or the pre-boot scan reads — the
+# declared `Setting` schema is (`FUNCTUALIZE_SETTINGS`, see `FuncSettingsStore`
+# and `_cli/dispatch.py`). No app catalog is built from it any more. What still
+# reads it are the legacy `FUNC_SETTINGS`/`SETTINGS_ORDER`/`DEFAULT_VALUES`
+# views and their tests, pending AC20/8.1; nothing new may depend on it.
 #: The shell's own knobs. **Not** in the base catalog — the shell registers
 #: them (:func:`register_settings`), which is what makes `tui.*` absent from a
 #: project app that never launches one. Kept here rather than in `_cli/tui/`
@@ -294,6 +292,9 @@ _REGISTERED: list[FuncSetting] = []
 #: ``main()`` *before* the app — and therefore before any store — exists. Every
 #: store built afterwards seeds from this, which is precisely what "takes
 #: effect before app construction" means for a setting.
+#:
+#: TRANSITIONAL(config-unknown-keys/8.1): `_cli/dispatch.py` fills this from the
+#: public `early_setting_flags(FUNCTUALIZE_SETTINGS, argv)`; AC20 retires it.
 _PREBOOT_OVERRIDES: dict[str, tuple[str, str]] = {}
 
 
@@ -313,10 +314,11 @@ def clear_preboot_overrides() -> None:
 
 
 def early_flag_specs() -> list[tuple[str, str]]:
-    """``(flag, dotted name)`` for settings whose flag must be read pre-boot.
+    """``(flag, dotted name)`` for legacy-registered settings read pre-boot.
 
-    Empty for `func` itself today — nothing ships ``phase="early"`` — so the
-    pre-boot scan short-circuits without touching argv.
+    Reads only the legacy registry. The pre-boot scan no longer consults it:
+    `_cli/dispatch.py` reads ``phase="early"`` from ``FUNCTUALIZE_SETTINGS``
+    through the public ``early_setting_flags``.
     """
     return [
         (s.cli_flag, s.name)
@@ -459,71 +461,6 @@ SETTINGS_ORDER: Sequence[str] = _NamesView()
 
 #: Catalog defaults by name.
 DEFAULT_VALUES: Mapping[str, str] = _DefaultsView()
-
-
-class _ProjectedView(Sequence["Setting"]):
-    """The live catalog projected onto the public, app-agnostic ``Setting``."""
-
-    __slots__ = ()
-
-    def _projected(self) -> list[Setting]:
-        return [_as_setting(s) for s in _current_settings()]
-
-    def __getitem__(self, index: Any) -> Any:
-        return self._projected()[index]
-
-    def __len__(self) -> int:
-        return len(_current_settings())
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, (tuple, list, _ProjectedView)):
-            return self._projected() == list(other)
-        return NotImplemented
-
-    def __repr__(self) -> str:
-        return f"<live setting projection: {len(self)} entries>"
-
-
-def _func_schema() -> AppSettingsSchema:
-    """`func`'s settings declaration, over the live catalog.
-
-    Passing a different one to :class:`SettingsStore` is what makes the store
-    app-agnostic — the env-var prefix and the per-file TOML section prefix come
-    from here rather than from literals buried in the store's methods.
-
-    The schema object is stable while its ``settings`` track registration:
-    ``_ProjectedView`` is a live sequence, so `from … import FUNC_SCHEMA` is
-    not a snapshot the way a materialized tuple would be.
-    """
-    return AppSettingsSchema(
-        settings=_ProjectedView(),  # type: ignore[arg-type]
-        env_prefix="FUNCTUALIZE",
-    )
-
-
-def _as_setting(func_setting: FuncSetting) -> Setting:
-    """Project a catalog entry onto the public, app-agnostic ``Setting``."""
-    schema = func_setting.schema
-    return Setting(
-        name=func_setting.name,
-        type=schema.type,
-        description=schema.description,
-        default=func_setting.default,
-        choices=tuple(schema.choices) if schema.choices else None,
-        min_value=schema.min_value,
-        max_value=schema.max_value,
-        max_items=schema.max_items,
-        cli_flag=func_setting.cli_flag,
-        phase=func_setting.phase,
-    )
-
-
-#: `func`'s own settings declaration.
-#:
-#: A plain constant, not a lazy attribute: the schema *object* never needs
-#: rebuilding because its ``settings`` is a live view, so binding it with
-#: `from … import FUNC_SCHEMA` is not a snapshot.
-FUNC_SCHEMA: AppSettingsSchema = _func_schema()
 
 
 def func_setting(name: str) -> FuncSetting | None:

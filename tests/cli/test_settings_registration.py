@@ -92,9 +92,12 @@ class TestDerivedStructuresAreLive:
         register_settings(_setting("demo.alpha", default="hello"))
         assert fs.DEFAULT_VALUES["demo.alpha"] == "hello"
 
-    def test_schema_tracks_registration(self, clean_registry) -> None:
+    def test_registration_does_not_reach_the_declaration(self, clean_registry) -> None:
+        """No app catalog is built from the legacy registry any more."""
+        from functualize.plugin import FUNCTUALIZE_SETTINGS
+
         register_settings(_setting("demo.alpha"))
-        assert "demo.alpha" in {s.name for s in fs.FUNC_SCHEMA.settings}
+        assert FUNCTUALIZE_SETTINGS.setting("demo.alpha") is None
 
     def test_lookup_tracks_registration(self, clean_registry) -> None:
         assert fs.func_setting("demo.alpha") is None
@@ -116,15 +119,19 @@ class TestDerivedStructuresAreLive:
         assert len(FUNC_SETTINGS) == before + 1
         assert "demo.alpha" in SETTINGS_ORDER
 
-    def test_a_store_built_after_registration_resolves_the_new_setting(
+    def test_a_store_resolves_the_explicit_schema_it_is_given(
         self, clean_registry, tmp_path
     ) -> None:
-        """The signature-default trap: `catalog=FUNC_SETTINGS` binds once."""
-        register_settings(_setting("demo.alpha", default="hello"))
+        """An app's extra setting reaches the store through its declaration."""
+        from functualize._cli.data.func_settings import FuncSettingsStore
+        from functualize.plugin import FUNCTUALIZE_SETTINGS, Setting
 
-        from functualize._cli.data.func_settings import FUNC_SCHEMA, FuncSettingsStore
-
-        store = FuncSettingsStore(FUNC_SCHEMA, env={})
+        schema = FUNCTUALIZE_SETTINGS.extend(
+            Setting("demo.alpha", "str", "demo.alpha help", default="hello")
+        )
+        store = FuncSettingsStore(
+            schema, cwd=tmp_path, env={}, global_dir=tmp_path / "global"
+        )
         assert store.effective_values().get("demo.alpha") == "hello"
 
 

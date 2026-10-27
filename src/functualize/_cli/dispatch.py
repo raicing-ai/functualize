@@ -267,16 +267,16 @@ class ParsedGlobalOptions:
 
 
 def _setting_flag_specs() -> dict[str, Setting]:
-    """Read the declared flags through the live schema bridge.
+    """`func`'s declared flags, read from its public base declaration.
 
-    The bridge remains until the catalog's 6.3 retirement; preboot scanning
-    must see newly registered settings without another flag table edit.
+    The same declaration the root group generates its options from, so the
+    pre-boot parse and click cannot disagree about which flags exist.
     """
-    from functualize._cli.data.func_settings import FUNC_SCHEMA
+    from functualize.plugin import FUNCTUALIZE_SETTINGS
 
     return {
         setting.cli_flag: setting
-        for setting in FUNC_SCHEMA.settings
+        for setting in FUNCTUALIZE_SETTINGS.settings
         if setting.cli_flag is not None
     }
 
@@ -619,57 +619,39 @@ def missing_value_message(flag: str) -> str:
 
 
 def scan_early_setting_flags(argv: list[str]) -> int:
-    """Apply `phase="early"` setting flags from ``argv``, pre-boot (C3.2).
+    """Record `func`'s `phase="early"` setting flags from ``argv``, pre-boot (C3.2).
 
     Runs in ``main()`` before the app is constructed, so a setting marked early
-    is already in effect for the first store anyone builds. Non-early flags are
-    deliberately *not* handled here — they are ordinary click options on the
-    root group and resolve at callback time, which is after boot.
+    is already in effect for the first store anyone builds. Which flags are
+    early, and how ``--flag value`` / ``--flag=value`` read, is the public
+    :func:`functualize.app.adapters.early_setting_flags` over
+    ``FUNCTUALIZE_SETTINGS`` — the same helper an embedded app calls with its
+    own declaration. Non-early flags are click options on the root group and
+    resolve at callback time, which is after boot.
 
-    Returns the number of flags applied, so callers (and tests) can tell a
+    Each scan describes one invocation, so it replaces what an earlier scan in
+    this process recorded rather than adding to it.
+
+    Returns the number of settings recorded, so callers (and tests) can tell a
     no-op scan from a real one.
-
-    Both `--flag value` and `--flag=value` are accepted, matching how click
-    would have parsed them; anything else is left alone rather than guessed at,
-    because this scan runs before the real parser and must not turn a
-    would-be error into a silent misread.
     """
     from functualize._cli.data.func_settings import (
-        early_flag_specs,
+        clear_preboot_overrides,
         set_preboot_override,
     )
+    from functualize.app.adapters import early_setting_flags
+    from functualize.plugin import FUNCTUALIZE_SETTINGS
 
-    specs = dict(early_flag_specs())
-    specs.update(
-        {
-            flag: setting.name
-            for flag, setting in _setting_flag_specs().items()
-            if setting.phase == "early"
-        }
-    )
-    if not specs:
-        # The common case — nothing ships `phase="early"`, so the scan costs
-        # one catalog read and never walks argv.
-        return 0
-
-    applied = 0
-    index = 0
-    while index < len(argv):
-        token = argv[index]
-        flag, sep, inline = token.partition("=")
-        name = specs.get(flag)
-        if name is None:
-            index += 1
-            continue
-        if sep:
-            set_preboot_override(name, inline, flag=flag)
-            applied += 1
-        elif index + 1 < len(argv):
-            set_preboot_override(name, argv[index + 1], flag=flag)
-            applied += 1
-            index += 1
-        index += 1
-    return applied
+    passed = early_setting_flags(FUNCTUALIZE_SETTINGS, argv)
+    # TRANSITIONAL(config-unknown-keys/8.1): the process-global pre-boot
+    # override storage stays until AC20 gives the store its flags another way.
+    clear_preboot_overrides()
+    for name, value in passed.items():
+        setting = FUNCTUALIZE_SETTINGS.setting(name)
+        flag = setting.cli_flag if setting is not None else None
+        text = ",".join(value) if isinstance(value, tuple) else value
+        set_preboot_override(name, text, flag=flag or "")
+    return len(passed)
 
 
 @dataclass(frozen=True)
