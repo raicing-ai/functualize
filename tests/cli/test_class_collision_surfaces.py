@@ -20,6 +20,7 @@ other.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -200,7 +201,12 @@ class TestTheListing:
         assert "pg.start" in rendered
         assert "declared twice" in rendered
         assert "legacy.py" in rendered
-        assert "pg.py" in rendered
+        # The file paths are absolute, so where the fold lands inside them
+        # depends on the temporary directory's length: under xdist the extra
+        # `popen-gwN/` segment splits `pg.py` itself. Read the paths with the
+        # table's frame and line breaks removed.
+        unfolded = re.sub(r"[\s│]", "", rendered)
+        assert "pg.py" in unfolded
 
     @surfaces("func")
     def test_the_plain_report_says_the_same_thing(self, cli_run, project: Path) -> None:
