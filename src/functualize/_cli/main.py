@@ -42,6 +42,26 @@ except ModuleNotFoundError as exc:  # pragma: no cover - no-extra install only
     )
     raise SystemExit(1) from None
 
+# Public API only, like everything else in `_cli`: the declaration is what says
+# which settings a command line may override, and the generator that turns it
+# into click options is shared with the app adapter.
+from functualize.app.adapters.settings_flags import (  # noqa: E402
+    generated_setting_options,
+    passed_setting_flags,
+)
+from functualize.plugin import (  # noqa: E402
+    DOTENV_PATH,
+    EXCLUDE_PATTERNS,
+    EXTRA_DIRECTORIES,
+    FUNCTUALIZE_SETTINGS,
+    IMPORT_LIBS,
+    JOBS_DIRECTORIES,
+    REQUIRE_JOB_DECORATORS,
+    REQUIRE_JOB_POSTFIX,
+    REQUIRE_JOB_PREFIX,
+    SCAN_DEPTH,
+)
+
 logger = logging.getLogger(__name__)
 
 # ─── click group for BUILTIN mode (plain Group, no FallbackGroup) ────────
@@ -143,12 +163,6 @@ class _LeftMarginEpilogGroup(click.Group):
     help="Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL.",
 )
 @click.option(
-    "--dotenv-file",
-    default=None,
-    type=click.Path(path_type=Path),
-    help="Path to the .env file to load environment variables from.",
-)
-@click.option(
     "--no-dotenv",
     is_flag=True,
     default=False,
@@ -165,52 +179,6 @@ class _LeftMarginEpilogGroup(click.Group):
     ),
 )
 @click.option(
-    "--discovery-depth",
-    default=None,
-    type=int,
-    help="Max directory levels below CWD to scan for jobs (0-5).",
-)
-@click.option(
-    "--require-file-import",
-    default=None,
-    help="Only discover files that import this module.",
-)
-@click.option(
-    "--require-file-prefix",
-    default=None,
-    help="Only discover files whose name starts with this prefix.",
-)
-@click.option(
-    "--require-file-postfix",
-    default=None,
-    help="Only discover files whose name ends with this postfix.",
-)
-@click.option(
-    "--require-file-marker",
-    default=None,
-    help="Only discover files declaring this module-level marker variable.",
-)
-@click.option(
-    "--require-job-prefix",
-    default=None,
-    help="Only discover jobs whose function name starts with this prefix.",
-)
-@click.option(
-    "--require-job-postfix",
-    default=None,
-    help="Only discover jobs whose function name ends with this postfix.",
-)
-@click.option(
-    "--require-job-decorators",
-    multiple=True,
-    help="Only discover jobs decorated with these decorator names.",
-)
-@click.option(
-    "--exclude",
-    multiple=True,
-    help="Glob patterns to exclude from discovery (max 20).",
-)
-@click.option(
     "--perf-report",
     default=None,
     help="Print performance report after command. Format: text or json.",
@@ -220,34 +188,28 @@ class _LeftMarginEpilogGroup(click.Group):
     default=None,
     help="Filter pattern for --perf-report.",
 )
-@click.option(
-    "--import-libs",
-    multiple=True,
-    help="Directories to add to sys.path before importing jobs.",
-)
 @click.pass_context
 def cli_app(
     ctx: click.Context,
+    /,
     log_level: str,
-    dotenv_file: Path | None,
     no_dotenv: bool,
     config_directory: Path | None,
-    discovery_depth: int | None,
-    require_file_import: str | None,
-    require_file_prefix: str | None,
-    require_file_postfix: str | None,
-    require_file_marker: str | None,
-    require_job_prefix: str | None,
-    require_job_postfix: str | None,
-    require_job_decorators: tuple[str, ...],
-    exclude: tuple[str, ...],
     perf_report: str | None,
     perf_filter: str | None,
-    import_libs: tuple[str, ...],
+    **generated: Any,
 ) -> None:
     """Functualize CLI — run jobs from anywhere."""
     import contextlib
     import time as _time
+
+    # Every settings-backed root flag arrives here by destination name. The
+    # declaration is the only place that knows flag → dotted name, so the
+    # flags are handed over in one call rather than named one by one — a new
+    # declared flag becomes usable on this surface without an edit here.
+    cli_flags = passed_setting_flags(FUNCTUALIZE_SETTINGS, generated)
+    dotenv_file = cli_flags.get(DOTENV_PATH.name)
+    exclude = cli_flags.get(EXCLUDE_PATTERNS.name, ())
 
     # ── Validation ───────────────────────────────────────────────────────
 
@@ -258,9 +220,7 @@ def cli_app(
         )
         raise SystemExit(1)
 
-    if dotenv_file is not None and (
-        not dotenv_file.exists() or not dotenv_file.is_file()
-    ):
+    if dotenv_file is not None and not Path(dotenv_file).is_file():
         click.echo(
             f"Error: --dotenv-file '{dotenv_file}' does not exist.",
             err=True,
@@ -321,27 +281,6 @@ def cli_app(
     from functualize.app import FunctualizeApp
     from functualize.app.utils import auto_discover
 
-    # Build CLI flags dict for resolve_cli_config
-    cli_flags: dict[str, object] = {}
-    if require_file_import is not None:
-        cli_flags["require_file_import"] = require_file_import
-    if require_file_prefix is not None:
-        cli_flags["require_file_prefix"] = require_file_prefix
-    if require_file_postfix is not None:
-        cli_flags["require_file_postfix"] = require_file_postfix
-    if require_file_marker is not None:
-        cli_flags["require_file_marker"] = require_file_marker
-    if require_job_prefix is not None:
-        cli_flags["require_job_prefix"] = require_job_prefix
-    if require_job_postfix is not None:
-        cli_flags["require_job_postfix"] = require_job_postfix
-    if require_job_decorators:
-        cli_flags["require_job_decorators"] = list(require_job_decorators)
-    if exclude:
-        cli_flags["exclude_patterns"] = list(exclude)
-    if import_libs:
-        cli_flags["import_libs"] = list(import_libs)
-
     cli_config = resolve_cli_config(cli_flags=cli_flags)
 
     # ── .env loading ─────────────────────────────────────────────────────
@@ -359,15 +298,14 @@ def cli_app(
     # Apply import_libs to sys.path before app construction
     _apply_import_libs(cli_config.import_libs)
 
-    # Resolve scan_depth: CLI flag > config > default (0)
-    if discovery_depth is not None:
-        effective_scan_depth = discovery_depth
-    else:
-        effective_scan_depth = cli_config.scan_depth
+    # `--discovery-depth` entered `cli_flags` like every other declared flag,
+    # so the resolver already put it at the top of the ladder: what the config
+    # says and what the flag says are one value here, not two.
+    effective_scan_depth = cli_config.scan_depth
 
     cwd = Path.cwd()
     discovery_result = auto_discover(
-        cwd, overrides={"scan_depth": effective_scan_depth}
+        cwd, overrides={SCAN_DEPTH.key: effective_scan_depth}
     )
 
     # `[plugins] disabled`, the same rule `_handle_bare`, `_handle_group` and
@@ -450,6 +388,14 @@ def cli_app(
             else:
                 click.echo("No jobs discovered.")
             raise SystemExit(0)
+
+
+# The settings-backed root flags are generated from the declaration — the same
+# function that gives an embedded app its root flags — so `func` and an app
+# cannot disagree about which settings a command line may override, or about
+# what each one means. Non-settings flags (a log level, a dotenv toggle, a
+# config directory, perf reporting) have no declaration entry and stay above.
+cli_app.params = [*cli_app.params, *generated_setting_options(FUNCTUALIZE_SETTINGS)]
 
 
 # ─── Dotenv loading ──────────────────────────────────────────────────────
@@ -598,12 +544,14 @@ def _handle_bare(
     from functualize.app.config import JobSources, PluginSources
 
     # Apply import_libs to sys.path before importing job modules
-    _apply_import_libs(effective.get("import_libs", []))
+    _apply_import_libs(effective.get(IMPORT_LIBS.key, []))
 
     # Boot FunctualizeApp using already-resolved effective directories
     cli_config = resolve_cli_config(cli_flags=cli_flags)
 
-    _base_dirs = list(effective.get("all_directories") or effective["jobs_directories"])
+    _base_dirs = list(
+        effective.get("all_directories") or effective[JOBS_DIRECTORIES.key]
+    )
     job_sources = JobSources(
         directories=_base_dirs
         + (
@@ -698,9 +646,9 @@ def _handle_bare(
 #: or CLI flag — is what makes the pre-boot routing read pay for a full config
 #: resolution; when none is in play the fast path stays untouched.
 _JOB_LEVEL_SETTINGS = (
-    "require_job_prefix",
-    "require_job_postfix",
-    "require_job_decorators",
+    REQUIRE_JOB_PREFIX.key,
+    REQUIRE_JOB_POSTFIX.key,
+    REQUIRE_JOB_DECORATORS.key,
 )
 
 
@@ -1252,8 +1200,8 @@ def _boot_project_app(
     from functualize.app.config import JobSources, PluginSources
 
     # ── Boot app (same pattern as _handle_job) ───────────────────────────
-    _apply_import_libs(effective.get("import_libs", []))
-    cli_import_libs = cli_flags.get("import_libs", [])
+    _apply_import_libs(effective.get(IMPORT_LIBS.key, []))
+    cli_import_libs = cli_flags.get(IMPORT_LIBS.key, [])
     if cli_import_libs:
         resolved_cli_libs = []
         for lib_path in cli_import_libs:
@@ -1266,7 +1214,7 @@ def _boot_project_app(
     cli_config = resolve_cli_config(cli_flags=cli_flags)
 
     cwd_str = str(Path.cwd().resolve())
-    all_dirs = list(effective.get("all_directories") or effective["jobs_directories"])
+    all_dirs = list(effective.get("all_directories") or effective[JOBS_DIRECTORIES.key])
     if cwd_str not in all_dirs:
         all_dirs.append(cwd_str)
 
@@ -1404,8 +1352,8 @@ def _handle_job(
 
     # Apply import_libs to sys.path before importing any job modules
     # Merge CLI-provided import_libs (highest priority) with effective import_libs
-    _apply_import_libs(effective.get("import_libs", []))
-    cli_import_libs = cli_flags.get("import_libs", [])
+    _apply_import_libs(effective.get(IMPORT_LIBS.key, []))
+    cli_import_libs = cli_flags.get(IMPORT_LIBS.key, [])
     if cli_import_libs:
         # CLI import_libs are relative to CWD, resolve them against anchor
         resolved_cli_libs = []
@@ -1424,7 +1372,7 @@ def _handle_job(
     from functualize.app.config import JobSources as _JobSources
 
     cwd_str = str(Path.cwd().resolve())
-    all_dirs = list(effective.get("all_directories") or effective["jobs_directories"])
+    all_dirs = list(effective.get("all_directories") or effective[JOBS_DIRECTORIES.key])
     if cwd_str not in all_dirs:
         all_dirs.append(cwd_str)
 
@@ -1787,7 +1735,7 @@ def _handle_single_file(
     # Found by adversarial review; a working project stopped working.
     declared = {
         str((cwd / d).resolve())
-        for d in (discovery_result.merged_config or {}).get("jobs_directories", [])
+        for d in (discovery_result.merged_config or {}).get(JOBS_DIRECTORIES.key, [])
         or []
     }
     if single_file_sources.directories:
@@ -2127,19 +2075,19 @@ def _run_cli() -> None:
     perf_timeline.mark("cli.discovery.start")
     cwd = Path.cwd()
     typed_config = DiscoveryOverrides(
-        scan_depth=cli_flags.get("scan_depth"),
-        import_libs=cli_flags.get("import_libs"),
-        jobs_directories=cli_flags.get("jobs_directories"),
-        extra_directories=cli_flags.get("extra_directories"),
-        exclude_patterns=cli_flags.get("exclude_patterns"),
+        scan_depth=cli_flags.get(SCAN_DEPTH.key),
+        import_libs=cli_flags.get(IMPORT_LIBS.key),
+        jobs_directories=cli_flags.get(JOBS_DIRECTORIES.key),
+        extra_directories=cli_flags.get(EXTRA_DIRECTORIES.key),
+        exclude_patterns=cli_flags.get(EXCLUDE_PATTERNS.key),
     )
     discovery_result = auto_discover(cwd, overrides=typed_config)
     anchor = discovery_result.anchor
     merged_config = discovery_result.merged_config
     # Build effective dict for downstream handlers (_handle_job, _handle_bare)
     effective: dict[str, list[str]] = {
-        "jobs_directories": discovery_result.jobs_directories,
-        "import_libs": discovery_result.import_libs,
+        JOBS_DIRECTORIES.key: discovery_result.jobs_directories,
+        IMPORT_LIBS.key: discovery_result.import_libs,
         # Every scan root auto_discover resolved — jobs_directories plus
         # extra_directories and the CWD pre-filter results. Handlers must boot
         # the app over these, or extra_directories jobs silently vanish.
@@ -2158,7 +2106,7 @@ def _run_cli() -> None:
         job_names, group_names = cached
     else:
         # Cold boot: AST scan fallback
-        _scan_roots = effective["all_directories"] or effective["jobs_directories"]
+        _scan_roots = effective["all_directories"] or effective[JOBS_DIRECTORIES.key]
         job_names = enumerate_job_names(_scan_roots)
         group_names = enumerate_group_names(_scan_roots)
 

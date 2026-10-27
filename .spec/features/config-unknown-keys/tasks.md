@@ -407,7 +407,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 5 — main and utils
 
-- [ ] **5.1 `_cli/main.py` and generated root flags** — **[F]** `src/functualize/_cli/main.py`,
+- [x] **5.1 `_cli/main.py` and generated root flags** — **[F]** `src/functualize/_cli/main.py`,
   `src/functualize/app/adapters/cli.py` (rev5 added)
   - *4.3 handoff:* remove `_seed_settings_store_from_flags`'s
     `FuncSettingsStore` import/construction (`app/adapters/cli.py:1302,1314`)

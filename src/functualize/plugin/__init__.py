@@ -32,7 +32,18 @@ from functualize._types.errors import (
     RuntimeStoreSelectionError,
     SubstrateInstallError,
 )
-from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
+from functualize._types.functualize_settings import (
+    DOTENV_PATH,
+    EXCLUDE_PATTERNS,
+    EXTRA_DIRECTORIES,
+    FUNCTUALIZE_SETTINGS,
+    IMPORT_LIBS,
+    JOBS_DIRECTORIES,
+    REQUIRE_JOB_DECORATORS,
+    REQUIRE_JOB_POSTFIX,
+    REQUIRE_JOB_PREFIX,
+    SCAN_DEPTH,
+)
 from functualize._types.gate_resolution import (
     GATE_ACCEPTED_TOPIC,
     CandidateEvaluation,
@@ -144,6 +155,24 @@ from functualize.plugin.protocols import (
 __all__ = [
     # Event infrastructure
     "FUNCTUALIZE_SETTINGS",
+    # Two settings a surface has to name rather than iterate: `func` validates
+    # `--dotenv-file` before resolution (an unreadable path is a usage error,
+    # not a setting) and caps `--exclude` at its declared limit. Both are
+    # declared once and read here — the alternative was the flag's dotted name
+    # written out in the CLI, which is the second statement this feature exists
+    # to delete.
+    # The discovery keys the flat pre-boot dicts are keyed by. `func` writes and
+    # reads `effective`/`cli_flags` with these names, so they come from the
+    # declaration rather than being spelled a second time.
+    "DOTENV_PATH",
+    "EXCLUDE_PATTERNS",
+    "EXTRA_DIRECTORIES",
+    "IMPORT_LIBS",
+    "JOBS_DIRECTORIES",
+    "REQUIRE_JOB_DECORATORS",
+    "REQUIRE_JOB_POSTFIX",
+    "REQUIRE_JOB_PREFIX",
+    "SCAN_DEPTH",
     "EventBus",
     "HookEvent",
     "StructuredEvent",

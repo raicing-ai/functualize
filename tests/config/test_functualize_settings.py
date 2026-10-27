@@ -9,7 +9,6 @@ from functualize._types.functualize_settings import (
     FUNCTUALIZE_SETTINGS,
     LIST_KEYS,
     PROJECT_CONFIG_CANDIDATES,
-    ROOT_FLAGS,
     SCRIPT_METADATA,
 )
 from functualize._types.settings import Setting
@@ -24,7 +23,17 @@ def test_declared_names_equal_the_pinned_union() -> None:
         "plugins_directories",
     }
     assert FUNCTUALIZE_SETTINGS.freeform_sections == {"aliases"}
-    assert tuple(ROOT_FLAGS) == tuple(row[0] for row in EXPECTED_FLAGS)
+    # Eleven settings are reachable from a root flag; every one of them is on
+    # the pinned root surface. Which eleven, and in what order, is pinned by
+    # `test_settings_pin.test_sixteen_root_options` — that test reads the click
+    # options the declaration generated, so the two cannot drift.
+    declared_flags = [
+        setting.cli_flag
+        for setting in FUNCTUALIZE_SETTINGS.settings
+        if setting.cli_flag
+    ]
+    assert len(declared_flags) == 11
+    assert set(declared_flags) <= {str(row[0]) for row in EXPECTED_FLAGS}
     assert LIST_KEYS == (
         "jobs_directories",
         "import_libs",

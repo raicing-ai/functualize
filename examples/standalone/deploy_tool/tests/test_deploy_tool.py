@@ -106,9 +106,10 @@ class TestSettingsIdentity:
 
 class TestGeneratedFlags:
     def test_environment_generates_a_root_flag(self, registered) -> None:
-        from functualize.app.adapters.cli import _setting_flag_specs
+        from functualize.app.adapters.settings_flags import generated_setting_options
 
-        flags = {flag for flag, _d, _n, _h in _setting_flag_specs()}
+        options = generated_setting_options(_main.settings_schema())
+        flags = {option.opts[0] for option in options}
         assert "--environment" in flags
         assert "--config-profile" in flags
 

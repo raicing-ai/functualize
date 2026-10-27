@@ -16,7 +16,6 @@ __all__ = [
     "LIST_KEYS",
     "PROJECT_CONFIG_CANDIDATES",
     "ROOT_KEY",
-    "ROOT_FLAGS",
     "SCRIPT_METADATA",
 ]
 
@@ -281,28 +280,6 @@ DISCOVERY_FINGERPRINT_FIELDS = (
     (REQUIRE_JOB_PREFIX.key, None),
     (REQUIRE_JOB_POSTFIX.key, None),
     ("pre_filter", None),
-)
-
-# The CLI-specific controls with no file setting are kept alongside the
-# setting-backed options. Click still owns parsing until task 5.1.
-# TRANSITIONAL(config-unknown-keys/5.1): Click decorators still own parsing.
-ROOT_FLAGS = (
-    "--log-level",
-    DOTENV_PATH.cli_flag,
-    "--no-dotenv",
-    "--config-directory",
-    SCAN_DEPTH.cli_flag,
-    REQUIRE_FILE_IMPORT.cli_flag,
-    REQUIRE_FILE_PREFIX.cli_flag,
-    REQUIRE_FILE_POSTFIX.cli_flag,
-    REQUIRE_FILE_MARKER.cli_flag,
-    REQUIRE_JOB_PREFIX.cli_flag,
-    REQUIRE_JOB_POSTFIX.cli_flag,
-    REQUIRE_JOB_DECORATORS.cli_flag,
-    EXCLUDE_PATTERNS.cli_flag,
-    "--perf-report",
-    "--perf-filter",
-    IMPORT_LIBS.cli_flag,
 )
 
 # PEP 723 is intentionally narrower than today's parser: task 6.4 removes

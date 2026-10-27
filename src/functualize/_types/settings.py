@@ -46,7 +46,10 @@ class Setting:
         choices / min_value / max_value / max_items: Validation bounds, carried
             over from the shipped ``SettingSchema`` unchanged.
         cli_flag: Generated root CLI flag (``"--log-level"``), or None for a
-            settings-only knob. Consumed by C3.1; nothing reads it yet.
+            settings-only knob. Read by the root-flag generator
+            (``app/adapters/settings_flags.py``), which ``func`` and an
+            embedded app both call, so the two surfaces cannot disagree about
+            which settings a command line may override.
         phase: ``"early"`` marks a setting whose flag must be honoured by the
             pre-boot argv scan, before app construction. Consumed by C3.2.
         places: File sections that may contain this key. The dotted name's
