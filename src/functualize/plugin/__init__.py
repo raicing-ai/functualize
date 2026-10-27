@@ -42,6 +42,7 @@ from functualize._types.functualize_settings import (
     REQUIRE_JOB_DECORATORS,
     REQUIRE_JOB_POSTFIX,
     REQUIRE_JOB_PREFIX,
+    ROOT_KEY,
     SCAN_DEPTH,
 )
 from functualize._types.gate_resolution import (
@@ -172,6 +173,7 @@ __all__ = [
     "REQUIRE_JOB_DECORATORS",
     "REQUIRE_JOB_POSTFIX",
     "REQUIRE_JOB_PREFIX",
+    "ROOT_KEY",
     "SCAN_DEPTH",
     "EventBus",
     "HookEvent",
