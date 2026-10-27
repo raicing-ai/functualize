@@ -382,7 +382,7 @@ tasks in five waves.
   - **Reachability:** sabotage the strict branch's registration skip → both
     claimants register and the name exits 0; restore.
 
-- [ ] **4.3 — docs, examples and changelog** (D6; spec AC-8)
+- [x] **4.3 — docs, examples and changelog** (D6; spec AC-8)
   - **[F]** `docs/guides/job-classes.md` (new), `docs/guides/jobs-discovery.md`,
     `docs/guides/subjects.md`, `examples/standalone/job_classes_lab/` (new:
     `README.md`, `project/`, `tests/`), `CHANGELOG.md`
