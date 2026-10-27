@@ -432,7 +432,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
       before the typed flag layer could honour them.
   - *Gate:* AC22. `_generated_setting_options()` yields the 11 declared flags;
     `func --help` lists each once; `rg -n '_cli\.data\.func_settings' src/functualize/app` → 0.
-- [ ] **5.2 `app/utils.py`** — **[F]** `src/functualize/app/utils.py`
+- [x] **5.2 `app/utils.py`** — **[F]** `src/functualize/app/utils.py`
   - Document reads (`:750-753`, `:972-1032`) and the `overrides`/`effective`
     plumbing (`:843-867`) go through the declaration.
   - Gate (after 5.1 and 5.2): the AC13 walk over `src/` → 0 outside the owner
