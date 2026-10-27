@@ -429,7 +429,7 @@ tasks in five waves.
   - **Acceptance:** both tests fail at the previous tip and pass here; the
     cache payload round-trips the section; 5.1's gates re-run at this head.
 
-- [ ] **5.1 — Checkpoint**
+- [x] **5.1 — Checkpoint**
   - **[F]** none (verification only).
   - **Do:** `uv run ruff check --fix src/ tests/ plugins/ examples/`,
     `uv run ruff format --check src/ tests/ plugins/ examples/`,
