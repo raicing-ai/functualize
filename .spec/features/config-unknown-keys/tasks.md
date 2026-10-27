@@ -515,13 +515,18 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 7 — surfaces
 
-- [ ] **7.1 `config path` and `config show`** (C1; AC1, AC2, AC5, AC7, AC11, AC24) —
+- [x] **7.1 `config path` and `config show`** (C1; AC1, AC2, AC5, AC7, AC11, AC24) —
   **[F]** `src/functualize/_cli/builtins/_config.py`, `tests/cli/test_config_builtin.py`
   - Lists `settings_layers()`; status from `ResolvedSettings.contributes`;
     annotations; `config show` provenance from the snapshot (removes
     `_determine_source` and its `read_global_config` call). Gate:
     `rg -n '\bread_global_config\b' src/functualize/_cli/builtins/_config.py`
     → 0; the definition remains until 8.1.
+  - *Gate:* `tests/cli/test_config_builtin.py` 36 passed; settings pin 11 passed;
+    `read_global_config` has 0 hits in the command module; lint-imports 7 kept,
+    0 broken. The command output is built from the resolved layer snapshot;
+    two deliberate breaks made the source and contribution tests fail and
+    both passed after restoration.
 - [ ] **7.2 `info --json`** (C2; AC3, AC16) — **[F]** `src/functualize/_cli/info.py`,
   `tests/cli/test_info_unknown_keys.py` (new)
 
