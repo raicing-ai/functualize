@@ -44,6 +44,7 @@ from functualize._types.functualize_settings import (
     REQUIRE_JOB_PREFIX,
     ROOT_KEY,
     SCAN_DEPTH,
+    SCRIPT_METADATA,
 )
 from functualize._types.gate_resolution import (
     GATE_ACCEPTED_TOPIC,
@@ -175,6 +176,7 @@ __all__ = [
     "REQUIRE_JOB_PREFIX",
     "ROOT_KEY",
     "SCAN_DEPTH",
+    "SCRIPT_METADATA",
     "EventBus",
     "HookEvent",
     "StructuredEvent",

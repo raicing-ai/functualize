@@ -13,7 +13,7 @@ import pytest
 from functualize._cli import config as cli_config
 from functualize._cli.data import func_settings
 from functualize._cli.main import cli_app
-from functualize._cli.pep723 import _KNOWN_TOOL_KEYS, parse_script_metadata
+from functualize._cli.pep723 import parse_script_metadata
 from functualize._config.project_dirs import (
     LIST_KEYS,
     PROJECT_CONFIG_CANDIDATES,
@@ -752,7 +752,7 @@ class TestCurrentDivergences:
         resolved = resolve_settings(FUNCTUALIZE_SETTINGS, Path.cwd())
         assert resolved.get("discovery.extra_directories") == ("canonical",)
 
-    def test_pep723_skill_flips_in_6_4(
+    def test_pep723_skill_is_unknown_after_6_4(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         script = tmp_path / "script.py"
@@ -760,10 +760,10 @@ class TestCurrentDivergences:
             '# /// script\n# [tool.functualize]\n# job = "run"\n'
             '# skill = "demo"\n# ///\ndef run(): pass\n'
         )
+        from functualize._types.functualize_settings import SCRIPT_METADATA
+
         metadata = parse_script_metadata(script)
-        assert {"job", "skill"} == _KNOWN_TOOL_KEYS
-        assert metadata is not None and (metadata.job, metadata.skill) == (
-            "run",
-            "demo",
-        )
-        assert capsys.readouterr().err == ""
+        assert frozenset({"job"}) == SCRIPT_METADATA
+        assert metadata is not None and metadata.job == "run"
+        err = capsys.readouterr().err
+        assert "unknown key(s)" in err and "skill" in err

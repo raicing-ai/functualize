@@ -455,7 +455,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     `deploy_tool/main.py:105-109`, which this row rewrites; the test pin at
     `test_settings_store_second_app.py:193-194` asserts against
     `FUNCTUALIZE_SETTINGS` instead. Gate: `rg -n '\bFUNC_SCHEMA\b' src examples` → 0.
-- [ ] **6.4 PEP 723** (M5 closed: remove; AC29) — **[F]** `src/functualize/_cli/pep723.py`, `tests/cli/test_pep723_skill_key.py`, `tests/standalone/test_pep723.py`
+- [x] **6.4 PEP 723** (M5 closed: remove; AC29) — **[F]** `src/functualize/_cli/pep723.py`, `tests/cli/test_pep723_skill_key.py`, `tests/standalone/test_pep723.py`
   - `_KNOWN_TOOL_KEYS` (`_cli/pep723.py:53`, today `frozenset({"job", "skill"})`) gives way to
     `SCRIPT_METADATA` (`job` only). `ScriptMetadata.skill` and the
     `TRANSITIONAL(third-party-host-seams/1.2)` site go. `test_pep723_skill_key.py`
