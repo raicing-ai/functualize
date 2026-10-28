@@ -1,4 +1,10 @@
-# config-unknown-keys — Tasks (Revision 6)
+# config-unknown-keys — Tasks (Revision 7)
+
+> **Revision 7 (2026-10-28), row 8.1 scope amendment at `4d32d9f6`.**
+> Rows 8.2–8.4 are complete; 8.1 remains unchecked and wave 9 stays closed.
+> The Rev6 reader-deletion gate is green, but AC18/AC20 still have reachable
+> sites outside 8.1's old file set. This revision widens that row to its
+> measured owners and gives each remaining acceptance criterion a gate.
 
 > **Revision 6 (2026-10-26), an execution amendment to rev5.** Rows 3.2 and
 > 4.1 are complete at `6430a88e` (base `origin/master` `11ed0e82`);
@@ -544,30 +550,55 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 8 — keep it single, docs, fixtures
 
-- [ ] **8.1 Ratchets** (AC12, AC13, AC18, AC20, AC22, AC30, AC31) — **[F]** `tests/spec/test_settings_ratchet.py` (new)
-  - *Rev6 [F] addition:* `src/functualize/_cli/config.py` and its affected
-    `tests/cli/test_cli_config.py`, `tests/cli/test_cli_config_vault.py`,
-    `tests/cli/test_resolve_cli_config.py`. Delete the transitional
-    `read_global_config`, `SettingsFileInfo`, and `resolve_cli_config_layers`
-    definitions after 4.3 and 7.1 have removed their callers. Gate:
-    `rg -n '\b(read_global_config|SettingsFileInfo|resolve_cli_config_layers)\b'
-    src/functualize --glob '*.py'` → 0, and the affected CLI config tests pass.
-  - *Rev5 addition:*
-    - AC31: no import of `functualize._cli.data`, `functualize._cli.config`
-      or `functualize._cli.orchestrator` from `functualize.app`, `.job`,
-      `.types`, `.plugin` or `.workflow`.
-    - AC30: the render-surface pair has one executable declaration in
-      `_types/enums.py` across 4.4's surface sites. The six executable hits
-      listed in 4.4 have their stated owners or are outside this feature.
-    - The public→`_cli` delivery imports are pinned at today's set (15 sites
-      at `40c2a503` minus the 6 this revision assigns), so M8's outcome is a
-      visible edit to that pin.
-  - *Partial:* the Rev6 reader deletion and the nine delivery imports are
-    pinned, but AC20 remains red: `_cli/data/func_settings.py` still defines
-    `register_settings`, `_REGISTERED`, and `_PREBOOT_OVERRIDES` and its
-    production users are outside this row's `[F]` list. AC18 also has a
-    settings-file read in `_cli/main.py` and declared-setting chain reads in
-    `_app/boot.py`. Amend scope and gates before ticking this row.
+- [ ] **8.1 Ratchets** (AC12, AC13, AC18, AC20, AC22, AC30, AC31) — **[F]**
+  `tests/spec/test_settings_ratchet.py`, `src/functualize/_cli/config.py`,
+  `tests/cli/test_cli_config.py`, `tests/cli/test_cli_config_vault.py`,
+  `tests/cli/test_resolve_cli_config.py`,
+  `src/functualize/_cli/data/func_settings.py`, `src/functualize/_cli/dispatch.py`,
+  `src/functualize/_cli/main.py`, `src/functualize/_app/boot.py`,
+  `tests/cli/test_settings_registration.py`, `tests/cli/test_early_setting_flags.py`,
+  `tests/_cli/test_dispatch_flags.py`, `tests/config/test_settings_pin.py`,
+  `tests/cli/test_alias_expansion_properties.py`
+  - **Depends on 4.3, 6.3, and 7.1:** 4.3 and 7.1 removed the old settings
+    readers' last callers; 6.3 installed public `early_setting_flags(schema,
+    argv)`. Retire their transitional definitions only now. The Rev6 deletion
+    is already delivered at `b7ff1e8`: `rg -n '\b(read_global_config|SettingsFileInfo|resolve_cli_config_layers)\b' src/functualize --glob '*.py'`
+    → 0 at `4d32d9f6` (rg exit 1). Keep its
+    three affected CLI config tests green.
+  - **Do — AC20:** remove the process registry and preboot map from
+    `func_settings.py`, including `register_settings`, `_REGISTERED`,
+    `_PREBOOT_OVERRIDES` and helpers/views that exist only to mutate or read
+    them. `dispatch.py` must return invocation-local early flags from the
+    public schema helper; `main.py` carries them into resolution/app
+    construction, and `FuncSettingsStore` receives a snapshot or explicit
+    flags instead of reading module state. Preserve flag precedence and the
+    first TUI store's value/source label. Replace the registry-dependent
+    fixtures in the named tests with explicit schemas or snapshots; preserve
+    the shipped catalog pin and preboot no-job-import behavior.
+  - **Do — AC18:** `_cli/main.py:_extract_aliases` reads the global settings
+    `config.toml` with `tomllib`; read `[aliases]` from the existing resolved
+    settings layers instead, keeping global-then-project precedence and direct
+    job-name priority. In `_app/boot.py`, route the declared `plugins.strict`
+    read in `_resolve_plugins_strict` and both declared-setting fallbacks in
+    `resolve_declared_setting` through the snapshot. Keep the chain reads for
+    job-only `general.strict_hierarchy_validation` and
+    `general.max_invoke_depth`: neither name is in `FUNCTUALIZE_SETTINGS`.
+    The TUI `config_files.py` and `source_chain_providers.py` TOML readers are
+    for job-config fields, not settings-file resolution; do not widen this
+    feature into those panels.
+  - **Gate — remaining work:** `rg -n '\b(register_settings|_REGISTERED|_PREBOOT_OVERRIDES)\b' src/functualize --glob '*.py'`
+    → 0 (currently 14 hits, all in
+    `func_settings.py`); `rg -n '\b(tomllib|read_bytes)\b'
+    src/functualize/_cli/main.py` → 0 (currently the alias read at 712–723).
+    The AC18 AST ratchet in `test_settings_ratchet.py` must reject any
+    `ResolutionChain.resolve` of a name in `FUNCTUALIZE_SETTINGS`, and any
+    direct settings-document TOML parse outside `settings_layers.py`;
+    the two named job-only chain reads are explicit exceptions. Add the
+    missing AC12/AC13 collection/read-position and AC22 generated-flag
+    ratchets to that test file; keep AC30's single render-surface declaration
+    and AC31's nine retained runtime delivery-import pin. Run that ratchet,
+    the named affected tests, `lint-imports`, and the native task-graph gate
+    before ticking 8.1. Wave 9 remains downstream of this unchecked row.
 - [x] **8.2 Off the run path** (AC10) — **[F]** `tests/cli/test_config_vocabulary_run_path.py` (new)
   - *Gate:* a guarded fresh process ran `func ping` cold and three times warm
     without importing the vocabulary; median warm time 1885 ms against the
