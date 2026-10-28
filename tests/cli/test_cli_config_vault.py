@@ -89,7 +89,7 @@ class TestResolution:
         result = CliRunner().invoke(group, ["config", "path"])
         assert result.exit_code == 0
         assert f"✓ used    {global_path}" in result.output
-        assert "not_a_setting" not in result.output
+        assert 'unknown key "vault.not_a_setting"' in result.output
 
 
 class TestItReachesConfigSources:

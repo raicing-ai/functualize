@@ -556,50 +556,13 @@ class TestCurrentVocabulary:
             for row in EXPECTED_CATALOG
         )
 
-    def test_recognized_file_keys(self) -> None:
-        assert {
-            "discovery",
-            "cli",
-            "aliases",
-            "tui",
-            "vault",
-        } == cli_config._RECOGNIZED_SECTIONS
-        assert {
-            "import_libs",
-            "jobs_directories",
-            "extra_directories",
-            "dotenv",
-            "dotenv_path",
-        } == cli_config._RECOGNIZED_TOP_LEVEL_KEYS
-        assert {
-            "discovery": frozenset(
-                {
-                    "require_file_prefix",
-                    "require_file_postfix",
-                    "require_file_import",
-                    "require_file_marker",
-                    "require_job_decorators",
-                    "require_job_prefix",
-                    "require_job_postfix",
-                    "extra_directories",
-                    "exclude_patterns",
-                    "scan_depth",
-                }
-            ),
-            "cli": frozenset({"output", "show_timing", "inline_tui"}),
-            "tui": frozenset(
-                {
-                    "default_surface",
-                    "show_session_stamp",
-                    "history_retention",
-                    "signature_enabled",
-                    "display_auto_switch",
-                    "default_override_target",
-                    "theme",
-                }
-            ),
-            "vault": frozenset({"keyring_timeout"}),
-        } == cli_config._RECOGNIZED_KEYS
+    def test_legacy_recognized_tables_are_gone(self) -> None:
+        for name in (
+            "_RECOGNIZED_SECTIONS",
+            "_RECOGNIZED_TOP_LEVEL_KEYS",
+            "_RECOGNIZED_KEYS",
+        ):
+            assert not hasattr(cli_config, name)
 
     def test_directory_candidates_and_fingerprint(self) -> None:
         assert LIST_KEYS == (
