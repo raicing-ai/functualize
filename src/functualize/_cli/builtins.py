@@ -2435,13 +2435,16 @@ def register_builtin_commands(cli_group: Any) -> None:
     @config_app.command("path")
     def config_path() -> None:
         """Show config file paths with status (✓ used / ○ found / ✗ missing)."""
-        from functualize.app.utils import resolve_user_config_dir
+        from functualize.app.utils import (
+            list_project_config_files,
+            project_config_file_table,
+            resolve_user_config_dir,
+        )
+        from functualize.plugin import SettingsSources
 
         config_dir = resolve_user_config_dir()
         global_path = config_dir / "config.toml"
         cwd = Path.cwd()
-        pyproject_path = cwd / "pyproject.toml"
-        functualize_toml_path = cwd / ".functualize.toml"
 
         # Determine global config status
         if global_path.exists():
@@ -2464,31 +2467,27 @@ def register_builtin_commands(cli_group: Any) -> None:
         else:
             click.echo(f"  ✗ missing {global_path}")
 
-        # Determine project config status
-        pyproject_has_functualize = False
-        if pyproject_path.exists():
-            try:
-                import tomllib as _tomllib
+        # Project layers: the files the bounded project walk reads, nearest
+        # first — the list the settings store resolves, so the file that is
+        # loaded from a subfolder is shown, and nothing above a `root = true`
+        # layer is presented as applying.
+        layers = list_project_config_files(cwd)
+        for _directory, file_path in layers:
+            _values, prefix = project_config_file_table(file_path)
+            table = f" [{prefix}]" if prefix else ""
+            click.echo(f"  ✓ used    {file_path}{table}")
+        if layers:
+            return
 
-                content = pyproject_path.read_bytes()
-                data = _tomllib.loads(content.decode("utf-8"))
-                tool_section = data.get("tool", {})
-                if isinstance(tool_section, dict) and "functualize" in tool_section:
-                    pyproject_has_functualize = True
-                    click.echo(f"  ✓ used    {pyproject_path} [tool.functualize]")
-                else:
-                    click.echo(f"  ○ found   {pyproject_path} (no [tool.functualize])")
-            except Exception:
-                click.echo(f"  ○ found   {pyproject_path}")
-        else:
-            click.echo(f"  ✗ missing {pyproject_path}")
-
-        # .functualize.toml: only relevant if pyproject doesn't have [tool.functualize]
-        if not pyproject_has_functualize:
-            if functualize_toml_path.exists():
-                click.echo(f"  ✓ used    {functualize_toml_path}")
-            else:
-                click.echo(f"  ✗ missing {functualize_toml_path}")
+        # No project here: what this directory would be read from, in order.
+        for name in SettingsSources().project_file_names:
+            candidate = cwd / name
+            if not candidate.is_file():
+                click.echo(f"  ✗ missing {candidate}")
+                continue
+            _values, prefix = project_config_file_table(candidate)
+            table = f" (no [{prefix}])" if prefix else ""
+            click.echo(f"  ○ found   {candidate}{table}")
 
     @config_app.command("edit")
     def config_edit() -> None:

@@ -480,12 +480,17 @@ def enumerate_group_names(jobs_directories: list[str]) -> set[str]:
 def _first_existing_candidate_file(
     directory: Path, candidates: list[str | tuple[str, Any]]
 ) -> Path | None:
-    """Return the path of the first candidate filename that exists in directory."""
+    """Return the file the project walk reads in ``directory``, or None.
+
+    The walk's own per-directory first-match rule, not "the first name that
+    exists": a ``pyproject.toml`` without a ``[tool.functualize]`` table is
+    somebody else's file, so a ``.functualize.toml`` beside it is the layer.
+    """
+    locator = ResourceLocator().search_explicit(directory)
     for candidate in candidates:
-        filename = candidate if isinstance(candidate, str) else candidate[0]
-        file_path = directory / filename
-        if file_path.is_file():
-            return file_path
+        if locator.resolve_first_candidate([candidate]) is not None:
+            filename = candidate if isinstance(candidate, str) else candidate[0]
+            return directory / filename
     return None
 
 
