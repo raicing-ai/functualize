@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkable
 
@@ -516,6 +516,7 @@ class StartAttempt:
     invoke_depth: int = 0
     #: A hash of the arguments, never the arguments.
     args_hash: str | None = None
+    run_tags: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -668,6 +669,7 @@ class RunView:
     invoke_depth: int = 0
     args_hash: str | None = None
     ended_at: datetime | None = None
+    run_tags: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -774,13 +776,17 @@ class RunTree:
 
 @dataclass(frozen=True)
 class RunQuery:
-    """Filters for "what ran recently". ``None`` means "do not filter"."""
+    """Filters for "what ran recently". ``None`` means "do not filter".
+
+    Every tag must match for a run to be included.
+    """
 
     job: str | None = None
     status: str | None = None
     scope_id: str | None = None
     parent_run_id: str | None = None
     limit: int | None = None
+    tags: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

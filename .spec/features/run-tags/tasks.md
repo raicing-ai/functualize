@@ -283,7 +283,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
 
 ## Wave 3
 
-- [ ] **4.1 — Peer types and their constructor defaults** (C6;
+- [x] **4.1 — Peer types and their constructor defaults** (C6;
       AC16, AC30, AC34 prerequisites)
   - **[F]** `src/functualize/_types/persistence.py`,
     `tests/conformance/test_baseline.py`
