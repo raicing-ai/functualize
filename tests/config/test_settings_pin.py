@@ -517,11 +517,6 @@ def _catalog_row(setting: func_settings.FuncSetting) -> tuple[object, ...]:
 
 
 @pytest.fixture
-def isolated_catalog() -> None:
-    yield
-
-
-@pytest.fixture
 def config_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     xdg = tmp_path / "xdg"
     xdg.mkdir()
@@ -532,7 +527,7 @@ def config_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, 
 
 
 class TestCurrentVocabulary:
-    def test_catalog_order_and_schema(self, isolated_catalog: None) -> None:
+    def test_catalog_order_and_schema(self) -> None:
         base = tuple(func_settings.FUNC_SETTINGS)
         tui = func_settings.tui_settings()
         assert tuple(_catalog_row(s) for s in (*tui, *base)) == EXPECTED_CATALOG
@@ -543,7 +538,7 @@ class TestCurrentVocabulary:
             row[0]: row[3] for row in EXPECTED_CATALOG[7:] if row[3] is not None
         }
 
-    def test_environment_names(self, isolated_catalog: None) -> None:
+    def test_environment_names(self) -> None:
         assert tuple(
             func_settings.env_var_for(s)
             for s in (*func_settings.tui_settings(), *func_settings.FUNC_SETTINGS)

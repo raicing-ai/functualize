@@ -21,6 +21,7 @@ from hypothesis import strategies as st
 
 from functualize._cli.main import _extract_aliases
 from functualize._types.naming import normalize_segment
+from functualize.app import ConfigSources
 
 # =============================================================================
 # Strategies
@@ -144,6 +145,7 @@ class TestAliasExpansionCorrectness:
         mock_app.get_jobs.return_value = [mock_job]
 
         mock_cli_config = MagicMock()
+        mock_cli_config.config_sources.return_value = ConfigSources()
         mock_cli_config.scan_depth = 0
         mock_cli_config.discovery = MagicMock()
         mock_cli_config.dotenv = False
@@ -232,6 +234,7 @@ class TestAliasExpansionCorrectness:
         mock_app.get_jobs.return_value = [mock_alias_job, mock_target_job]
 
         mock_cli_config = MagicMock()
+        mock_cli_config.config_sources.return_value = ConfigSources()
         mock_cli_config.scan_depth = 0
         mock_cli_config.discovery = MagicMock()
         mock_cli_config.dotenv = False

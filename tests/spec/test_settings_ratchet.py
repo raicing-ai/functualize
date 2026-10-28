@@ -10,6 +10,7 @@ import click
 from click.testing import CliRunner
 
 from functualize._cli.builtins._config import register_config
+from functualize._cli.data.func_settings import FUNC_SETTINGS, tui_settings
 from functualize._types.enums import SURFACE_PREFERENCES, RenderSurface
 from functualize.job import surface_hint
 from functualize.plugin import FUNCTUALIZE_SETTINGS
@@ -162,6 +163,13 @@ def test_declared_settings_have_no_process_registry_or_second_file_reader() -> N
         assert "tomllib" not in (SOURCE / relative).read_text()
 
 
+def test_retained_catalog_has_no_undeclared_setting_names() -> None:
+    legacy = {setting.name for setting in (*FUNC_SETTINGS, *tui_settings())}
+    declared = {setting.name for setting in FUNCTUALIZE_SETTINGS.settings}
+    assert declared - legacy == {"jobs_directories", "plugins_directories"}
+    assert legacy - declared == set()
+
+
 def test_declared_boot_reads_do_not_use_the_job_config_chain() -> None:
     boot = SOURCE / "_app" / "boot.py"
     tree = ast.parse(boot.read_text())
@@ -198,3 +206,13 @@ def test_generated_flags_have_one_schema_source_on_both_cli_doors() -> None:
     assert adapter.count("generated_setting_options(app_instance.settings_schema)") == 1
     assert "passed_setting_flags(FUNCTUALIZE_SETTINGS, generated)" in main
     assert "passed_setting_flags(app.settings_schema, values)" in adapter
+
+
+def test_every_func_app_door_receives_invocation_settings() -> None:
+    main = (SOURCE / "_cli" / "main.py").read_text()
+    assert (
+        main.count("config_sources=_config_sources_for_flags(cli_config, cli_flags)")
+        == 4
+    )
+    assert main.count("config_sources=_config_sources_for_flags(cli_config, {})") == 1
+    assert "cli_flags = {**early_flags, **cli_flags}" in main
