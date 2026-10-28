@@ -74,7 +74,9 @@ def test_warm_job_does_not_import_vocabulary_or_exceed_budget(tmp_path: Path) ->
         result.stderr for _, result in warm
     ]
     median = statistics.median(elapsed for elapsed, _ in warm)
-    print(f"warm func ping median: {median:.0f}ms; budget: {BUDGET_WARM_COMMAND_MS:.0f}ms")
+    print(
+        f"warm func ping median: {median:.0f}ms; budget: {BUDGET_WARM_COMMAND_MS:.0f}ms"
+    )
     assert median < BUDGET_WARM_COMMAND_MS, (
         f"warm job median {median:.0f}ms exceeded {BUDGET_WARM_COMMAND_MS:.0f}ms"
     )

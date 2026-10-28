@@ -186,9 +186,9 @@ class TestFuncItselfIsUnchanged:
         assert DEFAULT_VALUES["cli.inline_tui"] == "true"
 
     def test_it_is_a_recognized_config_key(self) -> None:
-        from functualize._cli.config import _RECOGNIZED_KEYS
+        from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
 
-        assert "inline_tui" in _RECOGNIZED_KEYS["cli"]
+        assert "inline_tui" in FUNCTUALIZE_SETTINGS.keys_in("cli")
 
     def test_funcs_bare_path_does_not_route_through_the_adapter(self) -> None:
         """`func` handles bare invocation pre-boot, in `main.py::_handle_bare`.
