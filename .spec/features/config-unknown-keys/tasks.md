@@ -530,8 +530,17 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     sequence test fail (1 failed), then restoration passed (1 passed).
     `read_global_config` has 0 hits in the command module; lint-imports
     7 kept, 0 broken. The 7.1 code and tests are at `c5c90be`.
-- [ ] **7.2 `info --json`** (C2; AC3, AC16) — **[F]** `src/functualize/_cli/info.py`,
+- [x] **7.2 `info --json`** (C2; AC3, AC16) — **[F]** `src/functualize/_cli/info.py`,
   `tests/cli/test_info_unknown_keys.py` (new)
+  - *Gate:* `tests/cli/test_info_unknown_keys.py` 5 passed, 5 alternate-surface
+    skips; both JSON forms carry the structured key, including an empty list
+    when no file contributes. Exact order is nearest project first, global
+    last, then document order. The F3a surfaces report `rich`; the plain info
+    fixture is byte-identical (`diff -u` exit 0). Reversing layer order after
+    commit made the named ordering test fail (1 failed, 1 alternate-surface
+    skip), then restoration passed (1 passed, 1 skip). `"unknown_keys"` has
+    one hit in `_cli/info.py`; `lint-imports` has 7 kept, 0 broken. The code
+    and tests are at `9bdcf12`.
 
 ## Wave 8 — keep it single, docs, fixtures
 
