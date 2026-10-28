@@ -464,6 +464,7 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
     running four commands and parsing three prose formats.
     """
     from functualize import __version__
+    from functualize._cli.data.config_vocabulary import unknown_keys_in_layers
     from functualize._cli.skills import list_skills, resolve_skills_locations
 
     report: dict[str, Any] = {
@@ -489,11 +490,20 @@ def full_report(app: FunctualizeApp, cli_config: Any = None) -> dict[str, Any]:
     # key there means every consumer needs a branch for "which surface am I
     # talking to" — the drift ADR-010 exists to prevent.
     anchor = getattr(cli_config, "anchor", None)
+    unknown_keys = unknown_keys_in_layers(app.settings.layers, app.settings_schema)
     report["config"] = {
         "anchor": str(anchor) if anchor is not None else None,
         "import_libs": [str(p) for p in getattr(cli_config, "import_libs", ()) or ()],
         "dotenv": bool(getattr(cli_config, "dotenv", False)),
         "output": getattr(cli_config, "output", None),
+        "unknown_keys": [
+            {
+                "file": str(finding.file),
+                "key": finding.key,
+                "suggestion": finding.suggestion,
+            }
+            for finding in unknown_keys
+        ],
     }
 
     report["install"] = install_facts(include_manifest=True)
