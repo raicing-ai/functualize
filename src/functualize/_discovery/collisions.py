@@ -154,18 +154,35 @@ def _source_of(claimant: JobDescriptor) -> str:
 
     A scanned descriptor carries it. A plain function handed to a
     ``StaticProvider`` does not — that provider never needed one — so it is
-    read off the live function instead; a claimant that has neither stays
-    blank rather than guessed. Only this record asks, so no other descriptor
-    changes.
+    read off the live function instead. Only this record asks, so no other
+    descriptor changes.
+
+    ``<entry_point>`` and ``<dynamic>`` are provenance markers, not files — the
+    line ``lazy_wrapper._import_real_function`` draws too. Taking a marker for a
+    file made the record print ``(<entry_point>)`` for a job class whose module
+    is a readable file on ``sys.path``, the one name an operator needs. So a
+    marker counts as absent until the live callable has been asked; a job
+    class's proxy is read through ``__wrapped__`` to the method it stands for.
+    The marker is the answer only when nothing names a file — an entry point
+    whose source cannot be read, the limitation D10 accepts — and a claimant
+    with neither stays blank rather than guessed.
     """
-    if claimant.source_file:
-        return claimant.source_file
+    recorded = claimant.source_file or ""
+    if recorded and recorded not in _PROVENANCE_MARKERS:
+        return recorded
     if claimant.function is not None:
         try:
-            return inspect.getsourcefile(claimant.function) or ""
-        except TypeError:
-            return ""
-    return ""
+            located = inspect.getsourcefile(inspect.unwrap(claimant.function))
+        except (TypeError, ValueError):
+            located = None
+        if located:
+            return located
+    return recorded
+
+
+#: ``source_file`` values that say where a descriptor came from, not which file
+#: defines it. Spelled as ``lazy_wrapper._import_real_function`` spells them.
+_PROVENANCE_MARKERS = frozenset({"<entry_point>", "<dynamic>"})
 
 
 def _last_claimant_wins(name: str, claimants: list[JobDescriptor]) -> JobDescriptor:

@@ -162,3 +162,69 @@ class TestTheSameClassFromTwoSources:
 
     def test_info_lists_one_refusal_per_method(self, cli_run, project: Path) -> None:
         assert set(_strict_failures(cli_run, project)) == {"pg.start", "pg.stop"}
+
+
+#: An installed distribution publishing the *same* class through the
+#: ``functualize.jobs`` entry-point group, from a readable module on
+#: ``sys.path`` — the D10 fallback does not apply, so its file is knowable.
+_DIST_INFO = "acme_pg-0.1.0.dist-info"
+
+
+@pytest.fixture()
+def installed_acme_pg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A real dist-info on ``sys.path``; returns the module file it publishes."""
+    import importlib
+    import sys
+
+    site = tmp_path / "site"
+    package = site / "acme_pg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    module = package / "pg.py"
+    module.write_text(JOBS)
+    dist = site / _DIST_INFO
+    dist.mkdir()
+    (dist / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: acme-pg\nVersion: 0.1.0\n"
+    )
+    (dist / "entry_points.txt").write_text(
+        "[functualize.jobs]\npg = acme_pg.pg:Postgres\n"
+    )
+    monkeypatch.syspath_prepend(str(site))
+    importlib.invalidate_caches()
+    yield module
+    for name in [n for n in sys.modules if n == "acme_pg" or n.startswith("acme_pg.")]:
+        del sys.modules[name]
+
+
+class TestTheSameClassFromAnEntryPoint:
+    """AC-13 clause 3 through a real entry point: both files are named."""
+
+    @pytest.fixture()
+    def project(self, project_tree, installed_acme_pg: Path) -> Path:
+        return project_tree(
+            pyproject='[project]\nname = "twosources"\nversion = "0.1.0"\n'
+            "dependencies = []\n",
+            jobs={"pg.py": JOBS},
+        )
+
+    def test_the_refusal_names_the_entry_point_module_file(
+        self, cli_run, project: Path, installed_acme_pg: Path
+    ) -> None:
+        result = cli_run(["pg", "start"], cwd=project)
+
+        assert result.exit_code == 2, result.stderr
+        assert str(installed_acme_pg) in result.stderr
+        assert str(project / ".functualize" / "jobs" / "pg.py") in result.stderr
+        assert "<entry_point>" not in result.stderr
+        assert "ran" not in result.stdout
+
+    def test_info_names_the_entry_point_module_file(
+        self, cli_run, project: Path, installed_acme_pg: Path
+    ) -> None:
+        failures = _strict_failures(cli_run, project)
+
+        assert set(failures) == {"pg.start", "pg.stop"}
+        for message in failures.values():
+            assert str(installed_acme_pg) in message
+            assert "<entry_point>" not in message
