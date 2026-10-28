@@ -82,7 +82,7 @@ The discovery algorithm works as follows:
 2. List files in the current directory and match against the config file regex
 3. If matches are found, use that directory as the config path
 4. If no matches, move to the parent directory and repeat
-5. Stop at the user's home directory (`~`) or the filesystem root (`/`), whichever is reached first
+5. Stop at the nearest directory whose project config declares `root = true` (inclusive), the user's home directory (`~`), or the filesystem root (`/`), whichever is reached first — see [Project boundaries and `root = true`](#project-boundaries-and-root-true)
 6. If no matches are found anywhere, fall back to `~/.config/<name>/`
 
 ```mermaid
@@ -97,6 +97,78 @@ flowchart TD
 
 !!! info "CLI Override"
     The `--config-directory` global CLI option overrides the discovered config path entirely. When provided, no upward search is performed.
+
+## Project boundaries and `root = true`
+
+Functualize finds "the project" by walking upward from the current directory. A project config file that sets `root = true` says *my project ends here; nothing above me is part of it*. Every upward search stops at that directory, inclusive, so a nested project that declares a root sees only its own sources, settings, job configuration and state. Without the marker a nested project inherits from its ancestors, exactly as before — inheritance is the reason to leave it out.
+
+```toml
+# outer/nested/.functualize.toml  (or [tool.functualize] in pyproject.toml,
+# or .functualize/.functualize.toml)
+root = true
+```
+
+Only the boolean `true` stops a walk; `root = "true"` is a string and does not.
+
+### Where project configuration is declared
+
+| # | Declaration | Example | Found by | Above a `root = true` |
+|---|---|---|---|---|
+| 1 | `pyproject.toml` table `[tool.functualize]` | `[tool.functualize]` `root = true` | Walk A, first choice in its directory. A `pyproject.toml` without the table is not a project file | not read |
+| 2 | `.functualize.toml` | `jobs_directories = ["jobs"]` | Walk A, second choice | not read |
+| 3 | `.functualize/.functualize.toml` | `root = true` | Walk A, third choice | not read |
+| 4 | The `.functualize/` folder and its `jobs/`, `lib/`, `plugins/` | `.functualize/jobs/deploy.py` | `jobs/`, `lib/`: every walk-A layer; `plugins/` and the folder itself: walk C | not used |
+| 5 | Directory keys in 1–3: `jobs_directories`, `import_libs`, `plugins_directories`, `extra_directories`, `exclude_patterns` | `plugins_directories = ["../team_plugins"]` | Walk A; relative paths resolve against the declaring file | not read; an explicit path *in the root's own file* may point anywhere |
+| 6 | `root = true` in 1–3 | `root = true` | Every walk | — |
+| 7 | User-wide `~/.config/functualize/config.toml` | `[cli]` `output = "json"` | Read directly, not by a walk | still applies |
+| 8 | Environment variables `FUNCTUALIZE_<SECTION>_<KEY>` and CLI flags | `FUNCTUALIZE_CLI_OUTPUT=json` | The invocation | still applies, highest priority |
+| 9 | Job config files `config.base.toml`, `config.<env>.toml` | `[greeter.greet]` `greeting = "hi"` | Walk B | not read, even for a key the nested file omits |
+| 10 | Python API: `JobSources`, `ConfigSources`, a supplied resolution chain | `JobSources(children={...})` | Code | unchanged: explicit |
+| 11 | Single-file mode `func file.py job` | `func deploy.py run` | The named file | no project involved |
+
+### The four walks, and where each stops
+
+| Walk | Looks for | Stops at | Decides |
+|---|---|---|---|
+| **A — project config files** | In each directory, the first of declarations 1–3 | the first layer with `root = true`, else the filesystem root; then the user-wide file | `func`'s own settings, the job, library, plugin and extra directories, `func builtin config path` |
+| **Settings list** | Walk A's files, kept apart | as walk A | the TUI settings panel's layers and save targets, `cli.*` / `tui.*` resolution |
+| **B — job config directory** | `config.base.toml` / `config.<env>.toml` | the nearest root marker or `~`, whichever comes first — both for finding the directory and for layering the files above it. `--config-directory` layers from the chosen directory up to the nearest root marker at or above it | each job's own settings |
+| **C — the `.functualize/` folder** | the nearest `.functualize/` | the root marker's directory, inclusive | `Mode: project` vs `standalone`, where runs, scopes, freshness, the discovery cache and the vault live, the convention plugins |
+
+The project's **identity** — the key for its state, cache and vault — is the directory holding its `.functualize/`; with none, the directory that declares `root = true`, so the root and every subfolder of it are one project; with neither, the current directory, as before.
+
+### Before and after
+
+Tree: `outer/` has a `.functualize.toml`, a `.functualize/` folder and job `outer-only`; `outer/nested/.functualize.toml` says `root = true` and has job `nested-only`. Run from `outer/nested`.
+
+| Case | Before | After |
+|---|---|---|
+| Nested root with its own `.functualize/` | `outer-only` is listed and runs; the ancestor's `lib/` is importable; the ancestor's declared `jobs_directories` / `extra_directories` are listed | `nested-only` only; `func outer-only` → `Unknown command`, exit 1 |
+| Nested root with **no** `.functualize/` | the ancestor's plugin runs; `Mode: project` names `outer/.functualize`; runs, scopes and the vault are the ancestor's | the ancestor's plugin does not load; `Mode: standalone`; state and vault are keyed by `outer/nested`, the same from any subfolder; the ancestor's files are untouched |
+| Ancestor `[cli] show_timing = true` | the TUI settings resolve `true`; `func builtin config show` says the default | both say the default |
+| Ancestor `config.base.toml` with `[greeter.greet] greeting = "ANCESTOR"` | the nested job reads `ANCESTOR`, even under a nested `config.base.toml` that omits the key | the nested job reads its own, environment, user-global or default value |
+| `func builtin config path` from `outer/nested/sub` (root in `.functualize/.functualize.toml`) | `sub/pyproject.toml` ✗ and `sub/.functualize.toml` ✗ | `outer/nested/.functualize/.functualize.toml` ✓ used, nothing under `outer/` |
+| No `root = true` anywhere | ancestor sources inherited | unchanged |
+
+### Migrating
+
+**You relied on an ancestor's jobs, libraries, plugins or job configuration under `root = true`.** That configuration contradicts itself: `root = true` is the declaration that nothing above applies. Either delete `root = true` to inherit again, or keep the stop and declare the shared path explicitly in the root's own file:
+
+```toml
+root = true
+jobs_directories = ["jobs", "../.functualize/jobs"]
+```
+
+**Your nested root had no `.functualize/` and used its ancestor's.** Its runs, workflow scopes and vault were the ancestor's. After upgrading the root starts empty, and nothing is moved or deleted: the ancestor's folder and vault stay as they are. To keep records in the repository, run from the root:
+
+```bash
+mkdir .functualize
+cp ../.functualize/runs.json ../.functualize/scopes.json .functualize/   # only the files you want
+func builtin data clear     # fresh.json and cache.json are derived; let them rebuild
+func builtin vault put --job deploy --field api_token --stdin   # once per secret you need here
+```
+
+The vault key is per machine, not per project, so no key moves; the secrets do not either. Put each one you need again, or run `func builtin vault sync` for the ones declared with `[[vault_secret]]`. An ancestor secret enters the nested vault only if you put it there. `func builtin data show` then reports `Mode: project (.functualize/ found at <root>/.functualize)` with the copied run and scope counts, from the root and from every subfolder, and `func builtin vault list` lists only what you put.
 
 ## Config File Pattern
 
