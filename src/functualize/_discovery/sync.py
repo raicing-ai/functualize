@@ -503,8 +503,19 @@ def _job_class_methods(job_class: type[BaseModel]) -> dict[str, Any]:
     keeps the descriptor/function distinction intact and yields the raw
     function, whose own ``__dict__`` still carries the ``@job``/``@cache``
     dunders that ``getattr`` on the bound attribute would lose.
+
+    **The nearest definition of a name decides it, whatever it is.** A class
+    that turns an inherited method into a ``property``, a ``staticmethod``, a
+    ``classmethod`` or a plain value has removed that method, so a base's
+    function of the same name further up the MRO must not be admitted. The name
+    is recorded as seen before the kind is judged; judging first let the base's
+    function through, and the job built from it then read the subclass's
+    attribute — a ``property`` made the scan raise and lose every job in the
+    module, and a ``staticmethod`` or ``classmethod`` registered a job that
+    failed with ``TypeError`` when run.
     """
     methods: dict[str, Any] = {}
+    seen: set[str] = set()
     from pydantic import BaseModel
 
     for base in job_class.__mro__:
@@ -516,8 +527,9 @@ def _job_class_methods(job_class: type[BaseModel]) -> dict[str, Any]:
         if base.__module__.split(".")[0] == "pydantic":
             continue
         for name, value in base.__dict__.items():
-            if name.startswith("_") or name in methods:
+            if name.startswith("_") or name in seen:
                 continue
+            seen.add(name)
             if isinstance(value, staticmethod | classmethod | property):
                 continue
             if isinstance(value, functools.cached_property):
