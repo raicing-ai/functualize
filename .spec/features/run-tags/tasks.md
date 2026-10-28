@@ -346,7 +346,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
 
 ## Wave 4
 
-- [ ] **5.1 — Revision 5: the `run_tags` table, its writer and its reader**
+- [x] **5.1 — Revision 5: the `run_tags` table, its writer and its reader**
       (C6; AC15, AC16, AC33)
   - **[F]** `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_schema/0005_run_tags.sql`
     (new),
