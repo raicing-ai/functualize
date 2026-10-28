@@ -562,16 +562,32 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     - The public→`_cli` delivery imports are pinned at today's set (15 sites
       at `40c2a503` minus the 6 this revision assigns), so M8's outcome is a
       visible edit to that pin.
-- [ ] **8.2 Off the run path** (AC10) — **[F]** `tests/cli/test_config_vocabulary_run_path.py` (new)
-- [ ] **8.3 Fixtures** (F11; AC26) — **[F]** `tests/_cli/test_runtime_detection.py`,
+  - *Partial:* the Rev6 reader deletion and the nine delivery imports are
+    pinned, but AC20 remains red: `_cli/data/func_settings.py` still defines
+    `register_settings`, `_REGISTERED`, and `_PREBOOT_OVERRIDES` and its
+    production users are outside this row's `[F]` list. AC18 also has a
+    settings-file read in `_cli/main.py` and declared-setting chain reads in
+    `_app/boot.py`. Amend scope and gates before ticking this row.
+- [x] **8.2 Off the run path** (AC10) — **[F]** `tests/cli/test_config_vocabulary_run_path.py` (new)
+  - *Gate:* a guarded fresh process ran `func ping` cold and three times warm
+    without importing the vocabulary; median warm time 1885 ms against the
+    4000 ms budget (`1 passed`).
+- [x] **8.3 Fixtures** (F11; AC26) — **[F]** `tests/_cli/test_runtime_detection.py`,
   `tests/_cli/test_self_doctor.py`, `tests/spec/test_disabled_is_honoured_by_the_builtin_commands.py`,
   `tests/cli/test_config_upward_walk.py`
-- [ ] **8.4 Docs, changelog, STATUS** (F12; AC15) — **[F]** `docs/cli/config.md`, `docs/guides/shell.md`,
+  - *Gate:* the four targeted fixture files and the run-path test together
+    yielded 89 passed, 2 skipped; the four config keys now live where they
+    are read.
+- [x] **8.4 Docs, changelog, STATUS** (F12; AC15) — **[F]** `docs/cli/config.md`, `docs/guides/shell.md`,
   `docs/guides/configuration.md`, `CHANGELOG.md`, `.spec/STATUS.md`, `tests/spec/test_config_docs_ratchet.py` (new)
   - CHANGELOG: `### Fixed — …` (FOSS-127), plus `### Changed` rows for §3.8, including
     M6 (`FUNCTUALIZE_EXTRA_DIRECTORIES` → `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES`,
     `docs/cli/config.md:148`) and M5 (`skill` rejected). STATUS #22 and #29 closed
     (#29: removed, no consumer arrived).
+  - *Gate:* docs ratchet `4 passed`; the settings reference enumerates all 29
+    declared names, the environment table agrees with the schema, and the
+    published settings TOML examples contain no unknown keys. Root-only
+    `config path` is documented as `○ found`; STATUS #22 and #29 are closed.
 
 ## Wave 9 — checkpoint
 
