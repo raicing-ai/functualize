@@ -429,7 +429,7 @@ class JobExecutionEngine:
         config_class = entry.config_class
         if config_class is None:
             return None
-        section, scope = self._config_section(job_name, entry.method_name)
+        section, scope = self.config_section_for(job_name)
         config_view = self._make_config_view(section, scope=scope)
         if self._config_resolver is not None:
             return self._config_resolver(
@@ -439,6 +439,25 @@ class JobExecutionEngine:
                 cli_values={},
             )
         return config_class()
+
+    def config_section_for(self, job_name: str) -> tuple[str, Literal["group", "job"]]:
+        """The ``(section, scope)`` a run of ``job_name`` reads its config from.
+
+        The display half of :meth:`_config_section`, for the surfaces that
+        resolve a job's fields one by one rather than through
+        :meth:`resolve_config_model` — ``func builtin env`` and
+        ``func builtin info --job``. They used to build their own view at the
+        job's own name, which is right for a function job and wrong for a class
+        job, whose fields live at its group: they reported ``localhost`` and
+        "REQUIRED — not set" for a run that read ``[pg]`` and the group's vault
+        entry. Asking the engine is what keeps the display and the run on one
+        answer.
+
+        Materializes the job: the method name that marks a class job is only
+        known once its entry is real.
+        """
+        entry = self.materialize_job(job_name)
+        return self._config_section(job_name, entry.method_name)
 
     def _args_hash_for(self, context: Any) -> str:
         """The args hash for an in-flight run, including resolved group options."""
@@ -505,7 +524,7 @@ class JobExecutionEngine:
 
     def _config_section(
         self, job_name: str, method_name: str | None
-    ) -> tuple[str, str]:
+    ) -> tuple[str, Literal["group", "job"]]:
         """The ``(section, scope)`` a job's configuration comes from.
 
         A class job reads **one** section — its group's — however many methods

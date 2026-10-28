@@ -385,6 +385,55 @@ class TestTheVaultEntry:
         assert VAULT_VALUE not in result.stdout
 
 
+class TestTheDisplayReadsTheRunsSection:
+    """AC-11's `env` half — the display reports what the run reads.
+
+    A class job's fields live at its group: ``[pg]``, ``PG__HOST`` and the
+    group's vault entry. `builtin env` and `builtin info --job` used to resolve
+    them at the method job's own name instead, so they printed the model
+    default and "REQUIRED — not set" for a run that had both values. Each
+    surface is read twice: the first call is the cold boot, the second the warm
+    cache.
+    """
+
+    @surfaces("func")
+    def test_env_reports_the_group_section_and_the_vault_entry(
+        self, cli_run, project, vault_key
+    ) -> None:
+        _provision(cli_run, project)
+
+        for _boot in ("cold", "warm"):
+            result = cli_run(["builtin", "env", "pg.start"], cwd=project)
+
+            assert result.exit_code == 0, result.stderr
+            assert "export PG__HOST=db.internal  # source: file" in result.stdout
+            assert "export PG__PASSWORD='•••'  # source: remote" in result.stdout
+            assert "REQUIRED" not in result.stdout
+            assert "PG_START_" not in result.stdout
+            assert VAULT_VALUE not in result.stdout
+
+    @surfaces("func")
+    def test_info_job_reports_the_group_section_and_the_vault_entry(
+        self, cli_run, project, vault_key
+    ) -> None:
+        _provision(cli_run, project)
+
+        for _boot in ("cold", "warm"):
+            result = cli_run(["builtin", "info", "--job", "pg.start"], cwd=project)
+
+            assert result.exit_code == 0, result.stderr
+            rows = {
+                cells[0]: cells[1:]
+                for line in result.stdout.splitlines()
+                if (cells := [c.strip() for c in line.strip("│ ").split("│")])
+                and cells[0] in {"host", "password"}
+            }
+            assert rows["host"] == ["db.internal", "file"]
+            assert rows["password"] == ["•••", "remote (vault)"]
+            assert "not set" not in result.stdout
+            assert VAULT_VALUE not in result.stdout
+
+
 class TestTheDeclaration:
     """F2 (a) — the merged declaration, read through public payloads."""
 
