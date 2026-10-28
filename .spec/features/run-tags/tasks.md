@@ -401,7 +401,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
     transcript; `tests/conformance/test_baseline.py` is the cross-store
     consumer of the new `BASELINE` check.
 
-- [ ] **5.2 — `app/_run_view.py`: the projection and the query** (C6; AC21,
+- [x] **5.2 — `app/_run_view.py`: the projection and the query** (C6; AC21,
       AC22)
   - **[F]** `src/functualize/app/_run_view.py`,
     `tests/integration/test_run_view.py`
