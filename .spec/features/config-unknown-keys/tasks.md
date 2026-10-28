@@ -628,7 +628,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 9 — checkpoint
 
-- [ ] **9.1** The five gates; `dead_code_delta.py origin/master HEAD`; the live
+- [x] **9.1** The five gates; `dead_code_delta.py origin/master HEAD`; the live
   F1/F3a/F3b repros; an ADR for the one-declaration rule; then the
   deletion-only cleanup commit.
   - *Rev6 delta disposition:* `_cli/builtins/_helpers.py:381` assigns
