@@ -144,6 +144,110 @@ class TestDocumentRuntimeRunTags:
         assert all(view.run_tags == {"host": "laptop"} for view in views)
 
 
+#: `_describe`'s keys in their rendering order before run tags existed.
+_PRE_TAG_KEYS = [
+    "run_id",
+    "job",
+    "surface",
+    "state",
+    "status",
+    "started_at",
+    "ended_at",
+    "duration_ms",
+    "scope_id",
+    "parent_run_id",
+    "invoke_depth",
+    "runner",
+    "args_hash",
+    "force",
+    "group_option_values",
+    "children",
+    "event_count",
+]
+
+
+class TestTheProjectionCarriesRunTags:
+    """AC21, AC22: every row has `run_tags`; a tag filter runs before the limit."""
+
+    def test_a_tagged_run_reads_its_map(self, app: FunctualizeApp) -> None:
+        app.execute(
+            RunRequest(
+                job_name="child",
+                surface="app.execute",
+                run_tags={"harness": "claude", "tier": "2"},
+            )
+        )
+        [row] = list_runs(_store())
+        assert row["run_tags"] == {"harness": "claude", "tier": "2"}
+        assert describe_run(_store(), row["run_id"]) == row
+
+    def test_every_row_carries_the_key_and_a_pre_feature_record_reads_empty(
+        self, app: FunctualizeApp
+    ) -> None:
+        store = _store()
+        legacy_id = store.open_run({"job": "legacy", "surface": "app.execute"})
+        before = store.get_run(legacy_id)
+        assert before is not None and "run_tags" not in before
+        _run(app, "child")
+
+        rows = list_runs(_store())
+        assert len(rows) == 2
+        assert all("run_tags" in row for row in rows)
+        assert {row["job"]: row["run_tags"] for row in rows} == {
+            "legacy": {},
+            "child": {},
+        }
+        assert _store().get_run(legacy_id) == before, "the read rewrote the record"
+
+    def test_an_untagged_row_differs_from_today_only_by_the_new_key(
+        self, app: FunctualizeApp
+    ) -> None:
+        _run(app, "child")
+        [row] = list_runs(_store())
+
+        expected = list(_PRE_TAG_KEYS)
+        expected.insert(expected.index("force") + 1, "run_tags")
+        assert list(row) == expected
+        assert row["run_tags"] == {}
+
+    def test_scope_two_tags_and_limit_two_returns_the_two_newest_matches(
+        self,
+    ) -> None:
+        """The limit is applied after every filter, the tag filter included."""
+        store = _store()
+        both = {"harness": "claude", "tier": "2"}
+
+        def seed(name: str, scope: str, tags: dict[str, str] | None) -> str:
+            record: dict[str, Any] = {
+                "job": name,
+                "surface": "app.execute",
+                "scope_id": scope,
+            }
+            if tags is not None:
+                record["run_tags"] = tags
+            return store.open_run(record)
+
+        seed("match-1", "s1", both)
+        seed("one-tag", "s1", {"harness": "claude"})
+        seed("match-2", "s1", both)
+        seed("other-scope", "s2", both)
+        seed("match-3", "s1", {**both, "extra": "x"})
+        seed("wrong-case", "s1", {"harness": "Claude", "tier": "2"})
+        seed("untagged", "s1", None)
+
+        query = {"scope_id": "s1", "tags": (("harness", "claude"), ("tier", "2"))}
+        assert [r["job"] for r in list_runs(_store(), limit=2, **query)] == [
+            "match-3",
+            "match-2",
+        ]
+        assert [r["job"] for r in list_runs(_store(), **query)] == [
+            "match-3",
+            "match-2",
+            "match-1",
+        ]
+        assert list_runs(_store(), tags=(("missing", "x"),)) == []
+
+
 class TestTheProjectionReportsWhatTheEngineWrote:
     def test_a_successful_run_is_listed(self, app: FunctualizeApp) -> None:
         _run(app, "child")
