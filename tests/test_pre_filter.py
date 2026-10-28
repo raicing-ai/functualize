@@ -154,10 +154,63 @@ class TestASTModulePreFilter:
 class TestClassJobPreFilter:
     """A class job's module has no top-level function, so it needs its own arm.
 
-    The check is syntactic and deliberately decorator-blind: it decides whether
-    reading the file is worth it, and ``extract_module`` decides from the
-    imported object which classes are job classes.
+    The check is syntactic: it decides whether reading the file is worth it,
+    and ``extract_module`` decides from the imported object which classes are
+    job classes. A public method in the body qualifies a class, and so does a
+    ``@job`` decorator — the only signal a class whose methods are all
+    inherited carries.
     """
+
+    def test_allows_job_class_whose_methods_are_all_inherited(
+        self, tmp_path: Path
+    ) -> None:
+        """`contracts.md` § C2's `PooledPostgres`: no method of its own."""
+        f = tmp_path / "pooled.py"
+        f.write_text(
+            "from databases import LocalPostgres\n"
+            "from functualize.job import job\n"
+            "@job(group='postgres-tuned')\n"
+            "class PooledPostgres(LocalPostgres):\n"
+            "    pool_size: int = 20\n"
+        )
+        assert ClassJobPreFilter().should_import(f) is True
+
+    @pytest.mark.parametrize(
+        "decorator", ["@job", "@job()", "@functualize.job.job(group='pg')"]
+    )
+    def test_allows_each_spelling_of_the_job_decorator(
+        self, tmp_path: Path, decorator: str
+    ) -> None:
+        f = tmp_path / "pg.py"
+        f.write_text(f"{decorator}\nclass Postgres(Base):\n    host: str = 'x'\n")
+        assert ClassJobPreFilter().should_import(f) is True
+
+    def test_rejects_plain_model_subclass_without_job(self, tmp_path: Path) -> None:
+        """A `BaseModel` subclass with neither signal is not worth importing."""
+        f = tmp_path / "models.py"
+        f.write_text(
+            "from pydantic import BaseModel\n"
+            "class Settings(BaseModel):\n"
+            "    host: str = 'localhost'\n"
+        )
+        assert ClassJobPreFilter().should_import(f) is False
+
+    def test_rejects_class_with_another_decorator_and_no_method(
+        self, tmp_path: Path
+    ) -> None:
+        f = tmp_path / "point.py"
+        f.write_text(
+            "from dataclasses import dataclass\n"
+            "@dataclass\n"
+            "class Point:\n"
+            "    x: int = 0\n"
+        )
+        assert ClassJobPreFilter().should_import(f) is False
+
+    def test_rejects_private_class_even_with_job(self, tmp_path: Path) -> None:
+        f = tmp_path / "pg.py"
+        f.write_text("@job\nclass _Postgres(Base):\n    host: str = 'x'\n")
+        assert ClassJobPreFilter().should_import(f) is False
 
     def test_allows_file_with_public_class_and_public_method(
         self, tmp_path: Path
