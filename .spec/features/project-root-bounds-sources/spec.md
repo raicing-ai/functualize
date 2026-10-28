@@ -6,7 +6,7 @@
 - Multica MCH-188: `Shape state = approved`, read 2026-10-20.
 - Specify draft: confirmed by the member on 2026-10-20 (MCH-188, "Confirm spec draft").
 - **Confirmed 2026-10-22** ("confirm B1 and D2 data rule", MCH-188).
-- **D4 decided (a), 2026-10-26.** Smell 2 (duplicated project-config file list) moved into scope the same day; **D5** (`config path` lists the real layers) is pending, see `plan.md` § Smell 2 fix.
+- **D4 decided (a), 2026-10-26.** Smell 2 (duplicated project-config file list) moved into scope the same day; **D5 decided (a), 2026-10-28T17:25:25Z** (member comment `01a1838b-93fc-76d5-9251-93001a86f58a`): `config path` lists the real layers, see `plan.md` § Smell 2 fix.
 - *Earlier:* **Revised in Specify, 2026-10-21.** The owner selected D1(a), D2(b), and D3(b) after the first Plan. That Plan and its task graph assumed D2(a)/D3(a) and have been withdrawn. The behavior below follows the v13 shape's recommended B1 design for D3(b); it is not an implementation authorization.
 
 ## Problem
