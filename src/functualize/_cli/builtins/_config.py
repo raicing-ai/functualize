@@ -16,6 +16,50 @@ from . import (
 if TYPE_CHECKING:
     import click
 
+    from functualize.plugin import AppSettingsSchema, ResolvedSettings, SettingsLayer
+
+
+def _config_path_locations(
+    snapshot: ResolvedSettings, cwd: Path, schema: AppSettingsSchema
+) -> tuple[tuple[Path, SettingsLayer | None], ...]:
+    """List the walk's layers and expected candidates in display order.
+
+    Resolution keeps nearest project first and global last. The path command
+    displays the reverse, adding the candidates at each relevant directory.
+    The cwd is relevant even if it supplies no layer; an ancestor with no
+    layer is not listed because it never anchored the settings walk.
+    """
+    by_path = {layer.path: layer for layer in snapshot.layers}
+    global_layer = snapshot.layers[-1]
+    locations: list[tuple[Path, SettingsLayer | None]] = [
+        (global_layer.path, global_layer)
+    ]
+    directories: list[Path] = []
+    for layer in reversed(snapshot.layers):
+        if layer.kind != "project":
+            continue
+        for candidate in schema.sources.project_file_names:
+            parts = Path(candidate).parts
+            if layer.path.parts[-len(parts) :] == parts:
+                directories.append(layer.path.parents[len(parts) - 1])
+                break
+    if cwd.resolve() not in directories:
+        directories.append(cwd.resolve())
+    for directory in directories:
+        for candidate in schema.sources.project_file_names:
+            path = directory / candidate
+            candidate_layer = by_path.get(path)
+            if (
+                candidate not in schema.sources.project_file_names[:2]
+                and candidate_layer is None
+                and not path.is_file()
+            ):
+                continue
+            locations.append((path, candidate_layer))
+            if candidate_layer is not None:
+                break
+    return tuple(locations)
+
 
 def register_config(builtin_app: click.Group) -> None:
     import click
@@ -120,16 +164,23 @@ def register_config(builtin_app: click.Group) -> None:
             Path.cwd(), global_dir=resolve_user_config_dir()
         )
         findings = unknown_keys_in_layers(snapshot.layers, FUNCTUALIZE_SETTINGS)
-        for layer in snapshot.layers:
-            if not layer.exists:
+        for path, layer in _config_path_locations(
+            snapshot, Path.cwd(), FUNCTUALIZE_SETTINGS
+        ):
+            if not path.is_file():
                 status = "✗ missing"
-            elif snapshot.contributes.get(layer.path):
+            elif layer is not None and snapshot.contributes.get(path):
                 status = "✓ used   "
             else:
                 status = "○ found  "
-            section = f" [{layer.section_prefix}]" if layer.section_prefix else ""
-            annotation = describe(tuple(f for f in findings if f.file == layer.path))
-            click.echo(f"  {status} {layer.path}{section}{annotation}")
+            if layer is not None and layer.section_prefix:
+                section = f" [{layer.section_prefix}]"
+            elif path.name == "pyproject.toml" and path.is_file():
+                section = " (no [tool.functualize])"
+            else:
+                section = ""
+            annotation = describe(tuple(f for f in findings if f.file == path))
+            click.echo(f"  {status} {path}{section}{annotation}")
 
     @config_app.command("edit")
     def config_edit() -> None:

@@ -389,9 +389,11 @@ class TestConfigPath:
         result = runner.invoke(app, ["builtin", "config", "path"])
 
         assert result.exit_code == 0
-        output = result.output
-        assert "✓ used" in output
-        assert str(config_file) in output
+        assert result.output.splitlines() == [
+            f"  ✓ used    {config_file}",
+            f"  ✗ missing {tmp_path / 'pyproject.toml'}",
+            f"  ✗ missing {tmp_path / '.functualize.toml'}",
+        ]
 
     def test_global_config_missing_shows_missing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -412,8 +414,11 @@ class TestConfigPath:
         result = runner.invoke(app, ["builtin", "config", "path"])
 
         assert result.exit_code == 0
-        output = result.output
-        assert "✗ missing" in output
+        assert result.output.splitlines() == [
+            f"  ✗ missing {tmp_path / 'xdg' / 'functualize' / 'config.toml'}",
+            f"  ✗ missing {tmp_path / 'pyproject.toml'}",
+            f"  ✗ missing {tmp_path / '.functualize.toml'}",
+        ]
 
     def test_pyproject_with_tool_functualize_shows_used(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -442,15 +447,15 @@ class TestConfigPath:
         result = runner.invoke(app, ["builtin", "config", "path"])
 
         assert result.exit_code == 0
-        output = result.output
-        assert "✓ used" in output
-        assert "pyproject.toml" in output
-        assert "[tool.functualize]" in output
+        assert result.output.splitlines() == [
+            f"  ✗ missing {tmp_path / 'xdg' / 'functualize' / 'config.toml'}",
+            f"  ✓ used    {pyproject} [tool.functualize]",
+        ]
 
-    def test_pyproject_without_tool_functualize_is_not_a_layer(
+    def test_pyproject_without_tool_functualize_is_a_found_location(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        """A file without the app table does not participate in resolution."""
+        """A file without the app table is listed but does not resolve values."""
         import click
         from click.testing import CliRunner
 
@@ -469,8 +474,11 @@ class TestConfigPath:
         result = runner.invoke(app, ["builtin", "config", "path"])
 
         assert result.exit_code == 0
-        output = result.output
-        assert str(pyproject) not in output
+        assert result.output.splitlines() == [
+            f"  ✗ missing {tmp_path / 'xdg' / 'functualize' / 'config.toml'}",
+            f"  ○ found   {pyproject} (no [tool.functualize])",
+            f"  ✗ missing {tmp_path / '.functualize.toml'}",
+        ]
 
     def test_nearest_project_layer_only_when_root_stops_walk(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -495,7 +503,11 @@ class TestConfigPath:
         result = CliRunner().invoke(app, ["builtin", "config", "path"])
 
         assert result.exit_code == 0
-        assert f"✓ used    {nested_path}" in result.output
+        assert result.output.splitlines() == [
+            f"  ✗ missing {tmp_path / 'xdg' / 'functualize' / 'config.toml'}",
+            f"  ✗ missing {nested / 'pyproject.toml'}",
+            f"  ✓ used    {nested_path}",
+        ]
         assert str(parent_path) not in result.output
 
     def test_shadowed_and_unknown_only_files_are_found_with_an_annotation(
@@ -518,10 +530,12 @@ class TestConfigPath:
         result = CliRunner().invoke(app, ["builtin", "config", "path"])
 
         assert result.exit_code == 0
-        assert f"✓ used    {project_path}" in result.output
-        assert f"○ found   {global_path}" in result.output
-        assert 'unknown key "cli.outptu"' in result.output
-        assert 'did you mean "cli.output"?' in result.output
+        assert result.output.splitlines() == [
+            f'  ○ found   {global_path} — unknown key "cli.outptu" '
+            '(did you mean "cli.output"?)',
+            f"  ✗ missing {tmp_path / 'pyproject.toml'}",
+            f"  ✓ used    {project_path}",
+        ]
 
 
 # =============================================================================
