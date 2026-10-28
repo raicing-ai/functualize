@@ -57,6 +57,9 @@ def _project(tmp_path: Path, config: str, *, select_sqlite: bool = False) -> Pat
     only registers the store.
     """
     (tmp_path / ".functualize").mkdir()
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "probe"\nversion = "0"\n', encoding="utf-8"
+    )
     (tmp_path / ".functualize.toml").write_text(config, encoding="utf-8")
     if select_sqlite:
         (tmp_path / "config.base.toml").write_text(
@@ -118,7 +121,7 @@ def test_the_substrate_plugin_decides_where_builtin_commands_look(
     Selection is configuration since the SQLite runtime provider
     (``runtime_store.url``); installed and enabled alone changes nothing.
     """
-    output = _data_show(_project(tmp_path, 'name = "probe"\n', select_sqlite=True))
+    output = _data_show(_project(tmp_path, "", select_sqlite=True))
 
     assert "state.db#runs" in output, output
     assert "runs.json" not in output, output
@@ -133,7 +136,7 @@ def test_disabling_the_plugin_sends_them_back_to_the_files(tmp_path: Path) -> No
     output = _data_show(
         _project(
             tmp_path,
-            'name = "probe"\n\n[plugins]\ndisabled = ["substrate-sqlite"]\n',
+            '[plugins]\ndisabled = ["substrate-sqlite"]\n',
         )
     )
 
@@ -152,7 +155,7 @@ def test_disabled_matches_the_entry_point_name(tmp_path: Path) -> None:
     output = _data_show(
         _project(
             tmp_path,
-            'name = "probe"\n\n[plugins]\ndisabled = ["sqlite"]\n',
+            '[plugins]\ndisabled = ["sqlite"]\n',
             select_sqlite=True,
         )
     )

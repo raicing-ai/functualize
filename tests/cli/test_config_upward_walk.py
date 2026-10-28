@@ -131,14 +131,14 @@ class TestResolveProjectConfig:
         # Root level
         _write_toml(
             tmp_path / ".functualize.toml",
-            'scan_depth = 3\nextra = "from_root"',
+            'dotenv_path = "from_root"\n[discovery]\nscan_depth = 3',
         )
         # Project level (closer to CWD)
         project = tmp_path / "project"
         project.mkdir()
         _write_toml(
             project / ".functualize.toml",
-            "scan_depth = 1",
+            "[discovery]\nscan_depth = 1",
         )
         # Work dir
         work = project / "work"
@@ -148,9 +148,9 @@ class TestResolveProjectConfig:
 
         assert anchor == project
         # Nearest wins for scalar
-        assert config["scan_depth"] == 1
+        assert config["discovery"]["scan_depth"] == 1
         # Ancestor value merged in
-        assert config["extra"] == "from_root"
+        assert config["dotenv_path"] == "from_root"
 
     def test_deep_merge_of_nested_sections(self, tmp_path: Path) -> None:
         """Nested dict sections are deep-merged across layers."""
