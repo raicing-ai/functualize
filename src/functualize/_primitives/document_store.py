@@ -220,9 +220,9 @@ class _DocumentRunReader:
         """
         limit = query.limit if query.limit is not None else 20
         views: list[RunView] = []
-        # Over-read, because `recent_runs` caps before filtering and a filtered
-        # answer must still be able to reach `limit`.
-        for record in self._runs.recent_runs(limit=max(limit * 8, limit)):
+        # Over-read, because `recent_runs` caps before filtering. A sparse tag
+        # match beyond this headroom yields a short answer, not an error.
+        for record in self._runs.recent_runs(limit=max(limit * 32, limit)):
             run_id = str(record.get("run_id", ""))
             if query.job is not None and record.get("job") != query.job:
                 continue
@@ -235,6 +235,10 @@ class _DocumentRunReader:
                 and record.get("parent_run_id") != query.parent_run_id
             ):
                 continue
+            if query.tags:
+                stored = record.get("run_tags") or {}
+                if any(stored.get(k) != v for k, v in query.tags):
+                    continue
             views.append(_run_view(run_id, record))
             if len(views) >= limit:
                 break
@@ -278,6 +282,7 @@ def _run_view(run_id: str, record: dict[str, Any]) -> RunView:
         invoke_depth=int(record.get("invoke_depth", 0) or 0),
         args_hash=record.get("args_hash"),
         ended_at=_parse(record.get("ended_at")),
+        run_tags=dict(record.get("run_tags") or {}),
     )
 
 

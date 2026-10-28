@@ -4,10 +4,9 @@
 nothing: every run's origin, parentage and outcome was recorded and there was
 no way to ask about it.
 
-Every assertion here goes through a **real run**, never a hand-built record.
-A projection tested against fixtures it also shaped proves only that the
-fixture matches itself; what matters is that the fields the engine actually
-writes are the fields this reads.
+Most assertions here go through a **real run**. Legacy-shape and sparse-index
+cases seed the run log directly, because they need an old record shape or a
+precise run order. The live-path tests still check what the engine writes.
 """
 
 from __future__ import annotations
@@ -21,7 +20,10 @@ from click.testing import CliRunner
 
 from functualize import FunctualizeApp, RunContext
 from functualize._engine.capabilities.state import State  # noqa: TC001
+from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.run_store import RunStore
+from functualize._primitives.scope_store import ScopeStore
+from functualize._types.persistence import RunQuery
 from functualize._types.run_request import RunRequest
 from functualize.app.utils import (
     RUN_STATES,
@@ -61,6 +63,85 @@ def app() -> FunctualizeApp:
 
 def _run(app: FunctualizeApp, job: str, surface: str = "app.execute") -> Any:
     return app.execute(RunRequest(job_name=job, surface=surface))
+
+
+class TestDocumentRuntimeRunTags:
+    def test_legacy_record_reads_empty_without_rewrite(self) -> None:
+        store = _store()
+        run_id = store.open_run({"job": "legacy", "surface": "app.execute"})
+        before = store.get_run(run_id)
+        assert before is not None and "run_tags" not in before
+
+        view = DocumentRuntimeStore(store.substrate).runs.run(run_id)
+        assert view is not None and view.run_tags == {}
+        assert store.get_run(run_id) == before
+
+    def test_two_tag_filter_requires_both_exact_values(
+        self, app: FunctualizeApp
+    ) -> None:
+        app.execute(
+            RunRequest(
+                job_name="child",
+                surface="app.execute",
+                run_tags={"host": "laptop", "tier": "2"},
+            )
+        )
+        app.execute(
+            RunRequest(
+                job_name="child",
+                surface="app.execute",
+                run_tags={"host": "laptop", "tier": "3"},
+            )
+        )
+        reader = DocumentRuntimeStore(_store().substrate).runs
+        matches = reader.recent(RunQuery(tags=(("host", "laptop"), ("tier", "2"))))
+        assert len(matches) == 1
+        assert matches[0].run_tags == {"host": "laptop", "tier": "2"}
+        assert reader.recent(RunQuery(tags=(("host", "Laptop"),))) == ()
+
+    def test_sparse_tag_filter_uses_overread_headroom(self) -> None:
+        store = _store()
+        with store.batch():
+            for _ in range(170):
+                store.open_run({"job": "sparse", "surface": "app.execute"})
+            tagged_ids = [
+                store.open_run(
+                    {
+                        "job": "sparse",
+                        "surface": "app.execute",
+                        "run_tags": {"match": "yes"},
+                    }
+                )
+                for _ in range(3)
+            ]
+            for _ in range(30):
+                store.open_run({"job": "sparse", "surface": "app.execute"})
+
+        matches = DocumentRuntimeStore(store.substrate).runs.recent(
+            RunQuery(tags=(("match", "yes"),), limit=2)
+        )
+        assert [view.run_id for view in matches] == tagged_ids[-1:-3:-1]
+
+    def test_scope_record_has_no_run_tags_while_its_runs_do(
+        self, app: FunctualizeApp
+    ) -> None:
+        app.execute(
+            RunRequest(
+                job_name="parent",
+                surface="app.execute",
+                run_tags={"host": "laptop"},
+            )
+        )
+        store = _store()
+        records = store.recent_runs()
+        scope_id = records[0]["scope_id"]
+        scope = ScopeStore.for_project(Path.cwd()).get_scope(scope_id)
+        assert scope is not None and "run_tags" not in scope
+        views = DocumentRuntimeStore(store.substrate).runs.recent(
+            RunQuery(scope_id=scope_id)
+        )
+        assert {view.job for view in views} == {"parent", "child"}
+        assert all(view.run_tags == {"host": "laptop"} for view in views)
 
 
 class TestTheProjectionReportsWhatTheEngineWrote:

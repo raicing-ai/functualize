@@ -319,7 +319,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
   - **Reachability:** existing callers construct the peer types with omitted
     fields; the store behavior and live cross-store proof belong to 5.1.
 
-- [ ] **4.2 — The document store's projection and tag filter** (C6; AC14,
+- [x] **4.2 — The document store's projection and tag filter** (C6; AC14,
       AC30, AC34)
   - **[F]** `src/functualize/_primitives/document_store.py`,
     `tests/integration/test_run_view.py`
