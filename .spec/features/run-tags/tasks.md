@@ -3,6 +3,10 @@
 Base: `origin/master` `11ed0e82`. Branch: `sdd/run-tags`.
 Spec: `spec.md` (AC1–AC34). Contracts: `contracts.md` (C1–C8). Plan: `plan.md`.
 
+Task revision: **2** (2026-10-28). Revision 1 placed the cross-store gate in
+4.1, before either store could satisfy it. Revision 2 assigns that gate to 5.1,
+after 4.2's document projection, and gives 4.1 a peer-type gate it owns.
+
 Authoring-time gate runs (2026-10-26, at `11ed0e82`):
 
 - `rg -n 'run_tags|RUN_TAGS|run-tag' -g '*.py' -g '*.sql' src plugins` →
@@ -279,13 +283,14 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
 
 ## Wave 3
 
-- [ ] **4.1 — Peer types and one conformance case for both stores** (C6;
-      AC16, AC30, AC34 first half)
+- [ ] **4.1 — Peer types and their constructor defaults** (C6;
+      AC16, AC30, AC34 prerequisites)
   - **[F]** `src/functualize/_types/persistence.py`,
-    `src/functualize/testing/conformance/baseline.py`
+    `tests/conformance/test_baseline.py`
   - **Inputs:** `plan.md` §4.11; `persistence.py:499-518`, `:653-670`,
-    `:775-783`; `src/functualize/testing/conformance/baseline.py:91`, `:95`,
-    `:272`, `:332`, `:604-632`, `:635-648`;
+    `:775-783`; `tests/conformance/test_baseline.py:66-83`;
+    `src/functualize/testing/conformance/baseline.py:91`, `:95`,
+    `:272`, `:332`;
     `_engine/recording/run_recorder.py:20-22`, `:56-64`.
   - **Do:** `StartAttempt.run_tags: Mapping[str, str] =
     field(default_factory=dict)` (**defaulted** — nine sites omit it, the two
@@ -294,22 +299,25 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
     `tests/test_legacy_import.py:101`, `tests/test_readers.py:191`);
     `RunView.run_tags: Mapping[str, str] = field(default_factory=dict)`;
     `RunQuery.tags: tuple[tuple[str, str], ...] = ()` with the docstring gaining
-    "every tag must match". One new named check appended to `BASELINE` before
-    the closing `)` (`testing/conformance/baseline.py:632`): start a run with
-    two tags, read it back through `store.runs.run(run_id)`, assert the map;
-    start a second with no argument and assert `{}`.
-  - **Tests (unit):** the new conformance case runs under both substrates
-    (document + SQLite); construction with three positional arguments still
-    works (`testing/conformance/capabilities.py:140-142`); a
-    `RunQuery(tags=(("k","v"),))` is hashable and frozen.
+    "every tag must match". Extend the existing constructor-default test in
+    `tests/conformance/test_baseline.py`; do not append a `BASELINE` check here.
+  - **Tests (unit):** the existing `StartAttempt` three-positional-argument
+    constructor and `RunView` five-positional-argument constructor both yield
+    `run_tags == {}`; distinct instances do not share a mutable default;
+    `RunQuery()` yields `tags == ()`, and
+    `RunQuery(tags=(("k", "v"),))` is hashable and frozen. Pin the omitted-field
+    construction in `testing/conformance/capabilities.py:141` and
+    `_engine/recording/run_recorder.py:56` without changing those sites.
   - **Invariants:** `tests/test_public_api_surface.py:209`/`:224` pins the
     *names* — fields only, no new exported type; every existing construction
-    site is untouched and reads `{}`.
+    site is untouched and gets the new defaults. No store round-trip is
+    required until 5.1.
   - **Acceptance:** `uv run pytest
-    plugins/substrates/functualize-substrate-sqlite -q -k conformance` green;
+    tests/conformance/test_baseline.py::test_new_port_fields_preserve_existing_constructor_defaults
+    -q` green (extend this existing test with the assertions above);
     `uv run pytest tests/test_public_api_surface.py -q` green.
-  - **Reachability:** `run_baseline` is invoked by the plugin suite and by
-    `tests/` conformance runs; live proof is 5.1's SQLite path.
+  - **Reachability:** existing callers construct the peer types with omitted
+    fields; the store behavior and live cross-store proof belong to 5.1.
 
 - [ ] **4.2 — The document store's projection and tag filter** (C6; AC14,
       AC30, AC34)
@@ -344,11 +352,15 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
     (new),
     `plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_migrations.py`,
     `.../_run_sql.py`, `.../_readers.py`,
+    `src/functualize/testing/conformance/baseline.py`,
     `plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py`,
     `.../test_run_sql.py`, `.../test_readers.py`
   - **Inputs:** `plan.md` §4.10; `_migrations.py:95-111`, `:112-117`,
     `:123-129`; `_run_sql.py:87-117` (`:94-110`); `_readers.py:45-48`,
-    `:54-67`, `:76-93`; `0004_gate_interactions.sql` (header convention).
+    `:54-67`, `:76-93`; `0004_gate_interactions.sql` (header convention);
+    `src/functualize/testing/conformance/baseline.py:604-632`, `:635-648`;
+    `tests/conformance/test_baseline.py:86-92`. Requires 4.1's peer fields
+    and 4.2's document projection; both are complete before this row starts.
   - **Do:** create the SQL file with the `-- Revision 0005 — run tags` header,
     `CREATE TABLE run_tags (namespace_id, run_id, key, value, PRIMARY KEY
     (namespace_id, run_id, key), FOREIGN KEY (namespace_id, run_id) REFERENCES
@@ -361,7 +373,11 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
     FROM run_tags WHERE namespace_id = ? AND run_id = runs.id AND key = ? AND
     value = ?)` per tag in the existing clause loop, before the `LIMIT ?`; the
     page's maps load with one grouped `SELECT run_id, key, value … WHERE run_id
-    IN (…)`, never per row.
+    IN (…)`, never per row. Append the named `run_tags_round_trip` check to
+    `BASELINE`: start a run with two tags, read it through
+    `store.runs.run(run_id)` and assert the map; start an untagged run and
+    assert `{}`. The real consumer parametrizes this check over documents and
+    SQLite in `tests/conformance/test_baseline.py`.
   - **Tests (unit):** AC15 a database at revision 4 with existing runs
     migrates to 5, gains the table and the index, and one row per key; AC16 the
     store and the document store return identical run ids **and** identical
@@ -369,17 +385,21 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
     document store; `limit` applied after the filter; deleting a run drops its
     rows through the cascade (retention test); AC33 an update attempted through
     the store's own write path is refused as a programming error, not applied
-    and not a user message.
+    and not a user message. The named baseline check passes for both stores
+    (AC16, AC30); a scope record has no `run_tags` while its runs do (AC34).
   - **Invariants:** the migration is additive — no existing table or column
     changes, and revision 4 remains a valid rollback target (`_CREATED`);
     `_COLUMNS` and `_view` stay positional-consistent; the plugin imports no
     new core module.
   - **Acceptance:** `uv run pytest
     plugins/substrates/functualize-substrate-sqlite -q` green;
+    `uv run pytest tests/conformance/test_baseline.py -q -k run_tags_round_trip`
+    selects both document and SQLite cases and is green;
     `rg -n 'run_tags' plugins/substrates/functualize-substrate-sqlite/src` → the
     SQL file, `_migrations.py`, `_run_sql.py`, `_readers.py` only.
   - **Reachability:** point `runtime_store.url` at SQLite and run 6.1's live
-    transcript; the conformance case from 4.1 covers both stores.
+    transcript; `tests/conformance/test_baseline.py` is the cross-store
+    consumer of the new `BASELINE` check.
 
 - [ ] **5.2 — `app/_run_view.py`: the projection and the query** (C6; AC21,
       AC22)
@@ -510,6 +530,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
     { "id": 4, "tasks": ["5.1", "5.2"] },
     { "id": 5, "tasks": ["6.1", "6.2"] },
     { "id": 6, "tasks": ["7.1", "7.2"] }
-  ]
+  ],
+  "dependencies": { "5.1": ["4.1", "4.2"] }
 }
 ```
