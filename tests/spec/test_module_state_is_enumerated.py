@@ -1,31 +1,30 @@
-"""Module-level mutable state in ``src/functualize`` is enumerated, never grown.
+"""Module-level mutable state is refused outside one dated exception.
 
 ``.spec/CONSTITUTION.md`` forbids *global mutable state / module-level
 singletons*. The rule was prose with no check behind it, so the audits that
-counted the sites never agreed on the count. This ratchet reads the source and
-pins the census: every site is either **excepted** (the Constitution's dated
-exception, member-approved) or **pinned** (known and listed beside it, still a
-violation, owed a decision or a repair). A site that is neither fails here
-with its ``path:line``; a listed site that has gone fails too, so the list
-only shrinks.
+counted the sites never agreed on the count. This test reads the production
+source -- ``src/functualize`` and every ``plugins/*/*/src`` -- and refuses any
+site that is not in the Constitution's exception, naming it by ``path:line``.
+The exception is the member's grant and nothing wider: a site outside it fails
+here until it is repaired or the member approves it. ``EXCEPTED`` is never
+widened to make this test pass.
 
 **What counts as module-level mutable state.** Five shapes, each found by AST
 alone -- nothing is imported, so the check is deterministic and offline:
 
 - ``rebound`` -- a module-level name a ``global`` statement rebinds.
 - ``container`` -- a module- or class-level list, dict, set (or ``defaultdict``,
-  ``deque``, weak collection ...) that some ``src/functualize`` code mutates in
+  ``deque``, weak collection ...) that some code in its tree mutates in
   place. A container nobody mutates is a lookup table, not state.
 - ``primitive`` -- a module- or class-level lock, ``threading.local`` or
   ``ContextVar``: an ambient channel, process- or context-wide by construction.
 - ``memo`` -- a ``functools.cache`` / ``lru_cache`` on a module-level function.
-- ``instance`` -- a module-level instance of a ``src/functualize`` class that
+- ``instance`` -- a module-level instance of a class from the same tree that
   has a method writing to ``self``.
 
 **What it cannot see.** Instances of third-party classes (``click.Group``,
-``logging.getLogger``), mutation through an alias the name never appears
-under, and anything under ``plugins/`` -- the ban and this census are about
-the core package.
+``logging.getLogger``), and mutation through an alias the name never appears
+under.
 """
 
 from __future__ import annotations
@@ -39,40 +38,22 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parents[2]
 _PACKAGE = _ROOT / "src" / "functualize"
+_PLUGIN_ROOTS = "plugins/*/*/src/*"
 _CONSTITUTION = _ROOT / ".spec" / "CONSTITUTION.md"
 
-#: The Constitution's exception: member-approved, kept on purpose.
+#: The Constitution's exception, and nothing wider: the module-level state the
+#: architecture-drift audit carried, which the member's grant covers.
 EXCEPTED: frozenset[tuple[str, str]] = frozenset(
     {
-        ("_config/vault_keyring_macos.py", "_INTERACTION_LOCK"),
-        ("_discovery/lazy_wrapper.py", "_IMPORT_LOCK"),
-        ("_types/workflow.py", "_in_doubt_model"),
-    }
-)
-
-#: Known and listed beside the exception, **not** excepted. Each is still a
-#: violation of the ban; the Constitution states its reason or its repair.
-PINNED: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("_primitives/entry_points.py", "_lock"),
-        ("_primitives/entry_points.py", "_snapshot"),
-        ("_primitives/run_store.py", "_ID_LOCK"),
-        ("_primitives/run_store.py", "_LAST"),
-        ("_cli/completions/engine.py", "_scan_path_executables"),
-        ("_cli/data/func_settings.py", "_PREBOOT_OVERRIDES"),
-        ("_events/run_log.py", "_local"),
-        ("_events/tracing.py", "_context_var"),
-        ("_app/boot.py", "_DIAGNOSTIC_BOOT"),
-        ("_types/discovery_report.py", "_ACTIVE"),
-        ("_cli/data/func_settings.py", "_REGISTERED"),
-        ("_primitives/fingerprint.py", "_WARNED_UNREUSABLE"),
-        ("_config/_emit.py", "_sink"),
-        ("_app/event_wiring.py", "_sink_installed"),
-        ("_engine/capabilities/stdin_collector.py", "_STDIN_COLLECTOR"),
-        ("_events/tracing.py", "_EMPTY_CONTEXT"),
-        ("_events/perf.py", "perf_timeline"),
-        ("_app/state.py", "AppState._state"),
-        ("_app/state.py", "AppState._lock"),
+        ("src/functualize/_config/vault_keyring_macos.py", "_INTERACTION_LOCK"),
+        ("src/functualize/_discovery/lazy_wrapper.py", "_IMPORT_LOCK"),
+        ("src/functualize/_types/workflow.py", "_in_doubt_model"),
+        ("src/functualize/_primitives/run_store.py", "_LAST"),
+        (
+            "plugins/credentials/functualize-secrets-bitwarden/src/"
+            "functualize_secrets_bitwarden/_client.py",
+            "_CLIENT",
+        ),
     }
 )
 
@@ -229,7 +210,10 @@ def _writes_self(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
 
 
 def _module_name(rel: str) -> str:
-    parts = ["functualize", *Path(rel).with_suffix("").parts]
+    """The dotted import name of ``rel``: everything after its last ``src``."""
+    parts = list(Path(rel).with_suffix("").parts)
+    if "src" in parts:
+        parts = parts[len(parts) - parts[::-1].index("src") :]
     if parts[-1] == "__init__":
         parts.pop()
     return ".".join(parts)
@@ -419,10 +403,16 @@ def module_state(sources: dict[str, str]) -> list[Site]:
     return sorted(sites, key=lambda site: (site.path, site.line, site.symbol))
 
 
+def _source_roots() -> list[Path]:
+    return [_PACKAGE, *sorted(p for p in _ROOT.glob(_PLUGIN_ROOTS) if p.is_dir())]
+
+
 def _package_sources() -> dict[str, str]:
+    """Every production source file, keyed by its path from the repo root."""
     return {
-        path.relative_to(_PACKAGE).as_posix(): path.read_text(encoding="utf-8")
-        for path in sorted(_PACKAGE.rglob("*.py"))
+        path.relative_to(_ROOT).as_posix(): path.read_text(encoding="utf-8")
+        for root in _source_roots()
+        for path in sorted(root.rglob("*.py"))
     }
 
 
@@ -442,7 +432,7 @@ def _constitution_entries(label: str) -> set[tuple[str, str]]:
     return {
         (path, symbol)
         for path, symbol in re.findall(
-            r"^  - `([\w/]+\.py):\d+` `([\w.]+)`", text[start:end], re.MULTILINE
+            r"^  - `([\w/.-]+\.py):\d+` `([\w.]+)`", text[start:end], re.MULTILINE
         )
     }
 
@@ -454,49 +444,49 @@ def _constitution_entries(label: str) -> set[tuple[str, str]]:
 
 @pytest.fixture(scope="module")
 def census() -> list[Site]:
-    """One scan of the package, shared by the two ratchet tests."""
+    """One scan of the production source, shared by the two ratchet tests."""
     return module_state(_package_sources())
 
 
-def test_no_module_level_state_outside_the_census(census: list[Site]) -> None:
-    known = EXCEPTED | PINNED
+def test_no_module_level_state_outside_the_exception(census: list[Site]) -> None:
     offenders = [
-        f"src/functualize/{site.path}:{site.line} {site.symbol} ({site.kind})"
+        f"{site.path}:{site.line} {site.symbol} ({site.kind})"
         for site in census
-        if site.key not in known
+        if site.key not in EXCEPTED
     ]
     assert not offenders, (
-        "New module-level mutable state. `.spec/CONSTITUTION.md` forbids global "
-        "mutable state / module-level singletons: give it an owner (the app, the "
-        "engine, the run) instead. Keeping it needs a member-approved entry in the "
-        "Constitution's exception and in EXCEPTED here:\n  " + "\n  ".join(offenders)
+        "Module-level mutable state outside the Constitution's exception. "
+        "`.spec/CONSTITUTION.md` forbids global mutable state / module-level "
+        "singletons: give it an owner (the app, the engine, the run) instead. "
+        "Keeping one needs the member's approval, recorded in the exception and in "
+        "EXCEPTED here -- never a wider EXCEPTED to turn this green:\n  "
+        + "\n  ".join(offenders)
     )
 
 
-def test_every_listed_site_still_exists(census: list[Site]) -> None:
-    """A repaired site leaves the list, so the list can only shrink."""
+def test_every_excepted_site_still_exists(census: list[Site]) -> None:
+    """A repaired site leaves the exception, so the exception only shrinks."""
     present = {site.key for site in census}
-    stale = sorted(
-        f"src/functualize/{path} {symbol}"
-        for path, symbol in (EXCEPTED | PINNED) - present
-    )
+    stale = sorted(f"{path} {symbol}" for path, symbol in EXCEPTED - present)
     assert not stale, (
-        "Listed module-level state is gone: remove it from EXCEPTED/PINNED here "
-        "and from `.spec/CONSTITUTION.md`:\n  " + "\n  ".join(stale)
+        "An excepted site is gone: remove it from EXCEPTED here and from the "
+        "exception in `.spec/CONSTITUTION.md`:\n  " + "\n  ".join(stale)
     )
 
 
-def test_the_constitution_enumerates_the_same_sites() -> None:
-    assert not EXCEPTED & PINNED
+def test_the_constitution_enumerates_the_excepted_sites() -> None:
     assert _constitution_entries("**Exception — process-wide state") == EXCEPTED
-    assert _constitution_entries("**Pinned, not excepted") == PINNED
 
 
 def test_the_scan_covers_the_tree() -> None:
     """A ratchet that reads no files passes forever."""
     sources = _package_sources()
     assert len(sources) > 300
-    assert "_discovery/lazy_wrapper.py" in sources
+    assert "src/functualize/_discovery/lazy_wrapper.py" in sources
+    assert any(path.startswith("plugins/") for path in sources)
+    assert _module_name("src/functualize/_types/workflow.py") == (
+        "functualize._types.workflow"
+    )
 
 
 # ---------------------------------------------------------------------------
