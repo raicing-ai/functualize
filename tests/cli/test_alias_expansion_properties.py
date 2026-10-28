@@ -62,6 +62,26 @@ _alias_mapping = st.dictionaries(
 _merged_config_with_aliases = _alias_mapping.map(lambda a: {"aliases": a})
 
 
+def test_aliases_follow_resolved_global_then_project_layers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    global_dir = tmp_path / "xdg" / "functualize"
+    global_dir.mkdir(parents=True)
+    (global_dir / "config.toml").write_text(
+        '[aliases]\nshared = "global_job"\nglobal_only = "global_job"\n'
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".functualize.toml").write_text('[aliases]\nshared = "project_job"\n')
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(project)
+
+    assert _extract_aliases({}) == {
+        "shared": "project_job",
+        "global_only": "global_job",
+    }
+
+
 # =============================================================================
 # Property 10: Alias Expansion Correctness
 # =============================================================================

@@ -34,7 +34,7 @@ This module is in the ``_cli/`` layer — stdlib + ``_cli`` siblings only.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -163,18 +163,10 @@ def _tui_spec(key: str, default: str) -> FuncSetting:
     )
 
 
-# TRANSITIONAL(config-unknown-keys/8.1): this `FuncSetting` catalog is no longer
-# what the store resolves, the TUI displays, or the pre-boot scan reads — the
-# declared `Setting` schema is (`FUNCTUALIZE_SETTINGS`, see `FuncSettingsStore`
-# and `_cli/dispatch.py`). No app catalog is built from it any more. What still
-# reads it are the legacy `FUNC_SETTINGS`/`SETTINGS_ORDER`/`DEFAULT_VALUES`
-# views and their tests, pending AC20/8.1; nothing new may depend on it.
-#: The shell's own knobs. **Not** in the base catalog — the shell registers
-#: them (:func:`register_settings`), which is what makes `tui.*` absent from a
-#: project app that never launches one. Kept here rather than in `_cli/tui/`
-#: because they are catalog data, and the schemas they lift live next door.
+# The shell's own knobs are catalog data for the shipped vocabulary pin. The
+# runtime store and TUI use the declared schema, never this legacy projection.
 def tui_settings() -> tuple[FuncSetting, ...]:
-    """The shell's settings, for the shell to register."""
+    """The shell's entries in the shipped catalog vocabulary."""
     return (
         _tui_spec("theme", "transparent"),
         _tui_spec("display_auto_switch", "indicator"),
@@ -186,9 +178,7 @@ def tui_settings() -> tuple[FuncSetting, ...]:
     )
 
 
-# Display order: registered settings first (the shell's, when it has
-# registered — this catalog is what its Settings panel shows), then [cli],
-# [discovery], and the top-level keys.
+# Legacy catalog projection, retained for the shipped vocabulary pin.
 _BASE_SETTINGS: tuple[FuncSetting, ...] = (
     _spec(
         "cli",
@@ -277,200 +267,16 @@ _BASE_SETTINGS: tuple[FuncSetting, ...] = (
 )
 
 
-# ----------------------------------------------------------------------
-# Registration
-# ----------------------------------------------------------------------
-
-#: Settings contributed at runtime, in registration order. The shell puts its
-#: `tui.*` here; a project app's own components can do the same.
-_REGISTERED: list[FuncSetting] = []
-
-
-#: Values captured by the pre-boot early-flag scan (C3.2), dotted name -> value.
-#:
-#: Process-global rather than threaded through, because the scan happens in
-#: ``main()`` *before* the app — and therefore before any store — exists. Every
-#: store built afterwards seeds from this, which is precisely what "takes
-#: effect before app construction" means for a setting.
-#:
-#: TRANSITIONAL(config-unknown-keys/8.1): `_cli/dispatch.py` fills this from the
-#: public `early_setting_flags(FUNCTUALIZE_SETTINGS, argv)`; AC20 retires it.
-_PREBOOT_OVERRIDES: dict[str, tuple[str, str]] = {}
-
-
-def set_preboot_override(name: str, value: str, *, flag: str = "") -> None:
-    """Record an early flag's value for stores built later in this process."""
-    _PREBOOT_OVERRIDES[name] = (value, flag)
-
-
-def preboot_overrides() -> dict[str, tuple[str, str]]:
-    """The early-flag values captured so far, as ``name -> (value, flag)``."""
-    return dict(_PREBOOT_OVERRIDES)
-
-
-def clear_preboot_overrides() -> None:
-    """Drop captured early-flag values. For tests — the map is process-global."""
-    _PREBOOT_OVERRIDES.clear()
-
-
-def early_flag_specs() -> list[tuple[str, str]]:
-    """``(flag, dotted name)`` for legacy-registered settings read pre-boot.
-
-    Reads only the legacy registry. The pre-boot scan no longer consults it:
-    `_cli/dispatch.py` reads ``phase="early"`` from ``FUNCTUALIZE_SETTINGS``
-    through the public ``early_setting_flags``.
-    """
-    return [
-        (s.cli_flag, s.name)
-        for s in _current_settings()
-        if s.cli_flag and s.phase == "early"
-    ]
-
-
-def register_settings(*settings: FuncSetting) -> None:
-    """Contribute settings to the catalog.
-
-    Idempotent per name: registering the same setting twice (a relaunched
-    shell, a module imported through two paths) replaces rather than
-    duplicates, because a duplicate would render twice in the settings panel
-    and make `SETTINGS_ORDER` lie about its own length.
-
-    Raises:
-        ValueError: a registered name collides with a **base** setting. That
-            is a genuine conflict — the base catalog is not something a
-            component may quietly redefine.
-    """
-    base_names = {s.name for s in _BASE_SETTINGS}
-    for setting in settings:
-        if setting.name in base_names:
-            raise ValueError(
-                f"setting {setting.name!r} is already defined in the base "
-                f"catalog and cannot be re-registered"
-            )
-        for i, existing in enumerate(_REGISTERED):
-            if existing.name == setting.name:
-                _REGISTERED[i] = setting
-                break
-        else:
-            _REGISTERED.append(setting)
-
-
-def registered_settings() -> tuple[FuncSetting, ...]:
-    """Everything registered so far, in registration order."""
-    return tuple(_REGISTERED)
-
-
-def clear_registered_settings() -> None:
-    """Drop all registrations. For tests — the catalog is process-global."""
-    _REGISTERED.clear()
-
-
-def _current_settings() -> tuple[FuncSetting, ...]:
-    """The live catalog: registered settings first, then the base ones."""
-    return (*_REGISTERED, *_BASE_SETTINGS)
-
-
-# ----------------------------------------------------------------------
-# Catalog-derived views
-# ----------------------------------------------------------------------
-#
-# `FUNC_SETTINGS`, `SETTINGS_ORDER` and `DEFAULT_VALUES` used to be constants
-# derived from a module-level tuple **at import time**, which a registration
-# API silently invalidates: anything registered afterwards would be missing
-# from them forever, and the failure presents as a setting that renders in the
-# panel but resolves to nothing.
-#
-# They are **live views**, not module attributes recomputed via PEP 562
-# `__getattr__`. The difference is load-bearing: the dominant idiom here is
-# `from func_settings import FUNC_SETTINGS`, which binds the object once — and
-# `settings_panel.py` imports all three exactly that way. Under `__getattr__`
-# that hands out a stale snapshot; a view object stays correct however it was
-# imported, so "was the shell registered before this module was imported?"
-# stops being a question anyone has to get right.
-
-
-class _SettingsView(Sequence["FuncSetting"]):
-    """The live catalog, readable as a sequence."""
-
-    __slots__ = ()
-
-    def __getitem__(self, index: Any) -> Any:
-        return _current_settings()[index]
-
-    def __len__(self) -> int:
-        return len(_current_settings())
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, (tuple, list, _SettingsView)):
-            return list(self) == list(other)
-        return NotImplemented
-
-    def __repr__(self) -> str:
-        return f"<live settings catalog: {len(self)} entries>"
-
-
-class _NamesView(Sequence[str]):
-    """Catalog names, in display order."""
-
-    __slots__ = ()
-
-    def _names(self) -> list[str]:
-        return [s.name for s in _current_settings()]
-
-    def __getitem__(self, index: Any) -> Any:
-        return self._names()[index]
-
-    def __len__(self) -> int:
-        return len(_current_settings())
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, (tuple, list, _NamesView)):
-            return self._names() == list(other)
-        return NotImplemented
-
-    def __repr__(self) -> str:
-        return repr(self._names())
-
-
-class _DefaultsView(Mapping[str, str]):
-    """Catalog defaults, for the settings that declare one."""
-
-    __slots__ = ()
-
-    def _map(self) -> dict[str, str]:
-        return {s.name: s.default for s in _current_settings() if s.default is not None}
-
-    def __getitem__(self, key: str) -> str:
-        return self._map()[key]
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._map())
-
-    def __len__(self) -> int:
-        return len(self._map())
-
-    def __repr__(self) -> str:
-        return repr(self._map())
-
-
-#: The live settings catalog — registered settings first, then the base ones.
-FUNC_SETTINGS: Sequence[FuncSetting] = _SettingsView()
-
-#: Catalog names in display order.
-SETTINGS_ORDER: Sequence[str] = _NamesView()
-
-#: Catalog defaults by name.
-DEFAULT_VALUES: Mapping[str, str] = _DefaultsView()
+FUNC_SETTINGS: tuple[FuncSetting, ...] = _BASE_SETTINGS
+SETTINGS_ORDER: tuple[str, ...] = tuple(s.name for s in FUNC_SETTINGS)
+DEFAULT_VALUES: Mapping[str, str] = {
+    s.name: s.default for s in FUNC_SETTINGS if s.default is not None
+}
 
 
 def func_setting(name: str) -> FuncSetting | None:
-    """Look up a catalog entry by dotted name.
-
-    Scans the live catalog rather than a dict built at import time, for the
-    same reason `SETTINGS_ORDER` is dynamic: a registered setting must be
-    findable, and this is not a hot path.
-    """
-    for setting in _current_settings():
+    """Look up a retained catalog entry by dotted name."""
+    for setting in FUNC_SETTINGS:
         if setting.name == name:
             return setting
     return None
@@ -531,6 +337,7 @@ class FuncSettingsStore:
         schema: AppSettingsSchema | None = None,
         *,
         snapshot: ResolvedSettings | None = None,
+        flags: Mapping[str, Any] | None = None,
         cwd: Path | None = None,
         env: Mapping[str, str] | None = None,
         app_name: str = "functualize",
@@ -545,6 +352,7 @@ class FuncSettingsStore:
             snapshot: An already-resolved snapshot to start from (the running
                 app's boot resolution). ``None`` resolves on first use, so a
                 store that is never read never touches a settings file.
+            flags: CLI values for this store, including any pre-boot scan.
             cwd: Where the upward file walk starts. Defaults to the current
                 directory, read once here rather than on every refresh.
             env: Environment mapping; defaults to ``os.environ``.
@@ -562,15 +370,23 @@ class FuncSettingsStore:
         # Layers for files the picker is about to write. Never resolved from:
         # the snapshot decides every value.
         self._prospective: list[SettingsLayer] = []
-        # Seeded from the pre-boot scan so an `phase="early"` flag is already
-        # in effect for the first store anyone builds (C3.2). A late `--flag`
-        # recorded via `set_cli_override` simply overwrites the same slot.
-        self._cli_overrides: dict[str, str] = {}
+        # Invocation-local flags are supplied explicitly. A snapshot already
+        # resolved by the app carries their values and provenance.
+        self._cli_overrides: dict[str, str] = {
+            name: _scalar_to_str(value) for name, value in (flags or {}).items()
+        }
+        if snapshot is not None:
+            self._cli_overrides.update(
+                {
+                    name: _scalar_to_str(snapshot.values[name])
+                    for name, source in snapshot.provenance.items()
+                    if source == "cli" and name in snapshot.values
+                }
+            )
         self._cli_labels: dict[str, str] = {}
-        for _name, (_value, _flag) in _PREBOOT_OVERRIDES.items():
-            self._cli_overrides[_name] = _value
-            if _flag:
-                self._cli_labels[_name] = _flag
+        for setting in self._schema.settings:
+            if setting.name in self._cli_overrides and setting.cli_flag:
+                self._cli_labels[setting.name] = setting.cli_flag
 
     def set_cli_override(self, name: str, value: str, *, flag: str = "") -> None:
         """Record a root CLI flag's value as the top precedence rung (C3.1).
@@ -601,9 +417,10 @@ class FuncSettingsStore:
         env: Mapping[str, str] | None = None,
         schema: AppSettingsSchema | None = None,
         app_name: str = "functualize",
+        flags: Mapping[str, Any] | None = None,
     ) -> FuncSettingsStore:
         """Build a store over the files this app actually consults."""
-        return cls(schema, cwd=cwd, env=env, app_name=app_name)
+        return cls(schema, cwd=cwd, env=env, app_name=app_name, flags=flags)
 
     # ------------------------------------------------------------------
     # Declaration and layers

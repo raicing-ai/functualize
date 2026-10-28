@@ -1,210 +1,70 @@
-"""C2.4 — the settings registration API.
-
-The point of the task: `tui.*` are the *shell's* settings, not `func`'s, so a
-project app that never launches a shell should not resolve them. That only
-works if the catalog is live — every derived structure used to be computed
-from a module-level tuple at import time, which a registration API silently
-invalidates.
-"""
+"""Declared settings replace process-wide catalog registration."""
 
 from __future__ import annotations
+
+import subprocess
+import sys
 
 import pytest
 
 from functualize._cli.data import func_settings as fs
-from functualize._cli.data.func_settings import (
-    FuncSetting,
-    clear_registered_settings,
-    register_settings,
-    registered_settings,
-    tui_settings,
-)
-from functualize._cli.data.settings_schema import SettingSchema
+from functualize._cli.data.func_settings import FuncSettingsStore
+from functualize.plugin import FUNCTUALIZE_SETTINGS, Setting
 
 
-def _setting(name: str, default: str = "x") -> FuncSetting:
-    section, _, key = name.rpartition(".")
-    return FuncSetting(
-        name=name,
-        section=section,
-        key=key,
-        schema=SettingSchema(name=key, type="str", description=f"{name} help"),
-        default=default,
+def test_the_legacy_catalog_is_a_fixed_projection() -> None:
+    assert not any(name.startswith("tui.") for name in fs.SETTINGS_ORDER)
+    assert {s.name for s in fs.FUNC_SETTINGS if s.section == "shell"} == {
+        "shell.program",
+        "shell.sudo_password",
+    }
+    assert tuple(s.name for s in fs.FUNC_SETTINGS) == fs.SETTINGS_ORDER
+
+
+def test_shell_rows_live_in_the_declaration() -> None:
+    names = [s.name for s in FUNCTUALIZE_SETTINGS.settings if s.surface == "tui"]
+    assert len(names) == 7
+    assert names[0] == "tui.theme"
+
+
+def test_explicit_schema_extends_one_store_without_changing_another(tmp_path) -> None:
+    schema = FUNCTUALIZE_SETTINGS.extend(
+        Setting("demo.alpha", "str", "demo.alpha help", default="hello")
     )
+    custom = FuncSettingsStore(
+        schema, cwd=tmp_path, env={}, global_dir=tmp_path / "global"
+    )
+    ordinary = FuncSettingsStore(cwd=tmp_path, env={}, global_dir=tmp_path / "global")
+    assert custom.effective_values()["demo.alpha"] == "hello"
+    assert "demo.alpha" not in ordinary.effective_values()
+    assert FUNCTUALIZE_SETTINGS.setting("demo.alpha") is None
 
 
-@pytest.fixture
-def clean_registry():
-    """The catalog is process-global; restore whatever was registered."""
-    saved = registered_settings()
-    clear_registered_settings()
-    yield
-    clear_registered_settings()
-    register_settings(*saved)
-
-
-class TestBaseCatalogHasNoShellSettings:
-    def test_no_tui_entries_without_a_registration(self, clean_registry) -> None:
-        """The acceptance property: no shell registered, no `tui.*`."""
-        assert [s for s in fs.FUNC_SETTINGS if s.section == "tui"] == []
-        assert not any(n.startswith("tui.") for n in fs.SETTINGS_ORDER)
-        assert not any(n.startswith("tui.") for n in fs.DEFAULT_VALUES)
-
-    def test_shell_settings_appear_once_registered(self, clean_registry) -> None:
-        register_settings(*tui_settings())
-        names = [s.name for s in fs.FUNC_SETTINGS if s.section == "tui"]
-        # 7 since `tui.sensitive_keywords` was removed (2026-08-27): it was a
-        # registered, schema'd, user-settable promise of masking with no consumer
-        # reading it. Secret detection is model-driven (`is_secret_field`), so a
-        # keyword list has nothing left to mean.
-        assert len(names) == 7
-        assert "tui.theme" in names
-
-    def test_shell_settings_render_first(self, clean_registry) -> None:
-        """Display order: the shell's knobs lead, as they did when hardcoded."""
-        register_settings(*tui_settings())
-        assert fs.SETTINGS_ORDER[0] == "tui.theme"
-
-    def test_shell_carries_over_shell_star_unchanged(self, clean_registry) -> None:
-        """`shell.*` stays in the base catalog — 2 entries, not invented ones."""
-        names = {s.name for s in fs.FUNC_SETTINGS if s.section == "shell"}
-        assert names == {"shell.program", "shell.sudo_password"}
-        assert not any(s.section in ("runner", "watch") for s in fs.FUNC_SETTINGS), (
-            "runner.*/watch.* belong to deferred S5-S7 and must not be invented"
+def test_duplicate_declared_name_is_rejected() -> None:
+    with pytest.raises(ValueError, match="cli.output"):
+        FUNCTUALIZE_SETTINGS.extend(
+            Setting("cli.output", "str", "colliding declaration")
         )
 
 
-class TestDerivedStructuresAreLive:
-    """The hazard the task text omitted: import-time derivation.
-
-    Each of these was computed once from a module-level tuple. A registration
-    API makes that silently stale — the setting renders in the panel and
-    resolves to nothing.
-    """
-
-    def test_settings_order_tracks_registration(self, clean_registry) -> None:
-        before = len(fs.SETTINGS_ORDER)
-        register_settings(_setting("demo.alpha"))
-        assert len(fs.SETTINGS_ORDER) == before + 1
-        assert "demo.alpha" in fs.SETTINGS_ORDER
-
-    def test_default_values_tracks_registration(self, clean_registry) -> None:
-        register_settings(_setting("demo.alpha", default="hello"))
-        assert fs.DEFAULT_VALUES["demo.alpha"] == "hello"
-
-    def test_registration_does_not_reach_the_declaration(self, clean_registry) -> None:
-        """No app catalog is built from the legacy registry any more."""
-        from functualize.plugin import FUNCTUALIZE_SETTINGS
-
-        register_settings(_setting("demo.alpha"))
-        assert FUNCTUALIZE_SETTINGS.setting("demo.alpha") is None
-
-    def test_lookup_tracks_registration(self, clean_registry) -> None:
-        assert fs.func_setting("demo.alpha") is None
-        register_settings(_setting("demo.alpha"))
-        assert fs.func_setting("demo.alpha") is not None
-
-    def test_a_from_import_is_not_a_snapshot(self, clean_registry) -> None:
-        """The idiom the whole codebase uses, including `settings_panel.py`.
-
-        `from func_settings import FUNC_SETTINGS` binds the object once. A
-        recomputed module attribute (PEP 562 `__getattr__`) would hand out a
-        stale tuple here; a live view does not.
-        """
-        from functualize._cli.data.func_settings import FUNC_SETTINGS, SETTINGS_ORDER
-
-        before = len(FUNC_SETTINGS)
-        register_settings(_setting("demo.alpha"))
-
-        assert len(FUNC_SETTINGS) == before + 1
-        assert "demo.alpha" in SETTINGS_ORDER
-
-    def test_a_store_resolves_the_explicit_schema_it_is_given(
-        self, clean_registry, tmp_path
-    ) -> None:
-        """An app's extra setting reaches the store through its declaration."""
-        from functualize._cli.data.func_settings import FuncSettingsStore
-        from functualize.plugin import FUNCTUALIZE_SETTINGS, Setting
-
-        schema = FUNCTUALIZE_SETTINGS.extend(
-            Setting("demo.alpha", "str", "demo.alpha help", default="hello")
-        )
-        store = FuncSettingsStore(
-            schema, cwd=tmp_path, env={}, global_dir=tmp_path / "global"
-        )
-        assert store.effective_values().get("demo.alpha") == "hello"
+def test_importing_the_shell_has_no_catalog_side_effect() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from functualize._cli.data import func_settings as fs;"
+            "before = tuple(fs.SETTINGS_ORDER);"
+            "import functualize._cli.tui;"
+            "assert tuple(fs.SETTINGS_ORDER) == before;"
+            "print('ok')",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "ok" in result.stdout
 
 
-class TestRegistrationRules:
-    def test_registering_twice_replaces_rather_than_duplicates(
-        self, clean_registry
-    ) -> None:
-        """A relaunched shell must not double every row in the panel."""
-        register_settings(_setting("demo.alpha", default="one"))
-        register_settings(_setting("demo.alpha", default="two"))
-
-        assert [s.name for s in fs.FUNC_SETTINGS].count("demo.alpha") == 1
-        assert fs.DEFAULT_VALUES["demo.alpha"] == "two"
-
-    def test_shadowing_a_base_setting_is_rejected(self, clean_registry) -> None:
-        """The base catalog is not something a component may redefine."""
-        with pytest.raises(ValueError, match="base catalog"):
-            register_settings(_setting("cli.output"))
-
-    def test_registration_order_is_preserved(self, clean_registry) -> None:
-        register_settings(_setting("demo.b"), _setting("demo.a"))
-        order = [n for n in fs.SETTINGS_ORDER if n.startswith("demo.")]
-        assert order == ["demo.b", "demo.a"]
-
-
-class TestImportingTheShellRegistersNothing:
-    def test_importing_the_tui_package_adds_nothing_to_the_catalog(self) -> None:
-        """The TUI reads its rows from the declaration, not a second registry.
-
-        This used to assert the opposite — that importing `_cli.tui` registered
-        the `tui.*` settings into the legacy catalog. Those declarations now
-        live in `FUNCTUALIZE_SETTINGS`, so an import-time registration would be
-        a duplicate source of truth rather than a feature.
-
-        Run in a subprocess: the import is a one-time side effect, so in a
-        process where `_cli.tui` is already in `sys.modules` (or where another
-        test's fixture has since cleared the registry) importing again proves
-        nothing. A fresh interpreter is the only honest way to assert it.
-        """
-        import subprocess
-        import sys
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                "from functualize._cli.data import func_settings as fs;"
-                "before = tuple(fs.SETTINGS_ORDER);"
-                "import functualize._cli.tui;"
-                "assert tuple(fs.SETTINGS_ORDER) == before;"
-                "from functualize.plugin import FUNCTUALIZE_SETTINGS;"
-                "assert 'tui.theme' in {s.name for s in FUNCTUALIZE_SETTINGS.settings};"
-                "print('ok')",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, result.stderr
-        assert "ok" in result.stdout
-
-
-class TestDeadSettingIsGone:
-    """D-01 byproduct: `completion_debounce_ms` was declared and read by nothing."""
-
-    def test_it_is_not_in_the_catalog(self) -> None:
-        assert "tui.completion_debounce_ms" not in fs.SETTINGS_ORDER
-
-    def test_it_is_not_a_recognized_config_key(self) -> None:
-        from functualize._cli.config import _RECOGNIZED_KEYS
-
-        assert "completion_debounce_ms" not in _RECOGNIZED_KEYS["tui"]
-
-    def test_it_has_no_schema(self) -> None:
-        from functualize._cli.data.settings_schema import SETTING_SCHEMAS
-
-        assert "completion_debounce_ms" not in SETTING_SCHEMAS
+def test_removed_setting_is_absent_from_both_catalogs() -> None:
+    assert "tui.completion_debounce_ms" not in fs.SETTINGS_ORDER
+    assert FUNCTUALIZE_SETTINGS.setting("tui.completion_debounce_ms") is None

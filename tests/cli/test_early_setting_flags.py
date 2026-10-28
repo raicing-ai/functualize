@@ -19,8 +19,6 @@ import pytest
 
 from functualize._cli.data.func_settings import (
     FuncSettingsStore,
-    clear_preboot_overrides,
-    preboot_overrides,
 )
 from functualize._cli.dispatch import scan_early_setting_flags
 from functualize.app.adapters import early_setting_flags
@@ -59,13 +57,6 @@ def _schema(*settings: Setting) -> AppSettingsSchema:
 
 EARLY = _setting("demo.early", cli_flag="--early", phase="early")
 LATE = _setting("demo.late", cli_flag="--late")
-
-
-@pytest.fixture
-def clean():
-    clear_preboot_overrides()
-    yield
-    clear_preboot_overrides()
 
 
 @pytest.fixture
@@ -152,69 +143,99 @@ class TestFlagPrecedence:
 
 
 class TestFuncsPreBootScan:
-    def test_space_and_equals_spellings_are_recorded(self, clean) -> None:
+    def test_space_and_equals_spellings_are_recorded(self) -> None:
         argv = ["--discovery-depth", "3", "--exclude", "a", "--exclude=b", "build"]
-        assert scan_early_setting_flags(argv) == 2
-        assert preboot_overrides() == {
-            "discovery.scan_depth": ("3", "--discovery-depth"),
-            "discovery.exclude_patterns": ("a,b", "--exclude"),
+        assert scan_early_setting_flags(argv) == {
+            "discovery.scan_depth": "3",
+            "discovery.exclude_patterns": ("a", "b"),
         }
 
-    def test_ordinary_and_unvalued_flags_are_left_alone(self, clean) -> None:
-        assert scan_early_setting_flags(["--log-level", "DEBUG", "--exclude"]) == 0
-        assert preboot_overrides() == {}
+    def test_ordinary_and_unvalued_flags_are_left_alone(self) -> None:
+        assert scan_early_setting_flags(["--log-level", "DEBUG", "--exclude"]) == {}
 
-    def test_each_scan_describes_one_invocation(self, clean) -> None:
+    def test_each_scan_describes_one_invocation(self) -> None:
         """A second scan replaces the first rather than adding to it."""
-        scan_early_setting_flags(["--discovery-depth", "3"])
-        scan_early_setting_flags(["--require-job-prefix", "deploy_"])
-        assert preboot_overrides() == {
-            "discovery.require_job_prefix": ("deploy_", "--require-job-prefix")
-        }
+        first = scan_early_setting_flags(["--discovery-depth", "3"])
+        second = scan_early_setting_flags(["--require-job-prefix", "deploy_"])
+        assert first == {"discovery.scan_depth": "3"}
+        assert second == {"discovery.require_job_prefix": "deploy_"}
 
 
 class TestFuncsEntryPath:
     @pytest.mark.surfaces("func")
-    def test_main_records_the_early_flags_before_boot(
-        self, clean, cli_run, isolated: Path
-    ) -> None:
+    def test_main_uses_early_flags_before_boot(self, cli_run, isolated: Path) -> None:
         """`func`'s real `main()` runs the scan over its own argv."""
         argv = ["--discovery-depth", "3", "--exclude=build", "--help"]
         result = cli_run(argv, cwd=isolated)
         assert result.exit_code == 0, result.stderr
-        assert preboot_overrides() == {
-            "discovery.scan_depth": ("3", "--discovery-depth"),
-            "discovery.exclude_patterns": ("build", "--exclude"),
+        assert scan_early_setting_flags(argv) == {
+            "discovery.scan_depth": "3",
+            "discovery.exclude_patterns": ("build",),
         }
 
 
 class TestTakesEffectBeforeConstruction:
-    def _store(self, project: Path, env: dict[str, str]) -> FuncSettingsStore:
+    def _store(
+        self, project: Path, env: dict[str, str], flags: dict | None = None
+    ) -> FuncSettingsStore:
         return FuncSettingsStore(
-            FUNCTUALIZE_SETTINGS, cwd=project, env=env, global_dir=project / "g"
+            FUNCTUALIZE_SETTINGS,
+            cwd=project,
+            env=env,
+            global_dir=project / "g",
+            flags=flags,
         )
 
-    def test_a_store_built_after_the_scan_sees_the_value(
-        self, clean, isolated: Path
-    ) -> None:
+    def test_a_store_built_after_the_scan_sees_the_value(self, isolated: Path) -> None:
         """The whole point: the value is live for the *first* store."""
-        scan_early_setting_flags(["--discovery-depth", "3"])
-        store = self._store(isolated, {})
+        flags = scan_early_setting_flags(["--discovery-depth", "3"])
+        store = self._store(isolated, {}, flags)
         assert store.effective_values()["discovery.scan_depth"] == "3"
 
-    def test_it_outranks_env(self, clean, isolated: Path) -> None:
-        scan_early_setting_flags(["--discovery-depth", "3"])
-        store = self._store(isolated, {"FUNCTUALIZE_DISCOVERY_SCAN_DEPTH": "5"})
+    def test_it_outranks_env(self, isolated: Path) -> None:
+        flags = scan_early_setting_flags(["--discovery-depth", "3"])
+        store = self._store(isolated, {"FUNCTUALIZE_DISCOVERY_SCAN_DEPTH": "5"}, flags)
         assert store.effective_values()["discovery.scan_depth"] == "3"
 
-    def test_without_a_scan_the_default_still_wins(self, clean, isolated: Path) -> None:
+    def test_without_a_scan_the_default_still_wins(self, isolated: Path) -> None:
         store = self._store(isolated, {})
         assert store.effective_values()["discovery.scan_depth"] == "0"
 
-    def test_the_source_label_names_the_flag(self, clean, isolated: Path) -> None:
-        scan_early_setting_flags(["--discovery-depth", "3"])
-        store = self._store(isolated, {})
+    def test_the_source_label_names_the_flag(self, isolated: Path) -> None:
+        flags = scan_early_setting_flags(["--discovery-depth", "3"])
+        store = self._store(isolated, {}, flags)
         assert store.source_labels()["discovery.scan_depth"] == "--discovery-depth"
+
+    def test_first_store_uses_the_apps_snapshot_and_flag_label(
+        self, isolated: Path
+    ) -> None:
+        flags = scan_early_setting_flags(["--discovery-depth", "3"])
+        snapshot = resolve_settings(
+            FUNCTUALIZE_SETTINGS,
+            isolated,
+            flags=flags,
+            env={},
+            global_dir=isolated / "g",
+        )
+        store = FuncSettingsStore(
+            FUNCTUALIZE_SETTINGS, snapshot=snapshot, cwd=isolated, env={}
+        )
+        assert store.effective_values()["discovery.scan_depth"] == "3"
+        assert store.source_labels()["discovery.scan_depth"] == "--discovery-depth"
+
+    def test_main_hands_the_early_snapshot_to_app_construction(
+        self, isolated: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from functualize._cli.config import resolve_cli_config
+        from functualize._cli.main import _config_sources_for_flags
+
+        monkeypatch.chdir(isolated)
+        flags = scan_early_setting_flags(["--discovery-depth", "3"])
+        cli_config = resolve_cli_config(cli_flags=flags)
+        sources = _config_sources_for_flags(cli_config, flags)
+        assert sources.resolved is not None
+        assert sources.resolved.get("discovery.scan_depth") == 3
+        assert sources.resolved.provenance["discovery.scan_depth"] == "cli"
 
 
 class TestNoImports:
@@ -239,7 +260,7 @@ class TestNoImports:
                 "-c",
                 "import sys;"
                 "from functualize._cli.dispatch import scan_early_setting_flags;"
-                "assert scan_early_setting_flags(['--discovery-depth', '2', 'x']) == 1;"
+                "assert scan_early_setting_flags(['--discovery-depth', '2', 'x']) == {'discovery.scan_depth': '2'};"
                 "mods = [m for m in sys.modules if 'loud' in m];"
                 "assert mods == [], mods;"
                 "print('ok')",

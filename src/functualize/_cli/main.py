@@ -21,6 +21,7 @@ import logging
 import os
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -330,7 +331,7 @@ def cli_app(
         name="functualize",
         job_sources=discovery_result.job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=cli_config.config_sources(),
+        config_sources=_config_sources_for_flags(cli_config, cli_flags),
         plugin_sources=PluginSources(disabled=_builtin_disabled)
         if _builtin_disabled
         else None,
@@ -589,7 +590,7 @@ def _handle_bare(
         name="functualize",
         job_sources=job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=cli_config.config_sources(),
+        config_sources=_config_sources_for_flags(cli_config, cli_flags),
         plugin_sources=PluginSources(disabled=_disabled_plugins)
         if _disabled_plugins
         else None,
@@ -687,6 +688,16 @@ def _build_routing_job_filter(
     return build_job_filter(cli_config.discovery)
 
 
+def _config_sources_for_flags(cli_config: Any, flags: dict[str, Any]) -> Any:
+    """Carry this invocation's settings snapshot into the app being booted."""
+    from functualize.app.config import resolve_app_settings
+
+    return replace(
+        cli_config.config_sources(),
+        resolved=resolve_app_settings(Path.cwd(), flags=flags),
+    )
+
+
 def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
     """Extract user-configured aliases: global config, then project config.
 
@@ -709,19 +720,15 @@ def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
     Returns:
         Mapping of alias name -> target job name.
     """
-    import tomllib
-
-    from functualize.app.utils import resolve_user_config_dir
+    from functualize.app.config import resolve_app_settings
 
     result: dict[str, str] = {}
-
-    try:
-        content = (resolve_user_config_dir() / "config.toml").read_bytes()
-        global_aliases = tomllib.loads(content.decode("utf-8")).get("aliases")
-        if isinstance(global_aliases, dict):
-            result.update(global_aliases)
-    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
-        pass
+    # The existing layer reader has already decided which files participate.
+    # Apply them from global to nearest project so the closest alias wins.
+    for layer in reversed(resolve_app_settings(Path.cwd()).layers):
+        layer_aliases = layer.values.get("aliases")
+        if isinstance(layer_aliases, dict):
+            result.update(layer_aliases)
 
     aliases = merged_config.get("aliases")
     if isinstance(aliases, dict):
@@ -1235,7 +1242,7 @@ def _boot_project_app(
         name="functualize",
         job_sources=job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=cli_config.config_sources(),
+        config_sources=_config_sources_for_flags(cli_config, cli_flags),
         plugin_sources=PluginSources(disabled=_disabled_plugins)
         if _disabled_plugins
         else None,
@@ -1394,7 +1401,7 @@ def _handle_job(
         name="functualize",
         job_sources=job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=cli_config.config_sources(),
+        config_sources=_config_sources_for_flags(cli_config, cli_flags),
         plugin_sources=PluginSources(disabled=_disabled_plugins)
         if _disabled_plugins
         else None,
@@ -1755,7 +1762,7 @@ def _handle_single_file(
         name="functualize",
         job_sources=single_file_sources,
         discovery_config=cli_config.discovery,
-        config_sources=cli_config.config_sources(),
+        config_sources=_config_sources_for_flags(cli_config, {}),
         # The same rule as the directory filter above, applied to the other
         # door into the working directory. The job scan is not the only thing
         # that reaches it: the plugin loader falls back to
@@ -2044,7 +2051,7 @@ def _run_cli() -> None:
     # catalog read that does not walk argv (C3.2).
     from functualize._cli.dispatch import scan_early_setting_flags
 
-    scan_early_setting_flags(sys.argv[1:])
+    early_flags = scan_early_setting_flags(sys.argv[1:])
 
     from functualize.app import get_perf_timeline
 
@@ -2070,6 +2077,7 @@ def _run_cli() -> None:
 
     # Phase 0: Extract global options from argv (needed for overrides)
     global_opts, cli_flags = _extract_global_options(sys.argv)
+    cli_flags = {**early_flags, **cli_flags}
 
     # Phase 1: Unified discovery with CLI overrides
     perf_timeline.mark("cli.discovery.start")

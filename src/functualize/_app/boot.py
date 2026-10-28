@@ -2137,14 +2137,6 @@ def _resolve_plugins_strict(app: Any) -> bool:
     """Resolve the ``plugins.strict`` boolean from config (default False)."""
     try:
         value = app.settings.get(PLUGINS_STRICT.name)
-    except AttributeError:
-        # Older embedding hosts supply only the legacy resolution chain.
-        try:
-            value = app._resolution_chain.resolve(
-                PLUGINS_STRICT.key, PLUGINS_STRICT.section
-            ).value
-        except Exception:
-            return False
     except Exception:
         return False
     if isinstance(value, bool):
@@ -2167,24 +2159,7 @@ def resolve_declared_setting(app: Any, name: str) -> Any:
         return None
     snapshot = app.settings
     value = snapshot.get(name)
-    if app._config_sources.resolved is not None:
-        return value
-    if app._config_sources.config_resolution_chain is not None:
-        # An explicitly supplied chain is the host's resolution contract.
-        # Keep reading it live, including after refresh replaces the chain.
-        try:
-            return app._resolution_chain.resolve(setting.key, setting.section).value
-        except Exception:
-            return value
     if name != SHELL_SUDO_PASSWORD.name:
-        if value is None:
-            # A refreshed legacy chain can still supply a setting absent from
-            # the declaration's file/env layers (for example an injected
-            # DefaultSource). Its live answer remains observable.
-            try:
-                return app._resolution_chain.resolve(setting.key, setting.section).value
-            except Exception:
-                pass
         return value
     if snapshot.provenance.get(name) == "cli":
         return value

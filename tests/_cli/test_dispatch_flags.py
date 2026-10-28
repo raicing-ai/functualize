@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 import functualize.plugin
 from functualize._cli import dispatch
-from functualize._cli.data import func_settings
 from functualize.plugin import AppSettingsSchema, Setting
 
 if TYPE_CHECKING:
@@ -68,15 +67,9 @@ def test_early_scan_reads_phase_from_the_schema(
     monkeypatch.setattr(
         functualize.plugin, "FUNCTUALIZE_SETTINGS", AppSettingsSchema(settings=(early,))
     )
-    calls: list[tuple[str, str, str]] = []
-    monkeypatch.setattr(
-        func_settings,
-        "set_preboot_override",
-        lambda name, value, *, flag: calls.append((name, value, flag)),
-    )
-
-    assert dispatch.scan_early_setting_flags(["--custom-name=alice"]) == 1
-    assert calls == [("custom.name", "alice", "--custom-name")]
+    assert dispatch.scan_early_setting_flags(["--custom-name=alice"]) == {
+        "custom.name": "alice"
+    }
 
 
 def test_funcs_own_declared_flags_are_parsed_pre_boot() -> None:

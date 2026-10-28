@@ -618,8 +618,8 @@ def missing_value_message(flag: str) -> str:
     )
 
 
-def scan_early_setting_flags(argv: list[str]) -> int:
-    """Record `func`'s `phase="early"` setting flags from ``argv``, pre-boot (C3.2).
+def scan_early_setting_flags(argv: list[str]) -> dict[str, Any]:
+    """Return `func`'s invocation-local early settings before boot (C3.2).
 
     Runs in ``main()`` before the app is constructed, so a setting marked early
     is already in effect for the first store anyone builds. Which flags are
@@ -629,29 +629,13 @@ def scan_early_setting_flags(argv: list[str]) -> int:
     own declaration. Non-early flags are click options on the root group and
     resolve at callback time, which is after boot.
 
-    Each scan describes one invocation, so it replaces what an earlier scan in
-    this process recorded rather than adding to it.
-
-    Returns the number of settings recorded, so callers (and tests) can tell a
-    no-op scan from a real one.
+    The caller carries these values into its resolved snapshot. No module
+    state survives the invocation.
     """
-    from functualize._cli.data.func_settings import (
-        clear_preboot_overrides,
-        set_preboot_override,
-    )
-    from functualize.app.adapters import early_setting_flags
+    from functualize.app.adapters.settings_flags import early_setting_flags
     from functualize.plugin import FUNCTUALIZE_SETTINGS
 
-    passed = early_setting_flags(FUNCTUALIZE_SETTINGS, argv)
-    # TRANSITIONAL(config-unknown-keys/8.1): the process-global pre-boot
-    # override storage stays until AC20 gives the store its flags another way.
-    clear_preboot_overrides()
-    for name, value in passed.items():
-        setting = FUNCTUALIZE_SETTINGS.setting(name)
-        flag = setting.cli_flag if setting is not None else None
-        text = ",".join(value) if isinstance(value, tuple) else value
-        set_preboot_override(name, text, flag=flag or "")
-    return len(passed)
+    return early_setting_flags(FUNCTUALIZE_SETTINGS, argv)
 
 
 @dataclass(frozen=True)

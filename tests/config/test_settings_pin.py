@@ -518,11 +518,7 @@ def _catalog_row(setting: func_settings.FuncSetting) -> tuple[object, ...]:
 
 @pytest.fixture
 def isolated_catalog() -> None:
-    original = func_settings.registered_settings()
-    func_settings.clear_registered_settings()
     yield
-    func_settings.clear_registered_settings()
-    func_settings.register_settings(*original)
 
 
 @pytest.fixture
