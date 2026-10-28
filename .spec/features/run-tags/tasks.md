@@ -190,7 +190,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
 
 ## Wave 2
 
-- [ ] **3.1 — `_cli/main.py`: merge before boot, refuse with exit 2, forward
+- [x] **3.1 — `_cli/main.py`: merge before boot, refuse with exit 2, forward
       to every door** (C2, C3; AC1, AC2, AC8, AC9 second half, AC10)
   - **[F]** `src/functualize/_cli/main.py`, `tests/cli/test_run_tags_pre_boot.py`
     (new), `tests/cli/test_run_tags_layers.py` (new)
@@ -230,8 +230,20 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
   - **Reachability:** live: `func --run-tag harness:claude release` then
     `func builtin run list --format json` shows the map. Commit, delete the
     merge call, watch AC1 fail, restore.
+  - **Delivered (2026-10-28):** the merge lives in `_merge_run_tags`, called
+    once right after `_extract_global_options`. The `[run] tags` layer is read
+    with `tomllib` the way `_extract_aliases` reads the same file, not through
+    `read_global_config`: a second pre-boot call to that function printed every
+    config warning twice (measured 2 vs 1); a broken file still warns once, at
+    boot. The forward also runs through `_dispatch_group` and the three
+    `create_job_click_command` calls, since `force` travels that way too.
+    `_handle_bare` accepts the keyword and ignores it (no TUI tagging in v1).
+    The `TRANSITIONAL(run-tags/1.1, 3.1)` marker on `_cli/run_tags.py` is
+    retired. Until 5.2/6.1, `run list --format json` lists the run without
+    its map, so the tests read the map from the run record itself. The branch
+    gate's sole failure is the inherited node recorded under 2.2.
 
-- [ ] **3.2 — The record carries the map, in both stores' write path** (C6;
+- [x] **3.2 — The record carries the map, in both stores' write path** (C6;
       AC13, AC19, AC27)
   - **[F]** `src/functualize/_engine/executor.py`,
     `tests/engine/test_run_record_run_tags.py` (new)
@@ -260,6 +272,10 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
   - **Reachability:** live: start a tagged run, then
     `func builtin run show <id> --format json` → the map is present (read side
     lands in 5.2/6.1, so this step pairs with them).
+  - **Delivered (2026-10-28):** AC19 needs 3.1's environment layer, so its
+    test is in `tests/engine/test_run_record_run_tags.py` but arrived with
+    3.1's commit; 3.2's own commit is green without it. Until the read side
+    lands, the map is checked in the stored record.
 
 ## Wave 3
 
