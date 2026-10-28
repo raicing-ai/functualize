@@ -13,6 +13,10 @@ untagged invocation share a cache entry), and they never reach the job's
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -255,3 +259,70 @@ def test_a_failing_store_still_does_not_fail_the_run(
 
     assert result.status is RunStatus.SUCCESS
     assert result.return_value == "built"
+
+
+_PARENT_JOB = """\
+import subprocess
+import sys
+from pathlib import Path
+
+
+def test():
+    func = Path(sys.executable).parent / "func"
+    subprocess.run([str(func), "coverage", "report"], check=True)
+"""
+
+_CHILD_JOB = """\
+JOB_GROUP = "coverage"
+
+
+def report():
+    print("coverage reported")
+"""
+
+
+def test_a_shelled_out_func_is_tagged_and_has_no_parent(tmp_path: Path) -> None:
+    """AC19: `FUNCTUALIZE_RUN_TAGS=harness:claude func test`, `test` running
+    `func coverage report` in a subprocess.
+
+    The variable is inherited by the child process, so both records carry the
+    tag; the child is a separate top-level run, so it has no `parent_run_id`.
+    """
+    project = tmp_path / "proj"
+    jobs = project / ".functualize" / "jobs"
+    jobs.mkdir(parents=True)
+    (jobs / "test.py").write_text(_PARENT_JOB)
+    (jobs / "coverage.py").write_text(_CHILD_JOB)
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": str(tmp_path / "xdg" / "config"),
+        "XDG_CACHE_HOME": str(tmp_path / "xdg" / "cache"),
+        "XDG_DATA_HOME": str(tmp_path / "xdg" / "data"),
+        "FUNCTUALIZE_RUN_TAGS": "harness:claude",
+    }
+    func = Path(sys.executable).parent / "func"
+
+    run = subprocess.run(
+        [str(func), "test"],
+        capture_output=True,
+        text=True,
+        cwd=str(project),
+        env=env,
+        timeout=120,
+    )
+
+    assert run.returncode == 0, f"stdout: {run.stdout}\nstderr: {run.stderr}"
+    assert "coverage reported" in run.stdout
+    records = [
+        record
+        for path in project.rglob("runs.json")
+        for record in json.loads(path.read_text())["runs"].values()
+    ]
+    by_job = {record["job"]: record for record in records}
+    assert set(by_job) == {"test", "coverage.report"}, records
+    assert by_job["test"]["run_tags"] == {"harness": "claude"}
+    assert by_job["coverage.report"]["run_tags"] == {"harness": "claude"}
+    assert by_job["coverage.report"]["parent_run_id"] is None

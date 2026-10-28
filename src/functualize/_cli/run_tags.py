@@ -6,7 +6,6 @@ import re
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
-# TRANSITIONAL(run-tags/1.1, 3.1): the pre-boot CLI path does not call this yet.
 TAG_KEY_RE = re.compile(r"[a-z0-9][a-z0-9._-]*")
 MAX_VALUE_LEN = 256
 MAX_TAGS = 32
