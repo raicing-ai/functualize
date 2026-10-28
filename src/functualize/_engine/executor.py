@@ -2388,12 +2388,34 @@ class JobExecutionEngine:
     ) -> tuple[tuple[str, Any], ...]:
         """The ``(param_name, class)`` pairs of a function's GroupOptions params.
 
-        Cached by ``id(function)`` like the resolution plan, and for the same
-        reason: this runs on every execution, and ``get_type_hints`` on a job
-        that declares none is pure overhead. Materialization swaps the entry to
-        the real function before any introspection, so the key is stable.
+        Cached like the resolution plan, and for the same reason: this runs on
+        every execution, and ``get_type_hints`` on a job that declares none is
+        pure overhead.
+
+        The key is the identity of a callable that outlives the run. For a
+        function job that is ``function`` itself — materialization swaps the
+        entry to the real function before any introspection. A class job's run
+        rebinds ``context.function`` to a fresh ``functools.partial`` every
+        time, so keying on *that* filed one entry per run under the id of a
+        temporary, and a recycled id could hand back another job's pairs. The
+        partial's ``func`` is the method as the class holds it, which is stable,
+        so that is the key. Two stable keys still exist for one class job — the
+        registered proxy (read by ``_resolve_group_options``) and the method
+        (read through the partial by the freshness key) — which costs one extra
+        introspection per method per process, not a wrong answer.
         """
-        func_id = id(function)
+        # A class job's rebind replaces `context.function` with a
+        # `functools.partial`, and the freshness hash reads this through it.
+        # `inspect.signature` follows a partial to its `func` and drops the
+        # receiver it pre-bound, but `get_type_hints` does not — it answers
+        # `{}`, so a PEP 563 annotation would go unresolved and a
+        # `GroupOptions` parameter would silently vanish from the args hash.
+        # `resolved_hints` deliberately swallows that failure, so nothing else
+        # would notice. The same subject is the cache key, for the reason above.
+        hints_subject = (
+            function.func if isinstance(function, functools.partial) else function
+        )
+        func_id = id(hints_subject)
         cached = self._group_options_cache.get(func_id)
         if cached is not None:
             return cached
@@ -2403,17 +2425,6 @@ class JobExecutionEngine:
         )
 
         sig = inspect.signature(function)
-        # A class job's rebind replaces `context.function` with a
-        # `functools.partial`, and the freshness hash reads this through it.
-        # `inspect.signature` follows a partial to its `func` and drops the
-        # receiver it pre-bound, but `get_type_hints` does not — it answers
-        # `{}`, so a PEP 563 annotation would go unresolved and a
-        # `GroupOptions` parameter would silently vanish from the args hash.
-        # `resolved_hints` deliberately swallows that failure, so nothing else
-        # would notice.
-        hints_subject = (
-            function.func if isinstance(function, functools.partial) else function
-        )
         hints = resolved_hints(hints_subject)
         found: list[tuple[str, Any]] = []
         for param_name, param in sig.parameters.items():

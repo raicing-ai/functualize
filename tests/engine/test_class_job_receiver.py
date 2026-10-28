@@ -386,3 +386,32 @@ class TestFreshnessKey:
             name
             for name, _ in engine._group_options_params(capture.context.function)  # noqa: SLF001
         ] == ["opts"]
+
+    def test_the_cache_is_keyed_on_callables_that_outlive_the_run(
+        self, tmp_path: Path
+    ) -> None:
+        """Each run's partial is a temporary; its id must not become a key.
+
+        Keyed on the partial, every run filed a new entry under an id the
+        interpreter is free to reuse for another job's callable. The keys must
+        be the ids of things still alive after the run: the registered proxy
+        and the method the class holds.
+        """
+        engine, descriptors = _setup(tmp_path)
+        proxy = next(job.function for job in descriptors if job.name == "pg.start")
+
+        partials = []
+        for _ in range(2):
+            result, capture = _run(engine, "pg.start")
+            assert result.status.name == "SUCCESS", result.exception
+            assert capture.context is not None
+            # The freshness key is the caller that reads the cache through the
+            # rebound partial; a fingerprinted run computes it exactly so.
+            assert engine._args_hash_for(capture.context)  # noqa: SLF001
+            partials.append(capture.context.function)
+
+        method = partials[0].func
+        assert partials[1].func is method
+        stable = {id(proxy), id(method)}
+        assert set(engine._group_options_cache) <= stable  # noqa: SLF001
+        assert not {id(p) for p in partials} & set(engine._group_options_cache)  # noqa: SLF001
