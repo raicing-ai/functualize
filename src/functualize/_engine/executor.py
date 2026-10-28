@@ -998,6 +998,7 @@ class JobExecutionEngine:
                         else {}
                     ),
                     "force": request.force,
+                    "run_tags": dict(request.run_tags),
                     "runner": runner_identity(),
                 }
             )
