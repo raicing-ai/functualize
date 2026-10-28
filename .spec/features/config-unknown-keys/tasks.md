@@ -550,7 +550,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 8 — keep it single, docs, fixtures
 
-- [ ] **8.1 Ratchets** (AC12, AC13, AC18, AC20, AC22, AC30, AC31) — **[F]**
+- [x] **8.1 Ratchets** (AC12, AC13, AC18, AC20, AC22, AC30, AC31) — **[F]**
   `tests/spec/test_settings_ratchet.py`, `src/functualize/_cli/config.py`,
   `tests/cli/test_cli_config.py`, `tests/cli/test_cli_config_vault.py`,
   `tests/cli/test_resolve_cli_config.py`,
@@ -598,7 +598,13 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     ratchets to that test file; keep AC30's single render-surface declaration
     and AC31's nine retained runtime delivery-import pin. Run that ratchet,
     the named affected tests, `lint-imports`, and the native task-graph gate
-    before ticking 8.1. Wave 9 remains downstream of this unchecked row.
+    before ticking 8.1. Wave 9 remains downstream of this row.
+  - *Gate:* the named selection passed with slow tests enabled (99 passed,
+    1 skipped); the ordinary selection passed (93 passed, 7 skipped).
+    Production registry names and the direct TOML read in `_cli/main.py`
+    have zero hits. Import contracts: 7 kept, 0 broken. The task graph and
+    `git diff --check` passed. Break-and-restore checks covered the early
+    scan, app snapshot, first-store source label, aliases and plugin strict.
 - [x] **8.2 Off the run path** (AC10) — **[F]** `tests/cli/test_config_vocabulary_run_path.py` (new)
   - *Gate:* a guarded fresh process ran `func ping` cold and three times warm
     without importing the vocabulary; median warm time 1885 ms against the
