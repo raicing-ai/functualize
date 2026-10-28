@@ -522,11 +522,14 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     `_determine_source` and its `read_global_config` call). Gate:
     `rg -n '\bread_global_config\b' src/functualize/_cli/builtins/_config.py`
     → 0; the definition remains until 8.1.
-  - *Gate:* `tests/cli/test_config_builtin.py` 36 passed; settings pin 11 passed;
-    `read_global_config` has 0 hits in the command module; lint-imports 7 kept,
-    0 broken. The command output is built from the resolved layer snapshot;
-    two deliberate breaks made the source and contribution tests fail and
-    both passed after restoration.
+  - *Gate:* `tests/cli/test_config_builtin.py` 36 passed, including exact line
+    sequences for global-first order, missing candidates, and a pyproject
+    without the app table. Four CLI fixture comparisons against `11ed0e82`:
+    B/C/D byte-identical; A differs only by unknown-key suffixes (`diff -u`
+    exit 1). Reversing the rendered locations after commit made the named
+    sequence test fail (1 failed), then restoration passed (1 passed).
+    `read_global_config` has 0 hits in the command module; lint-imports
+    7 kept, 0 broken. The 7.1 code and tests are at `c5c90be`.
 - [ ] **7.2 `info --json`** (C2; AC3, AC16) — **[F]** `src/functualize/_cli/info.py`,
   `tests/cli/test_info_unknown_keys.py` (new)
 
