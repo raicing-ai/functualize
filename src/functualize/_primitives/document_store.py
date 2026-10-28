@@ -1294,6 +1294,7 @@ class _DocumentTransaction:
                 "parent_run_id": cmd.parent_run_id,
                 "invoke_depth": cmd.invoke_depth,
                 "args_hash": cmd.args_hash,
+                "run_tags": dict(cmd.run_tags),
                 "started_at": _iso(cmd.now),
                 "attempts": [
                     {
