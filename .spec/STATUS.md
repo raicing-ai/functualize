@@ -2402,7 +2402,12 @@ Items identified during development that are worth doing but not yet designed:
     a success nor an error, and that is the case the mapping has to name rather
     than round off.
 
-22. **AMENDED (2026-09-06) — the cause is a product defect, and it is proven.**
+22. **RESOLVED — the direct-run surface reads the declared setting.**
+    `tui.default_surface` now comes from the app's resolved settings snapshot,
+    independently of whether the TUI package was imported. The standalone
+    surface-gate test and the root-stop fixture pin the result. The original
+    finding follows for history.
+
     `tui.default_surface` is **not** in `_BASE_SETTINGS`; the shell registers it
     as an import side effect of `_cli/tui/__init__.py:88`, and a direct
     `func <job>` run under true-lazy boot never imports that package. So
@@ -2608,7 +2613,11 @@ Items identified during development that are worth doing but not yet designed:
     cost about a minute, not ten — only the `cargo` build beyond it is
     expensive, and the fix does not reach it.
 
-29. **`[tool.functualize] skill` is accepted, validated, and read by nothing.**
+29. **RESOLVED — removed, no consumer arrived.** The PEP 723 parser rejects
+    `[tool.functualize] skill` as unknown and keeps `job`. The former
+    accepted-but-unused behaviour follows for history.
+
+    `[tool.functualize] skill` was accepted, validated, and read by nothing.
     Shipped knowingly by `third-party-host-seams`/1.2, and recorded here
     because that task required it to be — this is the fourth member of a class
     this file already calls *"the worst of the three states"*.

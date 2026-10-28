@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — unknown settings keys are visible in configuration reports
+
+`func builtin config path` annotates unknown keys with their file and a
+suggestion when one is close; `func builtin info --json` and `info all --json`
+include `config.unknown_keys` with the same findings. A typo no longer makes
+a file appear to have contributed a setting it did not supply. Diagnostics
+leave resolution and exit codes unchanged.
+
+### Changed — framework settings share one resolution chain
+
+`root = true` now stops the project-file walk for the CLI, settings panel,
+inline TUI, and surface gate. `config path` lists the global location first,
+then project locations from farthest to nearest; `✓ used` means a file
+contributed an effective setting, while `○ found` includes a root-only file.
+Global unknown-key warnings moved from startup stderr to `config path` and
+structured `info` output.
+
+`[shell] program`, `[shell] sudo_password`, and `[plugins] strict` are read
+from framework settings documents (`.functualize.toml`,
+`[tool.functualize]` in `pyproject.toml`, or global `config.toml`), not from
+`config.*.toml` job files. Their environment variables are now
+`FUNCTUALIZE_SHELL_PROGRAM`, `FUNCTUALIZE_SHELL_SUDO_PASSWORD`, and
+`FUNCTUALIZE_PLUGINS_STRICT`, replacing `SHELL_PROGRAM`,
+`SHELL_SUDO_PASSWORD`, and `PLUGINS_STRICT`. The previously documented
+`FUNCTUALIZE_SUDO_PASSWORD` was never read and is removed from the docs.
+
+`extra_directories` keeps its top-level and `[discovery]` file spellings, but
+its environment variable is now `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES`;
+`FUNCTUALIZE_EXTRA_DIRECTORIES` is no longer read. The PEP 723
+`[tool.functualize] skill` field is rejected as unknown; no consumer ever
+used it. Applications declare settings at construction instead of registering
+them through the CLI module.
+
 ### Added — gate answers are durable, evidenced, and delivered at least once
 A gate's question and every answer it collects are now first-class records on
 the selected store: the request carries the causal identity of the walk that
