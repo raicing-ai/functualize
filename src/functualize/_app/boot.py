@@ -1742,6 +1742,13 @@ def resolve_and_register_jobs(app: Any) -> None:
             logger.warning("Resolution pipeline error: %s", e)
             return
 
+        # The directory jobs above were registered from their own provider,
+        # which sees one source. A name the pipeline refuses across sources —
+        # a class job's method claimed again by a second provider — must not
+        # keep the registration the directory side gave it, or the shipped
+        # path runs a winner the strict rule says does not exist.
+        _retire_refused_names(app, _strictly_refused_names(app))
+
         already_registered = set(app.job_registry._registered_jobs.keys())
         new_descriptors = [
             d for d in all_descriptors if d.name not in already_registered
@@ -1749,6 +1756,46 @@ def resolve_and_register_jobs(app: Any) -> None:
 
         if new_descriptors:
             register_descriptors(app, new_descriptors)
+
+
+def _strictly_refused_names(app: Any) -> set[str]:
+    """Names the last ``resolve_all`` registered to nobody (C5).
+
+    Read off the pipeline's own collision records: the strict rule is decided
+    in `_discovery/collisions.py`, and boot only acts on its verdict.
+    """
+    from functualize._types.discovery_report import CLASS_JOB_NAME_COLLISION
+
+    return {
+        finding.collision.canonical_name
+        for finding in app._resolution_pipeline.collisions
+        if finding.error_type == CLASS_JOB_NAME_COLLISION
+        and finding.collision is not None
+    }
+
+
+def _retire_refused_names(app: Any, names: set[str]) -> None:
+    """Take ``names`` back out of the registry, the engine and the command index.
+
+    The same three places `refresh` retires a discovery generation from, so a
+    refused name leaves no entry behind for `func`, `Invoke` or a listing.
+    """
+    if not names:
+        return
+    registry = app.job_registry
+    registry._job_descriptors[:] = [
+        d for d in registry._job_descriptors if d.name not in names
+    ]
+    for name in names:
+        registry._registered_jobs.pop(name, None)
+        app._execution_engine._registered_jobs.pop(name, None)
+    registry._registered_commands = {
+        key: module_path
+        for key, module_path in registry._registered_commands.items()
+        # Keys are "<group_or___top__>::<job name>".
+        if key.split("::", 1)[-1] not in names
+    }
+    app._jobs_memo = None
 
 
 def report_unsatisfiable_jobs(app: Any) -> None:

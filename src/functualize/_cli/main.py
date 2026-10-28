@@ -1486,9 +1486,23 @@ def _handle_job(
         # both the plugin fallback below and "Unknown command", because the
         # user typed a name they wrote and the answer is a contradiction
         # between files rather than a typo.
+        #
+        # The name may span tokens: when every method of a group is refused —
+        # the same job class from two sources — the group itself has no
+        # registered member, so `func pg start` routes here with `pg` alone
+        # rather than through group dispatch. The leading words are read as
+        # the path they spell, the way group dispatch reads them.
         from functualize._cli.info import strict_collision_messages
 
-        if message := strict_collision_messages(app).get(job_name):
+        strict = strict_collision_messages(app)
+        spelled = [job_name]
+        candidates = [job_name]
+        for token in remaining_args:
+            if token.startswith("-"):
+                break
+            spelled.append(normalize_name(token) or token)
+            candidates.append(".".join(spelled))
+        if message := next((strict[n] for n in candidates if n in strict), None):
             print(message, file=sys.stderr)
             from functualize.app.utils import ExitCode
 

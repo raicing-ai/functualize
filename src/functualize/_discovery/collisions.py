@@ -22,6 +22,7 @@ the first four happened.
 
 from __future__ import annotations
 
+import inspect
 from typing import TYPE_CHECKING
 
 from functualize._types.discovery_report import (
@@ -31,11 +32,17 @@ from functualize._types.discovery_report import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from functualize._types.descriptors import JobDescriptor
+    from functualize._types.discovery_report import DiscoveryFailure
 
-__all__ = ["claim_order", "resolve_name_collisions"]
+__all__ = [
+    "claim_order",
+    "involves_class_job",
+    "resolve_name_collisions",
+    "strict_collision",
+]
 
 
 def claim_order(descriptor: JobDescriptor) -> tuple[str, str]:
@@ -100,26 +107,65 @@ def resolve_name_collisions(
     for name, claimants in grouped.items():
         if len(claimants) == 1:
             kept.append(claimants[0])
-        elif all(claimant.owner_class is None for claimant in claimants):
+        elif not involves_class_job(claimants):
             kept.append(_last_claimant_wins(name, claimants))
         else:
-            record_discovery_finding(
-                class_job_name_collision(
-                    canonical_name=name,
-                    claimants=tuple(
-                        (_qualified_name(claimant), claimant.source_file or "")
-                        for claimant in claimants
-                    ),
-                    # The record names a file an operator can open. Every
-                    # claimant has one, and the first in claim order is the one
-                    # that does not move between boots.
-                    module=claimants[0].module_path or claimants[0].source_file,
-                    path=claimants[0].source_file or "",
-                )
-            )
+            record_discovery_finding(strict_collision(name, claimants))
             # Nothing is kept: the name is registered to nobody rather than to
             # a claimant the user did not choose.
     return kept
+
+
+def involves_class_job(claimants: Sequence[JobDescriptor]) -> bool:
+    """Whether a name claimed by ``claimants`` falls under the strict rule.
+
+    Two or more claimants, at least one of them a method of a job class. The
+    test both resolution sites apply — the scan inside one provider, and the
+    pipeline across providers — so the two cannot disagree on which rule a
+    collision gets.
+    """
+    return len(claimants) > 1 and any(
+        claimant.owner_class is not None for claimant in claimants
+    )
+
+
+def strict_collision(name: str, claimants: Sequence[JobDescriptor]) -> DiscoveryFailure:
+    """The record for a name no claimant is registered under.
+
+    Names every claimant, ``Class.method`` for a class job, with its file. Built
+    here for both resolution sites, so a collision found across providers reads
+    exactly like one found inside a scan.
+    """
+    return class_job_name_collision(
+        canonical_name=name,
+        claimants=tuple(
+            (_qualified_name(claimant), _source_of(claimant)) for claimant in claimants
+        ),
+        # The record names a file an operator can open. Every claimant has
+        # one, and the first in claim order is the one that does not move
+        # between boots.
+        module=claimants[0].module_path or claimants[0].source_file,
+        path=claimants[0].source_file or "",
+    )
+
+
+def _source_of(claimant: JobDescriptor) -> str:
+    """The file a claimant was defined in, for the record that names it.
+
+    A scanned descriptor carries it. A plain function handed to a
+    ``StaticProvider`` does not — that provider never needed one — so it is
+    read off the live function instead; a claimant that has neither stays
+    blank rather than guessed. Only this record asks, so no other descriptor
+    changes.
+    """
+    if claimant.source_file:
+        return claimant.source_file
+    if claimant.function is not None:
+        try:
+            return inspect.getsourcefile(claimant.function) or ""
+        except TypeError:
+            return ""
+    return ""
 
 
 def _last_claimant_wins(name: str, claimants: list[JobDescriptor]) -> JobDescriptor:
