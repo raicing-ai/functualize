@@ -108,6 +108,15 @@ class SqlRunWriter:
                 iso(cmd.now),
             ),
         )
+        # The run's tags, staged in this same batch so they exist exactly when
+        # the run does — and before attempt 1, because revision 5 refuses a tag
+        # INSERT once the run has an attempt: nothing writes them again.
+        for key in sorted(cmd.run_tags):
+            tx.stage(
+                "INSERT INTO run_tags (namespace_id, run_id, key, value) "
+                "VALUES (?, ?, ?, ?)",
+                (tx.namespace, run_id, key, cmd.run_tags[key]),
+            )
         tx.stage(
             "INSERT INTO run_attempts (id, namespace_id, run_id, attempt_no, status, "
             "started_at) VALUES (?, ?, ?, 1, ?, ?)",

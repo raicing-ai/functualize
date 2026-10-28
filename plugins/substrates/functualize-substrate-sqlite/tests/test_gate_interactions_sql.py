@@ -179,7 +179,7 @@ def test_a_revision_2_file_migrates_with_its_rows_intact(tmp_path: Path) -> None
                 ),
             ]
         )
-        assert migrate(driver) == 4
+        assert migrate(driver) == 5
         assert driver.query(
             "SELECT id, status, run_id, position FROM input_requests"
         ) == [("req_old", "open", None, None)]
