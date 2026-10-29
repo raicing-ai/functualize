@@ -19,7 +19,8 @@ Every run record and every `run list` / `run show` / MCP row now carries a
 `run_tags` map (`{}` for older records), `func builtin run list --tag KEY:VALUE`
 filters on every given tag exactly, and the SQLite store gains schema
 revision 5, a `run_tags` table whose rows are fixed once the run opens. Tags are
-stored in plain text: never put a secret in one.
+stored in plain text: never put a secret in one. Recorded in
+[ADR-039](contributor/adr/039-run-tags-are-an-observation-fixed-when-the-run-opens.md).
 
 ### Added — checked child results and opt-in captured output
 `JobResult.raise_for_status()` returns the same result when the job did its

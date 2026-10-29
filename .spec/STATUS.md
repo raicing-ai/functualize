@@ -925,6 +925,65 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### Run tags label every run, are fixed when it opens, and filter the run log (2026-10-29, `sdd/run-tags`)
+
+**The decision worth keeping.** *A run tag is an observation about one run,
+never an input to it.* A `key:value` label comes from the user's global config
+(`[run] tags`), `FUNCTUALIZE_RUN_TAGS` or the repeatable global `--run-tag`,
+merged per key with the later source winning, and completed **before boot** —
+a malformed or in-source-duplicated tag is a `RunTagError`, exit 2, before any
+job module is imported. The map rides on `RunRequest.run_tags`, is copied
+unchanged to every child run, and is written onto the run record when the run
+opens. It is not in the request hash or `args_hash`, and it never reaches the
+job's arguments, `RunContext`, return value or exit code. Every run row (`run
+list`, `run show`, `--format json`, the MCP run tools) carries `run_tags`, and
+`run list --tag KEY:VALUE` keeps a run only when every given pair matches
+exactly. The SQLite store gains schema revision **5**, a `run_tags` table. The
+surfaces: `_cli/run_tags.py` (the one grammar), `_cli/main.py` (the pre-boot
+merge and the forward to every run-building door), `_cli/config.py`
+(`[run] tags`), `_types/run_request.py`, the request builders,
+`_engine/executor.py` (the record), both stores, `app/_run_view.py` (the
+projection and filter) and `_cli/builtins.py` (`--tag`, the table and `run
+show`). Rationale in
+[ADR-039](../contributor/adr/039-run-tags-are-an-observation-fixed-when-the-run-opens.md).
+
+**Rules that outlive the feature:**
+
+- **No tag is parsed after boot.** The merge runs right after the pre-boot
+  global options are extracted and before discovery; a new door that builds a
+  run must take the merged map from `main()`, as `force` does, including the
+  UNKNOWN fallback — a cold discovery cache otherwise drops it silently.
+- **Tags never change what a run computes.** Keep them out of `args_hash`,
+  the request hash, job kwargs and `RunContext`; a tagged and an untagged
+  invocation must share a cache entry.
+- **A run's tags are fixed when it opens.** Nothing rewrites them; a record
+  without the key reads as `{}` and is never rewritten to add it. On SQLite,
+  `start_attempt` must stage the tag rows before attempt 1, because the
+  revision-5 triggers refuse a tag insert once the run has an attempt, and
+  refuse any update or a delete while the run exists.
+- **A tag filter is exact, conjunctive, and runs before the limit**, on both
+  stores and in the projection; the conformance BASELINE's
+  `run_tags_round_trip` holds every store to it.
+- **Only the `func` CLI accepts tags.** HTTP, Lambda and MCP take no tag input
+  and the TUI starts untagged runs; a job's declared `@job(tags=[...])` is a
+  separate vocabulary that `--tag` never matches.
+
+**Known limitations.** The engine writes runs to the run log, never through
+the runtime store's `start_attempt`, so the relational `runs`/`run_tags` pair
+has no production writer until the run recorder is wired; `run_tags_lookup`
+does not serve `recent()`'s correlated probe (the primary key does); and the
+document-to-SQLite importer does not copy tags.
+
+Pinned by `tests/cli/test_run_tags.py` (the grammar), `tests/cli/test_run_tags_pre_boot.py`
+and `tests/cli/test_run_tags_layers.py` (merge, refusals, every door),
+`tests/engine/test_nested_delivery_inputs.py` and
+`tests/engine/test_run_record_run_tags.py` (inheritance, the record, the
+cache), `tests/integration/test_run_view.py` (projection and filter),
+`tests/cli/test_builtin_commands_read_the_installed_substrate.py` (`--tag`,
+`run show`), `tests/plugins/test_mcp_workflow_tools.py`, the SQLite plugin's
+`test_migrations.py`, `test_run_sql.py` and `test_readers.py`, and
+`tests/conformance/test_baseline.py` over both stores.
+
 ### An interrupted effecting step stops in doubt, never re-run without a decision (2026-10-20, `sdd/effecting-step-recovery`)
 
 **The decision worth keeping.** *A `Step(effecting=True)` whose runner died
