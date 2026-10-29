@@ -482,7 +482,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
 
 ## Wave 6
 
-- [ ] **7.1 — Docs and changelog** (C8; shape §5.8, R2)
+- [x] **7.1 — Docs and changelog** (C8; shape §5.8, R2)
   - **[F]** `docs/cli/run.md`, `docs/api/types.md`, `CHANGELOG.md`
   - **Inputs:** `plan.md` §4.13; `docs/cli/run.md:33-52`, `:65`, `:85-99`;
     `docs/api/types.md:148-159` (`:156`); `CHANGELOG.md:8-11`.
@@ -503,7 +503,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
     CHANGELOG.md` → the new entry above the gate one.
   - **Reachability:** docs only.
 
-- [ ] **7.2 — Checkpoint** (AC32; all gates)
+- [x] **7.2 — Checkpoint** (AC32; all gates)
   - **[F]** none (verification only)
   - **Do:** `uv run ruff check --fix src/ tests/ plugins/ examples/`,
     `uv run ruff format --check src/ tests/ plugins/ examples/`,
