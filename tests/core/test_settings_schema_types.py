@@ -12,15 +12,11 @@ swap the store's internals without moving a single user's config value.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from functualize._cli.config import SettingsFileInfo
 from functualize._cli.data.func_settings import (
     FUNC_SETTINGS,
     env_var_for,
-    section_for_file,
 )
 from functualize.plugin import AppSettingsSchema, Setting, SettingsSources
 
@@ -100,15 +96,13 @@ class TestRoundTripAgainstShippedCatalog:
         file_name: str,
         shipped_schema: AppSettingsSchema,
     ) -> None:
-        info = SettingsFileInfo(
-            path=Path("/tmp") / file_name,
-            kind="project",
-            section_prefix="tool.functualize" if file_name == "pyproject.toml" else "",
-            values={},
+        prefix = "tool.functualize" if file_name == "pyproject.toml" else ""
+        section = func_setting.section  # type: ignore[attr-defined]
+        expected = ".".join(part for part in (prefix, section) if part)
+        assert (
+            shipped_schema.section_in_file(_as_setting(func_setting), file_name)
+            == expected
         )
-        assert shipped_schema.section_in_file(
-            _as_setting(func_setting), file_name
-        ) == section_for_file(func_setting, info)  # type: ignore[arg-type]
 
     def test_catalog_is_fully_covered(self, shipped_schema: AppSettingsSchema) -> None:
         """Guard: the projection must not silently drop entries."""

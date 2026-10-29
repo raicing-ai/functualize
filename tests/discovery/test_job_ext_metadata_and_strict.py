@@ -110,13 +110,10 @@ def test_extract_ext_metadata_empty_for_plain_function() -> None:
 
 def _app_with(descriptors, plugins, *, strict=False):
     """Build a minimal app-like object for validate_plugin_ext_metadata."""
-    resolution = SimpleNamespace(
-        resolve=lambda key, section: SimpleNamespace(value=strict)
-    )
     return SimpleNamespace(
         plugin_loader=SimpleNamespace(loaded_instances=plugins),
         job_registry=SimpleNamespace(_job_descriptors=descriptors),
-        _resolution_chain=resolution,
+        settings=SimpleNamespace(get=lambda name: strict),
     )
 
 
@@ -174,10 +171,10 @@ def test_no_metadata_no_check() -> None:
 
 
 def test_resolve_plugins_strict_defaults_false_on_missing() -> None:
-    def _raise(key, section):
+    def _raise(key):
         raise KeyError(key)
 
-    app = SimpleNamespace(_resolution_chain=SimpleNamespace(resolve=_raise))
+    app = SimpleNamespace(settings=SimpleNamespace(get=_raise))
     assert _resolve_plugins_strict(app) is False
 
 
@@ -194,9 +191,5 @@ def test_resolve_plugins_strict_defaults_false_on_missing() -> None:
     ],
 )
 def test_resolve_plugins_strict_coerces(value, expected) -> None:
-    app = SimpleNamespace(
-        _resolution_chain=SimpleNamespace(
-            resolve=lambda k, s: SimpleNamespace(value=value)
-        )
-    )
+    app = SimpleNamespace(settings=SimpleNamespace(get=lambda name: value))
     assert _resolve_plugins_strict(app) is expected
