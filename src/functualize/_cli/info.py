@@ -436,6 +436,16 @@ def discovery_failures(app: FunctualizeApp) -> list[dict[str, str]]:
         for failure in getattr(provider, "discovery_failures", ()) or ():
             with contextlib.suppress(Exception):
                 failures.append(failure.as_dict())
+    # FileSource parses job config documents while the resolution chain is
+    # built, outside a provider's discovery collection scope. Its reserved
+    # section findings still belong on this same diagnostic channel.
+    chain = getattr(app, "_resolution_chain", None)
+    for source in getattr(chain, "sources", ()) or ():
+        for failure in getattr(source, "discovery_failures", ()) or ():
+            with contextlib.suppress(Exception):
+                payload = failure.as_dict()
+                if payload not in failures:
+                    failures.append(payload)
     # Job-name collisions the pipeline resolved. A provider assembled by hand
     # -- `StaticProvider`, a plugin's own -- has no `discovery_failures` to
     # report through, so a collision between two such jobs surfaces only here.

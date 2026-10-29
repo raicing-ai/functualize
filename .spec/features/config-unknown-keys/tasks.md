@@ -557,7 +557,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
 
 ## Wave 8 — keep it single, docs, fixtures
 
-- [x] **8.1 Ratchets** (AC12, AC13, AC18, AC20, AC22, AC30, AC31) — **[F]**
+- [ ] **8.1 Ratchets** (AC12, AC13, AC18, AC20, AC22, AC30, AC31) — **[F]**
   `tests/spec/test_settings_ratchet.py`, `src/functualize/_cli/config.py`,
   `tests/cli/test_cli_config.py`, `tests/cli/test_cli_config_vault.py`,
   `tests/cli/test_resolve_cli_config.py`,
@@ -566,6 +566,9 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
   `tests/cli/test_settings_registration.py`, `tests/cli/test_early_setting_flags.py`,
   `tests/_cli/test_dispatch_flags.py`, `tests/config/test_settings_pin.py`,
   `tests/cli/test_alias_expansion_properties.py`
+  - **Status:** The AC12 collection-literal ratchet now exists in
+    `tests/spec/test_settings_ratchet.py`. The AC13 read-position target and
+    ratchet await the maintainer's decision; this row stays open.
   - **Depends on 4.3, 6.3, and 7.1:** 4.3 and 7.1 removed the old settings
     readers' last callers; 6.3 installed public `early_setting_flags(schema,
     argv)`. Retire their transitional definitions only now. The Rev6 deletion

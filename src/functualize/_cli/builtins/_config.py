@@ -150,7 +150,8 @@ def register_config(builtin_app: click.Group) -> None:
         click.echo("\n".join(lines))
 
     @config_app.command("path")
-    def config_path() -> None:
+    @click.pass_context
+    def config_path(ctx: click.Context) -> None:
         """Show config file paths with status (✓ used / ○ found / ✗ missing)."""
         from functualize._cli.data.config_vocabulary import (
             describe,
@@ -181,6 +182,21 @@ def register_config(builtin_app: click.Group) -> None:
                 section = ""
             annotation = describe(tuple(f for f in findings if f.file == path))
             click.echo(f"  {status} {path}{section}{annotation}")
+
+        # The root command has a booted app; its job-config FileSource owns
+        # reserved-section findings. Keep them on the existing discovery-
+        # failure channel, after the settings locations rather than treating
+        # a config.base.toml file as a settings layer.
+        obj = ctx.find_root().obj
+        app = obj.get("app") if isinstance(obj, dict) else None
+        if app is not None:
+            from functualize._cli.info import discovery_failures
+
+            for failure in discovery_failures(app):
+                if failure["error_type"] == "ReservedSectionName" and Path(
+                    failure["path"]
+                ).name.startswith("config."):
+                    click.echo(f"  Discovery failure: {failure['message']}")
 
     @config_app.command("edit")
     def config_edit() -> None:

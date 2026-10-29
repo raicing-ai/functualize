@@ -32,6 +32,7 @@ from functualize._config.merge import deep_merge
 from functualize._config.roles import classify, parse_slot
 from functualize._types.descriptors import ConfigFileInfo
 from functualize._types.discovery_report import (
+    DiscoveryFailure,
     record_discovery_finding,
     reserved_section_table,
 )
@@ -703,6 +704,11 @@ class FileSource:
         """
         return list(self._file_infos)
 
+    @property
+    def discovery_failures(self) -> list[DiscoveryFailure]:
+        """Advisory findings from parsed job configuration documents."""
+        return list(self._discovery_failures)
+
     def __init__(
         self,
         path_resolver: FileResolver,
@@ -762,6 +768,7 @@ class FileSource:
         self._merged_config: dict[str, Any] = {}
         self._per_file_configs: list[tuple[str, dict[str, Any]]] = []
         self._file_infos: list[ConfigFileInfo] = []
+        self._discovery_failures: list[DiscoveryFailure] = []
 
         # Resolve format_providers from either positional arg or registry kwarg
         providers = format_providers if format_providers is not None else registry
@@ -867,6 +874,7 @@ class FileSource:
         self._discovered_paths = paths
         self._per_file_configs = []
         self._file_infos = []
+        self._discovery_failures = []
 
         if not paths:
             return
@@ -933,13 +941,14 @@ class FileSource:
                 continue
             if key not in FUNCTUALIZE_SETTINGS.sections():
                 continue
-            record_discovery_finding(
-                reserved_section_table(
-                    section=key,
-                    module=Path(path).stem,
-                    path=path,
-                )
+            finding = reserved_section_table(
+                section=key,
+                module=Path(path).stem,
+                path=path,
             )
+            if finding not in self._discovery_failures:
+                self._discovery_failures.append(finding)
+            record_discovery_finding(finding)
 
     def _merge(
         self,

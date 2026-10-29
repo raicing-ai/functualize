@@ -20,10 +20,9 @@ error. The job registers and runs; the table merges as it always did. What the
 record buys is that the day someone wonders why ``[shell]`` stopped taking
 effect, the answer is already written down.
 
-The config-file half is produced by `FileSource`, and the boot path builds its
-chain outside any collection scope — so the record is currently produced but
-not yet shown by ``func builtin info``. The row it belongs to is the check, not
-the surface; the test below asserts the record where it is made.
+The config-file half is produced by `FileSource` while boot builds its chain
+outside a provider collection scope. The source retains that finding for the
+existing discovery-failure renderers.
 """
 
 from __future__ import annotations
@@ -260,6 +259,29 @@ class TestASettingsTableInAJobConfig:
         info = _func(project, "builtin", "info", "--json")
 
         assert info.returncode == 0, info.stderr
+
+    def test_the_finding_reaches_both_diagnostic_surfaces(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / ".functualize.toml").write_text("", encoding="utf-8")
+        config = project / "config.base.toml"
+        config.write_text('[shell]\nprogram = "/bin/zsh"\n', encoding="utf-8")
+
+        path = _func(project, "builtin", "config", "path")
+        assert path.returncode == 0, path.stderr
+        assert str(config) in path.stdout
+        assert ".functualize.toml [shell]" in path.stdout
+
+        info = _func(project, "builtin", "info", "--json")
+        assert info.returncode == 0, info.stderr
+        failures = [
+            item
+            for item in json.loads(info.stdout)["discovery_failures"]
+            if item["error_type"] == RESERVED_SECTION_NAME
+            and item["path"] == str(config)
+        ]
+        assert len(failures) == 1
+        assert ".functualize.toml [shell]" in failures[0]["message"]
 
 
 def _func(project: Path, *argv: str) -> subprocess.CompletedProcess[str]:

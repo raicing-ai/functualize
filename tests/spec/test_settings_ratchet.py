@@ -170,6 +170,44 @@ def test_retained_catalog_has_no_undeclared_setting_names() -> None:
     assert legacy - declared == set()
 
 
+def test_declared_names_are_not_repeated_as_collection_literals() -> None:
+    """AC12: reject a list/tuple/set with two declared-name strings, or a
+    dict whose keys are all declared-name strings, outside the declaration.
+
+    Reproduce the sabotage by inserting
+    ``["shell.program", "plugins.strict", "cli.output"]`` in ``_app/boot.py``.
+    Literal report payload keys are not a second settings vocabulary.
+    """
+    declared = {setting.name for setting in FUNCTUALIZE_SETTINGS.settings}
+    declaration = SOURCE / "_types" / "functualize_settings.py"
+    repeats: list[str] = []
+    for path in SOURCE.rglob("*.py"):
+        if path == declaration:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                literals = [
+                    element.value
+                    for element in node.elts
+                    if isinstance(element, ast.Constant)
+                    and isinstance(element.value, str)
+                    and element.value in declared
+                ]
+                if len(literals) >= 2:
+                    repeats.append(
+                        f"{path.relative_to(SOURCE)}:{node.lineno}: {literals}"
+                    )
+            elif isinstance(node, ast.Dict) and len(node.keys) >= 2:
+                if all(
+                    isinstance(key, ast.Constant)
+                    and isinstance(key.value, str)
+                    and key.value in declared
+                    for key in node.keys
+                ):
+                    repeats.append(f"{path.relative_to(SOURCE)}:{node.lineno}: dict")
+    assert repeats == []
+
+
 def test_declared_boot_reads_do_not_use_the_job_config_chain() -> None:
     boot = SOURCE / "_app" / "boot.py"
     tree = ast.parse(boot.read_text())
