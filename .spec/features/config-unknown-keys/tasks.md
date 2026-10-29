@@ -1,4 +1,11 @@
-# config-unknown-keys — Tasks (Revision 7)
+# config-unknown-keys — Tasks (Revision 8)
+
+> **Revision 8 (2026-10-29), an in-flight addition at `09dfdd7a`.** Row 9.2
+> is new. Row 6.4 removed the PEP 723 `skill` key (AC29) and its commit
+> rewrote `docs/guides/hosting.md` to match, but neither the page nor the
+> doc-verify scenario that executes it was in any row's file list, so the
+> scenario kept asserting the removed contract and `doc-verify` failed on the
+> pull request. No other row, wave or acceptance criterion changes.
 
 > **Revision 7 (2026-10-28), row 8.1 scope amendment at `4d32d9f6`.**
 > Rows 8.2–8.4 are complete; 8.1 remains unchecked and wave 9 stays closed.
@@ -642,6 +649,20 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     as red on `master`. Check it against the base before classifying it as a
     branch regression; its separate ticket owns any baseline repair.
 
+- [x] **9.2 Doc scenario for AC29** (AC29; rev8 new) — **[F]**
+  `examples/docs/scenarios/r-hosting-guide.toml`
+  - The "Declaring a script's entry point" step executes what
+    `docs/guides/hosting.md` now teaches: a script carrying `job = "deploy"`
+    and the retired `skill` parses; `meta.job == "deploy"` and
+    `meta.dependencies == ["httpx"]`; `ScriptMetadata` has no `skill` field;
+    stderr carries `Warning: deploy.py: unknown key(s) in [tool.functualize]:
+    skill. Known: job.`; the step exits 0. The scenario's section comment and
+    `[source]` description follow the page's heading.
+  - *Gate:* `run-scenario examples/docs/scenarios/r-hosting-guide.toml --engine
+    shell --allow-skips` → 1 passed, 11 of 11 steps green; with `skill` put
+    back into `SCRIPT_METADATA` the rewritten step fails, so it is not
+    vacuous.
+
 ## Task Dependency Graph
 
 ```json
@@ -656,7 +677,7 @@ Every task's gate also includes: `uv run lint-imports` green; the pin
     { "id": 6, "tasks": ["6.1", "6.2", "6.3", "6.4"] },
     { "id": 7, "tasks": ["7.1", "7.2"] },
     { "id": 8, "tasks": ["8.1", "8.2", "8.3", "8.4"] },
-    { "id": 9, "tasks": ["9.1"] }
+    { "id": 9, "tasks": ["9.1", "9.2"] }
   ]
 }
 ```

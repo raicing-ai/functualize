@@ -193,6 +193,16 @@ and the settings document the table belongs in, so moving `[shell]` out of
 that writes `skill` gets the warning `_cli/pep723.py` already prints for any
 unknown key. Nothing else about script handling changes.
 
+*Deviation (2026-10-29):* the delivery for AC29 named `_cli/pep723.py` and its
+two test files, but not the user-facing page that documents the key
+(`docs/guides/hosting.md`) or the doc-verify scenario that executes that page
+(`examples/docs/scenarios/r-hosting-guide.toml`). The page was updated with
+the removal and the scenario was not, so it went on asserting the removed
+contract (`meta.skill`, no warning). It stayed green in every local run,
+because no row ran doc-verify, and failed in CI on the pull request.
+`tasks.md` row 9.2 reconciles the scenario with the page. The behaviour above
+is unchanged.
+
 ### 3.11 Delivery (M7 closed: (a))
 
 - **PR 1** carries everything in this spec.
