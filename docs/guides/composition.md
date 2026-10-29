@@ -6,6 +6,7 @@ them, because that is where the real questions are:
 - Does `Fingerprint` still fire if my job takes a `Log`?
 - Does `FromJob` deliver anything if the upstream was skipped as fresh?
 - Does a failing `Precondition` look like a crash to my CI?
+- Does a failing child look like a crash to my CI?
 - If I declare `Guards(status=...)` *and* `Fingerprint`, which one wins?
 - Where does the config for `def report(config: ReportConfig)` come from — and
   does changing it invalidate the cache?
@@ -40,6 +41,8 @@ Start here. Find the sentence that matches what you are trying to do.
 | Run an external command | `sh: Shell` | `lab probe` |
 | Retry a flaky *job* | `Exec(retry=Retry(attempts=N))` | `lab probe` |
 | Run the same work over N inputs | a driver job + `inv.parallel([...])` | `lab fanout` |
+| Stop when a child I invoked failed | `inv("child").raise_for_status()` — see §5.9 | — |
+| Use what a child emitted as data | `inv("child", capture=True)`, then `metadata["emitted"]` | — |
 | Keep a value for this invocation | `state: State` | `lab worker` |
 | Keep a value **across** runs | a file you own, or the runtime `FreshStore` — **not** `State` | `lab counter` |
 | Ask a human mid-run | `Gate(...)` in a `@workflow` — see [Workflows](workflows.md) | — |
@@ -317,6 +320,11 @@ A job's **return value is programmatic** — it feeds `FromJob` and `rc.invoke()
 and never reaches stdout on its own. `out.emit()` is the explicit path, and it
 is the one that honours `--emit-format`.
 
+That includes a child you invoke: its `out.emit()` reaches the caller's stdout,
+one document per call, unless the parent invokes it with `capture=True`. So a
+child's data reaches its parent in exactly two ways — its return value, and,
+under capture, what it emitted (`metadata["emitted"]` and `["writes"]`).
+
 ### 5.6 `generates` entries are globs, not literal paths
 
 `generates=["dist/*.whl"]` — the form the `@job` docstring itself advertises —
@@ -369,6 +377,33 @@ Note the **double** underscore: a group option is `GROUP__FIELD`, prefixed by
 the group it is declared on, while a job's own config field is `JOB_FIELD`.
 [Group Options](group-options.md) covers the rule and the same move from
 Python.
+
+### 5.9 A child you invoke returns a value, not a verdict
+
+`Deps` and `FromJob` compose **statuses**: a failed or refused upstream fails
+the dependent before its body runs (the matrix's "a refused dep fails the
+dependent"). `inv("child")` composes **values**: the child's `JobResult` comes
+back whatever happened, and the parent carries on unless it looks. So check it
+where you bind it:
+
+```python
+def release(inv: Invoke) -> None:
+    inv("build").raise_for_status()    # a failed build stops release here
+    inv("publish").raise_for_status()
+```
+
+`raise_for_status()` raises `JobFailedError` for every status except
+`SUCCESS`, `SKIPPED` and `BLOCKED`, and returns the result otherwise. Let it
+escape and the parent is honest about it: its own status is `FAILURE`, `func`
+exits **1**, and stderr names the child — `Error: JobFailedError: job 'build'
+did not succeed (Failure): RuntimeError: …`. One level further up, a
+grandparent that checks `release` raises a `JobFailedError` whose cause is
+`release`'s, which is caused by `build`'s error. Catch `JobFailedError` when
+the parent can do something better than fail. Leave the call unchecked only
+when you branch on `result.status` yourself.
+
+The reference, including `capture=True` and what it does to a child's
+`metadata`, is [`rc.invoke`](../api/context.md#job-invocation).
 
 ---
 

@@ -12,8 +12,23 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from functualize._types.descriptors import JobResult
     from functualize._types.gate_resolution import CandidateEvaluation
     from functualize._types.protocols import AgentCapability
+
+
+class JobFailedError(Exception):
+    """A checked job result whose status says the job did not succeed."""
+
+    def __init__(self, result: JobResult) -> None:
+        self.result = result
+        self.job_name = result.job_name
+        self.status = result.status
+        self.exception = result.exception
+        message = f"job '{self.job_name}' did not succeed ({self.status.value})"
+        if self.exception is not None:
+            message += f": {type(self.exception).__name__}: {self.exception}"
+        super().__init__(message)
 
 
 class RecursionLimitError(Exception):

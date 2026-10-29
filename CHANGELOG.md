@@ -51,6 +51,23 @@ declares its subject class in this form. `examples/standalone/job_classes_lab`
 is the runnable version, including a class job whose name collides with a
 function.
 
+### Added — checked child results and opt-in captured output
+`JobResult.raise_for_status()` returns the same result when the job did its
+work and otherwise raises `JobFailedError` carrying the child's result, name,
+status and underlying exception. The error is exported from
+`functualize.types`. An invoked child can now use `capture=True` to return its
+`Stdout.emit()` values and `Stdout.write()` payloads in the result's `emitted`
+and `writes` metadata tuples instead of writing them to stdout. Capture does
+not pass to grandchildren; an invocation without capture keeps its existing
+output and result behavior. Recorded in
+[ADR-036](contributor/adr/036-checked-invocation-and-capture.md).
+
+### Changed — invocation failure hooks follow the shared failure set
+`INVOKE_FAILURE` now fires for a child ending in `TIMEOUT`, `CANCELLED` or
+`UNKNOWN`, as well as `FAILURE` and `REFUSED`. Hook subscribers may receive
+these additional statuses. The checked result and `Invoke.parallel` use the
+same failure set.
+
 ### Added — gate answers are durable, evidenced, and delivered at least once
 A gate's question and every answer it collects are now first-class records on
 the selected store: the request carries the causal identity of the walk that
@@ -88,6 +105,18 @@ before. A workflow that declares an effecting step digests differently: a
 scope parked under the old digest is refused on resume with the existing
 graph-changed error, once, when the declaration first changes.
 Recorded in [ADR-035](contributor/adr/035-an-interrupted-effecting-step-stops-in-doubt.md).
+
+### Fixed — a fused resume input records on the runtime store and advances
+An expiry guard left over from the runtime-store cutover refused a fused
+`func builtin workflow resume <scope> --input '{...}'` on a project that
+selected the SQLite runtime store, answering `workflow_not_found` for a scope
+that exists. The documented contract — `answer` records; `resume` advances,
+the fused call doing both — now holds on every store: the fused input is
+recorded through the runtime input port (`OPEN -> ACCEPTED -> CONSUMED`) and
+the walk runs the remaining steps. The same fusion holds on the MCP
+`resume_workflow` tool. The `workflow_not_found` outcome for a present
+relational scope is gone by design; an unknown scope still returns it.
+
 ### Fixed — every shell surface prints the command you can type, and warns about a job-name collision
 A grouped job has a dotted identity (`suite.inventory`) and a command path
 (`suite inventory`). Several surfaces printed the identity where a person
