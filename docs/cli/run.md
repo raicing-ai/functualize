@@ -34,7 +34,8 @@ the run log covers everything, including jobs that never touch a graph.
 
 ```
 func builtin run list [--job NAME] [--surface DOOR] [--state STATE]
-                      [--scope SCOPE_ID] [--limit N] [--format table|json]
+                      [--scope SCOPE_ID] [--tag KEY:VALUE ...] [--limit N]
+                      [--format table|json]
 ```
 
 Newest first — the opposite of `workflow list`, and deliberately: a scope list
@@ -82,6 +83,53 @@ this process.
 > then, treat `abandoned` as "nothing has heard from this", not as "this is
 > dead".
 
+### Filtering by tag
+
+A **run tag** is a `key:value` label attached to a run when it starts — which
+harness launched it, which session, which bug it reproduces. `--tag` finds the
+runs that carry it:
+
+```bash
+func builtin run list --tag repro:bug-412 --tag attempt:3
+```
+
+```
+run-01M6316CWX94YJYNZZ5E0MG3WQ  nightly-build  success  func.job  16ms  attempt:3 repro:bug-412
+```
+
+- **Every `--tag` must match.** Two `--tag` options mean *and*: a run carrying
+  only one of them is not listed.
+- **Matching is exact and case-sensitive.** `--tag repro:Bug-412` does not match
+  `repro:bug-412`; no match prints `No matching runs.` and exits `0`. A
+  `--tag` that is not `key:value` is a usage error, exit `2`.
+- **`--limit` still comes last**, after the tag filter, like every other filter.
+- In the table, a run's tags come **last**, sorted by key and separated by
+  spaces. An untagged run's line is exactly what it was before tags existed.
+  `run show` prints them on a `run_tags:` line, `-` when there are none.
+
+A run gets its tags from three places, merged per key, a later source winning:
+
+1. `[run] tags = ["host:laptop"]` in your global config
+   (`~/.config/functualize/config.toml`);
+2. `FUNCTUALIZE_RUN_TAGS="harness:claude,model:opus"` in the environment —
+   comma-separated, blank items skipped;
+3. `--run-tag KEY:VALUE` before the job name, repeatable:
+   `func --run-tag harness:claude nightly-build`. `builtin` commands start no
+   run and refuse it: `Error: No such option '--run-tag'.`
+
+A key given twice in one source is refused, naming that source; a malformed
+tag stops the command with exit `2` before any job runs. A run started from
+inside a job — a workflow step, a dependency, an `rc.invoke` child — carries an
+exact copy of its parent's tags. Tags never reach the job itself: they are not
+arguments, not part of the cache key, and not visible on `RunContext`.
+
+> **Tags are stored in plain text — never put a secret in one.** They are
+> written to the run log and shown by `run list`, `run show`, `--format json`
+> and the MCP tools.
+
+A run's tags are not its job's declared `@job(tags=[...])`: those describe the
+job and are reported by `func builtin info jobs`; `--tag` never matches them.
+
 ## `func builtin run show`
 
 ```
@@ -115,6 +163,13 @@ test asserts the CLI's JSON equals it.
 func builtin run list --format json | jq '.runs[] | select(.duration_ms > 1000)'
 ```
 
+Every row carries `run_tags`, the run's tags as an object — `{}` for a run with
+none, including runs recorded before tags existed:
+
+```bash
+func builtin run list --format json | jq '.runs[] | select(.run_tags.harness == "claude")'
+```
+
 ## MCP
 
 Verb for verb, for an agent rather than a terminal:
@@ -124,3 +179,6 @@ Verb for verb, for an agent rather than a terminal:
 | `run list` | `list_runs` |
 | `run show` | `get_run` (`tree=true` for the nested form) |
 | `run show --events` | `get_run_events` |
+
+Each run the tools return carries `run_tags`, because they return the same
+projection. They take no tag input: `list_runs` has no tag filter.
