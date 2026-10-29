@@ -137,7 +137,7 @@ with `ValueError`, beside the existing empty-name refusal, because the decision
 key already uses NUL as its separator.
 
 Recorded in
-[ADR-034](contributor/adr/034-operator-surfaces-read-decision-records-in-bulk.md),
+[ADR-038](contributor/adr/038-operator-surfaces-read-decision-records-in-bulk.md),
 which links ADR-033 (a walk's scope I/O goes through the selected store) and
 ADR-025 (the engine owns what a transition means).
 

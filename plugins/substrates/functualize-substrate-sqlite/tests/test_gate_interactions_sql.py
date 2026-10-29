@@ -1,4 +1,4 @@
-"""Gate interactions on the relational schema (revision 0003).
+"""Gate interactions on the relational schema (revision 0004).
 
 Gates: evidence is an ``artifact_refs`` row — a reference and a digest, never
 bytes; a decision lives in ``input_decisions`` with its observations in
