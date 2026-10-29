@@ -12,18 +12,17 @@ The recorder is a translator, not a writer. It holds no transaction because
 it cannot: a ``RuntimeTransaction`` surrounds one short transition and
 commits on exit, while a recorder outlives them all. The executor opens the
 transaction and issues what these methods return —
-``tx.runs.start_attempt(recorder.started(...))`` — which is T11's wiring,
-not this module's.
+``tx.runs.start_attempt(recorder.started(...))``.
 
 Mapping sources: the command shapes are the port's own
 (``_types/persistence.py``), and the two moments are the lifecycle's own — a
-run starts, an attempt finishes. Nothing constructs these values anywhere in
-the tree yet, so the mapping is derived from the contract, not copied from a
-call site.
+run starts, an attempt finishes. The engine supplies the identity minted by
+the run log when it mirrors the transition to a relational store.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -41,6 +40,8 @@ class RunRecorder:
         job: str,
         surface: str,
         now: datetime,
+        run_id: str | None = None,
+        run_tags: Mapping[str, str] | None = None,
         scope_id: str | None = None,
         parent_run_id: str | None = None,
         invoke_depth: int = 0,
@@ -49,14 +50,15 @@ class RunRecorder:
         """A run is opening — one transition that inserts the run and its
         first attempt.
 
-        The store mints the identity, and ``args_hash`` is a hash, never the
-        arguments: both are ``StartAttempt``'s own contract, restated here
-        only so a caller of the moment does not have to re-read it.
+        The store mints an identity unless the run log already supplied one.
+        ``args_hash`` is a hash, never the arguments.
         """
         return StartAttempt(
             job=job,
             surface=surface,
             now=now,
+            run_id=run_id,
+            run_tags=dict(run_tags or {}),
             scope_id=scope_id,
             parent_run_id=parent_run_id,
             invoke_depth=invoke_depth,

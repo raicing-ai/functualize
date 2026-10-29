@@ -31,6 +31,10 @@ def test_parse_tag_splits_only_first_colon() -> None:
             "--run-tag 'model: opus': a run tag cannot contain whitespace.",
         ),
         (
+            "k:a,b",
+            "--run-tag 'k:a,b': a run tag value cannot contain ','.",
+        ),
+        (
             "Model:opus",
             "--run-tag 'Model:opus': a run tag key uses a-z, 0-9, '.', '_' and '-'.",
         ),

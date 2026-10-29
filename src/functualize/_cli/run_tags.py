@@ -29,6 +29,8 @@ def parse_tag(text: str, *, where: str) -> tuple[str, str]:
         raise RunTagError(f"{prefix} a run tag needs a value after ':'.")
     if any(char.isspace() for char in text):
         raise RunTagError(f"{prefix} a run tag cannot contain whitespace.")
+    if "," in value:
+        raise RunTagError(f"{prefix} a run tag value cannot contain ','.")
     if TAG_KEY_RE.fullmatch(key) is None:
         raise RunTagError(f"{prefix} a run tag key uses a-z, 0-9, '.', '_' and '-'.")
     if len(value) > MAX_VALUE_LEN:

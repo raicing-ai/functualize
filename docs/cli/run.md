@@ -105,7 +105,8 @@ run-01M6316CWX94YJYNZZ5E0MG3WQ  nightly-build  success  func.job  16ms  attempt:
 - **`--limit` still comes last**, after the tag filter, like every other filter.
 - In the table, a run's tags come **last**, sorted by key and separated by
   spaces. An untagged run's line is exactly what it was before tags existed.
-  `run show` prints them on a `run_tags:` line, `-` when there are none.
+  `run show` prints nonempty tags on a `run_tags:` line after `parent_run_id`
+  when that field is present. Untagged runs have no tag line.
 
 A run gets its tags from three places, merged per key, a later source winning:
 

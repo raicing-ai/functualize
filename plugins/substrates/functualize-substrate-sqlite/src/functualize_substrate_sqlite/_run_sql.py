@@ -85,10 +85,9 @@ class SqlRunWriter:
         self._tx = tx
 
     def start_attempt(self, cmd: StartAttempt) -> None:
-        """Open the run and attempt 1. The store mints the run id; the port
-        hands nothing back, as on the document store."""
+        """Open the run and attempt 1, using a supplied run-log id when present."""
         tx = self._tx
-        run_id = new_run_id()
+        run_id = cmd.run_id or new_run_id()
         run_status = require_transition(RUN, None, "running")
         attempt_status = require_transition(ATTEMPT, None, "running")
         tx.stage(

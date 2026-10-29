@@ -193,12 +193,18 @@ def test_run_show_reports_tags_in_text_and_json(
 ) -> None:
     app = _App(elsewhere)
     RunStore(elsewhere).open_run(
-        {"run_id": "run-0002", "job": "collect", "run_tags": {"repro": "bug-412"}}
+        {
+            "run_id": "run-0002",
+            "job": "collect",
+            "parent_run_id": "root",
+            "run_tags": {"repro": "bug-412"},
+        }
     )
     text = _run(["run", "show", "run-0002"], app=app)
     assert text.exit_code == 0, text.output
     assert "run_tags: repro:bug-412\n" in text.output
-    assert "run_tags: -\n" in _run(["run", "show", "run-0001"], app=app).output
+    assert text.output.index("parent_run_id: root") < text.output.index("run_tags:")
+    assert "run_tags:" not in _run(["run", "show", "run-0001"], app=app).output
     payload = json.loads(
         _run(["run", "show", "run-0002", "--format", "json"], app=app).output
     )
@@ -209,6 +215,12 @@ def test_run_list_refuses_malformed_tag(elsewhere: JsonFileSubstrate) -> None:
     result = _run(["run", "list", "--tag", "missing-colon"], app=_App(elsewhere))
     assert result.exit_code == 2
     assert "Error: --tag 'missing-colon':" in result.output
+
+
+def test_run_list_refuses_comma_in_tag_value(elsewhere: JsonFileSubstrate) -> None:
+    result = _run(["run", "list", "--tag", "k:a,b"], app=_App(elsewhere))
+    assert result.exit_code == 2
+    assert "a run tag value cannot contain ','" in result.output
 
 
 def test_job_tags_do_not_become_run_tags(cli_run, project_tree) -> None:

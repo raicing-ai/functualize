@@ -964,15 +964,20 @@ show`). Rationale in
 - **A tag filter is exact, conjunctive, and runs before the limit**, on both
   stores and in the projection; the conformance BASELINE's
   `run_tags_round_trip` holds every store to it.
+- **`run show` keeps untagged text output unchanged.** A nonempty tag map is
+  printed after `parent_run_id` when that field is present; an empty map has
+  no tag line. This follows the external run-view contract. The archived
+  implementation task's instruction to print `run_tags: -` was inconsistent
+  with that contract and is superseded here.
 - **Only the `func` CLI accepts tags.** HTTP, Lambda and MCP take no tag input
   and the TUI starts untagged runs; a job's declared `@job(tags=[...])` is a
   separate vocabulary that `--tag` never matches.
 
-**Known limitations.** The engine writes runs to the run log, never through
-the runtime store's `start_attempt`, so the relational `runs`/`run_tags` pair
-has no production writer until the run recorder is wired; `run_tags_lookup`
-does not serve `recent()`'s correlated probe (the primary key does); and the
-document-to-SQLite importer does not copy tags.
+**Known limitations.** The engine mirrors run starts and terminal attempts
+from the run log to a selected relational runtime store using the same run id;
+the document runtime store already shares the log and needs no second write.
+`run_tags_lookup` does not serve `recent()`'s correlated probe (the primary
+key does), and the document-to-SQLite importer does not copy tags.
 
 Pinned by `tests/cli/test_run_tags.py` (the grammar), `tests/cli/test_run_tags_pre_boot.py`
 and `tests/cli/test_run_tags_layers.py` (merge, refusals, every door),

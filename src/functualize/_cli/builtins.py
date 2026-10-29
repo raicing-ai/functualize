@@ -2025,15 +2025,16 @@ def register_builtin_commands(cli_group: Any) -> None:
             return
         for key in ("run_id", "job", "state", "surface", "started_at", "ended_at"):
             click.echo(f"{key}: {payload.get(key)}")
-        run_tags = payload["run_tags"]
-        tags_text = " ".join(f"{key}:{run_tags[key]}" for key in sorted(run_tags))
-        click.echo(f"run_tags: {tags_text or '-'}")
         if payload.get("duration_ms") is not None:
             click.echo(f"duration_ms: {payload['duration_ms']:.0f}")
         if payload.get("scope_id"):
             click.echo(f"scope_id: {payload['scope_id']}")
         if payload.get("parent_run_id"):
             click.echo(f"parent_run_id: {payload['parent_run_id']}")
+        run_tags = payload["run_tags"]
+        if run_tags:
+            tags_text = " ".join(f"{key}:{run_tags[key]}" for key in sorted(run_tags))
+            click.echo(f"run_tags: {tags_text}")
         if events:
             click.echo(f"events: {len(payload.get('events') or [])}")
             for event in payload.get("events") or []:

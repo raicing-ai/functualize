@@ -504,8 +504,10 @@ class StartAttempt:
     job body, a run is the logical unit the user asked for, and a retry
     inserts the next attempt rather than overwriting — which is what makes
     "how many times did this fail before it worked" answerable. The store
-    mints the run and attempt identity; this port does not hand it back, since
-    every writer but ``claim`` returns ``None`` (``contracts.md`` §1.3).
+    mints the run and attempt identity when ``run_id`` is absent. The engine
+    supplies its run-log identity when it also records the relational run.
+    This port does not hand the identity back: every writer but ``claim``
+    returns ``None`` (``contracts.md`` §1.3).
     """
 
     job: str
@@ -517,6 +519,7 @@ class StartAttempt:
     #: A hash of the arguments, never the arguments.
     args_hash: str | None = None
     run_tags: Mapping[str, str] = field(default_factory=dict)
+    run_id: str | None = None
 
 
 @dataclass(frozen=True)

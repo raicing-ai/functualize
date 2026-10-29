@@ -21,6 +21,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import types
@@ -359,6 +360,37 @@ def _func(
 class TestARealProcess:
     """The same contract through a real `func` process, not `main()` in-process."""
 
+    @pytest.mark.parametrize("source", ["flag", "env", "config"])
+    def test_comma_value_is_refused_before_job_import(
+        self, source: str, project_tree, tmp_path: Path, xdg_dirs
+    ) -> None:
+        project = _release_project(project_tree, tmp_path)
+        env = {
+            **os.environ,
+            "HOME": str(xdg_dirs.home),
+            "XDG_CONFIG_HOME": str(xdg_dirs.config),
+            "XDG_CACHE_HOME": str(xdg_dirs.cache),
+            "XDG_DATA_HOME": str(xdg_dirs.data),
+        }
+        args = ["release"]
+        if source == "flag":
+            args[:0] = ["--run-tag", "k:a,b"]
+        elif source == "env":
+            env["FUNCTUALIZE_RUN_TAGS"] = "k:a,b"
+        else:
+            xdg_dirs.functualize_config.mkdir(parents=True)
+            (xdg_dirs.functualize_config / "config.toml").write_text(
+                '[run]\ntags = ["k:a,b"]\n'
+            )
+
+        result = _func(project.root, env, *args)
+        assert result.returncode == 2, result.stderr
+        if source == "env":
+            assert "Error: FUNCTUALIZE_RUN_TAGS" in result.stderr
+        else:
+            assert "a run tag value cannot contain ','" in result.stderr
+        assert not project.imported.exists()
+
     def test_flag_tags_the_run_and_a_bad_env_blocks_builtin_info(
         self, project_tree, tmp_path: Path, xdg_dirs
     ) -> None:
@@ -384,3 +416,35 @@ class TestARealProcess:
             "Error: FUNCTUALIZE_RUN_TAGS gives run tag key 's' twice "
             "(items 1 and 2)." in blocked.stderr
         )
+
+    def test_tagged_run_writes_relational_run_and_tags(
+        self, project_tree, tmp_path: Path, xdg_dirs
+    ) -> None:
+        """The installed CLI reaches the SQLite run writer through the engine."""
+        project = _release_project(project_tree, tmp_path)
+        database = project.root / "state.db"
+        (project.root / "config.base.toml").write_text(
+            f'[runtime_store]\nurl = "sqlite://{database}"\n'
+        )
+        env = {
+            **os.environ,
+            "HOME": str(xdg_dirs.home),
+            "XDG_CONFIG_HOME": str(xdg_dirs.config),
+            "XDG_CACHE_HOME": str(xdg_dirs.cache),
+            "XDG_DATA_HOME": str(xdg_dirs.data),
+        }
+
+        result = _func(project.root, env, "--run-tag", "harness:claude", "release")
+        assert result.returncode == 0, result.stderr
+        assert database.exists()
+        listed = _func(project.root, env, "builtin", "run", "list", "--format", "json")
+        assert listed.returncode == 0, listed.stderr
+        [record] = json.loads(listed.stdout)["runs"]
+        run_id = record["run_id"]
+        assert record["run_tags"] == {"harness": "claude"}
+        with sqlite3.connect(database) as connection:
+            rows = connection.execute(
+                "SELECT runs.id, runs.job, runs.status, run_tags.key, run_tags.value "
+                "FROM runs JOIN run_tags ON run_tags.run_id = runs.id"
+            ).fetchall()
+        assert rows == [(run_id, "release", "success", "harness", "claude")]

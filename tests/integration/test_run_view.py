@@ -99,7 +99,7 @@ class TestDocumentRuntimeRunTags:
         assert matches[0].run_tags == {"host": "laptop", "tier": "2"}
         assert reader.recent(RunQuery(tags=(("host", "Laptop"),))) == ()
 
-    def test_sparse_tag_filter_uses_overread_headroom(self) -> None:
+    def test_sparse_tag_filter_returns_limited_matches(self) -> None:
         store = _store()
         with store.batch():
             for _ in range(170):
@@ -121,6 +121,30 @@ class TestDocumentRuntimeRunTags:
             RunQuery(tags=(("match", "yes"),), limit=2)
         )
         assert [view.run_id for view in matches] == tagged_ids[-1:-3:-1]
+
+    def test_tag_filter_reaches_beyond_previous_candidate_cap(self) -> None:
+        store = _store()
+        with store.batch():
+            tagged_id = store.open_run(
+                {
+                    "job": "sparse",
+                    "surface": "app.execute",
+                    "run_tags": {"match": "yes"},
+                }
+            )
+            for _ in range(70):
+                store.open_run({"job": "sparse", "surface": "app.execute"})
+
+        matches = DocumentRuntimeStore(store.substrate).runs.recent(
+            RunQuery(tags=(("match", "yes"),), limit=2)
+        )
+        assert [view.run_id for view in matches] == [tagged_id]
+        assert (
+            DocumentRuntimeStore(store.substrate).runs.recent(
+                RunQuery(tags=(("match", "yes"),), limit=0)
+            )
+            == ()
+        )
 
     def test_scope_record_has_no_run_tags_while_its_runs_do(
         self, app: FunctualizeApp

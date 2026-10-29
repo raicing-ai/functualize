@@ -283,13 +283,16 @@ class RunStore:
         runs = self._read().get("runs")
         return sorted(runs) if isinstance(runs, dict) else []
 
-    def recent_runs(self, limit: int = 20) -> list[dict[str, Any]]:
-        """The newest ``limit`` runs, newest first, each with its id."""
+    def recent_runs(self, limit: int | None = 20) -> list[dict[str, Any]]:
+        """The newest ``limit`` runs, or all runs when None, newest first."""
         runs = self._read().get("runs")
         if not isinstance(runs, dict):
             return []
         out = []
-        for run_id in sorted(runs, reverse=True)[: max(0, limit)]:
+        run_ids = sorted(runs, reverse=True)
+        if limit is not None:
+            run_ids = run_ids[: max(0, limit)]
+        for run_id in run_ids:
             entry = runs[run_id]
             if isinstance(entry, dict):
                 out.append({"run_id": run_id, **entry})
