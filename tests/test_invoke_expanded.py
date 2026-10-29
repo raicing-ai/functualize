@@ -35,8 +35,10 @@ from pydantic import BaseModel
 
 from functualize._engine.errors import JobNotFoundError
 from functualize._engine.result import JobResult, RegisteredJob
+from functualize._events.hooks import HookEvent
 from functualize._types.enums import RunStatus
 from functualize.job._invoke import Invoke
+from functualize.types import JobFailedError
 
 if TYPE_CHECKING:
     from functualize.types import RunRequest
@@ -924,3 +926,136 @@ class TestParallelFailurePolicy:
 
         assert invoke_cap.parallel([], raise_on_failure=False) == []
         assert len(invoke_cap.parallel([("ok", {})] * 32)) == 32
+
+
+# =============================================================================
+# The checked lane: one predicate behind the hook, parallel and the result
+# =============================================================================
+
+
+class TestCheckedLane:
+    """A child invoked through `WiredInvoke` can be checked where it is bound.
+
+    `raise_for_status()`, the `INVOKE_FAILURE` hook and `parallel`'s
+    `raise_on_failure` give one answer for every status: they used to be three
+    predicates, and a timed-out child fired the parent's check but not the hook.
+    """
+
+    @staticmethod
+    def _invoke(*names: str):
+        return _make_wired_invoke(
+            {
+                name: RegisteredJob(
+                    name=name,
+                    function=lambda rc: None,
+                    config_class=None,
+                    group=None,
+                    module_path="test",
+                    job_directory=None,
+                )
+                for name in names
+            }
+        )
+
+    def test_a_failing_child_raises_with_its_identity(self) -> None:
+        invoke_cap, engine = self._invoke("boom")
+        cause = RuntimeError("boom failed")
+        engine.run.return_value = JobResult(
+            status=RunStatus.FAILURE,
+            duration_ms=1.0,
+            return_value=None,
+            exception=cause,
+            job_name="boom",
+        )
+
+        result = invoke_cap("boom")
+        with pytest.raises(JobFailedError) as error:
+            result.raise_for_status()
+
+        assert error.value.result is result
+        assert error.value.job_name == "boom"
+        assert error.value.status is RunStatus.FAILURE
+        assert error.value.exception is cause
+        assert error.value.__cause__ is cause
+
+    def test_a_timed_out_child_raises_with_its_identity(self) -> None:
+        invoke_cap, engine = self._invoke("slow")
+        release = Event()
+
+        def run(request: RunRequest) -> JobResult:
+            release.wait(2)
+            return JobResult(
+                status=RunStatus.SUCCESS,
+                duration_ms=1.0,
+                return_value=None,
+                exception=None,
+                job_name=request.job_name,
+            )
+
+        engine.run.side_effect = run
+        try:
+            result = invoke_cap("slow", timeout=0.1)
+        finally:
+            release.set()
+
+        with pytest.raises(JobFailedError) as error:
+            result.raise_for_status()
+
+        assert result.status is RunStatus.TIMEOUT
+        assert error.value.result is result
+        assert error.value.job_name == "slow"
+        assert error.value.status is RunStatus.TIMEOUT
+        assert isinstance(error.value.exception, TimeoutError)
+        assert error.value.__cause__ is result.exception
+
+    def test_a_passing_child_returns_itself(self) -> None:
+        invoke_cap, engine = self._invoke("ok")
+        engine.run.return_value = JobResult(
+            status=RunStatus.SUCCESS,
+            duration_ms=1.0,
+            return_value=42,
+            exception=None,
+            job_name="ok",
+        )
+
+        result = invoke_cap("ok")
+
+        assert result.raise_for_status() is result
+
+    @pytest.mark.parametrize("status", list(RunStatus), ids=lambda s: s.name)
+    def test_one_predicate(self, status: RunStatus) -> None:
+        """Hook fired ⇔ `raise_for_status()` raises ⇔ `parallel` counts it failed."""
+        invoke_cap, engine = self._invoke("child")
+        fired: list[RunStatus] = []
+        engine._hook_registry._global_hooks = {
+            HookEvent.INVOKE_FAILURE: [
+                lambda rc, name, depth, result: fired.append(result.status)
+            ]
+        }
+        engine.run.side_effect = lambda request: JobResult(
+            status=status,
+            duration_ms=1.0,
+            return_value=None,
+            exception=None,
+            job_name=request.job_name,
+        )
+
+        result = invoke_cap("child")
+        hook_fired = fired == [status]
+        assert fired in ([], [status])
+
+        try:
+            result.raise_for_status()
+        except JobFailedError:
+            check_raised = True
+        else:
+            check_raised = False
+
+        try:
+            invoke_cap.parallel([("child", {})])
+        except RuntimeError:
+            parallel_failed = True
+        else:
+            parallel_failed = False
+
+        assert hook_fired == check_raised == parallel_failed

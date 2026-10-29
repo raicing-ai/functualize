@@ -41,6 +41,10 @@ _SRC = Path(__file__).resolve().parents[2] / "src" / "functualize"
 #: `test_every_allowlisted_module_still_has_one` is what noticed, which is what
 #: that test is for — an exemption outliving the code it was argued about is a
 #: hole nobody can see.
+#:
+#: `_engine/capabilities/invoke.py` went the same way: its last literal, the
+#: `INVOKE_FAILURE` hook's `(FAILURE, REFUSED)`, became `_child_failed`, which
+#: asks `is_failure(status, family=Family.TOOL)` like `parallel` already did.
 _ALLOWED: dict[str, str] = {
     "_types/outcome.py": "the authority itself",
     # Both of these were `_engine/executor.py` until
@@ -66,12 +70,6 @@ _ALLOWED: dict[str, str] = {
         "failure question. It is the *authority* for that question, the way "
         "`outcome.py` is for the delivery one: `_engine/capabilities/` had two "
         "copies of it that disagreed about REFUSED (roa A2)"
-    ),
-    "_engine/capabilities/invoke.py": (
-        "graph edges: whether an invoked dependency counts as satisfied. The "
-        "*delivery* set that used to live here — the one that decided the "
-        "`::error::` annotation — moved to `_cli/parallel_output.py`, which is "
-        "the surface that renders it"
     ),
 }
 

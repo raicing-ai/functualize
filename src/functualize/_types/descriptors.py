@@ -1,8 +1,8 @@
 """Frozen dataclass definitions for the functualize shared vocabulary.
 
 Contains JobDescriptor, FieldDescriptor, JobResult, and CacheInfo — the
-core data transfer objects used across all internal layers. Zero imports
-from any _-prefixed internal package. Only stdlib imports.
+core data transfer objects used across all internal layers. Imports from
+within ``_types`` are allowed; peer layers are not.
 """
 
 from __future__ import annotations
@@ -12,10 +12,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 from functualize._types.enums import ConfigFileRole
+from functualize._types.errors import JobFailedError
 from functualize._types.naming import CommandPath
+from functualize._types.outcome import Family, is_failure
 
 if TYPE_CHECKING:
     from functualize._types.enums import RunStatus
@@ -491,6 +493,16 @@ class JobResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     exception: BaseException | None = field(default=None, compare=False, hash=False)
     job_name: str = ""
+
+    def raise_for_status(self) -> Self:
+        """Return this result when its job did its work; raise otherwise.
+
+        The tool outcome family treats SUCCESS, SKIPPED and BLOCKED as
+        non-failures. Other statuses raise an error carrying this result.
+        """
+        if is_failure(self.status, family=Family.TOOL):
+            raise JobFailedError(self) from self.exception
+        return self
 
 
 @dataclass(frozen=True)

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — checked child results and opt-in captured output
+`JobResult.raise_for_status()` returns the same result when the job did its
+work and otherwise raises `JobFailedError` carrying the child's result, name,
+status and underlying exception. The error is exported from
+`functualize.types`. An invoked child can now use `capture=True` to return its
+`Stdout.emit()` values and `Stdout.write()` payloads in the result's `emitted`
+and `writes` metadata tuples instead of writing them to stdout. Capture does
+not pass to grandchildren; an invocation without capture keeps its existing
+output and result behavior. Recorded in
+[ADR-036](contributor/adr/036-checked-invocation-and-capture.md).
+
+### Changed — invocation failure hooks follow the shared failure set
+`INVOKE_FAILURE` now fires for a child ending in `TIMEOUT`, `CANCELLED` or
+`UNKNOWN`, as well as `FAILURE` and `REFUSED`. Hook subscribers may receive
+these additional statuses. The checked result and `Invoke.parallel` use the
+same failure set.
+
 ### Added — gate answers are durable, evidenced, and delivered at least once
 A gate's question and every answer it collects are now first-class records on
 the selected store: the request carries the causal identity of the walk that
