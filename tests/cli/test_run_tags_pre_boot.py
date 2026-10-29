@@ -197,8 +197,8 @@ _REFUSED = [
         None,
         "tier:2,bad",
         None,
-        "FUNCTUALIZE_RUN_TAGS item 2 'bad': a run tag is key:value (missing ':').",
-        id="env-missing-colon",
+        "FUNCTUALIZE_RUN_TAGS item 1 'tier:2,bad': a run tag value cannot contain ','.",
+        id="env-colonless-tail",
     ),
     pytest.param(
         None,
@@ -385,10 +385,9 @@ class TestARealProcess:
 
         result = _func(project.root, env, *args)
         assert result.returncode == 2, result.stderr
+        assert "a run tag value cannot contain ','" in result.stderr
         if source == "env":
-            assert "Error: FUNCTUALIZE_RUN_TAGS" in result.stderr
-        else:
-            assert "a run tag value cannot contain ','" in result.stderr
+            assert "FUNCTUALIZE_RUN_TAGS item 1 'k:a,b'" in result.stderr
         assert not project.imported.exists()
 
     def test_flag_tags_the_run_and_a_bad_env_blocks_builtin_info(

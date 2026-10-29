@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from functualize._cli.run_tags import RunTagError, parse_env
 from tests.conftest import surfaces
 
 pytestmark = surfaces("func")
@@ -36,6 +37,32 @@ def _records(*roots: Path) -> list[dict[str, Any]]:
 def _write_config(xdg_dirs: Any, text: str) -> None:
     xdg_dirs.functualize_config.mkdir(parents=True, exist_ok=True)
     (xdg_dirs.functualize_config / "config.toml").write_text(text)
+
+
+def test_env_comma_tail_is_refused_as_a_value() -> None:
+    with pytest.raises(RunTagError) as error:
+        parse_env("note:a,b")
+    assert str(error.value) == (
+        "FUNCTUALIZE_RUN_TAGS item 1 'note:a,b': a run tag value cannot contain ','."
+    )
+
+
+def test_env_space_after_comma_still_separates_tags(
+    cli_run, project_tree, xdg_dirs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FUNCTUALIZE_RUN_TAGS", "harness:claude, model:opus")
+    root = project_tree(jobs=_JOB)
+
+    result = cli_run(["release"], cwd=root)
+
+    assert result.exit_code == 0, result.stderr
+    assert [record["run_tags"] for record in _records(root, xdg_dirs.cache)] == [
+        {"harness": "claude", "model": "opus"}
+    ]
+    assert parse_env("") == {}
+    assert parse_env(" , ") == {}
+    with pytest.raises(RunTagError, match="missing ':'"):
+        parse_env("missing-colon")
 
 
 class TestThreeLayersMerge:

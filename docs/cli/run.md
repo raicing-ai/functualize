@@ -113,7 +113,10 @@ A run gets its tags from three places, merged per key, a later source winning:
 1. `[run] tags = ["host:laptop"]` in your global config
    (`~/.config/functualize/config.toml`);
 2. `FUNCTUALIZE_RUN_TAGS="harness:claude,model:opus"` in the environment —
-   comma-separated, blank items skipped;
+   comma-separated, surrounding spaces trimmed, blank items skipped. A
+   nonempty piece without `:` after a valid tag is refused as a comma in that
+   preceding tag's value, since it cannot be distinguished from a missing
+   colon in the next tag; a piece with `:` starts a new tag;
 3. `--run-tag KEY:VALUE` before the job name, repeatable:
    `func --run-tag harness:claude nightly-build`. `builtin` commands start no
    run and refuse it: `Error: No such option '--run-tag'.`

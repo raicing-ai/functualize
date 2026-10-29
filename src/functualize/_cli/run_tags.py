@@ -40,11 +40,20 @@ def parse_tag(text: str, *, where: str) -> tuple[str, str]:
     return key, value
 
 
-def _parse_items(items: Sequence[str], *, where: str) -> dict[str, str]:
+def _parse_items(
+    items: Sequence[str], *, where: str, comma_split: bool = False
+) -> dict[str, str]:
     parsed: dict[str, str] = {}
     first_positions: dict[str, int] = {}
     first_items: dict[str, str] = {}
+    previous_item: str | None = None
     for position, item in enumerate(items, 1):
+        if comma_split and previous_item is not None and ":" not in item:
+            combined = f"{previous_item},{item}"
+            raise RunTagError(
+                f"{where} item {position - 1} '{combined}': "
+                "a run tag value cannot contain ','."
+            )
         key, value = parse_tag(
             item, where=f"{where} item {position}" if where != "--run-tag" else where
         )
@@ -61,6 +70,7 @@ def _parse_items(items: Sequence[str], *, where: str) -> dict[str, str]:
         parsed[key] = value
         first_positions[key] = position
         first_items[key] = item
+        previous_item = item
     return parsed
 
 
@@ -69,7 +79,11 @@ def parse_env(raw: str) -> dict[str, str]:
     if not isinstance(raw, str):
         raise RunTagError("FUNCTUALIZE_RUN_TAGS must be a string.")
     items = [item.strip() for item in raw.split(",")]
-    return _parse_items([item for item in items if item], where="FUNCTUALIZE_RUN_TAGS")
+    return _parse_items(
+        [item for item in items if item],
+        where="FUNCTUALIZE_RUN_TAGS",
+        comma_split=True,
+    )
 
 
 def parse_config_list(items: object) -> dict[str, str]:
