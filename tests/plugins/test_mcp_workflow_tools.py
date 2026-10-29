@@ -155,8 +155,16 @@ async def test_sqlite_operator_tools_use_the_selected_runtime_store() -> None:
     )
 
 
-async def test_sqlite_resume_with_gate_input_returns_a_clean_error() -> None:
-    app = _gated_app(sqlite=True)
+async def test_sqlite_resume_with_gate_input_answers_and_advances() -> None:
+    """Fused ``resume_workflow`` input records through the port and advances.
+
+    The relational CLI twin (``test_resume_with_fused_input_answers_and_advances``
+    in ``tests/cli/test_workflow_answer_relational.py``) pins the same contract
+    over the CLI surface; here the scope lives in the runtime store, and the
+    fused call must record there too -- never in the scope document.
+    """
+    calls: list[str] = []
+    app = _gated_app(calls, sqlite=True)
     app.execute(
         RunRequest(
             job_name="trip_planner",
@@ -164,18 +172,25 @@ async def test_sqlite_resume_with_gate_input_returns_a_clean_error() -> None:
             workflow_scope_id="sql-run",
         )
     )
+    store = app.workflow_runtime_store()
+    request = store.inputs.for_gate("sql-run", "preferences")
+    assert request is not None and request.status == "open"
+    assert store.inputs.decision(request.request_id) is None
+    assert _store().get_scope("sql-run") is None
+    calls.clear()  # only the remaining steps are the fused call's business
 
     result = await WorkflowToolProvider(app)._resume_workflow(
         "sql-run", {"budget": "high"}
     )
 
-    assert result == {
-        "error": "workflow_not_found",
-        "message": "No workflow scope 'sql-run'.",
-    }
-    assert (
-        app.workflow_runtime_store().workflows.workflow("sql-run").status == "blocked"
-    )
+    assert result["status"] == "success"
+    assert result["return_value"] == "itinerary"
+    assert calls == ["travel_plan", "body"]
+    consumed = store.inputs.request(request.request_id)
+    assert consumed is not None and consumed.status == "consumed"
+    assert store.inputs.decision(request.request_id) is not None
+    assert _store().get_scope("sql-run") is None
+    assert store.workflows.workflow("sql-run").status == "completed"
 
 
 class TestGetWorkflowState:

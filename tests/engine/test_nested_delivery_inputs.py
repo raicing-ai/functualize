@@ -24,6 +24,7 @@ from types import MappingProxyType
 import pytest
 
 from functualize._types.run_request import (
+    EmissionRecord,
     RunRequest,
     nested_request,
     request_from_envelope,
@@ -86,6 +87,37 @@ class TestEverythingElseResets:
         assert child.workflow_scope_id == "scope-1"
         assert child.run_dependencies is False
         assert child.output_format == "none", "stating one field must not drop the rest"
+
+    def test_capture_resets(self) -> None:
+        """Capture belongs to the invocation that asked for it (B7)."""
+        parent = _parent(capture=EmissionRecord(emitted=["one"], writes=["x"]))
+        child = nested_request(parent, job_name="child", surface="invoke")
+
+        assert child.capture is None
+
+    def test_a_site_that_states_capture_keeps_it(self) -> None:
+        """The invoke wiring hands the child its own record, and says so."""
+        record = EmissionRecord()
+        child = nested_request(
+            _parent(),
+            job_name="child",
+            surface="invoke",
+            capture=record,
+        )
+
+        assert child.capture is record
+        assert child.output_format == "none", "stating one field must not drop the rest"
+
+
+class TestCaptureStaysOutOfIdentity:
+    """A live collector on a value object is not part of its identity (S1)."""
+
+    def test_differing_only_in_capture_compare_equal_and_hash_equal(self) -> None:
+        left = _parent(capture=EmissionRecord(emitted=["one"]))
+        right = _parent(capture=EmissionRecord())
+
+        assert left == right
+        assert hash(left) == hash(right)
 
 
 class TestNoParent:
