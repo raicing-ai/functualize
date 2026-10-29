@@ -14,6 +14,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from fastmcp import FastMCP
 from functualize_mcp._workflow_tools import WorkflowToolProvider
 from functualize_substrate_sqlite import SQLiteSubstratePlugin
 from pydantic import BaseModel
@@ -22,7 +23,7 @@ from functualize._app.state import AppState
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app._workflow_view import _topology
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import ScopeStore
+from functualize.app.utils import RunStore, ScopeStore
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
@@ -886,6 +887,34 @@ class TestCancelWorkflow:
 
 
 class TestRegistration:
+    async def test_list_runs_projects_tags_without_a_tag_input(self) -> None:
+        app = _gated_app()
+        store = RunStore(app.substrate)
+        store.open_run(
+            {
+                "run_id": "run-0001",
+                "job": "trip_planner",
+                "run_tags": {"harness": "claude"},
+            }
+        )
+        store.open_run({"run_id": "run-0002", "job": "trip_planner"})
+        provider = WorkflowToolProvider(app, run_store=store)
+
+        rows = (await provider._list_runs())["runs"]
+        assert [row["run_tags"] for row in rows] == [{}, {"harness": "claude"}]
+
+        mcp = FastMCP("run-tag-schema")
+        provider.register_tools(mcp)
+        tools = await mcp.list_tools()
+        schema = next(tool.parameters for tool in tools if tool.name == "list_runs")
+        assert set(schema["properties"]) == {
+            "job",
+            "surface",
+            "state",
+            "scope_id",
+            "limit",
+        }
+
     def test_every_tool_is_registered(self) -> None:
         registered: list[str] = []
 

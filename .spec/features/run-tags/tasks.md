@@ -463,7 +463,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
     release` then `func builtin run list --tag harness:claude` and
     `func builtin run show <id>`.
 
-- [ ] **6.2 — MCP inherits the projection and takes no tag input** (C8; AC25)
+- [x] **6.2 — MCP inherits the projection and takes no tag input** (C8; AC25)
   - **[F]** `tests/plugins/test_mcp_workflow_tools.py`
   - **Inputs:** `plan.md` §4.12; MCP `_workflow_tools.py:50`, `:215`,
     `:500-517`; `contracts.md` C8.
