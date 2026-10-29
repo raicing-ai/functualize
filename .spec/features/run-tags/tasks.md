@@ -427,7 +427,7 @@ Authoring-time gate runs (2026-10-26, at `11ed0e82`):
 
 ## Wave 5
 
-- [ ] **6.1 — `run list --tag` and `run show`'s tag line** (C8; AC20, AC21,
+- [x] **6.1 — `run list --tag` and `run show`'s tag line** (C8; AC20, AC21,
       AC22, AC23, AC24, AC25 first half, AC26, AC29, AC31)
   - **[F]** `src/functualize/_cli/builtins.py`,
     `tests/_cli/test_builtin_command_pilot.py`,
