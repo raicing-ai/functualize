@@ -1,4 +1,4 @@
-# ADR-038: A Setting Is Declared Once, and the Schema Is the Read Door
+# ADR-039: A Setting Is Declared Once, and the Schema Is the Read Door
 
 **Status**: accepted
 **Date**: 2026-10-28
