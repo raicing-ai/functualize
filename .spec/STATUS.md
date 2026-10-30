@@ -945,7 +945,7 @@ merge and the forward to every run-building door), `_cli/config.py`
 `_engine/executor.py` (the record), both stores, `app/_run_view.py` (the
 projection and filter) and `_cli/builtins.py` (`--tag`, the table and `run
 show`). Rationale in
-[ADR-039](../contributor/adr/039-run-tags-are-an-observation-fixed-when-the-run-opens.md).
+[ADR-040](../contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md).
 
 **Rules that outlive the feature:**
 

@@ -1,4 +1,4 @@
-# ADR-039: Run Tags Are an Observation, Fixed When the Run Opens
+# ADR-040: Run Tags Are an Observation, Fixed When the Run Opens
 
 **Status**: accepted
 **Date**: 2026-10-29
