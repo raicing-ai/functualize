@@ -629,6 +629,8 @@ class _AppendEvent:
     type: str
     payload: Any = None
     run_id: str | None = None
+    scope_id: str | None = None
+    generation: int | None = None
 
 
 @dataclass(frozen=True)
@@ -776,8 +778,20 @@ class _DocumentEventWriter:
     def __init__(self, txn: _DocumentTransaction) -> None:
         self._txn = txn
 
-    def append(self, type: str, payload: Any = None, run_id: str | None = None) -> None:
-        self._txn.append(_AppendEvent(type, payload, run_id))
+    def append(
+        self,
+        type: str,
+        payload: Any = None,
+        run_id: str | None = None,
+        *,
+        scope_id: str | None = None,
+        generation: int | None = None,
+    ) -> None:
+        if scope_id is not None and run_id is not None:
+            raise ValueError("an event cannot name both a run and a scope")
+        if (scope_id is None) != (generation is None):
+            raise ValueError("scope_id and generation must be supplied together")
+        self._txn.append(_AppendEvent(type, payload, run_id, scope_id, generation))
 
 
 class _DocumentEffectWriter:
@@ -1372,6 +1386,12 @@ class _DocumentTransaction:
         entry = {"type": cmd.type, "payload": cmd.payload, "at": _iso(_utcnow())}
         if cmd.run_id is not None:
             runs().append_event(cmd.run_id, entry)
+            return
+        if cmd.scope_id is not None:
+            assert cmd.generation is not None
+            scope_store = scopes()
+            with self._held(scope_store, cmd.scope_id, cmd.generation):
+                scope_store.append_event(cmd.scope_id, {**entry, "run_id": None})
             return
         written = self.scopes_touched | self.claims_landed
         if len(written) != 1:

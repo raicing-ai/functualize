@@ -320,6 +320,40 @@ def event_sequence_monotonicity(make_store: MakeStore, root: Path) -> None:
     store.close()
 
 
+def scope_targeted_event_append(make_store: MakeStore, root: Path) -> None:
+    """A scoped event needs no routing write and a lost generation lands nothing."""
+    store = make_store(root)
+    generation = _claim(store, "target")
+    with store.transaction() as tx:
+        tx.events.append(
+            "conformance.direct",
+            {"source": "first"},
+            scope_id="target",
+            generation=generation,
+        )
+    events = store.workflows.events_after("target", 0)
+    assert [(event.seq, event.payload) for event in events] == [
+        (1, {"source": "first"})
+    ], events
+
+    with store.transaction() as tx:
+        takeover = tx.workflows.claim(
+            ClaimWorkflow("target", "runner-b", _at(1), LEASE, force=True)
+        )
+    assert isinstance(takeover, Claimed) and takeover.generation > generation
+    try:
+        with store.transaction() as tx:
+            tx.events.append(
+                "conformance.stale", scope_id="target", generation=generation
+            )
+    except Exception:  # Stores may raise on a stale generation or skip its insert.
+        pass
+    assert [event.type for event in store.workflows.events_after("target", 0)] == [
+        "conformance.direct"
+    ]
+    store.close()
+
+
 # -- 6 ------------------------------------------------------------------------
 
 
@@ -645,6 +679,7 @@ BASELINE: tuple[tuple[str, Callable[[MakeStore, Path], None]], ...] = (
     ("state batch and rollback", state_batch_and_rollback),
     ("corrupt-data policy", corrupt_data_policy),
     ("event sequence monotonicity", event_sequence_monotonicity),
+    ("scope-targeted event append", scope_targeted_event_append),
     ("close/reopen durability", close_reopen_durability),
     ("start and workflow", start_and_workflow),
     ("renew and workflow", renew_and_workflow),
