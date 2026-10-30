@@ -31,6 +31,7 @@ ancestor's are untouched: create `.functualize/` in the root, copy the
 `runs.json`/`scopes.json` you want, run `func builtin data clear`, and
 `func builtin vault put` (or `vault sync`) each secret again. See
 *Project boundaries and `root = true`* in `docs/guides/configuration.md`.
+
 ### Added — run tags label every run and filter the run log
 A run can carry `key:value` tags from three sources, merged per key with the
 later winning: `[run] tags` in the global config, the
