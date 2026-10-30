@@ -106,7 +106,7 @@ Not every function in a job module becomes a CLI command. A function is register
 | Criterion | Description |
 |-----------|-------------|
 | **Callable** | The attribute must be callable |
-| **Is a function** | Must be an actual function (`inspect.isfunction`), not a class or other callable object |
+| **Is a function** | Must be an actual function (`inspect.isfunction`). A class registers only in the job-class form — `@job` on a `pydantic.BaseModel` subclass ([Job classes](job-classes.md)) |
 | **No underscore prefix** | The name must not start with `_` — underscore-prefixed functions are treated as private |
 | **Defined in the module** | The function must be defined in the scanned module, not imported from elsewhere |
 
@@ -131,21 +131,25 @@ def _validate_row(row):  # (3)!
 
 
 class DataProcessor:  # (4)!
-    """Not registered — it's a class, not a function."""
+    """Not registered — it's a plain class, not a job class."""
     pass
 ```
 
 1. `helper_function` is **not** registered — it's imported from another module.
 2. `export` **is** registered — it's a public function defined in this module.
 3. `_validate_row` is **not** registered — it starts with an underscore.
-4. `DataProcessor` is **not** registered — it's a class, not a function.
+4. `DataProcessor` is **not** registered — a class registers only as a job class:
+   `@job` on a `pydantic.BaseModel` subclass, where each public method is a job
+   ([Job classes](job-classes.md)). A bare class with no `@job` contributes
+   nothing, exactly as before.
 
 ## When the built-in filters cannot describe your jobs
 
 The `require_*` settings describe a module by its filename, its imports, a
 marker, or a decorator. That covers most projects. It does not cover a host
-whose jobs are, say, methods on a class, or are chosen by a rule that only that
-host knows.
+whose jobs are chosen by a rule only that host knows — a naming convention of
+your own, a registry, a generated tree. (Methods on a class are *not* such a
+rule: that is the job-class form, described in [Job classes](job-classes.md).)
 
 `DiscoveryConfig.pre_filter` takes your own predicate, asked **before the module
 is imported**:
@@ -371,7 +375,7 @@ def run(target: str, dry_run: bool = False):  # (2)!
 ```
 
 1. **`JOB_GROUP`** — Groups this module's functions under the `sample` sub-command. Remove this line to register functions at the top level instead.
-2. **Public function** — Must be a function (not a class), must not start with `_`, and must be defined in this module. Parameters with type annotations become Click CLI options automatically.
+2. **Public function** — Must be a function or a job class, must not start with `_`, and must be defined in this module. A class registers only in the [job-class form](job-classes.md) — `@job` on a `pydantic.BaseModel` subclass, with each public method becoming one job. Parameters with type annotations become Click CLI options automatically.
 3. **Docstring** — Used as the command's help text in `--help` output.
 
 This produces:

@@ -89,6 +89,7 @@ nav:
     - Architecture Diagrams: diagrams/index.md
     - Configuration System: guides/configuration.md
     - Jobs and Auto-Discovery: guides/jobs-discovery.md
+    - Job classes: guides/job-classes.md
     - Subjects: guides/subjects.md
     - Group Options: guides/group-options.md
     - JobConfig with Pydantic: guides/job-config.md

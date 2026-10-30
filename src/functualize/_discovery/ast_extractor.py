@@ -1,8 +1,12 @@
-"""AST-based first-level dependency extraction for cache invalidation.
+"""AST reading for cache invalidation, and one classification question.
 
 Parses Python source files using ast.parse() to identify in-project imports
 without executing the module. Returns a mapping of resolved dependency file
 paths to their sha256 hex digests.
+
+Also answers "does this source declare a job *class* named X?" — the one
+question a discovery path has to settle before it decides whether an object is
+something it enumerates or a source it imports.
 """
 
 from __future__ import annotations
@@ -11,7 +15,18 @@ import ast
 import hashlib
 from pathlib import Path
 
+from functualize._primitives.pre_filter import extract_decorator_root_name
 from functualize._types.discovery_report import record_discovery_failure
+
+#: Root name of the decorator that installs a class's ``@job`` declaration.
+#: Matched as a root name because that is all the AST can see: ``@job(...)``
+#: collapses to ``"job"`` and so does ``@job``, but an import alias
+#: (``from functualize.job import job as task``) is invisible here. An aliased
+#: class decorator is therefore classified as "not a class" — the entry-point
+#: path then keeps its one lazy descriptor and the first materialisation
+#: reports the class where a function was expected, which is a finding rather
+#: than a wrong job.
+JOB_DECORATOR = "job"
 
 
 def extract_first_level_dependencies(
@@ -201,3 +216,36 @@ def _add_dependency(file_path: Path, dependencies: dict[str, str]) -> None:
     except OSError:
         # File disappeared or is unreadable — skip silently
         pass
+
+
+def class_in_source(source: Path, attribute: str) -> bool:
+    """Whether ``source`` declares a job class named ``attribute``.
+
+    "Job class" can only be a *source* question here: answering it by importing
+    would defeat the point of asking it, because the caller imports the module
+    only when the answer is yes.
+
+    Args:
+        source: The module's source file, resolved by the caller.
+        attribute: The name the entry point points at.
+
+    Returns:
+        True when a top-level ``ClassDef`` with that name carries the ``@job``
+        decorator. False when it does not, when the class is absent, and when
+        the file cannot be read or parsed — the caller's fallback is the
+        ordinary lazy descriptor either way, so an unreadable source is a
+        documented limitation rather than an error.
+    """
+    try:
+        tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    except (OSError, SyntaxError) as exc:
+        record_discovery_failure(source, exc)
+        return False
+
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ClassDef) and node.name == attribute:
+            return any(
+                extract_decorator_root_name(decorator) == JOB_DECORATOR
+                for decorator in node.decorator_list
+            )
+    return False

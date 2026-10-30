@@ -106,6 +106,15 @@ class ExecutionContext:
     request: RunRequest | None = None
     run_id: str | None = None
 
+    #: For a class job, the method this run executes; ``None`` for a function
+    #: job. It names the receiver to bind: the run's config instance *is* the
+    #: instance the method runs on, and `_execute_lifecycle` rebinds
+    #: ``context.function`` to that instance once config resolution has built
+    #: it. The receiver never enters ``call_kwargs``, so it stays out of
+    #: ``call_kwargs - injected`` and the fingerprint still means "arguments a
+    #: caller passed".
+    method_name: str | None = None
+
     #: Parameter names in ``call_kwargs`` that the executor injected — DI
     #: capabilities, the resolved config model, resolved group options, and
     #: `FromJob` upstream values.

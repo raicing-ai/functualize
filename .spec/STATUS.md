@@ -2991,6 +2991,12 @@ Items identified during development that are worth doing but not yet designed:
     Close this by adding that per-scan memo, or by deciding the cold-boot cost
     is acceptable and saying so.
 
+## Recently Completed (2026-10)
+
+| Feature | Description |
+|---------|-------------|
+| class-based-jobs | `sdd/class-based-jobs`: **a job class's public methods are its jobs.** `@job` on a `pydantic.BaseModel` subclass makes each public instance method one job, `<group>.<method>`, discovered from a job directory, a `functualize.jobs` entry point naming the class, or a `StaticProvider` item — the hand-written binding plugin the subjects guide used to show is no longer needed. The decisions a later change must keep: the opt-in is the class's **own** `@job` and is not inherited, so every concrete class names its own group; an abstract class is never a job class, and an abstract class carrying `@job` is a discovery finding naming its unimplemented methods; methods are read along the MRO and the **nearest definition decides**, so an override that is a `property`/`staticmethod`/`classmethod` removes the inherited method and nothing else; the class's fields resolve the `GroupOptions` way — `[pg]`, `PG__HOST`, one vault entry `--group pg --field password` — not the way a function job's config model does (`[pg.start]`), and `builtin env`/`info --job` read the section the run reads; any name with a class-method claimant is refused to **every** claimant, inside one scan and across providers alike (exit `2`, both definitions and their real files named, the rest of the project runs), while plain-function collisions keep their survivor rule; a second `@job` on one target is a `ValueError`; `JOB_TAGS: ClassVar[tuple[str, ...]]` contributes tags without opting in. No invocation input was added: a class job runs as `func <group> <method>`, `Invoke` or `app.execute`, and records carry nothing new. The admission pre-filter also admits a public class carrying a `job` decorator, so a class whose methods are all inherited is imported; an entry point whose module source cannot be read keeps its lazy descriptor and reports a class at first use — the one accepted limitation. Cache format version 25. Guide `docs/guides/job-classes.md`; decision record [ADR-039](../contributor/adr/039-class-based-jobs.md). |
+
 ## Recently Completed (2026-09)
 
 | Feature | Description |

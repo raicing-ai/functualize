@@ -1742,6 +1742,13 @@ def resolve_and_register_jobs(app: Any) -> None:
             logger.warning("Resolution pipeline error: %s", e)
             return
 
+        # The directory jobs above were registered from their own provider,
+        # which sees one source. A name the pipeline refuses across sources —
+        # a class job's method claimed again by a second provider — must not
+        # keep the registration the directory side gave it, or the shipped
+        # path runs a winner the strict rule says does not exist.
+        _retire_refused_names(app, _strictly_refused_names(app))
+
         already_registered = set(app.job_registry._registered_jobs.keys())
         new_descriptors = [
             d for d in all_descriptors if d.name not in already_registered
@@ -1749,6 +1756,46 @@ def resolve_and_register_jobs(app: Any) -> None:
 
         if new_descriptors:
             register_descriptors(app, new_descriptors)
+
+
+def _strictly_refused_names(app: Any) -> set[str]:
+    """Names the last ``resolve_all`` registered to nobody (C5).
+
+    Read off the pipeline's own collision records: the strict rule is decided
+    in `_discovery/collisions.py`, and boot only acts on its verdict.
+    """
+    from functualize._types.discovery_report import CLASS_JOB_NAME_COLLISION
+
+    return {
+        finding.collision.canonical_name
+        for finding in app._resolution_pipeline.collisions
+        if finding.error_type == CLASS_JOB_NAME_COLLISION
+        and finding.collision is not None
+    }
+
+
+def _retire_refused_names(app: Any, names: set[str]) -> None:
+    """Take ``names`` back out of the registry, the engine and the command index.
+
+    The same three places `refresh` retires a discovery generation from, so a
+    refused name leaves no entry behind for `func`, `Invoke` or a listing.
+    """
+    if not names:
+        return
+    registry = app.job_registry
+    registry._job_descriptors[:] = [
+        d for d in registry._job_descriptors if d.name not in names
+    ]
+    for name in names:
+        registry._registered_jobs.pop(name, None)
+        app._execution_engine._registered_jobs.pop(name, None)
+    registry._registered_commands = {
+        key: module_path
+        for key, module_path in registry._registered_commands.items()
+        # Keys are "<group_or___top__>::<job name>".
+        if key.split("::", 1)[-1] not in names
+    }
+    app._jobs_memo = None
 
 
 def report_unsatisfiable_jobs(app: Any) -> None:
@@ -2061,6 +2108,11 @@ def register_descriptors(app: Any, descriptors: list[Any]) -> None:
     LazyJobFunction proxy: NO module import happens here; the engine
     materializes the entry on first use.
 
+    A class job (`descriptor.owner_class` set) takes one path for both
+    boot shapes: its function is the method's proxy (cold: the live one,
+    warm: the lazy one that materializes to it), and its config class is
+    the job class itself — never detected from a signature.
+
     Args:
         app: The FunctualizeApp instance.
         descriptors: List of JobDescriptor instances to register.
@@ -2073,19 +2125,33 @@ def register_descriptors(app: Any, descriptors: list[Any]) -> None:
 
     for descriptor in descriptors:
         live_fn = getattr(descriptor, "function", None)
-        if live_fn is not None and callable(live_fn):
-            fn: Any = live_fn
+        # A class job registers its method's proxy, cold or warm, and takes no
+        # other path: its config class is the class itself (never a
+        # signature-detected model) and its receiver is that class's method.
+        # This arm comes first so `adopt_descriptor_declaration` and
+        # `_detect_config_class` are unreachable for a class job rather than
+        # merely unnecessary. `method_name` is the descriptor's `python_name`
+        # — `JobDescriptor` needs no field of its own for it.
+        if descriptor.owner_class is not None:
+            fn: Any = live_fn if live_fn is not None else LazyJobFunction(descriptor)
+            config_class = getattr(fn, "job_class", None)
+            method_name = descriptor.python_name
+        elif live_fn is not None and callable(live_fn):
+            fn = live_fn
             adopt_descriptor_declaration(descriptor, live_fn)
             config_class = _detect_config_class(live_fn)
+            method_name = None
         else:
             fn = LazyJobFunction(descriptor)
             config_class = None
+            method_name = None
         entry = RegisteredJob(
             name=descriptor.name,
             function=fn,
             config_class=config_class,
             group=descriptor.group,
             module_path=descriptor.module_path,
+            method_name=method_name,
             # From the descriptor, which survives a warm boot; `live_fn` is
             # None there, so reading deps off the function would lose them.
             dependencies=declared_dependency_names(

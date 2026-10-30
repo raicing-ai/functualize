@@ -45,8 +45,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 __all__ = [
+    "CLASS_JOB_NAME_COLLISION",
+    "ClassJobCollisionDetail",
     "DiscoveryFailure",
     "JobNameCollisionDetail",
+    "class_job_name_collision",
     "collecting_discovery_failures",
     "job_name_collision",
     "record_discovery_failure",
@@ -57,6 +60,12 @@ __all__ = [
 #: class name -- the other values in that field are, and a collision is not
 #: raised anywhere -- so it is named here rather than spelled at each site.
 JOB_NAME_COLLISION = "JobNameCollision"
+
+#: ``DiscoveryFailure.error_type`` for a strict collision -- one a class job is
+#: party to, where the name is registered to *nobody*. A different value from
+#: :data:`JOB_NAME_COLLISION` because the payload means something else: that one
+#: says "one of these two runs", this one says "neither does".
+CLASS_JOB_NAME_COLLISION = "ClassJobNameCollision"
 
 
 @dataclass(frozen=True)
@@ -75,8 +84,30 @@ class JobNameCollisionDetail:
 
 
 @dataclass(frozen=True)
+class ClassJobCollisionDetail:
+    """In-memory claimant data for a strict (class-job) name collision.
+
+    ``claimants`` pairs a *qualified* name with the file it came from --
+    ``"OtherPostgres.start"`` for a class job, the function's own Python name
+    otherwise. ``JobDescriptor.python_name`` is the method name alone, so a
+    record built from it would name two class-job claimants identically.
+    """
+
+    canonical_name: str
+    claimants: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
 class DiscoveryFailure:
-    """One module discovery could not read, and why.
+    """One finding about a module's discovery, and why it is there.
+
+    Most entries are a module discovery could not read. Two kinds are not: a
+    job-name collision, which is derived from the retained entries rather than
+    raised, and a finding a module states about its own code — an abstract
+    ``@job`` class, a method whose group disagrees with its class — which is
+    recorded while the module is imported and replayed on a pass that validates
+    it instead. Both are still the operator's answer to "why is my job not
+    here", which is the only thing this type is for.
 
     Attributes:
         module: The module's name -- its file stem. Not the dotted import
@@ -94,7 +125,7 @@ class DiscoveryFailure:
     path: str
     error_type: str
     message: str
-    collision: JobNameCollisionDetail | None = None
+    collision: JobNameCollisionDetail | ClassJobCollisionDetail | None = None
 
     def as_dict(self) -> dict[str, str]:
         """The payload shape published by ``builtin info``."""
@@ -202,6 +233,52 @@ def job_name_collision(
             dropped_source_file=dropped_path,
             registered_python_name=kept_python_name,
             registered_source_file=kept_path,
+        ),
+    )
+
+
+def class_job_name_collision(
+    *,
+    canonical_name: str,
+    claimants: tuple[tuple[str, str], ...],
+    module: str,
+    path: str,
+) -> DiscoveryFailure:
+    """The record for a name a class job and another claimant both resolve to.
+
+    A class job makes a collision *strict*: no claimant is registered, because
+    picking one would hide a job the user wrote rather than run it under a name
+    they never spelled. The message therefore names every claimant and its
+    file, and says so.
+
+    Built here, beside :func:`job_name_collision`, so both renderings of "one
+    name, more than one claimant" are written once.
+
+    Args:
+        canonical_name: The single address every claimant resolved to.
+        claimants: ``(qualified_name, source_file)`` per claimant, in claim
+            order. The qualified name is ``Class.method`` for a class job.
+        module: Value for :attr:`DiscoveryFailure.module`.
+        path: Value for :attr:`DiscoveryFailure.path`.
+
+    Returns:
+        The failure record, ready to publish.
+    """
+    rendered = ", ".join(f"{name!r} ({source})" for name, source in claimants[:-1])
+    listed = f"{rendered} and {claimants[-1][0]!r} ({claimants[-1][1]})"
+    count = len(claimants)
+    declared = "twice" if count == 2 else f"{count} times"
+    outcome = "Neither is registered." if count == 2 else "None of them is registered."
+    return DiscoveryFailure(
+        module=module,
+        path=path,
+        error_type=CLASS_JOB_NAME_COLLISION,
+        message=(
+            f"Job name {canonical_name!r} is declared {declared}: {listed}. {outcome}"
+        ),
+        collision=ClassJobCollisionDetail(
+            canonical_name=canonical_name,
+            claimants=claimants,
         ),
     )
 
