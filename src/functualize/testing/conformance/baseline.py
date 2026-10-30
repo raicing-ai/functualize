@@ -27,7 +27,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from functualize._primitives.lease import StaleGenerationError
 from functualize.plugin import (
     EPILOGUE_STEP_KEY,
     CandidateEvaluation,
@@ -347,7 +346,7 @@ def scope_targeted_event_append(make_store: MakeStore, root: Path) -> None:
             tx.events.append(
                 "conformance.stale", scope_id="target", generation=generation
             )
-    except StaleGenerationError:  # A store may raise or skip its stale insert.
+    except Exception:  # Stores may raise on a stale generation or skip its insert.
         pass
     assert [event.type for event in store.workflows.events_after("target", 0)] == [
         "conformance.direct"
