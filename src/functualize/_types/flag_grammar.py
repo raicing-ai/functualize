@@ -60,6 +60,7 @@ GLOBAL_OPTIONS_ALWAYS_VALUE = frozenset(
         "--exclude",
         "--perf-filter",
         "--import-libs",
+        "--run-tag",
         "--perf-report",
         "--emit-format",
     }

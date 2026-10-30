@@ -29,6 +29,7 @@ from functualize._primitives.pre_filter import (
     AllOf,
     AnyOf,
     ASTModulePreFilter,
+    ClassJobPreFilter,
     DecoratorModulePreFilter,
     DefaultModulePreFilter,
     DisplayClassPreFilter,
@@ -114,12 +115,17 @@ def build_pre_filter_from_config(
         filters.append(FilePostfixPreFilter(config.require_file_postfix))
 
     # 5. ASTModulePreFilter — always included (requires file read + parse).
-    # A module qualifies with a public function (a job candidate), a
-    # display-provider class, OR a GroupOptions declaration — display-only and
-    # declaration-only modules must still be imported so the scan's detection
-    # passes can cache them.
+    # A module qualifies with a public function (a job candidate), a job class
+    # (one job per public method), a display-provider class, OR a GroupOptions
+    # declaration — class-only, display-only and declaration-only modules must
+    # still be imported so the scan's detection passes can read them.
     filters.append(
-        AnyOf(ASTModulePreFilter(), DisplayClassPreFilter(), GroupOptionsPreFilter())
+        AnyOf(
+            ASTModulePreFilter(),
+            ClassJobPreFilter(),
+            DisplayClassPreFilter(),
+            GroupOptionsPreFilter(),
+        )
     )
 
     # 6. ImportModulePreFilter — requires file read + parse

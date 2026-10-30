@@ -189,6 +189,10 @@ def job_config_fields(app: Any, job_name: str) -> list[Any]:
     Returns ``[]`` when the job declares no config model. Never raises for an
     unresolved field: a caller asking "what is missing?" is answered, not
     handed a ``ValidationError``.
+
+    The section and scope come from the engine, the same pair a run uses: a
+    class job's fields live at its group (``[pg]``, ``PG__HOST``, the group's
+    vault entry), not at the method job's own name.
     """
     from functualize._config.job_config import JobConfigView
     from functualize._config.resolved_field import resolve_job_fields
@@ -200,14 +204,17 @@ def job_config_fields(app: Any, job_name: str) -> list[Any]:
     config_class = getattr(entry, "config_class", None)
     if config_class is None:
         return []
+    section, scope = app.execution_engine.config_section_for(job_name)
 
     return resolve_job_fields(
         config_class,
-        job_name,
+        section,
         JobConfigView(
             resolution_chain=app._resolution_chain,
-            default_section_prefix=job_name,
+            default_section_prefix=section,
+            scope=scope,
         ),
+        scope=scope,
     )
 
 
@@ -772,11 +779,13 @@ def _scan_cwd_directories(cwd: Path, scan_depth: int) -> list[str]:
     """Scan CWD for directories containing qualifying Python files.
 
     Traverses directories from ``cwd`` up to ``scan_depth`` levels deep,
-    applying the default pre-filter stack (``DefaultModulePreFilter`` +
-    ``ASTModulePreFilter`` via ``AllOf``) to each ``.py`` file found.
+    applying the default pre-filter stack — ``DefaultModulePreFilter``, then
+    ``ASTModulePreFilter`` or ``ClassJobPreFilter`` — to each ``.py`` file
+    found.
 
     A directory "qualifies" if it contains at least one ``.py`` file that
-    passes both pre-filters.
+    passes that stack: a public function, or a public class with a public
+    method (a class-only job module has no top-level function at all).
 
     Args:
         cwd: The root directory to scan from.
@@ -787,11 +796,15 @@ def _scan_cwd_directories(cwd: Path, scan_depth: int) -> list[str]:
     """
     from functualize._primitives import (
         AllOf,
+        AnyOf,
         ASTModulePreFilter,
+        ClassJobPreFilter,
         DefaultModulePreFilter,
     )
 
-    pre_filter = AllOf(DefaultModulePreFilter(), ASTModulePreFilter())
+    pre_filter = AllOf(
+        DefaultModulePreFilter(), AnyOf(ASTModulePreFilter(), ClassJobPreFilter())
+    )
     qualifying: list[str] = []
 
     def _check_directory(directory: Path) -> bool:

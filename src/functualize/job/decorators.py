@@ -88,21 +88,65 @@ def job(
         ValueError: If any field or value object violates its invariants
             (validated eagerly at decoration time).
     """
-    declaration = JobDeclaration(
-        group=group,
-        extra_description=extra_description,
-        category=category,
-        examples=tuple(examples),
-        tags=tuple(tags),
-        visibility=visibility,
-        config_section=config_section,
-        deps=deps,
-        cache=cache,
-        guards=guards,
-        exec=exec,
-    )
 
     def apply(func: F) -> F:
+        # pydantic is imported here, not at module scope: `import
+        # functualize.job` must add no new import (task 1.2 invariant).
+        from pydantic import BaseModel
+
+        target_class: type | None = func if isinstance(func, type) else None
+        if target_class is not None and not issubclass(target_class, BaseModel):
+            raise ValueError(
+                f"@job target {func.__qualname__} is a class but not a "
+                f"pydantic.BaseModel subclass; a class job declares its config "
+                f"class"
+            )
+
+        if target_class is not None:
+            # Identity fields only — operational and description fields belong
+            # to a job's method, not to its config class (plan.md §4.1).
+            offending = [
+                name
+                for name, value in (
+                    ("extra_description", extra_description),
+                    ("category", category),
+                    ("examples", examples),
+                    ("config_section", config_section),
+                    ("deps", deps),
+                    ("cache", cache),
+                    ("guards", guards),
+                    ("exec", exec),
+                )
+                if value not in (None, ())
+            ]
+            if offending:
+                listed = ", ".join(offending)
+                raise ValueError(
+                    f"@job on class {func.__qualname__} accepts only group, "
+                    f"tags and visibility; offending arguments: {listed}"
+                )
+
+        # D4: one @job per definition. __dict__, not getattr — an inherited
+        # declaration must not make a subclass look declared (F1-b).
+        if "__functualize_job__" in func.__dict__:
+            raise ValueError(
+                f"@job is already applied to {func.__qualname__}; combine the "
+                f"arguments into one @job(...)"
+            )
+
+        declaration = JobDeclaration(
+            group=group,
+            extra_description=extra_description,
+            category=category,
+            examples=tuple(examples),
+            tags=tuple(tags),
+            visibility=visibility,
+            config_section=config_section,
+            deps=deps,
+            cache=cache,
+            guards=guards,
+            exec=exec,
+        )
         func.__functualize_job__ = declaration  # type: ignore[attr-defined]
         return func
 

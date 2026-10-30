@@ -262,6 +262,7 @@ class ParsedGlobalOptions:
     output: str | None = None  # --emit-format flag: json, text, or none
     prompt_gates: bool = False  # --prompt-gates: prompt for gate fields during walk
     force: bool = False  # --force: run even when up to date
+    run_tags: list[str] | None = field(default=None)
     first_positional_index: int = -1  # index into argv[1:] of first positional
     setting_overrides: Mapping[Setting, Any] = field(default_factory=dict)
 
@@ -421,6 +422,7 @@ def _extract_global_options(
         output=state.output,
         prompt_gates=state.prompt_gates,
         force=state.force,
+        run_tags=state.run_tags,
         first_positional_index=first_positional_index,
         setting_overrides=state.setting_overrides,
     )
@@ -463,6 +465,7 @@ class _OptionAccumulator:
     __slots__ = (
         "log_level",
         "import_libs",
+        "run_tags",
         "dotenv_file",
         "no_dotenv",
         "config_directory",
@@ -486,6 +489,7 @@ class _OptionAccumulator:
     def __init__(self) -> None:
         self.log_level: str | None = None
         self.import_libs: list[str] | None = None
+        self.run_tags: list[str] | None = None
         self.dotenv_file: str | None = None
         self.no_dotenv: bool = False
         self.config_directory: str | None = None
@@ -542,6 +546,10 @@ def _assign_option(
         if state.import_libs is None:
             state.import_libs = []
         state.import_libs.append(value)
+    elif flag == "--run-tag":
+        if state.run_tags is None:
+            state.run_tags = []
+        state.run_tags.append(value)
     elif flag == "--dotenv-file":
         state.dotenv_file = value
     elif flag == "--config-directory":

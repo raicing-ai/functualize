@@ -85,10 +85,9 @@ class SqlRunWriter:
         self._tx = tx
 
     def start_attempt(self, cmd: StartAttempt) -> None:
-        """Open the run and attempt 1. The store mints the run id; the port
-        hands nothing back, as on the document store."""
+        """Open the run and attempt 1, using a supplied run-log id when present."""
         tx = self._tx
-        run_id = new_run_id()
+        run_id = cmd.run_id or new_run_id()
         run_status = require_transition(RUN, None, "running")
         attempt_status = require_transition(ATTEMPT, None, "running")
         tx.stage(
@@ -108,6 +107,15 @@ class SqlRunWriter:
                 iso(cmd.now),
             ),
         )
+        # The run's tags, staged in this same batch so they exist exactly when
+        # the run does — and before attempt 1, because revision 5 refuses a tag
+        # INSERT once the run has an attempt: nothing writes them again.
+        for key in sorted(cmd.run_tags):
+            tx.stage(
+                "INSERT INTO run_tags (namespace_id, run_id, key, value) "
+                "VALUES (?, ?, ?, ?)",
+                (tx.namespace, run_id, key, cmd.run_tags[key]),
+            )
         tx.stage(
             "INSERT INTO run_attempts (id, namespace_id, run_id, attempt_no, status, "
             "started_at) VALUES (?, ?, ?, 1, ?, ?)",

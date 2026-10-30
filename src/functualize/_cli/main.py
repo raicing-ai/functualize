@@ -20,7 +20,7 @@ import contextlib
 import logging
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -526,6 +526,7 @@ def _handle_bare(
     cli_flags: dict[str, Any],
     *,
     _app_ref: list[Any] | None = None,
+    run_tags: Mapping[str, str] | None = None,
 ) -> None:
     """Handle bare ``func`` invocation (no positional arguments).
 
@@ -539,6 +540,9 @@ def _handle_bare(
         cli_flags: Parsed global CLI flags for resolve_cli_config.
         _app_ref: Optional mutable container; if provided, the constructed
             FunctualizeApp is appended so callers can access it for perf reporting.
+        run_tags: The merged run tags, ``None`` meaning none were stated.
+            Accepted like every other door's, and deliberately unused: runs
+            started from the TUI carry no tags in v1.
     """
     from functualize._cli.config import resolve_cli_config
     from functualize.app import FunctualizeApp
@@ -696,6 +700,45 @@ def _config_sources_for_flags(cli_config: Any, flags: dict[str, Any]) -> Any:
         cli_config.config_sources(),
         resolved=resolve_app_settings(Path.cwd(), flags=flags),
     )
+
+
+def _merge_run_tags(flag_items: list[str] | None) -> Mapping[str, str]:
+    """Merge the three run-tag layers, or exit 2 naming the refused item.
+
+    Called before discovery: the map is complete before the app object exists,
+    so a malformed tag stops the process before any job body can run. Lowest to
+    highest — the global config's ``[run] tags``, ``FUNCTUALIZE_RUN_TAGS``,
+    ``--run-tag`` — merged per key, the later layer winning. The project file
+    is not a source: only the user's config file is read.
+
+    The file is read through the settings layers, as `_extract_aliases` reads
+    it: the global layer is the user's config file, and an unreadable or
+    malformed file is a layer with no values, so it contributes no tags here.
+    Only the global layer is consulted; project layers are never a source.
+    """
+    from functualize._cli import run_tags as tag_rules
+    from functualize.app.config import resolve_app_settings
+    from functualize.app.utils import ExitCode, resolve_user_config_dir
+
+    config_tags: object = None
+    layers = resolve_app_settings(
+        Path.cwd(), global_dir=resolve_user_config_dir()
+    ).layers
+    for layer in layers:
+        if layer.kind != "global":
+            continue
+        run_section = layer.values.get("run")
+        if isinstance(run_section, dict):
+            config_tags = run_section.get("tags")
+    try:
+        return tag_rules.merge_layers(
+            tag_rules.parse_config_list(config_tags) if config_tags is not None else {},
+            tag_rules.parse_env(os.environ.get("FUNCTUALIZE_RUN_TAGS", "")),
+            tag_rules.parse_flag_list(flag_items),
+        )
+    except tag_rules.RunTagError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(ExitCode.USAGE) from exc
 
 
 def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
@@ -919,6 +962,7 @@ def _dispatch_group(
     output_format: str = "none",
     prompt_gates: bool = False,
     force: bool = False,
+    run_tags: Mapping[str, str] | None = None,
 ) -> int:
     """Resolve and execute a group sub-command against an already-booted app.
 
@@ -1101,6 +1145,7 @@ def _dispatch_group(
                 prompt_gates=prompt_gates,
                 output_format=output_format,
                 force=force,
+                run_tags=run_tags,
             )
             _warn_collisions(app, job_descriptor)
             return invoke_command_capturing(
@@ -1180,6 +1225,21 @@ def _dispatch_group(
         if not sub_groups and not entries:
             print("No commands available.")
         return 0
+
+    # A name a class job and a plain function both claim: nothing is
+    # registered under it, so it is not in `entries` and would read as a typo
+    # in a real sub-command. It is not a typo — the user declared it, and the
+    # reason it cannot run is a contradiction between two files, so the
+    # finding's own message (both definitions, both files) is printed and the
+    # exit code is USAGE.
+    strict_name = ".".join([*node.path, remaining[0]]) if node.path else remaining[0]
+    from functualize._cli.info import strict_collision_messages
+
+    if message := strict_collision_messages(app).get(strict_name):
+        print(message, file=sys.stderr)
+        from functualize.app.utils import ExitCode
+
+        return int(ExitCode.USAGE)
 
     print(
         f"Error: Unknown command '{remaining[0]}' in group '{cli_path}'.",
@@ -1262,6 +1322,7 @@ def _handle_group(
     _app_ref: list[Any] | None = None,
     prompt_gates: bool = False,
     force: bool = False,
+    run_tags: Mapping[str, str] | None = None,
 ) -> int:
     """Handle Mode.GROUP: boot app, then delegate to _dispatch_group.
 
@@ -1299,6 +1360,7 @@ def _handle_group(
         output_format=output_format,
         prompt_gates=prompt_gates,
         force=force,
+        run_tags=run_tags,
     )
 
 
@@ -1316,6 +1378,7 @@ def _handle_job(
     _app_ref: list[Any] | None = None,
     prompt_gates: bool = False,
     force: bool = False,
+    run_tags: Mapping[str, str] | None = None,
 ) -> int:
     """Handle Mode.JOB: boot app, find job, parse args, execute.
 
@@ -1420,6 +1483,34 @@ def _handle_job(
             break
 
     if job_descriptor is None:
+        # ── A strict collision is a declared name, not an unknown one ─────
+        # Neither claimant registered, so the lookup above found nothing. The
+        # finding names both definitions and both files; printing it beats
+        # both the plugin fallback below and "Unknown command", because the
+        # user typed a name they wrote and the answer is a contradiction
+        # between files rather than a typo.
+        #
+        # The name may span tokens: when every method of a group is refused —
+        # the same job class from two sources — the group itself has no
+        # registered member, so `func pg start` routes here with `pg` alone
+        # rather than through group dispatch. The leading words are read as
+        # the path they spell, the way group dispatch reads them.
+        from functualize._cli.info import strict_collision_messages
+
+        strict = strict_collision_messages(app)
+        spelled = [job_name]
+        candidates = [job_name]
+        for token in remaining_args:
+            if token.startswith("-"):
+                break
+            spelled.append(normalize_name(token) or token)
+            candidates.append(".".join(spelled))
+        if message := next((strict[n] for n in candidates if n in strict), None):
+            print(message, file=sys.stderr)
+            from functualize.app.utils import ExitCode
+
+            return int(ExitCode.USAGE)
+
         # ── Gap A: plugin-registered command dispatch (post-boot) ─────────
         # Plugin command groups (e.g. `mcp`) and ungrouped plugin commands
         # are invisible to pre-boot mode detection, so they land here in
@@ -1454,6 +1545,7 @@ def _handle_job(
                 output_format=output_format,
                 prompt_gates=prompt_gates,
                 force=force,
+                run_tags=run_tags,
             )
 
         # Ungrouped plugin command matching the name → execute directly.
@@ -1544,6 +1636,7 @@ def _handle_job(
         prompt_gates=prompt_gates,
         output_format=output_format,
         force=force,
+        run_tags=run_tags,
     )
 
     _warn_collisions(app, job_descriptor)
@@ -1629,6 +1722,7 @@ def _handle_single_file(
     _app_ref: list[Any] | None = None,
     prompt_gates: bool = False,
     force: bool = False,
+    run_tags: Mapping[str, str] | None = None,
 ) -> int:
     """Handle single-file execution mode directly (no FallbackGroup).
 
@@ -1836,6 +1930,7 @@ def _handle_single_file(
         prompt_gates=prompt_gates,
         output_format=output_format,
         force=force,
+        run_tags=run_tags,
     )
 
     return invoke_command_capturing(
@@ -2079,6 +2174,13 @@ def _run_cli() -> None:
     global_opts, cli_flags = _extract_global_options(sys.argv)
     cli_flags = {**early_flags, **cli_flags}
 
+    # Phase 0b: Run tags, merged before discovery so no tag is parsed after
+    # boot. Lowest to highest: the global config's `[run] tags`, then
+    # FUNCTUALIZE_RUN_TAGS, then `--run-tag`. A refusal is a usage error —
+    # exit 2, unlike the `cli_app` validation block's 1 — and it blocks every
+    # mode, BUILTIN included, because the environment is read for all of them.
+    run_tags = _merge_run_tags(global_opts.run_tags)
+
     # Phase 1: Unified discovery with CLI overrides
     perf_timeline.mark("cli.discovery.start")
     cwd = Path.cwd()
@@ -2199,6 +2301,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 prompt_gates=prompt_gates,
                 force=force,
+                run_tags=run_tags,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -2217,6 +2320,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 prompt_gates=prompt_gates,
                 force=force,
+                run_tags=run_tags,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -2236,6 +2340,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 prompt_gates=prompt_gates,
                 force=force,
+                run_tags=run_tags,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -2278,6 +2383,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 prompt_gates=prompt_gates,
                 force=force,
+                run_tags=run_tags,
             )
         finally:
             if perf_format is not None and app_ref:

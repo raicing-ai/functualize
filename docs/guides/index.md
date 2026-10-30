@@ -10,7 +10,8 @@ Whether you're configuring layered settings, building auto-discovered jobs, exte
 - [Architecture](architecture.md) — Boot sequence, three-layer job pipeline, config resolution, interactivity layer, and extension points overview
 - [Configuration System](configuration.md) — Layered TOML configuration with environment overlays, upward directory search, per-job sections, and credentials declared with `Secret[str]`
 - [Jobs and Auto-Discovery](jobs-discovery.md) — How jobs are discovered via `pkgutil`, registered as CLI commands, and grouped into sub-commands
-- [Subjects](subjects.md) — When a job module should be a class: the subject test, the three axes (substrate / actions / target), and how subject classes bind via a plugin
+- [Job classes](job-classes.md) — `@job` on a `pydantic.BaseModel`: methods as jobs, the group rule, one configuration section per class, merged tags, and what a name collision refuses
+- [Subjects](subjects.md) — When a job module should be a class: the subject test, the three axes (substrate / actions / target), and how a subject class is declared
 - [JobConfig with Pydantic](job-config.md) — Declarative, typed job configuration with automatic CLI option generation, multi-source resolution, and the `JOB_FIELD` environment convention
 - [RunContext Lifecycle](run-context.md) — Lifecycle hooks for setup, teardown, and error handling with metadata tracking and workflow steps
 - [Domain SDKs](domain-sdks.md) — Lightweight capability packages (AI, State, Tasks, Interactivity) with protocols, types, and testing doubles

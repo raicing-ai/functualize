@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from functualize_substrate_sqlite import SqliteRuntimeStore, SQLiteSubstratePlugin
@@ -198,3 +198,118 @@ def test_boot_selected_sqlite_store_exposes_all_three_readers(tmp_path: Path) ->
     assert selected.runs.recent(RunQuery())[0].job == "alpha"
     assert selected.workflows.workflow("s1").status == "blocked"
     assert selected.inputs.open_for("s1").request_id == "r1"
+
+
+def _documents_store(root: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """The store an app selects with nothing configured, over ``root``."""
+    (root / ".functualize").mkdir(parents=True)
+    monkeypatch.chdir(root)
+    app = FunctualizeApp("documents", job_sources=JobSources(directories=[]))
+    return app.execution_engine._runtime_store
+
+
+_TAGGED_WRITES = (
+    ("a", {"harness": "claude", "model": "opus"}),
+    ("b", {"harness": "claude"}),
+    ("c", {}),
+    ("d", {"harness": "claude", "model": "opus"}),
+    ("e", {"harness": "codex", "model": "opus"}),
+)
+
+
+def _write_tagged(store: Any) -> None:
+    for offset, (job, tags) in enumerate(_TAGGED_WRITES):
+        with store.transaction() as tx:
+            tx.runs.start_attempt(
+                StartAttempt(
+                    job, "cli", NOW + timedelta(seconds=offset), run_tags=dict(tags)
+                )
+            )
+
+
+def _by_job(views: tuple[Any, ...]) -> list[tuple[str, dict[str, str]]]:
+    return [(view.job, dict(view.run_tags)) for view in views]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(RunQuery(), id="all"),
+        pytest.param(RunQuery(tags=(("harness", "claude"),)), id="one-tag"),
+        pytest.param(
+            RunQuery(tags=(("harness", "claude"), ("model", "opus"))), id="both-tags"
+        ),
+        pytest.param(
+            RunQuery(tags=(("harness", "claude"),), limit=2), id="limit-after-filter"
+        ),
+        pytest.param(RunQuery(tags=(("harness", "Claude"),)), id="case-sensitive"),
+        pytest.param(RunQuery(tags=(("missing", "x"),)), id="no-match"),
+    ],
+)
+def test_both_stores_answer_the_same_tag_queries(
+    store: SqliteRuntimeStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    query: RunQuery,
+) -> None:
+    """AC16: the same writes read back as the same runs and the same maps.
+
+    Run ids are minted by each store, so the runs are compared by job.
+    """
+    documents = _documents_store(tmp_path / "documents", monkeypatch)
+    _write_tagged(store)
+    _write_tagged(documents)
+
+    assert _by_job(store.runs.recent(query)) == _by_job(documents.runs.recent(query))
+
+
+def test_the_tag_filter_narrows_before_the_limit(store: SqliteRuntimeStore) -> None:
+    _write_tagged(store)
+
+    views = store.runs.recent(
+        RunQuery(tags=(("harness", "claude"), ("model", "opus")), limit=2)
+    )
+
+    assert _by_job(views) == [
+        ("d", {"harness": "claude", "model": "opus"}),
+        ("a", {"harness": "claude", "model": "opus"}),
+    ]
+
+
+def test_a_page_loads_its_tags_with_one_grouped_query(
+    store: SqliteRuntimeStore,
+) -> None:
+    """Never one tag query per row: a page of five is two queries in all."""
+    _write_tagged(store)
+    statements: list[str] = []
+
+    class Counting:
+        def query(self, sql: str, params: Any = ()) -> Any:
+            statements.append(sql)
+            return store.driver.query(sql, params)
+
+    reader = SqlRunReader(cast("Any", Counting()), "default")
+    views = reader.recent(RunQuery())
+
+    assert len(views) == 5
+    assert len(statements) == 2, statements
+    assert "IN (" in statements[1]
+    assert dict(views[0].run_tags) == {"harness": "codex", "model": "opus"}
+
+
+def test_a_scope_record_has_no_tags_while_its_runs_do(
+    store: SqliteRuntimeStore,
+) -> None:
+    """AC34: tags belong to runs; the scope they ran in carries none."""
+    with store.transaction() as tx:
+        tx.workflows.claim(ClaimWorkflow("s1", "worker", NOW, 60))
+    with store.transaction() as tx:
+        tx.runs.start_attempt(
+            StartAttempt("flow", "cli", NOW, scope_id="s1", run_tags={"k": "v"})
+        )
+
+    scope = store.workflows.workflow("s1")
+    assert scope is not None
+    assert not hasattr(scope, "run_tags")
+    [run] = store.runs.recent(RunQuery(scope_id="s1"))
+    assert dict(run.run_tags) == {"k": "v"}
