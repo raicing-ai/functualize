@@ -140,10 +140,9 @@ addresses but still diagnoses required dependencies and refuses if they fail.
 `start` and `stop` invoke corresponding mutating operations when implemented.
 `down` refuses in v1. Several positional addresses are allowed. The prior
 `validate`/`diagnose` command names are superseded by `ps`/`config`. The prior
-`--scope` flag is replaced by positional addresses **pending the owner's
-per-section approval**: the canonical model's D23 and D25 still specify
-`--scope <address>`, and neither page is edited to resolve that until the owner
-names the section.
+`--scope` flag is replaced by positional addresses. The owner approved this on
+2026-10-30 (MCH-151 comment `01a18d2e`), and SD/5407068 v22 specifies
+positional addresses in Decisions 23 and 25.
 
 **S10.** Each NDJSON diagnosis line has a flat universal envelope and one
 typed `observation`. Status is `pass` or `fail`; parent records refer to child
