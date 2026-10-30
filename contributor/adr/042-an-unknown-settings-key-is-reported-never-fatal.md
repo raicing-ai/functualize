@@ -1,4 +1,4 @@
-# ADR-040: An Unknown Settings Key Is Reported Where Configuration Is Inspected, Never Fatal
+# ADR-042: An Unknown Settings Key Is Reported Where Configuration Is Inspected, Never Fatal
 
 **Status**: accepted
 **Date**: 2026-10-30
@@ -15,7 +15,7 @@ effect. Only the global file had a check, and it was a reader of its own: it
 printed a warning on every run, covered five sections, and silently dropped
 `[plugins]`, `[shell]` and every unknown top-level key.
 
-[ADR-039](039-a-setting-is-declared-once.md) gives the check the one thing it
+[ADR-041](041-a-setting-is-declared-once.md) gives the check the one thing it
 needs: a single declaration that answers "is this key known, here". What
 remained was a set of choices about the check itself:
 

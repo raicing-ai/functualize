@@ -623,9 +623,9 @@ clean. Exit codes do not change, nothing is printed on an ordinary run, and a
 warm `func <job>` never imports the check. The global file's old per-run warning
 is gone. There is no `config check` command; `config path` and `info` are the
 two surfaces. Recorded in
-[ADR-040](../contributor/adr/040-an-unknown-settings-key-is-reported-never-fatal.md).
+[ADR-042](../contributor/adr/042-an-unknown-settings-key-is-reported-never-fatal.md).
 
-**The rule underneath** ([ADR-039](../contributor/adr/039-a-setting-is-declared-once.md)).
+**The rule underneath** ([ADR-041](../contributor/adr/041-a-setting-is-declared-once.md)).
 Every setting is declared once, as a `Setting` in `FUNCTUALIZE_SETTINGS`. An app
 adds its own through `extend()`, which refuses a name already declared. One
 layer list and one resolver produce a frozen `ResolvedSettings` snapshot with
