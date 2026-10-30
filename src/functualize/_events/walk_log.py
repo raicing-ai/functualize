@@ -43,10 +43,7 @@ this, which is what every walker test does today.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
-
-from functualize._types.persistence import StateBatch
 
 if TYPE_CHECKING:
     from functualize._events.bus import EventBus, StructuredEvent
@@ -97,22 +94,19 @@ class WalkLogSubscriber:
         scope_id = event.payload.get("scope_id")
         if not isinstance(scope_id, str) or not scope_id:
             return
+        generation = event.payload.get("generation", 0)
         try:
-            payload = {k: v for k, v in event.payload.items() if k != "scope_id"}
+            payload = {
+                k: v
+                for k, v in event.payload.items()
+                if k not in ("scope_id", "generation")
+            }
             with self._store_for().transaction() as tx:
-                # The port routes a scope event by the unit's one scope —
-                # `EventWriter` appends to a run's log when a run is named and
-                # to the log of the scope this unit wrote otherwise — so the
-                # unit names its scope: an empty state write is the one
-                # command that is scope-affine and writes nothing (generation
-                # 0 fences nothing; both writers ignore an empty batch).
-                tx.workflows.write_state(
-                    StateBatch(scope_id, 0, datetime.now(UTC), {}, ())
-                )
                 tx.events.append(
                     event.event_name,
                     {"resource": event.resource, **payload},
-                    run_id=None,
+                    scope_id=scope_id,
+                    generation=generation,
                 )
         except Exception:  # noqa: BLE001 - an observation never disturbs a walk
             logger.debug("could not append a walk event", exc_info=True)

@@ -66,6 +66,13 @@ resumed walk replays). The walk reaches all of them the same way, in the shape
 the port already had: one command per `RuntimeStore.transaction()`, with the
 held generation on every authoritative write.
 
+For the walk log, the walker includes the held generation in its bus event.
+`WalkLogSubscriber` passes `scope_id` and `generation` directly to
+`EventWriter.append`; neither routing field is stored in the event payload.
+The append itself checks the fence at apply time, so a late event from a
+superseded walker leaves the current holder's log untouched. It does not
+issue an empty `StateBatch` to route the event.
+
 The reads follow the same rule: `WorkflowReader.step`, `.steps`, `.branch`,
 `.state`, `.workflow` (with `WorkflowView.graph_digest`) and `InputReader` are
 what the walk reads back, and every one of the added commands and readers joins
