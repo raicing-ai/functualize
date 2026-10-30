@@ -1,8 +1,8 @@
 """Frozen dataclass definitions for the functualize shared vocabulary.
 
 Contains JobDescriptor, FieldDescriptor, JobResult, and CacheInfo — the
-core data transfer objects used across all internal layers. Zero imports
-from any _-prefixed internal package. Only stdlib imports.
+core data transfer objects used across all internal layers. Imports from
+within ``_types`` are allowed; peer layers are not.
 """
 
 from __future__ import annotations
@@ -12,10 +12,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 from functualize._types.enums import ConfigFileRole
+from functualize._types.errors import JobFailedError
 from functualize._types.naming import CommandPath
+from functualize._types.outcome import Family, is_failure
 
 if TYPE_CHECKING:
     from functualize._types.enums import RunStatus
@@ -210,6 +212,8 @@ class JobDescriptor:
             job degrades. Does not force EXCLUSIVE or trigger refusal.
         uses_live: True if the signature declares a ``live: Live`` capability — a
             live-display channel bound per surface (always injected, degrading).
+        owner_class: Python class name for a class method job, or None for a
+            plain function. Retained through the discovery cache.
     """
 
     name: str
@@ -266,6 +270,9 @@ class JobDescriptor:
     #: warm boot has no function to ask, so the fact is recorded here.
     #: Empty means "same as func_name" (dynamic and synthetic descriptors).
     python_name: str = ""
+    #: The declaring job class, when this descriptor represents one of its
+    #: methods. None for plain function jobs.
+    owner_class: str | None = None
 
     @property
     def command_path(self) -> CommandPath:
@@ -290,8 +297,11 @@ class JobDescriptor:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict for cache persistence.
 
-        Uses config_fields if populated, otherwise falls back to parameters.
-        Enum defaults are converted via .value attribute. Non-JSON-serializable
+        ``config_fields`` carries what the CLI configures the job with, which
+        for a plain function is its parameters. A class method's two lists are
+        different — the class's fields and the method's own arguments — so
+        ``parameters`` is persisted beside it rather than folded in. Enum
+        defaults are converted via .value attribute. Non-JSON-serializable
         defaults are converted to None.
         """
         fields = self.config_fields if self.config_fields else self.parameters
@@ -309,6 +319,9 @@ class JobDescriptor:
             "content_hash": self.content_hash,
             "docstring": self.docstring,
             "config_fields": [_field_to_dict(f) for f in fields],
+            # v24 — a class method's own arguments, which `config_fields` (the
+            # class's fields) does not hold.
+            "parameters": [_field_to_dict(f) for f in self.parameters],
             "dependencies": dict(self.dependencies),
             "metadata": metadata_dict,
             "requires_tty": self.requires_tty,
@@ -322,6 +335,7 @@ class JobDescriptor:
             ),
             "from_job_deps": list(self.from_job_deps),
             "python_name": self.python_name,
+            "owner_class": self.owner_class,
             "workflow": (
                 self.workflow.to_dict() if self.workflow is not None else None
             ),
@@ -403,6 +417,15 @@ class JobDescriptor:
             except ValueError as e:
                 raise ValueError(f"Invalid config_fields[{i}]: {e}") from e
 
+        # v24 — a method job's own arguments. Absent in a v23 entry, where
+        # `config_fields` already held the parameters of every other job.
+        parameters = []
+        for i, field_data in enumerate(data.get("parameters") or []):
+            try:
+                parameters.append(_field_from_dict(field_data))
+            except ValueError as e:
+                raise ValueError(f"Invalid parameters[{i}]: {e}") from e
+
         # Validate dependencies dict values
         for key, value in data["dependencies"].items():
             if not isinstance(key, str):
@@ -448,6 +471,9 @@ class JobDescriptor:
             content_hash=data["content_hash"],
             docstring=data["docstring"],
             config_fields=config_fields,
+            # v24 — a method job's own arguments; empty for every other job,
+            # whose `config_fields` already is its parameter list.
+            parameters=parameters,
             dependencies=data["dependencies"],
             metadata=metadata_value,
             # Capability markers (v5) — default False for pre-v5 cache entries.
@@ -469,6 +495,7 @@ class JobDescriptor:
             # v10 — absent in pre-v10 entries and for every non-workflow job.
             from_job_deps=tuple(data.get("from_job_deps") or ()),
             python_name=data.get("python_name") or "",
+            owner_class=data.get("owner_class") or None,
             workflow=workflow,
         )
 
@@ -491,6 +518,16 @@ class JobResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     exception: BaseException | None = field(default=None, compare=False, hash=False)
     job_name: str = ""
+
+    def raise_for_status(self) -> Self:
+        """Return this result when its job did its work; raise otherwise.
+
+        The tool outcome family treats SUCCESS, SKIPPED and BLOCKED as
+        non-failures. Other statuses raise an error carrying this result.
+        """
+        if is_failure(self.status, family=Family.TOOL):
+            raise JobFailedError(self) from self.exception
+        return self
 
 
 @dataclass(frozen=True)
@@ -560,6 +597,12 @@ class RegisteredJob:
         group: Job group name (None for top-level jobs).
         module_path: Module path or file path where the job was defined.
         job_directory: Directory containing the job source file (None if unknown).
+        method_name: For a class job, the method the job runs. The engine
+            binds ``getattr(config_class, method_name)`` to the run's resolved
+            config instance, which is the receiver; ``None`` for a function
+            job. Read from the descriptor's ``python_name`` at registration —
+            the engine never sees a descriptor.
+
         dependencies: Names of the jobs this one depends on — declared `Deps`
             plus signature-derived `FromJob` parameters, already resolved.
 
@@ -577,6 +620,7 @@ class RegisteredJob:
     module_path: str
     job_directory: Path | None = None
     dependencies: tuple[str, ...] = ()
+    method_name: str | None = None
 
 
 # =============================================================================

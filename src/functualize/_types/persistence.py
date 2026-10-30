@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkable
 
@@ -504,8 +504,10 @@ class StartAttempt:
     job body, a run is the logical unit the user asked for, and a retry
     inserts the next attempt rather than overwriting — which is what makes
     "how many times did this fail before it worked" answerable. The store
-    mints the run and attempt identity; this port does not hand it back, since
-    every writer but ``claim`` returns ``None`` (``contracts.md`` §1.3).
+    mints the run and attempt identity when ``run_id`` is absent. The engine
+    supplies its run-log identity when it also records the relational run.
+    This port does not hand the identity back: every writer but ``claim``
+    returns ``None`` (``contracts.md`` §1.3).
     """
 
     job: str
@@ -516,6 +518,8 @@ class StartAttempt:
     invoke_depth: int = 0
     #: A hash of the arguments, never the arguments.
     args_hash: str | None = None
+    run_tags: Mapping[str, str] = field(default_factory=dict)
+    run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -668,6 +672,7 @@ class RunView:
     invoke_depth: int = 0
     args_hash: str | None = None
     ended_at: datetime | None = None
+    run_tags: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -774,13 +779,17 @@ class RunTree:
 
 @dataclass(frozen=True)
 class RunQuery:
-    """Filters for "what ran recently". ``None`` means "do not filter"."""
+    """Filters for "what ran recently". ``None`` means "do not filter".
+
+    Every tag must match for a run to be included.
+    """
 
     job: str | None = None
     status: str | None = None
     scope_id: str | None = None
     parent_run_id: str | None = None
     limit: int | None = None
+    tags: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

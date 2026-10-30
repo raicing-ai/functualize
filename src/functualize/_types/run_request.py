@@ -175,6 +175,19 @@ forget a door.
 _EMPTY: Final[Mapping[str, Any]] = MappingProxyType({})
 
 
+@dataclass
+class EmissionRecord:
+    """Where an invoked child's ``Stdout`` records instead of writing (C5).
+
+    A live collector, deliberately not frozen: the child appends to it during
+    the run. It is therefore outside ``RunRequest`` equality and the hash, and
+    ``nested_request`` resets it, so capture is never transitive (B7).
+    """
+
+    emitted: list[Any] = field(default_factory=list)
+    writes: list[str | bytes] = field(default_factory=list)
+
+
 @dataclass(frozen=True, slots=True)
 class RunRequest:
     """Everything one run needs, frozen at the door that built it.
@@ -186,6 +199,9 @@ class RunRequest:
     ``surface`` has no default. A door must name itself — the coverage audit had
     to reconstruct which door a run came from by reading code, and the run record
     (F5) cannot record what the request never carried.
+
+    ``run_tags`` is fixed for a run; a child receives the exact map and cannot
+    add, change or remove an entry.
     """
 
     job_name: str
@@ -196,6 +212,7 @@ class RunRequest:
     prompt_gates: bool = False
     output_format: str = "auto"
     force: bool = False
+    run_tags: Mapping[str, str] = field(default_factory=lambda: _EMPTY)
 
     # Execution inputs.
     group_option_values: Mapping[str, Any] | None = None
@@ -219,6 +236,11 @@ class RunRequest:
     #: parent is the run that built the request, and only that code knows its
     #: own run id. Inheriting it would make a grandchild claim its grandparent.
     parent_run_id: str | None = None
+
+    #: Where an invoked child's Stdout records instead of writing (capture=True).
+    #: Set only by WiredInvoke; reset by nested_request, so capture is not
+    #: transitive. A live object, so it is outside equality and the hash.
+    capture: EmissionRecord | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         if self.surface not in RUN_SURFACES:
@@ -371,6 +393,9 @@ def nested_request(parent: RunRequest | None, **changes: Any) -> RunRequest:
         # Reset, not inherited: a child's parent is whoever built its request,
         # and inheriting would make a grandchild claim its grandparent.
         "parent_run_id": None,
+        # Reset, not inherited: capture belongs to the invocation that asked
+        # for it, so a grandchild's emissions are never swallowed (B7).
+        "capture": None,
     }
     fields.update(changes)
     return parent.replace(**fields)

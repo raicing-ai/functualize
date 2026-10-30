@@ -140,7 +140,7 @@ class SqliteOutboxProbe:
 class SqliteMigrationHarness:
     """`MigrationHarness` — the schemas and damage a local file can have."""
 
-    latest_version = 4
+    latest_version = 5
     historical = ("empty", "documents-only", "version-1")
     refusals = ("checksum", "ahead", "gap", "partial")
 

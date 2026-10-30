@@ -97,13 +97,15 @@ class TestMainEntryPoint:
                 main()
             assert exc_info.value.code == 0
             # `scope_id`/`prompt_gates`/`force` are part of the call as of the
-            # workflow-gate flags and `--force`; asserting the full kwarg set
-            # keeps this honest rather than passing on a partial match — which
-            # is why adding a global flag lands here, and should.
+            # workflow-gate flags and `--force`, and `run_tags` (the merged
+            # run-tag map, empty here) as of `--run-tag`; asserting the full
+            # kwarg set keeps this honest rather than passing on a partial
+            # match — which is why adding a global flag lands here, and should.
             mock_handler.assert_called_once_with(
                 [str(py_file)],
                 output_format="auto",
                 _app_ref=ANY,
                 prompt_gates=False,
                 force=False,
+                run_tags={},
             )

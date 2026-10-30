@@ -23,7 +23,7 @@ from functualize.app.config import ConfigSources, DiscoveryConfig
 from functualize.app.utils import resolve_user_config_dir
 
 # Recognized top-level sections in the global config
-_RECOGNIZED_SECTIONS = frozenset({"discovery", "cli", "aliases", "tui", "vault"})
+_RECOGNIZED_SECTIONS = frozenset({"discovery", "cli", "aliases", "tui", "vault", "run"})
 
 # Recognized top-level keys (non-section values) in the global config
 _RECOGNIZED_TOP_LEVEL_KEYS = frozenset(
@@ -65,6 +65,8 @@ _RECOGNIZED_KEYS: dict[str, frozenset[str]] = {
     # The OS keyring wait for the vault key. Read here, carried to the app as
     # data in `ConfigSources`, so `_config`/`_app` never import this layer.
     "vault": frozenset({"keyring_timeout"}),
+    # Read here; judged by _cli/run_tags.py, never imported by _app.
+    "run": frozenset({"tags"}),
     # [aliases] section has free-form string keys — no validation
 }
 

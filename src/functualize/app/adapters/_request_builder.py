@@ -18,6 +18,7 @@ the second run is a different code path").
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 from functualize._types.run_request import RunRequest, RunSurface
@@ -97,6 +98,7 @@ def build_request(
     prompt_gates: bool | None = None,
     output_format: str | None = None,
     force: bool | None = None,
+    run_tags: Mapping[str, str] | None = None,
     surface: RunSurface,
     app: object = None,
 ) -> RunRequest:
@@ -107,8 +109,8 @@ def build_request(
     arguments — is what travels. ``surface`` defaults to ``app.cli`` and is
     overridden by whichever ``func`` handler built the command.
 
-    The three **delivery inputs** — ``prompt_gates``, ``output_format``,
-    ``force`` — accept ``None`` meaning *not stated here*, in which case they
+    The four **delivery inputs** — ``prompt_gates``, ``output_format``,
+    ``force`` and ``run_tags`` — accept ``None`` meaning *not stated here*, in which case they
     come from :func:`_click_obj`. ``func``'s handlers state them, because they
     parsed the flags before building the command; the app's own root callback
     cannot, and puts them in ``ctx.obj`` instead. Until T12 both routes were
@@ -123,7 +125,10 @@ def build_request(
     """
     ambient = (
         _click_obj(app)
-        if prompt_gates is None or output_format is None or force is None
+        if prompt_gates is None
+        or output_format is None
+        or force is None
+        or run_tags is None
         else {}
     )
     return RunRequest(
@@ -143,4 +148,7 @@ def build_request(
             else output_format
         ),
         force=bool(ambient.get("force", False)) if force is None else force,
+        run_tags=MappingProxyType(
+            dict((ambient.get("run_tags") if run_tags is None else run_tags) or {})
+        ),
     )

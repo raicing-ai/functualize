@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — run tags label every run and filter the run log
+A run can carry `key:value` tags from three sources, merged per key with the
+later winning: `[run] tags` in the global config, the
+`FUNCTUALIZE_RUN_TAGS` environment variable, and the repeatable global
+`--run-tag` flag. The merge happens before boot; a malformed or duplicated tag
+is refused with exit 2 before any job runs. A child run (a workflow step, a
+dependency, an `rc.invoke` child) carries an exact copy of its parent's tags,
+and tags never reach the job's arguments, its `RunContext` or its cache key.
+Every run record and every `run list` / `run show` / MCP row now carries a
+`run_tags` map (`{}` for older records), `func builtin run list --tag KEY:VALUE`
+filters on every given tag exactly, and the SQLite store gains schema
+revision 5, a `run_tags` table whose rows are fixed once the run opens. Tags are
+stored in plain text: never put a secret in one. Recorded in
+[ADR-040](contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md).
+### Added — jobs declared as methods of a class
+
+A **job class** is a `pydantic.BaseModel` decorated with `@job`. Each public
+method is one job, named `<group>.<method>`, so a subject's verbs can be
+declared instead of bound by a hand-written plugin:
+
+```python
+@job(group="pg")
+class Postgres(BaseModel):
+    host: str = "localhost"
+
+    def start(self, sh: Shell) -> None: ...
+    def stop(self, sh: Shell) -> None: ...
+```
+
+The class's typed fields are the configuration of every one of its method jobs,
+and all of them read one section — the class's group — through the resolution
+order a config-model parameter already uses. A `Secret[str]` field resolves
+through the vault under that same group. The instance is built once per run
+from the resolved configuration, and never during discovery, `--help`,
+`builtin info` or completion. Tags merge outward — the method's own
+`@job(tags=…)`, then the class's, then `JOB_TAGS` along the MRO — and `JOB_TAGS`
+must be annotated `ClassVar`, because a plain annotation makes it a
+configuration field instead.
+
+Two rules bound the form. An abstract class is never a job class: it produces
+no job and no group, and if it carries its own `@job` discovery records a
+finding naming it and its unimplemented methods rather than dropping the opt-in
+silently. And `@job` is not inherited — each concrete class opts in with its own
+`@job(...)` and so names its own group; a subclass without one is not a job
+class, even when its base is.
+
+A name a job class shares with another definition is refused rather than
+silently won. When either claimant is class-derived, neither definition
+registers: invoking the name exits `2` with a message naming both definitions
+and their files, `builtin info` reports it under discovery failures,
+`builtin info jobs` lists it as a row, and the rest of the project boots and
+runs. Collisions between two plain functions keep the rule they have today.
+
+The guide is `docs/guides/job-classes.md`; `docs/guides/subjects.md` now
+declares its subject class in this form. `examples/standalone/job_classes_lab`
+is the runnable version, including a class job whose name collides with a
+function.
+
+### Added — checked child results and opt-in captured output
+`JobResult.raise_for_status()` returns the same result when the job did its
+work and otherwise raises `JobFailedError` carrying the child's result, name,
+status and underlying exception. The error is exported from
+`functualize.types`. An invoked child can now use `capture=True` to return its
+`Stdout.emit()` values and `Stdout.write()` payloads in the result's `emitted`
+and `writes` metadata tuples instead of writing them to stdout. Capture does
+not pass to grandchildren; an invocation without capture keeps its existing
+output and result behavior. Recorded in
+[ADR-036](contributor/adr/036-checked-invocation-and-capture.md).
+
+### Changed — invocation failure hooks follow the shared failure set
+`INVOKE_FAILURE` now fires for a child ending in `TIMEOUT`, `CANCELLED` or
+`UNKNOWN`, as well as `FAILURE` and `REFUSED`. Hook subscribers may receive
+these additional statuses. The checked result and `Invoke.parallel` use the
+same failure set.
+
 ### Added — gate answers are durable, evidenced, and delivered at least once
 A gate's question and every answer it collects are now first-class records on
 the selected store: the request carries the causal identity of the walk that
@@ -120,7 +195,7 @@ with `ValueError`, beside the existing empty-name refusal, because the decision
 key already uses NUL as its separator.
 
 Recorded in
-[ADR-034](contributor/adr/034-operator-surfaces-read-decision-records-in-bulk.md),
+[ADR-038](contributor/adr/038-operator-surfaces-read-decision-records-in-bulk.md),
 which links ADR-033 (a walk's scope I/O goes through the selected store) and
 ADR-025 (the engine owns what a transition means).
 

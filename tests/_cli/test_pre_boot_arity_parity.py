@@ -47,6 +47,16 @@ from functualize._types.flag_grammar import (
 _JOB = "somejob"
 
 
+def test_run_tag_arity_matches_all_three_pre_boot_scans() -> None:
+    argv = ["func", "--run-tag", "x:y", _JOB]
+    mode, effective = detect_mode(argv, job_names={_JOB})
+    assert (mode, effective) == (Mode.JOB, [_JOB])
+    opts, _ = _extract_global_options(argv)
+    assert opts.first_positional_index == 2
+    assert opts.run_tags == ["x:y"]
+    assert version_requested(["--run-tag", "x:y", "--version"])
+
+
 def _sample_value(flag: str) -> str:
     """A token ``_extract_global_options`` will accept for ``flag``.
 

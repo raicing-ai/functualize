@@ -1480,23 +1480,16 @@ def _show_job_config(app: FunctualizeApp, console: Console, job_name: str) -> No
     config_table.add_column("Value")
     config_table.add_column("Source", style="dim italic")
 
-    from functualize._config.resolved_field import resolve_job_fields
     from functualize._types.redaction import display_value
+    from functualize.app.utils import job_config_fields
 
-    # One resolver. This used to be `_resolve_field_with_source`, a private
-    # re-implementation that knew one env convention, skipped coercion, and so
-    # could report a value the run would not use.
+    # One resolver, and the one `builtin env` reads. This used to be
+    # `_resolve_field_with_source`, a private re-implementation that knew one
+    # env convention, skipped coercion, and so could report a value the run
+    # would not use; then a second view of its own, built at the job's name,
+    # which reported a class job's fields from a section its run never reads.
     try:
-        from functualize._config.job_config import JobConfigView
-
-        fields = resolve_job_fields(
-            job_config_class,
-            job_name,
-            JobConfigView(
-                resolution_chain=app._resolution_chain,
-                default_section_prefix=job_name,
-            ),
-        )
+        fields = job_config_fields(app, job_name)
     except Exception:  # introspection must never mask the real error
         fields = []
 
