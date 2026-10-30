@@ -1046,10 +1046,10 @@ list`, `run show`, `--format json`, the MCP run tools) carries `run_tags`, and
 `run list --tag KEY:VALUE` keeps a run only when every given pair matches
 exactly. The SQLite store gains schema revision **5**, a `run_tags` table. The
 surfaces: `_cli/run_tags.py` (the one grammar), `_cli/main.py` (the pre-boot
-merge and the forward to every run-building door), `_cli/config.py`
-(`[run] tags`), `_types/run_request.py`, the request builders,
+merge, the read of `[run] tags` off the global layer, and the forward to every
+run-building door), `_types/run_request.py`, the request builders,
 `_engine/executor.py` (the record), both stores, `app/_run_view.py` (the
-projection and filter) and `_cli/builtins.py` (`--tag`, the table and `run
+projection and filter) and `_cli/builtins/_run.py` (`--tag`, the table and `run
 show`). Rationale in
 [ADR-040](../contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md).
 
