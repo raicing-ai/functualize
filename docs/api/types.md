@@ -153,7 +153,7 @@ Global options fall into two kinds, and the difference is entirely about the **n
 
 | Table | Meaning | Members |
 |---|---|---|
-| `GLOBAL_OPTIONS_ALWAYS_VALUE` | Consumes the next token as its value | `--log-level`, `--dotenv-file`, `--config-directory`, `--discovery-depth`, the seven `--require-*` filters, `--exclude`, `--perf-filter`, `--import-libs`, `--perf-report`, `--emit-format` |
+| `GLOBAL_OPTIONS_ALWAYS_VALUE` | Consumes the next token as its value | `--log-level`, `--dotenv-file`, `--config-directory`, `--discovery-depth`, the seven `--require-*` filters, `--exclude`, `--perf-filter`, `--import-libs`, `--perf-report`, `--emit-format`, `--run-tag` |
 | `GLOBAL_BOOL_FLAGS` | Never consumes a token | `--no-dotenv`, `--prompt-gates`, `--no-prompt-gates`, `--force`, `--help`, `-h` |
 
 `GLOBAL_OPTIONS_WITH_VALUE` has the same membership as `GLOBAL_OPTIONS_ALWAYS_VALUE` under its own name — it is the global-flag detector's table, used for `--option=value` detection and for "move it before the group" advice.

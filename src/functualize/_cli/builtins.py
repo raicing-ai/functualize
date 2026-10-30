@@ -1918,6 +1918,13 @@ def register_builtin_commands(cli_group: Any) -> None:
     @click.option(
         "--scope", "scope_id", default=None, help="Only runs in this workflow scope."
     )
+    @click.option(
+        "--tag",
+        "tag",
+        multiple=True,
+        metavar="KEY:VALUE",
+        help="Only runs carrying every specified run tag.",
+    )
     @click.option("--limit", type=int, default=20, help="How many rows at most.")
     @click.option(
         "--format",
@@ -1933,6 +1940,7 @@ def register_builtin_commands(cli_group: Any) -> None:
         surface: str | None,
         state: str | None,
         scope_id: str | None,
+        tag: tuple[str, ...],
         limit: int,
         fmt: str,
     ) -> None:
@@ -1942,7 +1950,13 @@ def register_builtin_commands(cli_group: Any) -> None:
         answers "what is waiting on me", where order is incidental; a run list
         answers "what just happened", where it is the whole question.
         """
+        from functualize._cli.run_tags import RunTagError, parse_tag
         from functualize.app.utils import list_runs
+
+        try:
+            tags = tuple(parse_tag(item, where="--tag") for item in tag)
+        except RunTagError as exc:
+            raise click.UsageError(str(exc)) from exc
 
         items = list_runs(
             _run_store(ctx),
@@ -1950,6 +1964,7 @@ def register_builtin_commands(cli_group: Any) -> None:
             surface=surface,
             state=state,
             scope_id=scope_id,
+            tags=tags,
             limit=limit,
         )
         if fmt == "json":
@@ -1965,9 +1980,13 @@ def register_builtin_commands(cli_group: Any) -> None:
             # the moment the one-liner had its own shape, `--format json` and
             # the MCP survey stopped being the same rows.
             took = "-" if it["duration_ms"] is None else f"{it['duration_ms']:.0f}ms"
+            tags_text = " ".join(
+                f"{key}:{it['run_tags'][key]}" for key in sorted(it["run_tags"])
+            )
             click.echo(
                 f"{it['run_id']}  {it['job']}  {it['state']}  "
                 f"{it['surface'] or '-'}  {took}"
+                + (f"  {tags_text}" if tags_text else "")
             )
 
     @run_app.command("show")
@@ -2012,6 +2031,10 @@ def register_builtin_commands(cli_group: Any) -> None:
             click.echo(f"scope_id: {payload['scope_id']}")
         if payload.get("parent_run_id"):
             click.echo(f"parent_run_id: {payload['parent_run_id']}")
+        run_tags = payload["run_tags"]
+        if run_tags:
+            tags_text = " ".join(f"{key}:{run_tags[key]}" for key in sorted(run_tags))
+            click.echo(f"run_tags: {tags_text}")
         if events:
             click.echo(f"events: {len(payload.get('events') or [])}")
             for event in payload.get("events") or []:

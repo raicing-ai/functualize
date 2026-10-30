@@ -37,6 +37,26 @@ if TYPE_CHECKING:
 class TestReadGlobalConfig:
     """Tests for read_global_config()."""
 
+    def test_run_tags_are_returned_raw_from_global_config(self, tmp_path: Path) -> None:
+        config = tmp_path / "config.toml"
+        config.write_text('[run]\ntags = ["a:b"]\n')
+        assert read_global_config(tmp_path)["run"]["tags"] == ["a:b"]
+        config.write_text('[run]\ntags = "a:b"\n')
+        assert read_global_config(tmp_path)["run"]["tags"] == "a:b"
+
+    def test_unknown_run_key_warns(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "config.toml").write_text('[run]\ntags = ["a:b"]\nother = 1\n')
+        assert read_global_config(tmp_path)["run"] == {"tags": ["a:b"]}
+        assert "unrecognized key 'other' in [run]" in capsys.readouterr().err
+
+    def test_project_run_table_is_not_a_global_config_source(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".functualize.toml").write_text('[run]\ntags = ["a:b"]\n')
+        assert read_global_config(tmp_path) == {}
+
     def test_missing_file_returns_empty(self, tmp_path: Path):
         """Missing config file → empty dict, no error (Req 1.2)."""
         result = read_global_config(tmp_path)

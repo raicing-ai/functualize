@@ -24,7 +24,7 @@ import inspect
 import logging
 import sys
 import typing
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -1017,6 +1017,7 @@ def build_job_engine_callback(
     prompt_gates: bool | None = None,
     output_format: str | None = None,
     force: bool | None = None,
+    run_tags: Mapping[str, str] | None = None,
 ) -> Callable[..., Any]:
     """Build the DI/config/lifecycle callback a click command invokes.
 
@@ -1122,6 +1123,7 @@ def build_job_engine_callback(
                     prompt_gates=prompt_gates,
                     output_format=output_format,
                     force=force,
+                    run_tags=run_tags,
                     app=app_ref,
                 )
                 result = app_ref.execution_engine.run(request)  # type: ignore[union-attr]
@@ -1386,6 +1388,7 @@ def create_job_click_command(
     prompt_gates: bool | None = None,
     output_format: str | None = None,
     force: bool | None = None,
+    run_tags: Mapping[str, str] | None = None,
 ) -> click.Command:
     """Build a ``click.Command`` for a job — the click-native replacement.
 
@@ -1403,6 +1406,7 @@ def create_job_click_command(
         prompt_gates: Delivery input, ``None`` when this door did not parse it.
         output_format: Delivery input, ``None`` when this door did not parse it.
         force: Delivery input, ``None`` when this door did not parse it.
+        run_tags: Delivery input, ``None`` when this door did not parse it.
     """
     from functualize._discovery.providers import extract_capability_markers
 
@@ -1429,6 +1433,7 @@ def create_job_click_command(
         prompt_gates=prompt_gates,
         output_format=output_format,
         force=force,
+        run_tags=run_tags,
     )
     return click.Command(
         name=command_name or name,

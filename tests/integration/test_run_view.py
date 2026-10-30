@@ -4,10 +4,9 @@
 nothing: every run's origin, parentage and outcome was recorded and there was
 no way to ask about it.
 
-Every assertion here goes through a **real run**, never a hand-built record.
-A projection tested against fixtures it also shaped proves only that the
-fixture matches itself; what matters is that the fields the engine actually
-writes are the fields this reads.
+Most assertions here go through a **real run**. Legacy-shape and sparse-index
+cases seed the run log directly, because they need an old record shape or a
+precise run order. The live-path tests still check what the engine writes.
 """
 
 from __future__ import annotations
@@ -21,7 +20,10 @@ from click.testing import CliRunner
 
 from functualize import FunctualizeApp, RunContext
 from functualize._engine.capabilities.state import State  # noqa: TC001
+from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.run_store import RunStore
+from functualize._primitives.scope_store import ScopeStore
+from functualize._types.persistence import RunQuery
 from functualize._types.run_request import RunRequest
 from functualize.app.utils import (
     RUN_STATES,
@@ -61,6 +63,213 @@ def app() -> FunctualizeApp:
 
 def _run(app: FunctualizeApp, job: str, surface: str = "app.execute") -> Any:
     return app.execute(RunRequest(job_name=job, surface=surface))
+
+
+class TestDocumentRuntimeRunTags:
+    def test_legacy_record_reads_empty_without_rewrite(self) -> None:
+        store = _store()
+        run_id = store.open_run({"job": "legacy", "surface": "app.execute"})
+        before = store.get_run(run_id)
+        assert before is not None and "run_tags" not in before
+
+        view = DocumentRuntimeStore(store.substrate).runs.run(run_id)
+        assert view is not None and view.run_tags == {}
+        assert store.get_run(run_id) == before
+
+    def test_two_tag_filter_requires_both_exact_values(
+        self, app: FunctualizeApp
+    ) -> None:
+        app.execute(
+            RunRequest(
+                job_name="child",
+                surface="app.execute",
+                run_tags={"host": "laptop", "tier": "2"},
+            )
+        )
+        app.execute(
+            RunRequest(
+                job_name="child",
+                surface="app.execute",
+                run_tags={"host": "laptop", "tier": "3"},
+            )
+        )
+        reader = DocumentRuntimeStore(_store().substrate).runs
+        matches = reader.recent(RunQuery(tags=(("host", "laptop"), ("tier", "2"))))
+        assert len(matches) == 1
+        assert matches[0].run_tags == {"host": "laptop", "tier": "2"}
+        assert reader.recent(RunQuery(tags=(("host", "Laptop"),))) == ()
+
+    def test_sparse_tag_filter_returns_limited_matches(self) -> None:
+        store = _store()
+        with store.batch():
+            for _ in range(170):
+                store.open_run({"job": "sparse", "surface": "app.execute"})
+            tagged_ids = [
+                store.open_run(
+                    {
+                        "job": "sparse",
+                        "surface": "app.execute",
+                        "run_tags": {"match": "yes"},
+                    }
+                )
+                for _ in range(3)
+            ]
+            for _ in range(30):
+                store.open_run({"job": "sparse", "surface": "app.execute"})
+
+        matches = DocumentRuntimeStore(store.substrate).runs.recent(
+            RunQuery(tags=(("match", "yes"),), limit=2)
+        )
+        assert [view.run_id for view in matches] == tagged_ids[-1:-3:-1]
+
+    def test_tag_filter_reaches_beyond_previous_candidate_cap(self) -> None:
+        store = _store()
+        with store.batch():
+            tagged_id = store.open_run(
+                {
+                    "job": "sparse",
+                    "surface": "app.execute",
+                    "run_tags": {"match": "yes"},
+                }
+            )
+            for _ in range(70):
+                store.open_run({"job": "sparse", "surface": "app.execute"})
+
+        matches = DocumentRuntimeStore(store.substrate).runs.recent(
+            RunQuery(tags=(("match", "yes"),), limit=2)
+        )
+        assert [view.run_id for view in matches] == [tagged_id]
+        assert (
+            DocumentRuntimeStore(store.substrate).runs.recent(
+                RunQuery(tags=(("match", "yes"),), limit=0)
+            )
+            == ()
+        )
+
+    def test_scope_record_has_no_run_tags_while_its_runs_do(
+        self, app: FunctualizeApp
+    ) -> None:
+        app.execute(
+            RunRequest(
+                job_name="parent",
+                surface="app.execute",
+                run_tags={"host": "laptop"},
+            )
+        )
+        store = _store()
+        records = store.recent_runs()
+        scope_id = records[0]["scope_id"]
+        scope = ScopeStore.for_project(Path.cwd()).get_scope(scope_id)
+        assert scope is not None and "run_tags" not in scope
+        views = DocumentRuntimeStore(store.substrate).runs.recent(
+            RunQuery(scope_id=scope_id)
+        )
+        assert {view.job for view in views} == {"parent", "child"}
+        assert all(view.run_tags == {"host": "laptop"} for view in views)
+
+
+#: `_describe`'s keys in their rendering order before run tags existed.
+_PRE_TAG_KEYS = [
+    "run_id",
+    "job",
+    "surface",
+    "state",
+    "status",
+    "started_at",
+    "ended_at",
+    "duration_ms",
+    "scope_id",
+    "parent_run_id",
+    "invoke_depth",
+    "runner",
+    "args_hash",
+    "force",
+    "group_option_values",
+    "children",
+    "event_count",
+]
+
+
+class TestTheProjectionCarriesRunTags:
+    """AC21, AC22: every row has `run_tags`; a tag filter runs before the limit."""
+
+    def test_a_tagged_run_reads_its_map(self, app: FunctualizeApp) -> None:
+        app.execute(
+            RunRequest(
+                job_name="child",
+                surface="app.execute",
+                run_tags={"harness": "claude", "tier": "2"},
+            )
+        )
+        [row] = list_runs(_store())
+        assert row["run_tags"] == {"harness": "claude", "tier": "2"}
+        assert describe_run(_store(), row["run_id"]) == row
+
+    def test_every_row_carries_the_key_and_a_pre_feature_record_reads_empty(
+        self, app: FunctualizeApp
+    ) -> None:
+        store = _store()
+        legacy_id = store.open_run({"job": "legacy", "surface": "app.execute"})
+        before = store.get_run(legacy_id)
+        assert before is not None and "run_tags" not in before
+        _run(app, "child")
+
+        rows = list_runs(_store())
+        assert len(rows) == 2
+        assert all("run_tags" in row for row in rows)
+        assert {row["job"]: row["run_tags"] for row in rows} == {
+            "legacy": {},
+            "child": {},
+        }
+        assert _store().get_run(legacy_id) == before, "the read rewrote the record"
+
+    def test_an_untagged_row_differs_from_today_only_by_the_new_key(
+        self, app: FunctualizeApp
+    ) -> None:
+        _run(app, "child")
+        [row] = list_runs(_store())
+
+        expected = list(_PRE_TAG_KEYS)
+        expected.insert(expected.index("force") + 1, "run_tags")
+        assert list(row) == expected
+        assert row["run_tags"] == {}
+
+    def test_scope_two_tags_and_limit_two_returns_the_two_newest_matches(
+        self,
+    ) -> None:
+        """The limit is applied after every filter, the tag filter included."""
+        store = _store()
+        both = {"harness": "claude", "tier": "2"}
+
+        def seed(name: str, scope: str, tags: dict[str, str] | None) -> str:
+            record: dict[str, Any] = {
+                "job": name,
+                "surface": "app.execute",
+                "scope_id": scope,
+            }
+            if tags is not None:
+                record["run_tags"] = tags
+            return store.open_run(record)
+
+        seed("match-1", "s1", both)
+        seed("one-tag", "s1", {"harness": "claude"})
+        seed("match-2", "s1", both)
+        seed("other-scope", "s2", both)
+        seed("match-3", "s1", {**both, "extra": "x"})
+        seed("wrong-case", "s1", {"harness": "Claude", "tier": "2"})
+        seed("untagged", "s1", None)
+
+        query = {"scope_id": "s1", "tags": (("harness", "claude"), ("tier", "2"))}
+        assert [r["job"] for r in list_runs(_store(), limit=2, **query)] == [
+            "match-3",
+            "match-2",
+        ]
+        assert [r["job"] for r in list_runs(_store(), **query)] == [
+            "match-3",
+            "match-2",
+            "match-1",
+        ]
+        assert list_runs(_store(), tags=(("missing", "x"),)) == []
 
 
 class TestTheProjectionReportsWhatTheEngineWrote:

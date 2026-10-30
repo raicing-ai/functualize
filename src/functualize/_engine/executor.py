@@ -16,6 +16,7 @@ import sys
 import time
 import types
 from collections.abc import Callable
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -35,6 +36,7 @@ from pydantic import ValidationError
 from functualize._engine.context import ExecutionContext
 from functualize._engine.dependency_runner import DependencyRunner
 from functualize._engine.missing_value import MissingValueError
+from functualize._engine.recording.run_recorder import RunRecorder
 from functualize._engine.resolution import ResolutionPlan, build_resolution_plan
 from functualize._engine.validation import ArgValidator, unexpected_keyword_error
 from functualize._engine.workflow_orchestrator import WorkflowOrchestrator
@@ -1000,13 +1002,17 @@ class JobExecutionEngine:
             from functualize._primitives.run_store import RunStore, runner_identity
 
             store = RunStore(self.substrate)
-            return store.open_run(
+            args_hash = compute_args_hash(call_args=self._hashable(kwargs))
+            scope_id = request.workflow_scope_id or getattr(
+                request.parent_scope, "scope_id", None
+            )
+            run_id = store.open_run(
                 {
                     "job": request.job_name,
                     # AC-2: which surface started this run, answerable from the
                     # record rather than inferred from what else is in it.
                     "surface": request.surface,
-                    "args_hash": compute_args_hash(call_args=self._hashable(kwargs)),
+                    "args_hash": args_hash,
                     # **"The scope this run ran in"**, for every run — review
                     # F6 asked whether this should instead be null for a
                     # non-workflow job. It should not, and the reason is that
@@ -1032,8 +1038,7 @@ class JobExecutionEngine:
                     # way to say which scope its branches ran in. Reading the
                     # object here fixes the *record* without touching what the
                     # id controls during execution.
-                    "scope_id": request.workflow_scope_id
-                    or getattr(request.parent_scope, "scope_id", None),
+                    "scope_id": scope_id,
                     "parent_run_id": request.parent_run_id,
                     "invoke_depth": request.invoke_depth,
                     "group_option_values": (
@@ -1042,12 +1047,38 @@ class JobExecutionEngine:
                         else {}
                     ),
                     "force": request.force,
+                    "run_tags": dict(request.run_tags),
                     "runner": runner_identity(),
                 }
             )
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not open a run record", exc_info=True)
             return None
+        # The document runtime port shares this RunStore, so its open is
+        # already recorded. A relational runtime store needs the same run id
+        # and immutable tags mirrored into its runs/attempts aggregate.
+        if (
+            self._runtime_store is not None
+            and self._runtime_store.profile.name != "documents"
+        ):
+            try:
+                with self._runtime_store.transaction() as tx:
+                    tx.runs.start_attempt(
+                        RunRecorder().started(
+                            job=request.job_name,
+                            surface=request.surface,
+                            now=datetime.now(UTC),
+                            run_id=run_id,
+                            run_tags=request.run_tags,
+                            scope_id=scope_id,
+                            parent_run_id=request.parent_run_id,
+                            invoke_depth=request.invoke_depth,
+                            args_hash=args_hash,
+                        )
+                    )
+            except Exception:  # noqa: BLE001 - observations remain best-effort
+                logger.debug("could not mirror a run record", exc_info=True)
+        return run_id
 
     def _close_scope(self, request: RunRequest, outcome: str) -> None:
         """Mark a scope this run minted as finished, and seal its store.
@@ -1124,6 +1155,7 @@ class JobExecutionEngine:
 
             store = RunStore(self.substrate)
             store.close_run(run_id, "failure")
+            self._finish_runtime_attempt(run_id, "failure")
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close a run record", exc_info=True)
 
@@ -1135,9 +1167,25 @@ class JobExecutionEngine:
             from functualize._primitives.run_store import RunStore
 
             store = RunStore(self.substrate)
-            store.close_run(run_id, result.status.value.lower())
+            status = result.status.value.lower()
+            store.close_run(run_id, status)
+            self._finish_runtime_attempt(run_id, status)
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close run record %s", run_id, exc_info=True)
+
+    def _finish_runtime_attempt(self, run_id: str, status: str) -> None:
+        """Mirror the terminal attempt when the runtime store is relational."""
+        if (
+            self._runtime_store is None
+            or self._runtime_store.profile.name == "documents"
+        ):
+            return
+        with self._runtime_store.transaction() as tx:
+            tx.runs.finish_attempt(
+                RunRecorder().finished(
+                    run_id=run_id, attempt_no=1, status=status, now=datetime.now(UTC)
+                )
+            )
 
     def _request_kwargs(
         self, request: RunRequest, job: RegisteredJob
