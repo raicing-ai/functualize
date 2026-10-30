@@ -140,7 +140,7 @@ class TestScanWarmCacheParity:
         flow = next(job for job in rebuilt if job.name == "flow")
         assert flow.workflow is not None
         assert flow.workflow.to_dict()["steps"][1]["recovers"] == "refund"
-        assert json.loads(path.read_text(encoding="utf-8"))["version"] == 22
+        assert json.loads(path.read_text(encoding="utf-8"))["version"] == CACHE_VERSION
 
     def test_declaration_survives_warm_cache_read(
         self, tmp_path: Path, jobs_dir: Path
@@ -166,7 +166,7 @@ class TestScanWarmCacheParity:
         _make_provider(tmp_path, jobs_dir).list_jobs()
 
         data = json.loads(_cache_file(tmp_path).read_text(encoding="utf-8"))
-        assert data["version"] == CACHE_VERSION == 22
+        assert data["version"] == CACHE_VERSION == 25
         # The declaration sub-dict is present in the cached entry.
         entry = next(iter(data["entries"].values()))
         assert entry["declaration"]["deps"]["policy"] == "keep-going"

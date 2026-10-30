@@ -1,0 +1,5 @@
+# A virtual project: nothing is installed from here, and `func` picks the
+# directory up because `[tool.functualize]` is the standard place for these
+# settings (see docs/getting-started/project-structure.md).
+[tool.functualize]
+jobs_directories = ["jobs"]

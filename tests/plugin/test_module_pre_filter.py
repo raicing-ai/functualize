@@ -41,6 +41,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILT_INS = [
     builtins.DefaultModulePreFilter(),
     builtins.ASTModulePreFilter(),
+    builtins.ClassJobPreFilter(),
     builtins.DisplayClassPreFilter(),
     builtins.GroupOptionsPreFilter(),
     builtins.FilePrefixPreFilter("job_"),

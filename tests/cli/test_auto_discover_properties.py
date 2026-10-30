@@ -205,13 +205,19 @@ def qualifying_python_content(draw: st.DrawFn) -> str:
 
 @st.composite
 def non_qualifying_content_no_public_func(draw: st.DrawFn) -> str:
-    """Generate Python content that fails ASTModulePreFilter.
+    """Generate Python content that fails every content filter in the chain.
 
-    Contains no public top-level function definitions. May have:
+    Contains no public top-level function definition (fails
+    ``ASTModulePreFilter``) and no public class with a public method (fails
+    ``ClassJobPreFilter``). May have:
     - Only private functions (underscore-prefixed)
-    - Only class definitions
+    - Only a class with no public method
     - Only assignments
     - Empty module
+
+    A public class with a public method is *not* in this family: it can be a
+    job class, so ``ClassJobPreFilter`` admits it — see
+    ``test_property_2_public_class_with_public_method_qualifies``.
     """
     variant = draw(
         st.sampled_from(["private_func", "class_only", "assignment_only", "empty"])
@@ -221,7 +227,7 @@ def non_qualifying_content_no_public_func(draw: st.DrawFn) -> str:
         name = "_" + draw(st.text(_valid_stem_chars, min_size=1, max_size=8))
         return f"def {name}():\n    pass\n"
     elif variant == "class_only":
-        return "class MyClass:\n    def method(self):\n        pass\n"
+        return "class MyClass:\n    pass\n"
     elif variant == "assignment_only":
         return "x = 42\ny = 'hello'\n"
     else:
@@ -247,9 +253,10 @@ class TestPreFilterQualification:
 
     For any directory tree below CWD, `auto_discover()` SHALL include a
     directory in its scan results if and only if that directory contains at
-    least one `.py` file that passes both `DefaultModulePreFilter`
-    (non-underscore-prefixed filename) AND `ASTModulePreFilter` (contains
-    at least one public top-level function definition).
+    least one `.py` file that passes `DefaultModulePreFilter`
+    (non-underscore-prefixed filename) AND one of the content filters:
+    `ASTModulePreFilter` (at least one public top-level function definition)
+    OR `ClassJobPreFilter` (a public top-level class with a public method).
 
     **Validates: Requirements 1.2, 8.1, 8.2, 8.3**
     """
@@ -345,10 +352,11 @@ class TestPreFilterQualification:
         file_stem: str,
         content: str,
     ) -> None:
-        """A directory with .py files lacking public functions is NOT discovered.
+        """A directory whose content qualifies for nothing in the chain is NOT discovered.
 
         ASTModulePreFilter requires at least one public (non-underscore) top-level
-        function definition. Without it, the directory doesn't qualify.
+        function definition, and ClassJobPreFilter a public class with a public
+        method. Content that has neither doesn't qualify.
 
         **Validates: Requirements 1.2, 8.2**
         """
@@ -371,6 +379,51 @@ class TestPreFilterQualification:
                 f"  dir: {resolved_sub_dir}\n"
                 f"  file: {file_stem}.py\n"
                 f"  content type: no public function\n"
+                f"  discovered: {discovered}"
+            )
+
+    @given(
+        dir_name=_safe_dir_name,
+        file_stem=_non_underscore_stem,
+        decorated=st.booleans(),
+    )
+    def test_property_2_public_class_with_public_method_qualifies(
+        self,
+        dir_name: str,
+        file_stem: str,
+        decorated: bool,
+    ) -> None:
+        """A directory whose only definition is a public class with a public method IS discovered.
+
+        The complement of the property above: such content fails
+        ASTModulePreFilter but passes ClassJobPreFilter, which exists so a
+        module holding only a job class is imported. Decorators are not
+        consulted, so the bare and the ``@job`` form both qualify.
+
+        **Validates: Requirements 1.2, 8.2**
+        """
+        import tempfile
+
+        header = "from functualize.job import job\n\n\n@job\n" if decorated else ""
+        content = f"{header}class MyClass:\n    def method(self):\n        pass\n"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            sub_dir = tmp_path / dir_name
+            sub_dir.mkdir(parents=True, exist_ok=True)
+            py_file = sub_dir / f"{file_stem}.py"
+            py_file.write_text(content, encoding="utf-8")
+
+            result = auto_discover(cwd=tmp_path, scan_depth=1)
+
+            discovered = result.directories or []
+            resolved_sub_dir = str(sub_dir.resolve())
+
+            assert resolved_sub_dir in discovered, (
+                f"Directory whose only definition is a public class with a "
+                f"public method should be discovered.\n"
+                f"  dir: {resolved_sub_dir}\n"
+                f"  file: {file_stem}.py\n"
                 f"  discovered: {discovered}"
             )
 

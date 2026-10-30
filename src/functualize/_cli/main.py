@@ -1226,6 +1226,21 @@ def _dispatch_group(
             print("No commands available.")
         return 0
 
+    # A name a class job and a plain function both claim: nothing is
+    # registered under it, so it is not in `entries` and would read as a typo
+    # in a real sub-command. It is not a typo — the user declared it, and the
+    # reason it cannot run is a contradiction between two files, so the
+    # finding's own message (both definitions, both files) is printed and the
+    # exit code is USAGE.
+    strict_name = ".".join([*node.path, remaining[0]]) if node.path else remaining[0]
+    from functualize._cli.info import strict_collision_messages
+
+    if message := strict_collision_messages(app).get(strict_name):
+        print(message, file=sys.stderr)
+        from functualize.app.utils import ExitCode
+
+        return int(ExitCode.USAGE)
+
     print(
         f"Error: Unknown command '{remaining[0]}' in group '{cli_path}'.",
         file=sys.stderr,
@@ -1465,6 +1480,34 @@ def _handle_job(
             break
 
     if job_descriptor is None:
+        # ── A strict collision is a declared name, not an unknown one ─────
+        # Neither claimant registered, so the lookup above found nothing. The
+        # finding names both definitions and both files; printing it beats
+        # both the plugin fallback below and "Unknown command", because the
+        # user typed a name they wrote and the answer is a contradiction
+        # between files rather than a typo.
+        #
+        # The name may span tokens: when every method of a group is refused —
+        # the same job class from two sources — the group itself has no
+        # registered member, so `func pg start` routes here with `pg` alone
+        # rather than through group dispatch. The leading words are read as
+        # the path they spell, the way group dispatch reads them.
+        from functualize._cli.info import strict_collision_messages
+
+        strict = strict_collision_messages(app)
+        spelled = [job_name]
+        candidates = [job_name]
+        for token in remaining_args:
+            if token.startswith("-"):
+                break
+            spelled.append(normalize_name(token) or token)
+            candidates.append(".".join(spelled))
+        if message := next((strict[n] for n in candidates if n in strict), None):
+            print(message, file=sys.stderr)
+            from functualize.app.utils import ExitCode
+
+            return int(ExitCode.USAGE)
+
         # ── Gap A: plugin-registered command dispatch (post-boot) ─────────
         # Plugin command groups (e.g. `mcp`) and ungrouped plugin commands
         # are invisible to pre-boot mode detection, so they land here in

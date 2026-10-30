@@ -2842,13 +2842,23 @@ def register_builtin_commands(cli_group: Any) -> None:
         from functualize.app.adapters.cli import _show_info_impl
 
         _show_info_impl(app, job=job, show_env_vars=show_env_vars)
-        from functualize._cli.info import collision_projection, render_collision_notice
+        from functualize._cli.info import (
+            collision_projection,
+            is_strict_collision,
+            render_collision_notice,
+        )
 
         collisions_by_name = collision_projection(app)
         for descriptor in app.get_jobs():
             if job is not None and job != descriptor.name:
                 continue
             for collision in collisions_by_name.get(descriptor.name, ()):
+                # Two shapes share this map. Only the five-key record is what
+                # `render_collision_notice` can read; the strict record names
+                # every claimant of a name that has no descriptor, so it is
+                # rendered by `render_catalog_text` and never here.
+                if is_strict_collision(collision):
+                    continue
                 click.echo(
                     render_collision_notice(str(descriptor.command_path), collision)
                 )

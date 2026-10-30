@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
-from functualize._primitives.cache_format import CACHE_FILENAME
+from functualize._primitives.cache_format import CACHE_FILENAME, CACHE_VERSION
 from functualize._primitives.locator import ResourceLocator
 
 
@@ -40,5 +40,5 @@ def test_old_cache_name_rebuilds_with_new_identity(tmp_path: Path, monkeypatch) 
 
     assert [job.name for job in provider().list_jobs()] == ["dž-ops.run-it"]
     rebuilt = json.loads(cache_file.read_text(encoding="utf-8"))
-    assert rebuilt["version"] == 22
+    assert rebuilt["version"] == CACHE_VERSION
     assert [entry["name"] for entry in rebuilt["entries"].values()] == ["dž-ops.run-it"]

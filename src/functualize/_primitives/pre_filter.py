@@ -209,6 +209,65 @@ class DisplayClassPreFilter:
         return _fingerprint(type(self).__name__)
 
 
+class ClassJobPreFilter:
+    """Check for job-class definitions via AST parsing.
+
+    Parses the source file's AST and returns True if any top-level public
+    class either defines at least one public method in its own body, or
+    carries a decorator named ``job``. A private class is a helper exactly as a
+    ``_``-prefixed function is, and is never a candidate.
+
+    Without this, a module whose only job is a class — ``jobs/pg.py`` holding
+    ``@job class Postgres`` and nothing else — never qualifies and is never
+    imported, so the class job does not exist as far as discovery is
+    concerned.
+
+    **Two signals, because the body alone misses inherited methods.** A job
+    class's public methods are read along its MRO, so a concrete class can
+    declare none of its own — ``@job(group="postgres-tuned") class
+    PooledPostgres(LocalPostgres): pool_size: int = 20`` takes ``start`` and
+    ``stop`` from a base in another module. Its body has no method, so a
+    body-only test rejected the file and its jobs never existed, with no
+    finding to say so. The opt-in is what such a class does carry, so a
+    ``@job`` decorator qualifies it too.
+
+    The decorator is matched by its last name — ``@job``, ``@job(...)``,
+    ``@functualize.job.job(...)`` — and not resolved: an alias
+    (``from functualize.job import job as opt_in``) is invisible to syntax. A
+    method in the class body still qualifies an undecorated class, the way
+    discovery admits an undecorated public function. Deciding *which* classes
+    are job classes stays with ``extract_module``, which answers it from the
+    imported object; this filter only decides whether reading the file is
+    worth it, and a plain ``BaseModel`` subclass with neither signal is not.
+
+    Satisfies the ``ModulePreFilter`` Protocol via structural typing.
+    """
+
+    def should_import(self, source_file: Path) -> bool:
+        """Return True if a top-level public class has a public method or ``@job``."""
+        try:
+            source = source_file.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(source_file))
+        except (OSError, SyntaxError) as exc:
+            record_discovery_failure(source_file, exc)
+            return False
+
+        for node in ast.iter_child_nodes(tree):
+            if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):
+                continue
+            if any(_decorator_last_name(d) == "job" for d in node.decorator_list):
+                return True
+            for stmt in node.body:
+                if isinstance(
+                    stmt, ast.FunctionDef | ast.AsyncFunctionDef
+                ) and not stmt.name.startswith("_"):
+                    return True
+        return False
+
+    def fingerprint(self) -> str:
+        return _fingerprint(type(self).__name__)
+
+
 class GroupOptionsPreFilter:
     """Check for a bound ``GroupOptions`` declaration via AST parsing.
 
@@ -410,6 +469,22 @@ class MarkerModulePreFilter:
         return _fingerprint(type(self).__name__, self._marker)
 
 
+def _decorator_last_name(node: ast.expr) -> str | None:
+    """The decorator's own name: ``job`` for ``@job``, ``@job(...)`` and ``@a.b.job``.
+
+    The counterpart of :func:`extract_decorator_root_name`, which walks to the
+    *leftmost* name (``a`` in ``@a.b.job``) because job-level decorator filters
+    match on the import root. Recognising the opt-in needs the rightmost one.
+    """
+    if isinstance(node, ast.Call):
+        node = node.func
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Name):
+        return node.id
+    return None
+
+
 def extract_decorator_root_name(node: ast.expr) -> str | None:
     """Extract the root (leftmost) name from a decorator AST node.
 
@@ -433,6 +508,28 @@ def extract_decorator_root_name(node: ast.expr) -> str | None:
     return None
 
 
+def _decorator_root_names(
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
+) -> tuple[str, ...]:
+    """Root names of the decorators on one definition, in source order."""
+    return tuple(
+        name
+        for name in (extract_decorator_root_name(d) for d in node.decorator_list)
+        if name is not None
+    )
+
+
+def _merge_root_names(
+    own: tuple[str, ...], inherited: tuple[str, ...]
+) -> tuple[str, ...]:
+    """``own`` first, then ``inherited`` with anything already seen dropped."""
+    merged = list(own)
+    for name in inherited:
+        if name not in merged:
+            merged.append(name)
+    return tuple(merged)
+
+
 def extract_function_decorators(source_file: Path) -> dict[str, tuple[str, ...]]:
     """Map each top-level function name to its decorator root names (via AST).
 
@@ -443,6 +540,11 @@ def extract_function_decorators(source_file: Path) -> dict[str, tuple[str, ...]]
     (a transparent wrapper leaves no trace on the resulting object), so the
     names are read from the source AST at extraction time and carried on the
     descriptor.
+
+    Top-level functions are keyed by their bare name. Methods are keyed
+    ``"<Class>.<method>"``, and their value also carries the class's own
+    decorators — the class-level ``@job`` is what makes its methods jobs at all
+    (D8), so a ``require_job_decorators`` filter must see it.
 
     Returns an empty mapping when the file cannot be read or parsed; callers
     treat that as "no decorators known", so a job-level decorator filter
@@ -458,14 +560,20 @@ def extract_function_decorators(source_file: Path) -> dict[str, tuple[str, ...]]
     result: dict[str, tuple[str, ...]] = {}
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            names = tuple(
-                name
-                for name in (
-                    extract_decorator_root_name(d) for d in node.decorator_list
-                )
-                if name is not None
-            )
-            result[node.name] = names
+            result[node.name] = _decorator_root_names(node)
+        elif isinstance(node, ast.ClassDef):
+            # One level of nesting, deliberately: a job method lives directly
+            # in its class body, and nothing below that is addressed by a key
+            # this mapping can spell. A class's own decorators belong to every
+            # method in it — ``@job`` on the class is what brings the method
+            # into existence — so they join the method's own under the
+            # class-qualified key, the method's first.
+            class_names = _decorator_root_names(node)
+            for child in node.body:
+                if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                    result[f"{node.name}.{child.name}"] = _merge_root_names(
+                        _decorator_root_names(child), class_names
+                    )
     return result
 
 

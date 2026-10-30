@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — jobs declared as methods of a class
+
+A **job class** is a `pydantic.BaseModel` decorated with `@job`. Each public
+method is one job, named `<group>.<method>`, so a subject's verbs can be
+declared instead of bound by a hand-written plugin:
+
+```python
+@job(group="pg")
+class Postgres(BaseModel):
+    host: str = "localhost"
+
+    def start(self, sh: Shell) -> None: ...
+    def stop(self, sh: Shell) -> None: ...
+```
+
+The class's typed fields are the configuration of every one of its method jobs,
+and all of them read one section — the class's group — through the resolution
+order a config-model parameter already uses. A `Secret[str]` field resolves
+through the vault under that same group. The instance is built once per run
+from the resolved configuration, and never during discovery, `--help`,
+`builtin info` or completion. Tags merge outward — the method's own
+`@job(tags=…)`, then the class's, then `JOB_TAGS` along the MRO — and `JOB_TAGS`
+must be annotated `ClassVar`, because a plain annotation makes it a
+configuration field instead.
+
+Two rules bound the form. An abstract class is never a job class: it produces
+no job and no group, and if it carries its own `@job` discovery records a
+finding naming it and its unimplemented methods rather than dropping the opt-in
+silently. And `@job` is not inherited — each concrete class opts in with its own
+`@job(...)` and so names its own group; a subclass without one is not a job
+class, even when its base is.
+
+A name a job class shares with another definition is refused rather than
+silently won. When either claimant is class-derived, neither definition
+registers: invoking the name exits `2` with a message naming both definitions
+and their files, `builtin info` reports it under discovery failures,
+`builtin info jobs` lists it as a row, and the rest of the project boots and
+runs. Collisions between two plain functions keep the rule they have today.
+
+The guide is `docs/guides/job-classes.md`; `docs/guides/subjects.md` now
+declares its subject class in this form. `examples/standalone/job_classes_lab`
+is the runnable version, including a class job whose name collides with a
+function.
+
 ### Added — checked child results and opt-in captured output
 `JobResult.raise_for_status()` returns the same result when the job did its
 work and otherwise raises `JobFailedError` carrying the child's result, name,
