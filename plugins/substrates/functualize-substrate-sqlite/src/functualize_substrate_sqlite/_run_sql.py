@@ -409,13 +409,11 @@ class SqlEventWriter:
         run_id: str | None = None,
         *,
         scope_id: str | None = None,
-        generation: int | None = None,
+        generation: int = 0,
     ) -> None:  # noqa: A002 — the port's name
         tx = self._tx
         if scope_id is not None and run_id is not None:
             raise ValueError("an event cannot name both a run and a scope")
-        if (scope_id is None) != (generation is None):
-            raise ValueError("scope_id and generation must be supplied together")
         now = iso(datetime.now(UTC))
         if run_id is not None:
             # An event for a run nobody opened lands nowhere, like the attempt
@@ -439,7 +437,8 @@ class SqlEventWriter:
             )
             return
         if scope_id is not None:
-            assert generation is not None
+            tx.require_fence(scope_id, generation)
+            tx.ensure_scope(scope_id, datetime.now(UTC))
             tx.scopes_written.add(scope_id)
             fence, fence_args = tx.fence_sql(scope_id, generation)
             tx.stage(
@@ -457,7 +456,6 @@ class SqlEventWriter:
                     now,
                     *fence_args,
                 ),
-                refused=lambda: tx.lost_fence(scope_id, generation),
             )
             return
         if len(tx.scopes_written) != 1:

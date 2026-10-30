@@ -351,6 +351,22 @@ def scope_targeted_event_append(make_store: MakeStore, root: Path) -> None:
     assert [event.type for event in store.workflows.events_after("target", 0)] == [
         "conformance.direct"
     ]
+    with store.transaction() as tx:
+        tx.events.append(
+            "conformance.current", scope_id="target", generation=takeover.generation
+        )
+    with store.transaction() as tx:
+        tx.events.append("conformance.unfenced", scope_id="target")
+    with store.transaction() as tx:
+        tx.events.append("conformance.unclaimed", scope_id="unclaimed")
+    assert [event.type for event in store.workflows.events_after("target", 0)] == [
+        "conformance.direct",
+        "conformance.current",
+        "conformance.unfenced",
+    ]
+    assert [event.type for event in store.workflows.events_after("unclaimed", 0)] == [
+        "conformance.unclaimed"
+    ]
     store.close()
 
 

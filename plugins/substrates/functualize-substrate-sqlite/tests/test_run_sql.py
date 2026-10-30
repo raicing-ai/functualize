@@ -230,7 +230,7 @@ def test_scope_event_staged_before_takeover_is_fenced_at_commit(
         "SqliteRuntimeStore", SqliteRuntimeStoreFactory().prepare(config).store
     )
     try:
-        with pytest.raises(StaleGenerationError), store.transaction() as tx:
+        with store.transaction() as tx:
             tx.events.append(
                 "stale-walk",
                 {"event": "must not land"},
