@@ -8,8 +8,7 @@ The W1 gate is all-or-nothing because the public port and two implementations mu
 
 ## W2 — walker, subscriber, and docs
 
-- [ ] T2 [F: `src/functualize/_engine/workflow_walker.py`, `src/functualize/_events/walk_log.py`] Emit the held generation, pass it to the scope-targeted append, strip it from stored payload, and delete the routing write. Acceptance: supplied matrix and both generation-carrying repros pass; requested workflow and integration suites pass. Reachability: `_app` installs the subscriber; `_engine` emits through the bus; sabotage the emit/subscriber wire after committing and require the integration test to fail.
-- [ ] T3 [F: `contributor/reference/runtime-persistence-data-model.md`, `contributor/adr/033-the-walks-scope-io-goes-through-the-selected-store.md`, `contributor/architecture/codemaps/data-flow.md`, `CHANGELOG.md`] Describe the fence and direct append in durable docs and changelog. Acceptance: docs accurately state the port and no-routing-write behavior; final lint, type, import and requested test gates pass.
+- [ ] T2 [F: `src/functualize/_engine/workflow_walker.py`, `src/functualize/_events/walk_log.py`, `contributor/reference/runtime-persistence-data-model.md`, `contributor/adr/033-the-walks-scope-io-goes-through-the-selected-store.md`, `contributor/architecture/codemaps/data-flow.md`, `CHANGELOG.md`] Emit the held generation, pass it to the scope-targeted append, strip it from stored payload, delete the routing write, and describe the new contract in durable docs and changelog. Acceptance: supplied matrix and both generation-carrying repros pass; requested workflow and integration suites pass; docs accurately state the port and no-routing-write behavior; final lint, type, import and requested test gates pass. Reachability: `_app` installs the subscriber; `_engine` emits through the bus; sabotage the emit/subscriber wire after committing and require the integration test to fail.
 
 ## Task Dependency Graph
 
@@ -17,7 +16,7 @@ The W1 gate is all-or-nothing because the public port and two implementations mu
 {
   "waves": [
     {"id": 1, "tasks": ["T1"]},
-    {"id": 2, "tasks": ["T2", "T3"]}
+    {"id": 2, "tasks": ["T2"]}
   ]
 }
 ```
