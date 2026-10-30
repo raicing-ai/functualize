@@ -608,6 +608,84 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### Unknown settings keys are reported, from one declaration — delivered on PR #130, two criteria with the maintainer
+
+**What a user sees.** A key in a settings document that no setting declares is
+named where configuration is inspected, and is never fatal.
+`func builtin config path` lists exactly the layers resolution uses: the upward
+walk stopped by `root = true`, plus the expected locations that are not layers,
+global first, nearest project file last. Each line carries `✓ used` (supplies a
+value in effect), `○ found` (exists, supplies none) or `✗ missing`. A file with
+unknown keys gets ` — unknown key "roots" (did you mean "root"?); unknown key
+"cli.outptu" (did you mean "cli.output"?)`. `func builtin info --json` always
+carries `config.unknown_keys` as `{file, key, suggestion}` records, `[]` when
+clean. Exit codes do not change, nothing is printed on an ordinary run, and a
+warm `func <job>` never imports the check. The global file's old per-run warning
+is gone. There is no `config check` command; `config path` and `info` are the
+two surfaces. Recorded in
+[ADR-040](../contributor/adr/040-an-unknown-settings-key-is-reported-never-fatal.md).
+
+**The rule underneath** ([ADR-039](../contributor/adr/039-a-setting-is-declared-once.md)).
+Every setting is declared once, as a `Setting` in `FUNCTUALIZE_SETTINGS`. An app
+adds its own through `extend()`, which refuses a name already declared. One
+layer list and one resolver produce a frozen `ResolvedSettings` snapshot with
+provenance. The CLI before boot, the app, the engine, the TUI and the builtins
+all read that snapshot. There is no process registry and no import-time
+registration. The job `ResolutionChain` resolves no declared settings section.
+
+**Rules that outlive the feature:**
+
+- A new setting is a declaration edit, never a string read elsewhere. The
+  check, the generated root flags, the pre-boot early-flag scan, `config show`,
+  the TUI settings panel and the docs reference all derive from the
+  declaration.
+- A settings-backed root flag exists because its setting declares `cli_flag`.
+  `func` and an embedded app generate the same options from their own schema.
+  `phase="early"` flags are read before boot by the public
+  `functualize.app.adapters.early_setting_flags(schema, argv)` and enter the
+  first snapshot as its flag layer.
+- Each setting has exactly one environment name, `AppSettingsSchema.env_var_for`.
+
+**Ratchet state at the closing push.** `tests/spec/test_settings_ratchet.py`
+guards:
+- AC12 (no collection literal repeating declared names outside the
+  declaration, `test_declared_names_are_not_repeated_as_collection_literals`);
+- AC18 (no job-chain read of a declared section, no second settings-file
+  reader);
+- AC20 (no process registry);
+- AC22 (one schema source for generated flags);
+- AC30 (one owner of the surface vocabulary);
+- AC31 (the nine retained public→`_cli` delivery imports, pinned).
+
+`tests/config/test_settings_pin.py` pins the declared vocabulary and resolved
+values. **AC13 has no ratchet:** zero config-key string literals in read
+position outside the declaration and the resolver. Its read-position definition
+is with the maintainer. The gate-1 review counted 36 such literals still
+present at `413679fa`.
+
+**Known limitation — AC5 is with the maintainer.** At `8f979601`,
+`[plugins] disabled` and `[discovery] jobs_directories` are reported as
+unknown, though AC5 calls both known and the runtime honours them. The second
+also gets the suggestion `discovery.extra_directories`. Both are declaration
+gaps. The check reports them faithfully.
+
+**Task graph, terminal state.** `tasks.md` Revision 8, waves 0–9: every row
+complete except 8.1 (Ratchets), which stays open on AC13 alone. Row 9.2 was
+added late: the doc-verify scenario for the hosting guide still asserted the
+retired PEP 723 `skill` key, because neither the page nor the scenario was in
+any row's file list.
+
+**Owned elsewhere.** PR 2 on this branch line decomposes `JobExecutionEngine`
+and `FunctualizeInlineTUI`, the long functions in the files this feature
+edited, and the nine delivery imports. It starts after PR #130 merges, with its
+own architecture pass. The advisory dead-code delta leaves
+`func_settings.tui_settings` and `FuncSettingsStore.set_cli_override` reachable
+only from tests.
+
+The full feature record (spec, contracts, plan, tasks) stays recoverable from
+PR #130's head before its clearing commit (`git fetch origin
+refs/pull/130/head`).
+
 ### Lease heartbeat — implemented, review pending
 
 A claimed workflow walk renews its 300-second lease once when it starts, before
