@@ -15,6 +15,18 @@ include `config.unknown_keys` with the same findings. A typo no longer makes
 a file appear to have contributed a setting it did not supply. Diagnostics
 leave resolution and exit codes unchanged.
 
+### Fixed — a settings table in a job config file is reported, not silently ignored
+
+A top-level table in a `config.*.toml` job config file that names a settings
+section, such as `[shell] program = …` in `config.base.toml`, is now reported
+as a `ReservedSectionName` discovery failure. The report names the file and
+the document the table belongs in (`.functualize.toml [shell]`, or
+`[tool.functualize]` in `pyproject.toml`). It appears in
+`func builtin info --json` `discovery_failures` and under
+`func builtin config path`. The table still merges into the job chain as
+before; nothing fails. A job or group named after a settings section is
+reported the same way and still registers.
+
 ### Changed — framework settings share one resolution chain
 
 `root = true` now stops the project-file walk for the CLI, settings panel,

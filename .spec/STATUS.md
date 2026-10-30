@@ -633,6 +633,31 @@ provenance. The CLI before boot, the app, the engine, the TUI and the builtins
 all read that snapshot. There is no process registry and no import-time
 registration. The job `ResolutionChain` resolves no declared settings section.
 
+**Reserved settings-section names.** A word that names a declared settings
+section (`aliases`, `cli`, `discovery`, `plugins`, `shell`, `tui`, `vault`)
+is reported when it is also used for something else. Both cases use the
+existing discovery-failure channel, with `error_type` `ReservedSectionName`
+(`RESERVED_SECTION_NAME`, `_types/discovery_report.py`), and both are advisory.
+
+- *A job or group named after a section.* `func builtin info --json` lists the
+  finding in `discovery_failures`, naming the address, the section and the
+  source file. A dotted group is reported on its reserved segment. The job
+  **still registers and runs**: the finding only says that a `[shell]` table
+  is read as settings and never reaches that job's configuration
+  (`_discovery/collisions.py`, `reserved_section_name`).
+- *A settings table inside a job config file.* A top-level table named like a
+  section in `config.*.toml`, such as `[shell] program = …` in
+  `config.base.toml`, is reported with the file and the document it belongs
+  in: `.functualize.toml [shell]`, or `[tool.functualize]` in
+  `pyproject.toml`. The finding appears in `discovery_failures` and as a
+  `Discovery failure:` line under `func builtin config path`. The table
+  **still merges** into the job chain exactly as before
+  (`_config/sources.py`, `_report_reserved_section_tables`;
+  `reserved_section_table`).
+
+`tests/discovery/test_reserved_section_names.py` pins both cases, including
+the still-registers and still-merges halves.
+
 **Rules that outlive the feature:**
 
 - A new setting is a declaration edit, never a string read elsewhere. The
@@ -675,16 +700,19 @@ added late: the doc-verify scenario for the hosting guide still asserted the
 retired PEP 723 `skill` key, because neither the page nor the scenario was in
 any row's file list.
 
-**Owned elsewhere.** PR 2 on this branch line decomposes `JobExecutionEngine`
-and `FunctualizeInlineTUI`, the long functions in the files this feature
-edited, and the nine delivery imports. It starts after PR #130 merges, with its
+**Owned elsewhere.** `JobExecutionEngine` and `FunctualizeInlineTUI` are each
+over the constitution's ~500-line limit. They were **maintainer-accepted for
+this merge only**, with PR 2 named as the owner. PR 2 on this branch line
+decomposes both classes, the long functions in the files this feature edited,
+and the nine delivery imports. It starts after PR #130 merges, with its
 own architecture pass. The advisory dead-code delta leaves
 `func_settings.tui_settings` and `FuncSettingsStore.set_cli_override` reachable
 only from tests.
 
-The full feature record (spec, contracts, plan, tasks) stays recoverable from
-PR #130's head before its clearing commit (`git fetch origin
-refs/pull/130/head`).
+The full feature record (spec, contracts, plan, tasks) is gone from PR #130's
+head, which is past the clearing commit. It stays recoverable at
+`fe1eae887f50`, the commit before the clearing:
+`git fetch origin refs/pull/130/head && git show fe1eae887f50:.spec/features/config-unknown-keys/spec.md`.
 
 ### Lease heartbeat — implemented, review pending
 
