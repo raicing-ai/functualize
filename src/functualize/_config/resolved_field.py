@@ -27,7 +27,7 @@ Only imports from ``_types/``, ``_primitives/``, ``_events/`` and stdlib.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from functualize._config.errors import MissingKeyError
 from functualize._types.redaction import is_secret_field
@@ -122,6 +122,8 @@ def resolve_job_fields(
     job_name: str,
     config_view: JobConfigView,
     cli_values: dict[str, Any] | None = None,
+    *,
+    scope: Literal["group", "job"] = "job",
 ) -> list[ResolvedField]:
     """Resolve every field of ``config_class`` with its provenance.
 
@@ -130,6 +132,13 @@ def resolve_job_fields(
     comes back as ``source="unset"``, so a caller asking "what is missing?" gets
     an answer instead of a ``ValidationError``. Callers that need a validated
     model call ``resolve_job_config``, which layers Pydantic on top of this.
+
+    ``job_name`` is the section the fields live at, and ``scope`` says whether
+    it names a job or a group — the pair the engine's ``config_section_for``
+    returns. A class job's fields live at its group, so they are named the
+    group way (``PG__HOST``), which is the variable its run reads; a function
+    job keeps ``JOB_FIELD``. ``config_view`` must be built with the same scope,
+    since that is what the vault and the environment source key on.
     """
     cli_values = cli_values or {}
     fields: list[ResolvedField] = []
@@ -138,7 +147,11 @@ def resolve_job_fields(
     for name, info in model_fields.items():
         secret = is_secret_field(info)
         required = bool(getattr(info, "is_required", lambda: False)())
-        env_name = env_name_for(job_name, name)
+        env_name = (
+            group_env_name_for(job_name, name)
+            if scope == "group"
+            else env_name_for(job_name, name)
+        )
 
         cli_val = cli_values.get(name)
         if cli_val is not None:

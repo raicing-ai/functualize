@@ -1,4 +1,4 @@
-# ADR-034: `FromStep` Reads the Walk Everywhere
+# ADR-037: `FromStep` Reads the Walk Everywhere
 
 **Status**: accepted
 **Date**: 2026-10-20

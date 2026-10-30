@@ -1635,6 +1635,7 @@ def get_group_options_spec(app: Any, group_path: str) -> Any | None:
     )
     from functualize._primitives.group_options_detection import is_group_options_class
     from functualize._types.annotations import resolved_hints
+    from functualize._types.descriptors import GroupOptionsSpec
     from functualize._types.naming import normalize_name
 
     wanted = ".".join(normalize_name(part) or part for part in group_path.split("."))
@@ -1651,6 +1652,28 @@ def get_group_options_spec(app: Any, group_path: str) -> Any | None:
                 continue
             if getattr(annotation, "__group_path__", None) == wanted:
                 return extract_group_options_spec(annotation)
+
+    # A class job's typed fields are the configuration of every method job in
+    # its group, and a secret field's vault identity is that group's — so the
+    # group answers for those fields exactly as a declared `GroupOptions` does.
+    # Without this, `func builtin vault put --group pg --field password` was
+    # rejected as an unknown group while the run resolved that very entry.
+    # A declared `GroupOptions` wins; the class contributes only what it does
+    # not already declare, and both resolve to one storage identity.
+    #
+    # The descriptors, not the registry: the CLI boots lazy, so
+    # `_registered_jobs` is still empty when `vault put` validates its target,
+    # while discovery already carries each method job's class fields.
+    fields: dict[str, Any] = {}
+    for job in app.get_jobs():
+        if job.owner_class is None or job.group != wanted:
+            continue
+        for declared in job.config_fields or job.parameters:
+            fields.setdefault(declared.name, declared)
+    if fields:
+        return GroupOptionsSpec(
+            group=wanted, class_name="", fields=list(fields.values())
+        )
     return None
 
 

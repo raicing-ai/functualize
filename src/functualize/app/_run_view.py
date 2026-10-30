@@ -40,6 +40,7 @@ cannot know, because a projection that guesses is worse than one that abstains.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -150,6 +151,9 @@ def _describe(
         "runner": record.get("runner"),
         "args_hash": record.get("args_hash"),
         "force": bool(record.get("force")),
+        # Stored, not derived: the map the run was started with. A record
+        # written before run tags existed has no key and reads as `{}`.
+        "run_tags": dict(record.get("run_tags") or {}),
         "group_option_values": record.get("group_option_values") or {},
         "children": [child.get("run_id") for child in store.children_of(run_id)],
         "event_count": len(store.events_for(run_id)),
@@ -185,6 +189,7 @@ def list_runs(
     surface: str | None = None,
     state: str | None = None,
     scope_id: str | None = None,
+    tags: Sequence[tuple[str, str]] = (),
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Runs matching the filters, **newest first**.
@@ -206,6 +211,9 @@ def list_runs(
         scope_id: Only runs that executed in this scope. The join between the
             two projections: a workflow that blocked and resumed three times is
             one scope and four runs, and this is how the four are found.
+        tags: Only runs carrying **every** one of these ``(key, value)`` run
+            tags, matched exactly and case-sensitively. A run with no tags
+            matches no tag filter.
         limit: How many rows at most. Applied **after** filtering, so a narrow
             filter is not starved by a flood of unrelated recent runs.
     """
@@ -224,6 +232,10 @@ def list_runs(
         if (
             state is not None
             and _derive_state(record, this_runner=this_runner) != state
+        ):
+            continue
+        if tags and any(
+            (record.get("run_tags") or {}).get(key) != value for key, value in tags
         ):
             continue
         rows.append(_describe(run_id, record, store, this_runner=this_runner))

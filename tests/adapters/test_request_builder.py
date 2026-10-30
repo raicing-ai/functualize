@@ -92,6 +92,7 @@ def _comparable(request: Any) -> dict[str, Any]:
         "prompt_gates": request.prompt_gates,
         "output_format": request.output_format,
         "force": request.force,
+        "run_tags": dict(request.run_tags),
         "invoke_depth": request.invoke_depth,
         "run_dependencies": request.run_dependencies,
     }
@@ -155,6 +156,91 @@ class TestBothConstructorsAgree:
             assert request.prompt_gates is True
             assert request.output_format == "json"
             assert request.force is True
+
+    def test_stated_tags_reach_the_eager_request_without_aliasing(self) -> None:
+        from functualize.app.adapters.click_params import create_job_click_command
+
+        app, captured = _app_with_spy()
+        supplied = {"harness": "claude"}
+        command = create_job_click_command(
+            surface="func.job",
+            name="deploy",
+            function=deploy,
+            app=app,
+            run_tags=supplied,
+        )
+        command.callback(env="prod")  # type: ignore[misc]
+        supplied["harness"] = "changed"
+
+        assert len(captured) == 1
+        assert captured[0].run_tags == {"harness": "claude"}
+        with pytest.raises(TypeError):
+            captured[0].run_tags["new"] = "value"
+
+    def test_neither_constructor_declares_a_run_tag_option(self) -> None:
+        from functualize.app.adapters.click_params import create_job_click_command
+        from functualize.app.adapters.lazy_command import make_lazy_command
+
+        app, _ = _app_with_spy()
+        eager = create_job_click_command(
+            surface="func.job", name="deploy", function=deploy, app=app
+        )
+        lazy = make_lazy_command(_descriptor(), app, surface="func.job")
+        for command in (eager, lazy):
+            option_names = {
+                spelling
+                for param in command.params
+                for spelling in (*param.opts, *param.secondary_opts)
+            }
+            assert "--run-tag" not in option_names
+
+
+class TestRunTagRequestBuilder:
+    def test_explicit_map_is_copied_and_existing_inputs_survive(self) -> None:
+        from functualize.app.adapters._request_builder import build_request
+
+        supplied = {"harness": "claude"}
+        request = build_request(
+            "deploy",
+            kwargs={"env": "prod"},
+            surface="func.job",
+            prompt_gates=True,
+            output_format="json",
+            force=True,
+            run_tags=supplied,
+        )
+        supplied["harness"] = "changed"
+
+        assert request.run_tags == {"harness": "claude"}
+        assert request.prompt_gates is True
+        assert request.output_format == "json"
+        assert request.force is True
+
+    def test_none_reads_tags_from_this_apps_ambient_dict(self) -> None:
+        import click
+
+        from functualize.app.adapters._request_builder import build_request
+
+        app, _ = _app_with_spy()
+
+        @click.command()
+        @click.pass_context
+        def cmd(ctx: click.Context) -> None:
+            ctx.obj = {"app": app, "run_tags": {"host": "laptop"}}
+            request = build_request(
+                "deploy",
+                kwargs={},
+                surface="app.cli",
+                app=app,
+                prompt_gates=False,
+                output_format="auto",
+                force=False,
+            )
+            assert request.run_tags == {"host": "laptop"}
+            ctx.obj["run_tags"]["host"] = "changed"
+            assert request.run_tags == {"host": "laptop"}
+
+        cmd([], standalone_mode=False)
 
 
 class TestEveryDoorNamesItselfOrDoesNotCompile:

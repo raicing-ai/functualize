@@ -160,7 +160,22 @@ from functualize._primitives.project_root import (
 # before the existing spelling rule. A v21 descriptor may retain an older
 # identity such as `ǆ-ops.run-it`, so rebuilding the discovery cache ensures
 # warm boot agrees with cold discovery. Persisted job state is not migrated.
-CACHE_VERSION = 22
+# v23 (2026-10-26): class method descriptors carry their declaring class.
+# A v22 entry cannot retain that provenance, so rebuild it before class-aware
+# cache keys and collision claims are used.
+# v24 (2026-10-27): a class method descriptor's `parameters` (the method's own
+# arguments) are persisted next to `config_fields` (the class's fields). A v23
+# entry only kept `config_fields`, so a warm boot listed a method job with no
+# arguments while the cold one listed `--force`. Rebuild rather than read a
+# catalog that disagrees with itself.
+# v25 (2026-10-27): a module's own findings (`AbstractJobClass`,
+# `MethodGroupConflict`) are persisted beside its entries and replayed on a warm
+# scan. They are recorded only while the module is *imported*, so a module that
+# both states a finding and yields descriptors reported it on the cold boot and
+# nowhere after it — the finding vanished while the jobs beside it stayed listed.
+# A v24 cache has no such section and its absence is indistinguishable from "this
+# module states nothing", so the bump forces the one rebuild that records it.
+CACHE_VERSION = 25
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"

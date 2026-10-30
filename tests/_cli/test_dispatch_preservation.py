@@ -62,6 +62,7 @@ _discovery_depth_value = st.integers(min_value=0, max_value=10).map(str)
 
 # Always-consumes-value flags (these unconditionally eat the next token)
 _ALWAYS_CONSUMES_VALUE_FLAGS = [
+    "--run-tag",
     "--log-level",
     "--config-directory",
     "--perf-filter",

@@ -219,10 +219,12 @@ class _DocumentRunReader:
         network store answers this with a `WHERE` clause and an index.
         """
         limit = query.limit if query.limit is not None else 20
+        if limit <= 0:
+            return ()
         views: list[RunView] = []
-        # Over-read, because `recent_runs` caps before filtering and a filtered
-        # answer must still be able to reach `limit`.
-        for record in self._runs.recent_runs(limit=max(limit * 8, limit)):
+        # The document is already in memory: inspect every candidate so all
+        # filters run before the result limit, even for sparse tag matches.
+        for record in self._runs.recent_runs(limit=None):
             run_id = str(record.get("run_id", ""))
             if query.job is not None and record.get("job") != query.job:
                 continue
@@ -235,6 +237,10 @@ class _DocumentRunReader:
                 and record.get("parent_run_id") != query.parent_run_id
             ):
                 continue
+            if query.tags:
+                stored = record.get("run_tags") or {}
+                if any(stored.get(k) != v for k, v in query.tags):
+                    continue
             views.append(_run_view(run_id, record))
             if len(views) >= limit:
                 break
@@ -278,6 +284,7 @@ def _run_view(run_id: str, record: dict[str, Any]) -> RunView:
         invoke_depth=int(record.get("invoke_depth", 0) or 0),
         args_hash=record.get("args_hash"),
         ended_at=_parse(record.get("ended_at")),
+        run_tags=dict(record.get("run_tags") or {}),
     )
 
 
@@ -1274,21 +1281,22 @@ class _DocumentTransaction:
     def _start_attempt(self, cmd: StartAttempt, runs: RunStore) -> None:
         """Open a run and its first attempt as one transition.
 
-        The store mints the identity and this port does not hand it back —
-        every writer but `claim` returns `None` (`contracts.md` §1.3), so a
-        recorder that needs the id supplies it another way. `attempts` is a
-        list on the run record: a retry appends rather than overwriting, which
-        is what makes "how many times did this fail before it worked"
-        answerable at all on documents.
+        The store mints the identity unless the command carries a run-log id;
+        this port does not hand it back because writers return `None`.
+        `attempts` is a list on the run record: a retry appends rather than
+        overwriting, which is what makes "how many times did this fail before
+        it worked" answerable at all on documents.
         """
         runs.open_run(
             {
+                **({"run_id": cmd.run_id} if cmd.run_id is not None else {}),
                 "job": cmd.job,
                 "surface": cmd.surface,
                 "scope_id": cmd.scope_id,
                 "parent_run_id": cmd.parent_run_id,
                 "invoke_depth": cmd.invoke_depth,
                 "args_hash": cmd.args_hash,
+                "run_tags": dict(cmd.run_tags),
                 "started_at": _iso(cmd.now),
                 "attempts": [
                     {

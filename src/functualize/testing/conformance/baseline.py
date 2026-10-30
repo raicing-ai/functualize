@@ -600,6 +600,41 @@ def supersedes_reopens_a_gate_after_a_consumed_request(
     store.close()
 
 
+def run_tags_round_trip(make_store: MakeStore, root: Path) -> None:
+    """A run's tags read back exactly as it was started with them.
+
+    A tagged run reads its whole map back, through `run()` and `recent()`; an
+    untagged run reads ``{}``; a tag filter matches on every tag, exactly.
+    """
+    store = make_store(root)
+    tags = {"harness": "claude", "session-id": "abc"}
+    with store.transaction() as tx:
+        tx.runs.start_attempt(StartAttempt("tagged", "cli", _at(1), run_tags=tags))
+    tagged = _run_id(store, "tagged")
+    with store.transaction() as tx:
+        tx.runs.start_attempt(StartAttempt("untagged", "cli", _at(2)))
+    untagged = _run_id(store, "untagged")
+
+    view = store.runs.run(tagged)
+    assert view is not None and dict(view.run_tags) == tags, (
+        f"the tagged run reads {view!r}"
+    )
+    bare = store.runs.run(untagged)
+    assert bare is not None and dict(bare.run_tags) == {}, (
+        f"the untagged run reads {bare!r}"
+    )
+    assert {v.run_id: dict(v.run_tags) for v in store.runs.recent(RunQuery())} == {
+        tagged: tags,
+        untagged: {},
+    }
+    matching = store.runs.recent(
+        RunQuery(tags=(("harness", "claude"), ("session-id", "abc")))
+    )
+    assert [v.run_id for v in matching] == [tagged], matching
+    assert store.runs.recent(RunQuery(tags=(("harness", "Claude"),))) == ()
+    store.close()
+
+
 #: The checks, in the design package's order — ``(name, check)``.
 BASELINE: tuple[tuple[str, Callable[[MakeStore, Path], None]], ...] = (
     ("run tree and recent history", run_tree_and_recent_history),
@@ -629,6 +664,7 @@ BASELINE: tuple[tuple[str, Callable[[MakeStore, Path], None]], ...] = (
         "supersedes reopens a gate after a consumed request",
         supersedes_reopens_a_gate_after_a_consumed_request,
     ),
+    ("run_tags_round_trip", run_tags_round_trip),
 )
 
 

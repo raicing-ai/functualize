@@ -187,6 +187,7 @@ def test_extract_accepts_equals_spelling_for_every_value_flag(flag: str) -> None
             "perf_filter",
             "output",
             "import_libs",
+            "run_tags",
         )
     }
     assert any(v is not None for v in assigned.values()), f"{flag}=value: dropped"

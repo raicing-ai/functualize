@@ -387,3 +387,83 @@ def test_a_boot_selected_store_writes_runs_inputs_events_and_effects(
     assert _rows(store, "SELECT count(*) FROM run_events") == [(1,)]
     assert _rows(store, "SELECT count(*) FROM input_candidates") == [(1,)]
     assert _rows(store, "SELECT count(*) FROM outbox") == [(1,)]
+
+
+def test_start_writes_one_tag_row_per_key(store: SqliteRuntimeStore) -> None:
+    with store.transaction() as tx:
+        tx.runs.start_attempt(
+            StartAttempt("build", "cli", T0, run_tags={"model": "opus", "harness": "c"})
+        )
+    [(run_id,)] = _rows(store, "SELECT id FROM runs WHERE job = 'build'")
+
+    assert _rows(
+        store, "SELECT key, value FROM run_tags WHERE run_id = ? ORDER BY key", run_id
+    ) == [("harness", "c"), ("model", "opus")]
+    assert store.runs.run(str(run_id)) is not None
+    assert dict(store.runs.run(str(run_id)).run_tags) == {  # type: ignore[union-attr]
+        "harness": "c",
+        "model": "opus",
+    }
+
+
+def test_an_untagged_start_writes_no_tag_rows(store: SqliteRuntimeStore) -> None:
+    _start(store)
+
+    assert _rows(store, "SELECT count(*) FROM run_tags") == [(0,)]
+
+
+def test_tags_commit_only_with_their_run(store: SqliteRuntimeStore) -> None:
+    """Same transaction: a unit that fails after staging leaves neither."""
+    with pytest.raises(sqlite3.OperationalError), store.transaction() as tx:
+        tx.runs.start_attempt(StartAttempt("build", "cli", T0, run_tags={"k": "v"}))
+        cast("Any", tx).stage("INSERT INTO no_such_table VALUES (1)", ())
+
+    assert _rows(store, "SELECT count(*) FROM runs") == [(0,)]
+    assert _rows(store, "SELECT count(*) FROM run_tags") == [(0,)]
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        pytest.param("UPDATE run_tags SET value = 'changed'", id="update"),
+        pytest.param("DELETE FROM run_tags", id="delete"),
+        pytest.param(
+            "INSERT INTO run_tags (namespace_id, run_id, key, value) "
+            "SELECT namespace_id, id, 'late', 'x' FROM runs",
+            id="late-insert",
+        ),
+    ],
+)
+def test_a_tag_change_through_the_write_path_is_a_programming_error(
+    store: SqliteRuntimeStore, statement: str
+) -> None:
+    """AC33: refused by the database, not applied, and not a user message."""
+    with store.transaction() as tx:
+        tx.runs.start_attempt(StartAttempt("build", "cli", T0, run_tags={"k": "v"}))
+
+    with (
+        pytest.raises(sqlite3.IntegrityError, match="fixed when the run opens"),
+        store.transaction() as tx,
+    ):
+        cast("Any", tx).stage(statement, ())
+
+    assert _rows(store, "SELECT key, value FROM run_tags") == [("k", "v")]
+
+
+def test_retention_drops_a_runs_tags_through_the_cascade(
+    store: SqliteRuntimeStore,
+) -> None:
+    from functualize_substrate_sqlite._retention import apply_retention
+
+    from functualize._types.retention import RetentionPolicy
+
+    with store.transaction() as tx:
+        tx.runs.start_attempt(StartAttempt("build", "cli", T0, run_tags={"k": "v"}))
+    [(run_id,)] = _rows(store, "SELECT id FROM runs")
+    with store.transaction() as tx:
+        tx.runs.finish_attempt(FinishAttempt(str(run_id), 1, "success", T0))
+
+    apply_retention(store.driver, "default", RetentionPolicy(max_records=0))
+
+    assert _rows(store, "SELECT count(*) FROM runs") == [(0,)]
+    assert _rows(store, "SELECT count(*) FROM run_tags") == [(0,)]

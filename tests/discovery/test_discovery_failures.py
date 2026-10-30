@@ -27,6 +27,7 @@ import pytest
 
 from functualize._discovery.cached_provider import CachedDirectoryScanProvider
 from functualize._discovery.providers import DirectoryScanProvider
+from functualize._discovery.sync import ABSTRACT_JOB_CLASS, METHOD_GROUP_CONFLICT
 from functualize._primitives.cache_format import CACHE_FILENAME, CACHE_VERSION
 from functualize._primitives.pre_filter import (
     ASTModulePreFilter,
@@ -71,6 +72,62 @@ from functualize.job import job
 @job
 def unreachable(x: int = 1) -> None:
     """Never registered."""
+'''
+
+
+#: A module that both states findings about its own classes and yields a job.
+#: The AC-9 shape: the findings are recorded during the import, so a pass that
+#: skips the import used to lose them while `pg.start` stayed listed.
+CLASS_FINDINGS = '''
+from abc import abstractmethod
+
+from pydantic import BaseModel
+
+from functualize.job import Shell, job
+
+@job
+class Database(BaseModel):
+    """Abstract: states a finding, registers nothing."""
+
+    host: str = "localhost"
+
+    @abstractmethod
+    def start(self, sh: Shell) -> None: ...
+
+    @abstractmethod
+    def stop(self, sh: Shell) -> None: ...
+
+@job(group="pg")
+class Postgres(Database):
+    """Concrete, so the module has an entry and is skipped on a warm pass."""
+
+    def start(self, sh: Shell) -> None:
+        """Start the cluster."""
+
+    @job(group="other")
+    def stop(self, sh: Shell) -> None:
+        """Declares a group its class does not."""
+'''
+
+#: A finding and nothing else: no cache entry, so no reason to retain it.
+ABSTRACT_ONLY = '''
+from abc import abstractmethod
+
+from pydantic import BaseModel
+
+from functualize.job import Shell, job
+
+@job
+class Database(BaseModel):
+    """Abstract: states a finding, registers nothing."""
+
+    host: str = "localhost"
+
+    @abstractmethod
+    def start(self, sh: Shell) -> None: ...
+
+    @abstractmethod
+    def stop(self, sh: Shell) -> None: ...
 '''
 
 
@@ -373,6 +430,104 @@ class TestTheListIsPerScan:
         provider.list_jobs()
         assert provider.discovery_failures == first
         assert len(provider.discovery_failures) == 1
+
+    def test_what_a_module_says_about_itself_survives_a_warm_pass(
+        self, tmp_path: Path
+    ) -> None:
+        """AC-7 for the two findings a module states about its own classes.
+
+        `AbstractJobClass` and `MethodGroupConflict` are recorded while the
+        module is *imported*, which is the one thing a warm pass does not do.
+        So a module that both states a finding and yields descriptors — the
+        AC-9 shape — reported it on the cold boot and nowhere after it: the
+        second boot validated the entry, skipped the import, and published an
+        empty list beside a job that was still listed. Stable-cold,
+        silent-warm is the shape this file exists to rule out.
+
+        The findings are retained with the entry that makes the skip safe and
+        replayed from it. The cache file is asserted to carry them as well,
+        because a replay that only ever fires on a cold pass would satisfy the
+        cold assertion on its own.
+        """
+        from functualize._primitives.locator import ResourceLocator
+
+        jobs = _tree(tmp_path, classes=CLASS_FINDINGS)
+        cache_dir = tmp_path / ".functualize"
+        locator = (
+            ResourceLocator()
+            .search_explicit(str(cache_dir))
+            .write_to_explicit(str(cache_dir))
+        )
+
+        def boot() -> tuple[list[dict[str, str]], list[str]]:
+            # A fresh provider each time: it shares no in-memory state with the
+            # other, so the second is a boot and not a repeat call.
+            provider = CachedDirectoryScanProvider(
+                [str(jobs)], locator, project_root=tmp_path
+            )
+            listed = [descriptor.name for descriptor in provider.list_jobs()]
+            return [f.as_dict() for f in provider.discovery_failures], listed
+
+        cold_failures, cold_jobs = boot()
+        warm_failures, warm_jobs = boot()
+
+        assert cold_failures == [
+            {
+                "module": "classes",
+                "path": str(jobs / "classes.py"),
+                "error_type": ABSTRACT_JOB_CLASS,
+                "message": (
+                    "Job class 'Database' in module 'classes' is abstract "
+                    "(unimplemented: start, stop); no job is registered."
+                ),
+            },
+            {
+                "module": "classes",
+                "path": str(jobs / "classes.py"),
+                "error_type": METHOD_GROUP_CONFLICT,
+                "message": (
+                    "Job method 'Postgres.stop' declares group 'other' but its "
+                    "class 'Postgres' declares 'pg'; the two must agree, so no "
+                    "job is registered."
+                ),
+            },
+        ]
+        assert cold_jobs == ["pg.start"]
+        assert warm_failures == cold_failures
+        assert warm_jobs == cold_jobs
+
+        data = json.loads((cache_dir / CACHE_FILENAME).read_text(encoding="utf-8"))
+        assert [
+            row["error_type"] for row in data["findings"][str(jobs / "classes.py")]
+        ] == [ABSTRACT_JOB_CLASS, METHOD_GROUP_CONFLICT]
+
+    def test_a_finding_only_module_is_not_persisted(self, tmp_path: Path) -> None:
+        """Retention covers what a warm pass can skip, and nothing else.
+
+        A module whose sole outcome is a finding has no cache entry, so it is
+        imported — and states its finding — on every pass. A stored copy would
+        be a record nothing replays, and a cache that grows with facts its
+        reader ignores is how the next divergence starts.
+        """
+        from functualize._primitives.locator import ResourceLocator
+
+        jobs = _tree(tmp_path, abstract=ABSTRACT_ONLY)
+        cache_dir = tmp_path / ".functualize"
+        provider = CachedDirectoryScanProvider(
+            [str(jobs)],
+            ResourceLocator()
+            .search_explicit(str(cache_dir))
+            .write_to_explicit(str(cache_dir)),
+            project_root=tmp_path,
+        )
+        provider.list_jobs()
+
+        data = json.loads((cache_dir / CACHE_FILENAME).read_text(encoding="utf-8"))
+        assert [f.error_type for f in provider.discovery_failures] == [
+            ABSTRACT_JOB_CLASS
+        ]
+        assert data["entries"] == {}
+        assert data["findings"] == {}
 
 
 class TestTheJobNameCollisionRecord:

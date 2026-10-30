@@ -116,7 +116,7 @@ class HookEvent:
     """Fired after a nested rc.invoke() child job completes execution."""
 
     INVOKE_FAILURE = "invoke_failure"
-    """Fired after a nested rc.invoke() child job completes with FAILURE status."""
+    """Fired after a nested rc.invoke() child ends with a failed TOOL-family status."""
 
     ON_PHASE_START = "on_phase_start"
     """Fired when track_phase() creates a NEW phase."""

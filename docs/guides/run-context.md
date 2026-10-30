@@ -455,6 +455,10 @@ def orchestrator(rc: RunContext) -> None:
 ```
 
 Returns a `JobResult` with status, duration, return value, and any exception.
+The result is unchecked: `rc.invoke("build").raise_for_status()` turns a failed
+child into a `JobFailedError`, and `rc.invoke("report", capture=True)` hands
+back what the child emitted instead of writing it. Both are specified in the
+[`rc.invoke` reference](../api/context.md#job-invocation).
 
 ### `rc.invoke_parallel(jobs)`
 

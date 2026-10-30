@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import os
 from collections.abc import Callable
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -22,8 +23,11 @@ from functualize.app import FunctualizeApp, JobSources
 from functualize.plugin import (
     CompleteStep,
     RecordStep,
+    RunQuery,
     RuntimeStore,
     RuntimeStoreConfig,
+    RunView,
+    StartAttempt,
     StepView,
     SuspendAtGate,
 )
@@ -66,6 +70,26 @@ STORES: dict[str, Callable[[Path], RuntimeStore]] = {
 
 def test_new_port_fields_preserve_existing_constructor_defaults() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
+    first_start = StartAttempt("first", "cli", now)
+    second_start = StartAttempt("second", "cli", now)
+    assert first_start.run_tags == second_start.run_tags == {}
+    assert first_start.run_tags is not second_start.run_tags
+    first_start.run_tags["host"] = "laptop"
+    assert second_start.run_tags == {}
+
+    first_view = RunView("first", "first", "cli", "running", now)
+    second_view = RunView("second", "second", "cli", "running", now)
+    assert first_view.run_tags == second_view.run_tags == {}
+    assert first_view.run_tags is not second_view.run_tags
+    first_view.run_tags["host"] = "laptop"
+    assert second_view.run_tags == {}
+
+    assert RunQuery().tags == ()
+    tagged_query = RunQuery(tags=(("k", "v"),))
+    assert hash(tagged_query) == hash(RunQuery(tags=(("k", "v"),)))
+    with pytest.raises(FrozenInstanceError):
+        tagged_query.tags = ()  # type: ignore[misc]
+
     assert (
         CompleteStep("scope", 1, "step", now).attempt,
         CompleteStep("scope", 1, "step", now).started_at,

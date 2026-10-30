@@ -109,11 +109,13 @@ def _load(version: int, name: str) -> Migration:
 #: current schema. No data migration is offered because none shipped — no
 #: release carried the branch-only numbering, so nothing but pre-merge branch
 #: databases ever held it.
+#: Revision 5 adds the `run_tags` table and its lookup index, nothing else.
 SHIPPED_MIGRATIONS: tuple[Migration, ...] = (
     _load(1, "runtime_schema"),
     _load(2, "step_record_metadata"),
     _load(3, "step_attempt"),
     _load(4, "gate_interactions"),
+    _load(5, "run_tags"),
 )
 
 

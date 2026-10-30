@@ -60,26 +60,32 @@ Every action must pass one test:
 
 A subject class *is* its subject. A module that *acts on* something external — audits a repository, inspects an endpoint, migrates a database — declares a **target** instead: a declared, resolvable reference whose identity (a revision, a URL) flows into records and fingerprints. That is what makes staleness identity-aware rather than merely byte-aware: a branch switch with identical file bytes is a change.
 
-## A subject class, bound
+## A subject class, declared
 
-Directory discovery ignores classes entirely — a class is not a function, so it never registers from a scanned module (see [Jobs and Auto-Discovery](jobs-discovery.md)). Subject classes bind through a **plugin**: plugins run during boot, *before* job resolution, which is the documented moment to add job providers.
+A subject class is a **job class**: `@job` on a `pydantic.BaseModel` subclass,
+where each public method is one verb. Discovery finds it in a job module like
+any function job; there is no registration step and no plugin to write
+([Job classes](job-classes.md)).
 
-```python title="modules/postgres.py — the subject"
+```python title="jobs/pg.py — the subject"
 from pathlib import Path
 
-from functualize.job import Log, Shell
+from pydantic import BaseModel
 
+from functualize.job import Log, Shell, job
 
-class Postgres:
+@job(group="pg")  # (1)!
+class Postgres(BaseModel):
     """A local postgres cluster managed through systemd."""
 
-    group = "pg"  # (1)!
+    data_dir: Path = Path("/var/lib/postgresql")  # (2)!
 
-    def present(self) -> bool:  # (2)!
+    @property
+    def present(self) -> bool:  # (3)!
         """True when the cluster answers. Presence, not a job."""
         ...
 
-    def start(self, sh: Shell, log: Log) -> None:  # (3)!
+    def start(self, sh: Shell, log: Log) -> None:  # (4)!
         """Start the cluster."""
         ...
 
@@ -87,54 +93,33 @@ class Postgres:
         """Stop the cluster."""
         ...
 
-    def backup(self, sh: Shell, to: Path = Path("/tmp")) -> Path:  # (4)!
+    def backup(self, sh: Shell, to: Path = Path("/tmp")) -> Path:  # (5)!
         """Back up the cluster to a dump file."""
         return to
 ```
 
-1. The group is the subject's CLI namespace: every verb lands under `pg` — `func pg start`, `func pg backup`.
-2. Presence is a method, not a job and not a per-job guard. It is the one place that answers "is it there?"
-3. Actions are methods. Bound methods register like plain functions: `self` is skipped, typed parameters become flags, and `@job(...)` declarations on the method — guards, caching, deps — are honoured.
-4. `Path`, `UUID`, `date`, `datetime`, `Decimal` and `Enum` subclasses are caller-supplied values: they become flags and arrive converted. A type outside that set is treated as a dependency to inject, so annotate it with `Arg()` or `Option()` if the caller should supply it instead.
+1. The decorator names the group, which is the subject's CLI namespace, its
+   configuration section and its vault identity at once — every verb lands under
+   `pg`: `func pg start`, `func pg backup`. A bare `@job` would take the
+   normalized class name instead, nested under the module's `JOB_GROUP` if it
+   has one ([Job classes](job-classes.md#the-group-rule)).
+2. Fields are configuration. `[pg] data_dir = "/srv/pg"` reaches every verb of
+   the class through the resolution order a config-model parameter on a function
+   job uses ([Configuration System](configuration.md)).
+3. Presence is a question, not a verb — and every **public** method is a job, so
+   presence is a `@property` (or an underscore-prefixed method) rather than a
+   fourth command. A property is never a job.
+4. Actions are methods. `self` is skipped, typed parameters become flags, and a
+   method's own `@job(...)` — guards, caching, deps — applies to that verb alone.
+5. `Path`, `UUID`, `date`, `datetime`, `Decimal` and `Enum` subclasses are
+   caller-supplied values: they become flags and arrive converted. A type
+   outside that set is treated as a dependency to inject, so annotate it with
+   `Arg()` or `Option()` if the caller should supply it instead.
 
-```python title="plugins/subjects.py — the binding"
-from functualize.app import FunctualizeApp, JobSources, PluginSources
-from functualize.plugin import Job, StaticProvider  # (1)!
-
-from modules.postgres import Postgres
-
-
-class SubjectsPlugin:
-    name = "subjects"
-    version = "0.1.0"
-    description = "bind subject classes as jobs"
-
-    def __init__(self, classes: list[type]) -> None:
-        self._classes = classes
-
-    def __call__(self, app: FunctualizeApp) -> None:
-        jobs = []
-        for cls in self._classes:
-            subject = cls()  # (2)!
-            for verb in ("start", "stop", "backup"):  # (3)!
-                jobs.append(Job(
-                    function=getattr(subject, verb),
-                    name=f"{cls.group}.{verb}",
-                    group=cls.group,
-                ))
-        app.extensions.add_job_provider(StaticProvider(jobs))
-
-
-app = FunctualizeApp(
-    "my-app",
-    job_sources=JobSources(directories=["jobs"], lazy=False),
-    plugin_sources=PluginSources(explicit_plugins=[SubjectsPlugin([Postgres])]),
-)
-```
-
-1. Both are public. `Job` names and groups a callable; `StaticProvider` turns a list of them into a provider, extracting each method's parameters the way directory discovery does. Implementing the two-method `JobProvider` protocol (`list_jobs` / `get_job`) yourself also works, but then the parameter extraction is yours to get right.
-2. Constructors are inert: no arguments, no side effects. Configuration arrives per invocation, not at construction.
-3. The verbs are enumerated explicitly — presence is deliberately not among them.
+The class is constructed **once per run, from its resolved configuration**, and
+never during discovery, `--help`, `func builtin info` or completion. Construction
+therefore is not where the subject is probed: `present` is, and it runs when a
+verb (or a guard) asks it to.
 
 Verify what registered, and what each job takes, before trusting any of it:
 
@@ -143,13 +128,19 @@ func builtin info            # pg.start, pg.stop, pg.backup beside your jobs/
 func builtin info schema pg.backup
 ```
 
-For distribution, ship the plugin through the `functualize.plugins` entry-point group instead of `explicit_plugins` — see [Plugins](plugins.md).
+!!! note "A subject that cannot be a model"
+    The decorated form requires a `pydantic.BaseModel`, because its fields are
+    the declaration. A class whose constructor needs arguments nobody declares,
+    or whose base already fixes `__init__`, is not one. It can still be bound
+    through a plugin that adds a provider — `Job(function=...)` per method, or
+    your own `JobProvider` — see [Plugins](plugins.md). Then the parameter
+    extraction and the configuration story are yours.
 
 ## Rules the declaration must follow
 
-1. **The declaration lives in the class line.** Bases state the substrate and the actions; identity is literal class attributes (`group`, config model, target). Nothing computed, nothing dynamic.
+1. **The declaration is the class line and its decorator.** Bases state the substrate and the actions; `@job(group=…)` names the group; typed fields carry the configuration; a target is a literal class attribute. Nothing computed, nothing dynamic.
 2. **Readable without execution.** Tools and agents should be able to answer "what is this module?" from source alone — bases plus literal assignments. Keep that reading in agreement with live reflection; a divergence is a bug in one of them.
-3. **Constructors are inert.** No-argument, no side effects, one instance per process. The constructor is a boot-time execution point; treat it as such.
+3. **Construction is not an execution point.** One instance per run, built from the resolved configuration — never built during discovery, `--help`, `func builtin info` or completion. No I/O in the constructor; it receives the subject's fields and does nothing else.
 4. **Presence is a method, not a per-job guard.** Per-verb idempotency is still `Guards(status=…)` — "already done" is a different question from "is the world fit to run" ([Composing Capabilities](composition.md) §2).
 5. **One binding path validates everything.** Whatever checks your vocabulary applies, built-in and project-local shapes go through the same path. No second validation authority.
 6. **Closed core, extensible per project.** Fix the substrate and action sets in one place; projects extend by subclassing, not by editing tables.
@@ -169,7 +160,8 @@ functualize ships **no concrete substrates, actions, or targets**, deliberately:
 
 ## Related guides
 
-- [Jobs and Auto-Discovery](jobs-discovery.md) — how plain job modules register, and why classes never do
+- [Job classes](job-classes.md) — the declared form of a subject class: group, configuration, tags and collisions
+- [Jobs and Auto-Discovery](jobs-discovery.md) — how plain job modules register, and where a job class fits in the scan
 - [Composing Capabilities](composition.md) — the injected capabilities (`Shell`, `Log`, …) your verb bodies take, and the guard/fingerprint matrix
 - [Task Runner](task-runner.md) — the `@job` decorator: guards, caching, deps, retries
 - [Plugins](plugins.md) — the plugin protocol and entry-point distribution
