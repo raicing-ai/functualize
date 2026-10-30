@@ -916,7 +916,8 @@ class EventWriter(Protocol):
     happened after point N" answerable. A scope event may name its scope and
     held generation directly, without another write in the transaction. A
     generation of 0 is unfenced. When the scope is omitted, it is inferred
-    from the transaction's single scope write.
+    from the transaction's single scope write. Naming both ``run_id`` and
+    ``scope_id`` raises ``ValueError``.
     """
 
     def append(

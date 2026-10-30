@@ -10,12 +10,13 @@ def append(
     type: str,
     payload: Any = None,
     run_id: str | None = None,
+    *,
     scope_id: str | None = None,
     generation: int = 0,
 ) -> None: ...
 ```
 
-`run_id` and `scope_id` together raise `ValueError("an event names a run or a scope, not both")`. `scope_id=None` preserves existing inferred routing. With `scope_id`, a positive generation must still hold the scope when the write applies; a stale append lands nothing. A substrate may raise or write zero rows at commit. Generation 0 is unfenced.
+`run_id` and `scope_id` together raise `ValueError("an event cannot name both a run and a scope")`. `scope_id=None` preserves existing inferred routing. With `scope_id`, a positive generation must still hold the scope when the write applies; a stale append lands nothing. A substrate may raise or write zero rows at commit. Generation 0 is unfenced.
 
 ## Workflow event bus
 
