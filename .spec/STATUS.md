@@ -622,6 +622,60 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### Rise / RiseKit foundation — revision 7 specified, Execute gated on a released 0.5.0
+
+**What it is.** Rise defines typed operational subjects, contracts,
+observations, dependency routing, and convergent operations. RiseKit supplies
+reusable authoring bases and contract checks. A provider package owns
+contracts and implementations. Functualize discovers, configures, and runs
+ordinary jobs. A Cloudflare Worker plus D1 provider is the forcing case. The
+boundary is recorded in
+[ADR-043](../contributor/adr/043-rise-is-a-convention-on-the-public-api.md);
+selection, registry, and the `func rise` commands in
+[ADR-044](../contributor/adr/044-the-repository-says-what-the-cloner-decides-how.md).
+
+**Authority.** Shape intent SD/18153475 v28 has `Authority: Approved` and marks
+the three earlier post-approval deltas binding. The owner confirmed them in
+MCH-151 comment `01a1539f-4b62-72e1-84fa-4e3f3d2702b3` on 2026-10-19 and decided
+the six restatement deviations on 2026-10-30 (MCH-151 comment `01a18d2e-c1b1`,
+applied in `01a18d39-d7ac`). SD/5407068 v22 remains the canonical layer (owner,
+MCH-151 comment `01a153c1`, 2026-10-19T10:42:32Z).
+
+**Entry gate.** A **released** Functualize 0.5.0 must include class-based
+discovery (MCH-184) and scoped vault v3 (MCH-185). The public resolved-secret
+read is F6, a generic core amendment whose spelling belongs to the vault owner.
+Run tags are a separate core feature. Before Execute: verify the released 0.5.0
+against those prerequisites and capture actual call shapes (an unmet item
+returns the feature to Specify rather than gaining a workaround), then re-plan
+`tasks.md` into ordered waves with a parseable dependency graph and review the
+task list and surviving smells. The revision 6 tasks still name
+`rise validate`, `rise diagnose`, `--scope`, and a single-candidate router;
+they are not executable as r7.
+
+**Acceptance, re-derived against released APIs before any Execute task
+closes.** AC-1 boundary ADR and no core Rise import; AC-2 concrete
+`@job(group=...)` subjects work without Rise; AC-3 addresses, `Ref`,
+`[rise] default` overlays, field precedence and subject-address vault reads;
+AC-4 `config` findings and referential `ps --format json` NDJSON with masked
+secrets; AC-5 dependency-ordered, idempotent `up` with `--force-reconcile`,
+`--dry-run`, `--no-deps`, `--wait`; AC-6 binding stability and selection order;
+AC-7/7a registry search, refusal before installation, explicit `add`, HTTPS,
+disk and Git/GitHub sources; AC-8 exit codes, `start`/`stop`, v1 `down`
+refusal, offline Cloudflare Worker plus D1 forcing case; AC-9 live Cloudflare
+tier only with credentials, confined to a `rise-test-` prefix.
+
+**Not this feature.** Instance routes, `Setting()` markers, run-record source
+provenance, Gate resolution from ordinary jobs, and person-required mechanics
+have separate owners. Approver authentication, Merge/Deploy authority, OAuth,
+Worker secret delivery/runtime integration, target preview, destructive
+adoption, registry signing, trust policy, and publishing are outside this
+foundation. PR #73 (`feat/rise-risetkit-foundation`) is the older revision 6
+lineage; it is not superseded by this entry's merge.
+
+The full revision 7 record (spec, contracts, plan) is recoverable at
+`673d2fc9`, the reviewed head before the clearing:
+`git fetch origin refs/pull/132/head && git show 673d2fc9:.spec/features/rise-risetkit-foundation/spec.md`.
+
 ### Unknown settings keys are reported, from one declaration — delivered on PR #130, two criteria with the maintainer
 
 **What a user sees.** A key in a settings document that no setting declares is
