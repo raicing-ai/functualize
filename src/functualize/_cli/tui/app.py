@@ -309,8 +309,13 @@ class FunctualizeInlineTUI(App[int]):
         # --- Input tracking ---
         self._last_recognized_job: str | None = None
 
-        # --- func settings (defaults < global < project file(s) < env) ---
-        self._settings_store: FuncSettingsStore = FuncSettingsStore.discover()
+        # --- func settings (defaults < global < project file(s) < env < flag) ---
+        # The app's own declaration and its boot resolution: the shell shows the
+        # settings *this* app resolves, not a global catalog, and starts from
+        # the snapshot the rest of the process already uses.
+        self._settings_store: FuncSettingsStore = FuncSettingsStore(
+            func_app.settings_schema, snapshot=func_app.settings, cwd=Path.cwd()
+        )
         self._theme_manager: ThemeManager = ThemeManager()
         self._settings_view_seq: int = 0
         # Set when a new-file picker is pushed: called with the chosen path.
@@ -949,20 +954,27 @@ class FunctualizeInlineTUI(App[int]):
         return candidates
 
     def _settings_file_candidates(self) -> list[NewFileCandidate]:
-        """Conventional locations for a `func` settings file."""
+        """Conventional settings locations, per the app's own declaration.
+
+        The file names and the table a project file must carry come from the
+        schema — the declaration the resolver walks — so a second app's shell
+        offers its own files and its own `[tool.<app>]` table without the TUI
+        naming either.
+        """
         cwd = Path.cwd()
-        project_names = SettingsSources().project_file_names
-        # The picker displays the dedicated file before the shared file, even
-        # though the resolver probes the shared file first.
-        raw: list[tuple[Path, str]] = [
-            (cwd / project_names[1], "project settings"),
-            (cwd / project_names[0], "project settings under [tool.functualize]"),
-            (
-                cwd / project_names[2],
-                "project settings (convention directory)",
-            ),
-            (self._settings_store.global_path, "global — every project"),
-        ]
+        schema = self._settings_store.schema
+        raw: list[tuple[Path, str]] = []
+        for name in schema.sources.project_file_names:
+            path = cwd / name
+            prefix = schema.section_prefix_for(name)
+            if prefix:
+                note = f"project settings under [{prefix}]"
+            elif path.parent != cwd:
+                note = "project settings (convention directory)"
+            else:
+                note = "project settings"
+            raw.append((path, note))
+        raw.append((self._settings_store.global_path, "global — every project"))
         return [
             NewFileCandidate(
                 path=path,
@@ -1095,8 +1107,8 @@ class FunctualizeInlineTUI(App[int]):
         if panel is None:
             return
         with contextlib.suppress(Exception):
-            # The store parses at construction; a save (or an external edit)
-            # since then would otherwise show stale values here.
+            # The snapshot is cached; a save (or an external edit) since it
+            # was resolved would otherwise show stale values here.
             self._settings_store.refresh()
             panel.load_from_store(
                 self._settings_store.effective_values(),

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from functualize._cli.data.func_settings import register_settings, tui_settings
 from functualize._cli.tui.bar import BarReadiness, SavedBarState, SmartBar
 from functualize._cli.tui.breadcrumb_header_widget import BreadcrumbHeader
 from functualize._cli.tui.config_diff import compute_config_diff
@@ -72,15 +71,3 @@ __all__ = [
     "render_footer",
     "validate_setting",
 ]
-
-
-# The shell contributes its own settings (C2.4). Importing this package *is*
-# the shell being present, which is the condition the catalog should reflect:
-# a project app that never launches a shell resolves no `tui.*`.
-#
-# Placed after the imports rather than before them because nothing above needs
-# the settings to exist yet — `settings_panel` binds `FUNC_SETTINGS` with a
-# plain `from` import, and that is a *live view*, so it picks these up whenever
-# they land. Registration is idempotent per name, so a re-import cannot
-# duplicate a row.
-register_settings(*tui_settings())

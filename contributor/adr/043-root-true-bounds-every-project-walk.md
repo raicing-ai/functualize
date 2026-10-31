@@ -1,4 +1,4 @@
-# ADR-041: `root = true` Bounds Every Project Walk, and One Primitive Owns the Boundary
+# ADR-043: `root = true` Bounds Every Project Walk, and One Primitive Owns the Boundary
 
 **Status**: accepted
 **Date**: 2026-10-26 (D5 added 2026-10-28)

@@ -21,6 +21,7 @@ from hypothesis import strategies as st
 
 from functualize._cli.main import _extract_aliases
 from functualize._types.naming import normalize_segment
+from functualize.app import ConfigSources
 
 # =============================================================================
 # Strategies
@@ -60,6 +61,26 @@ _alias_mapping = st.dictionaries(
 
 # A merged config dict containing an aliases section
 _merged_config_with_aliases = _alias_mapping.map(lambda a: {"aliases": a})
+
+
+def test_aliases_follow_resolved_global_then_project_layers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    global_dir = tmp_path / "xdg" / "functualize"
+    global_dir.mkdir(parents=True)
+    (global_dir / "config.toml").write_text(
+        '[aliases]\nshared = "global_job"\nglobal_only = "global_job"\n'
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".functualize.toml").write_text('[aliases]\nshared = "project_job"\n')
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(project)
+
+    assert _extract_aliases({}) == {
+        "shared": "project_job",
+        "global_only": "global_job",
+    }
 
 
 # =============================================================================
@@ -124,6 +145,7 @@ class TestAliasExpansionCorrectness:
         mock_app.get_jobs.return_value = [mock_job]
 
         mock_cli_config = MagicMock()
+        mock_cli_config.config_sources.return_value = ConfigSources()
         mock_cli_config.scan_depth = 0
         mock_cli_config.discovery = MagicMock()
         mock_cli_config.dotenv = False
@@ -212,6 +234,7 @@ class TestAliasExpansionCorrectness:
         mock_app.get_jobs.return_value = [mock_alias_job, mock_target_job]
 
         mock_cli_config = MagicMock()
+        mock_cli_config.config_sources.return_value = ConfigSources()
         mock_cli_config.scan_depth = 0
         mock_cli_config.discovery = MagicMock()
         mock_cli_config.dotenv = False

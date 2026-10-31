@@ -48,6 +48,13 @@ from functualize._primitives.project_root import (
     find_functualize_dir,
     is_root_config,
 )
+from functualize._types.functualize_settings import (
+    EXCLUDE_PATTERNS,
+    IMPORT_LIBS,
+    JOBS_DIRECTORIES,
+    LIST_KEYS,
+    PLUGINS_DIRECTORIES,
+)
 
 __all__ = [
     "PROJECT_CONFIG_CANDIDATES",
@@ -62,22 +69,11 @@ __all__ = [
 ]
 
 
-# The list-valued config keys this module resolves. Named once: the three
-# functions below each used to carry an identical inline copy of this literal,
-# and a key added to two of the three would have gone missing in the third.
-LIST_KEYS = (
-    "jobs_directories",
-    "import_libs",
-    "plugins_directories",
-    "extra_directories",
-    "exclude_patterns",
-)
-
 # Convention subdirectory under `.functualize/` for each directory key.
 _KEY_TO_SUBDIR = {
-    "jobs_directories": "jobs",
-    "import_libs": "lib",
-    "plugins_directories": "plugins",
+    JOBS_DIRECTORIES.key: "jobs",
+    IMPORT_LIBS.key: "lib",
+    PLUGINS_DIRECTORIES.key: "plugins",
 }
 
 
@@ -378,7 +374,7 @@ def resolve_effective_directories_from_layers(
                     layers.append(layer_items)
                 else:
                     # Check under [discovery] sub-section
-                    discovery = layer_config.get("discovery", {})
+                    discovery = layer_config.get(EXCLUDE_PATTERNS.section, {})
                     if isinstance(discovery, dict):
                         disc_val = discovery.get(key)
                         if disc_val and isinstance(disc_val, list):
@@ -397,7 +393,7 @@ def resolve_effective_directories_from_layers(
                 layers.append([str(v) for v in file_val])
             else:
                 # Check under [discovery] sub-section for some keys
-                discovery = merged_config.get("discovery", {})
+                discovery = merged_config.get(EXCLUDE_PATTERNS.section, {})
                 if isinstance(discovery, dict):
                     disc_val = discovery.get(key)
                     if disc_val and isinstance(disc_val, list):
@@ -413,7 +409,7 @@ def resolve_effective_directories_from_layers(
             layers.append([str(v) for v in global_val])
         else:
             # Check under [discovery] sub-section
-            global_discovery = global_.get("discovery", {})
+            global_discovery = global_.get(EXCLUDE_PATTERNS.section, {})
             if isinstance(global_discovery, dict):
                 glob_disc_val = global_discovery.get(key)
                 if glob_disc_val and isinstance(glob_disc_val, list):
@@ -427,7 +423,7 @@ def resolve_effective_directories_from_layers(
             effective = _flatten_dedup_resolve(layers, anchor, is_path=False)
         else:
             effective = _flatten_dedup_resolve(
-                layers, anchor, is_path=(key != "exclude_patterns")
+                layers, anchor, is_path=(key != EXCLUDE_PATTERNS.key)
             )
         result[key] = effective
 
@@ -515,9 +511,9 @@ def _with_scalar_wrapped(config: dict[str, Any] | None) -> dict[str, Any]:
     """
     if not config:
         return {}
-    value = config.get("plugins_directories")
+    value = config.get(PLUGINS_DIRECTORIES.key)
     if isinstance(value, str):
-        return {**config, "plugins_directories": [value]}
+        return {**config, PLUGINS_DIRECTORIES.key: [value]}
     return dict(config)
 
 
@@ -577,7 +573,7 @@ def resolve_plugin_directories(
         convention_dirs={},
         global_config=_with_scalar_wrapped(global_config),
     )
-    declared = list(effective.get("plugins_directories", ()))
+    declared = list(effective.get(PLUGINS_DIRECTORIES.key, ()))
 
     convention: list[str] = []
     if ambient_directory and project_root is not None:

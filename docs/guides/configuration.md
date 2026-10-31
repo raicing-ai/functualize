@@ -15,6 +15,19 @@ The configuration system provides:
 - **[Credentials](#credentials)** declared with `Secret[str]`, masked on every surface that renders configuration
 - **[Remote configuration](#remote-configuration)** — scoped `[[vault_secret]]` declarations synced into an encrypted local vault
 
+### Framework settings and job configuration are separate
+
+The `config.base.toml` and environment overlays below feed a job's
+`ResolutionChain`. Framework settings such as `[shell] program`, `[plugins]
+strict`, and `[cli] output` belong instead in `.functualize.toml`,
+`pyproject.toml` under `[tool.functualize]`, or the global functualize
+`config.toml`. For those settings, the nearest project file wins, `root = true`
+stops the upward walk, and CLI flags and `FUNCTUALIZE_*` variables outrank
+files. Use `func builtin config path` to see the participating files and any
+unknown keys; `func builtin info --json` exposes the same findings in
+`config.unknown_keys`. Their complete key and environment-name reference is
+in the [CLI configuration guide](../cli/config.md).
+
 ## Configuration Presets
 
 Functualize provides preset factory functions that return a `ConfigSources` instance configured for common deployment scenarios:
@@ -147,7 +160,7 @@ Tree: `outer/` has a `.functualize.toml`, a `.functualize/` folder and job `oute
 | Nested root with **no** `.functualize/` | the ancestor's plugin runs; `Mode: project` names `outer/.functualize`; runs, scopes and the vault are the ancestor's | the ancestor's plugin does not load; `Mode: standalone`; state and vault are keyed by `outer/nested`, the same from any subfolder; the ancestor's files are untouched |
 | Ancestor `[cli] show_timing = true` | the TUI settings resolve `true`; `func builtin config show` says the default | both say the default |
 | Ancestor `config.base.toml` with `[greeter.greet] greeting = "ANCESTOR"` | the nested job reads `ANCESTOR`, even under a nested `config.base.toml` that omits the key | the nested job reads its own, environment, user-global or default value |
-| `func builtin config path` from `outer/nested/sub` (root in `.functualize/.functualize.toml`) | `sub/pyproject.toml` ✗ and `sub/.functualize.toml` ✗ | `outer/nested/.functualize/.functualize.toml` ✓ used, nothing under `outer/` |
+| `func builtin config path` from `outer/nested/sub` (root in `.functualize/.functualize.toml`) | `sub/pyproject.toml` ✗ and `sub/.functualize.toml` ✗, the root's file not listed | the root's `.functualize/.functualize.toml` ○ found (it declares only the marker), the subfolder's expected locations ✗, and no line for `outer/`'s own `.functualize.toml` |
 | No `root = true` anywhere | ancestor sources inherited | unchanged |
 
 ### Migrating

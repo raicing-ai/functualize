@@ -226,15 +226,18 @@ class TestTheConfigLayerIsReadQuietly:
         assert dict(_merge_run_tags(["a:b"])) == {"a": "b"}
         assert capsys.readouterr().err == ""
 
-    def test_a_config_warning_is_printed_once(
+    def test_a_stray_key_beside_the_tags_stays_off_the_run_path(
         self, cli_run, project_tree, xdg_dirs
     ) -> None:
-        """The boot-time read still warns; the pre-boot read adds nothing."""
+        """The run path is quiet: ADR-042 reports unknown keys on the surfaces
+        that inspect configuration, never on stderr. A stray key beside `tags`
+        must not stop the declared key from being read, and the pre-boot read
+        still adds nothing of its own."""
         _write_config(xdg_dirs, '[run]\ntags = ["a:b"]\nbogus = 1\n')
         root = project_tree(jobs=_JOB)
 
         result = cli_run(["release"], cwd=root)
 
         assert result.exit_code == 0, result.stderr
-        assert result.stderr.count("unrecognized key 'bogus' in [run]") == 1
+        assert result.stderr == ""
         assert [r["run_tags"] for r in _records(root, xdg_dirs.cache)] == [{"a": "b"}]

@@ -19,9 +19,9 @@ inclusive — job and library sources, the settings list, job-config discovery
 and layering (including from an explicit `--config-directory` inside a root),
 and the `.functualize/` lookup. A root without a `.functualize/` is standalone,
 keyed by its own directory from every subfolder. `func builtin config path`
-lists the project files that actually apply, nearest first, including
-`.functualize/.functualize.toml` and from a subfolder, instead of two fixed
-names in the current directory. Projects with no `root = true` are unchanged;
+lists every layer resolution uses, including `.functualize/.functualize.toml`
+and the layers found above a subfolder, and lists no file above a
+`root = true`. Projects with no `root = true` are unchanged;
 the user-wide config, environment and CLI keep their precedence.
 **Migration.** If you relied on an ancestor's sources under `root = true`,
 delete `root = true`, or keep it and declare the shared path in the root's own
@@ -40,6 +40,53 @@ fenced out, including when the scope changes hands before the append commits.
 Scope identity and generation are routing fields and no longer appear in the
 stored event payload; the subscriber no longer issues an empty state write to
 route the event.
+
+### Fixed — unknown settings keys are visible in configuration reports
+
+`func builtin config path` annotates unknown keys with their file and a
+suggestion when one is close; `func builtin info --json` and `info all --json`
+include `config.unknown_keys` with the same findings. A typo no longer makes
+a file appear to have contributed a setting it did not supply. Diagnostics
+leave resolution and exit codes unchanged. `[run]` is a declared settings
+section: `[run] tags` is accepted, and any other `[run]` key is reported the
+same way.
+
+### Fixed — a settings table in a job config file is reported, not silently ignored
+
+A top-level table in a `config.*.toml` job config file that names a settings
+section, such as `[shell] program = …` in `config.base.toml`, is now reported
+as a `ReservedSectionName` discovery failure. The report names the file and
+the document the table belongs in (`.functualize.toml [shell]`, or
+`[tool.functualize]` in `pyproject.toml`). It appears in
+`func builtin info --json` `discovery_failures` and under
+`func builtin config path`. The table still merges into the job chain as
+before; nothing fails. A job or group named after a settings section is
+reported the same way and still registers.
+
+### Changed — framework settings share one resolution chain
+
+`root = true` now stops the project-file walk for the CLI, settings panel,
+inline TUI, and surface gate. `config path` lists the global location first,
+then project locations from farthest to nearest; `✓ used` means a file
+contributed an effective setting, while `○ found` includes a root-only file.
+Global unknown-key warnings moved from startup stderr to `config path` and
+structured `info` output.
+
+`[shell] program`, `[shell] sudo_password`, and `[plugins] strict` are read
+from framework settings documents (`.functualize.toml`,
+`[tool.functualize]` in `pyproject.toml`, or global `config.toml`), not from
+`config.*.toml` job files. Their environment variables are now
+`FUNCTUALIZE_SHELL_PROGRAM`, `FUNCTUALIZE_SHELL_SUDO_PASSWORD`, and
+`FUNCTUALIZE_PLUGINS_STRICT`, replacing `SHELL_PROGRAM`,
+`SHELL_SUDO_PASSWORD`, and `PLUGINS_STRICT`. The previously documented
+`FUNCTUALIZE_SUDO_PASSWORD` was never read and is removed from the docs.
+
+`extra_directories` keeps its top-level and `[discovery]` file spellings, but
+its environment variable is now `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES`;
+`FUNCTUALIZE_EXTRA_DIRECTORIES` is no longer read. The PEP 723
+`[tool.functualize] skill` field is rejected as unknown; no consumer ever
+used it. Applications declare settings at construction instead of registering
+them through the CLI module.
 
 ### Added — run tags label every run and filter the run log
 A run can carry `key:value` tags from three sources, merged per key with the

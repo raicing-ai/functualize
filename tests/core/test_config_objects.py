@@ -187,6 +187,7 @@ class TestExports:
         from functualize.app import config as config_objects
 
         expected = {
+            "CliConfig",
             "ConfigSources",
             "DiscoveryConfig",
             "ExecutionConfig",

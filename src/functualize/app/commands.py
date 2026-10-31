@@ -337,12 +337,13 @@ def builtin_context_obj(app: FunctualizeApp | None) -> dict[str, Any]:
 
     obj: dict[str, Any] = {"app": app}
     try:
-        from functualize._cli.config import resolve_cli_config
+        from functualize.app.config import CliConfig
 
-        obj["cli_config"] = resolve_cli_config()
+        if app is not None:
+            obj["cli_config"] = CliConfig.from_settings(app.settings)
     except Exception as exc:
         logging.getLogger(__name__).warning(
-            f"builtin_context_obj: resolve_cli_config() failed "
+            f"builtin_context_obj: CliConfig.from_settings() failed "
             f"({type(exc).__name__}): {exc}"
         )
     return obj

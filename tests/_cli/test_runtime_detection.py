@@ -216,7 +216,7 @@ class TestTheProjectRung:
     ) -> None:
         """A workspace member or editable install configures without declaring."""
         (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "app"\n[tool.functualize]\nscan_depth = 2\n'
+            '[project]\nname = "app"\n[tool.functualize.discovery]\nscan_depth = 2\n'
         )
         assert _detect(cwd=tmp_path).mode is InstallMode.PROJECT
 

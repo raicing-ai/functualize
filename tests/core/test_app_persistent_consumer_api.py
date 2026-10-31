@@ -10,6 +10,7 @@ the method exists.
 from __future__ import annotations
 
 from collections.abc import Generator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -177,22 +178,20 @@ class TestRefreshConfig:
         assert app.resolution_chain().sources
 
     def test_the_engine_reads_the_chain_the_app_currently_holds(self) -> None:
-        """A refreshed chain is what the engine resolves against.
+        """A refreshed settings snapshot is what shell resolution reads.
 
         This asserted a write into the engine's private field, which is exactly
         the mechanism that made the engine's config dependency mutable *under a
         run*. The engine reads the app's chain now, so what is asserted is the
         behaviour that mattered: after a refresh, the engine resolves against
-        the new chain.
+        the current app snapshot for declared shell settings.
         """
-        from functualize._config.chain import ResolutionChain
-        from functualize._config.sources import DefaultSource
-
         app = FunctualizeApp(name="testapp", job_sources=JobSources(directories=[]))
 
         app.refresh()
-        app._resolution_chain = ResolutionChain(
-            [DefaultSource({"shell": {"program": "after-refresh"}})]
+        app._settings_snapshot = replace(
+            app.settings,
+            values={**app.settings.values, "shell.program": "after-refresh"},
         )
 
         assert (

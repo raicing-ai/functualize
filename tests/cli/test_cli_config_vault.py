@@ -10,8 +10,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import click
 import pytest
+from click.testing import CliRunner
 
+from functualize._cli.builtins._config import register_config
 from functualize._cli.config import resolve_cli_config
 from functualize._cli.data.func_settings import env_var_for, func_setting
 
@@ -78,15 +81,15 @@ class TestResolution:
         monkeypatch.setenv("FUNCTUALIZE_VAULT_KEYRING_TIMEOUT", "11s")
         assert resolve_cli_config(cwd=isolated).vault_keyring_timeout == "11s"
 
-    def test_an_unknown_vault_key_is_ignored_with_a_warning(
-        self, isolated: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        _global_file(isolated).write_text(
-            '[vault]\nkeyring_timeout = "3s"\nnot_a_setting = 1\n'
-        )
-        config = resolve_cli_config(cwd=isolated)
-        assert config.vault_keyring_timeout == "3s"
-        assert "unrecognized key 'not_a_setting' in [vault]" in capsys.readouterr().err
+    def test_an_unknown_vault_key_still_reports_the_file(self, isolated: Path) -> None:
+        global_path = _global_file(isolated)
+        global_path.write_text('[vault]\nkeyring_timeout = "3s"\nnot_a_setting = 1\n')
+        group = click.Group(name="func")
+        register_config(group)
+        result = CliRunner().invoke(group, ["config", "path"])
+        assert result.exit_code == 0
+        assert f"✓ used    {global_path}" in result.output
+        assert 'unknown key "vault.not_a_setting"' in result.output
 
 
 class TestItReachesConfigSources:
