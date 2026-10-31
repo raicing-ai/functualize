@@ -311,7 +311,7 @@ now: `0` (file absent) · after: `1`
 Closes when `uv run pytest tests/skill_router_eval/test_selection.py -q > /tmp/functualize-t4.log 2>&1`
 passes. Commit: `test(skill-router): add the gated skill selection workflow`.
 
-### [ ] T5 — the comparators
+### [x] T5 — the comparators
 
 *Files (new):* `tests/skill_router_eval/comparators.py`,
 `tests/skill_router_eval/test_comparators.py`
