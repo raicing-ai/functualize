@@ -279,7 +279,7 @@ now: `0` · after: `1`
 Closes when `uv run pytest tests/skill_router_eval/test_corpus.py -q > /tmp/functualize-t3.log 2>&1`
 passes. Commit: `test(skill-router): add the corpus loader, lock and rubric`.
 
-### [ ] T4 — the selection workflow
+### [x] T4 — the selection workflow
 
 *Files (new):* `tests/skill_router_eval/selection.py`,
 `tests/skill_router_eval/test_selection.py`
