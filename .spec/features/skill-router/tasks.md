@@ -83,7 +83,7 @@ count too. Run every command from the repository root.
 
 ## Wave 0
 
-### [ ] T1 — the catalog declaration
+### [x] T1 — the catalog declaration
 
 *Files (new):* `tests/skill_router_eval/__init__.py`,
 `tests/skill_router_eval/catalog.py`, `tests/skill_router_eval/test_catalog.py`
