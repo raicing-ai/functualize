@@ -24,7 +24,47 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["wants_ambient", "wants_stdout_surface"]
+from functualize._types.functualize_settings import DEFAULT_SURFACE
+from functualize.types import RenderSurface
+
+__all__ = [
+    "explicit_surface",
+    "resolve_surface",
+    "wants_ambient",
+    "wants_stdout_surface",
+]
+
+
+def resolve_surface(
+    *,
+    requires_tty: bool,
+    hint: str | None = None,
+    setting: str | None = None,
+    framework_default: RenderSurface = RenderSurface.PANEL,
+) -> RenderSurface:
+    """Resolve terminal ownership: hard TTY, hint, setting, then default.
+
+    The caller enforces the terminal capability floor for EXCLUSIVE jobs.
+    """
+    if requires_tty:
+        return RenderSurface.EXCLUSIVE
+    return _parse_surface(hint) or _parse_surface(setting) or framework_default
+
+
+def explicit_surface(
+    hint: str | None, setting: str | None = None
+) -> RenderSurface | None:
+    """Resolve only explicit job and setting preferences, without a default."""
+    return _parse_surface(hint) or _parse_surface(setting)
+
+
+def _parse_surface(value: str | None) -> RenderSurface | None:
+    """Parse a preference into a non-exclusive surface, or None."""
+    try:
+        surface = RenderSurface(value)
+    except ValueError:
+        return None
+    return surface if surface is not RenderSurface.EXCLUSIVE else None
 
 
 def wants_ambient(app: Any, descriptor: Any) -> bool:
@@ -61,27 +101,20 @@ def wants_stdout_surface(app: Any, descriptor: Any, *, uses_live: bool) -> bool:
     # would fight the job for the terminal.
     if getattr(descriptor, "requires_tty", False):
         return False
-    return _explicit_stdout_preference(descriptor)
+    return _explicit_stdout_preference(app, descriptor)
 
 
-def _explicit_stdout_preference(descriptor: Any) -> bool:
+def _explicit_stdout_preference(app: Any, descriptor: Any) -> bool:
     """True when hint or setting explicitly resolves to STDOUT.
 
     Best-effort: a settings-read failure must never break a run, so any
     exception collapses to "no preference".
     """
     try:
-        from functualize._cli.data.func_settings import FuncSettingsStore
-        from functualize._cli.orchestrator import RenderSurface, explicit_surface
-
         hint = getattr(descriptor, "surface_hint", None)
         setting: str | None = None
         try:
-            setting = (
-                FuncSettingsStore.discover()
-                .effective_values()
-                .get("tui.default_surface")
-            )
+            setting = app.settings.get(DEFAULT_SURFACE.name)
         except Exception:
             setting = None
         return explicit_surface(hint, setting) is RenderSurface.STDOUT

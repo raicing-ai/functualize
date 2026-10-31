@@ -113,11 +113,17 @@ def build_general_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
         )
     panels.append(("Jobs", job_browser))
 
-    # Panel 2: Settings — the full func-settings catalog
+    # Panel 2: Settings — the rows this app declares for the TUI surface
     try:
         from functualize._cli.tui.settings_panel import SettingsPanel
 
-        settings = SettingsPanel(id=f"settings-panel-{seq}")
+        store = app._settings_store
+        settings = SettingsPanel(
+            cwd=Path.cwd(),
+            id=f"settings-panel-{seq}",
+            catalog=store.declared_settings(surface="tui"),
+        )
+        settings.load_from_store(store.effective_values(), store.source_labels())
         panels.append(("Settings", settings))
     except Exception as exc:
         # SettingsPanel import/construction can fail for many reasons

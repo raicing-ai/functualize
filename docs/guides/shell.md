@@ -94,7 +94,7 @@ Virtualenv activation, environment setup, etc. Thread-local, nestable.
 result = sh.sudo(["systemctl", "restart", "nginx"])
 ```
 
-Password from config (`[shell] sudo_password` or `FUNCTUALIZE_SUDO_PASSWORD`). Falls back to interactive prompt when no config password is present.
+Password from a settings document (`[shell] sudo_password` in `.functualize.toml`, `[tool.functualize.shell]` in `pyproject.toml`, or the global `config.toml`) or `FUNCTUALIZE_SHELL_SUDO_PASSWORD`. Falls back to an interactive prompt when no config password is present. A `[shell]` table in `config.base.toml` is job configuration, not this setting.
 
 ## `sh.defer()` — cleanup on exit
 

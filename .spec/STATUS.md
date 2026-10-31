@@ -622,6 +622,112 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### Unknown settings keys are reported, from one declaration — delivered on PR #130, two criteria with the maintainer
+
+**What a user sees.** A key in a settings document that no setting declares is
+named where configuration is inspected, and is never fatal.
+`func builtin config path` lists exactly the layers resolution uses: the upward
+walk stopped by `root = true`, plus the expected locations that are not layers,
+global first, nearest project file last. Each line carries `✓ used` (supplies a
+value in effect), `○ found` (exists, supplies none) or `✗ missing`. A file with
+unknown keys gets ` — unknown key "roots" (did you mean "root"?); unknown key
+"cli.outptu" (did you mean "cli.output"?)`. `func builtin info --json` always
+carries `config.unknown_keys` as `{file, key, suggestion}` records, `[]` when
+clean. Exit codes do not change, nothing is printed on an ordinary run, and a
+warm `func <job>` never imports the check. The global file's old per-run warning
+is gone. There is no `config check` command; `config path` and `info` are the
+two surfaces. Recorded in
+[ADR-042](../contributor/adr/042-an-unknown-settings-key-is-reported-never-fatal.md).
+
+**The rule underneath** ([ADR-041](../contributor/adr/041-a-setting-is-declared-once.md)).
+Every setting is declared once, as a `Setting` in `FUNCTUALIZE_SETTINGS`. An app
+adds its own through `extend()`, which refuses a name already declared. One
+layer list and one resolver produce a frozen `ResolvedSettings` snapshot with
+provenance. The CLI before boot, the app, the engine, the TUI and the builtins
+all read that snapshot. There is no process registry and no import-time
+registration. The job `ResolutionChain` resolves no declared settings section.
+
+**Reserved settings-section names.** A word that names a declared settings
+section (`aliases`, `cli`, `discovery`, `plugins`, `shell`, `tui`, `vault`)
+is reported when it is also used for something else. Both cases use the
+existing discovery-failure channel, with `error_type` `ReservedSectionName`
+(`RESERVED_SECTION_NAME`, `_types/discovery_report.py`), and both are advisory.
+
+- *A job or group named after a section.* `func builtin info --json` lists the
+  finding in `discovery_failures`, naming the address, the section and the
+  source file. A dotted group is reported on its reserved segment. The job
+  **still registers and runs**: the finding only says that a `[shell]` table
+  is read as settings and never reaches that job's configuration
+  (`_discovery/collisions.py`, `reserved_section_name`).
+- *A settings table inside a job config file.* A top-level table named like a
+  section in `config.*.toml`, such as `[shell] program = …` in
+  `config.base.toml`, is reported with the file and the document it belongs
+  in: `.functualize.toml [shell]`, or `[tool.functualize]` in
+  `pyproject.toml`. The finding appears in `discovery_failures` and as a
+  `Discovery failure:` line under `func builtin config path`. The table
+  **still merges** into the job chain exactly as before
+  (`_config/sources.py`, `_report_reserved_section_tables`;
+  `reserved_section_table`).
+
+`tests/discovery/test_reserved_section_names.py` pins both cases, including
+the still-registers and still-merges halves.
+
+**Rules that outlive the feature:**
+
+- A new setting is a declaration edit, never a string read elsewhere. The
+  check, the generated root flags, the pre-boot early-flag scan, `config show`,
+  the TUI settings panel and the docs reference all derive from the
+  declaration.
+- A settings-backed root flag exists because its setting declares `cli_flag`.
+  `func` and an embedded app generate the same options from their own schema.
+  `phase="early"` flags are read before boot by the public
+  `functualize.app.adapters.early_setting_flags(schema, argv)` and enter the
+  first snapshot as its flag layer.
+- Each setting has exactly one environment name, `AppSettingsSchema.env_var_for`.
+
+**Ratchet state at the closing push.** `tests/spec/test_settings_ratchet.py`
+guards:
+- AC12 (no collection literal repeating declared names outside the
+  declaration, `test_declared_names_are_not_repeated_as_collection_literals`);
+- AC18 (no job-chain read of a declared section, no second settings-file
+  reader);
+- AC20 (no process registry);
+- AC22 (one schema source for generated flags);
+- AC30 (one owner of the surface vocabulary);
+- AC31 (the nine retained public→`_cli` delivery imports, pinned).
+
+`tests/config/test_settings_pin.py` pins the declared vocabulary and resolved
+values. **AC13 has no ratchet:** zero config-key string literals in read
+position outside the declaration and the resolver. Its read-position definition
+is with the maintainer. The gate-1 review counted 36 such literals still
+present at `413679fa`.
+
+**Known limitation — AC5 is with the maintainer.** At `8f979601`,
+`[plugins] disabled` and `[discovery] jobs_directories` are reported as
+unknown, though AC5 calls both known and the runtime honours them. The second
+also gets the suggestion `discovery.extra_directories`. Both are declaration
+gaps. The check reports them faithfully.
+
+**Task graph, terminal state.** `tasks.md` Revision 8, waves 0–9: every row
+complete except 8.1 (Ratchets), which stays open on AC13 alone. Row 9.2 was
+added late: the doc-verify scenario for the hosting guide still asserted the
+retired PEP 723 `skill` key, because neither the page nor the scenario was in
+any row's file list.
+
+**Owned elsewhere.** `JobExecutionEngine` and `FunctualizeInlineTUI` are each
+over the constitution's ~500-line limit. They were **maintainer-accepted for
+this merge only**, with PR 2 named as the owner. PR 2 on this branch line
+decomposes both classes, the long functions in the files this feature edited,
+and the nine delivery imports. It starts after PR #130 merges, with its
+own architecture pass. The advisory dead-code delta leaves
+`func_settings.tui_settings` and `FuncSettingsStore.set_cli_override` reachable
+only from tests.
+
+The full feature record (spec, contracts, plan, tasks) is gone from PR #130's
+head, which is past the clearing commit. It stays recoverable at
+`fe1eae887f50`, the commit before the clearing:
+`git fetch origin refs/pull/130/head && git show fe1eae887f50:.spec/features/config-unknown-keys/spec.md`.
+
 ### Lease heartbeat — implemented, review pending
 
 A claimed workflow walk renews its 300-second lease once when it starts, before
@@ -954,10 +1060,10 @@ list`, `run show`, `--format json`, the MCP run tools) carries `run_tags`, and
 `run list --tag KEY:VALUE` keeps a run only when every given pair matches
 exactly. The SQLite store gains schema revision **5**, a `run_tags` table. The
 surfaces: `_cli/run_tags.py` (the one grammar), `_cli/main.py` (the pre-boot
-merge and the forward to every run-building door), `_cli/config.py`
-(`[run] tags`), `_types/run_request.py`, the request builders,
+merge, the read of `[run] tags` off the global layer, and the forward to every
+run-building door), `_types/run_request.py`, the request builders,
 `_engine/executor.py` (the record), both stores, `app/_run_view.py` (the
-projection and filter) and `_cli/builtins.py` (`--tag`, the table and `run
+projection and filter) and `_cli/builtins/_run.py` (`--tag`, the table and `run
 show`). Rationale in
 [ADR-040](../contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md).
 
@@ -2480,7 +2586,12 @@ Items identified during development that are worth doing but not yet designed:
     a success nor an error, and that is the case the mapping has to name rather
     than round off.
 
-22. **AMENDED (2026-09-06) — the cause is a product defect, and it is proven.**
+22. **RESOLVED — the direct-run surface reads the declared setting.**
+    `tui.default_surface` now comes from the app's resolved settings snapshot,
+    independently of whether the TUI package was imported. The standalone
+    surface-gate test and the root-stop fixture pin the result. The original
+    finding follows for history.
+
     `tui.default_surface` is **not** in `_BASE_SETTINGS`; the shell registers it
     as an import side effect of `_cli/tui/__init__.py:88`, and a direct
     `func <job>` run under true-lazy boot never imports that package. So
@@ -2686,7 +2797,11 @@ Items identified during development that are worth doing but not yet designed:
     cost about a minute, not ten — only the `cargo` build beyond it is
     expensive, and the fix does not reach it.
 
-29. **`[tool.functualize] skill` is accepted, validated, and read by nothing.**
+29. **RESOLVED — removed, no consumer arrived.** The PEP 723 parser rejects
+    `[tool.functualize] skill` as unknown and keeps `job`. The former
+    accepted-but-unused behaviour follows for history.
+
+    `[tool.functualize] skill` was accepted, validated, and read by nothing.
     Shipped knowingly by `third-party-host-seams`/1.2, and recorded here
     because that task required it to be — this is the fourth member of a class
     this file already calls *"the worst of the three states"*.

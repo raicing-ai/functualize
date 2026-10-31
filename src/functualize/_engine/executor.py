@@ -46,6 +46,7 @@ from functualize._primitives import DIRegistry, MissingProviderError
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
+from functualize._types.functualize_settings import SHELL_PROGRAM, SHELL_SUDO_PASSWORD
 from functualize._types.outcome import RAISED_BY_JOB
 from functualize._types.redaction import Secret, redacted_snapshot
 from functualize._types.run_request import SURFACE_POLICY
@@ -267,6 +268,7 @@ class JobExecutionEngine:
         notifier_registry: Any = None,
         config_view_factory: Callable[..., Any] | None = None,
         config_resolver: Callable[..., Any] | None = None,
+        settings_resolver: Callable[[str], Any] | None = None,
         *,
         runtime_store: RuntimeStore,
         substrate: StoreSubstrate,
@@ -295,6 +297,7 @@ class JobExecutionEngine:
         self._freshness_keys = FreshnessKeys(self)
         self._config_view_factory = config_view_factory
         self._config_resolver = config_resolver
+        self._settings_resolver = settings_resolver
         self._arg_validator = ArgValidator()
         # The `@workflow` prelude, which is its own subject and was ~150 lines
         # of this class (T6). Constructed here rather than lazily: it holds
@@ -2053,7 +2056,7 @@ class JobExecutionEngine:
 
     def _resolve_shell_program(self) -> str | None:
         """Resolve ``[shell] program`` from config (None → platform default)."""
-        return self._resolve_shell_setting("program")
+        return self._resolve_shell_setting(SHELL_PROGRAM.key)
 
     def _resolve_sudo_password(self) -> Any:
         """Resolve ``[shell] sudo_password`` as a ``Secret`` (§B.4/§B.6).
@@ -2061,7 +2064,7 @@ class JobExecutionEngine:
         Wrapped so it masks in any echo and is redacted from command displays;
         None when unset (``sh.sudo`` then requires an explicit ``password=``).
         """
-        value = self._resolve_shell_setting("sudo_password")
+        value = self._resolve_shell_setting(SHELL_SUDO_PASSWORD.key)
         if value is None:
             return None
         from functualize._types.redaction import Secret
@@ -2133,11 +2136,15 @@ class JobExecutionEngine:
 
     def _resolve_shell_setting(self, key: str) -> str | None:
         """Resolve a non-empty string from the ``[shell]`` config section."""
+        resolver = getattr(self, "_settings_resolver", None)
+        if resolver is not None:
+            value = resolver(f"{SHELL_PROGRAM.section}.{key}")
+            return value if isinstance(value, str) and value.strip() else None
         chain = self._live_resolution_chain()
         if chain is None:
             return None
         try:
-            resolved = chain.resolve(key, "shell")
+            resolved = chain.resolve(key, SHELL_PROGRAM.section)
         except Exception:
             return None
         value = getattr(resolved, "value", None)

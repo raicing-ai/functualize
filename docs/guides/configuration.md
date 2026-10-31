@@ -15,6 +15,19 @@ The configuration system provides:
 - **[Credentials](#credentials)** declared with `Secret[str]`, masked on every surface that renders configuration
 - **[Remote configuration](#remote-configuration)** — scoped `[[vault_secret]]` declarations synced into an encrypted local vault
 
+### Framework settings and job configuration are separate
+
+The `config.base.toml` and environment overlays below feed a job's
+`ResolutionChain`. Framework settings such as `[shell] program`, `[plugins]
+strict`, and `[cli] output` belong instead in `.functualize.toml`,
+`pyproject.toml` under `[tool.functualize]`, or the global functualize
+`config.toml`. For those settings, the nearest project file wins, `root = true`
+stops the upward walk, and CLI flags and `FUNCTUALIZE_*` variables outrank
+files. Use `func builtin config path` to see the participating files and any
+unknown keys; `func builtin info --json` exposes the same findings in
+`config.unknown_keys`. Their complete key and environment-name reference is
+in the [CLI configuration guide](../cli/config.md).
+
 ## Configuration Presets
 
 Functualize provides preset factory functions that return a `ConfigSources` instance configured for common deployment scenarios:

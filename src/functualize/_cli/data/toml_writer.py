@@ -17,12 +17,19 @@ from __future__ import annotations
 import contextlib
 import os
 import tempfile
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
-__all__ = ["format_toml_value", "write_toml_section"]
+__all__ = [
+    "SectionEdits",
+    "format_toml_value",
+    "write_toml_section",
+    "write_toml_sections",
+]
 
 # Type hints that mean "emit a bare TOML scalar, not a quoted string".
 # Anything not listed here (str, enum, Path, unknown) is quoted — quoting is
@@ -111,6 +118,99 @@ def format_toml_value(raw: str, type_hint: str | None = None) -> str:
     return _quote(raw)
 
 
+@dataclass
+class SectionEdits:
+    """Everything one save does to one TOML section."""
+
+    edits: dict[str, str] = field(default_factory=dict)
+    removals: set[str] = field(default_factory=set)
+    type_hints: dict[str, str] = field(default_factory=dict)
+
+
+def write_toml_sections(
+    path: Path,
+    text: str,
+    sections: Mapping[str, SectionEdits],
+) -> None:
+    """Apply edits to several sections of one TOML file in a single write.
+
+    ``text`` is the file's current content, supplied by the caller, which got
+    it from the layer that read the file. Nothing here opens ``path`` for
+    reading: the caller's text is the whole input, so a settings layer and the
+    bytes being rewritten cannot disagree about what the file contained.
+
+    One pass over the caller's text per section, then one tempfile and one
+    ``os.replace`` — a save that touches ``[tui]`` and ``[cli]`` is a single
+    atomic replacement, not two writes that can leave the file half-updated.
+
+    Args:
+        path: The target TOML file path.
+        text: The file's current content; ``""`` for a file to create.
+        sections: Section name → its edits, removals, and type hints, in the
+            order new sections should be appended. An empty key targets the
+            document top level.
+
+    Raises:
+        OSError: If the file cannot be written (permissions, disk full, etc.)
+    """
+    pending = [
+        name for name, change in sections.items() if change.edits or change.removals
+    ]
+    if not pending:
+        return
+
+    if not text:
+        # A new file: top-level keys first, then each section header, so the
+        # result parses no matter which order the caller grouped the settings.
+        lines: list[str] = []
+        top = sections.get("")
+        for key, value in (top.edits if top is not None else {}).items():
+            hints = top.type_hints if top is not None else {}
+            lines.append(f"{key} = {format_toml_value(value, hints.get(key))}\n")
+        for section in pending:
+            if not section:
+                continue
+            change = sections[section]
+            lines.append(f"[{section}]\n")
+            for key, value in change.edits.items():
+                lines.append(
+                    f"{key} = {format_toml_value(value, change.type_hints.get(key))}\n"
+                )
+    else:
+        lines = text.splitlines(keepends=True)
+        for section in pending:
+            change = sections[section]
+            if section:
+                lines = _apply_section_changes(
+                    lines,
+                    f"[{section}]",
+                    change.edits,
+                    change.removals,
+                    change.type_hints,
+                )
+            else:
+                lines = _apply_top_level_changes(
+                    lines, change.edits, change.removals, change.type_hints
+                )
+    _replace_atomically(path, lines)
+
+
+def _replace_atomically(path: Path, lines: list[str]) -> None:
+    """Write ``lines`` to ``path`` through a same-directory tempfile."""
+    dir_path = path.parent
+    dir_path.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".toml.tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.writelines(lines)
+        os.replace(tmp_path, str(path))
+    except BaseException:
+        # Clean up tempfile on any failure
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+
+
 def write_toml_section(
     path: Path,
     section: str,
@@ -144,39 +244,11 @@ def write_toml_section(
     Raises:
         OSError: If the file cannot be written (permissions, disk full, etc.)
     """
-    if not edits and not removals:
-        return
-
-    hints = type_hints or {}
-
-    if path.exists():
-        lines = path.read_text().splitlines(keepends=True)
-        if section:
-            lines = _apply_section_changes(
-                lines, f"[{section}]", edits, removals, hints
-            )
-        else:
-            lines = _apply_top_level_changes(lines, edits, removals, hints)
-    else:
-        # Create minimal template with section header (if any) and edited keys
-        path.parent.mkdir(parents=True, exist_ok=True)
-        lines = [f"[{section}]\n"] if section else []
-        for key, value in edits.items():
-            lines.append(f"{key} = {format_toml_value(value, hints.get(key))}\n")
-
-    # Write atomically: tempfile in same directory, then os.replace()
-    dir_path = path.parent
-    dir_path.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".toml.tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.writelines(lines)
-        os.replace(tmp_path, str(path))
-    except BaseException:
-        # Clean up tempfile on any failure
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
+    write_toml_sections(
+        path,
+        path.read_text() if path.exists() else "",
+        {section: SectionEdits(edits, removals, type_hints or {})},
+    )
 
 
 def _apply_section_changes(
