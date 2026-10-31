@@ -133,6 +133,7 @@ The env var name is constructed by uppercasing the full key path with underscore
 | `[discovery].require_file_prefix` | `FUNCTUALIZE_DISCOVERY_REQUIRE_FILE_PREFIX` |
 | `[cli].output` | `FUNCTUALIZE_CLI_OUTPUT` |
 | `[cli].show_timing` | `FUNCTUALIZE_CLI_SHOW_TIMING` |
+| `[run].tags` | `FUNCTUALIZE_RUN_TAGS` |
 
 ### Top-Level Keys
 
@@ -222,6 +223,7 @@ not a setting. `[aliases]` accepts free-form names.
 | `import_libs` | Import paths for job modules |
 | `jobs_directories` | Job directories |
 | `plugins_directories` | Plugin directories |
+| `run.tags` | Observation tags merged per key onto every run |
 
 ## List Merge Behavior
 

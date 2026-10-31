@@ -21,6 +21,7 @@ def test_declared_names_equal_the_pinned_union() -> None:
     assert set(names) == {str(row[0]) for row in EXPECTED_CATALOG} | {
         "jobs_directories",
         "plugins_directories",
+        "run.tags",
     }
     assert FUNCTUALIZE_SETTINGS.freeform_sections == {"aliases"}
     # Eleven settings are reachable from a root flag; every one of them is on

@@ -224,6 +224,16 @@ PLUGINS_DIRECTORIES = Setting(
     "Plugin directories",
     listed=False,
 )
+# Declared so the `[run]` table is vocabulary-checked like every other
+# settings section (ADR-042). Absent from the legacy settings panel: run tags
+# merge at the CLI boundary (ADR-040), not through the precedence ladder the
+# panel describes, so the panel must not present them as a resolved setting.
+RUN_TAGS = Setting(
+    "run.tags",
+    "list",
+    "Observation tags merged per key onto every run",
+    listed=False,
+)
 
 FUNCTUALIZE_SETTINGS = AppSettingsSchema(
     settings=(
@@ -256,6 +266,7 @@ FUNCTUALIZE_SETTINGS = AppSettingsSchema(
         IMPORT_LIBS,
         JOBS_DIRECTORIES,
         PLUGINS_DIRECTORIES,
+        RUN_TAGS,
     ),
     freeform_sections=frozenset({"aliases"}),
 )

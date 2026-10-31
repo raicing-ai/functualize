@@ -81,3 +81,19 @@ class TestConfigPathAfterUnknownKeys:
         assert f"✓ used    {global_path}" in result.output
         assert "unrecognized key" not in result.output
         assert "Warning:" not in result.output
+
+    def test_an_unknown_run_key_beside_tags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`[run] tags` is a declared setting; its neighbours are findings."""
+        global_path = self._write_global(
+            tmp_path,
+            monkeypatch,
+            '[run]\ntags = ["host:laptop"]\nother = 1\n',
+        )
+        result = _config_path()
+        assert result.exit_code == 0
+        assert f"✓ used    {global_path}" in result.output
+        assert ' — unknown key "run.other"' in result.output
+        assert '"run.tags"' not in result.output
+        assert "Warning:" not in result.output

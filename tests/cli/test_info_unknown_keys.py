@@ -45,6 +45,19 @@ def test_unknown_keys_are_structured_in_both_info_json_forms(cli_run, project_tr
     assert _config(cli_run, project, "all")["unknown_keys"] == expected
 
 
+def test_an_unknown_run_key_beside_tags_is_structured(cli_run, project_tree):
+    """`[run] tags` is declared; a neighbour is a finding like any other."""
+    project = project_tree(
+        functualize_toml=('[run]\ntags = ["host:laptop"]\ntag = 1\nother = 1\n')
+    )
+    path = str(project / ".functualize.toml")
+
+    assert _config(cli_run, project)["unknown_keys"] == [
+        {"file": path, "key": "run.tag", "suggestion": "run.tags"},
+        {"file": path, "key": "run.other", "suggestion": None},
+    ]
+
+
 def test_clean_project_and_no_participating_file_have_empty_key(cli_run, project_tree):
     clean = project_tree(functualize_toml='root = true\n[cli]\noutput = "rich"\n')
     assert _config(cli_run, clean)["unknown_keys"] == []

@@ -113,10 +113,17 @@ class TestAJobNamedAfterASection:
         assert failure.message.startswith("'shell.deploy'")
 
     def test_a_nested_group_is_reported_on_the_reserved_segment(self) -> None:
-        _kept, failures = _report([_descriptor("run", group="shell.sudo")])
+        _kept, failures = _report([_descriptor("serve", group="shell.sudo")])
 
         (failure,) = _reserved(failures)
         assert "[shell]" in failure.message
+
+    def test_a_reserved_leaf_name_is_reported_first(self) -> None:
+        """Several reserved segments: the leaf is the job's own table."""
+        _kept, failures = _report([_descriptor("run", group="shell.sudo")])
+
+        (failure,) = _reserved(failures)
+        assert "[run]" in failure.message
 
     def test_a_job_that_also_collides_is_reported_for_both(self) -> None:
         """Two claimants and a reserved name are two facts, not one."""

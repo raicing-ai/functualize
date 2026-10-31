@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from functualize._config.settings_layers import settings_layers
 from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
@@ -99,3 +100,38 @@ def test_read_matches_the_walk(tmp_path: Path) -> None:
     read = SettingsLayer.read(project / "pyproject.toml", "project", "tool.functualize")
 
     assert read == walked
+
+
+def test_a_toml_syntax_error_yields_no_values_and_no_text(tmp_path: Path) -> None:
+    """An unparsable file is a layer that contributes nothing (ADR-042)."""
+    global_dir = tmp_path / "global"
+    global_dir.mkdir()
+    (global_dir / "config.toml").write_text("[discovery\n")
+    project = tmp_path / "project"
+    project.mkdir()
+
+    layers = settings_layers(FUNCTUALIZE_SETTINGS, project, global_dir=global_dir)
+
+    assert layers[-1].kind == "global"
+    assert layers[-1].values == {}
+    assert layers[-1].text == ""
+
+
+def test_a_permission_error_yields_no_values_and_no_text(
+    tmp_path: Path,
+) -> None:
+    """An unreadable file contributes nothing instead of raising (ADR-042)."""
+    global_dir = tmp_path / "global"
+    global_dir.mkdir()
+    (global_dir / "config.toml").write_text('[run]\ntags = ["host:laptop"]\n')
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with patch.object(
+        Path, "read_text", side_effect=PermissionError("Permission denied")
+    ):
+        layers = settings_layers(FUNCTUALIZE_SETTINGS, project, global_dir=global_dir)
+
+    assert layers[-1].kind == "global"
+    assert layers[-1].values == {}
+    assert layers[-1].text == ""

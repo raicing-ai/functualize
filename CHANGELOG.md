@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 suggestion when one is close; `func builtin info --json` and `info all --json`
 include `config.unknown_keys` with the same findings. A typo no longer makes
 a file appear to have contributed a setting it did not supply. Diagnostics
-leave resolution and exit codes unchanged.
+leave resolution and exit codes unchanged. `[run]` is a declared settings
+section: `[run] tags` is accepted, and any other `[run]` key is reported the
+same way.
 
 ### Fixed — a settings table in a job config file is reported, not silently ignored
 

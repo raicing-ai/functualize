@@ -166,7 +166,11 @@ def test_declared_settings_have_no_process_registry_or_second_file_reader() -> N
 def test_retained_catalog_has_no_undeclared_setting_names() -> None:
     legacy = {setting.name for setting in (*FUNC_SETTINGS, *tui_settings())}
     declared = {setting.name for setting in FUNCTUALIZE_SETTINGS.settings}
-    assert declared - legacy == {"jobs_directories", "plugins_directories"}
+    assert declared - legacy == {
+        "jobs_directories",
+        "plugins_directories",
+        "run.tags",
+    }
     assert legacy - declared == set()
 
 
