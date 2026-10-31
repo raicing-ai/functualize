@@ -379,7 +379,11 @@ for a node (with its first-time branch as `RecordBranch` in the same unit), `Rec
 step record that moves nothing (a step timed out on takeover, a failure routed onward, the body's
 return value under `EPILOGUE_STEP_KEY`), `MoveScope` for a status and position with no step,
 `RenewLease` / `ReleaseLease` for the lease, `StateBatch` for `State` inside a step, and
-`EventWriter.append` for the walk log. It reads back through `WorkflowReader` (`workflow`,
+`EventWriter.append(type, payload, scope_id=…, generation=…)` for the walk log. The walker
+emits its held generation with each event; the subscriber passes that fence to the selected
+store and omits both routing fields from the stored payload. No state write is needed to route
+the append. A stale event lands nothing, including when a takeover occurs before commit.
+It reads back through `WorkflowReader` (`workflow`,
 `step`, `steps`, `branch`, `state`) and `InputReader` (`for_gate`, and the `TRANSITIONAL(FUN-21)`
 `deposited_answer`). No module under `_engine/` reaches the legacy `ScopeStore` outside the four
 allowlisted non-walk sites, which `tests/spec/test_the_walk_writes_only_through_the_port.py`
