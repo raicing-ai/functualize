@@ -90,7 +90,6 @@ from functualize._cli.tui.sync import (
     sync_pending_overrides_to_bar,
 )
 from functualize._cli.tui.theme_manager import ThemeManager
-from functualize.plugin import SettingsSources
 from functualize.types import EnvironmentSource
 
 if TYPE_CHECKING:
