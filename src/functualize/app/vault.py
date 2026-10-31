@@ -86,6 +86,8 @@ __all__ = [
     "vault_inspect",
     "vault_key_state",
     "vault_put",
+    "vault_require_key",
+    "vault_supersede_synced",
     "vault_remove",
     "vault_unlock",
     "WinningSource",
@@ -870,6 +872,87 @@ def vault_put(
         replaced=existed,
         updated_at=entry.updated_at,
     )
+
+
+def vault_supersede_synced(
+    app: Any,
+    identity: VaultIdentity,
+    value: str,
+    *,
+    cwd: str | Path | None = None,
+) -> VaultMutationReport:
+    """Replace an entry ``vault sync`` wrote with a direct value.
+
+    The one sanctioned way to change what wrote an entry, used by redeem when
+    the receiver ticks a ``(synced from …)`` row. The identity is validated
+    and given the active environment exactly as :func:`vault_put` does.
+
+    Consequence the caller must have shown: the entry is direct from now on,
+    so ``vault sync`` refuses this identity until it is removed (ADR-023 §3).
+
+    Raises:
+        VaultPathError: The identity names nothing the vault could supply.
+        VaultKeySourceError: No key is available to encrypt with.
+        VaultError: No provider entry holds this identity.
+    """
+    resolved = _active_identity(app, _revalidate(app, identity))
+    resolution = _resolve_key(app, cwd)
+    store = _open_store(cwd)
+
+    key = resolved.encode()
+    store.supersede(key, value, encryption_key=_found_key(resolution))
+    entry = next(e for e in store.list_entries() if e.key == key)
+    return VaultMutationReport(
+        identity=resolved,
+        origin=entry.origin,
+        created=False,
+        replaced=True,
+        updated_at=entry.updated_at,
+    )
+
+
+def vault_require_key(app: Any = None, *, cwd: str | Path | None = None) -> None:
+    """Refuse now if a write would find no vault key; otherwise do nothing.
+
+    Silent and bounded, like every run's key read — it never prompts and never
+    asks a keyring to unlock (ADR-016 §5). Redeem calls it before a share is
+    redeemed, so a locked keyring costs the receiver nothing: the redemption
+    that could not have been stored is never consumed.
+
+    Raises:
+        VaultKeySourceError: The lookup found no key; ``reason`` and message
+            are the lookup's own (``key_locked``, ``no_keyring``, …).
+    """
+    _resolve_key(app, cwd)
+
+
+def _read_value(
+    app: Any, identity: VaultIdentity, *, cwd: str | Path | None = None
+) -> str:
+    """The stored plaintext for ``identity`` in the active environment.
+
+    **Private on purpose** (maintainer decision 2026-11-01): there is no public
+    plaintext read. Its one caller is ``app.vault_handoff``, which seals the
+    value straight into a share envelope and never prints it.
+
+    Raises:
+        VaultPathError: The identity names nothing the vault could supply, or
+            nothing is stored for it in the active environment
+            (``reason="not_stored"``).
+        VaultKeySourceError: No key is available to decrypt with.
+    """
+    resolved = _active_identity(app, _revalidate(app, identity))
+    resolution = _resolve_key(app, cwd)
+    value = _open_store(cwd).get(
+        resolved.encode(), encryption_key=_found_key(resolution)
+    )
+    if value is None:
+        raise VaultPathError(
+            "not_stored",
+            "Nothing is stored for this entry in the active environment.",
+            path=_label(resolved.scope, resolved.target, resolved.field),
+        )
+    return value
 
 
 def vault_remove(

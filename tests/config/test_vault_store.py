@@ -456,3 +456,54 @@ class TestAuditActions:
         assert all(
             _SECRET not in str(field) for r in vault.audit_records() for field in r
         )
+
+
+class TestSupersede:
+    """The explicit provenance change `put` refuses to make as a side effect."""
+
+    def test_a_provider_entry_becomes_direct_in_one_write(
+        self, vault: SecretsVault
+    ) -> None:
+        _stored(vault)
+        created = vault.list_entries()[0].created_at
+
+        vault.supersede("database.password", "redeemed", encryption_key=_KEY_A)
+
+        entry = vault.list_entries()[0]
+        assert entry.origin is VaultOrigin.DIRECT
+        assert (entry.annotation, entry.provider, entry.synced_at) == (None, None, None)
+        assert entry.created_at == created
+        assert vault.get("database.password", encryption_key=_KEY_A) == "redeemed"
+
+    def test_it_is_audited_as_a_supersede_without_the_value(
+        self, vault: SecretsVault
+    ) -> None:
+        _stored(vault)
+        vault.supersede("database.password", "redeemed", encryption_key=_KEY_A)
+
+        records = vault.audit_records()
+        assert "supersede" in [r[3] for r in records]
+        assert all("redeemed" not in str(field) for r in records for field in r)
+
+    def test_a_direct_entry_is_refused_unchanged(self, vault: SecretsVault) -> None:
+        vault.put("a.b", _SECRET, encryption_key=_KEY_A, origin=VaultOrigin.DIRECT)
+
+        with pytest.raises(VaultError, match="no provider entry"):
+            vault.supersede("a.b", "redeemed", encryption_key=_KEY_A)
+        assert vault.get("a.b", encryption_key=_KEY_A) == _SECRET
+
+    def test_a_missing_entry_is_refused(self, vault: SecretsVault) -> None:
+        with pytest.raises(VaultError, match="no provider entry"):
+            vault.supersede("a.b", "redeemed", encryption_key=_KEY_A)
+        assert vault.list_entries() == []
+
+    def test_the_value_is_encrypted_at_rest(
+        self, vault: SecretsVault, tmp_path: Path
+    ) -> None:
+        _stored(vault)
+        vault.supersede(
+            "database.password", "redeemed-plaintext-7c1", encryption_key=_KEY_A
+        )
+
+        for path in tmp_path.iterdir():
+            assert b"redeemed-plaintext-7c1" not in path.read_bytes()
