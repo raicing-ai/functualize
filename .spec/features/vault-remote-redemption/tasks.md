@@ -216,7 +216,7 @@ rg -c 'name="vault"' src/functualize/_cli/builtins/__init__.py
 ```
 after: `0`
 
-### [ ] T21 (D8) local-vault seam: private `_read_value`, `vault_supersede_synced`, `vault_require_key`, `SecretsVault.supersede`
+### [x] T21 (D8) local-vault seam: private `_read_value`, `vault_supersede_synced`, `vault_require_key`, `SecretsVault.supersede`
 
 Every store touch the handoff needs goes through `app/vault.py`. `supersede`
 changes origin, annotation, provider and `synced_at` in one transaction:
@@ -231,6 +231,12 @@ rg -c 'def supersede' src/functualize/_config/vault.py
 ```
 after: `1`
 
+**Transitional (disclosed 2026-11-01):** built and tested directly
+(`tests/app/test_vault_seam.py` — `TestSupersedeSynced`, `TestRequireKey`,
+`TestReadValue`; `tests/config/test_vault_store.py` — `TestSupersede`), but
+**no production caller yet**: `app/vault_handoff.py` (T14) is the first. The
+reachability check for these three functions is carried by T14.
+
 ### [ ] T14 (D1) `app/vault_handoff.py`: selector grammar · shareable entries · select (exact/subtree/all) · env label · pre-burn checks · plan/apply · export names
 
 ```bash
@@ -242,6 +248,11 @@ after: `8`
 rg -c 'from functualize\._config\.vault import|_project_id' src/functualize/app/vault_handoff.py
 ```
 after: `0`
+
+Reachability for T21 (carried here): `share` → `select_for_share` →
+`app.vault._read_value`; redeem → `check_before_redeem` → `vault_require_key`;
+`apply_import` → `vault_supersede_synced`. Each verified by breaking the call
+after a commit and watching a handoff test fail.
 
 ### [ ] T16 (D3) trim `app/vault_remote.py` to crypto + wire; no key or store code left
 
