@@ -484,7 +484,7 @@ app.execute → decision_record`.
 
 ## Wave 3
 
-### [ ] T8 — the report command
+### [x] T8 — the report command
 
 *Files (new):* `tests/skill_router_eval/report.py`,
 `tests/skill_router_eval/test_report.py`

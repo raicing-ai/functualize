@@ -61,6 +61,7 @@ _Z95 = 1.96
 _ACCEPT_ATS = tuple(round(0.50 + 0.05 * index, 2) for index in range(10))
 _MIN_MARGINS = (0.00, 0.05, 0.10, 0.15, 0.20)
 
+
 def routed_confusion(rows: Sequence[Row]) -> dict[str, dict[str, int]]:
     """Count expected → selected over measured cells: five rows, six columns."""
     table: dict[str, dict[str, int]] = {
@@ -71,6 +72,7 @@ def routed_confusion(rows: Sequence[Row]) -> dict[str, dict[str, int]]:
             continue
         table[row["expected"]][_selected(row)] += 1
     return table
+
 
 def proposed_confusion(rows: Sequence[Row]) -> dict[str, dict[str, int]]:
     """Count expected → proposal, with a ``failed`` column for no proposal."""
@@ -84,6 +86,7 @@ def proposed_confusion(rows: Sequence[Row]) -> dict[str, dict[str, int]]:
         proposal = row["proposal"] if row["proposal"] is not None else _FAILED
         table[row["expected"]][proposal] += 1
     return table
+
 
 def accuracy_summary(rows: Sequence[Row]) -> dict[str, Any]:
     """Routed accuracy, per-option precision/recall and macro-F1.
@@ -117,6 +120,7 @@ def accuracy_summary(rows: Sequence[Row]) -> dict[str, Any]:
         "per_option": per_option,
     }
 
+
 def outcome_at(
     row: Row,
     accept_at: float = DECLARED["accept_at"],
@@ -143,7 +147,10 @@ def outcome_at(
     probability = float(distribution[proposal])
     others = [float(value) for key, value in distribution.items() if key != proposal]
     margin = probability - max(others, default=0.0)
-    return proposal if accepts(probability, margin, accept_at, min_margin) else ESCALATED
+    return (
+        proposal if accepts(probability, margin, accept_at, min_margin) else ESCALATED
+    )
+
 
 def errors_at(
     rows: Sequence[Row],
@@ -187,6 +194,7 @@ def errors_at(
         "false_escalation": false_escalation,
     }
 
+
 def coverage(rows: Sequence[Row]) -> dict[str, Any]:
     """B-14: the share of cells accepted, and the accuracy of those cells."""
     measured = [row for row in rows if row["status"] != _NOT_ATTEMPTED]
@@ -203,6 +211,7 @@ def coverage(rows: Sequence[Row]) -> dict[str, Any]:
         ),
     }
 
+
 def calibration(rows: Sequence[Row], key: str = "probability") -> dict[str, Any]:
     """Ten-bin calibration and ECE, with a Brier score over the five options.
 
@@ -210,9 +219,7 @@ def calibration(rows: Sequence[Row], key: str = "probability") -> dict[str, Any]
     provider produced against the labelled option.
     """
     scored = [
-        row
-        for row in rows
-        if row["status"] != _NOT_ATTEMPTED and row[key] is not None
+        row for row in rows if row["status"] != _NOT_ATTEMPTED and row[key] is not None
     ]
     bins: list[dict[str, Any]] = []
     for index in range(_BINS):
@@ -245,6 +252,7 @@ def calibration(rows: Sequence[Row], key: str = "probability") -> dict[str, Any]
     )
     return {"bins": bins, "ece": ece, "brier": _brier(scored), "n": len(scored)}
 
+
 def sweep(rows: Sequence[Row]) -> list[dict[str, Any]]:
     """Run ``errors_at`` over the declared grid: 10 × 5 points."""
     return [
@@ -253,6 +261,7 @@ def sweep(rows: Sequence[Row]) -> list[dict[str, Any]]:
         for accept_at in _ACCEPT_ATS
         for min_margin in _MIN_MARGINS
     ]
+
 
 def conformance(
     rows: Sequence[Row],
@@ -266,6 +275,7 @@ def conformance(
         if (outcome := outcome_at(row, accept_at, min_margin)) != _NOT_ATTEMPTED
         and outcome != _selected(row)
     ]
+
 
 def context_bytes(row: Row, catalog: Catalog) -> dict[str, int]:
     """B-18: bytes in context before the first turn, for each of the three arms.
@@ -288,6 +298,7 @@ def context_bytes(row: Row, catalog: Catalog) -> dict[str, int]:
         router = listing
     return {"native": listing, "load_everything": everything, "router": router}
 
+
 def context_summary(rows: Sequence[Row], catalog: Catalog) -> dict[str, dict[str, Any]]:
     """Mean per-cell context bytes and the ratio to native, per comparator."""
     by_comparator: dict[str, list[Row]] = {}
@@ -298,9 +309,7 @@ def context_summary(rows: Sequence[Row], catalog: Catalog) -> dict[str, dict[str
     for comparator in sorted(by_comparator):
         members = by_comparator[comparator]
         totals = {
-            arm: math.fsum(
-                float(context_bytes(row, catalog)[arm]) for row in members
-            )
+            arm: math.fsum(float(context_bytes(row, catalog)[arm]) for row in members)
             for arm in ("native", "load_everything", "router")
         }
         means = {arm: total / len(members) for arm, total in totals.items()}
@@ -318,6 +327,7 @@ def context_summary(rows: Sequence[Row], catalog: Catalog) -> dict[str, dict[str
         }
     return summary
 
+
 def wilson(successes: int, n: int, z: float = _Z95) -> dict[str, float | None]:
     """The 95 % Wilson score interval for a binomial share."""
     if n <= 0:
@@ -327,6 +337,7 @@ def wilson(successes: int, n: int, z: float = _Z95) -> dict[str, float | None]:
     centre = (p + z * z / (2 * n)) / denominator
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denominator
     return {"p": p, "lo": max(0.0, centre - half), "hi": min(1.0, centre + half)}
+
 
 def downstream_summary(results: Mapping[str, Any] | Sequence[Any]) -> dict[str, Any]:
     """B-23: per-arm downstream success, tokens, cost, turns and duration.
@@ -351,10 +362,19 @@ def downstream_summary(results: Mapping[str, Any] | Sequence[Any]) -> dict[str, 
             for run in runs
             if run.get("first_turn_input_tokens") is not None
         ]
-        costs = [float(run["cost_usd"]) for run in runs if run.get("cost_usd") is not None]
+        costs = [
+            float(run["cost_usd"]) for run in runs if run.get("cost_usd") is not None
+        ]
         turns = [float(run["num_turns"]) for run in runs if run.get("num_turns")]
         durations = [
-            float(run["duration_s"]) for run in runs if run.get("duration_s") is not None
+            float(run["duration_s"])
+            for run in runs
+            if run.get("duration_s") is not None
+        ]
+        skills = [
+            float(run["skills_loaded"])
+            for run in runs
+            if run.get("skills_loaded") is not None
         ]
         arms[arm] = {
             "runs": len(runs),
@@ -365,6 +385,8 @@ def downstream_summary(results: Mapping[str, Any] | Sequence[Any]) -> dict[str, 
             "cost_usd_mean": _mean(costs),
             "turns_mean": _mean(turns),
             "duration_s_mean": _mean(durations),
+            "skills_loaded_mean": _mean(skills),
+            "models": sorted({str(run["model"]) for run in runs if run["model"]}),
         }
     router = arms.get("router", {}).get("success_rate", {})
     native = arms.get("native", {}).get("success_rate", {})
@@ -378,11 +400,17 @@ def downstream_summary(results: Mapping[str, Any] | Sequence[Any]) -> dict[str, 
         "models": sorted(models),
     }
 
+
 def native_cost(rows: Sequence[Row]) -> dict[str, Any]:
     """Sum the instrument's own USD for native cells.
 
     A cell the instrument did not price counts as ``unpriced_cells`` and is
     never imputed. Phase 3's ``cost`` is not used here: it prices nothing.
+
+    ``usd_per_cell`` divides by the priced cells, because an unpriced cell did
+    not cost zero — it cost an unknown amount. ``usd_per_correct`` divides the
+    same total by the cells whose route was the expected one, and is ``None``
+    when no cell was right.
     """
     native = [row for row in rows if row["native"] is not None]
     prices = [
@@ -390,12 +418,17 @@ def native_cost(rows: Sequence[Row]) -> dict[str, Any]:
         for entry in (row["native"] for row in native)
         if entry.get("cost_usd") is not None
     ]
+    total = math.fsum(prices)
+    correct = sum(1 for row in native if _selected(row) == row["expected"])
     return {
         "cells": len(native),
         "priced_cells": len(prices),
         "unpriced_cells": len(native) - len(prices),
-        "usd_total": math.fsum(prices),
+        "usd_total": total,
+        "usd_per_cell": total / len(prices) if prices else None,
+        "usd_per_correct": total / correct if correct else None,
     }
+
 
 def verdict(
     hermetic_rows: Sequence[Row],
@@ -448,7 +481,11 @@ def verdict(
         "downstream_native_success": downstream_native_success,
     }
     if not conditions["e2"]:
-        return {"verdict": "negative result", "conditions": conditions, "detail": detail}
+        return {
+            "verdict": "negative result",
+            "conditions": conditions,
+            "detail": detail,
+        }
     failed = [name for name, held in conditions.items() if not held]
     if not failed:
         return {
@@ -463,24 +500,25 @@ def verdict(
         "detail": detail,
     }
 
+
 def _selected(row: Row) -> str:
     """The cell's outcome: its recorded route, or ``escalated`` when there is none."""
     route = row["route"]
     return ESCALATED if route is None else str(route)
 
+
 def _macro_f1(per_option: Mapping[str, Mapping[str, float]]) -> float:
-    scores = [
-        _f1(entry["precision"], entry["recall"]) for entry in per_option.values()
-    ]
+    scores = [_f1(entry["precision"], entry["recall"]) for entry in per_option.values()]
     return sum(scores) / len(scores) if scores else 0.0
 
+
 def _f1(precision: float, recall: float) -> float:
-    return (
-        2 * precision * recall / (precision + recall) if precision + recall else 0.0
-    )
+    return 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+
 
 def _bin_index(probability: float) -> int:
     return min(_BINS - 1, max(0, int(probability * _BINS)))
+
 
 def _brier(rows: Sequence[Row]) -> float | None:
     scored = [row for row in rows if row["distribution"] is not None]
@@ -490,11 +528,15 @@ def _brier(rows: Sequence[Row]) -> float | None:
     for row in scored:
         distribution = row["distribution"]
         total += sum(
-            (float(distribution.get(option, 0.0))
-             - (1.0 if option == row["expected"] else 0.0)) ** 2
+            (
+                float(distribution.get(option, 0.0))
+                - (1.0 if option == row["expected"] else 0.0)
+            )
+            ** 2
             for option in OPTIONS
         )
     return total / len(scored)
+
 
 def _catalog_sizes(
     catalog: Catalog,
@@ -523,6 +565,7 @@ def _catalog_sizes(
     }
     return listing, everything, by_name
 
+
 def _runs(results: Mapping[str, Any] | Sequence[Any]) -> list[Mapping[str, Any]]:
     """The run list of a promptfoo results file, or the list itself."""
     if isinstance(results, Mapping):
@@ -531,6 +574,7 @@ def _runs(results: Mapping[str, Any] | Sequence[Any]) -> list[Mapping[str, Any]]
             inner = inner.get("results", [])
         return [entry for entry in inner if isinstance(entry, Mapping)]
     return [entry for entry in results if isinstance(entry, Mapping)]
+
 
 def _output(entry: Mapping[str, Any]) -> Mapping[str, Any]:
     """The provider output of one promptfoo run, parsed if it is JSON text."""
@@ -541,6 +585,7 @@ def _output(entry: Mapping[str, Any]) -> Mapping[str, Any]:
         except json.JSONDecodeError:
             return {}
     return output if isinstance(output, Mapping) else {}
+
 
 def _run_record(entry: Mapping[str, Any]) -> dict[str, Any]:
     """Flatten one promptfoo run into the numbers B-23 reports.
@@ -558,15 +603,19 @@ def _run_record(entry: Mapping[str, Any]) -> dict[str, Any]:
         "cost_usd": cost if cost is not None else output.get("cost_usd"),
         "num_turns": output.get("num_turns"),
         "duration_s": output.get("duration_s"),
+        "skills_loaded": output.get("skills_loaded"),
         "model": output.get("model"),
     }
+
 
 def _vars(entry: Mapping[str, Any]) -> Mapping[str, Any]:
     variables = entry.get("vars")
     return variables if isinstance(variables, Mapping) else {}
 
+
 def _mean(values: Sequence[float]) -> float | None:
     return math.fsum(values) / len(values) if values else None
+
 
 def _p95(values: Sequence[float]) -> float | None:
     if not values:
