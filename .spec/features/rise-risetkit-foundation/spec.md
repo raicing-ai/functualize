@@ -5,11 +5,12 @@ Functualize 0.5.0 containing the prerequisite core features.
 
 ## Authority and scope
 
-Shape intent SD/18153475 v21 has `Authority: Approved`. Page v27 still reads
-`Approved` and marks the three earlier post-approval deltas binding. The owner
-confirmed them in MCH-151 comment `01a1539f-4b62-72e1-84fa-4e3f3d2702b3`
-on 2026-10-19. SD/5407068 remains the canonical layer (owner, MCH-151 comment
-`01a153c1`, 2026-10-19T10:42:32Z); this page consolidates it and governs
+Shape intent SD/18153475 v28 has `Authority: Approved` and marks the three
+earlier post-approval deltas binding. The owner confirmed them in MCH-151
+comment `01a1539f-4b62-72e1-84fa-4e3f3d2702b3` on 2026-10-19 and decided the six
+restatement deviations on 2026-10-30 (MCH-151 comment `01a18d2e-c1b1`, applied
+in `01a18d39-d7ac`). SD/5407068 v22 remains the canonical layer (owner, MCH-151
+comment `01a153c1`, 2026-10-19T10:42:32Z); this page consolidates it and governs
 revision 7.
 The branch starts at `origin/master` `91947bb4f90c611d588de9907f84e61edf2c1514`.
 Revision 6's research and task graph remain on the revision 6 branch as

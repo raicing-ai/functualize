@@ -10,15 +10,16 @@ prerequisites remains the entry gate.
 ## Alignment
 
 **Shape intent:** [SD/18153475](https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/18153475)
-v27, `Authority: Approved`; approved body v21, owner-confirmed §7 deltas in
+v28, `Authority: Approved`; approved body v21, owner-confirmed §7 deltas in
 MCH-151 comment `01a1539f-4b62-72e1-84fa-4e3f3d2702b3`, and owner inline
 comments 18808989 (registry Git source) and 18809013 (package install targets).
 The v25→v26 page diff adds only those two comments' guidance in §5.6 and §5.2.
 The v26→v27 page diff changes §13 alone: SD/5407068 is retained as the canonical
-layer, the plan to mark it `Superseded` is withdrawn, and every restatement
-deviation is marked pending the owner's per-section approval (MCH-151 comment
-`01a153c1`, 2026-10-19T10:42:32Z). SD/5407068 stays canonical and the shape
-page must agree with it; its approval header was untouched.
+layer and the plan to mark it `Superseded` is withdrawn. The v27→v28 page diff
+records the per-section approval in the same section: every restatement
+deviation is approved by the owner's answers of 2026-10-30 (MCH-151 comment
+`01a18d2e-c1b1`, applied in `01a18d39-d7ac`). SD/5407068 stays canonical and the
+shape page must agree with it; its approval header was untouched.
 
 **In scope, in the shape's own words:**
 
