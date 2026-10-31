@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from functualize._config.project_dirs import (
+    project_config_layers,
     resolve_plugin_directories,
     resolve_project_config,
     resolve_project_directories,
@@ -338,3 +339,55 @@ def test_a_relative_declared_path_resolves_against_the_anchor(tmp_path: Path) ->
     )
 
     assert declared == [str(shared.resolve())]
+
+
+# ---------------------------------------------------------------------------
+# project_config_layers — the one walk A, bounded by the root
+# ---------------------------------------------------------------------------
+
+
+def test_the_layers_end_at_the_root(tmp_path: Path) -> None:
+    """Nothing above a `root = true` layer is returned to any consumer."""
+    outer = tmp_path / "outer"
+    nested = outer / "nested"
+    _declare(outer, 'jobs_directories = ["shared"]\n')
+    _declare(nested, "root = true\n")
+    sub = nested / "sub"
+    _declare(sub, 'jobs_directories = ["here"]\n')
+
+    layers = project_config_layers(sub)
+
+    assert [directory for directory, _ in layers] == [sub.resolve(), nested.resolve()]
+
+
+def test_without_a_root_every_ancestor_is_a_layer(tmp_path: Path) -> None:
+    outer = tmp_path / "outer"
+    nested = outer / "nested"
+    _declare(outer, 'jobs_directories = ["shared"]\n')
+    _declare(nested, "")
+
+    directories = [d for d, _ in project_config_layers(nested)]
+
+    assert directories[:2] == [nested.resolve(), outer.resolve()]
+
+
+def test_a_string_root_does_not_bound_the_layers(tmp_path: Path) -> None:
+    outer = tmp_path / "outer"
+    nested = outer / "nested"
+    _declare(outer, "")
+    _declare(nested, 'root = "true"\n')
+
+    directories = [d for d, _ in project_config_layers(nested)]
+
+    assert outer.resolve() in directories
+
+
+def test_local_only_reads_the_directory_alone(tmp_path: Path) -> None:
+    outer = tmp_path / "outer"
+    nested = outer / "nested"
+    _declare(outer, "")
+    _declare(nested, "")
+
+    layers = project_config_layers(nested, search_ancestors=False)
+
+    assert [directory for directory, _ in layers] == [nested.resolve()]

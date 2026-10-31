@@ -629,7 +629,8 @@ named where configuration is inspected, and is never fatal.
 `func builtin config path` lists exactly the layers resolution uses: the upward
 walk stopped by `root = true`, plus the expected locations that are not layers,
 global first, nearest project file last. Each line carries `✓ used` (supplies a
-value in effect), `○ found` (exists, supplies none) or `✗ missing`. A file with
+value in effect), `○ found` (exists, supplies none — a marker-only
+`root = true` file reads this way) or `✗ missing`. A file with
 unknown keys gets ` — unknown key "roots" (did you mean "root"?); unknown key
 "cli.outptu" (did you mean "cli.output"?)`. `func builtin info --json` always
 carries `config.unknown_keys` as `{file, key, suggestion}` records, `[]` when
@@ -1044,6 +1045,102 @@ validated and read by nothing — the worst of the three states, because a user
 who wrote it got neither an error nor an expansion.
 
 ## Completed
+
+### `root = true` ends the project for every walk (2026-10-28, `sdd/project-root-bounds-sources`)
+
+**The decision worth keeping.** *A project file that declares `root = true`
+ends the project for everything a walk resolves, and one primitive owns that
+answer.* Before, four upward walks each had their own stop and only the
+settings merge read the marker, so a nested root still listed and ran an
+ancestor's jobs, imported its library, loaded its convention plugins, used its
+state and project mode, took job-config values from its `config.base.toml`,
+and showed its settings file in the TUI — while `builtin config path` showed
+none of it. Now `_primitives/project_root.py` holds the derived candidates,
+`is_root_config`, `find_project_boundary`, walk C (`find_functualize_dir`,
+bounded inclusive) and `project_identity_dir`; walk A is the one function
+`_config/project_dirs.py::project_config_layers`; walk B's two stages share
+`_app/boot.py::_job_config_stop`. The project file list is declared once, in
+`_types/settings.py` (`PROJECT_FILE_NAMES`, `PROJECT_FILE_SECTION_PREFIXES`),
+and `SettingsSources.project_file_names` defaults to it. User-facing rules and
+the migration steps are in `docs/guides/configuration.md` § *Project
+boundaries and `root = true`*; rationale and rejected alternatives in
+[ADR-043](../contributor/adr/043-root-true-bounds-every-project-walk.md).
+
+Decisions taken on the way (maintainer, 2026-10-21 to 2026-10-28): **D1 (a)**
+the settings catalog and its write targets list only the bounded project files
+plus the global file; **D2 (b)** walk C stops at the root, and a root without
+its own `.functualize/` is standalone with the root directory as its one
+identity, ancestor data untouched and never copied automatically; **D3 (b),
+design B1** both job-config stages stop at the root; **D4 (a)** an explicit
+`--config-directory` layers up to the boundary of the directory it names;
+**D5 (a)** `builtin config path` lists the bounded project files that apply and
+the expected candidates around them — global first, nearest project file last,
+`✓ used` / `○ found` / `✗ missing`, unknown keys in place; smell 2
+(the project file list written out six times) fixed in scope.
+
+**Rules that outlive the feature:**
+
+- **Never write a fifth walk.** Anything that asks "which project files
+  apply" reads `project_config_layers`; anything that asks "where is
+  `.functualize/`" or "what is this project's key" asks `project_root.py`.
+  A loop over `resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)` outside
+  `project_config_layers` is the defect this fixed. The one allowed
+  difference is the settings store (`_config/settings_layers.py`): it probes
+  each schema's own `project_file_names` and stops on the same
+  `is_root_config` predicate, because a second app declares its own names and
+  section prefixes and the store needs each file's text to write an edit back;
+  `builtin config path` renders that snapshot.
+  `tests/config/test_settings_layers.py` pins its files and order to walk A's
+  for a marker-only root.
+- **Only boolean `true` is a root.** `root = "true"` does not stop anything;
+  `is_root_config` is the one predicate, and `merge_config_layers` asks it for
+  the default key.
+- **Walk C is bounded inclusive.** A `.functualize/` *in* the root directory is
+  the project's; one above it is another project's.
+- **Identity order is fixed:** `.functualize/`'s parent, else the root
+  directory, else the start. The vault key lookups (`vault status`,
+  `vault sync`, the remote-first source) take the same identity as the vault
+  file. Child projects keep `ancestor_search=False` (ADR-011).
+- **Walk B never widens.** The boundary applies only when it is reached
+  before `~`; a boundary above `~` leaves `~` as the stop.
+- **`cache_format` and `fresh_format` bind `find_functualize_dir`
+  unqualified** — `tests/conftest.py::_isolate_state_root` patches
+  `fresh_format`'s binding.
+- **The project file names have one spelling**, in `_types/settings.py`.
+  `_cli/pep723.py`'s `[tool.functualize]` (a script header) and the TUI's
+  legacy job-config name `functualize.toml` are different file kinds and stay
+  literals.
+
+**Known limitations and findings left open:**
+
+- `tests/cli/test_root_boundary_migration.py` replays the migration against
+  the pre-fix tree of `f30285c`, a branch-only commit. After the squash merge
+  a fresh clone lacks it and the test **skips with its reason**; re-pin
+  `PRE_FIX` to a commit on `master` that predates the fix to keep it running.
+- Pre-existing, measured 2026-10-21 and out of scope: a nested `.functualize/`
+  with no project config file, run from a subfolder, loses the nested
+  project's own convention jobs (they are collected only at walk-A hit levels
+  plus cwd). Also measured 2026-10-20: `auto_discover` computes an
+  `exclude_patterns` list from the raw layers that nothing reads.
+- `tui.*` settings register only when `functualize._cli.tui` is imported, so
+  `test_func_settings_store.py::TestChainPrecedence::test_default_when_nothing_sets_it`
+  fails when run without that import (inherited from `master`).
+- `functualize.app.utils.project_config_file_table` is a new public export
+  without an `examples/` caller.
+- The remote-first vault source's key id under a root, and the `vault sync`
+  migration step (it needs a provider), have no end-to-end test.
+
+Pinned by `tests/cli/test_root_boundary_sources.py` (jobs, directories, lib,
+cold/warm cache, settings layers), `tests/cli/test_root_boundary_identity.py`
+(plugins, mode, shared identity, ancestor hashes),
+`tests/cli/test_root_boundary_job_config.py` (both walk-B stages, overlay,
+global, explicit directory, programmatic app on boot and `refresh()`),
+`tests/cli/test_root_boundary_migration.py` (both migrations with real data),
+`tests/primitives/test_project_root.py` (marker forms, derived candidates,
+identity), `tests/config/test_project_dirs.py` (`project_config_layers`),
+`tests/app/test_project_root_identity_wiring.py` (state and cache identity
+through `boot_standard`) and `tests/cli/test_config_builtin.py`
+(`config path`).
 
 ### Run tags label every run, are fixed when it opens, and filter the run log (2026-10-29, `sdd/run-tags`)
 

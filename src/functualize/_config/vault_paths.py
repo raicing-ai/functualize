@@ -34,8 +34,8 @@ from pathlib import Path
 from functualize._primitives.locator import (
     _xdg_data_dir,
     compute_project_id,
-    find_functualize_dir,
 )
+from functualize._primitives.project_root import project_identity_dir
 
 __all__ = ["project_root_for", "vault_path_for_project"]
 
@@ -47,11 +47,12 @@ def project_root_for(cwd: str | Path | None = None) -> Path:
         cwd: Where to start the search. Defaults to the working directory.
 
     Returns:
-        The parent of the nearest ``.functualize/`` found walking upward, or the
-        resolved starting directory when there is none. The fallback is not a
-        failure: ``func`` is meant to run over loose scripts anywhere, and
-        littering a ``.functualize/`` beside each one would be worse than a
-        keyed directory.
+        ``project_identity_dir``: the parent of the nearest ``.functualize/``
+        inside the project boundary; else the directory declaring
+        ``root = true``, so a root and its subfolders share one vault; else the
+        resolved starting directory. The last fallback is not a failure:
+        ``func`` is meant to run over loose scripts anywhere, and littering a
+        ``.functualize/`` beside each one would be worse than a keyed directory.
 
     An earlier version also returned *which* of those two happened, mirroring
     ``fresh_format.resolve_fresh_location``. That is the right shape there
@@ -60,8 +61,7 @@ def project_root_for(cwd: str | Path | None = None) -> Path:
     when a surface has something to say about it.
     """
     start = Path(cwd).resolve() if cwd is not None else Path.cwd().resolve()
-    functualize_dir = find_functualize_dir(start)
-    return functualize_dir.parent if functualize_dir is not None else start
+    return project_identity_dir(start)
 
 
 def vault_path_for_project(cwd: str | Path | None = None) -> Path:

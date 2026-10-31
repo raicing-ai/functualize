@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize._primitives.locator import xdg_config_dir
+from functualize._primitives.project_root import is_root_config
 
 if TYPE_CHECKING:
     from functualize._types.settings import AppSettingsSchema
@@ -83,6 +84,7 @@ def settings_layers(
     """
     layers: list[SettingsLayer] = []
     for directory in (cwd.resolve(), *cwd.resolve().parents):
+        winner: dict[str, Any] | None = None
         for candidate in schema.sources.project_file_names:
             path = directory / candidate
             parsed = _read(path)
@@ -94,12 +96,9 @@ def settings_layers(
             if values is None:
                 continue
             layers.append(SettingsLayer(path, "project", prefix, values, text))
+            winner = values
             break
-        if (
-            layers
-            and layers[-1].path.parent == directory
-            and layers[-1].values.get("root") is True
-        ):
+        if winner is not None and is_root_config(winner):
             break
 
     config_dir = global_dir if global_dir is not None else xdg_config_dir()

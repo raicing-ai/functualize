@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `root = true` ends the project for every source, setting, job config and state lookup
+A nested project that declared `root = true` stopped only its settings merge.
+Its ancestor's jobs, libraries, plugins and declared directories still loaded
+and ran, the TUI settings resolved the ancestor's `[cli]`/`[tui]` values, an
+ancestor's `config.base.toml` filled keys the nested file omitted, and a root
+without its own `.functualize/` adopted its ancestor's: the ancestor's
+convention plugin ran, and its runs, scopes, cache and vault were the nested
+project's. Every upward search now stops at the nearest `root = true`,
+inclusive — job and library sources, the settings list, job-config discovery
+and layering (including from an explicit `--config-directory` inside a root),
+and the `.functualize/` lookup. A root without a `.functualize/` is standalone,
+keyed by its own directory from every subfolder. `func builtin config path`
+lists every layer resolution uses, including `.functualize/.functualize.toml`
+and the layers found above a subfolder, and lists no file above a
+`root = true`. Projects with no `root = true` are unchanged;
+the user-wide config, environment and CLI keep their precedence.
+**Migration.** If you relied on an ancestor's sources under `root = true`,
+delete `root = true`, or keep it and declare the shared path in the root's own
+file (`jobs_directories = ["jobs", "../.functualize/jobs"]`). If the root used
+its ancestor's `.functualize/`, its state and vault now start empty and the
+ancestor's are untouched: create `.functualize/` in the root, copy the
+`runs.json`/`scopes.json` you want, run `func builtin data clear`, and
+`func builtin vault put` (or `vault sync`) each secret again. See
+*Project boundaries and `root = true`* in `docs/guides/configuration.md`.
+
 ### Fixed — stale workflow events cannot enter a new holder's log
 
 The walk log subscriber now appends directly to the selected store's scope log

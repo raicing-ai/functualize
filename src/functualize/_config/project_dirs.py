@@ -41,25 +41,26 @@ from typing import Any
 from functualize._config.merge import merge_config_layers
 from functualize._primitives.locator import (
     ResourceLocator,
-    find_functualize_dir,
     xdg_config_dir,
+)
+from functualize._primitives.project_root import (
+    PROJECT_CONFIG_CANDIDATES,
+    find_functualize_dir,
+    is_root_config,
 )
 from functualize._types.functualize_settings import (
     EXCLUDE_PATTERNS,
-    FUNCTUALIZE_SETTINGS,
     IMPORT_LIBS,
     JOBS_DIRECTORIES,
     LIST_KEYS,
     PLUGINS_DIRECTORIES,
-)
-from functualize._types.functualize_settings import (
-    PROJECT_CONFIG_CANDIDATES as DECLARED_PROJECT_CONFIG_CANDIDATES,
 )
 
 __all__ = [
     "PROJECT_CONFIG_CANDIDATES",
     "ProjectDirectories",
     "collect_convention_directories",
+    "project_config_layers",
     "read_toml_file",
     "resolve_effective_directories",
     "resolve_plugin_directories",
@@ -103,43 +104,6 @@ def read_toml_file(path: Path) -> dict[str, Any] | None:
         return {}
 
 
-def _extract_functualize_section(path: Path) -> dict[str, Any] | None:
-    """Extract [tool.functualize] section from a pyproject.toml file.
-
-    Args:
-        path: Path to the pyproject.toml file.
-
-    Returns:
-        The dict under [tool.functualize] if present, or None.
-    """
-    try:
-        content = path.read_bytes()
-        data = tomllib.loads(content.decode("utf-8"))
-    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
-        return None
-
-    section: Any = data
-    prefix = FUNCTUALIZE_SETTINGS.section_prefix_for(path.name)
-    for part in prefix.split(".") if prefix else ():
-        if not isinstance(section, dict):
-            return None
-        section = section.get(part)
-    return section if isinstance(section, dict) else None
-
-
-# Candidate list for project config resolution.
-# Order within the list defines priority per directory (first match wins):
-# 1. pyproject.toml [tool.functualize] section (highest priority — standard location)
-# 2. Plain .functualize.toml at directory root
-# 3. .functualize/.functualize.toml (convention directory)
-PROJECT_CONFIG_CANDIDATES: list[str | tuple[str, Any]] = [
-    (candidate, _extract_functualize_section)
-    if FUNCTUALIZE_SETTINGS.section_prefix_for(candidate)
-    else candidate
-    for candidate in DECLARED_PROJECT_CONFIG_CANDIDATES
-]
-
-
 def _flatten_dedup_resolve(
     layers: list[list[str]],
     anchor: Path,
@@ -176,12 +140,50 @@ def _flatten_dedup_resolve(
     return result
 
 
+def project_config_layers(
+    cwd: Path, *, search_ancestors: bool = True
+) -> list[tuple[Path, dict[str, Any]]]:
+    """The project config layers ``cwd`` resolves, nearest first — walk A.
+
+    One layer per directory (the first candidate present there), from ``cwd``
+    upward, then the platform user directory. **Bounded by the project root:**
+    the list ends with the first layer that declares ``root = true``, so no
+    consumer — the merge, the job and library directories, the convention
+    directories, the settings list — sees a file above it. Without a root the
+    walk runs to the filesystem root, as it always did.
+
+    This was four copies of the same walk, three of which never read
+    ``root = true``; that is how an ancestor's jobs reached a nested root.
+
+    Args:
+        cwd: Where the walk starts.
+        search_ancestors: False reads ``cwd`` alone (local-only discovery).
+
+    Returns:
+        ``(directory, config)`` pairs in priority order.
+    """
+    locator = ResourceLocator()
+    if search_ancestors:
+        locator.search_upward(start=cwd)
+    else:
+        locator.search_explicit(cwd)
+    locator.search_platform_user("functualize")
+
+    results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
+
+    layers: list[tuple[Path, dict[str, Any]]] = []
+    for directory, config in results:
+        layers.append((directory, config))
+        if is_root_config(config):
+            break
+    return layers
+
+
 def resolve_project_config(cwd: Path) -> tuple[Path, dict[str, Any]]:
     """Walk upward from cwd, collect and merge project configs.
 
-    Uses ResourceLocator with upward search + platform user config directory.
-    Collects one config per directory using the candidate list, then merges
-    them nearest-first with root-stop semantics.
+    Reads :func:`project_config_layers` and merges them nearest-first; the
+    layers already end at the project root.
 
     Args:
         cwd: The current working directory to start searching from.
@@ -192,11 +194,7 @@ def resolve_project_config(cwd: Path) -> tuple[Path, dict[str, Any]]:
           or cwd if no config found.
         - merged_config: deep-merged config dict from all layers.
     """
-    locator = (
-        ResourceLocator().search_upward(start=cwd).search_platform_user("functualize")
-    )
-
-    results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
+    results = project_config_layers(cwd)
 
     if not results:
         return (cwd, {})
