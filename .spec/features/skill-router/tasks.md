@@ -376,7 +376,7 @@ now: `0` (file absent) · after: `1`
 Closes when `uv run pytest tests/skill_router_eval/test_comparators.py -q > /tmp/functualize-t5.log 2>&1`
 passes. Commit: `test(skill-router): add the keyword and native comparators`.
 
-### [ ] T6 — the metrics
+### [x] T6 — the metrics
 
 *Files (new):* `tests/skill_router_eval/metrics.py`,
 `tests/skill_router_eval/test_metrics.py`
