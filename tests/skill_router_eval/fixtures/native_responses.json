@@ -1,0 +1,166 @@
+{
+  "note": "The router provider's real response shapes, one case per branch the adapter has to read. Every `output` carries every key evals/providers/claude_router.py emits (skills_loaded, selected, any_fired, model, text, error); the setup failure is the provider's own pre-workspace return, and `legacy_top_level` is the shape the previous draft of the contract specified, kept so the adapter can be shown to refuse it.",
+  "cases": [
+    {
+      "name": "selected_app",
+      "response": {
+        "output": {
+          "skills_loaded": ["functualize-app"],
+          "selected": "functualize-app",
+          "any_fired": true,
+          "model": "claude-sonnet-5",
+          "text": "I loaded the functualize-app skill and read its SKILL.md.",
+          "error": null
+        },
+        "cost": 0.0421
+      },
+      "expect": {
+        "route": "functualize-app",
+        "failed": null,
+        "selected": "functualize-app",
+        "error": null,
+        "model": "claude-sonnet-5",
+        "cost_usd": 0.0421
+      }
+    },
+    {
+      "name": "no_selection",
+      "response": {
+        "output": {
+          "skills_loaded": [],
+          "selected": null,
+          "any_fired": false,
+          "model": "claude-sonnet-5",
+          "text": "This is a general question, so I answered it directly.",
+          "error": null
+        },
+        "cost": 0.0187
+      },
+      "expect": {
+        "route": "none",
+        "failed": null,
+        "selected": null,
+        "error": null,
+        "model": "claude-sonnet-5",
+        "cost_usd": 0.0187
+      }
+    },
+    {
+      "name": "max_turns",
+      "response": {
+        "output": {
+          "skills_loaded": ["functualize-cli"],
+          "selected": "functualize-cli",
+          "any_fired": true,
+          "model": "claude-sonnet-5",
+          "text": "Loaded the CLI skill.",
+          "error": "error_max_turns"
+        },
+        "cost": 0.05
+      },
+      "expect": {
+        "route": "functualize-cli",
+        "failed": null,
+        "selected": "functualize-cli",
+        "error": "error_max_turns",
+        "model": "claude-sonnet-5",
+        "cost_usd": 0.05
+      }
+    },
+    {
+      "name": "run_error",
+      "response": {
+        "output": {
+          "skills_loaded": [],
+          "selected": "functualize",
+          "any_fired": false,
+          "model": "claude-sonnet-5",
+          "text": "",
+          "error": "timeout after 180s"
+        },
+        "cost": 0.031
+      },
+      "expect": {
+        "route": "escalated",
+        "failed": {"kind": "run_error", "message": "timeout after 180s"},
+        "selected": "functualize",
+        "error": "timeout after 180s",
+        "model": "claude-sonnet-5",
+        "cost_usd": 0.031
+      }
+    },
+    {
+      "name": "api_error",
+      "response": {
+        "output": {
+          "skills_loaded": [],
+          "selected": "functualize-skill",
+          "any_fired": false,
+          "model": "claude-sonnet-5",
+          "text": "",
+          "error": "error_during_execution"
+        },
+        "cost": 0.044
+      },
+      "expect": {
+        "route": "escalated",
+        "failed": {"kind": "run_error", "message": "error_during_execution"},
+        "selected": "functualize-skill",
+        "error": "error_during_execution",
+        "model": "claude-sonnet-5",
+        "cost_usd": 0.044
+      }
+    },
+    {
+      "name": "setup_error",
+      "response": {"error": "no such fixture"},
+      "expect": {
+        "route": "escalated",
+        "failed": {"kind": "setup_error", "message": "no such fixture"},
+        "selected": null,
+        "error": "no such fixture",
+        "model": null,
+        "cost_usd": null
+      }
+    },
+    {
+      "name": "unknown_skill",
+      "response": {
+        "output": {
+          "skills_loaded": ["functualize-extra"],
+          "selected": "functualize-extra",
+          "any_fired": true,
+          "model": "claude-sonnet-5",
+          "text": "Loaded the extra skill.",
+          "error": null
+        },
+        "cost": 0.01
+      },
+      "expect": {
+        "route": "escalated",
+        "failed": {"kind": "unknown_skill", "message": "functualize-extra"},
+        "selected": "functualize-extra",
+        "error": null,
+        "model": "claude-sonnet-5",
+        "cost_usd": 0.01
+      }
+    },
+    {
+      "name": "legacy_top_level",
+      "response": {
+        "selected": "functualize-app",
+        "skills_loaded": ["functualize-app"],
+        "any_fired": true,
+        "cost": 0.02
+      },
+      "expect": {
+        "route": "escalated",
+        "failed": {"kind": "setup_error", "message": "no output"},
+        "selected": null,
+        "error": null,
+        "model": null,
+        "cost_usd": null
+      }
+    }
+  ]
+}
