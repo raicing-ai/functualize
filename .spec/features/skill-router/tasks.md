@@ -6,11 +6,12 @@ freeze's reach, the Plan retrieval). There are sixteen tasks in twelve waves.
 Every `now:` below was produced by running its command on this branch at
 authoring time.
 
-**Execute is NOT yet authorised.** `spec.md` and `plan.md` await the
-maintainer's confirmation of P-1 (downstream task list), P-2 (verdict
-constants) and S-1 (Duplicate Code instead of editing Phase 3). Record the
-answers under *Decisions recorded* before wave 0 starts. A changed answer sends
-`spec.md`/`plan.md` back for revision first.
+**Execute is authorised.** The maintainer answered P-1 (downstream task list),
+P-2 (verdict constants) and S-1 (Duplicate Code instead of editing Phase 3) on
+2026-10-31T02:47:43Z; the three answers are recorded under *Decisions recorded*
+below. All three match the package's recommendations, so `spec.md` and
+`plan.md` stand as reviewed; a changed answer would have sent them back for
+revision first.
 
 **The implementation lands on this branch, in this pull request.** The spec is
 created, executed and completed within the same PR, and removed before merging
@@ -70,10 +71,15 @@ count too. Run every command from the repository root.
 - Shape SD/16515075 v3: Approved. D0–D3 = a (owner). D4–D6 as recommended
   (owner, 2026-10-13T06:42:18Z). Corpus-label review waived by the owner (same
   comment).
-- P-1 (downstream tasks d1–d5): *pending*.
-- P-2 (`min_lead = 0.05`, `max_unsafe_none = 0`): *pending*.
+- P-1 (downstream tasks d1–d5): accepted by the maintainer 2026-10-31T02:47:43Z
+  — the five cases exactly as `spec.md:293-306` fixes them; suite size
+  5 × 3 arms × 3 repeats = 45 runs.
+- P-2 (`min_lead = 0.05`, `max_unsafe_none = 0`): accepted by the maintainer
+  2026-10-31T02:47:43Z — frozen in the lock before the first cell
+  (`spec.md:345`).
 - S-1 (Duplicate Code with Phase 3, no edit to `tests/hermetic_eval/`):
-  *pending*.
+  accepted by the maintainer 2026-10-31T02:47:43Z — the rule-of-three
+  extraction is recorded in the reference page and `plan.md:297`.
 
 ## Wave 0
 
