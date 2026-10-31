@@ -285,6 +285,11 @@ def test_native_cost_reads_the_instrument_not_phase_three() -> None:
     assert priced["priced_cells"] == 2
     assert priced["unpriced_cells"] == 1
     assert priced["usd_total"] == 0.0608
+    # Pricing divides by what the instrument actually priced, never by every
+    # cell: an unpriced cell cost an unknown amount, not zero.
+    assert priced["usd_per_cell"] == pytest.approx(0.0608 / 2)
+    # The per-correct figure divides by every native cell that was right.
+    assert priced["usd_per_correct"] == pytest.approx(0.0608 / 3)
     # Why it is not used: Phase 3 prices nothing, so the native arm's own USD
     # would vanish into a confident zero.
     assert phase3_cost(rows)["usd_total"] == 0.0
