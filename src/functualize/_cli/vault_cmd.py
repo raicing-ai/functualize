@@ -918,7 +918,7 @@ def vault_put_command(
     state = "replaced" if report.replaced else "new"
     click.echo(
         f"Stored {_describe(report.identity)} "
-        f"({report.identity.environment}, {state}; "
+        f"({report.identity.environment or 'base'}, {state}; "
         f"{_environment_fields(app)['environment_source']})."
     )
 

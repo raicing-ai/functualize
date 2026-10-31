@@ -2519,3 +2519,52 @@ class TestUnlockSaysHowItEnded:
         text = (result.stdout + result.stderr).lower()
         for product in ("gnome", "kwallet", "credential manager", "secret service"):
             assert product not in text
+
+
+class TestBaseIsTheSharedSlot:
+    """SD/12779576: the environment name ``base`` addresses shared entries.
+
+    Measured before the fix: ``FUNCTUALIZE_ENV=base … vault put`` stored a
+    four-part ``…,"base"]`` key that a ``prod`` run never consulted.
+    """
+
+    def _app(self, project: Path) -> FunctualizeApp:
+        return FunctualizeApp(
+            "vaulttest",
+            job_sources=JobSources(directories=[str(project / "jobs")], lazy=False),
+        )
+
+    def test_a_put_under_base_stores_and_reports_the_shared_entry(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FUNCTUALIZE_ENV", "base")
+        put = _run(
+            ["put", "--job", "report", "--field", "password", "--stdin"],
+            app=self._app(project),
+            stdin=_CONSPICUOUS,
+        )
+
+        assert put.exit_code == ExitCode.OK, put.output
+        assert "(base, new;" in put.output
+        assert {e.key for e in SecretsVault(vault_location()).list_entries()} == {
+            VaultIdentity("job", "report", "password").encode()
+        }
+
+    def test_a_prod_run_sees_the_entry_written_under_base(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FUNCTUALIZE_ENV", "base")
+        _run(
+            ["put", "--job", "report", "--field", "password", "--stdin"],
+            app=self._app(project),
+            stdin=_CONSPICUOUS,
+        )
+        AppState.reset()
+        monkeypatch.setenv("FUNCTUALIZE_ENV", "prod")
+        seen = _run(
+            ["inspect", "--job", "report", "--field", "password", "--json"],
+            app=self._app(project),
+        )
+
+        assert seen.exit_code == ExitCode.OK, seen.output
+        assert json.loads(seen.stdout)["exists"] is True
