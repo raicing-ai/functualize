@@ -126,8 +126,7 @@ class VaultConfig(BaseModel):
 
 
 @job(extra_description="Uses the public Secret type")
-def emit_annotated(config: VaultConfig, rc: RunContext, out: Stdout) -> str:
-    """Emits a Secret[str] value — not named `vault`, which is reserved."""
+def vault(config: VaultConfig, rc: RunContext, out: Stdout) -> str:
     rc.log("f-string: " + f"{config.token}")
     out.write("emitted=" + config.token.get_secret_value())
     return "ok"
@@ -172,6 +171,7 @@ def vault_project(project_tree):
     return project_tree(
         pyproject=PYPROJECT, jobs={"job_vault.py": SECRET_ANNOTATED_JOB}
     )
+
 
 def _field_line(stdout: str, field: str) -> str:
     """The ``field=value`` line a fixture job prints, or '' if absent."""
@@ -488,33 +488,25 @@ class TestPublicSecretType:
 
     def test_the_job_is_discovered(self, cli_run, vault_project):
         result = cli_run([], cwd=vault_project)
-        assert "emit-annotated" in result.stdout, (
+        assert "vault" in result.stdout, (
             "a job declaring Secret[str] is missing from the listing — "
             "the schema hook or the type gate has regressed"
         )
 
     def test_it_resolves_from_the_environment(self, cli_run, vault_project):
-        result = cli_run(
-            ["emit-annotated"],
-            cwd=vault_project,
-            env={"EMIT_ANNOTATED_TOKEN": REAL_SECRET},
-        )
+        result = cli_run(["vault"], cwd=vault_project, env={"VAULT_TOKEN": REAL_SECRET})
         assert result.exit_code == 0, result.stderr
 
     def test_it_masks_in_an_f_string(self, cli_run, vault_project):
         """The wrapper's whole purpose: a secret dropped into a log line."""
-        result = cli_run(
-            ["emit-annotated"],
-            cwd=vault_project,
-            env={"EMIT_ANNOTATED_TOKEN": REAL_SECRET},
-        )
+        result = cli_run(["vault"], cwd=vault_project, env={"VAULT_TOKEN": REAL_SECRET})
         assert REAL_SECRET not in result.stdout + result.stderr
 
     def test_it_masks_in_info_job(self, cli_run, vault_project):
         result = cli_run(
-            ["builtin", "info", "--job", "emit-annotated"],
+            ["builtin", "info", "--job", "vault"],
             cwd=vault_project,
-            env={"EMIT_ANNOTATED_TOKEN": REAL_SECRET},
+            env={"VAULT_TOKEN": REAL_SECRET},
         )
         assert REAL_SECRET not in result.stdout
 
@@ -528,10 +520,6 @@ class TestPublicSecretType:
         output channel redacts it anyway — belt and braces, because the two
         mistakes look identical in a diff.
         """
-        result = cli_run(
-            ["emit-annotated"],
-            cwd=vault_project,
-            env={"EMIT_ANNOTATED_TOKEN": REAL_SECRET},
-        )
+        result = cli_run(["vault"], cwd=vault_project, env={"VAULT_TOKEN": REAL_SECRET})
         assert "emitted=" in result.stdout
         assert REAL_SECRET not in result.stdout
