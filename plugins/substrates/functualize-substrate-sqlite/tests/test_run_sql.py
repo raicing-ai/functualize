@@ -219,6 +219,35 @@ def test_an_event_naming_no_run_needs_exactly_one_scope(
         tx.events.append("orphan")
 
 
+def test_scope_event_staged_before_takeover_is_fenced_at_commit(
+    store: SqliteRuntimeStore, tmp_path: Path
+) -> None:
+    generation = _claimed(store)
+    config = RuntimeStoreConfig(
+        url=f"sqlite://{tmp_path / 'state.db'}", scheme="sqlite", project_root=tmp_path
+    )
+    other = cast(
+        "SqliteRuntimeStore", SqliteRuntimeStoreFactory().prepare(config).store
+    )
+    try:
+        with store.transaction() as tx:
+            tx.events.append(
+                "stale-walk",
+                {"event": "must not land"},
+                scope_id="s1",
+                generation=generation,
+            )
+            with other.transaction() as takeover_tx:
+                takeover = takeover_tx.workflows.claim(
+                    ClaimWorkflow("s1", "b", T0, 60.0, force=True)
+                )
+            assert isinstance(takeover, Claimed)
+            assert takeover.generation > generation
+        assert _rows(store, "SELECT type FROM scope_events") == []
+    finally:
+        other.close()
+
+
 # -- inputs ----------------------------------------------------------------
 
 

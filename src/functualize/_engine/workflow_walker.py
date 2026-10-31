@@ -993,6 +993,7 @@ class WorkflowWalker:
             f"workflow.{action}",
             resource=self._workflow_name or self._scope_id,
             scope_id=self._scope_id,
+            generation=self._walk.generation,
             **payload,
         )
 

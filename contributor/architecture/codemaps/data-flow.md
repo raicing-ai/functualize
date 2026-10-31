@@ -224,7 +224,9 @@ record only ...... tx.workflows.record_step(RecordStep)     → timed out on tak
 status only ...... tx.workflows.move(MoveScope)             → nested-gate block, END reached
 gate ............. tx.workflows.suspend / tx.inputs.append / tx.inputs.consume
 State in a step .. PortBackedState → tx.workflows.write_state(StateBatch)
-walk log ......... WalkLogSubscriber → tx.events.append
+walk log ......... WorkflowWalker._say → EventBus → WalkLogSubscriber
+                   → tx.events.append(type, payload, scope_id=…, generation=…)
+                   (the held generation fences the append; no routing state write)
 lease ............ tx.workflows.renew(RenewLease) from LeaseHeartbeat: once at walk start, then
                    every 60 s from its thread, during steps too; a takeover → SUPERSEDED.
                    release(ReleaseLease) at the end
