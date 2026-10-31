@@ -42,8 +42,16 @@ list itself was written out in six places.
   the boundary must be answerable without threading a parameter through them.
 - **Walk A is one function and ends at the root.** `project_config_layers`
   returns the per-directory layers nearest first and stops after the first
-  root layer; the merge, `auto_discover`, `list_project_config_files`, the
-  settings store and `builtin config path` all read it.
+  root layer; the merge, `auto_discover` and `list_project_config_files` all
+  read it. **Allowed difference: the settings store walks for itself.** It
+  probes each `AppSettingsSchema.sources.project_file_names` per directory and
+  stops on the same `is_root_config` predicate, because a second app declares
+  its own file names and section prefixes and the store needs each file's text
+  to write an edit back. That is the one permitted independent walk:
+  `builtin config path` renders the store's snapshot, so it lists the bounded
+  project files the store reads plus the expected candidates that are not
+  layers. `tests/config/test_settings_layers.py` pins the two paths to the same
+  files, in the same order, for a marker-only root.
 - **Walk B is bounded on both stages (B1).** Discovery and layering stop at
   the boundary when it comes before `~`, else at `~` as before; a boundary
   above `~` widens nothing. An explicit `--config-directory` layers up to the
@@ -62,8 +70,12 @@ list itself was written out in six places.
   `SettingsSources.project_file_names` defaults to them, so the documented
   field is the list `func` actually reads. Not public-API breaking: names,
   defaults and docs are unchanged.
-- **`builtin config path` lists the layers that apply (D5 (a)):** the global
-  file, then the bounded walk-A files as `✓ used`.
+- **`builtin config path` lists the bounded project files and the expected
+  candidates (D5 (a)):** the global file first, then each directory the bounded
+  walk reached, nearest last, every line `✓ used` (supplies a value in effect),
+  `○ found` (exists, supplies none — a marker-only `root = true` file reads
+  this way) or `✗ missing`, with unknown keys annotated in place. A directory
+  above a root is neither listed nor probed.
 - **Ancestor data is never moved or copied automatically.** Keeping runtime
   records or secrets after a root stops inheriting them is a documented, user
   chosen migration (`docs/guides/configuration.md` § *Project boundaries and

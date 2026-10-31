@@ -629,7 +629,8 @@ named where configuration is inspected, and is never fatal.
 `func builtin config path` lists exactly the layers resolution uses: the upward
 walk stopped by `root = true`, plus the expected locations that are not layers,
 global first, nearest project file last. Each line carries `✓ used` (supplies a
-value in effect), `○ found` (exists, supplies none) or `✗ missing`. A file with
+value in effect), `○ found` (exists, supplies none — a marker-only
+`root = true` file reads this way) or `✗ missing`. A file with
 unknown keys gets ` — unknown key "roots" (did you mean "root"?); unknown key
 "cli.outptu" (did you mean "cli.output"?)`. `func builtin info --json` always
 carries `config.unknown_keys` as `{file, key, suggestion}` records, `[]` when
@@ -1072,7 +1073,9 @@ its own `.functualize/` is standalone with the root directory as its one
 identity, ancestor data untouched and never copied automatically; **D3 (b),
 design B1** both job-config stages stop at the root; **D4 (a)** an explicit
 `--config-directory` layers up to the boundary of the directory it names;
-**D5 (a)** `builtin config path` lists the bounded layers that apply; smell 2
+**D5 (a)** `builtin config path` lists the bounded project files that apply and
+the expected candidates around them — global first, nearest project file last,
+`✓ used` / `○ found` / `✗ missing`, unknown keys in place; smell 2
 (the project file list written out six times) fixed in scope.
 
 **Rules that outlive the feature:**
@@ -1081,7 +1084,14 @@ design B1** both job-config stages stop at the root; **D4 (a)** an explicit
   apply" reads `project_config_layers`; anything that asks "where is
   `.functualize/`" or "what is this project's key" asks `project_root.py`.
   A loop over `resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)` outside
-  `project_config_layers` is the defect this fixed.
+  `project_config_layers` is the defect this fixed. The one allowed
+  difference is the settings store (`_config/settings_layers.py`): it probes
+  each schema's own `project_file_names` and stops on the same
+  `is_root_config` predicate, because a second app declares its own names and
+  section prefixes and the store needs each file's text to write an edit back;
+  `builtin config path` renders that snapshot.
+  `tests/config/test_settings_layers.py` pins its files and order to walk A's
+  for a marker-only root.
 - **Only boolean `true` is a root.** `root = "true"` does not stop anything;
   `is_root_config` is the one predicate, and `merge_config_layers` asks it for
   the default key.

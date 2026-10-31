@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from functualize._config.settings_layers import settings_layers
 from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
+from functualize.app.utils import list_project_config_files
 
 
 def test_root_stops_project_walk_and_global_is_last(tmp_path: Path) -> None:
@@ -135,3 +136,37 @@ def test_a_permission_error_yields_no_values_and_no_text(
     assert layers[-1].kind == "global"
     assert layers[-1].values == {}
     assert layers[-1].text == ""
+
+
+def test_a_marker_only_root_gives_walk_a_the_same_files(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The store's own walk and walk A honour the same files, in one order.
+
+    The store probes each schema's ``project_file_names`` itself instead of
+    calling ``project_config_layers`` (a second app declares its own names and
+    prefixes, and the store needs each file's text to write an edit back), so
+    the two can only stay equivalent by test. The root here is marker-only, in
+    the first candidate, with a second candidate beside it: reversing the
+    probe order or dropping the ``root = true`` stop breaks this.
+    """
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    outer = tmp_path / "outer"
+    nested = outer / "nested"
+    sub = nested / "sub"
+    sub.mkdir(parents=True)
+    (outer / ".functualize.toml").write_text('[cli]\noutput = "json"\n')
+    (nested / "pyproject.toml").write_text("[tool.functualize]\nroot = true\n")
+    (nested / ".functualize.toml").write_text('[cli]\noutput = "plain"\n')
+
+    from_settings = [
+        layer.path
+        for layer in settings_layers(
+            FUNCTUALIZE_SETTINGS, sub, global_dir=tmp_path / "global"
+        )
+        if layer.kind == "project"
+    ]
+    from_walk_a = [path for _directory, path in list_project_config_files(sub)]
+
+    assert from_settings == [nested / "pyproject.toml"]
+    assert from_walk_a == from_settings
