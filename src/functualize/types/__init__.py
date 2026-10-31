@@ -25,9 +25,11 @@ from functualize._types.enums import (
     ConfigFileRole,
     EnvironmentSource,
     JobPhase,
+    RenderSurface,
     RunStatus,
     RunType,
 )
+from functualize._types.errors import JobFailedError
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
 from functualize._types.flag_grammar import (
     GLOBAL_BOOL_FLAGS,
@@ -40,6 +42,7 @@ from functualize._types.flag_grammar import (
     negative_flag_for,
 )
 from functualize._types.http_status import http_status_for_status
+from functualize._types.naming import CommandPath
 from functualize._types.outcome import (
     Family,
     is_failure,
@@ -62,6 +65,9 @@ __all__ = [
     "report_line",
     "status_from_wire",
     "wire_value",
+    # Raised by JobResult.raise_for_status(), the checked lane for a
+    # child a parent invoked; public beside the result it carries.
+    "JobFailedError",
     "MissingValueError",
     "RUN_SURFACES",
     "RunRequest",
@@ -69,8 +75,10 @@ __all__ = [
     "RunSurface",
     "JobResult",
     "JobDescriptor",
+    "CommandPath",
     "FieldDescriptor",
     "RunStatus",
+    "RenderSurface",
     "RunType",
     "JobPhase",
     "CacheInfo",

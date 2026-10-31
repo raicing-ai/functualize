@@ -177,7 +177,7 @@ def test_config_suppresses(
         def get(self, key: str, default: Any = None) -> Any:
             return ["demo"] if key == "live.suppress" else default
 
-    monkeypatch.setattr(app, "settings", _Settings(), raising=False)
+    monkeypatch.setattr(app, "_settings_snapshot", _Settings())
     app.extensions.register_ambient_construct(_Construct)
 
     assert resolve_ambient_constructs(app, _Descriptor()) == []
@@ -190,7 +190,7 @@ def test_config_suppress_accepts_a_comma_string(
         def get(self, key: str, default: Any = None) -> Any:
             return "demo, other" if key == "live.suppress" else default
 
-    monkeypatch.setattr(app, "settings", _Settings(), raising=False)
+    monkeypatch.setattr(app, "_settings_snapshot", _Settings())
     app.extensions.register_ambient_construct(_Construct)
 
     assert resolve_ambient_constructs(app, _Descriptor()) == []

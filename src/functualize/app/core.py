@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from functualize._app.workflow_facade import WorkflowScopeFacade
     from functualize._config import ResolutionChain
     from functualize._config.registry import ProviderRegistry
+    from functualize._config.settings_resolution import ResolvedSettings
     from functualize._discovery.pipeline import ResolutionPipeline
     from functualize._discovery.registry import JobRegistry
     from functualize._engine.agent_step import AgentStepRegistry
@@ -65,6 +66,7 @@ if TYPE_CHECKING:
     from functualize._types.host import SubstrateOffer
     from functualize._types.persistence import RuntimeStore, RuntimeStoreFactory
     from functualize._types.protocols import StoreSubstrate
+    from functualize._types.settings import AppSettingsSchema
     from functualize.job._workflow_scope import WorkflowScope
 
 DEFAULT_CONFIG_FILE_REGEX = r"^config\.(\w+)\.(\w+)$"
@@ -182,6 +184,7 @@ class FunctualizeApp:
         self._config_sources = (
             config_sources if config_sources is not None else ConfigSources()
         )
+        self._settings_snapshot: ResolvedSettings | None = self._config_sources.resolved
         self._plugin_sources = (
             plugin_sources if plugin_sources is not None else PluginSources()
         )
@@ -235,6 +238,34 @@ class FunctualizeApp:
             boot_standard(self, perf_timeline)
 
     # ─── Constructor Resolution Helpers ──────────────────────────────────
+
+    @property
+    def settings_schema(self) -> AppSettingsSchema:
+        """The settings declaration this app resolves.
+
+        Host-supplied when the host declared one, func's own otherwise. The one
+        place that answers "which settings does this app have", so a settings
+        surface can offer exactly the rows the app resolves instead of guessing
+        from a global catalog.
+        """
+        from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
+
+        return self._config_sources.settings or FUNCTUALIZE_SETTINGS
+
+    @property
+    def settings(self) -> ResolvedSettings:
+        """Resolved declared settings, shared by every delivery surface.
+
+        The snapshot is built on first access so static wiring stays free of
+        configuration-file reads when its host does not use settings.
+        """
+        if self._settings_snapshot is None:
+            from functualize._config.settings_resolution import resolve_settings
+
+            self._settings_snapshot = resolve_settings(
+                self.settings_schema, self._state_root
+            )
+        return self._settings_snapshot
 
     def _is_fully_explicit(self) -> bool:
         """Detect whether all sources are explicitly provided (static wiring)."""

@@ -1,10 +1,12 @@
 """Property-based tests for INVOKE_FAILURE hook semantics.
 
-**Validates: Requirements 21.2, 21.4, 21.6**
+**Validates: Requirements 21.2, 21.4**
 
-Property 12: INVOKE_FAILURE fires only for FAILURE status
-- INVOKE_FAILURE fires iff result.status == RunStatus.FAILURE
-- INVOKE_FAILURE does NOT fire for TIMEOUT, CANCELLED, SUCCESS, or other statuses
+Property 12: INVOKE_FAILURE fires exactly for a failed child
+- INVOKE_FAILURE fires iff ``is_failure(status, family=Family.TOOL)`` — the
+  set ``parallel`` and ``JobResult.raise_for_status()`` use, so TIMEOUT,
+  CANCELLED and UNKNOWN fire it beside FAILURE and REFUSED
+- INVOKE_FAILURE does NOT fire for SUCCESS, SKIPPED or BLOCKED
 - When both INVOKE_FAILURE and INVOKE_END are registered, INVOKE_FAILURE fires BEFORE INVOKE_END
 """
 
@@ -16,15 +18,22 @@ from unittest.mock import MagicMock
 from hypothesis import given
 from hypothesis import strategies as st
 
+from functualize._engine.capabilities.invoke import _child_failed
 from functualize._engine.result import JobResult
 from functualize._events.hooks import HookEvent, HookRegistry
 from functualize._types.enums import RunStatus
+from functualize.types import Family, is_failure
 
 # --- Strategies ---
 
 all_run_statuses = st.sampled_from(list(RunStatus))
 
-non_failure_statuses = st.sampled_from([s for s in RunStatus if s != RunStatus.FAILURE])
+# The shared partition: a child failed iff its status fails at a tool boundary.
+FAILURE_STATUSES = frozenset(s for s in RunStatus if is_failure(s, family=Family.TOOL))
+
+non_failure_statuses = st.sampled_from(
+    [s for s in RunStatus if s not in FAILURE_STATUSES]
+)
 
 job_names = st.text(
     alphabet=st.characters(whitelist_categories=("L", "N"), whitelist_characters="_-"),
@@ -39,7 +48,7 @@ duration_ms = st.floats(min_value=0.0, max_value=60000.0, allow_nan=False)
 
 def make_job_result(status: RunStatus, job_name: str, dur: float) -> JobResult:
     """Create a JobResult with the given status."""
-    exception = RuntimeError("failed") if status == RunStatus.FAILURE else None
+    exception = RuntimeError("failed") if status in FAILURE_STATUSES else None
     return JobResult(
         status=status,
         duration_ms=dur,
@@ -57,16 +66,17 @@ def simulate_invoke_hook_dispatch(
 ) -> None:
     """Simulate the hook dispatch logic from RunContext.invoke.
 
-    This replicates the exact dispatch logic used in RunContext.invoke():
-    1. If result.status == FAILURE, fire INVOKE_FAILURE hooks
+    This replicates the dispatch logic used in RunContext.invoke(), and asks
+    the production predicate rather than restating it:
+    1. If ``_child_failed(result.status)``, fire INVOKE_FAILURE hooks
     2. Always fire INVOKE_END hooks
     """
     import logging
 
     _logger = logging.getLogger(__name__)
 
-    # Fire INVOKE_FAILURE hook (only for RunStatus.FAILURE)
-    if result.status == RunStatus.FAILURE:
+    # Fire INVOKE_FAILURE hook (only for a failed child)
+    if _child_failed(result.status):
         failure_hooks = hook_registry._global_hooks.get(HookEvent.INVOKE_FAILURE, [])
         for hook in failure_hooks:
             try:
@@ -83,13 +93,13 @@ def simulate_invoke_hook_dispatch(
             _logger.error(f"INVOKE_END hook raised: {e}")
 
 
-# --- Property 12: INVOKE_FAILURE fires only for FAILURE status ---
+# --- Property 12: INVOKE_FAILURE fires exactly for a failed child ---
 
 
 class TestInvokeFailureSemantics:
-    """Property 12: INVOKE_FAILURE fires only for FAILURE status.
+    """Property 12: INVOKE_FAILURE fires exactly for a failed child.
 
-    **Validates: Requirements 21.2, 21.4, 21.6**
+    **Validates: Requirements 21.2, 21.4**
     """
 
     @given(
@@ -98,20 +108,20 @@ class TestInvokeFailureSemantics:
         depth=invoke_depths,
         dur=duration_ms,
     )
-    def test_invoke_failure_fires_iff_status_is_failure(
+    def test_invoke_failure_fires_iff_the_child_failed(
         self,
         status: RunStatus,
         child_job_name: str,
         depth: int,
         dur: float,
     ):
-        """INVOKE_FAILURE fires if and only if result.status == RunStatus.FAILURE.
+        """INVOKE_FAILURE fires if and only if the status is in the shared set.
 
-        **Validates: Requirements 21.2, 21.6**
+        **Validates: Requirements 21.2**
 
         For any RunStatus value, the INVOKE_FAILURE hook must fire exactly when
-        the status is FAILURE, and must NOT fire for any other status including
-        TIMEOUT, CANCELLED, SUCCESS, RUNNING, or UNKNOWN.
+        the status is a tool-boundary failure, and must NOT fire for SUCCESS,
+        SKIPPED or BLOCKED.
         """
         registry = HookRegistry()
         mock_rc = MagicMock()
@@ -129,7 +139,7 @@ class TestInvokeFailureSemantics:
         # Simulate the dispatch
         simulate_invoke_hook_dispatch(registry, mock_rc, child_job_name, depth, result)
 
-        if status == RunStatus.FAILURE:
+        if status in FAILURE_STATUSES:
             # INVOKE_FAILURE must have fired exactly once
             assert len(failure_fired) == 1
             assert failure_fired[0] == (mock_rc, child_job_name, depth, result)
@@ -150,12 +160,12 @@ class TestInvokeFailureSemantics:
         depth: int,
         dur: float,
     ):
-        """INVOKE_FAILURE does NOT fire for TIMEOUT, CANCELLED, SUCCESS, or other statuses.
+        """INVOKE_FAILURE does NOT fire for SUCCESS, SKIPPED or BLOCKED.
 
-        **Validates: Requirements 21.6**
+        **Validates: Requirements 21.2**
 
         Specifically tests non-failure statuses to ensure the hook is never
-        triggered for TIMEOUT, CANCELLED, SUCCESS, RUNNING, or UNKNOWN.
+        triggered for a child that did not fail.
         """
         registry = HookRegistry()
         mock_rc = MagicMock()
@@ -171,7 +181,7 @@ class TestInvokeFailureSemantics:
 
         simulate_invoke_hook_dispatch(registry, mock_rc, child_job_name, depth, result)
 
-        # Must never fire for non-FAILURE statuses
+        # Must never fire for a child that did not fail
         assert failure_count == 0
 
     @given(
@@ -248,7 +258,7 @@ class TestInvokeFailureSemantics:
 
         **Validates: Requirements 21.4**
 
-        Even when INVOKE_FAILURE does not fire (non-FAILURE status), INVOKE_END
+        Even when INVOKE_FAILURE does not fire (the child did not fail), INVOKE_END
         still fires normally, confirming the two events are independent.
         """
         registry = HookRegistry()

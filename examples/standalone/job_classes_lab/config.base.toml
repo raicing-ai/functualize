@@ -1,0 +1,12 @@
+# `Postgres`'s typed fields are the configuration of *every* method job of the
+# class, and they all read one section: the class's group. `group="pg"` is
+# why this is `[pg]` and not `[pg.backup]`.
+[pg]
+host = "db.internal"
+port = 6543
+
+# Bare `@job` + `JOB_GROUP = "data"` + the class name `Reports` is the group
+# `data.reports`, so a second class reads its own section, keys by its own
+# field names.
+[data.reports]
+month = "2026-09"

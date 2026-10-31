@@ -158,6 +158,15 @@ class CachedDirectoryScanProvider:
         # enforced at record time.
         self._group_options_entries: dict[str, GroupOptionsSpec] = {}
 
+        # Extraction findings: source_file -> the findings that module's own
+        # code stated when it was last imported. `AbstractJobClass` and
+        # `MethodGroupConflict` are facts about the module, not about the read,
+        # so they have to outlive the pass that discovered them: a warm boot
+        # validates the entry instead of importing the file, and
+        # `_replay_findings` is the only thing left that can still report them.
+        # Persisted for the same reason the descriptors are.
+        self._finding_entries: dict[str, tuple[DiscoveryFailure, ...]] = {}
+
         # Set when in-memory state diverges from disk (e.g. Tier 2 mtime refresh)
         self._dirty = False
 
@@ -180,27 +189,38 @@ class CachedDirectoryScanProvider:
         """
         with collecting_discovery_failures() as failures:
             jobs = self._list_jobs()
-        # Only what *this* pass examined, for the read failures: a warm boot
-        # re-reads nothing, so it reports nothing — including for a file whose
-        # negative pre-filter decision was cached from an earlier pass. That is
-        # the honest answer to "what did this scan fail to read".
+        # What this pass reports has three sources, and only the first is
+        # per-scan.
         #
-        # A job-name collision is the one finding here that is *not* about a
-        # read: it is derived from the retained entries, which a warm boot has
-        # in full, so it is reported on every pass. Reporting it only on a cold
-        # boot would make it vanish on the second invocation, which is the
+        # A **read** failure — parse, import, group-options conflict — happened
+        # to *this* pass, and a module that fails to import leaves no cache
+        # entry, so it is retried and re-reported on every pass. Nothing here
+        # outlives the scan, and none of it is reported for a module the pass
+        # never read.
+        #
+        # A **job-name collision** is not about a read: it is derived from the
+        # retained entries, which a warm boot has in full, so it is reported on
+        # every pass from `_reindex_by_name`. Reporting it only on a cold boot
+        # would make it vanish on the second invocation, which is the
         # intermittent shape this project treats as worse than silence.
-        # That is why the failure list
-        # is documented as per-scan rather than as a standing inventory of
-        # broken files.
+        #
+        # An **extraction finding** (`AbstractJobClass`, `MethodGroupConflict`)
+        # is the same shape: the module's own code states it, so it is retained
+        # with that module's entry and replayed by `_replay_findings` on the
+        # passes that validate the entry instead of re-importing the file. A
+        # module that produced one *and* yields descriptors is otherwise
+        # silent from the second boot on.
         self._discovery_failures = list(failures)
         return jobs
 
     @property
     def discovery_failures(self) -> list[DiscoveryFailure]:
-        """Modules this provider's last pass could not parse or import.
+        """What the last pass could not read, plus what its modules still say.
 
-        Empty when the pass read nothing new — see ``list_jobs``.
+        Read and import failures, group-options conflicts and name collisions
+        are per-scan evidence. Extraction findings are replayed from the
+        retained entries, so a warm pass over an unchanged tree reports the
+        same list a cold one did. Empty before the first scan.
         """
         return list(self._discovery_failures)
 
@@ -229,6 +249,12 @@ class CachedDirectoryScanProvider:
             del self._pre_filter_decisions[source_file]
             self._dirty = True
 
+        # Drop retained findings for files that are no longer on disk, so the
+        # section cannot outlive the module it describes.
+        for source_file in sorted(set(self._finding_entries) - on_disk):
+            del self._finding_entries[source_file]
+            self._dirty = True
+
         # Existing files: tiered validation, re-import if stale
         for source_file in sorted(on_disk & cached_files):
             if not self._validate_entries_for_file(source_file):
@@ -237,6 +263,11 @@ class CachedDirectoryScanProvider:
                 for desc in descriptors:
                     self._add_entry(desc)
                 changed = True
+            else:
+                # The file's findings are still true of the file we just
+                # validated, and re-importing it is exactly what the cache
+                # exists to avoid.
+                self._replay_findings(source_file)
 
         if changed or self._dirty:
             self._persist_cache()
@@ -383,6 +414,22 @@ class CachedDirectoryScanProvider:
                         logger.warning(
                             "Failed to deserialize group options entry '%s': %s", key, e
                         )
+
+            findings_data = data.get("findings", {})
+            if isinstance(findings_data, dict):
+                for key, failures_data in findings_data.items():
+                    try:
+                        self._finding_entries[key] = tuple(
+                            DiscoveryFailure(**failure_data)
+                            for failure_data in failures_data
+                        )
+                    except (ValueError, TypeError, KeyError) as e:
+                        # A malformed record cannot be replayed, and a module
+                        # with no findings retained is re-expanded the moment
+                        # its entry goes stale rather than never.
+                        logger.warning(
+                            "Failed to deserialize findings for '%s': %s", key, e
+                        )
         except (OSError, json.JSONDecodeError, Exception) as e:
             logger.warning("Failed to load discovery cache (starting empty): %s", e)
             self._entries = {}
@@ -390,11 +437,13 @@ class CachedDirectoryScanProvider:
             self._pre_filter_decisions = {}
             self._display_entries = {}
             self._group_options_entries = {}
+            self._finding_entries = {}
 
     def _persist_cache(self) -> None:
         """Write the current cache state to disk. Silent on failure."""
         try:
             cache_path = self._locator.writable(CACHE_FILENAME)
+            known_files = self._known_source_files()
             data: dict[str, Any] = {
                 "version": CACHE_VERSION,
                 "functualize_version": get_functualize_version(),
@@ -419,6 +468,26 @@ class CachedDirectoryScanProvider:
                 "group_options": {
                     key: spec.to_dict()
                     for key, spec in self._group_options_entries.items()
+                },
+                # Keyed by source file, and only for the files the cache can
+                # *skip*: this section exists so a pass that validates an entry
+                # instead of importing the file can still report what that
+                # file says about itself. A module whose only outcome was a
+                # finding has no entry, is imported on every pass, and states
+                # its own finding then — a copy here would be replayed by
+                # nothing.
+                "findings": {
+                    source_file: [
+                        {
+                            "module": failure.module,
+                            "path": failure.path,
+                            "error_type": failure.error_type,
+                            "message": failure.message,
+                        }
+                        for failure in failures
+                    ]
+                    for source_file, failures in self._finding_entries.items()
+                    if source_file in known_files
                 },
             }
             cache_path.write_text(
@@ -542,7 +611,12 @@ class CachedDirectoryScanProvider:
         (a static provider, a dynamic registration), so the job name is the
         fallback and behaviour for those is unchanged.
         """
-        return f"{descriptor.source_file}::{descriptor.python_name or descriptor.name}"
+        identity = descriptor.python_name or descriptor.name
+        # Two classes may each define ``start`` in one file; the class name is
+        # what keeps their cache entries apart and a collision detectable.
+        if descriptor.owner_class:
+            identity = f"{descriptor.owner_class}.{identity}"
+        return f"{descriptor.source_file}::{identity}"
 
     def _add_entry(self, descriptor: JobDescriptor) -> None:
         """Add a descriptor to both the entries dict and the name index."""
@@ -582,7 +656,12 @@ class CachedDirectoryScanProvider:
         }
 
     def _remove_entries_for_file(self, source_file: str) -> None:
-        """Remove all entries (jobs, displays, group options) for a source file."""
+        """Remove all entries (jobs, displays, group options) for a source file.
+
+        Its retained extraction findings go with them: they describe the code
+        that produced those entries, and the re-import that follows replaces
+        them with whatever that code says now.
+        """
         keys_to_remove = [
             key
             for key, entry in self._entries.items()
@@ -595,6 +674,9 @@ class CachedDirectoryScanProvider:
                 del self._by_name[entry.name]
         if source_file in self._display_entries:
             del self._display_entries[source_file]
+            self._dirty = True
+        if source_file in self._finding_entries:
+            del self._finding_entries[source_file]
             self._dirty = True
         # Group options are keyed by group path, so the file's entries are
         # found by scanning values rather than a single key lookup.
@@ -902,25 +984,42 @@ class CachedDirectoryScanProvider:
         """Import a module and extract job descriptors. Silent on failure.
 
         Also records the module's display-provider classes into the display
-        section as a side effect of the same import pass.
+        section as a side effect of the same import pass, and retains the
+        findings the module's own code stated so a pass that skips the import
+        can still report them (see :meth:`_replay_findings`).
 
         A group path this module claims a second time is recorded as a
         discovery failure and the file's entries are dropped — see the
         ``except`` below. Nothing here raises for it.
         """
+        retained: list[DiscoveryFailure] = []
         try:
             from functualize._discovery.sync import extract_module
 
-            extraction = extract_module(source_file, self._project_root)
+            # A private scope around the extraction: what the module's own
+            # code says about itself (`AbstractJobClass`, `MethodGroupConflict`)
+            # is the part that has to be retained, and the outer scope would
+            # otherwise keep it only for this pass. Recorded outward below, in
+            # the same order it was recorded in here.
+            with collecting_discovery_failures() as retained:
+                extraction = extract_module(source_file, self._project_root)
         except Exception as e:
             # One formatted line, not a logger dump. This used to print
             # `WARNING:functualize._discovery.cached_provider:Failed to import
             # and extract from '<abs path>': ...` above every command a user
             # ran, putting an internal module path in front of them forever.
+            # Whatever the extraction managed to state before it failed is
+            # forwarded first, so the list reads in the order it was recorded.
+            for failure in retained:
+                record_discovery_finding(failure)
             logger.warning("⚠ %s not loaded — %s", Path(source_file).name, e)
             record_discovery_failure(source_file, e)
             return []
 
+        for failure in retained:
+            record_discovery_finding(failure)
+
+        self._retain_findings(source_file, retained)
         self._record_display_entry(source_file, extraction)
         try:
             self._record_group_options_entries(source_file, extraction)
@@ -999,6 +1098,48 @@ class CachedDirectoryScanProvider:
             if existing != spec:
                 self._group_options_entries[spec.group] = spec
                 self._dirty = True
+
+    def _retain_findings(
+        self, source_file: str, failures: Sequence[DiscoveryFailure]
+    ) -> None:
+        """Keep a module's extraction findings beside the entry that skips it.
+
+        Only findings a module's own code states are retained, and none of them
+        carries a collision detail: a name collision is re-derived from the
+        retained entries on every pass (:meth:`_reindex_by_name`), so storing
+        one here would be a second copy of a fact the cache already holds and a
+        shape this section cannot round-trip.
+
+        Retention is unconditional, but only files in
+        :meth:`_known_source_files` are written to disk: a module whose only
+        outcome was a finding has no entry, is re-imported on every pass, and
+        therefore re-states its finding itself.
+        """
+        retainable = tuple(f for f in failures if f.collision is None)
+        if retainable == self._finding_entries.get(source_file, ()):
+            return
+        if retainable:
+            self._finding_entries[source_file] = retainable
+        else:
+            self._finding_entries.pop(source_file, None)
+        self._dirty = True
+
+    def _replay_findings(self, source_file: str) -> None:
+        """Re-record the findings a validated module produced when it was read.
+
+        The counterpart of the skip in ``_list_jobs``: the file was not
+        re-imported because its entry still matches, so the findings that
+        module's code states are replayed from the retained copy instead of
+        being lost for the rest of the cache's life. Same trade
+        :meth:`_reindex_by_name` makes for a collision, and for the same reason
+        — one cold boot that reports a broken module and a second that reports
+        nothing is the failure shape this cache has produced before.
+
+        Recording is a no-op outside a collection scope, so a caller that is not
+        scanning loses nothing by calling this.
+        """
+        for failure in self._finding_entries.get(source_file, ()):
+            record_discovery_finding(failure)
 
     def _record_display_entry(self, source_file: str, extraction: Any) -> None:
         """Sync the display section with what an import pass just found."""
@@ -1086,7 +1227,7 @@ class CachedDirectoryScanProvider:
         if descriptor is not None:
             return descriptor
 
-        from functualize._types.naming import normalize_segment
+        from functualize._types.naming import normalize_name
 
-        canonical = ".".join(normalize_segment(part) for part in name.split("."))
+        canonical = normalize_name(name) or name
         return self._by_name.get(canonical) if canonical != name else None

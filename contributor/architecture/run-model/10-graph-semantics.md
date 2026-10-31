@@ -112,7 +112,7 @@ fences concurrent `resume`, and the two ship together or neither does.
 | **Failure routing** | a step outcome richer than raise/return | §A, §B — routing on failure means the walker must survive one |
 | **Typed outcomes** (`timed_out`/`cancelled`/`failed`) | per-step timeouts | §D — `timed_out` is not producible today because nothing times a step |
 | **`watch`** | the lease, and walker events | §E — liveness is not derivable from the store |
-| **`notify`** | the effects outbox | an at-most-once side effect on a state transition |
+| **`notify`** | shipped — a branch-recorded send | an at-most-once side effect on a state transition; it may be dropped rather than repeated, and deliberately does not ride the durable at-least-once delivery of ADR-034 |
 | **`--wf-retry-epilogue`** | nothing new | already needed and already scoped (decision **L4**); `--wf-retry-failed` stays withdrawn as largely redundant |
 
 Every row depends on F5. That is why F7 is last, and why it is *"Incremental"* in the
@@ -124,8 +124,10 @@ is a small addition rather than a subsystem.
 Two of the pi-workflow roadmap's six parity tests are still unmet and land here:
 
 - **Test 2** — `kill -9` the runner mid-workflow; a new runner resumes from the last
-  committed node; an effect step re-runs exactly once. *(Needs F5's outbox and lease; F7's
-  typed outcomes make the report legible.)*
+  committed node; an effect step re-runs exactly once. *(F5's lease and completion
+  record shipped it; the kill-and-recover proof is
+  `tests/workflow/test_gate_outbox_recovery.py`, and F7's typed outcomes make the
+  report legible.)*
 - **Test 5** — `func builtin workflow watch` shows the live graph while the above runs.
   *(§E.)*
 

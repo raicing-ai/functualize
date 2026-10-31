@@ -3,7 +3,8 @@
 Orchestrates the Provider → Transform → Registry flow. Maintains
 registration order for deterministic, reproducible behavior.
 
-Only imports from `_types/`, `_primitives/`, `_events/`, and Python stdlib.
+Only imports from `_types/`, `_primitives/`, `_events/`, its own `_discovery`
+peer `collisions` (the one collision rule), and Python stdlib.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from functualize._discovery.collisions import involves_class_job, strict_collision
 from functualize._types import JobDescriptor, JobProvider, JobTransform
 from functualize._types.discovery_report import DiscoveryFailure, job_name_collision
 
@@ -155,7 +157,8 @@ class ResolutionPipeline:
         Pipeline order:
         1. Each provider's list_jobs() → provider-level transforms in order
         2. Concatenate results from all providers
-        3. Resolve duplicate names — first claimant wins, rest reported
+        3. Resolve duplicate names — first claimant wins, rest reported; a
+           name with a class-job claimant is refused to all of them
         4. Apply app-level transforms in registration order
 
         A duplicate name used to raise ``ValueError`` here, and the caller in
@@ -180,6 +183,7 @@ class ResolutionPipeline:
         # Phase 1: Each provider's list_jobs → provider-level transforms
         all_jobs: list[JobDescriptor] = []
         seen: dict[str, JobDescriptor] = {}
+        claimants_by_name: dict[str, list[JobDescriptor]] = {}
         self._collisions = []
 
         for entry in self._providers:
@@ -191,6 +195,9 @@ class ResolutionPipeline:
                 current = transform.transform_list(current)
 
             for job in current:
+                claimants = claimants_by_name.setdefault(job.name, [])
+                if not any(claimant is job for claimant in claimants):
+                    claimants.append(job)
                 incumbent = seen.get(job.name)
                 if incumbent is not None:
                     if incumbent is not job:
@@ -202,11 +209,36 @@ class ResolutionPipeline:
                                 dropped_module=_module_of(job),
                                 dropped_python_name=job.python_name or job.name,
                                 dropped_path=job.source_file or "<provider>",
+                                kept_path=incumbent.source_file or "<provider>",
                             )
                         )
                     continue
                 seen[job.name] = job
                 all_jobs.append(job)
+
+        # A class job makes a cross-provider collision strict, exactly as it
+        # does inside one scan: the same class from a directory and from a
+        # second source, or a method and another provider's function, register
+        # nobody. First-wins above stays the rule for plain functions only, so
+        # their records and order are untouched; a strict name trades its
+        # "one runs" record for the record that says neither does.
+        refused = {
+            name
+            for name, claimants in claimants_by_name.items()
+            if involves_class_job(claimants)
+        }
+        if refused:
+            all_jobs = [job for job in all_jobs if job.name not in refused]
+            self._collisions = [
+                finding
+                for finding in self._collisions
+                if finding.collision is None
+                or finding.collision.canonical_name not in refused
+            ]
+            self._collisions.extend(
+                strict_collision(name, claimants_by_name[name])
+                for name in sorted(refused)
+            )
 
         # Phase 2: App-level transforms in pipeline order
         current_list: Sequence[JobDescriptor] = all_jobs

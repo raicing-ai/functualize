@@ -54,7 +54,7 @@ from functualize._types.errors import (
     CrossAggregateRefusedError,
     InputRequestNotOpenError,
 )
-from functualize._types.gate_resolution import GateCandidate
+from functualize._types.gate_resolution import GateCandidate, GateDecision
 from functualize._types.persistence import (
     EPILOGUE_STEP_KEY,
     CancelWorkflow,
@@ -87,6 +87,7 @@ from functualize._types.persistence import (
     StateBatch,
     StepView,
     StoreProfile,
+    SupersedeRequest,
     SuspendAtGate,
     WorkflowQuery,
     WorkflowReader,
@@ -218,10 +219,12 @@ class _DocumentRunReader:
         network store answers this with a `WHERE` clause and an index.
         """
         limit = query.limit if query.limit is not None else 20
+        if limit <= 0:
+            return ()
         views: list[RunView] = []
-        # Over-read, because `recent_runs` caps before filtering and a filtered
-        # answer must still be able to reach `limit`.
-        for record in self._runs.recent_runs(limit=max(limit * 8, limit)):
+        # The document is already in memory: inspect every candidate so all
+        # filters run before the result limit, even for sparse tag matches.
+        for record in self._runs.recent_runs(limit=None):
             run_id = str(record.get("run_id", ""))
             if query.job is not None and record.get("job") != query.job:
                 continue
@@ -234,6 +237,10 @@ class _DocumentRunReader:
                 and record.get("parent_run_id") != query.parent_run_id
             ):
                 continue
+            if query.tags:
+                stored = record.get("run_tags") or {}
+                if any(stored.get(k) != v for k, v in query.tags):
+                    continue
             views.append(_run_view(run_id, record))
             if len(views) >= limit:
                 break
@@ -277,6 +284,7 @@ def _run_view(run_id: str, record: dict[str, Any]) -> RunView:
         invoke_depth=int(record.get("invoke_depth", 0) or 0),
         args_hash=record.get("args_hash"),
         ended_at=_parse(record.get("ended_at")),
+        run_tags=dict(record.get("run_tags") or {}),
     )
 
 
@@ -342,13 +350,23 @@ class _DocumentWorkflowReader:
     def branch(self, scope_id: str, decision_key: str) -> str | None:
         return self._scopes.get_branch(scope_id, decision_key)
 
+    def branches(self, scope_id: str) -> dict[str, str]:
+        record = self._scopes.get_scope(scope_id)
+        raw = record.get("branches") if record else None
+        return dict(raw) if isinstance(raw, dict) else {}
+
     def state(self, scope_id: str) -> dict[str, Any]:
         return self._scopes.state_snapshot(scope_id)
 
 
 def _step_record(cmd: CompleteStep | RecordStep) -> dict[str, Any]:
-    """A step command as the legacy step record the walk has always written."""
-    return {
+    """A step command as the legacy step record the walk has always written.
+
+    `attempt` and `started_at` are written only when the command carries them:
+    only an effecting step's attempt sets them, so a pure step's record keeps
+    exactly the keys it has always had.
+    """
+    record: dict[str, Any] = {
         "status": cmd.status,
         "return_value": cmd.result if cmd.reusable else None,
         "return_value_reusable": cmd.reusable,
@@ -358,6 +376,11 @@ def _step_record(cmd: CompleteStep | RecordStep) -> dict[str, Any]:
         "completed_at": _completed_at(cmd),
         "effecting": cmd.effecting,
     }
+    if cmd.attempt:
+        record["attempt"] = cmd.attempt
+    if cmd.started_at is not None:
+        record["started_at"] = _iso(cmd.started_at)
+    return record
 
 
 def _epilogue_record(cmd: RecordStep) -> dict[str, Any]:
@@ -401,7 +424,15 @@ def _step_view(scope_id: str, key: str, record: dict[str, Any]) -> StepView:
         inputs=record.get("inputs"),
         effecting=bool(record.get("effecting")),
         completed_at=_parse(completed) if completed else None,
+        attempt=_attempt_of(record),
+        started_at=_parse(record.get("started_at")),
     )
+
+
+def _attempt_of(record: dict[str, Any]) -> int:
+    """The record's attempt number, zero when absent — every pure step's."""
+    attempt = record.get("attempt")
+    return attempt if isinstance(attempt, int) and attempt > 0 else 0
 
 
 def _lease_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -503,6 +534,13 @@ class _DocumentInputReader:
             return ()
         return gate_requests.candidates_for(located[2])
 
+    def decision(self, request_id: str) -> GateDecision | None:
+        """The decision recorded on the request's gate record, if any."""
+        located = _locate_request(self._scopes, request_id)
+        if located is None:
+            return None
+        return gate_requests.decision_for(*located)
+
     def _requests(self, scope_id: str) -> Sequence[InputRequest]:
         record = self._scopes.get_scope(scope_id)
         if record is None:
@@ -591,6 +629,8 @@ class _AppendEvent:
     type: str
     payload: Any = None
     run_id: str | None = None
+    scope_id: str | None = None
+    generation: int = 0
 
 
 @dataclass(frozen=True)
@@ -725,6 +765,12 @@ class _DocumentInputWriter:
     def consume(self, cmd: ConsumeInput) -> None:
         self._txn.append(cmd)
 
+    def decide(self, decision: GateDecision) -> None:
+        self._txn.append(decision)
+
+    def supersede(self, cmd: SupersedeRequest) -> None:
+        self._txn.append(cmd)
+
 
 class _DocumentEventWriter:
     """`EventWriter` — appends, never issues."""
@@ -732,8 +778,18 @@ class _DocumentEventWriter:
     def __init__(self, txn: _DocumentTransaction) -> None:
         self._txn = txn
 
-    def append(self, type: str, payload: Any = None, run_id: str | None = None) -> None:
-        self._txn.append(_AppendEvent(type, payload, run_id))
+    def append(
+        self,
+        type: str,
+        payload: Any = None,
+        run_id: str | None = None,
+        *,
+        scope_id: str | None = None,
+        generation: int = 0,
+    ) -> None:
+        if scope_id is not None and run_id is not None:
+            raise ValueError("an event cannot name both a run and a scope")
+        self._txn.append(_AppendEvent(type, payload, run_id, scope_id, generation))
 
 
 class _DocumentEffectWriter:
@@ -983,6 +1039,10 @@ class _DocumentTransaction:
             self._append_candidate(command, scopes())
         elif isinstance(command, ConsumeInput):
             self._consume_input(command, scopes())
+        elif isinstance(command, GateDecision):
+            self._decide(command, scopes())
+        elif isinstance(command, SupersedeRequest):
+            self._supersede(command, scopes())
         elif isinstance(command, _AppendEvent):
             self._append_event(command, scopes, runs)
         elif isinstance(command, _AppendEffect):
@@ -1098,9 +1158,11 @@ class _DocumentTransaction:
 
         `open_request` owns the record shape and the one-live-request rule:
         a request already open, accepted or consumed for this gate is reused
-        as-is, so a re-entering walk keeps the id it blocked with. `model`
-        and `tools` ride on the command so a surface that answers over MCP
-        can learn the question without the declaring module.
+        as-is, so a re-entering walk keeps the id it blocked with — unless
+        the command names a consumed request it `supersedes`, which is
+        archived and replaced by a fresh one. `model` and `tools` ride on
+        the command so a surface that answers over MCP can learn the
+        question without the declaring module.
         """
         with self._held(scopes, cmd.scope_id, cmd.generation):
             gate_requests.open_request(
@@ -1113,6 +1175,9 @@ class _DocumentTransaction:
                 model=cmd.model,
                 tools=cmd.tools,
                 now=cmd.now,
+                run_id=cmd.run_id,
+                position=cmd.position,
+                supersedes=cmd.supersedes,
             )
             scopes.set_position(cmd.scope_id, cmd.position)
             scopes.set_scope_status(cmd.scope_id, cmd.scope_status)
@@ -1154,6 +1219,24 @@ class _DocumentTransaction:
         if located is None:
             raise InputRequestNotOpenError(candidate.request_id, "missing")
         gate_requests.append_candidate(scopes, located[0], located[1], candidate)
+
+    def _decide(self, decision: GateDecision, scopes: ScopeStore) -> None:
+        """Record the decision on the request's gate record, after its candidate."""
+        located = _locate_request(scopes, decision.request_id)
+        if located is None:
+            raise InputRequestNotOpenError(decision.request_id, "missing")
+        gate_requests.record_decision(scopes, located[0], located[1], decision)
+
+    def _supersede(self, cmd: SupersedeRequest, scopes: ScopeStore) -> None:
+        """Withdraw the gate's accepted answer and open the new request."""
+        gate_requests.supersede_request(
+            scopes,
+            cmd.scope_id,
+            cmd.gate_name,
+            new_request_id=cmd.new_request_id,
+            now=cmd.now,
+            request_id=cmd.request_id,
+        )
 
     def _consume_input(self, cmd: ConsumeInput, scopes: ScopeStore) -> None:
         """Retire the request the walk is moving past, under the fence."""
@@ -1210,21 +1293,22 @@ class _DocumentTransaction:
     def _start_attempt(self, cmd: StartAttempt, runs: RunStore) -> None:
         """Open a run and its first attempt as one transition.
 
-        The store mints the identity and this port does not hand it back —
-        every writer but `claim` returns `None` (`contracts.md` §1.3), so a
-        recorder that needs the id supplies it another way. `attempts` is a
-        list on the run record: a retry appends rather than overwriting, which
-        is what makes "how many times did this fail before it worked"
-        answerable at all on documents.
+        The store mints the identity unless the command carries a run-log id;
+        this port does not hand it back because writers return `None`.
+        `attempts` is a list on the run record: a retry appends rather than
+        overwriting, which is what makes "how many times did this fail before
+        it worked" answerable at all on documents.
         """
         runs.open_run(
             {
+                **({"run_id": cmd.run_id} if cmd.run_id is not None else {}),
                 "job": cmd.job,
                 "surface": cmd.surface,
                 "scope_id": cmd.scope_id,
                 "parent_run_id": cmd.parent_run_id,
                 "invoke_depth": cmd.invoke_depth,
                 "args_hash": cmd.args_hash,
+                "run_tags": dict(cmd.run_tags),
                 "started_at": _iso(cmd.now),
                 "attempts": [
                     {
@@ -1300,6 +1384,11 @@ class _DocumentTransaction:
         entry = {"type": cmd.type, "payload": cmd.payload, "at": _iso(_utcnow())}
         if cmd.run_id is not None:
             runs().append_event(cmd.run_id, entry)
+            return
+        if cmd.scope_id is not None:
+            scope_store = scopes()
+            with self._held(scope_store, cmd.scope_id, cmd.generation):
+                scope_store.append_event(cmd.scope_id, {**entry, "run_id": None})
             return
         written = self.scopes_touched | self.claims_landed
         if len(written) != 1:

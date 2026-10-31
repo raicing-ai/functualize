@@ -26,6 +26,7 @@ EXPECTED_EXPORTS = [
     "AnyOf",
     "ASTModulePreFilter",
     "Candidate",
+    "ClassJobPreFilter",
     "DIRegistry",
     "DIValidationError",
     "DefaultModulePreFilter",

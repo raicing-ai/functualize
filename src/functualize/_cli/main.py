@@ -20,7 +20,8 @@ import contextlib
 import logging
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -41,6 +42,26 @@ except ModuleNotFoundError as exc:  # pragma: no cover - no-extra install only
         "    pip install 'functualize[cli]'\n\n"
     )
     raise SystemExit(1) from None
+
+# Public API only, like everything else in `_cli`: the declaration is what says
+# which settings a command line may override, and the generator that turns it
+# into click options is shared with the app adapter.
+from functualize.app.adapters.settings_flags import (  # noqa: E402
+    generated_setting_options,
+    passed_setting_flags,
+)
+from functualize.plugin import (  # noqa: E402
+    DOTENV_PATH,
+    EXCLUDE_PATTERNS,
+    EXTRA_DIRECTORIES,
+    FUNCTUALIZE_SETTINGS,
+    IMPORT_LIBS,
+    JOBS_DIRECTORIES,
+    REQUIRE_JOB_DECORATORS,
+    REQUIRE_JOB_POSTFIX,
+    REQUIRE_JOB_PREFIX,
+    SCAN_DEPTH,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +124,29 @@ class _LeftMarginEpilogGroup(click.Group):
 
         self.format_commands(ctx, formatter)
 
+    #: The project's top-level jobs and groups, as ``(name, help)`` rows. Set
+    #: only by the ``--help`` route, and read only when this group renders its
+    #: own Commands block, so ``func builtin … --help`` never boots a project.
+    discovered_rows: Callable[[], list[tuple[str, str]]] | None = None
+
+    def format_commands(self, ctx: click.Context, formatter: Any) -> None:
+        """List ``builtin`` beside the project's discovered top-level paths.
+
+        A row is a help-only placeholder, never registered: this group does not
+        dispatch jobs, so nothing could invoke it.
+        """
+        if self.discovered_rows is None:
+            super().format_commands(ctx, formatter)
+            return
+        rows: dict[str, click.Command] = {
+            name: click.Command(name, help=help_text)
+            for name, help_text in self.discovered_rows()
+        }
+        rows.update(self.commands)
+        # A throwaway group renders the merged block, so this group's own
+        # registry -- module-level and reused in-process -- never gains a row.
+        click.Group(commands=rows).format_commands(ctx, formatter)
+
     def format_epilog(self, ctx: click.Context, formatter: Any) -> None:
         from functualize.app.utils import write_agent_epilog
 
@@ -118,12 +162,6 @@ class _LeftMarginEpilogGroup(click.Group):
     "--log-level",
     default="INFO",
     help="Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL.",
-)
-@click.option(
-    "--dotenv-file",
-    default=None,
-    type=click.Path(path_type=Path),
-    help="Path to the .env file to load environment variables from.",
 )
 @click.option(
     "--no-dotenv",
@@ -142,52 +180,6 @@ class _LeftMarginEpilogGroup(click.Group):
     ),
 )
 @click.option(
-    "--discovery-depth",
-    default=None,
-    type=int,
-    help="Max directory levels below CWD to scan for jobs (0-5).",
-)
-@click.option(
-    "--require-file-import",
-    default=None,
-    help="Only discover files that import this module.",
-)
-@click.option(
-    "--require-file-prefix",
-    default=None,
-    help="Only discover files whose name starts with this prefix.",
-)
-@click.option(
-    "--require-file-postfix",
-    default=None,
-    help="Only discover files whose name ends with this postfix.",
-)
-@click.option(
-    "--require-file-marker",
-    default=None,
-    help="Only discover files declaring this module-level marker variable.",
-)
-@click.option(
-    "--require-job-prefix",
-    default=None,
-    help="Only discover jobs whose function name starts with this prefix.",
-)
-@click.option(
-    "--require-job-postfix",
-    default=None,
-    help="Only discover jobs whose function name ends with this postfix.",
-)
-@click.option(
-    "--require-job-decorators",
-    multiple=True,
-    help="Only discover jobs decorated with these decorator names.",
-)
-@click.option(
-    "--exclude",
-    multiple=True,
-    help="Glob patterns to exclude from discovery (max 20).",
-)
-@click.option(
     "--perf-report",
     default=None,
     help="Print performance report after command. Format: text or json.",
@@ -197,34 +189,28 @@ class _LeftMarginEpilogGroup(click.Group):
     default=None,
     help="Filter pattern for --perf-report.",
 )
-@click.option(
-    "--import-libs",
-    multiple=True,
-    help="Directories to add to sys.path before importing jobs.",
-)
 @click.pass_context
 def cli_app(
     ctx: click.Context,
+    /,
     log_level: str,
-    dotenv_file: Path | None,
     no_dotenv: bool,
     config_directory: Path | None,
-    discovery_depth: int | None,
-    require_file_import: str | None,
-    require_file_prefix: str | None,
-    require_file_postfix: str | None,
-    require_file_marker: str | None,
-    require_job_prefix: str | None,
-    require_job_postfix: str | None,
-    require_job_decorators: tuple[str, ...],
-    exclude: tuple[str, ...],
     perf_report: str | None,
     perf_filter: str | None,
-    import_libs: tuple[str, ...],
+    **generated: Any,
 ) -> None:
     """Functualize CLI — run jobs from anywhere."""
     import contextlib
     import time as _time
+
+    # Every settings-backed root flag arrives here by destination name. The
+    # declaration is the only place that knows flag → dotted name, so the
+    # flags are handed over in one call rather than named one by one — a new
+    # declared flag becomes usable on this surface without an edit here.
+    cli_flags = passed_setting_flags(FUNCTUALIZE_SETTINGS, generated)
+    dotenv_file = cli_flags.get(DOTENV_PATH.name)
+    exclude = cli_flags.get(EXCLUDE_PATTERNS.name, ())
 
     # ── Validation ───────────────────────────────────────────────────────
 
@@ -235,9 +221,7 @@ def cli_app(
         )
         raise SystemExit(1)
 
-    if dotenv_file is not None and (
-        not dotenv_file.exists() or not dotenv_file.is_file()
-    ):
+    if dotenv_file is not None and not Path(dotenv_file).is_file():
         click.echo(
             f"Error: --dotenv-file '{dotenv_file}' does not exist.",
             err=True,
@@ -298,27 +282,6 @@ def cli_app(
     from functualize.app import FunctualizeApp
     from functualize.app.utils import auto_discover
 
-    # Build CLI flags dict for resolve_cli_config
-    cli_flags: dict[str, object] = {}
-    if require_file_import is not None:
-        cli_flags["require_file_import"] = require_file_import
-    if require_file_prefix is not None:
-        cli_flags["require_file_prefix"] = require_file_prefix
-    if require_file_postfix is not None:
-        cli_flags["require_file_postfix"] = require_file_postfix
-    if require_file_marker is not None:
-        cli_flags["require_file_marker"] = require_file_marker
-    if require_job_prefix is not None:
-        cli_flags["require_job_prefix"] = require_job_prefix
-    if require_job_postfix is not None:
-        cli_flags["require_job_postfix"] = require_job_postfix
-    if require_job_decorators:
-        cli_flags["require_job_decorators"] = list(require_job_decorators)
-    if exclude:
-        cli_flags["exclude_patterns"] = list(exclude)
-    if import_libs:
-        cli_flags["import_libs"] = list(import_libs)
-
     cli_config = resolve_cli_config(cli_flags=cli_flags)
 
     # ── .env loading ─────────────────────────────────────────────────────
@@ -336,15 +299,14 @@ def cli_app(
     # Apply import_libs to sys.path before app construction
     _apply_import_libs(cli_config.import_libs)
 
-    # Resolve scan_depth: CLI flag > config > default (0)
-    if discovery_depth is not None:
-        effective_scan_depth = discovery_depth
-    else:
-        effective_scan_depth = cli_config.scan_depth
+    # `--discovery-depth` entered `cli_flags` like every other declared flag,
+    # so the resolver already put it at the top of the ladder: what the config
+    # says and what the flag says are one value here, not two.
+    effective_scan_depth = cli_config.scan_depth
 
     cwd = Path.cwd()
     discovery_result = auto_discover(
-        cwd, overrides={"scan_depth": effective_scan_depth}
+        cwd, overrides={SCAN_DEPTH.key: effective_scan_depth}
     )
 
     # `[plugins] disabled`, the same rule `_handle_bare`, `_handle_group` and
@@ -369,7 +331,7 @@ def cli_app(
         name="functualize",
         job_sources=discovery_result.job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=cli_config.config_sources(),
+        config_sources=_config_sources_for_flags(cli_config, cli_flags),
         plugin_sources=PluginSources(disabled=_builtin_disabled)
         if _builtin_disabled
         else None,
@@ -421,12 +383,20 @@ def cli_app(
                     if job.docstring:
                         desc = job.docstring.strip().split("\n")[0]
                     if desc:
-                        click.echo(f"{job.name} — {desc}")
+                        click.echo(f"{job.command_path} — {desc}")
                     else:
-                        click.echo(job.name)
+                        click.echo(str(job.command_path))
             else:
                 click.echo("No jobs discovered.")
             raise SystemExit(0)
+
+
+# The settings-backed root flags are generated from the declaration — the same
+# function that gives an embedded app its root flags — so `func` and an app
+# cannot disagree about which settings a command line may override, or about
+# what each one means. Non-settings flags (a log level, a dotenv toggle, a
+# config directory, perf reporting) have no declaration entry and stay above.
+cli_app.params = [*cli_app.params, *generated_setting_options(FUNCTUALIZE_SETTINGS)]
 
 
 # ─── Dotenv loading ──────────────────────────────────────────────────────
@@ -527,6 +497,28 @@ def _print_perf_report(app: Any, fmt: str, filter_pattern: str | None) -> None:
         print(report.summary(include=filter_pattern), file=sys.stderr)
 
 
+def _discovered_help_rows(
+    anchor: Path,
+    merged_config: dict[str, Any],
+    effective: dict[str, list[str]],
+    cli_flags: dict[str, Any],
+) -> list[tuple[str, str]]:
+    """Root-help rows: the top-level nodes of the shell's command tree.
+
+    The tree is the trie the shell, the TUI and an app's own CLI navigate, so
+    a row is exactly the first word of a path that runs. A project that fails
+    to boot loses its rows, never the page: the help is what explains it.
+    """
+    from functualize.app.commands import JobCommandProvider
+
+    try:
+        app = _boot_project_app(anchor, merged_config, effective, cli_flags)
+        return [(node.name, node.help_text) for node in JobCommandProvider(app).nodes()]
+    except Exception as exc:  # noqa: BLE001 - help must survive a broken project
+        logger.debug("root help: no discovered rows (%s)", exc)
+        return []
+
+
 def _handle_bare(
     anchor: Path,
     merged_config: dict[str, Any],
@@ -534,6 +526,7 @@ def _handle_bare(
     cli_flags: dict[str, Any],
     *,
     _app_ref: list[Any] | None = None,
+    run_tags: Mapping[str, str] | None = None,
 ) -> None:
     """Handle bare ``func`` invocation (no positional arguments).
 
@@ -547,18 +540,23 @@ def _handle_bare(
         cli_flags: Parsed global CLI flags for resolve_cli_config.
         _app_ref: Optional mutable container; if provided, the constructed
             FunctualizeApp is appended so callers can access it for perf reporting.
+        run_tags: The merged run tags, ``None`` meaning none were stated.
+            Accepted like every other door's, and deliberately unused: runs
+            started from the TUI carry no tags in v1.
     """
     from functualize._cli.config import resolve_cli_config
     from functualize.app import FunctualizeApp
     from functualize.app.config import JobSources, PluginSources
 
     # Apply import_libs to sys.path before importing job modules
-    _apply_import_libs(effective.get("import_libs", []))
+    _apply_import_libs(effective.get(IMPORT_LIBS.key, []))
 
     # Boot FunctualizeApp using already-resolved effective directories
     cli_config = resolve_cli_config(cli_flags=cli_flags)
 
-    _base_dirs = list(effective.get("all_directories") or effective["jobs_directories"])
+    _base_dirs = list(
+        effective.get("all_directories") or effective[JOBS_DIRECTORIES.key]
+    )
     job_sources = JobSources(
         directories=_base_dirs
         + (
@@ -596,7 +594,7 @@ def _handle_bare(
         name="functualize",
         job_sources=job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=cli_config.config_sources(),
+        config_sources=_config_sources_for_flags(cli_config, cli_flags),
         plugin_sources=PluginSources(disabled=_disabled_plugins)
         if _disabled_plugins
         else None,
@@ -627,9 +625,9 @@ def _handle_bare(
         if job.docstring:
             desc = job.docstring.strip().split("\n")[0]
         if desc:
-            click.echo(f"{job.name} — {desc}")
+            click.echo(f"{job.command_path} — {desc}")
         else:
-            click.echo(job.name)
+            click.echo(str(job.command_path))
 
     # Plugin-registered command namespaces + un-namespaced commands (post-boot).
     namespace_counts: dict[str, int] = {}
@@ -653,9 +651,9 @@ def _handle_bare(
 #: or CLI flag — is what makes the pre-boot routing read pay for a full config
 #: resolution; when none is in play the fast path stays untouched.
 _JOB_LEVEL_SETTINGS = (
-    "require_job_prefix",
-    "require_job_postfix",
-    "require_job_decorators",
+    REQUIRE_JOB_PREFIX.key,
+    REQUIRE_JOB_POSTFIX.key,
+    REQUIRE_JOB_DECORATORS.key,
 )
 
 
@@ -694,6 +692,55 @@ def _build_routing_job_filter(
     return build_job_filter(cli_config.discovery)
 
 
+def _config_sources_for_flags(cli_config: Any, flags: dict[str, Any]) -> Any:
+    """Carry this invocation's settings snapshot into the app being booted."""
+    from functualize.app.config import resolve_app_settings
+
+    return replace(
+        cli_config.config_sources(),
+        resolved=resolve_app_settings(Path.cwd(), flags=flags),
+    )
+
+
+def _merge_run_tags(flag_items: list[str] | None) -> Mapping[str, str]:
+    """Merge the three run-tag layers, or exit 2 naming the refused item.
+
+    Called before discovery: the map is complete before the app object exists,
+    so a malformed tag stops the process before any job body can run. Lowest to
+    highest — the global config's ``[run] tags``, ``FUNCTUALIZE_RUN_TAGS``,
+    ``--run-tag`` — merged per key, the later layer winning. The project file
+    is not a source: only the user's config file is read.
+
+    The file is read through the settings layers, as `_extract_aliases` reads
+    it: the global layer is the user's config file, and an unreadable or
+    malformed file is a layer with no values, so it contributes no tags here.
+    Only the global layer is consulted; project layers are never a source.
+    """
+    from functualize._cli import run_tags as tag_rules
+    from functualize.app.config import resolve_app_settings
+    from functualize.app.utils import ExitCode, resolve_user_config_dir
+
+    config_tags: object = None
+    layers = resolve_app_settings(
+        Path.cwd(), global_dir=resolve_user_config_dir()
+    ).layers
+    for layer in layers:
+        if layer.kind != "global":
+            continue
+        run_section = layer.values.get("run")
+        if isinstance(run_section, dict):
+            config_tags = run_section.get("tags")
+    try:
+        return tag_rules.merge_layers(
+            tag_rules.parse_config_list(config_tags) if config_tags is not None else {},
+            tag_rules.parse_env(os.environ.get("FUNCTUALIZE_RUN_TAGS", "")),
+            tag_rules.parse_flag_list(flag_items),
+        )
+    except tag_rules.RunTagError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(ExitCode.USAGE) from exc
+
+
 def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
     """Extract user-configured aliases: global config, then project config.
 
@@ -716,19 +763,15 @@ def _extract_aliases(merged_config: dict[str, Any]) -> dict[str, str]:
     Returns:
         Mapping of alias name -> target job name.
     """
-    import tomllib
-
-    from functualize.app.utils import resolve_user_config_dir
+    from functualize.app.config import resolve_app_settings
 
     result: dict[str, str] = {}
-
-    try:
-        content = (resolve_user_config_dir() / "config.toml").read_bytes()
-        global_aliases = tomllib.loads(content.decode("utf-8")).get("aliases")
-        if isinstance(global_aliases, dict):
-            result.update(global_aliases)
-    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
-        pass
+    # The existing layer reader has already decided which files participate.
+    # Apply them from global to nearest project so the closest alias wins.
+    for layer in reversed(resolve_app_settings(Path.cwd()).layers):
+        layer_aliases = layer.values.get("aliases")
+        if isinstance(layer_aliases, dict):
+            result.update(layer_aliases)
 
     aliases = merged_config.get("aliases")
     if isinstance(aliases, dict):
@@ -889,6 +932,28 @@ def _render_group_option_rows(specs: list[Any]) -> list[tuple[str, str]]:
     return rows
 
 
+def _warn_collisions(app: Any, descriptor: Any) -> None:
+    """Print the job's collision findings to stderr, one line each, before it runs.
+
+    The collision stays a warning -- the surviving claimant runs -- but a user
+    who typed the command learns here, not later, that another job wanted it.
+    """
+    from functualize._cli.info import collision_notices
+
+    for line in collision_notices(app).get(descriptor.name, ()):
+        print(line, file=sys.stderr)
+
+
+def _show_dotted_group_error(token: str, path: tuple[str, ...]) -> int:
+    """Explain the shell spelling for a token that crossed group edges."""
+    print(
+        f"Error: '{token}' crosses a group; navigate groups with spaces: "
+        f"func {' '.join(path)}",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def _dispatch_group(
     app: Any,
     args: list[str],
@@ -897,6 +962,7 @@ def _dispatch_group(
     output_format: str = "none",
     prompt_gates: bool = False,
     force: bool = False,
+    run_tags: Mapping[str, str] | None = None,
 ) -> int:
     """Resolve and execute a group sub-command against an already-booted app.
 
@@ -995,6 +1061,8 @@ def _dispatch_group(
     # mid-path and is consumed as a group option (`func deploy --env prod web
     # run`). Everything else still errors exactly as before.
     walk = walk_group_path(trie, args)
+    if walk.bad_path is not None:
+        return _show_dotted_group_error(walk.remaining[0], walk.bad_path)
     node = walk.node
     remaining = list(walk.remaining)
     consumed = list(walk.consumed)
@@ -1039,9 +1107,7 @@ def _dispatch_group(
                         file=sys.stderr,
                     )
                 return 2
-    # Echo the tokens as typed, not the canonical path: a user who wrote
-    # `func infra.aws` should read their own spelling back in the usage line.
-    cli_path = " ".join(consumed) if consumed else args[0]
+    cli_path = " ".join(node.path) if node.path else args[0]
 
     # ── A command node → execute it, remaining tokens are its arguments ───
     if node.has_payload and node.is_leaf:
@@ -1079,9 +1145,14 @@ def _dispatch_group(
                 prompt_gates=prompt_gates,
                 output_format=output_format,
                 force=force,
+                run_tags=run_tags,
             )
+            _warn_collisions(app, job_descriptor)
             return invoke_command_capturing(
-                command, remaining, output_format, prog_name=job_descriptor.func_name
+                command,
+                remaining,
+                output_format,
+                prog_name=f"func {job_descriptor.command_path}",
             )
 
         plugin_cmd = plugins_by_path.get(node.payload or "")
@@ -1096,22 +1167,17 @@ def _dispatch_group(
                 # "Usage: func mcp serve" -- a line that can be copied and
                 # run. It printed "Usage: serve", naming a command that does
                 # not exist.
-                prog_name=" ".join(
-                    [
-                        "func",
-                        *(
-                            segment
-                            for token in consumed
-                            for segment in token.split(".")
-                        ),
-                    ]
-                ),
+                prog_name=f"func {' '.join(node.path)}",
             )
 
     # ── A group node ──────────────────────────────────────────────────────
     children = sorted(node.children.values(), key=lambda child: child.segment)
     sub_groups = sorted(child.segment for child in children if child.children)
     entries: list[tuple[str, str]] = []
+    from functualize._cli.info import collision_notices
+
+    notices = collision_notices(app)
+    entry_notices: dict[str, list[str]] = {}
     for child in children:
         if not child.has_payload:
             continue
@@ -1120,6 +1186,7 @@ def _dispatch_group(
             entries.append(
                 (child.segment, (job.docstring or "").strip().split("\n")[0])
             )
+            entry_notices[child.segment] = notices.get(job.name, [])
             continue
         cmd = plugins_by_path.get(child.payload or "")
         if cmd is not None:
@@ -1132,9 +1199,7 @@ def _dispatch_group(
         # legal here (`func deploy --env prod web run`), so a listing that
         # showed only this node's own declarations would under-report what the
         # user may type. Outermost-first, matching the order they appear in.
-        option_specs = trie.group_options_on_path(
-            [segment for token in consumed for segment in token.split(".")]
-        )
+        option_specs = trie.group_options_on_path(node.path)
         option_rows = _render_group_option_rows(option_specs)
         if option_rows:
             print("\nOptions:")
@@ -1155,9 +1220,26 @@ def _dispatch_group(
             width = max(len(cmd_name) for cmd_name, _ in rows)
             for cmd_name, desc in rows:
                 print(f"  {cmd_name.ljust(width)}  {desc}".rstrip())
+                for notice in entry_notices.get(cmd_name, ()):
+                    print(f"    {notice}")
         if not sub_groups and not entries:
             print("No commands available.")
         return 0
+
+    # A name a class job and a plain function both claim: nothing is
+    # registered under it, so it is not in `entries` and would read as a typo
+    # in a real sub-command. It is not a typo — the user declared it, and the
+    # reason it cannot run is a contradiction between two files, so the
+    # finding's own message (both definitions, both files) is printed and the
+    # exit code is USAGE.
+    strict_name = ".".join([*node.path, remaining[0]]) if node.path else remaining[0]
+    from functualize._cli.info import strict_collision_messages
+
+    if message := strict_collision_messages(app).get(strict_name):
+        print(message, file=sys.stderr)
+        from functualize.app.utils import ExitCode
+
+        return int(ExitCode.USAGE)
 
     print(
         f"Error: Unknown command '{remaining[0]}' in group '{cli_path}'.",
@@ -1167,6 +1249,65 @@ def _dispatch_group(
     if available:
         print(f"Available: {', '.join(sorted(available))}", file=sys.stderr)
     return 1
+
+
+def _boot_project_app(
+    anchor: Path,
+    merged_config: dict[str, Any],
+    effective: dict[str, list[str]],
+    cli_flags: dict[str, Any],
+) -> Any:
+    """Boot the project's FunctualizeApp over the resolved scan roots.
+
+    Shared by group dispatch and root help, so the commands a group lists and
+    the rows ``func --help`` shows come from one boot of one project shape.
+    """
+    from functualize._cli.config import resolve_cli_config
+    from functualize.app import FunctualizeApp
+    from functualize.app.config import JobSources, PluginSources
+
+    # ── Boot app (same pattern as _handle_job) ───────────────────────────
+    _apply_import_libs(effective.get(IMPORT_LIBS.key, []))
+    cli_import_libs = cli_flags.get(IMPORT_LIBS.key, [])
+    if cli_import_libs:
+        resolved_cli_libs = []
+        for lib_path in cli_import_libs:
+            p = Path(lib_path)
+            if not p.is_absolute():
+                p = anchor / p
+            resolved_cli_libs.append(str(p.resolve()))
+        _apply_import_libs(resolved_cli_libs)
+
+    cli_config = resolve_cli_config(cli_flags=cli_flags)
+
+    cwd_str = str(Path.cwd().resolve())
+    all_dirs = list(effective.get("all_directories") or effective[JOBS_DIRECTORIES.key])
+    if cwd_str not in all_dirs:
+        all_dirs.append(cwd_str)
+
+    job_sources = JobSources(
+        directories=all_dirs,
+        lazy=True,
+    )
+
+    # Extract disabled plugins from config
+    _plugins_section = merged_config.get("plugins")
+    _disabled_plugins = (
+        list(_plugins_section.get("disabled", []))
+        if isinstance(_plugins_section, dict)
+        else []
+    )
+
+    app = FunctualizeApp(
+        name="functualize",
+        job_sources=job_sources,
+        discovery_config=cli_config.discovery,
+        config_sources=_config_sources_for_flags(cli_config, cli_flags),
+        plugin_sources=PluginSources(disabled=_disabled_plugins)
+        if _disabled_plugins
+        else None,
+    )
+    return app
 
 
 def _handle_group(
@@ -1181,6 +1322,7 @@ def _handle_group(
     _app_ref: list[Any] | None = None,
     prompt_gates: bool = False,
     force: bool = False,
+    run_tags: Mapping[str, str] | None = None,
 ) -> int:
     """Handle Mode.GROUP: boot app, then delegate to _dispatch_group.
 
@@ -1203,51 +1345,7 @@ def _handle_group(
     Returns:
         Exit code (0 = success).
     """
-    from functualize._cli.config import resolve_cli_config
-    from functualize.app import FunctualizeApp
-    from functualize.app.config import JobSources, PluginSources
-
-    # ── Boot app (same pattern as _handle_job) ───────────────────────────
-    _apply_import_libs(effective.get("import_libs", []))
-    cli_import_libs = cli_flags.get("import_libs", [])
-    if cli_import_libs:
-        resolved_cli_libs = []
-        for lib_path in cli_import_libs:
-            p = Path(lib_path)
-            if not p.is_absolute():
-                p = anchor / p
-            resolved_cli_libs.append(str(p.resolve()))
-        _apply_import_libs(resolved_cli_libs)
-
-    cli_config = resolve_cli_config(cli_flags=cli_flags)
-
-    cwd_str = str(Path.cwd().resolve())
-    all_dirs = list(effective.get("all_directories") or effective["jobs_directories"])
-    if cwd_str not in all_dirs:
-        all_dirs.append(cwd_str)
-
-    job_sources = JobSources(
-        directories=all_dirs,
-        lazy=True,
-    )
-
-    # Extract disabled plugins from config
-    _plugins_section = merged_config.get("plugins")
-    _disabled_plugins = (
-        list(_plugins_section.get("disabled", []))
-        if isinstance(_plugins_section, dict)
-        else []
-    )
-
-    app = FunctualizeApp(
-        name="functualize",
-        job_sources=job_sources,
-        discovery_config=cli_config.discovery,
-        config_sources=cli_config.config_sources(),
-        plugin_sources=PluginSources(disabled=_disabled_plugins)
-        if _disabled_plugins
-        else None,
-    )
+    app = _boot_project_app(anchor, merged_config, effective, cli_flags)
 
     # Deposit app reference for perf reporting by caller
     if _app_ref is not None:
@@ -1262,6 +1360,7 @@ def _handle_group(
         output_format=output_format,
         prompt_gates=prompt_gates,
         force=force,
+        run_tags=run_tags,
     )
 
 
@@ -1279,6 +1378,7 @@ def _handle_job(
     _app_ref: list[Any] | None = None,
     prompt_gates: bool = False,
     force: bool = False,
+    run_tags: Mapping[str, str] | None = None,
 ) -> int:
     """Handle Mode.JOB: boot app, find job, parse args, execute.
 
@@ -1322,8 +1422,8 @@ def _handle_job(
 
     # Apply import_libs to sys.path before importing any job modules
     # Merge CLI-provided import_libs (highest priority) with effective import_libs
-    _apply_import_libs(effective.get("import_libs", []))
-    cli_import_libs = cli_flags.get("import_libs", [])
+    _apply_import_libs(effective.get(IMPORT_LIBS.key, []))
+    cli_import_libs = cli_flags.get(IMPORT_LIBS.key, [])
     if cli_import_libs:
         # CLI import_libs are relative to CWD, resolve them against anchor
         resolved_cli_libs = []
@@ -1342,7 +1442,7 @@ def _handle_job(
     from functualize.app.config import JobSources as _JobSources
 
     cwd_str = str(Path.cwd().resolve())
-    all_dirs = list(effective.get("all_directories") or effective["jobs_directories"])
+    all_dirs = list(effective.get("all_directories") or effective[JOBS_DIRECTORIES.key])
     if cwd_str not in all_dirs:
         all_dirs.append(cwd_str)
 
@@ -1364,7 +1464,7 @@ def _handle_job(
         name="functualize",
         job_sources=job_sources,
         discovery_config=cli_config.discovery,
-        config_sources=cli_config.config_sources(),
+        config_sources=_config_sources_for_flags(cli_config, cli_flags),
         plugin_sources=PluginSources(disabled=_disabled_plugins)
         if _disabled_plugins
         else None,
@@ -1383,6 +1483,34 @@ def _handle_job(
             break
 
     if job_descriptor is None:
+        # ── A strict collision is a declared name, not an unknown one ─────
+        # Neither claimant registered, so the lookup above found nothing. The
+        # finding names both definitions and both files; printing it beats
+        # both the plugin fallback below and "Unknown command", because the
+        # user typed a name they wrote and the answer is a contradiction
+        # between files rather than a typo.
+        #
+        # The name may span tokens: when every method of a group is refused —
+        # the same job class from two sources — the group itself has no
+        # registered member, so `func pg start` routes here with `pg` alone
+        # rather than through group dispatch. The leading words are read as
+        # the path they spell, the way group dispatch reads them.
+        from functualize._cli.info import strict_collision_messages
+
+        strict = strict_collision_messages(app)
+        spelled = [job_name]
+        candidates = [job_name]
+        for token in remaining_args:
+            if token.startswith("-"):
+                break
+            spelled.append(normalize_name(token) or token)
+            candidates.append(".".join(spelled))
+        if message := next((strict[n] for n in candidates if n in strict), None):
+            print(message, file=sys.stderr)
+            from functualize.app.utils import ExitCode
+
+            return int(ExitCode.USAGE)
+
         # ── Gap A: plugin-registered command dispatch (post-boot) ─────────
         # Plugin command groups (e.g. `mcp`) and ungrouped plugin commands
         # are invisible to pre-boot mode detection, so they land here in
@@ -1417,6 +1545,7 @@ def _handle_job(
                 output_format=output_format,
                 prompt_gates=prompt_gates,
                 force=force,
+                run_tags=run_tags,
             )
 
         # Ungrouped plugin command matching the name → execute directly.
@@ -1465,12 +1594,20 @@ def _handle_job(
 
         suggestions = suggest_similar_commands(job_name, discovered_names)
         if suggestions:
+            descriptors_by_name = {descriptor.name: descriptor for descriptor in jobs}
             print("\nDid you mean:", file=sys.stderr)
             for suggestion in suggestions:
-                print(f"  func {suggestion}", file=sys.stderr)
+                descriptor = descriptors_by_name.get(suggestion)
+                path = str(descriptor.command_path) if descriptor else suggestion
+                print(f"  func {path}", file=sys.stderr)
             print(file=sys.stderr)
         print("Run 'func' to see all available commands.", file=sys.stderr)
         return 1
+
+    # A dotted identity is still valid for aliases and programmatic calls.
+    # Only a token typed at the shell that names a grouped job is a traversal.
+    if raw_name not in aliases and job_descriptor.group and "." in raw_name:
+        return _show_dotted_group_error(raw_name, job_descriptor.command_path.segments)
 
     # Materialize the ONE target job via the engine (lazy boot leaves
     # cache-only descriptors with function=None; this imports only the
@@ -1499,13 +1636,15 @@ def _handle_job(
         prompt_gates=prompt_gates,
         output_format=output_format,
         force=force,
+        run_tags=run_tags,
     )
 
+    _warn_collisions(app, job_descriptor)
     return invoke_command_capturing(
         command,
         remaining_args,
         output_format,
-        prog_name=job_descriptor.name,
+        prog_name=f"func {job_descriptor.command_path}",
         on_start=lambda: app.perf_timeline.mark("job.execute.start"),
         on_end=lambda: app.perf_timeline.mark("job.execute.end"),
     )
@@ -1583,6 +1722,7 @@ def _handle_single_file(
     _app_ref: list[Any] | None = None,
     prompt_gates: bool = False,
     force: bool = False,
+    run_tags: Mapping[str, str] | None = None,
 ) -> int:
     """Handle single-file execution mode directly (no FallbackGroup).
 
@@ -1696,7 +1836,7 @@ def _handle_single_file(
     # Found by adversarial review; a working project stopped working.
     declared = {
         str((cwd / d).resolve())
-        for d in (discovery_result.merged_config or {}).get("jobs_directories", [])
+        for d in (discovery_result.merged_config or {}).get(JOBS_DIRECTORIES.key, [])
         or []
     }
     if single_file_sources.directories:
@@ -1716,7 +1856,7 @@ def _handle_single_file(
         name="functualize",
         job_sources=single_file_sources,
         discovery_config=cli_config.discovery,
-        config_sources=cli_config.config_sources(),
+        config_sources=_config_sources_for_flags(cli_config, {}),
         # The same rule as the directory filter above, applied to the other
         # door into the working directory. The job scan is not the only thing
         # that reaches it: the plugin loader falls back to
@@ -1790,6 +1930,7 @@ def _handle_single_file(
         prompt_gates=prompt_gates,
         output_format=output_format,
         force=force,
+        run_tags=run_tags,
     )
 
     return invoke_command_capturing(
@@ -2005,7 +2146,7 @@ def _run_cli() -> None:
     # catalog read that does not walk argv (C3.2).
     from functualize._cli.dispatch import scan_early_setting_flags
 
-    scan_early_setting_flags(sys.argv[1:])
+    early_flags = scan_early_setting_flags(sys.argv[1:])
 
     from functualize.app import get_perf_timeline
 
@@ -2031,24 +2172,32 @@ def _run_cli() -> None:
 
     # Phase 0: Extract global options from argv (needed for overrides)
     global_opts, cli_flags = _extract_global_options(sys.argv)
+    cli_flags = {**early_flags, **cli_flags}
+
+    # Phase 0b: Run tags, merged before discovery so no tag is parsed after
+    # boot. Lowest to highest: the global config's `[run] tags`, then
+    # FUNCTUALIZE_RUN_TAGS, then `--run-tag`. A refusal is a usage error —
+    # exit 2, unlike the `cli_app` validation block's 1 — and it blocks every
+    # mode, BUILTIN included, because the environment is read for all of them.
+    run_tags = _merge_run_tags(global_opts.run_tags)
 
     # Phase 1: Unified discovery with CLI overrides
     perf_timeline.mark("cli.discovery.start")
     cwd = Path.cwd()
     typed_config = DiscoveryOverrides(
-        scan_depth=cli_flags.get("scan_depth"),
-        import_libs=cli_flags.get("import_libs"),
-        jobs_directories=cli_flags.get("jobs_directories"),
-        extra_directories=cli_flags.get("extra_directories"),
-        exclude_patterns=cli_flags.get("exclude_patterns"),
+        scan_depth=cli_flags.get(SCAN_DEPTH.key),
+        import_libs=cli_flags.get(IMPORT_LIBS.key),
+        jobs_directories=cli_flags.get(JOBS_DIRECTORIES.key),
+        extra_directories=cli_flags.get(EXTRA_DIRECTORIES.key),
+        exclude_patterns=cli_flags.get(EXCLUDE_PATTERNS.key),
     )
     discovery_result = auto_discover(cwd, overrides=typed_config)
     anchor = discovery_result.anchor
     merged_config = discovery_result.merged_config
     # Build effective dict for downstream handlers (_handle_job, _handle_bare)
     effective: dict[str, list[str]] = {
-        "jobs_directories": discovery_result.jobs_directories,
-        "import_libs": discovery_result.import_libs,
+        JOBS_DIRECTORIES.key: discovery_result.jobs_directories,
+        IMPORT_LIBS.key: discovery_result.import_libs,
         # Every scan root auto_discover resolved — jobs_directories plus
         # extra_directories and the CWD pre-filter results. Handlers must boot
         # the app over these, or extra_directories jobs silently vanish.
@@ -2067,7 +2216,7 @@ def _run_cli() -> None:
         job_names, group_names = cached
     else:
         # Cold boot: AST scan fallback
-        _scan_roots = effective["all_directories"] or effective["jobs_directories"]
+        _scan_roots = effective["all_directories"] or effective[JOBS_DIRECTORIES.key]
         job_names = enumerate_job_names(_scan_roots)
         group_names = enumerate_group_names(_scan_roots)
 
@@ -2112,6 +2261,9 @@ def _run_cli() -> None:
         and mode is not Mode.GROUP
     ):
         register_builtin_commands(cli_app)
+        cli_app.discovered_rows = lambda: _discovered_help_rows(
+            anchor, merged_config, effective, cli_flags
+        )
         # `--help` prints and stops. It never runs a job, so a project-wide
         # contradiction — two files contesting one group's flags — has nothing
         # to make ambiguous here, and killing a help request over it left a
@@ -2119,8 +2271,11 @@ def _run_cli() -> None:
         # that would explain it (`func builtin why --help` exited 2 with an
         # empty stdout). Unconditional, not `_diagnostic_scope`: the rule is
         # about *running*, and this path runs nothing (decision D-4).
-        with diagnostic_boot():
-            cli_app()
+        try:
+            with diagnostic_boot():
+                cli_app()
+        finally:
+            cli_app.discovered_rows = None
         return
 
     # Resolve output format from global options. Unset → "auto": the emitter
@@ -2146,6 +2301,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 prompt_gates=prompt_gates,
                 force=force,
+                run_tags=run_tags,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -2164,6 +2320,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 prompt_gates=prompt_gates,
                 force=force,
+                run_tags=run_tags,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -2183,6 +2340,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 prompt_gates=prompt_gates,
                 force=force,
+                run_tags=run_tags,
             )
         finally:
             if perf_format is not None and app_ref:
@@ -2225,6 +2383,7 @@ def _run_cli() -> None:
                 _app_ref=app_ref,
                 prompt_gates=prompt_gates,
                 force=force,
+                run_tags=run_tags,
             )
         finally:
             if perf_format is not None and app_ref:

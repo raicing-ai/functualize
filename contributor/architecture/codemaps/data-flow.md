@@ -224,7 +224,9 @@ record only ...... tx.workflows.record_step(RecordStep)     → timed out on tak
 status only ...... tx.workflows.move(MoveScope)             → nested-gate block, END reached
 gate ............. tx.workflows.suspend / tx.inputs.append / tx.inputs.consume
 State in a step .. PortBackedState → tx.workflows.write_state(StateBatch)
-walk log ......... WalkLogSubscriber → tx.events.append
+walk log ......... WorkflowWalker._say → EventBus → WalkLogSubscriber
+                   → tx.events.append(type, payload, scope_id=…, generation=…)
+                   (the held generation fences the append; no routing state write)
 lease ............ tx.workflows.renew(RenewLease) from LeaseHeartbeat: once at walk start, then
                    every 60 s from its thread, during steps too; a takeover → SUPERSEDED.
                    release(ReleaseLease) at the end
@@ -234,9 +236,9 @@ DocumentRuntimeStore (_primitives/document_store.py) → ScopeStore / RunStore /
 SqliteRuntimeStore (plugin)                           → relational tables, one batch per unit
 ```
 
-Reads come back through `WorkflowReader` (`workflow`, `step`, `steps`, `branch`, `state`) and
-`InputReader` (`for_gate`, `request`, `candidates_for`, `deposited_answer`). A command under a
-generation that is no longer current lands nothing; the store refuses it. The four non-walk
-`ScopeStore` sites (`executor._scope_store`, `_scope_for`, `_close_scope`, and
-`capabilities/state.py`'s `ScopeBackedStateStore`) are allowlisted by
+Reads come back through `WorkflowReader` (`workflow`, `step`, `steps`, `branch`, `branches`,
+`state`) and `InputReader` (`for_gate`, `request`, `candidates_for`, `deposited_answer`). A
+command under a generation that is no longer current lands nothing; the store refuses it. The
+four non-walk `ScopeStore` sites (`executor._scope_store`, `_scope_for`,
+`_close_scope`, and `capabilities/state.py`'s `ScopeBackedStateStore`) are allowlisted by
 `tests/spec/test_the_walk_writes_only_through_the_port.py`.

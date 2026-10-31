@@ -12,8 +12,23 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from functualize._types.descriptors import JobResult
     from functualize._types.gate_resolution import CandidateEvaluation
     from functualize._types.protocols import AgentCapability
+
+
+class JobFailedError(Exception):
+    """A checked job result whose status says the job did not succeed."""
+
+    def __init__(self, result: JobResult) -> None:
+        self.result = result
+        self.job_name = result.job_name
+        self.status = result.status
+        self.exception = result.exception
+        message = f"job '{self.job_name}' did not succeed ({self.status.value})"
+        if self.exception is not None:
+            message += f": {type(self.exception).__name__}: {self.exception}"
+        super().__init__(message)
 
 
 class RecursionLimitError(Exception):
@@ -93,6 +108,30 @@ class WorkflowDeclarationError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(message)
+
+
+class FromStepUnavailableError(Exception):
+    """A walk-local node value cannot be supplied to a declared reader."""
+
+    def __init__(
+        self,
+        *,
+        node: str,
+        parameter: str,
+        reader: str,
+        scope_id: str | None,
+        reason: str,
+    ) -> None:
+        self.node = node
+        self.parameter = parameter
+        self.reader = reader
+        self.scope_id = scope_id
+        self.reason = reason
+        scope = scope_id if scope_id is not None else "outside a walk"
+        super().__init__(
+            f"{reader} parameter '{parameter}' cannot read "
+            f"FromStep('{node}') in {scope}: {reason}"
+        )
 
 
 class GroupOptionsConflictError(Exception):
@@ -201,7 +240,21 @@ class JobNotFoundError(Exception):
         fn_or_name: The function reference or name string that was not found.
     """
 
-    def __init__(self, fn_or_name: str | Callable[..., Any]) -> None:
+    def __init__(
+        self,
+        fn_or_name: str | Callable[..., Any],
+        *,
+        message: str | None = None,
+    ) -> None:
+        """``message`` overrides the derived text when the name does not say it.
+
+        The derived text answers "which name was not found". For a name two
+        declarations both claim, that is the wrong answer: the name is not a
+        typo, nothing was registered under it, and the reason lives in the
+        discovery finding, which already names every definition and its file.
+        A caller that has that text passes it here rather than formatting a
+        second, worse one.
+        """
         self.fn_or_name = fn_or_name
         if callable(fn_or_name) and not isinstance(fn_or_name, str):
             name = getattr(fn_or_name, "__qualname__", None) or getattr(
@@ -210,7 +263,7 @@ class JobNotFoundError(Exception):
             msg = f"Callable '{name}' is not registered in the job registry"
         else:
             msg = f"Job '{fn_or_name}' is not registered"
-        super().__init__(msg)
+        super().__init__(msg if message is None else message)
 
 
 class JobMaterializationError(Exception):

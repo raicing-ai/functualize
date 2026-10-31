@@ -1,53 +1,94 @@
-"""A job's config section is read under either spelling (S8/T36).
-
-Job names are canonical (`file-cfg`), but a config file may reasonably spell
-the section the way the function is spelled (`[file_cfg]`) — and every config
-file written before the identity flip does. Both denote the same job, so both
-are read.
-
-Documented in the CHANGELOG as "existing config files keep working", which is
-a promise worth having a test behind.
-"""
+"""Config-file sections use the same job-name spelling policy as discovery."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from functualize._config.errors import ConfigurationError
+from functualize._config.providers.toml import TomlFormatProvider
+from functualize._config.resolved_field import env_name_for
 from functualize._config.sources import FileSource
+from functualize._primitives.locator import ResourceLocator
 
 
-class _Source(FileSource):
-    """A FileSource over an in-memory document, bypassing file discovery."""
-
-    def __init__(self, merged: dict) -> None:  # type: ignore[type-arg]
-        self._merged_config = merged
-        self._format_providers = {}
-        self._discovered_paths = []
-        self._per_file_configs = []
-        self._file_infos = []
-        self._event_bus = None
+def _source(tmp_path: Path, document: str) -> FileSource:
+    (tmp_path / "functualize.toml").write_text(document, encoding="utf-8")
+    return FileSource(
+        ResourceLocator().search_explicit(str(tmp_path)),
+        format_providers={".toml": TomlFormatProvider()},
+        pattern="functualize.toml",
+        remote_providers=("aws-sm",),
+    )
 
 
-@pytest.mark.parametrize("written", ["file_cfg", "file-cfg"])
-@pytest.mark.parametrize("asked", ["file_cfg", "file-cfg"])
-def test_either_spelling_reads_either_section(written: str, asked: str) -> None:
-    """Four combinations, all of which must find the value."""
-    source = _Source({written: {"port": 9090}})
-
-    assert source.get("port", section=asked) == 9090
-    assert source.has("port", section=asked)
+def test_written_section_supplies_canonical_job(tmp_path: Path) -> None:
+    source = _source(tmp_path, '["job_aaǆ"]\nx = 1\n')
+    assert source.get("x", section="job-aadž") == 1
+    assert source.keys("job-aadž") == {"x"}
 
 
-def test_the_canonical_section_wins_when_a_file_carries_both() -> None:
-    """A file with both is ambiguous; the canonical spelling is the tie-break
-    so the answer does not depend on dict ordering."""
-    source = _Source({"file-cfg": {"port": 1}, "file_cfg": {"port": 2}})
-
-    assert source.get("port", section="file-cfg") == 1
+def test_written_section_rejects_inline_secret_provider(tmp_path: Path) -> None:
+    source = _source(tmp_path, '["job_aaǆ"]\ntoken = "aws-sm://secret"\n')
+    with pytest.raises(ValueError, match="legacy inline provider syntax"):
+        source.reject_inline_provider("job-aadž", "token")
 
 
-def test_an_unrelated_section_is_not_matched() -> None:
-    """Normalization must not make two different jobs share config."""
-    source = _Source({"other_job": {"port": 9090}})
+@pytest.mark.parametrize(
+    ("section", "document"),
+    [
+        (
+            "env-cfg",
+            '[env-cfg]\ntoken = "safe"\n[env_cfg]\ntoken = "aws-sm://secret"\n',
+        ),
+        (
+            "job-aadž",
+            '["job-aadž"]\ntoken = "safe"\n["job_aadž"]\ntoken = "safe"\n'
+            '["job_aaǆ"]\ntoken = "aws-sm://secret"\n',
+        ),
+        (
+            "job-aadž",
+            '["job_aadž"]\ntoken = "safe"\n["job_aaǆ"]\ntoken = "aws-sm://secret"\n',
+        ),
+        (
+            "group.job-aadž",
+            '["group"."job-aadž"]\ntoken = "safe"\n'
+            '["group"."job_aaǆ"]\ntoken = "aws-sm://secret"\n',
+        ),
+    ],
+)
+def test_shadowed_inline_provider_is_rejected(
+    tmp_path: Path, section: str, document: str
+) -> None:
+    source = _source(tmp_path, document)
+    assert source.get("token", section=section) == "safe"
+    with pytest.raises(ValueError, match="legacy inline provider syntax"):
+        source.reject_inline_provider(section, "token")
 
-    assert source.get("port", section="file-cfg") is None
+
+def test_normalized_collision_names_both_keys(tmp_path: Path) -> None:
+    source = _source(tmp_path, '["job-aaǆ"]\nx = 1\n["job_aaǆ"]\nx = 2\n')
+    with pytest.raises(ConfigurationError) as error:
+        source.get("x", section="job-aadž")
+    assert "job-aaǆ" in str(error.value)
+    assert "job_aaǆ" in str(error.value)
+
+
+def test_legacy_spelling_takes_precedence_over_normalized_match(tmp_path: Path) -> None:
+    source = _source(tmp_path, '["job_aadž"]\nx = 1\n["job_aaǆ"]\nx = 2\n')
+    assert source.get("x", section="job-aadž") == 1
+
+
+def test_exact_canonical_section_precedes_underscore_spelling(tmp_path: Path) -> None:
+    source = _source(tmp_path, "[env_cfg]\nx = 1\n[env-cfg]\nx = 2\n")
+    assert source.get("x", section="env-cfg") == 2
+
+
+def test_dotted_walk_normalizes_each_level(tmp_path: Path) -> None:
+    source = _source(tmp_path, '["ǆ_ops"."job_aaǆ"]\nx = 1\n')
+    assert source.get("x", section="dž-ops.job-aadž") == 1
+
+
+def test_environment_name_stays_derived_from_registered_name() -> None:
+    assert env_name_for("job-aadž", "field") == "JOB_AADŽ_FIELD"

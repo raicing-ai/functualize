@@ -11,6 +11,7 @@ from functualize._primitives.pre_filter import (
     AllOf,
     AnyOf,
     ASTModulePreFilter,
+    ClassJobPreFilter,
     DecoratorModulePreFilter,
     DefaultModulePreFilter,
     DisplayClassPreFilter,
@@ -64,16 +65,17 @@ def _assert_privacy_slot(result: AllOf) -> None:
 
 
 def _assert_ast_slot(result: AllOf) -> None:
-    """Assert the AST position holds AnyOf(AST, DisplayClass, GroupOptions).
+    """Assert the AST position holds AnyOf(AST, ClassJob, Display, GroupOptions).
 
     A module qualifies with a public function (job candidate), a
-    display-provider class, OR a GroupOptions declaration — display-only and
-    declaration-only modules must still be imported so the scan's detection
-    passes can cache them.
+    display-provider class, a ``GroupOptions`` declaration, OR a class holding
+    a public method — display-only, declaration-only and class-job-only modules
+    must still be imported so the scan's detection passes can cache them.
     """
     slot = _any_of_containing(result, ASTModulePreFilter)
     assert [type(f) for f in slot._filters] == [
         ASTModulePreFilter,
+        ClassJobPreFilter,
         DisplayClassPreFilter,
         GroupOptionsPreFilter,
     ]

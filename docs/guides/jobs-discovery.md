@@ -37,7 +37,12 @@ use, and the one Click itself defaults to:
 |---|---|---|
 | `def data_sync()` | `data-sync` | `func data-sync` |
 | `def buildWheel()` | `build-wheel` | `func build-wheel` |
+| `def job_aaǆ()` | `job-aadž` | `func job_aaǆ` or `func job-aadž` |
 | `JOB_GROUP = "data_ops"` + `def run_etl()` | `data-ops.run-etl` | `func data-ops run-etl` |
+
+Names are NFKC-normalized first, as Python normalizes identifiers when it
+parses them, then lowercased and hyphenated. This also lets written Unicode
+names resolve through `rc.invoke`, `rc.invoke_parallel` and `Deps`.
 
 Python identifiers cannot contain hyphens and command names conventionally do,
 so without a single canonical form the same job has two spellings and every
@@ -52,13 +57,47 @@ form.
 Two places keep the underscored spelling for good reasons:
 
 - **Environment variables** — `DATA_SYNC_BATCH_SIZE`, because no shell can
-  export a name containing a hyphen.
+  export a name containing a hyphen. The variable is spelled from the
+  registered name: `job-aadž` uses `JOB_AADŽ_FIELD`.
 - **Config sections** — `[data_sync]` and `[data-sync]` are both read, so an
-  existing config file keeps working.
+  existing config file keeps working. Non-ASCII TOML keys require quotes, for
+  example `["job_aaǆ"]` for `job-aadž`.
 
 Two functions whose names normalize to the same job (`build_wheel` and
-`buildWheel`) are rejected at registration rather than one silently replacing
-the other.
+`buildWheel`) do not both register. One of them runs, chosen the same way on
+every run, and every surface that shows the command says so — see
+[Duplicate command detection](#duplicate-command-detection).
+
+## Identity and command path
+
+A job has two spellings, and each has one job:
+
+| | Example | Used by |
+|---|---|---|
+| **Identity** — dotted | `deploy.web.run` | `rc.invoke(...)`, `deps=`, `FromJob`, `[aliases]` targets, state keys, MCP tool names, every `--json` listing |
+| **Command path** — spaced | `deploy web run` | what you type after `func` or your app's entry point, and every hint, usage line, help page and TUI row that shows you a command |
+
+The shell walks groups one word at a time. `func deploy web run` runs the job;
+`func deploy.web.run` is refused with a hint naming the spaced command, because
+a dot in a shell token never means "go into this group".
+
+A dot that belongs to the job's own name is not a group boundary. A job
+registered as `tools.lint` with no group is the single command `func tools.lint`,
+and `Job(name="pack", group="ci")` is `func ci pack`. Code that prints commands
+for people reads the path from the descriptor rather than rebuilding it from the
+name:
+
+```python
+from functualize.types import CommandPath
+
+descriptor = app.get_job("deploy.web.run")
+descriptor.name                 # "deploy.web.run" — the identity
+str(descriptor.command_path)    # "deploy web run" — what a person types
+CommandPath.of(None, "tools.lint").segments  # ("tools.lint",) — one word
+```
+
+`func --help` lists your top-level jobs and groups beside `builtin`, and
+`func <group>` lists what is under a group.
 
 ## Function eligibility criteria
 
@@ -67,7 +106,7 @@ Not every function in a job module becomes a CLI command. A function is register
 | Criterion | Description |
 |-----------|-------------|
 | **Callable** | The attribute must be callable |
-| **Is a function** | Must be an actual function (`inspect.isfunction`), not a class or other callable object |
+| **Is a function** | Must be an actual function (`inspect.isfunction`). A class registers only in the job-class form — `@job` on a `pydantic.BaseModel` subclass ([Job classes](job-classes.md)) |
 | **No underscore prefix** | The name must not start with `_` — underscore-prefixed functions are treated as private |
 | **Defined in the module** | The function must be defined in the scanned module, not imported from elsewhere |
 
@@ -92,21 +131,25 @@ def _validate_row(row):  # (3)!
 
 
 class DataProcessor:  # (4)!
-    """Not registered — it's a class, not a function."""
+    """Not registered — it's a plain class, not a job class."""
     pass
 ```
 
 1. `helper_function` is **not** registered — it's imported from another module.
 2. `export` **is** registered — it's a public function defined in this module.
 3. `_validate_row` is **not** registered — it starts with an underscore.
-4. `DataProcessor` is **not** registered — it's a class, not a function.
+4. `DataProcessor` is **not** registered — a class registers only as a job class:
+   `@job` on a `pydantic.BaseModel` subclass, where each public method is a job
+   ([Job classes](job-classes.md)). A bare class with no `@job` contributes
+   nothing, exactly as before.
 
 ## When the built-in filters cannot describe your jobs
 
 The `require_*` settings describe a module by its filename, its imports, a
 marker, or a decorator. That covers most projects. It does not cover a host
-whose jobs are, say, methods on a class, or are chosen by a rule that only that
-host knows.
+whose jobs are chosen by a rule only that host knows — a naming convention of
+your own, a registry, a generated tree. (Methods on a class are *not* such a
+rule: that is the job-class form, described in [Job classes](job-classes.md).)
 
 `DiscoveryConfig.pre_filter` takes your own predicate, asked **before the module
 is imported**:
@@ -291,10 +334,22 @@ This can happen when:
 - Two modules with the same `JOB_GROUP` both define a function with the same name
 - Two modules without `JOB_GROUP` both define a function with the same name
 
-Within one directory, the **first module discovered wins** (filesystem order
-from `pkgutil.iter_modules`) and the duplicate is not registered. Duplicate
-job names across *providers* raise a `ValueError` at registration. Do not
-rely on discovery order — rename one of the functions.
+One claimant runs: the last by source file, then Python name, so the same
+function wins on every run and on cold and warm discovery alike. The other is
+not registered, and the collision is a warning rather than an error, so the
+rest of your jobs keep working.
+
+The warning is shown wherever the command is: one line on stderr before the
+job runs, under the command's row in `func <group>`, in `func builtin info`
+(text and JSON), and on the TUI's job browser row and pre-flight panel. It names
+the command path, both functions with their files, and which one runs:
+
+```
+JobNameCollision: tools status: status_ (/srv/app/jobs/tools_more.py) runs; status (/srv/app/jobs/tools.py) was dropped. Rename one job.
+```
+
+In `func builtin info jobs --json` the surviving job's row keeps its dotted
+`name` and gains a `collisions` array. Rename one of the functions.
 
 ## Minimal job file example
 
@@ -320,7 +375,7 @@ def run(target: str, dry_run: bool = False):  # (2)!
 ```
 
 1. **`JOB_GROUP`** — Groups this module's functions under the `sample` sub-command. Remove this line to register functions at the top level instead.
-2. **Public function** — Must be a function (not a class), must not start with `_`, and must be defined in this module. Parameters with type annotations become Click CLI options automatically.
+2. **Public function** — Must be a function or a job class, must not start with `_`, and must be defined in this module. A class registers only in the [job-class form](job-classes.md) — `@job` on a `pydantic.BaseModel` subclass, with each public method becoming one job. Parameters with type annotations become Click CLI options automatically.
 3. **Docstring** — Used as the command's help text in `--help` output.
 
 This produces:

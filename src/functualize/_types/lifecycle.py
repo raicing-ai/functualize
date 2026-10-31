@@ -1,4 +1,4 @@
-"""The four runtime state machines, as data.
+"""The runtime state machines, as data.
 
 `runtime-schema-migrations`/T1, restated in
 `contributor/reference/runtime-persistence-data-model.md` §1 — the durable
@@ -81,6 +81,14 @@ class InputRequestStatus(StrEnum):
     CONSUMED = "consumed"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
+
+
+class OutboxStatus(StrEnum):
+    """What an outbox row's `status` column may hold (data-model reference §2.4)."""
+
+    PENDING = "pending"
+    CLAIMED = "claimed"
+    PUBLISHED = "published"
 
 
 @dataclass(frozen=True)
@@ -231,6 +239,10 @@ INPUT_REQUEST: Final[Machine] = Machine(
             # Accepted is not settled: the answer is consumed when the walk that
             # asked for it reads it.
             ("accepted", "consumed"),
+            # Reopen withdraws an answer the walk has not used yet (member
+            # decision D-4): the request is cancelled, never rewound, and a new
+            # one takes the gate.
+            ("accepted", "cancelled"),
         }
     ),
     absorbing=frozenset(
@@ -240,5 +252,30 @@ INPUT_REQUEST: Final[Machine] = Machine(
             InputRequestStatus.EXPIRED,
         }
     ),
+    evictable=frozenset(),
+)
+
+
+# ----------------------------------------------------------------------
+# Outbox (data-model reference §2.4 and §4)
+# ----------------------------------------------------------------------
+
+OUTBOX: Final[Machine] = Machine(
+    name="outbox",
+    states=frozenset(s.value for s in OutboxStatus),
+    transitions=frozenset(
+        {
+            (None, "pending"),
+            ("pending", "claimed"),
+            # A claim whose lease expired is taken again: the dispatcher that
+            # held it died between the receiver and the acknowledgement, and
+            # delivering again is what at-least-once means.
+            ("claimed", "claimed"),
+            ("claimed", "published"),
+            # A receiver that raised: back to pending, with a retry time.
+            ("claimed", "pending"),
+        }
+    ),
+    absorbing=frozenset({OutboxStatus.PUBLISHED}),
     evictable=frozenset(),
 )

@@ -19,6 +19,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from functualize._primitives.config_class_detection import detect_config_class
+from functualize._types.class_job import ClassJobMethod
+from functualize._types.errors import JobMaterializationError
 
 if TYPE_CHECKING:
     from functualize._types.descriptors import JobDescriptor
@@ -128,14 +130,84 @@ def _import_real_function(descriptor: JobDescriptor) -> Callable[..., Any]:
     else:
         module = importlib.import_module(module_path)
 
+    if descriptor.owner_class is not None:
+        return _resolve_class_method(descriptor, module)
+
     attribute = descriptor.attribute_name
     real_fn = getattr(module, attribute, None)
     if real_fn is None or not callable(real_fn):
         raise AttributeError(
             f"Module '{module_path}' has no callable named '{attribute}'"
         )
+    if isinstance(real_fn, type):
+        # A class is callable, so the test above accepts it — but a class is
+        # not a job. Handing it on would describe the class as one job, and
+        # `_build_descriptor` accepts a class for exactly this reason: its
+        # `func = obj if callable(obj) else lambda: None` never sees the
+        # problem. A class that should have been enumerated reached here
+        # because its source could not be read (a compiled or zipped
+        # distribution), so the class is visible for the first time and there
+        # is nothing to hand dispatch.
+        raise _not_a_job_class_error(descriptor, real_fn)
     result: Callable[..., Any] = real_fn
     return result
+
+
+def _resolve_class_method(descriptor: JobDescriptor, module: Any) -> ClassJobMethod:
+    """Resolve ``owner_class``'s method and wrap it as the registered callable.
+
+    The proxy is built from the descriptor's own declaration, never from the
+    method's ``@job``: 3.1 merged the class's identity and tags into the
+    descriptor, and every cold-run reader of ``__functualize_job__`` expects
+    that merged object. Recomputing it here would give a warm run a different
+    declaration from the cold one.
+    """
+    class_name = descriptor.owner_class
+    assert class_name is not None  # guarded by the caller
+    method_name = descriptor.attribute_name
+    job_class = getattr(module, class_name, None)
+    if not isinstance(job_class, type):
+        raise AttributeError(
+            f"Module '{descriptor.module_path}' has no job class named '{class_name}'"
+        )
+    method = getattr(job_class, method_name, None)
+    if method is None or not callable(method):
+        raise AttributeError(
+            f"Job class '{class_name}' in module '{descriptor.module_path}' has "
+            f"no method named '{method_name}'"
+        )
+    if descriptor.declaration is None:
+        raise AttributeError(
+            f"Job class '{class_name}' in module '{descriptor.module_path}' "
+            f"carries no @job declaration for '{method_name}'"
+        )
+    return ClassJobMethod(job_class, method_name, declaration=descriptor.declaration)
+
+
+def _not_a_job_class_error(
+    descriptor: JobDescriptor, job_class: type
+) -> JobMaterializationError:
+    """The materialisation error for a class found where a job was expected.
+
+    Built at the raise site and relabelled through ``args``: the constructor's
+    message is about an import that failed, and this import succeeded. Same
+    pattern as ``_primitives/di.py:relabel`` — the error's identity and
+    attributes are the right ones, only the rendered text would be wrong.
+    """
+    error = JobMaterializationError(
+        descriptor.name, descriptor.module_path, descriptor.source_file
+    )
+    # Relabelled through ``args``: the constructor's message is about an import
+    # that failed, and this import succeeded.
+    error.args = (
+        f"Job '{descriptor.name}': entry point '{descriptor.name}' in module "
+        f"'{descriptor.module_path}' names the job class "
+        f"'{job_class.__name__}' where a job function was expected. A job "
+        "class names its own jobs and is enumerated by reading its module's "
+        "source, which this descriptor's entry point does not allow (a "
+        "compiled or zipped distribution).",
+    )
+    return error
 
 
 class LazyJobFunction:
@@ -189,15 +261,23 @@ class LazyJobFunction:
             else:
                 try:
                     real_fn = _import_real_function(self.descriptor)
+                except JobMaterializationError:
+                    # Already names the job and says what is wrong; the generic
+                    # wrap below would trade that for "failed to import".
+                    raise
                 except Exception as exc:
-                    from functualize._types.errors import JobMaterializationError
-
                     raise JobMaterializationError(
                         self.descriptor.name,
                         self.descriptor.module_path,
                         self.descriptor.source_file,
                     ) from exc
-            self.config_class = _detect_config_class(real_fn)
+            # A class job's config class *is* its job class: the proxy holds it,
+            # and detecting one from a proxy would read the method's return
+            # annotation. Detection is a function-only question.
+            if self.descriptor.owner_class is not None:
+                self.config_class = real_fn.job_class
+            else:
+                self.config_class = _detect_config_class(real_fn)
             self.__wrapped__ = real_fn
             self.__doc__ = real_fn.__doc__ or self.__doc__
             self._real_fn = real_fn

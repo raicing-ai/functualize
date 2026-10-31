@@ -57,6 +57,11 @@ from functualize._types.errors import (
     SubstrateInstallError,
 )
 from functualize._types.from_job import declared_dependency_names
+from functualize._types.functualize_settings import (
+    FUNCTUALIZE_SETTINGS,
+    PLUGINS_STRICT,
+    SHELL_SUDO_PASSWORD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -343,16 +348,54 @@ def check_required_capabilities(
 def _required_capabilities(app: Any) -> Mapping[str, RequiredCapability]:
     """The capabilities this boot's configuration requires of its store.
 
-    Empty today, deliberately. No shipped configuration key implies a
-    capability the document store lacks, and inventing one to exercise the
-    check would add a config surface nobody asked for. The features that
-    declare requirements land their key here — resume across runners
-    (``multi_machine``), a durable-outbox consumer (``durable_outbox``), a
-    second process on the store (``multi_process``, FUN-19's SQLite) — and
-    the refusal fires the moment one of them is switched on against a store
-    that cannot serve it.
+    The features that declare requirements land their key here — and the
+    first has: registering an effect receiver declares that this
+    configuration needs ``durable_outbox=True``
+    (``_app/effects.receiver_requirements``), and the refusal fires the
+    moment one is registered against a store that cannot serve it. Still to
+    land: resume across runners (``multi_machine``), a second process on the
+    store (``multi_process``) — each declared by its own feature, never
+    invented here to exercise the check.
     """
-    return {}
+    from functualize._app.effects import receiver_requirements
+
+    return receiver_requirements(app)
+
+
+def _drain_outbox(app: Any, store: RuntimeStore) -> None:
+    """Deliver, once, what earlier processes left committed in the outbox.
+
+    The end of both boot paths. A dispatcher is built only when receivers are
+    registered and the selected store's profile declares the outbox — every
+    other combination was refused or skipped at step 6.5 — and this one
+    synchronous drain is the whole of the outbox tier's boot work: an intent
+    committed by a process that died before delivering it is delivered here,
+    by the next process that starts with a receiver for its topic.
+
+    **Caught, unlike step 6.5.** A receiver's failure is already data (the
+    dispatcher reschedules it); what reaches here is the queue itself failing
+    — a locked or unreadable outbox. The intents stay committed and the next
+    drain delivers them, so refusing to start would cost the run and save
+    nothing; it is logged as a warning instead.
+    """
+    from functualize._app.effects import drain
+
+    try:
+        report = drain(app, store)
+    except Exception as exc:  # noqa: BLE001 — undelivered intents wait, committed
+        logger.warning(
+            "outbox: boot drain could not read the queue; committed intents "
+            "wait for the next drain: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        return
+    if report is not None and (report.delivered or report.failed):
+        logger.info(
+            "outbox: boot drain delivered %d, rescheduled %d",
+            report.delivered,
+            report.failed,
+        )
 
 
 def build_engine(
@@ -395,6 +438,9 @@ def build_engine(
 
     app: Any = host
 
+    def _setting_value(name: str) -> Any:
+        return resolve_declared_setting(app, name)
+
     def _config_view_factory(
         *, section_prefix: str, scope: Literal["group", "job"] = "job"
     ) -> Any:
@@ -413,6 +459,7 @@ def build_engine(
         max_invoke_depth=app._execution_config.max_invoke_depth,
         plugin_config_registry=app.plugin_config_registry,
         host=host,
+        settings_resolver=_setting_value,
         gate_registry=app._gate_registry,
         # Landed on another branch (agent-step-port) while this construction
         # site was being consolidated, so it reached `boot.py`'s two inline
@@ -668,6 +715,11 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
             resource="di_registry",
             app=app,
         )
+
+    # Outbox: deliver what earlier processes left committed. Last, after the
+    # registry is frozen, so the drain runs on the app as booted — the same
+    # order a job would see it in.
+    _drain_outbox(app, store)
 
     perf_timeline.mark("boot.total.end")
 
@@ -1133,6 +1185,11 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
             app=app,
         )
     perf_timeline.mark("boot.freeze.end")
+
+    # Outbox: deliver what earlier processes left committed. Last, after the
+    # registry is frozen, so the drain runs on the app as booted — the same
+    # order a job would see it in.
+    _drain_outbox(app, store)
 
     perf_timeline.mark("boot.total.end")
 
@@ -1694,6 +1751,13 @@ def resolve_and_register_jobs(app: Any) -> None:
             logger.warning("Resolution pipeline error: %s", e)
             return
 
+        # The directory jobs above were registered from their own provider,
+        # which sees one source. A name the pipeline refuses across sources —
+        # a class job's method claimed again by a second provider — must not
+        # keep the registration the directory side gave it, or the shipped
+        # path runs a winner the strict rule says does not exist.
+        _retire_refused_names(app, _strictly_refused_names(app))
+
         already_registered = set(app.job_registry._registered_jobs.keys())
         new_descriptors = [
             d for d in all_descriptors if d.name not in already_registered
@@ -1701,6 +1765,46 @@ def resolve_and_register_jobs(app: Any) -> None:
 
         if new_descriptors:
             register_descriptors(app, new_descriptors)
+
+
+def _strictly_refused_names(app: Any) -> set[str]:
+    """Names the last ``resolve_all`` registered to nobody (C5).
+
+    Read off the pipeline's own collision records: the strict rule is decided
+    in `_discovery/collisions.py`, and boot only acts on its verdict.
+    """
+    from functualize._types.discovery_report import CLASS_JOB_NAME_COLLISION
+
+    return {
+        finding.collision.canonical_name
+        for finding in app._resolution_pipeline.collisions
+        if finding.error_type == CLASS_JOB_NAME_COLLISION
+        and finding.collision is not None
+    }
+
+
+def _retire_refused_names(app: Any, names: set[str]) -> None:
+    """Take ``names`` back out of the registry, the engine and the command index.
+
+    The same three places `refresh` retires a discovery generation from, so a
+    refused name leaves no entry behind for `func`, `Invoke` or a listing.
+    """
+    if not names:
+        return
+    registry = app.job_registry
+    registry._job_descriptors[:] = [
+        d for d in registry._job_descriptors if d.name not in names
+    ]
+    for name in names:
+        registry._registered_jobs.pop(name, None)
+        app._execution_engine._registered_jobs.pop(name, None)
+    registry._registered_commands = {
+        key: module_path
+        for key, module_path in registry._registered_commands.items()
+        # Keys are "<group_or___top__>::<job name>".
+        if key.split("::", 1)[-1] not in names
+    }
+    app._jobs_memo = None
 
 
 def report_unsatisfiable_jobs(app: Any) -> None:
@@ -2013,6 +2117,11 @@ def register_descriptors(app: Any, descriptors: list[Any]) -> None:
     LazyJobFunction proxy: NO module import happens here; the engine
     materializes the entry on first use.
 
+    A class job (`descriptor.owner_class` set) takes one path for both
+    boot shapes: its function is the method's proxy (cold: the live one,
+    warm: the lazy one that materializes to it), and its config class is
+    the job class itself — never detected from a signature.
+
     Args:
         app: The FunctualizeApp instance.
         descriptors: List of JobDescriptor instances to register.
@@ -2025,19 +2134,33 @@ def register_descriptors(app: Any, descriptors: list[Any]) -> None:
 
     for descriptor in descriptors:
         live_fn = getattr(descriptor, "function", None)
-        if live_fn is not None and callable(live_fn):
-            fn: Any = live_fn
+        # A class job registers its method's proxy, cold or warm, and takes no
+        # other path: its config class is the class itself (never a
+        # signature-detected model) and its receiver is that class's method.
+        # This arm comes first so `adopt_descriptor_declaration` and
+        # `_detect_config_class` are unreachable for a class job rather than
+        # merely unnecessary. `method_name` is the descriptor's `python_name`
+        # — `JobDescriptor` needs no field of its own for it.
+        if descriptor.owner_class is not None:
+            fn: Any = live_fn if live_fn is not None else LazyJobFunction(descriptor)
+            config_class = getattr(fn, "job_class", None)
+            method_name = descriptor.python_name
+        elif live_fn is not None and callable(live_fn):
+            fn = live_fn
             adopt_descriptor_declaration(descriptor, live_fn)
             config_class = _detect_config_class(live_fn)
+            method_name = None
         else:
             fn = LazyJobFunction(descriptor)
             config_class = None
+            method_name = None
         entry = RegisteredJob(
             name=descriptor.name,
             function=fn,
             config_class=config_class,
             group=descriptor.group,
             module_path=descriptor.module_path,
+            method_name=method_name,
             # From the descriptor, which survives a warm boot; `live_fn` is
             # None there, so reading deps off the function would lose them.
             dependencies=declared_dependency_names(
@@ -2079,15 +2202,42 @@ def validate_job_deps(app: Any) -> None:
 def _resolve_plugins_strict(app: Any) -> bool:
     """Resolve the ``plugins.strict`` boolean from config (default False)."""
     try:
-        resolved = app._resolution_chain.resolve("strict", "plugins")
+        value = app.settings.get(PLUGINS_STRICT.name)
     except Exception:
         return False
-    value = resolved.value
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "on")
     return bool(value)
+
+
+def resolve_declared_setting(app: Any, name: str) -> Any:
+    """Read the app snapshot, with the stored vault value for a secret setting.
+
+    Vault lookup remains deferred until a consumer asks for the secret. Boot
+    installs this callable in the engine; it never opens the keyring simply
+    because a vault exists or because unrelated settings were resolved.
+    """
+    schema = app._config_sources.settings or FUNCTUALIZE_SETTINGS
+    setting = schema.setting(name)
+    if setting is None:
+        return None
+    snapshot = app.settings
+    value = snapshot.get(name)
+    if name != SHELL_SUDO_PASSWORD.name:
+        return value
+    if snapshot.provenance.get(name) == "cli":
+        return value
+    chain = getattr(app, "_resolution_chain", None)
+    if chain is None:
+        return value
+    for source in chain.sources:
+        if getattr(source, "source_id", None) == "vault":
+            stored = source.get(setting.key, setting.section)
+            if stored is not None:
+                return stored
+    return value
 
 
 def validate_plugin_ext_metadata(app: Any) -> None:

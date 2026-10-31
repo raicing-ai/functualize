@@ -457,6 +457,39 @@ So a value reaches a step the same way it reaches any job:
 def signoff(parsed: Annotated[Parsed, FromJob("lab.report")]) -> None: ...
 ```
 
+- **From a step or gate of this walk**, with [`FromStep`](#fromstep). It reads
+  only this walk's record for that node and never runs anything — which also
+  makes it the way to read a gate's answer.
+
+### Reading a gate's answer
+
+A gate's answer is that gate's record in the walk. A later step, or the
+epilogue, declares it like any other walk read:
+
+```python
+from typing import Annotated
+from pydantic import BaseModel
+from functualize.workflow import END, Edge, FromStep, Gate, Step, workflow
+
+class Approval(BaseModel):
+    ok: bool
+
+def deploy(approval: Annotated[Approval, FromStep("approve")]) -> str:
+    return "deployed" if approval.ok else "held"
+
+@workflow(
+    steps=[Step(build), Gate("approve", awaits=Approval), Step(deploy)],
+    edges=[Edge("build", "approve"), Edge("approve", "deploy"), Edge("deploy", END)],
+)
+def release(approval: Annotated[Approval, FromStep("approve")]) -> str:
+    return f"approved={approval.ok}"
+```
+
+The run blocks at `approve`; `func builtin workflow resume <scope> --input
+'{"ok": true}'` answers it, and `deploy` and the body both receive
+`Approval(ok=True)` — in a fresh process too, because the value comes from the
+walk's record, not from memory.
+
 The **mid-path flag layer is the exception**: it belongs to the command line
 that typed it, so `func lab --strict release` does not set `--strict` for the
 walk's steps. To steer a whole walk, set a layer each job reads for itself —
@@ -494,7 +527,11 @@ The body's return value IS the workflow job's return value. An empty body is leg
 
 ## `FromStep`
 
-`FromStep` reads *this walk's* recorded result for one step. Its use is binding a gate tool's argument, so the tool is scoped to exactly what an earlier step produced:
+`FromStep("x")` reads *this walk's* recorded result for one node `x` — a step, or a gate, whose record is its answer. The same rule holds in all three places it can be written:
+
+- **A step job's parameter** — `def act(plan: Annotated[Plan, FromStep("plan")])`.
+- **The epilogue body's parameter** — the same annotation on the `@workflow` function.
+- **A gate tool's bound argument**, so the tool is scoped to exactly what an earlier node produced:
 
 ```python
 from functualize.workflow import Gate, Tool, FromStep
@@ -506,9 +543,17 @@ Gate(
 )
 ```
 
-The agent may call `read_file`, but `allowed` is fixed to whatever `setup-vfs` returned in this scope — a call outside those files is inexpressible rather than refused.
+The agent may call `read_file`, but `allowed` is fixed to whatever `setup-vfs` returned in this walk — a call outside those files is inexpressible rather than refused.
 
-`FromStep` is distinct from [`FromJob`](#) because it can **never** trigger a run: it only reads a step the graph has already ordered and executed. Take the referenced step by name (`FromStep("setup-vfs")`) or by the decorated function (`FromStep(setup_vfs)`); both normalize to the same canonical name.
+Which node a read may name is checked at boot, not mid-walk:
+
+- A name that is not a node of the workflow is refused.
+- A step or gate may read only a node the graph orders **before** it. A gate's tool binding may therefore name an *earlier* gate — and gets that gate's answer — but never its own gate or a later node.
+- The epilogue runs after `END`, so it may read any node.
+
+At run time, a node a conditional branch skipped has no record. The parameter's declared default is used; with no default the run fails, naming `FromStep('<node>')`, the parameter and the reader. A job run outside a walk — standalone, or invoked with `Invoke` from inside a step — fails the same way: it is not part of the walk, so there is nothing for it to read. An argument passed explicitly wins over the read.
+
+`FromStep` is distinct from [`FromJob`](#) because it can **never** trigger a run: it only reads a node the graph has already ordered and executed. Take the referenced node by name (`FromStep("setup-vfs")`) or by the decorated function (`FromStep(setup_vfs)`); both normalize to the same canonical name.
 
 ---
 
@@ -547,6 +592,49 @@ Resuming a paused workflow replays it with memoization:
 | Recorded branch choices | Stable — read from state, not re-evaluated |
 | Deposited gate inputs | Stable |
 | `Deps` edges | Stale deps re-run (correctness) |
+| A step interrupted mid-run, declared `effecting=True` | The scope stops at `<step>-in-doubt` — the job is never re-run without a decision, and is exactly-once once that decision is made |
+
+### Effecting steps across a crash
+
+Replay is a bet that a step is cheap to repeat. `Step(job, effecting=True)`
+declares the opposite — the step charges a card, sends a mail, files a
+ticket — and changes what a resume does when the runner died **inside** the
+step:
+
+Before the job runs, the walk commits an `attempting` record for the step,
+numbered per attempt. A resume that finds one cannot tell whether the effect
+happened, so it refuses to guess: it stops the scope `blocked` with a
+`blocked_reason` beginning `in_doubt:` — naming the step, the attempt, and
+the start time — and opens the derived recovery gate `<step>-in-doubt`. The
+step's job is not entered again until that gate is answered.
+
+The answer is an `InDoubt` model: `outcome` is required and must be `ran` or
+`did_not_run`; `value` is optional. Anything else is refused and the gate
+stays open. The verdict is binding:
+
+- `{"outcome": "ran"}` — the walk records success and continues **without
+  calling the job**. With `"value": ...` that value is the step's result;
+  without one, a downstream `FromJob`/`FromStep` on the step fails loudly
+  rather than invent a value.
+- `{"outcome": "did_not_run"}` — the job runs again as the next attempt, by
+  explicit choice. If that attempt is interrupted too, the scope stops in
+  doubt again; the earlier answer never settles the new doubt.
+
+Answer it through the same surfaces as any other gate — `func builtin
+workflow answer <id> <step>-in-doubt --input '{"outcome": "ran"}'`, the
+`--wf-resume <id> --wf-input` flags on the job, the `answer_gate` API, or
+the MCP gate tools. A raise inside an effecting step stays the job's own
+account, even if its effect already happened — failure routing is unchanged.
+
+**Notification limitation.** `Notify(on="blocked")` is keyed per declaration
+and scope, so an earlier blocked stop may prevent a later in-doubt stop in
+the same scope from sending another notification. The stop is not hidden:
+`status` and `blocked_reason` still expose it.
+
+A workflow that declares an effecting step digests differently from the same
+graph without the flag — the shape gains the effecting marker and the
+recovery gate. A scope parked under the old digest is refused on resume with
+the existing graph-changed error, once, when the declaration first changes.
 
 ### Where a paused workflow actually lives
 
@@ -613,6 +701,63 @@ filesystem is durable and keep the default layout.
 
 `func builtin data show` reports where each one actually is, which is the
 command to run when a resume cannot find its scope.
+
+### Gate effects are delivered at least once
+
+Answering a gate is a state change with a side effect behind it, and the two
+cannot be separated by a crash. On a store that declares a durable outbox —
+SQLite does — the accepted answer, the decision that accepted it and the
+*intent* to announce it commit as **one transaction**: a crash leaves all
+three or none, so there is never an answered gate nobody heard about, and
+never an announcement for an answer that never happened.
+
+Delivery of that intent is **at least once**, not exactly once. A dispatcher
+hands each committed intent to the receiver registered for its topic
+(`gate.accepted`), and a process that dies between the receiver and the
+acknowledgement gets the intent redelivered — by the next boot, the next
+answer, the next resume. So the receiver applies each effect's
+`idempotency_key` **once**: the key is stable (`gate.accepted:<request_id>`),
+and deduplicating on it is what turns at-least-once delivery into
+exactly-once application. This is the contract; nothing built on the outbox
+promises a single delivery.
+
+A receiver is a plugin, registered before boot selects the store:
+
+```python
+class GateAuditor:
+    topic = "gate.accepted"
+
+    def __init__(self) -> None:
+        self.applied: set[str] = set()
+
+    def receive(self, effect) -> None:
+        if effect.idempotency_key in self.applied:
+            return  # a redelivery: already applied
+        self.applied.add(effect.idempotency_key)
+        ...  # record the acceptance where the outside world reads it
+
+
+def register(app):
+    app.extensions.register_effect_receiver(GateAuditor())
+```
+
+One receiver per topic; a second for the same topic is refused. Registering
+one declares that this project's store must have a durable outbox — boot
+refuses to come up on the document store with a receiver registered, naming
+`runtime_store.url` as the setting to change, because silently dropping every
+committed intent is the failure this whole arrangement exists to prevent.
+
+The runnable example is
+[`examples/plugins/effect_receiver/`](https://github.com/raicing-ai/functualize/tree/master/examples/plugins/effect_receiver/):
+a key-deduplicating receiver, its plugin registration, and a test that
+answers a real gate over SQLite and watches the delivery arrive.
+
+`Notify` is the deliberate opposite: a notification whose record commits
+before the provider call, delivered at-most-once — it would rather drop one
+than repeat one. When a notification must survive a crash, it is an outbox
+receiver, not a `Notify`.
+
+---
 
 ### Writing your own
 

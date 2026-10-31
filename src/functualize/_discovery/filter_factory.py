@@ -29,6 +29,7 @@ from functualize._primitives.pre_filter import (
     AllOf,
     AnyOf,
     ASTModulePreFilter,
+    ClassJobPreFilter,
     DecoratorModulePreFilter,
     DefaultModulePreFilter,
     DisplayClassPreFilter,
@@ -39,6 +40,9 @@ from functualize._primitives.pre_filter import (
     ImportModulePreFilter,
     MarkerModulePreFilter,
     ModulePreFilter,
+)
+from functualize._types.functualize_settings import (
+    DISCOVERY_FINGERPRINT_FIELDS as _DISCOVERY_FINGERPRINT_FIELDS,
 )
 
 if TYPE_CHECKING:
@@ -111,12 +115,17 @@ def build_pre_filter_from_config(
         filters.append(FilePostfixPreFilter(config.require_file_postfix))
 
     # 5. ASTModulePreFilter — always included (requires file read + parse).
-    # A module qualifies with a public function (a job candidate), a
-    # display-provider class, OR a GroupOptions declaration — display-only and
-    # declaration-only modules must still be imported so the scan's detection
-    # passes can cache them.
+    # A module qualifies with a public function (a job candidate), a job class
+    # (one job per public method), a display-provider class, OR a GroupOptions
+    # declaration — class-only, display-only and declaration-only modules must
+    # still be imported so the scan's detection passes can read them.
     filters.append(
-        AnyOf(ASTModulePreFilter(), DisplayClassPreFilter(), GroupOptionsPreFilter())
+        AnyOf(
+            ASTModulePreFilter(),
+            ClassJobPreFilter(),
+            DisplayClassPreFilter(),
+            GroupOptionsPreFilter(),
+        )
     )
 
     # 6. ImportModulePreFilter — requires file read + parse
@@ -182,32 +191,8 @@ def build_job_filter_from_config(config: DiscoveryConfig) -> JobFilter | None:
     return AllJobFilters(*filters)
 
 
-# The ten DiscoveryConfig settings that decide which modules and jobs are
-# admitted, each paired with its DiscoveryConfig default. Kept beside the two
-# builders above deliberately: the cache fingerprint must cover exactly the
-# fields those builders consume, and one file is what keeps the two in agreement
-# when an eleventh setting is added.
-#
-# `pre_filter` is the one entry whose *value* is not what gets hashed --
-# see `_fingerprint_contribution` below.
-#
-# The defaults are repeated here because `_discovery` may not import the public
-# `app.config` at runtime (see `.spec/CONSTITUTION.md` layer rules), so they
-# cannot be read off the dataclass. `test_discovery_hash.py` pins this tuple to
-# DiscoveryConfig's real field names *and* defaults, so drift fails a test rather
-# than silently fingerprinting an unset config as something else.
-_DISCOVERY_FINGERPRINT_FIELDS: tuple[tuple[str, object], ...] = (
-    ("exclude_patterns", ()),
-    ("extra_directories", ()),
-    ("require_file_prefix", None),
-    ("require_file_postfix", None),
-    ("require_file_import", None),
-    ("require_file_marker", None),
-    ("require_job_decorators", None),
-    ("require_job_prefix", None),
-    ("require_job_postfix", None),
-    ("pre_filter", None),
-)
+# The declaration owns the names and defaults. This alias preserves the
+# discovery module's private symbol while the existing callers migrate.
 
 
 def discovery_hash_from_config(config: DiscoveryConfig | None) -> str:

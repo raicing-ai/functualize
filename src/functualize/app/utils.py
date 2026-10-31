@@ -93,6 +93,18 @@ from functualize._types.flag_grammar import (
     negative_aliases,
     negative_flag_for,
 )
+
+# Every config key this module reads or writes comes from here rather than from
+# a literal: `discovery` + `scan_depth`, `jobs_directories`, `extra_directories`
+# and the rest are one statement in the declaration, and discovery is a reader
+# of that statement, not a second copy of it.
+from functualize._types.functualize_settings import (
+    EXCLUDE_PATTERNS,
+    EXTRA_DIRECTORIES,
+    IMPORT_LIBS,
+    JOBS_DIRECTORIES,
+    SCAN_DEPTH,
+)
 from functualize._types.naming import (
     BUILTIN_SEGMENT,
     GroupTrie,
@@ -177,6 +189,10 @@ def job_config_fields(app: Any, job_name: str) -> list[Any]:
     Returns ``[]`` when the job declares no config model. Never raises for an
     unresolved field: a caller asking "what is missing?" is answered, not
     handed a ``ValidationError``.
+
+    The section and scope come from the engine, the same pair a run uses: a
+    class job's fields live at its group (``[pg]``, ``PG__HOST``, the group's
+    vault entry), not at the method job's own name.
     """
     from functualize._config.job_config import JobConfigView
     from functualize._config.resolved_field import resolve_job_fields
@@ -188,14 +204,17 @@ def job_config_fields(app: Any, job_name: str) -> list[Any]:
     config_class = getattr(entry, "config_class", None)
     if config_class is None:
         return []
+    section, scope = app.execution_engine.config_section_for(job_name)
 
     return resolve_job_fields(
         config_class,
-        job_name,
+        section,
         JobConfigView(
             resolution_chain=app._resolution_chain,
-            default_section_prefix=job_name,
+            default_section_prefix=section,
+            scope=scope,
         ),
+        scope=scope,
     )
 
 
@@ -747,10 +766,10 @@ def _read_config_scan_depth(*configs: dict[str, Any]) -> int | None:
         The configured scan depth, or None if no layer sets a usable value.
     """
     for config in configs:
-        section = config.get("discovery")
-        if isinstance(section, dict) and "scan_depth" in section:
+        section = config.get(SCAN_DEPTH.section)
+        if isinstance(section, dict) and SCAN_DEPTH.key in section:
             try:
-                return int(section["scan_depth"])
+                return int(section[SCAN_DEPTH.key])
             except (ValueError, TypeError):
                 return None
     return None
@@ -760,11 +779,13 @@ def _scan_cwd_directories(cwd: Path, scan_depth: int) -> list[str]:
     """Scan CWD for directories containing qualifying Python files.
 
     Traverses directories from ``cwd`` up to ``scan_depth`` levels deep,
-    applying the default pre-filter stack (``DefaultModulePreFilter`` +
-    ``ASTModulePreFilter`` via ``AllOf``) to each ``.py`` file found.
+    applying the default pre-filter stack — ``DefaultModulePreFilter``, then
+    ``ASTModulePreFilter`` or ``ClassJobPreFilter`` — to each ``.py`` file
+    found.
 
     A directory "qualifies" if it contains at least one ``.py`` file that
-    passes both pre-filters.
+    passes that stack: a public function, or a public class with a public
+    method (a class-only job module has no top-level function at all).
 
     Args:
         cwd: The root directory to scan from.
@@ -775,11 +796,15 @@ def _scan_cwd_directories(cwd: Path, scan_depth: int) -> list[str]:
     """
     from functualize._primitives import (
         AllOf,
+        AnyOf,
         ASTModulePreFilter,
+        ClassJobPreFilter,
         DefaultModulePreFilter,
     )
 
-    pre_filter = AllOf(DefaultModulePreFilter(), ASTModulePreFilter())
+    pre_filter = AllOf(
+        DefaultModulePreFilter(), AnyOf(ASTModulePreFilter(), ClassJobPreFilter())
+    )
     qualifying: list[str] = []
 
     def _check_directory(directory: Path) -> bool:
@@ -840,11 +865,11 @@ def _normalize_overrides(
         return overrides
     # Plain dict: extract known fields and construct DiscoveryOverrides
     return DiscoveryOverrides(
-        scan_depth=overrides.get("scan_depth"),
-        import_libs=overrides.get("import_libs"),
-        jobs_directories=overrides.get("jobs_directories"),
-        extra_directories=overrides.get("extra_directories"),
-        exclude_patterns=overrides.get("exclude_patterns"),
+        scan_depth=overrides.get(SCAN_DEPTH.key),
+        import_libs=overrides.get(IMPORT_LIBS.key),
+        jobs_directories=overrides.get(JOBS_DIRECTORIES.key),
+        extra_directories=overrides.get(EXTRA_DIRECTORIES.key),
+        exclude_patterns=overrides.get(EXCLUDE_PATTERNS.key),
     )
 
 
@@ -856,15 +881,15 @@ def _overrides_to_cli_dict(
         return {}
     result: dict[str, Any] = {}
     if typed.scan_depth is not None:
-        result["scan_depth"] = typed.scan_depth
+        result[SCAN_DEPTH.key] = typed.scan_depth
     if typed.import_libs is not None:
-        result["import_libs"] = typed.import_libs
+        result[IMPORT_LIBS.key] = typed.import_libs
     if typed.jobs_directories is not None:
-        result["jobs_directories"] = typed.jobs_directories
+        result[JOBS_DIRECTORIES.key] = typed.jobs_directories
     if typed.extra_directories is not None:
-        result["extra_directories"] = typed.extra_directories
+        result[EXTRA_DIRECTORIES.key] = typed.extra_directories
     if typed.exclude_patterns is not None:
-        result["exclude_patterns"] = typed.exclude_patterns
+        result[EXCLUDE_PATTERNS.key] = typed.exclude_patterns
     return result
 
 
@@ -969,12 +994,12 @@ def auto_discover(
         config_directories: list[str] = []
         seen_config: set[str] = set()
 
-        for dir_str in effective.get("jobs_directories", []):
+        for dir_str in effective.get(JOBS_DIRECTORIES.key, []):
             if dir_str not in seen_config and Path(dir_str).is_dir():
                 seen_config.add(dir_str)
                 config_directories.append(dir_str)
 
-        for dir_str in effective.get("extra_directories", []):
+        for dir_str in effective.get(EXTRA_DIRECTORIES.key, []):
             if dir_str not in seen_config and Path(dir_str).is_dir():
                 seen_config.add(dir_str)
                 config_directories.append(dir_str)
@@ -1017,19 +1042,19 @@ def auto_discover(
         config_directories = []
         seen_config = set()
 
-        for dir_str in effective.get("jobs_directories", []):
+        for dir_str in effective.get(JOBS_DIRECTORIES.key, []):
             if dir_str not in seen_config and Path(dir_str).is_dir():
                 seen_config.add(dir_str)
                 config_directories.append(dir_str)
 
-        for dir_str in effective.get("extra_directories", []):
+        for dir_str in effective.get(EXTRA_DIRECTORIES.key, []):
             if dir_str not in seen_config and Path(dir_str).is_dir():
                 seen_config.add(dir_str)
                 config_directories.append(dir_str)
 
     # Effective import_libs and jobs_directories lists
-    effective_import_libs = effective.get("import_libs", [])
-    effective_jobs_directories = effective.get("jobs_directories", [])
+    effective_import_libs = effective.get(IMPORT_LIBS.key, [])
+    effective_jobs_directories = effective.get(JOBS_DIRECTORIES.key, [])
 
     # Config fallback for scan_depth ([discovery].scan_depth), then clamp to [0, 5]
     if resolved_scan_depth is None:

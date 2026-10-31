@@ -8,6 +8,7 @@ Examples of creating custom plugins and adapters for the functualize ecosystem. 
 |-----------|-------------|
 | `custom_state_backend/` | Implement the `StoreSubstrate` port — bring your own storage |
 | `custom_adapter/` | Implement the `AdapterPlugin` protocol (webhook delivery) — a packaged delivery plugin |
+| `effect_receiver/` | Implement the `EffectReceiver` protocol — consume a gate's accepted effect from the durable outbox, applied once per idempotency key |
 | `file_based_plugin/` | Zero packaging: a single `.py` file in `.functualize/plugins/`, discovered at boot |
 
 Examples of *using* the first-party plugins live in each plugin's own folder: `plugins/<name>/examples/` (e.g. [`plugins/adapters/functualize-mcp/examples/`](../../plugins/adapters/functualize-mcp/examples/)).

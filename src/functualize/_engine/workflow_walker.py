@@ -35,6 +35,8 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from functualize._engine.decision_keys import ROUTED_TO_END, failure_key, notify_key
+from functualize._engine.effect_recovery import EffectRecovery
 from functualize._engine.frontier import END as _FRONTIER_END
 from functualize._engine.frontier import (
     TERMINAL_SUCCESS,
@@ -60,7 +62,6 @@ from functualize._types.workflow import (
     Gate,
     Loop,
     Notification,
-    Notify,
     OnFailure,
     Step,
     _EndSentinel,
@@ -198,6 +199,7 @@ class _NodeRun:
     value: Any
     inputs: dict[str, Any] | None = None
     replayed: bool = False
+    reusable: bool | None = None
     #: Where a **failed** node's declared `OnFailure` sends the walk, or None.
     #:
     #: Carried on the run rather than routed inside the handler because the
@@ -219,6 +221,14 @@ class _Ledger:
     executed: list[str] = field(default_factory=list)
     replayed: list[str] = field(default_factory=list)
     results: dict[str, Any] = field(default_factory=dict)
+
+
+def _remember_value(ledger: _Ledger, name: str, run: _NodeRun) -> None:
+    """A missing recovery value cannot masquerade as a `FromStep` result."""
+    if run.reusable is False and run.value is None:
+        ledger.results.pop(name, None)
+    else:
+        ledger.results[name] = run.value
 
 
 def graph_model_of(declaration: WorkflowDeclaration) -> GraphModel:
@@ -326,6 +336,7 @@ class WorkflowWalker:
         self._gate_registry = gate_registry
         self._prompt_gates = prompt_gates
         self._gates = GateService()
+        self._recovery = EffectRecovery(self)
         self._emit = emit
         self._notifiers = notifiers
         self._heartbeat_interval_seconds = _heartbeat_interval_seconds
@@ -570,19 +581,17 @@ class WorkflowWalker:
                 ledger.replayed.append(name)
             else:
                 ledger.executed.append(name)
-            ledger.results[name] = run.value
+            _remember_value(ledger, name, run)
             if run.failure_route is not None:
                 # A routed failure does not advance the frontier: the node did
                 # not succeed, so nothing downstream of it is unblocked. Only
                 # the declared route is queued, and the step keeps its `failed`
                 # record so a resume replays to the same place.
                 self._record_routed_failure(name)
-                if run.failure_route != _ROUTED_TO_END:
+                if run.failure_route != ROUTED_TO_END:
                     pending.append((run.failure_route, iteration))
                 continue
-            pending.extend(
-                (nxt, iteration) for nxt in self._advance(name, run.value, run.inputs)
-            )
+            pending.extend((nxt, iteration) for nxt in self._advance(name, run))
             back = self._loop_back(name, run.value, iteration)
             if back is not None:
                 pending.append((back, iteration + 1))
@@ -616,8 +625,14 @@ class WorkflowWalker:
         scope status change: the walk is continuing down a declared route, and
         a workflow that recovers is not a failed workflow.
         """
+        record = self._walk.step(self._key(name))
         self._walk.record(
-            self._key(name), StepStatus.FAILED, completed_at=datetime.now(UTC)
+            self._key(name),
+            StepStatus.FAILED,
+            completed_at=datetime.now(UTC),
+            attempt=record.attempt if record else 0,
+            started_at=record.started_at if record else None,
+            effecting=record.effecting if record else False,
         )
 
     def _failure_route(self, name: str, exc: BaseException) -> str | None:
@@ -639,13 +654,13 @@ class WorkflowWalker:
         a second thing to keep in agreement.
 
         Returns:
-            The node to continue at; :data:`_ROUTED_TO_END` when the failure is
+            The node to continue at; :data:`ROUTED_TO_END` when the failure is
             routed to `END`; or None when nothing routed it and the walk should
             stop. **Three answers, not two** — "routed, and the route was to
             finish" and "no route" are different, and collapsing them made a
             declared `OnFailure(..., target=END)` fail the walk.
         """
-        recorded = self._walk.branch(_failure_branch(name))
+        recorded = self._walk.branch(failure_key(name))
         if recorded is not None:
             return str(recorded)
 
@@ -654,8 +669,8 @@ class WorkflowWalker:
                 continue
             if edge.when is not None and not edge.when(exc):
                 continue
-            target = _ROUTED_TO_END if _is_end(edge.target) else str(edge.target)
-            self._walk.record_branch(_failure_branch(name), target)
+            target = ROUTED_TO_END if _is_end(edge.target) else str(edge.target)
+            self._walk.record_branch(failure_key(name), target)
             return target
 
         # Nothing routed it. **Not recorded**: a node with no `OnFailure` has
@@ -763,6 +778,8 @@ class WorkflowWalker:
         ledger: _Ledger,
     ) -> _NodeRun | WalkReport:
         """A step: replay its recorded value, or run the job it names."""
+        if node.effecting:
+            return self._recovery.service(name, ledger)
         record = self._walk.step(self._key(name))
         if record is not None and record.status in TERMINAL_SUCCESS:
             return _NodeRun(record.result, replayed=True)
@@ -871,16 +888,18 @@ class WorkflowWalker:
         upcoming = set(pending) | descendants(self._predecessors, list(pending))
         return not (set(preds) & upcoming)
 
-    def _advance(
-        self, name: str, value: Any, inputs: dict[str, Any] | None = None
-    ) -> list[str]:
+    def _advance(self, name: str, run: _NodeRun) -> list[str]:
         """Record ``name`` as done and return the nodes it unblocks."""
+        record = self._walk.step(self._key(name))
         return self._walk.complete(
             name,
-            choice=self._choice_for(name, value),
+            choice=self._choice_for(name, run.value),
             args_hash=_iteration_hash(self._iteration),
-            return_value=value,
-            inputs=inputs,
+            return_value=run.value,
+            inputs=run.inputs,
+            reusable_override=run.reusable,
+            attempt=record.attempt if record else 0,
+            started_at=record.started_at if record else None,
             completed_at=_now(),
         )
 
@@ -905,13 +924,15 @@ class WorkflowWalker:
     def _notify(self, report: WalkReport) -> None:
         """Fire the declared notifications for the status the walk ended in.
 
-        **The outbox, applied to an effect that is not a step.** The record
-        that a notification fired is committed *before* the provider is called,
-        so a crash can lose one and can never send one twice — at-most-once, in
-        the direction that matters: a resumed workflow must not page the
-        on-call again for a failure they have already seen. That is
-        `Step(effecting=True)`'s rule, with the same asymmetry and the same
-        reason.
+        **Record first, at-most-once.** The record that a notification
+        fired is committed *before* the provider is called, so a crash can
+        lose one and can never send one twice: a resumed workflow must not
+        page the on-call again for a failure they have already seen.
+
+        That is deliberately not the transactional-outbox rule. The outbox
+        (ADR-034) makes the opposite trade — at-least-once delivery with
+        receiver dedup — for effects that must not be lost; a `Notify` would
+        rather drop one than repeat one, and goes straight to the provider.
 
         Recorded in the scope's **branch** store, where `OnFailure` already
         keeps its chosen route (T3): one place a resume reads one kind of fact
@@ -932,7 +953,7 @@ class WorkflowWalker:
         view = self._walk.view()
         status = view.status if view is not None else ""
         for declared in self._declaration.notifications_for(status):
-            key = _notify_key(declared)
+            key = notify_key(declared)
             if self._walk.branch(key) is not None:
                 continue
             self._walk.record_branch(key, "sent")
@@ -972,6 +993,7 @@ class WorkflowWalker:
             f"workflow.{action}",
             resource=self._workflow_name or self._scope_id,
             scope_id=self._scope_id,
+            generation=self._walk.generation,
             **payload,
         )
 
@@ -1009,6 +1031,7 @@ class WorkflowWalker:
         and a resume look.
         """
         # One unit: the step's record, its position and the scope's status.
+        record = self._walk.step(self._key(node))
         with self._runtime_store.transaction() as tx:
             tx.workflows.complete_step(
                 CompleteStep(
@@ -1019,6 +1042,9 @@ class WorkflowWalker:
                     status=status,
                     position=node,
                     scope_status=_SCOPE_STATUS_FOR[status],
+                    attempt=record.attempt if record else 0,
+                    started_at=record.started_at if record else None,
+                    effecting=record.effecting if record else False,
                 )
             )
         return WalkReport(
@@ -1085,18 +1111,6 @@ _NODE_HANDLERS: dict[type, _NodeHandler] = {
 }
 
 
-#: Recorded when an `OnFailure` routes to `END`.
-#:
-#: A sentinel string rather than `None`, because the branch record has to tell
-#: "this failure was routed, and the route was to finish" apart from "no route
-#: was ever recorded" — and a resume reads that record instead of calling the
-#: predicate again. Collapsing the two made a declared `OnFailure(target=END)`
-#: fail the walk, which the test for it caught.
-#:
-#: A NUL prefix so it cannot collide with a node name: node names are
-#: identifier-ish, and nothing that reaches a graph can contain one.
-_ROUTED_TO_END = "\x00end"
-
 #: The scope status a *stopped* step implies.
 #:
 #: A table rather than reusing the step outcome directly, even though these two
@@ -1109,28 +1123,6 @@ _SCOPE_STATUS_FOR: dict[str, str] = {
     StepStatus.FAILED: "failed",
     StepStatus.CANCELLED: "cancelled",
 }
-
-
-def _notify_key(declared: Notify) -> str:
-    """The branch-record key one notification's delivery is recorded under.
-
-    NUL-namespaced away from node names for `_failure_branch`'s reason, and
-    keyed by the declaration's **content** rather than its position: a workflow
-    that gains a second `Notify` must not make the first one fire again by
-    shifting an index.
-    """
-    return f"\x00notify\x00{declared.key}"
-
-
-def _failure_branch(name: str) -> str:
-    """The branch-record key a node's failure route is stored under.
-
-    Namespaced away from the node's own name so a node that has *both* a
-    `ConditionalEdge` and an `OnFailure` keeps two distinct records — one for
-    which branch it took when it succeeded, one for where it went when it did
-    not.
-    """
-    return f"{name}\x00onfailure"
 
 
 def _is_end(target: str | _EndSentinel) -> bool:

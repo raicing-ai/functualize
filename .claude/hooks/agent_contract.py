@@ -17,6 +17,7 @@ real field and inject one that was never set.
 
 import json
 import sys
+from contextlib import suppress
 
 CONTRACT = """\
 Context on this repository before planning:
@@ -63,8 +64,6 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
+    with suppress(Exception):
         main()
-    except Exception:
-        pass
     sys.exit(0)

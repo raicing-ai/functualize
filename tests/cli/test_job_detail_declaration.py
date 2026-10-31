@@ -139,6 +139,24 @@ class TestTheExactKeySet:
         for entry in catalog:
             assert set(entry) == CATALOG_KEYS
 
+    def test_only_colliding_rows_gain_the_collision_array(self, tmp_path: Path) -> None:
+        jobs = tmp_path / "jobs"
+        jobs.mkdir()
+        (jobs / "names.py").write_text(
+            "def status() -> None:\n    pass\n\n"
+            "def status_() -> None:\n    pass\n\n"
+            "def clean() -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+        app = FunctualizeApp(
+            "d", job_sources=JobSources(directories=[str(jobs)], lazy=False)
+        )
+        catalog = {entry["name"]: entry for entry in job_catalog(app)}
+        assert set(catalog["clean"]) == CATALOG_KEYS
+        assert set(catalog["status"]) == CATALOG_KEYS | {"collisions"}
+        assert set(job_detail(app, "clean") or {}) == DETAIL_KEYS
+        assert set(job_detail(app, "status") or {}) == DETAIL_KEYS | {"collisions"}
+
 
 class TestThroughTheCli:
     """Reachability, both call sites.

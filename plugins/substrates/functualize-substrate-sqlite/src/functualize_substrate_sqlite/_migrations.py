@@ -99,9 +99,23 @@ def _load(version: int, name: str) -> Migration:
 
 
 #: Every revision this package ships, in order. Append only.
+#: The order carries one settled renumbering: this package briefly shipped the
+#: gate-interactions SQL as revision 3 (on the branch, before it merged with
+#: the step-attempt work, which also shipped a revision 3). The ledger cannot
+#: record two revision 3s, so the merged set keeps step_attempt at 3 and moves
+#: gate_interactions — byte-identical SQL — to 4. A database built before that
+#: merge records the gate bytes under version 3 and is **refused** at boot,
+#: with the renumbering named and one remedy: rebuild the database from the
+#: current schema. No data migration is offered because none shipped — no
+#: release carried the branch-only numbering, so nothing but pre-merge branch
+#: databases ever held it.
+#: Revision 5 adds the `run_tags` table and its lookup index, nothing else.
 SHIPPED_MIGRATIONS: tuple[Migration, ...] = (
     _load(1, "runtime_schema"),
     _load(2, "step_record_metadata"),
+    _load(3, "step_attempt"),
+    _load(4, "gate_interactions"),
+    _load(5, "run_tags"),
 )
 
 
@@ -113,6 +127,15 @@ _CREATED = re.compile(
     r"(?:IF\s+NOT\s+EXISTS\s+)?"
     "[\"'`\\[]?"
     r"([A-Za-z_][A-Za-z0-9_]*)",
+    re.IGNORECASE,
+)
+
+#: The columns a revision's SQL adds to an existing table, as ``(table,
+#: column)`` — the on-disk half of an ``ALTER TABLE`` revision, which creates
+#: no object for `_CREATED` to find.
+_ADDED = re.compile(
+    r"ALTER\s+TABLE\s+[\"'`\[]?([A-Za-z_][A-Za-z0-9_]*)[\"'`\]]?\s+"
+    r"ADD\s+(?:COLUMN\s+)?[\"'`\[]?([A-Za-z_][A-Za-z0-9_]*)",
     re.IGNORECASE,
 )
 
@@ -192,6 +215,29 @@ def _check_ledger(ledger: dict[int, str], shipped: dict[int, Migration]) -> None
     for version, recorded in sorted(ledger.items()):
         migration = shipped[version]
         if recorded != migration.checksum:
+            # The recorded bytes may be a shipped revision under another
+            # number — the one case a checksum mismatch is not an edit: the
+            # revision was renumbered after this database was built.
+            renamed = next(
+                (
+                    other
+                    for other in shipped.values()
+                    if other.version != version and other.checksum == recorded
+                ),
+                None,
+            )
+            if renamed is not None:
+                raise MigrationRefused(
+                    f"Revision {version} was applied as {renamed.name!r}, which "
+                    f"this code ships as revision {renamed.version}: the revision "
+                    "was renumbered after this database was built.",
+                    version=version,
+                    expected_checksum=migration.checksum,
+                    actual_checksum=recorded,
+                    repair="renumbered revisions are never re-ledgered; rebuild "
+                    "this database from the current schema. No data migration "
+                    "shipped for the renumbering.",
+                )
             raise MigrationRefused(
                 f"Revision {version} ({migration.name}) was applied with a different "
                 f"text than this code ships.",
@@ -206,14 +252,20 @@ def _check_ledger(ledger: dict[int, str], shipped: dict[int, Migration]) -> None
 def _check_objects(
     driver: SqlDriver, ledger: dict[int, str], shipped: dict[int, Migration]
 ) -> None:
-    """Every applied revision's objects exist; a missing one is partial state."""
+    """Every applied revision's objects and added columns exist; a missing
+    one is partial state."""
     present = {row[0] for row in driver.query("SELECT name FROM sqlite_master")}
+    columns: dict[str, set[str]] = {}
     for version in sorted(ledger):
-        missing = sorted(
-            name
-            for name in _CREATED.findall(shipped[version].sql)
-            if name not in present
-        )
+        sql = shipped[version].sql
+        missing = sorted(name for name in _CREATED.findall(sql) if name not in present)
+        for table, column in _ADDED.findall(sql):
+            if table not in columns:
+                columns[table] = {
+                    str(row[1]) for row in driver.query(f"PRAGMA table_info({table})")
+                }
+            if column not in columns[table]:
+                missing.append(f"{table}.{column}")
         if missing:
             raise MigrationRefused(
                 f"The {_LEDGER} ledger records revision {version}, but its "

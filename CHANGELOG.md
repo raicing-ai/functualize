@@ -7,6 +7,254 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — stale workflow events cannot enter a new holder's log
+
+The walk log subscriber now appends directly to the selected store's scope log
+with the walker's held generation. A late event from a superseded walk is
+fenced out, including when the scope changes hands before the append commits.
+Scope identity and generation are routing fields and no longer appear in the
+stored event payload; the subscriber no longer issues an empty state write to
+route the event.
+
+### Fixed — unknown settings keys are visible in configuration reports
+
+`func builtin config path` annotates unknown keys with their file and a
+suggestion when one is close; `func builtin info --json` and `info all --json`
+include `config.unknown_keys` with the same findings. A typo no longer makes
+a file appear to have contributed a setting it did not supply. Diagnostics
+leave resolution and exit codes unchanged. `[run]` is a declared settings
+section: `[run] tags` is accepted, and any other `[run]` key is reported the
+same way.
+
+### Fixed — a settings table in a job config file is reported, not silently ignored
+
+A top-level table in a `config.*.toml` job config file that names a settings
+section, such as `[shell] program = …` in `config.base.toml`, is now reported
+as a `ReservedSectionName` discovery failure. The report names the file and
+the document the table belongs in (`.functualize.toml [shell]`, or
+`[tool.functualize]` in `pyproject.toml`). It appears in
+`func builtin info --json` `discovery_failures` and under
+`func builtin config path`. The table still merges into the job chain as
+before; nothing fails. A job or group named after a settings section is
+reported the same way and still registers.
+
+### Changed — framework settings share one resolution chain
+
+`root = true` now stops the project-file walk for the CLI, settings panel,
+inline TUI, and surface gate. `config path` lists the global location first,
+then project locations from farthest to nearest; `✓ used` means a file
+contributed an effective setting, while `○ found` includes a root-only file.
+Global unknown-key warnings moved from startup stderr to `config path` and
+structured `info` output.
+
+`[shell] program`, `[shell] sudo_password`, and `[plugins] strict` are read
+from framework settings documents (`.functualize.toml`,
+`[tool.functualize]` in `pyproject.toml`, or global `config.toml`), not from
+`config.*.toml` job files. Their environment variables are now
+`FUNCTUALIZE_SHELL_PROGRAM`, `FUNCTUALIZE_SHELL_SUDO_PASSWORD`, and
+`FUNCTUALIZE_PLUGINS_STRICT`, replacing `SHELL_PROGRAM`,
+`SHELL_SUDO_PASSWORD`, and `PLUGINS_STRICT`. The previously documented
+`FUNCTUALIZE_SUDO_PASSWORD` was never read and is removed from the docs.
+
+`extra_directories` keeps its top-level and `[discovery]` file spellings, but
+its environment variable is now `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES`;
+`FUNCTUALIZE_EXTRA_DIRECTORIES` is no longer read. The PEP 723
+`[tool.functualize] skill` field is rejected as unknown; no consumer ever
+used it. Applications declare settings at construction instead of registering
+them through the CLI module.
+
+### Added — run tags label every run and filter the run log
+A run can carry `key:value` tags from three sources, merged per key with the
+later winning: `[run] tags` in the global config, the
+`FUNCTUALIZE_RUN_TAGS` environment variable, and the repeatable global
+`--run-tag` flag. The merge happens before boot; a malformed or duplicated tag
+is refused with exit 2 before any job runs. A child run (a workflow step, a
+dependency, an `rc.invoke` child) carries an exact copy of its parent's tags,
+and tags never reach the job's arguments, its `RunContext` or its cache key.
+Every run record and every `run list` / `run show` / MCP row now carries a
+`run_tags` map (`{}` for older records), `func builtin run list --tag KEY:VALUE`
+filters on every given tag exactly, and the SQLite store gains schema
+revision 5, a `run_tags` table whose rows are fixed once the run opens. Tags are
+stored in plain text: never put a secret in one. Recorded in
+[ADR-040](contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md).
+### Added — jobs declared as methods of a class
+
+A **job class** is a `pydantic.BaseModel` decorated with `@job`. Each public
+method is one job, named `<group>.<method>`, so a subject's verbs can be
+declared instead of bound by a hand-written plugin:
+
+```python
+@job(group="pg")
+class Postgres(BaseModel):
+    host: str = "localhost"
+
+    def start(self, sh: Shell) -> None: ...
+    def stop(self, sh: Shell) -> None: ...
+```
+
+The class's typed fields are the configuration of every one of its method jobs,
+and all of them read one section — the class's group — through the resolution
+order a config-model parameter already uses. A `Secret[str]` field resolves
+through the vault under that same group. The instance is built once per run
+from the resolved configuration, and never during discovery, `--help`,
+`builtin info` or completion. Tags merge outward — the method's own
+`@job(tags=…)`, then the class's, then `JOB_TAGS` along the MRO — and `JOB_TAGS`
+must be annotated `ClassVar`, because a plain annotation makes it a
+configuration field instead.
+
+Two rules bound the form. An abstract class is never a job class: it produces
+no job and no group, and if it carries its own `@job` discovery records a
+finding naming it and its unimplemented methods rather than dropping the opt-in
+silently. And `@job` is not inherited — each concrete class opts in with its own
+`@job(...)` and so names its own group; a subclass without one is not a job
+class, even when its base is.
+
+A name a job class shares with another definition is refused rather than
+silently won. When either claimant is class-derived, neither definition
+registers: invoking the name exits `2` with a message naming both definitions
+and their files, `builtin info` reports it under discovery failures,
+`builtin info jobs` lists it as a row, and the rest of the project boots and
+runs. Collisions between two plain functions keep the rule they have today.
+
+The guide is `docs/guides/job-classes.md`; `docs/guides/subjects.md` now
+declares its subject class in this form. `examples/standalone/job_classes_lab`
+is the runnable version, including a class job whose name collides with a
+function.
+
+### Added — checked child results and opt-in captured output
+`JobResult.raise_for_status()` returns the same result when the job did its
+work and otherwise raises `JobFailedError` carrying the child's result, name,
+status and underlying exception. The error is exported from
+`functualize.types`. An invoked child can now use `capture=True` to return its
+`Stdout.emit()` values and `Stdout.write()` payloads in the result's `emitted`
+and `writes` metadata tuples instead of writing them to stdout. Capture does
+not pass to grandchildren; an invocation without capture keeps its existing
+output and result behavior. Recorded in
+[ADR-036](contributor/adr/036-checked-invocation-and-capture.md).
+
+### Changed — invocation failure hooks follow the shared failure set
+`INVOKE_FAILURE` now fires for a child ending in `TIMEOUT`, `CANCELLED` or
+`UNKNOWN`, as well as `FAILURE` and `REFUSED`. Hook subscribers may receive
+these additional statuses. The checked result and `Invoke.parallel` use the
+same failure set.
+
+### Added — gate answers are durable, evidenced, and delivered at least once
+A gate's question and every answer it collects are now first-class records on
+the selected store: the request carries the causal identity of the walk that
+opened it (run, workflow, step, generation), and each candidate carries its
+resolver class and channel, schema identity and version, payload hash,
+supersession, and evidence stored by reference plus digest — never as bytes.
+Every acceptance records the decision that made it: the policy identity and
+version, and the exact candidate ids it observed. The `answer`/`resume`
+commands, `--wf-input`, and the MCP gate tools all address the store selected
+by `runtime_store.url`; with SQLite selected, nothing reads `scopes.json`.
+On a store with a durable outbox (SQLite), the accepted answer, its decision
+and its effect intent commit in **one** transaction, and the intent is
+delivered to the registered receiver **at least once** — redelivered after a
+crash between delivery and acknowledgement, recovered by the next boot, and
+applied exactly once by a receiver that deduplicates on the intent's
+`idempotency_key`. A plugin registers a receiver for the `gate.accepted`
+topic with `app.extensions.register_effect_receiver(...)`; registering one
+declares that the project's store must have a durable outbox, and boot
+refuses the document store with the setting to change. `Notify` keeps its
+record-first, at-most-once rule and is documented as deliberately not the
+outbox. The decision is ADR-034; a runnable receiver ships in
+`examples/plugins/effect_receiver/`.
+
+### Changed — an interrupted effecting step stops in doubt instead of re-running
+`Step(job, effecting=True)` now writes an `attempting` record before its job
+runs. A resume that finds one — the runner died between the effect and the
+record's completion — stops the scope `blocked` at the derived gate
+`<step>-in-doubt` and never re-runs the job without a decision; the step is
+exactly-once once that decision is made. The gate's answer schema is
+`{"outcome": "ran" | "did_not_run"}`, with an optional `value`, answered
+through the existing gate surfaces. `ran` completes the step without calling
+the job; `did_not_run` permits the next attempt, and a later interruption
+opens the question again. Steps that declare nothing replay exactly as
+before. A workflow that declares an effecting step digests differently: a
+scope parked under the old digest is refused on resume with the existing
+graph-changed error, once, when the declaration first changes.
+Recorded in [ADR-035](contributor/adr/035-an-interrupted-effecting-step-stops-in-doubt.md).
+
+### Fixed — a fused resume input records on the runtime store and advances
+An expiry guard left over from the runtime-store cutover refused a fused
+`func builtin workflow resume <scope> --input '{...}'` on a project that
+selected the SQLite runtime store, answering `workflow_not_found` for a scope
+that exists. The documented contract — `answer` records; `resume` advances,
+the fused call doing both — now holds on every store: the fused input is
+recorded through the runtime input port (`OPEN -> ACCEPTED -> CONSUMED`) and
+the walk runs the remaining steps. The same fusion holds on the MCP
+`resume_workflow` tool. The `workflow_not_found` outcome for a present
+relational scope is gone by design; an unknown scope still returns it.
+
+### Fixed — every shell surface prints the command you can type, and warns about a job-name collision
+A grouped job has a dotted identity (`suite.inventory`) and a command path
+(`suite inventory`). Several surfaces printed the identity where a person
+needed the path, so a copied line failed: the "Did you mean" hint
+(`func suite.inventory`), a leaf's usage line (`Usage: inventory [OPTIONS]`),
+the non-TTY `func` listing, and in the TUI the SmartBar's completions, a job
+picked from the browser and recent presets. They now print the path (usage
+lines with the program name), and a printed line runs as shown. Surfaces that
+already spaced a name by replacing its dots (the blocked-run resume line, the
+TUI's browser rows, pre-flight header and refusal hints) take the path from
+the job instead, so a dot inside one job's own name (`tools.lint`) is no
+longer split into two words.
+**Breaking:** the shell walks groups one word at a time on both `func` and an
+app's own entry point. `func suite.inventory` is refused with a hint naming
+`func suite inventory`. Programmatic references keep the dotted identity:
+`rc.invoke`, `deps=`, `FromJob`, `[aliases]` targets, state keys, MCP tool
+names and `--json` output.
+`func --help` now lists the project's top-level jobs and groups beside
+`builtin`, and still prints for a project that fails to load. The TUI
+navigates groups from the discovered jobs even when no `GroupOptions` are
+declared. `functualize.types.CommandPath` and `JobDescriptor.command_path`
+expose the path to application code.
+When two functions normalize to one job name, one of them still runs, and
+the collision is still a warning. It is now shown wherever the command is:
+one stderr line before the job runs, under the command in group help and
+`builtin info jobs`, and on the TUI's browser row and pre-flight panel. The
+line names both functions, both files, and the one that runs. In
+`builtin info jobs --json` the affected row gains a `collisions` array; its
+`name` and the existing `discovery_failures` objects are unchanged.
+
+### Changed — a workflow scope shows its recorded route on every store
+
+`func builtin workflow show` and the MCP `get_workflow_state` /
+`list_workflows` tools now report what a walk decided, not only what it ran. The
+projection carries two objects: `branches` holds the conditional choices and
+`failure_routes` holds `OnFailure` routes, a route to `END` reading `"END"`. The
+text form prints `Branches:` and `Failure routes:` on every `show`, `-` when
+empty, so an empty map is no longer indistinguishable from a route that was
+never read. Entries appear in the order they were recorded.
+
+Relational projects now show their recorded branches; they previously reported
+`{}` for every scope. Documents projects keep the same records but read them
+differently: failure routes move out of `branches` into `failure_routes`, and the
+internal notification markers are no longer listed. A script that read
+`branches["publish\u0000onfailure"]` should read
+`failure_routes["publish"]`; the NUL-delimited key was never documented. What is
+recorded, `workflow_branches` and `scopes.json` are unchanged, with no migration:
+records written after this change are stored in recording order, and existing
+records keep the order they were stored in.
+
+Store authors implement `WorkflowReader.branches`, one bulk read of a scope's
+decision records, checked by `run_baseline` as `record branch and branches`. A
+store that implements the port and omits it is non-conformant. On a store that
+cannot list a scope's records, every operator surface now refuses instead of
+reporting `{}`: CLI exit `2` with an `Error:` line naming the store and the
+missing member, MCP error code `scope_store_unreadable`. That reaches the
+`--wf-show` flag surface and MCP `resume_workflow`, which previously answered
+with a traceback or `workflow_not_found` for a scope that existed.
+
+Node names may no longer contain NUL: `Step`, `Gate` and `AgentStep` refuse it
+with `ValueError`, beside the existing empty-name refusal, because the decision
+key already uses NUL as its separator.
+
+Recorded in
+[ADR-038](contributor/adr/038-operator-surfaces-read-decision-records-in-bulk.md),
+which links ADR-033 (a walk's scope I/O goes through the selected store) and
+ADR-025 (the engine owns what a transition means).
+
 ### Changed — scoped vault entries resolve by address and environment
 
 `vault put`, `inspect`, and `remove` accept a group address, a leaf job, or a
@@ -81,6 +329,16 @@ held the other proxy mutex, both threads could wait forever. First
 materialization now uses the process-wide re-entrant import mutex as its sole
 guard, including publication of the callable, so nested materialization has
 one lock order. Already-materialized calls retain their fast path.
+### Fixed — written Unicode job names resolve to their registered jobs
+
+Python applies NFKC normalization to identifiers before a job is registered.
+A name written with a character Python rewrites now resolves through `invoke`,
+`invoke_parallel`, the CLI, dependencies and config-file sections. For example, a function
+written `job_aaǆ` registers as `job-aadž`; both spellings reach it.
+
+String-set job or group names containing such characters may change identity.
+The warm discovery cache rebuilds at version 22. Persisted job state is not
+migrated, so an affected job re-runs once under its new name.
 
 ### Fixed — a workflow parked on the SQLite store resumes in another process
 

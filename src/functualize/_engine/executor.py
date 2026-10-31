@@ -9,12 +9,14 @@ Only imports from `_types/`, `_primitives/`, `_events/`, and stdlib.
 
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 import sys
 import time
 import types
 from collections.abc import Callable
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -34,6 +36,7 @@ from pydantic import ValidationError
 from functualize._engine.context import ExecutionContext
 from functualize._engine.dependency_runner import DependencyRunner
 from functualize._engine.missing_value import MissingValueError
+from functualize._engine.recording.run_recorder import RunRecorder
 from functualize._engine.resolution import ResolutionPlan, build_resolution_plan
 from functualize._engine.validation import ArgValidator, unexpected_keyword_error
 from functualize._engine.workflow_orchestrator import WorkflowOrchestrator
@@ -43,6 +46,7 @@ from functualize._primitives import DIRegistry, MissingProviderError
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
+from functualize._types.functualize_settings import SHELL_PROGRAM, SHELL_SUDO_PASSWORD
 from functualize._types.outcome import RAISED_BY_JOB
 from functualize._types.redaction import Secret, redacted_snapshot
 from functualize._types.run_request import SURFACE_POLICY
@@ -264,6 +268,7 @@ class JobExecutionEngine:
         notifier_registry: Any = None,
         config_view_factory: Callable[..., Any] | None = None,
         config_resolver: Callable[..., Any] | None = None,
+        settings_resolver: Callable[[str], Any] | None = None,
         *,
         runtime_store: RuntimeStore,
         substrate: StoreSubstrate,
@@ -292,6 +297,7 @@ class JobExecutionEngine:
         self._freshness_keys = FreshnessKeys(self)
         self._config_view_factory = config_view_factory
         self._config_resolver = config_resolver
+        self._settings_resolver = settings_resolver
         self._arg_validator = ArgValidator()
         # The `@workflow` prelude, which is its own subject and was ~150 lines
         # of this class (T6). Constructed here rather than lazily: it holds
@@ -428,15 +434,35 @@ class JobExecutionEngine:
         config_class = entry.config_class
         if config_class is None:
             return None
-        config_view = self._make_config_view(job_name)
+        section, scope = self.config_section_for(job_name)
+        config_view = self._make_config_view(section, scope=scope)
         if self._config_resolver is not None:
             return self._config_resolver(
                 config_class=config_class,
-                job_name=job_name,
+                job_name=section,
                 config_view=config_view,
                 cli_values={},
             )
         return config_class()
+
+    def config_section_for(self, job_name: str) -> tuple[str, Literal["group", "job"]]:
+        """The ``(section, scope)`` a run of ``job_name`` reads its config from.
+
+        The display half of :meth:`_config_section`, for the surfaces that
+        resolve a job's fields one by one rather than through
+        :meth:`resolve_config_model` — ``func builtin env`` and
+        ``func builtin info --job``. They used to build their own view at the
+        job's own name, which is right for a function job and wrong for a class
+        job, whose fields live at its group: they reported ``localhost`` and
+        "REQUIRED — not set" for a run that read ``[pg]`` and the group's vault
+        entry. Asking the engine is what keeps the display and the run on one
+        answer.
+
+        Materializes the job: the method name that marks a class job is only
+        known once its entry is real.
+        """
+        entry = self.materialize_job(job_name)
+        return self._config_section(job_name, entry.method_name)
 
     def _args_hash_for(self, context: Any) -> str:
         """The args hash for an in-flight run, including resolved group options."""
@@ -500,6 +526,28 @@ class JobExecutionEngine:
             raise DIValidationError(errors)
 
         return new_entry
+
+    def _config_section(
+        self, job_name: str, method_name: str | None
+    ) -> tuple[str, Literal["group", "job"]]:
+        """The ``(section, scope)`` a job's configuration comes from.
+
+        A class job reads **one** section — its group's — however many methods
+        it has: ``[pg]`` and ``PG__HOST``, the same identity
+        ``func builtin vault put --group pg`` writes under (C1, D2). Reading
+        ``[pg.start]`` instead would ask the author for a section per method,
+        which is the shape the class does not have.
+
+        A function job keeps its own name as the section, unchanged. The group
+        is read off the registered entry because the engine never sees a
+        descriptor.
+        """
+        if method_name is not None:
+            entry = self._registered_jobs.get(job_name)
+            group = entry.group if entry is not None else None
+            if group:
+                return group, "group"
+        return job_name, "job"
 
     def _make_config_view(self, section_prefix: str, *, scope: str = "job") -> Any:
         """Create a config view using the injected factory.
@@ -850,6 +898,7 @@ class JobExecutionEngine:
                 cwd=request.cwd,
                 job_directory=request.job_directory,
                 config_class=job.config_class,
+                method_name=job.method_name,
                 parent_scope=request.parent_scope,
                 workflow_scope_id=request.workflow_scope_id,
                 run_dependencies=request.run_dependencies,
@@ -956,13 +1005,17 @@ class JobExecutionEngine:
             from functualize._primitives.run_store import RunStore, runner_identity
 
             store = RunStore(self.substrate)
-            return store.open_run(
+            args_hash = compute_args_hash(call_args=self._hashable(kwargs))
+            scope_id = request.workflow_scope_id or getattr(
+                request.parent_scope, "scope_id", None
+            )
+            run_id = store.open_run(
                 {
                     "job": request.job_name,
                     # AC-2: which surface started this run, answerable from the
                     # record rather than inferred from what else is in it.
                     "surface": request.surface,
-                    "args_hash": compute_args_hash(call_args=self._hashable(kwargs)),
+                    "args_hash": args_hash,
                     # **"The scope this run ran in"**, for every run — review
                     # F6 asked whether this should instead be null for a
                     # non-workflow job. It should not, and the reason is that
@@ -988,8 +1041,7 @@ class JobExecutionEngine:
                     # way to say which scope its branches ran in. Reading the
                     # object here fixes the *record* without touching what the
                     # id controls during execution.
-                    "scope_id": request.workflow_scope_id
-                    or getattr(request.parent_scope, "scope_id", None),
+                    "scope_id": scope_id,
                     "parent_run_id": request.parent_run_id,
                     "invoke_depth": request.invoke_depth,
                     "group_option_values": (
@@ -998,12 +1050,38 @@ class JobExecutionEngine:
                         else {}
                     ),
                     "force": request.force,
+                    "run_tags": dict(request.run_tags),
                     "runner": runner_identity(),
                 }
             )
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not open a run record", exc_info=True)
             return None
+        # The document runtime port shares this RunStore, so its open is
+        # already recorded. A relational runtime store needs the same run id
+        # and immutable tags mirrored into its runs/attempts aggregate.
+        if (
+            self._runtime_store is not None
+            and self._runtime_store.profile.name != "documents"
+        ):
+            try:
+                with self._runtime_store.transaction() as tx:
+                    tx.runs.start_attempt(
+                        RunRecorder().started(
+                            job=request.job_name,
+                            surface=request.surface,
+                            now=datetime.now(UTC),
+                            run_id=run_id,
+                            run_tags=request.run_tags,
+                            scope_id=scope_id,
+                            parent_run_id=request.parent_run_id,
+                            invoke_depth=request.invoke_depth,
+                            args_hash=args_hash,
+                        )
+                    )
+            except Exception:  # noqa: BLE001 - observations remain best-effort
+                logger.debug("could not mirror a run record", exc_info=True)
+        return run_id
 
     def _close_scope(self, request: RunRequest, outcome: str) -> None:
         """Mark a scope this run minted as finished, and seal its store.
@@ -1080,6 +1158,7 @@ class JobExecutionEngine:
 
             store = RunStore(self.substrate)
             store.close_run(run_id, "failure")
+            self._finish_runtime_attempt(run_id, "failure")
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close a run record", exc_info=True)
 
@@ -1091,9 +1170,25 @@ class JobExecutionEngine:
             from functualize._primitives.run_store import RunStore
 
             store = RunStore(self.substrate)
-            store.close_run(run_id, result.status.value.lower())
+            status = result.status.value.lower()
+            store.close_run(run_id, status)
+            self._finish_runtime_attempt(run_id, status)
         except Exception:  # noqa: BLE001 - an observation is never worth a run
             logger.debug("could not close run record %s", run_id, exc_info=True)
+
+    def _finish_runtime_attempt(self, run_id: str, status: str) -> None:
+        """Mirror the terminal attempt when the runtime store is relational."""
+        if (
+            self._runtime_store is None
+            or self._runtime_store.profile.name == "documents"
+        ):
+            return
+        with self._runtime_store.transaction() as tx:
+            tx.runs.finish_attempt(
+                RunRecorder().finished(
+                    run_id=run_id, attempt_no=1, status=status, now=datetime.now(UTC)
+                )
+            )
 
     def _request_kwargs(
         self, request: RunRequest, job: RegisteredJob
@@ -1178,6 +1273,7 @@ class JobExecutionEngine:
         cwd: Path | None = None,
         job_directory: Path | None = None,
         config_class: type | None = None,
+        method_name: str | None = None,
         parent_scope: Any | None = None,
         workflow_scope_id: str | None = None,
         run_dependencies: bool = True,
@@ -1204,6 +1300,9 @@ class JobExecutionEngine:
                 the two disagree (T5).
             job_directory: Directory containing the job source file.
             config_class: Optional Pydantic model for config validation.
+            method_name: For a class job, the method this run executes. Its
+                receiver is the config instance resolved below, never an
+                argument — so it is bound here, not passed in ``kwargs``.
             parent_scope: WorkflowScope to propagate to child context.
             workflow_scope_id: For a `@workflow` job, the scope to resume.
                 Omitted, each invocation walks a fresh scope (§A.7).
@@ -1256,6 +1355,7 @@ class JobExecutionEngine:
             parent_scope=parent_scope,
             request=request,
             run_id=run_id,
+            method_name=method_name,
         )
 
         declaration = getattr(function, "__functualize_workflow__", None)
@@ -1322,7 +1422,8 @@ class JobExecutionEngine:
         if RunContext not in (context.capabilities or {}):
             if context.capabilities is None:
                 context.capabilities = {}
-            job_config = self._make_config_view(job_name)
+            section, scope = self._config_section(job_name, method_name)
+            job_config = self._make_config_view(section, scope=scope)
             rc = RunContext(
                 name=job_name,
                 config=job_config,
@@ -1397,6 +1498,28 @@ class JobExecutionEngine:
         # Inject `FromJob` values after the upstreams have run, before the
         # pre-flight decision — a guard may be a callable reading one.
         self._inject_from_job(job_name, function, context, workflow_scope_id)
+
+        from functualize._engine.walk_reads import inject_from_step, step_records
+        from functualize._types.errors import FromStepUnavailableError
+        from functualize._types.from_job import from_step_refs
+
+        if from_step_refs(function):
+            records = (
+                step_records(self._runtime_store, workflow_scope_id)
+                if workflow_scope_id is not None
+                else {}
+            )
+            live = (
+                self._live_step_values.get(workflow_scope_id, {})
+                if workflow_scope_id is not None
+                else {}
+            )
+            try:
+                inject_from_step(
+                    job_name, function, context, workflow_scope_id, records, live
+                )
+            except FromStepUnavailableError as error:
+                return self._failure_before_execution(context, job_name, error)
 
         # Pre-flight (§D.2/§D.3): guards and file staleness decide whether the
         # body runs at all. Placed after config resolution because a guard may
@@ -1717,7 +1840,10 @@ class JobExecutionEngine:
                 from functualize._engine.capabilities.runcontext import RunContext
 
                 # Build a config view using the injected factory
-                job_config = self._make_config_view(context.job_name)
+                section, scope = self._config_section(
+                    context.job_name, context.method_name
+                )
+                job_config = self._make_config_view(section, scope=scope)
 
                 rc = RunContext(
                     name=context.job_name,
@@ -1844,7 +1970,8 @@ class JobExecutionEngine:
         # than statically: the config-view class is discovered at boot, so it
         # cannot be a key in a registry written at import time.
         if self._config_view_type is not None and type_ is self._config_view_type:
-            return self._make_config_view(context.job_name)
+            section, scope = self._config_section(context.job_name, context.method_name)
+            return self._make_config_view(section, scope=scope)
 
         spec = SPEC_BY_TYPE.get(type_)
         if spec is None or spec.factory is None:
@@ -1929,7 +2056,7 @@ class JobExecutionEngine:
 
     def _resolve_shell_program(self) -> str | None:
         """Resolve ``[shell] program`` from config (None → platform default)."""
-        return self._resolve_shell_setting("program")
+        return self._resolve_shell_setting(SHELL_PROGRAM.key)
 
     def _resolve_sudo_password(self) -> Any:
         """Resolve ``[shell] sudo_password`` as a ``Secret`` (§B.4/§B.6).
@@ -1937,7 +2064,7 @@ class JobExecutionEngine:
         Wrapped so it masks in any echo and is redacted from command displays;
         None when unset (``sh.sudo`` then requires an explicit ``password=``).
         """
-        value = self._resolve_shell_setting("sudo_password")
+        value = self._resolve_shell_setting(SHELL_SUDO_PASSWORD.key)
         if value is None:
             return None
         from functualize._types.redaction import Secret
@@ -2009,11 +2136,15 @@ class JobExecutionEngine:
 
     def _resolve_shell_setting(self, key: str) -> str | None:
         """Resolve a non-empty string from the ``[shell]`` config section."""
+        resolver = getattr(self, "_settings_resolver", None)
+        if resolver is not None:
+            value = resolver(f"{SHELL_PROGRAM.section}.{key}")
+            return value if isinstance(value, str) and value.strip() else None
         chain = self._live_resolution_chain()
         if chain is None:
             return None
         try:
-            resolved = chain.resolve(key, "shell")
+            resolved = chain.resolve(key, SHELL_PROGRAM.section)
         except Exception:
             return None
         value = getattr(resolved, "value", None)
@@ -2148,37 +2279,35 @@ class JobExecutionEngine:
             return None
 
         from functualize._primitives.fingerprint import reusable_return_value
+        from functualize._primitives.walk_reads import NotCarriable, Recorded, read_node
 
         if scope_id is not None:
             # Inside a walk the value is the walk's own step record, read
             # through the port (ruling R-3) and handed over in the record shape
             # `reusable_return_value` reads.
-            for step in self._runtime_store.workflows.steps(scope_id):
-                if step.step_key.split("::", 1)[0] == ref.name:
-                    record = {
-                        "status": step.status,
-                        "return_value": step.result,
-                        "return_value_reusable": step.reusable,
-                        "return_value_kind": step.result_kind,
-                        "return_value_type": step.result_type,
-                    }
-                    value = reusable_return_value(
-                        record, job_name=ref.name, expected_type=expected_type
+            from functualize._engine.walk_reads import step_records
+
+            records = step_records(self._runtime_store, scope_id)
+            for key, record in records.items():
+                if key.split("::", 1)[0] != ref.name:
+                    continue
+                if record.get("return_value_kind") == "missing_recovery_value":
+                    raise ValueError(
+                        f"effecting step {ref.name!r} was confirmed ran without a return value"
                     )
-                    if value is not None:
-                        return value
-                    # Resolved 19b: the record exists but its value could not
-                    # be carried. Inside a walk, re-running is not the remedy —
-                    # the step already ran in this scope, and running it again
-                    # would execute outside the walk's ordering and defeat the
-                    # memoization the walk exists to provide. Fall back to the
-                    # live in-process value the walk still holds.
-                    #
-                    # The order is deliberately record-first. Live-first would
-                    # leave the store path exercised only on resume, and a
-                    # second path reached only in a rare case is exactly how
-                    # the warm-boot divergences happened.
-                    return self._live_step_value(scope_id, ref.name)
+                break
+            result = read_node(records, ref.name, expected_type)
+            if isinstance(result, Recorded) and result.value is not None:
+                return result.value
+            if isinstance(result, (Recorded, NotCarriable)):
+                # Preserve FromJob's live fallback for an uncarriable or None
+                # result. A missing record still falls through to fingerprints.
+                return self._live_step_value(scope_id, ref.name)
+            if any(key.split("::", 1)[0] == ref.name for key in records):
+                # A matching failed record was already part of this walk.
+                # FromJob previously stopped here; falling through would read
+                # an older fingerprint from another run.
+                return self._live_step_value(scope_id, ref.name)
 
         for method in ("checksum", "timestamp", "none"):
             record = store.get_fingerprint(
@@ -2314,12 +2443,34 @@ class JobExecutionEngine:
     ) -> tuple[tuple[str, Any], ...]:
         """The ``(param_name, class)`` pairs of a function's GroupOptions params.
 
-        Cached by ``id(function)`` like the resolution plan, and for the same
-        reason: this runs on every execution, and ``get_type_hints`` on a job
-        that declares none is pure overhead. Materialization swaps the entry to
-        the real function before any introspection, so the key is stable.
+        Cached like the resolution plan, and for the same reason: this runs on
+        every execution, and ``get_type_hints`` on a job that declares none is
+        pure overhead.
+
+        The key is the identity of a callable that outlives the run. For a
+        function job that is ``function`` itself — materialization swaps the
+        entry to the real function before any introspection. A class job's run
+        rebinds ``context.function`` to a fresh ``functools.partial`` every
+        time, so keying on *that* filed one entry per run under the id of a
+        temporary, and a recycled id could hand back another job's pairs. The
+        partial's ``func`` is the method as the class holds it, which is stable,
+        so that is the key. Two stable keys still exist for one class job — the
+        registered proxy (read by ``_resolve_group_options``) and the method
+        (read through the partial by the freshness key) — which costs one extra
+        introspection per method per process, not a wrong answer.
         """
-        func_id = id(function)
+        # A class job's rebind replaces `context.function` with a
+        # `functools.partial`, and the freshness hash reads this through it.
+        # `inspect.signature` follows a partial to its `func` and drops the
+        # receiver it pre-bound, but `get_type_hints` does not — it answers
+        # `{}`, so a PEP 563 annotation would go unresolved and a
+        # `GroupOptions` parameter would silently vanish from the args hash.
+        # `resolved_hints` deliberately swallows that failure, so nothing else
+        # would notice. The same subject is the cache key, for the reason above.
+        hints_subject = (
+            function.func if isinstance(function, functools.partial) else function
+        )
+        func_id = id(hints_subject)
         cached = self._group_options_cache.get(func_id)
         if cached is not None:
             return cached
@@ -2329,7 +2480,7 @@ class JobExecutionEngine:
         )
 
         sig = inspect.signature(function)
-        hints = resolved_hints(function)
+        hints = resolved_hints(hints_subject)
         found: list[tuple[str, Any]] = []
         for param_name, param in sig.parameters.items():
             annotation = hints.get(param_name, param.annotation)
@@ -2568,8 +2719,11 @@ class JobExecutionEngine:
 
         rc = context.capabilities.get(RunContext) if context.capabilities else None
 
-        # Build a config view using the injected factory
-        config_view = self._make_config_view(job_name)
+        # Build a config view using the injected factory. A class job's
+        # section is its group's, not its method job name — see
+        # `_config_section`.
+        section, scope = self._config_section(job_name, context.method_name)
+        config_view = self._make_config_view(section, scope=scope)
 
         # Extract CLI values from call_kwargs that match config fields
         cli_values: dict[str, Any] = {}
@@ -2587,14 +2741,14 @@ class JobExecutionEngine:
             if self._config_resolver is not None:
                 return self._config_resolver(
                     config_class=config_class,
-                    job_name=job_name,
+                    job_name=section,
                     config_view=config_view,
                     cli_values=values,
                 )
             return config_class(**values)
 
         config_instance = self._resolve_with_prompt(
-            _resolve, config_class, job_name, cli_values
+            _resolve, config_class, section, cli_values
         )
 
         # Set on RunContext's job_config
@@ -2630,6 +2784,19 @@ class JobExecutionEngine:
                 context.call_kwargs[param_name] = config_instance
                 context.injected.add(param_name)
                 break
+
+        if context.method_name is not None:
+            # F1 "instance per run": the instance `_config` just built from the
+            # resolved values *is* the receiver. Rebinding here — the only
+            # place that holds both the instance and the function — is what
+            # keeps the engine from growing a second lifecycle for jobs that
+            # happen to be methods. The local `function` in
+            # `_execute_lifecycle` stays the proxy, which is what its argument
+            # validation and group-option resolution must read; only the
+            # callable that actually runs is rebound.
+            context.function = functools.partial(
+                getattr(context.config_class, context.method_name), config_instance
+            )
 
     def _execute_with_lifecycle(self, context: ExecutionContext) -> JobResult:
         """Execute a job with hooks, middleware, and instrumentation.

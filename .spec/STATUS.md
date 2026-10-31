@@ -2,6 +2,20 @@
 
 Functualize is pre-release (Alpha). Breaking changes are free until v1.0.0.
 
+## Scope-targeted walk-log append
+
+The walker's `workflow.*` bus events carry the generation it holds. The
+walk-log subscriber passes the scope and generation to `EventWriter.append`
+without an empty state write, and the stored payload keeps neither routing
+field. Both runtime stores fence a positive generation at the append: the
+document store checks under its held scope mutation, and SQLite checks before
+staging and predicates the `INSERT` so a takeover before commit lands no row.
+Generation 0 remains the unfenced default for hand-built events; inferred
+routing for append calls naming no scope remains available. The durable
+contract is in ADR-033 and the persistence data-model reference. Conformance
+tests cover stale, current-holder, and generation-0 appends on both stores;
+the SQLite writer suite covers the commit race.
+
 ## Credential plugins and the portable bundle
 
 The next release publishes all fourteen built distributions, including
@@ -608,6 +622,112 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### Unknown settings keys are reported, from one declaration — delivered on PR #130, two criteria with the maintainer
+
+**What a user sees.** A key in a settings document that no setting declares is
+named where configuration is inspected, and is never fatal.
+`func builtin config path` lists exactly the layers resolution uses: the upward
+walk stopped by `root = true`, plus the expected locations that are not layers,
+global first, nearest project file last. Each line carries `✓ used` (supplies a
+value in effect), `○ found` (exists, supplies none) or `✗ missing`. A file with
+unknown keys gets ` — unknown key "roots" (did you mean "root"?); unknown key
+"cli.outptu" (did you mean "cli.output"?)`. `func builtin info --json` always
+carries `config.unknown_keys` as `{file, key, suggestion}` records, `[]` when
+clean. Exit codes do not change, nothing is printed on an ordinary run, and a
+warm `func <job>` never imports the check. The global file's old per-run warning
+is gone. There is no `config check` command; `config path` and `info` are the
+two surfaces. Recorded in
+[ADR-042](../contributor/adr/042-an-unknown-settings-key-is-reported-never-fatal.md).
+
+**The rule underneath** ([ADR-041](../contributor/adr/041-a-setting-is-declared-once.md)).
+Every setting is declared once, as a `Setting` in `FUNCTUALIZE_SETTINGS`. An app
+adds its own through `extend()`, which refuses a name already declared. One
+layer list and one resolver produce a frozen `ResolvedSettings` snapshot with
+provenance. The CLI before boot, the app, the engine, the TUI and the builtins
+all read that snapshot. There is no process registry and no import-time
+registration. The job `ResolutionChain` resolves no declared settings section.
+
+**Reserved settings-section names.** A word that names a declared settings
+section (`aliases`, `cli`, `discovery`, `plugins`, `shell`, `tui`, `vault`)
+is reported when it is also used for something else. Both cases use the
+existing discovery-failure channel, with `error_type` `ReservedSectionName`
+(`RESERVED_SECTION_NAME`, `_types/discovery_report.py`), and both are advisory.
+
+- *A job or group named after a section.* `func builtin info --json` lists the
+  finding in `discovery_failures`, naming the address, the section and the
+  source file. A dotted group is reported on its reserved segment. The job
+  **still registers and runs**: the finding only says that a `[shell]` table
+  is read as settings and never reaches that job's configuration
+  (`_discovery/collisions.py`, `reserved_section_name`).
+- *A settings table inside a job config file.* A top-level table named like a
+  section in `config.*.toml`, such as `[shell] program = …` in
+  `config.base.toml`, is reported with the file and the document it belongs
+  in: `.functualize.toml [shell]`, or `[tool.functualize]` in
+  `pyproject.toml`. The finding appears in `discovery_failures` and as a
+  `Discovery failure:` line under `func builtin config path`. The table
+  **still merges** into the job chain exactly as before
+  (`_config/sources.py`, `_report_reserved_section_tables`;
+  `reserved_section_table`).
+
+`tests/discovery/test_reserved_section_names.py` pins both cases, including
+the still-registers and still-merges halves.
+
+**Rules that outlive the feature:**
+
+- A new setting is a declaration edit, never a string read elsewhere. The
+  check, the generated root flags, the pre-boot early-flag scan, `config show`,
+  the TUI settings panel and the docs reference all derive from the
+  declaration.
+- A settings-backed root flag exists because its setting declares `cli_flag`.
+  `func` and an embedded app generate the same options from their own schema.
+  `phase="early"` flags are read before boot by the public
+  `functualize.app.adapters.early_setting_flags(schema, argv)` and enter the
+  first snapshot as its flag layer.
+- Each setting has exactly one environment name, `AppSettingsSchema.env_var_for`.
+
+**Ratchet state at the closing push.** `tests/spec/test_settings_ratchet.py`
+guards:
+- AC12 (no collection literal repeating declared names outside the
+  declaration, `test_declared_names_are_not_repeated_as_collection_literals`);
+- AC18 (no job-chain read of a declared section, no second settings-file
+  reader);
+- AC20 (no process registry);
+- AC22 (one schema source for generated flags);
+- AC30 (one owner of the surface vocabulary);
+- AC31 (the nine retained public→`_cli` delivery imports, pinned).
+
+`tests/config/test_settings_pin.py` pins the declared vocabulary and resolved
+values. **AC13 has no ratchet:** zero config-key string literals in read
+position outside the declaration and the resolver. Its read-position definition
+is with the maintainer. The gate-1 review counted 36 such literals still
+present at `413679fa`.
+
+**Known limitation — AC5 is with the maintainer.** At `8f979601`,
+`[plugins] disabled` and `[discovery] jobs_directories` are reported as
+unknown, though AC5 calls both known and the runtime honours them. The second
+also gets the suggestion `discovery.extra_directories`. Both are declaration
+gaps. The check reports them faithfully.
+
+**Task graph, terminal state.** `tasks.md` Revision 8, waves 0–9: every row
+complete except 8.1 (Ratchets), which stays open on AC13 alone. Row 9.2 was
+added late: the doc-verify scenario for the hosting guide still asserted the
+retired PEP 723 `skill` key, because neither the page nor the scenario was in
+any row's file list.
+
+**Owned elsewhere.** `JobExecutionEngine` and `FunctualizeInlineTUI` are each
+over the constitution's ~500-line limit. They were **maintainer-accepted for
+this merge only**, with PR 2 named as the owner. PR 2 on this branch line
+decomposes both classes, the long functions in the files this feature edited,
+and the nine delivery imports. It starts after PR #130 merges, with its
+own architecture pass. The advisory dead-code delta leaves
+`func_settings.tui_settings` and `FuncSettingsStore.set_cli_override` reachable
+only from tests.
+
+The full feature record (spec, contracts, plan, tasks) is gone from PR #130's
+head, which is past the clearing commit. It stays recoverable at
+`fe1eae887f50`, the commit before the clearing:
+`git fetch origin refs/pull/130/head && git show fe1eae887f50:.spec/features/config-unknown-keys/spec.md`.
+
 ### Lease heartbeat — implemented, review pending
 
 A claimed workflow walk renews its 300-second lease once when it starts, before
@@ -633,20 +753,30 @@ operator-facing account is in `docs/cli/workflow.md`; the two-walker and
 cleanup proofs are in `tests/engine/test_walk_claims_through_the_port.py` and
 `tests/engine/test_timeout_is_lease_expiry.py`.
 
-### Gate resolution requests — behavior delivered, durable evidence open
+### Gate interactions, evidence, and the transactional outbox — delivered
 
-AC-1 and AC-2 are delivered on `feat/gate-resolution-model`: a gate request has
-a minted `request_id` stable across resume, and candidates carry their ordinal,
-source, and evaluation recorded at submission. The read projection returns
-those verdicts without recomputing them. The storage location is
-**`TRANSITIONAL(FUN-21)`**: the document backend still stores requests and
-candidates inside each gate record in `scopes.json`.
+Delivered on `feat/gate-interactions-outbox` (ADR-034): a gate request and its
+candidates are first-class rows with causal run/workflow/step/generation
+identity; every candidate carries resolver class and channel, schema identity
+and version, payload hash, supersession and evidence by reference plus digest
+(`EvidenceRef`, no bytes in any runtime row); every acceptance records one
+`GateDecision` naming the policy identity and version and the exact candidate
+ids it observed; and on a store whose profile declares `durable_outbox=True`
+the acceptance and its `gate.accepted` effect intent commit in **one**
+transaction, delivered **at least once** with consumer dedup on
+`gate.accepted:<request_id>` — claimed under a lease, redelivered after a lost
+acknowledgement, recovered by the next boot (proven against a real `os._exit`
+in `tests/workflow/test_gate_outbox_recovery.py`).
 
-**AC-3 remains open**, pending FUN-18's tables and legal transitions, FUN-19's
-durable provider, and FUN-21's interaction/evidence slice and answer-surface
-migration. Interaction evidence is not yet durable and readable independently
-of the scope document. The **FUN-4 issue must not close** until AC-3 is
-delivered, even if this parallel branch merges first.
+The answer surfaces (`answer`, `resume`, `--wf-input`, the MCP gate tools)
+address the **selected** store through `selected_workflow_store`; on SQLite
+nothing reads `scopes.json`, and the document backend serves the same one
+answer path through its own record seam. `Notify` keeps its record-first,
+at-most-once rule and is documented as deliberately not the outbox.
+
+AC-3 of FUN-4 is satisfied by this slice: interaction evidence is durable and
+readable independently of the scope document. The legacy
+`_record_port_input` path is removed.
 
 The maintainer approved D-1 through D-5 as Option A:
 
@@ -914,6 +1044,134 @@ validated and read by nothing — the worst of the three states, because a user
 who wrote it got neither an error nor an expansion.
 
 ## Completed
+
+### Run tags label every run, are fixed when it opens, and filter the run log (2026-10-29, `sdd/run-tags`)
+
+**The decision worth keeping.** *A run tag is an observation about one run,
+never an input to it.* A `key:value` label comes from the user's global config
+(`[run] tags`), `FUNCTUALIZE_RUN_TAGS` or the repeatable global `--run-tag`,
+merged per key with the later source winning, and completed **before boot** —
+a malformed or in-source-duplicated tag is a `RunTagError`, exit 2, before any
+job module is imported. The map rides on `RunRequest.run_tags`, is copied
+unchanged to every child run, and is written onto the run record when the run
+opens. It is not in the request hash or `args_hash`, and it never reaches the
+job's arguments, `RunContext`, return value or exit code. Every run row (`run
+list`, `run show`, `--format json`, the MCP run tools) carries `run_tags`, and
+`run list --tag KEY:VALUE` keeps a run only when every given pair matches
+exactly. The SQLite store gains schema revision **5**, a `run_tags` table. The
+surfaces: `_cli/run_tags.py` (the one grammar), `_cli/main.py` (the pre-boot
+merge, the read of `[run] tags` off the global layer, and the forward to every
+run-building door), `_types/run_request.py`, the request builders,
+`_engine/executor.py` (the record), both stores, `app/_run_view.py` (the
+projection and filter) and `_cli/builtins/_run.py` (`--tag`, the table and `run
+show`). Rationale in
+[ADR-040](../contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md).
+
+**Rules that outlive the feature:**
+
+- **No tag is parsed after boot.** The merge runs right after the pre-boot
+  global options are extracted and before discovery; a new door that builds a
+  run must take the merged map from `main()`, as `force` does, including the
+  UNKNOWN fallback — a cold discovery cache otherwise drops it silently.
+- **Tags never change what a run computes.** Keep them out of `args_hash`,
+  the request hash, job kwargs and `RunContext`; a tagged and an untagged
+  invocation must share a cache entry.
+- **A run's tags are fixed when it opens.** Nothing rewrites them; a record
+  without the key reads as `{}` and is never rewritten to add it. On SQLite,
+  `start_attempt` must stage the tag rows before attempt 1, because the
+  revision-5 triggers refuse a tag insert once the run has an attempt, and
+  refuse any update or a delete while the run exists.
+- **A tag filter is exact, conjunctive, and runs before the limit**, on both
+  stores and in the projection; the conformance BASELINE's
+  `run_tags_round_trip` holds every store to it.
+- **`run show` keeps untagged text output unchanged.** A nonempty tag map is
+  printed after `parent_run_id` when that field is present; an empty map has
+  no tag line. This follows the external run-view contract. The archived
+  implementation task's instruction to print `run_tags: -` was inconsistent
+  with that contract and is superseded here.
+- **Only the `func` CLI accepts tags.** HTTP, Lambda and MCP take no tag input
+  and the TUI starts untagged runs; a job's declared `@job(tags=[...])` is a
+  separate vocabulary that `--tag` never matches.
+
+**Known limitations.** The engine mirrors run starts and terminal attempts
+from the run log to a selected relational runtime store using the same run id;
+the document runtime store already shares the log and needs no second write.
+`run_tags_lookup` does not serve `recent()`'s correlated probe (the primary
+key does), and the document-to-SQLite importer does not copy tags.
+
+Pinned by `tests/cli/test_run_tags.py` (the grammar), `tests/cli/test_run_tags_pre_boot.py`
+and `tests/cli/test_run_tags_layers.py` (merge, refusals, every door),
+`tests/engine/test_nested_delivery_inputs.py` and
+`tests/engine/test_run_record_run_tags.py` (inheritance, the record, the
+cache), `tests/integration/test_run_view.py` (projection and filter),
+`tests/cli/test_builtin_commands_read_the_installed_substrate.py` (`--tag`,
+`run show`), `tests/plugins/test_mcp_workflow_tools.py`, the SQLite plugin's
+`test_migrations.py`, `test_run_sql.py` and `test_readers.py`, and
+`tests/conformance/test_baseline.py` over both stores.
+
+### An interrupted effecting step stops in doubt, never re-run without a decision (2026-10-20, `sdd/effecting-step-recovery`)
+
+**The decision worth keeping.** *A `Step(effecting=True)` whose runner died
+mid-run is never re-run on the resume's own authority.* Before the job is
+handed control, the walk commits an `attempting` record through the scope
+transaction — the attempt number, the start time, `effecting: true`. Every
+ending replaces it (`success`, `failed`, `cancelled`, a routed failure, a
+fingerprint skip; a `BLOCKED` ending is an ending, not doubt). A resume that
+finds `attempting` cannot know whether the effect happened, so it refuses to
+guess: it records `in_doubt`, stops the scope `blocked` on the derived
+recovery gate `<step>-in-doubt` — the reason beginning `in_doubt:` and naming
+the step, the attempt and the start time — and runs nothing downstream until
+the gate is answered. The delivery boundary, stated honestly: attempts are
+**at least once** (the effect may have happened before the crash), and
+execution becomes **exactly-once only through the recorded decision**. Nothing
+observes an effect from outside the store — any write after the effect can be
+lost in the same crash — so the engine records the one fact it can know, that
+control was handed to the job, and asks when that fact is not enough.
+
+**Rules that outlive the feature:**
+
+- **The attempt precedes the job, in the same durable channel.**
+  `EffectRecovery.begin` writes `attempting` through the walk's scope
+  transaction before the job callback runs; there is no window where the job
+  holds control without a recorded attempt.
+- **Nobody answers by default.** The recovery gate's answer is
+  `{"outcome": "ran" | "did_not_run"}` with an optional `value`, and
+  `outcome` has no default. The gate is never answered by the config chain
+  (`resolve`), an AI strategy, a decision provider, a cancelled or empty
+  prompt, or a timeout — it has none. Ctrl+C and no-TTY leave it pending.
+- **The verdict is binding and per-doubt.** `ran` completes the step without
+  calling the job; without a `value` the return is marked not reusable, so a
+  downstream `FromJob`/`FromStep` on the step fails loudly instead of reading
+  an invented value. `did_not_run` discards the attempt and runs attempt
+  *n+1* — a repeat by explicit choice, the only way the at-least-once
+  delivery shows as one. An answer is keyed to its `(attempt, iteration)`;
+  after `did_not_run`, a second crash asks again and never replays the first
+  answer.
+- **A raise is the job's own account.** Failure routing is unchanged: an
+  effecting job that raises after its effect happened must say so itself.
+  Doubt is for interruptions, not raises.
+- **Pure steps pay nothing.** A step that declares nothing records no attempt
+  and replays exactly as before; a workflow with no effecting step digests
+  byte-for-byte as before. Declaring the flag changes the shape and the graph
+  digest (the flag plus the recovery gate), so a scope parked under the old
+  digest is refused once with the existing graph-changed error — the pre-1.0
+  stance. `effecting=True` on a step whose job is itself a workflow is
+  refused at boot validation, and a declared node named `<step>-in-doubt` is
+  refused at declaration time.
+
+**Known limitation.** `Notify(on="blocked")` is keyed per declaration and
+scope, so an earlier blocked stop may swallow the notification for a later
+in-doubt stop in the same scope. The stop is not hidden: `status` and
+`blocked_reason` still expose it.
+
+Pinned by `tests/workflow/test_effecting_recovery.py` (the attempt, the
+verdict, per-pass doubt, the no-strategy refusal) and the real-`SIGKILL` suite
+in `tests/integration/test_crash_and_resume.py` (kill inside the effect before
+the step returns; a killed effect never enters again without a verdict; a kill
+in child work stops the effecting parent at doubt). Recorded in
+[ADR-035](../contributor/adr/035-an-interrupted-effecting-step-stops-in-doubt.md).
+The full feature record (spec, contracts, research, plan, tasks) stays
+recoverable from the branch history at `ab69419a^` (PR #120).
 
 ### The freshness key counts resolved group options (2026-10-14, `fix/freshness-key-group-options`)
 
@@ -2328,7 +2586,12 @@ Items identified during development that are worth doing but not yet designed:
     a success nor an error, and that is the case the mapping has to name rather
     than round off.
 
-22. **AMENDED (2026-09-06) — the cause is a product defect, and it is proven.**
+22. **RESOLVED — the direct-run surface reads the declared setting.**
+    `tui.default_surface` now comes from the app's resolved settings snapshot,
+    independently of whether the TUI package was imported. The standalone
+    surface-gate test and the root-stop fixture pin the result. The original
+    finding follows for history.
+
     `tui.default_surface` is **not** in `_BASE_SETTINGS`; the shell registers it
     as an import side effect of `_cli/tui/__init__.py:88`, and a direct
     `func <job>` run under true-lazy boot never imports that package. So
@@ -2534,7 +2797,11 @@ Items identified during development that are worth doing but not yet designed:
     cost about a minute, not ten — only the `cargo` build beyond it is
     expensive, and the fix does not reach it.
 
-29. **`[tool.functualize] skill` is accepted, validated, and read by nothing.**
+29. **RESOLVED — removed, no consumer arrived.** The PEP 723 parser rejects
+    `[tool.functualize] skill` as unknown and keeps `job`. The former
+    accepted-but-unused behaviour follows for history.
+
+    `[tool.functualize] skill` was accepted, validated, and read by nothing.
     Shipped knowingly by `third-party-host-seams`/1.2, and recorded here
     because that task required it to be — this is the fourth member of a class
     this file already calls *"the worst of the three states"*.
@@ -2852,6 +3119,12 @@ Items identified during development that are worth doing but not yet designed:
 
     Close this by adding that per-scan memo, or by deciding the cold-boot cost
     is acceptable and saying so.
+
+## Recently Completed (2026-10)
+
+| Feature | Description |
+|---------|-------------|
+| class-based-jobs | `sdd/class-based-jobs`: **a job class's public methods are its jobs.** `@job` on a `pydantic.BaseModel` subclass makes each public instance method one job, `<group>.<method>`, discovered from a job directory, a `functualize.jobs` entry point naming the class, or a `StaticProvider` item — the hand-written binding plugin the subjects guide used to show is no longer needed. The decisions a later change must keep: the opt-in is the class's **own** `@job` and is not inherited, so every concrete class names its own group; an abstract class is never a job class, and an abstract class carrying `@job` is a discovery finding naming its unimplemented methods; methods are read along the MRO and the **nearest definition decides**, so an override that is a `property`/`staticmethod`/`classmethod` removes the inherited method and nothing else; the class's fields resolve the `GroupOptions` way — `[pg]`, `PG__HOST`, one vault entry `--group pg --field password` — not the way a function job's config model does (`[pg.start]`), and `builtin env`/`info --job` read the section the run reads; any name with a class-method claimant is refused to **every** claimant, inside one scan and across providers alike (exit `2`, both definitions and their real files named, the rest of the project runs), while plain-function collisions keep their survivor rule; a second `@job` on one target is a `ValueError`; `JOB_TAGS: ClassVar[tuple[str, ...]]` contributes tags without opting in. No invocation input was added: a class job runs as `func <group> <method>`, `Invoke` or `app.execute`, and records carry nothing new. The admission pre-filter also admits a public class carrying a `job` decorator, so a class whose methods are all inherited is imported; an entry point whose module source cannot be read keeps its lazy descriptor and reports a class at first use — the one accepted limitation. Cache format version 25. Guide `docs/guides/job-classes.md`; decision record [ADR-039](../contributor/adr/039-class-based-jobs.md). |
 
 ## Recently Completed (2026-09)
 
@@ -3863,6 +4136,11 @@ bare `func`, `builtin info schema`, and `func <namespace>`. Pinned by
 `tests/cli/test_help_surface_pinned.py`; a change that adds a row there is
 contradicting a decision, not fixing an oversight.
 
+*Superseded 2026-10-20.* The `job-name-command-path` decision below replaces
+this one: `func --help` is now an inventory of the top-level nodes of the one
+command tree, and the same test file pins that instead. The paragraph above is
+kept for the reason the decision was originally taken, not as current behavior.
+
 **Plugin kinds are derived from the entry-point group, never enumerated.**
 `functualize.plugins` → adapter, `functualize.domains` → domain,
 `functualize.*_providers` → implementation. Domains declare new provider groups
@@ -4017,3 +4295,80 @@ asset still fails as "not listed".
 
 The rejected one-sided and generalised alternatives, with their reasons, are
 ADR-015's **Addendum (2026-10-14)** and its Alternatives Considered rows.
+
+## job-name-command-path — completed 2026-10-20
+
+Human shell surfaces render a discovered job as a space-separated command
+path. The shared path derivation also builds the group trie, so CLI suggestions,
+usage, root help, bare listings, resume hints, and TUI navigation agree. A
+suggested or selected command is executable as printed on both CLI doors.
+Programmatic names and persisted identities remain dotted. A dotted token
+that walks group edges is refused with a spaced-path hint; a literal dot in
+one leaf remains valid. Group options keep their position in the path.
+
+The TUI builds job navigation even without GroupOptions and scopes children
+to the selected depth. Collision diagnostics name the deterministic winner
+and both claimant source paths across invocation, help, info, TUI, and
+pre-flight surfaces. The legacy discovery-failure JSON keeps its original
+keys, while typed collision details remain available for human projections.
+The source ratchet rejects hand-written job-name dot-to-space conversions
+outside the shared naming rule.
+
+Two existing code-shape compromises remain: collision projection draws data
+from discovery in `_cli/info.py::discovery_failures`, and group dispatch in
+`_cli/main.py::_dispatch_group` remains long. New behavior stays in helpers;
+neither requires a new layer dependency.
+
+### Child namespaces with declared groups
+
+When a child prefixes a dotted job identity but retains its own declared
+`JOB_GROUP`, the rightmost complete group occurrence separates the child
+namespace from the leaf. `kid.ops.tool` with group `ops` is invoked as
+`kid ops tool`. The suffix after the group remains one leaf token, so a
+literal dot there is preserved. An ungrouped dotted identity stays one token
+because its dots alone cannot distinguish a namespace from a literal leaf.
+Identity, JSON, and programmatic lookup retain the dotted form. The app-door
+fallback prints the actual invoked program before the command path.
+
+### App-door child group path gate
+
+A child project's job keeps its declared group and gains the child prefix, so
+`kid.ops.tool` is reachable as `parent kid ops tool` at the app door. At the
+reviewed head before the fix, the new test failed with the hint
+`ops kid.ops.tool`; it now passes for eager and lazy children, and a job
+discovered after the Click tree was built takes the fallback wire, which names
+the actual invoked program (`launcher`) rather than the app name. Both wires are
+load-bearing: breaking the namespace-path wire or the program-name wire each
+turned both parameterizations red. The gate is
+`tests/cli/test_command_path_surface.py::test_app_door_child_group_hint_runs_as_printed`;
+the focused set around it passed (133 passed, 20 skipped) with Ruff, format,
+mypy and all seven import contracts green.
+
+### Measured at the base
+
+`91947bb4` is the fail-first record, measured in a fresh project with a fresh
+home and all three XDG roots. `func suite.inventori` exited 1 and suggested
+`func suite.inventory` — the dotted identity, not a line anyone can paste —
+while `func suite.inventory` exited 0, so one dotted token still walked the
+group edge that a spaced path should own. `func suite inventory --help` printed
+`Usage: inventory [OPTIONS]` with neither the program nor the group segment. A
+`status` / `status_` pair in one group ran the underscore claimant with no
+collision on invocation, group help or `builtin info jobs`, and `--json`
+carried no collision field. The TUI offered flat `audit.explain` and
+`audit.notes` without `GroupOptions`, and root `func --help` listed only
+`builtin`.
+
+That last measurement is the delivered reversal: the approved shape intent's
+command inventory supersedes the deliberate `func --help` decision recorded
+under `plugin-visibility-and-catalog`, so `tests/cli/test_help_surface_pinned.py`
+pins the inventory — rows are the top-level nodes of the one command tree —
+instead of that decision. The winning claimant is ordered by source path and
+Python name, never by discovery order, which is why cold and warm discovery
+agree on it.
+
+The whole-feature gate covering those cases passed (2283 passed, 389 skipped),
+as did the standalone group-options example (18 tests), Ruff check and format,
+mypy, and all seven import contracts; the dead-code delta reported no new
+findings.
+
+Checked invocation and captured child output are recorded in [ADR-036](../contributor/adr/036-checked-invocation-and-capture.md).

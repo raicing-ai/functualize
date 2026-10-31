@@ -33,14 +33,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from functualize._types.gate_resolution import GateCandidate
+    from functualize._types.gate_resolution import GateCandidate, GateDecision
     from functualize._types.protocols import StoreSubstrate
 
 __all__ = [
@@ -58,6 +58,8 @@ __all__ = [
     "SuspendAtGate",
     "ResumeWorkflow",
     "ConsumeInput",
+    "SupersedeRequest",
+    "EffectIntent",
     "CancelWorkflow",
     "StateBatch",
     "StartAttempt",
@@ -77,6 +79,7 @@ __all__ = [
     "RunTree",
     "RunQuery",
     "WorkflowQuery",
+    "EffectView",
     # Ports — writers, then readers
     "RunWriter",
     "WorkflowWriter",
@@ -89,6 +92,10 @@ __all__ = [
     # The store and its transaction
     "RuntimeStore",
     "RuntimeTransaction",
+    # The outbox, outside any transaction
+    "EffectQueue",
+    "OutboxStore",
+    "EffectReceiver",
     # Selection
     "RuntimeStoreConfig",
     "PreparedStore",
@@ -241,6 +248,10 @@ class CompleteStep:
     #: Whether the step was declared to affect the outside world, recorded on
     #: the step rather than looked up from a possibly-changed declaration.
     effecting: bool = False
+    #: Which attempt this was — an effecting step's attempts are numbered from 1.
+    attempt: int = 0
+    #: When this attempt began — the recovery question names it.
+    started_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -287,6 +298,10 @@ class RecordStep:
     result_type: str | None = None
     inputs: Mapping[str, Any] | None = None
     effecting: bool = False
+    #: Which attempt this was — an effecting step's attempts are numbered from 1.
+    attempt: int = 0
+    #: When this attempt began — the recovery question names it.
+    started_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -352,6 +367,11 @@ class SuspendAtGate:
     #: The gate's bound tool specs — names, never values.
     tools: tuple[Mapping[str, Any], ...] = ()
     scope_status: str = "blocked"
+    #: The run executing when the gate opened — the causal run of every
+    #: answer to this request. ``None`` when no run was recorded.
+    run_id: str | None = None
+    #: A consumed request this one replaces — one answer must not settle a later doubt.
+    supersedes: str | None = None
 
 
 @dataclass(frozen=True)
@@ -372,6 +392,45 @@ class ConsumeInput:
     generation: int
     request_id: str
     now: datetime
+
+
+@dataclass(frozen=True)
+class SupersedeRequest:
+    """Withdraw an accepted answer and reopen its gate under a new request.
+
+    Reopen through the port. The accepted request moves to ``cancelled``
+    (member decision D-4: ``accepted → cancelled`` is legal exactly here) and
+    keeps every candidate it recorded; a new ``open`` request at the same
+    generation takes the gate. Refused unless ``request_id`` is the gate's
+    accepted, unconsumed request — an answer the walk has already used
+    cannot be withdrawn underneath it.
+
+    ``new_request_id`` is the recorder's, for the reason every id here is
+    (see :class:`InputWriter`).
+    """
+
+    scope_id: str
+    gate_name: str
+    request_id: str
+    new_request_id: str
+    now: datetime
+
+
+@dataclass(frozen=True)
+class EffectIntent:
+    """An effect to deliver once the transition it belongs to has committed.
+
+    What a recorder hands :meth:`EffectWriter.append`, as a value, so the
+    decision to publish is made beside the transition and the store only
+    records it. ``idempotency_key`` is required here, unlike on the port: an
+    intent this framework records is always one a receiver must be able to
+    deduplicate, because delivery is at-least-once.
+    """
+
+    namespace: str
+    topic: str
+    payload: Any
+    idempotency_key: str
 
 
 @dataclass(frozen=True)
@@ -445,8 +504,10 @@ class StartAttempt:
     job body, a run is the logical unit the user asked for, and a retry
     inserts the next attempt rather than overwriting — which is what makes
     "how many times did this fail before it worked" answerable. The store
-    mints the run and attempt identity; this port does not hand it back, since
-    every writer but ``claim`` returns ``None`` (``contracts.md`` §1.3).
+    mints the run and attempt identity when ``run_id`` is absent. The engine
+    supplies its run-log identity when it also records the relational run.
+    This port does not hand the identity back: every writer but ``claim``
+    returns ``None`` (``contracts.md`` §1.3).
     """
 
     job: str
@@ -457,6 +518,8 @@ class StartAttempt:
     invoke_depth: int = 0
     #: A hash of the arguments, never the arguments.
     args_hash: str | None = None
+    run_tags: Mapping[str, str] = field(default_factory=dict)
+    run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -564,6 +627,11 @@ class InputRequest:
     carries-able by a notification that points at it. A scope-and-gate pair
     that is reopened does **not** reuse the id: the superseded request keeps
     its own, and the new request mints a new one.
+
+    The causal identity of an answer is its request's: ``run_id`` (the run
+    executing when the gate opened, ``None`` when none was recorded),
+    ``scope_id`` (the workflow), ``position`` (the step — the gate's node)
+    and ``generation`` (the walk attempt; every resume claims a new one).
     """
 
     request_id: str
@@ -576,6 +644,8 @@ class InputRequest:
     schema: Any = None
     prompt: Any = None
     resolved_at: datetime | None = None
+    run_id: str | None = None
+    position: str | None = None
 
 
 # ------------------------------------------------------------------
@@ -602,6 +672,7 @@ class RunView:
     invoke_depth: int = 0
     args_hash: str | None = None
     ended_at: datetime | None = None
+    run_tags: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -647,6 +718,10 @@ class StepView:
     result_type: str | None = None
     inputs: Mapping[str, Any] | None = None
     effecting: bool = False
+    #: Which attempt the record belongs to, as the walk wrote it.
+    attempt: int = 0
+    #: When that attempt began, as the walk wrote it.
+    started_at: datetime | None = None
     completed_at: datetime | None = None
 
 
@@ -667,6 +742,34 @@ class EventView:
 
 
 @dataclass(frozen=True)
+class EffectView:
+    """One outbox row, as a dispatcher and a receiver see it.
+
+    ``status`` is ``pending``, ``claimed`` or ``published``
+    (``_types/lifecycle.OUTBOX``). ``attempts`` counts claims, so a receiver
+    handed ``attempts > 1`` knows it may have seen this effect before —
+    which it must assume anyway: delivery is at-least-once, and
+    ``idempotency_key`` is what a receiver deduplicates on.
+    ``claim_token`` identifies the claim this view was handed under; an
+    acknowledgement carrying a stale token changes nothing.
+    """
+
+    effect_id: str
+    topic: str
+    aggregate_type: str
+    aggregate_id: str
+    payload: Any
+    idempotency_key: str | None
+    status: str
+    attempts: int
+    available_at: datetime
+    claimed_at: datetime | None = None
+    published_at: datetime | None = None
+    last_error: str | None = None
+    claim_token: str | None = None
+
+
+@dataclass(frozen=True)
 class RunTree:
     """A run and everything it invoked, nested as it was invoked."""
 
@@ -676,13 +779,17 @@ class RunTree:
 
 @dataclass(frozen=True)
 class RunQuery:
-    """Filters for "what ran recently". ``None`` means "do not filter"."""
+    """Filters for "what ran recently". ``None`` means "do not filter".
+
+    Every tag must match for a run to be included.
+    """
 
     job: str | None = None
     status: str | None = None
     scope_id: str | None = None
     parent_run_id: str | None = None
     limit: int | None = None
+    tags: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -787,6 +894,17 @@ class InputWriter(Protocol):
 
     def consume(self, cmd: ConsumeInput) -> None: ...
 
+    def decide(self, decision: GateDecision) -> None:
+        """Record why a request was accepted, beside the accepted candidate.
+
+        Issued in the unit that appends the accepted candidate. One decision
+        per request; a second is refused, because a decision is a fact about
+        one moment and a later one would be a different request (reopen).
+        """
+
+    def supersede(self, cmd: SupersedeRequest) -> None:
+        """Withdraw the gate's accepted answer and open a new request."""
+
 
 @runtime_checkable
 class EventWriter(Protocol):
@@ -795,11 +913,21 @@ class EventWriter(Protocol):
     Scope events and run events share this shape, which is why ``run_id`` is
     optional: it names the run whose step produced the event when one did. The
     store assigns ``seq`` and nothing rewrites a row, which is what makes "what
-    happened after point N" answerable.
+    happened after point N" answerable. A scope event may name its scope and
+    held generation directly, without another write in the transaction. A
+    generation of 0 is unfenced. When the scope is omitted, it is inferred
+    from the transaction's single scope write. Naming both ``run_id`` and
+    ``scope_id`` raises ``ValueError``.
     """
 
     def append(
-        self, type: str, payload: Any = None, run_id: str | None = None
+        self,
+        type: str,
+        payload: Any = None,
+        run_id: str | None = None,
+        *,
+        scope_id: str | None = None,
+        generation: int = 0,
     ) -> None: ...
 
 
@@ -863,6 +991,16 @@ class WorkflowReader(Protocol):
 
     def branch(self, scope_id: str, decision_key: str) -> str | None: ...
 
+    def branches(self, scope_id: str) -> Mapping[str, str]:
+        """Every decision record of one scope, in one read.
+
+        Raw: ``{decision_key: chosen_target}`` exactly as ``RecordBranch``
+        wrote them, bookkeeping keys included — sorting records into kinds is
+        the engine's, never a store's. Iterates in recording order. An unknown
+        scope, or one with no records, is an empty mapping, never an error.
+        """
+        ...
+
     def state(self, scope_id: str) -> Mapping[str, Any]: ...
 
 
@@ -891,6 +1029,9 @@ class InputReader(Protocol):
     def request(self, request_id: str) -> InputRequest | None: ...
 
     def candidates_for(self, request_id: str) -> Sequence[GateCandidate]: ...
+
+    def decision(self, request_id: str) -> GateDecision | None:
+        """The recorded decision on this request, ``None`` while undecided."""
 
     def for_gate(self, scope_id: str, gate_name: str) -> InputRequest | None:
         """The newest request on this scope's gate, whatever its status."""
@@ -966,6 +1107,73 @@ class RuntimeTransaction(Protocol):
     inputs: InputWriter
     events: EventWriter
     effects: EffectWriter
+
+
+# ------------------------------------------------------------------
+# The outbox, read and acknowledged outside any transaction.
+#
+# A transition records an intent (``EffectWriter``, inside its unit); the
+# dispatcher claims due intents, hands each to a receiver, and acknowledges
+# it — three short writes of their own, none of them around the receiver
+# call (``contributor/reference/runtime-persistence-data-model.md`` §4).
+# Delivery is AT-LEAST-ONCE with consumer dedup: a dispatcher that dies
+# between the receiver and the acknowledgement leaves a claim that expires
+# and is delivered again.
+# ------------------------------------------------------------------
+
+
+@runtime_checkable
+class EffectQueue(Protocol):
+    """The outbox's claim-and-acknowledge side."""
+
+    def claim(
+        self,
+        topics: Sequence[str],
+        *,
+        now: datetime,
+        lease_seconds: float,
+        limit: int,
+    ) -> Sequence[EffectView]:
+        """Atomically take up to ``limit`` due intents for ``topics``.
+
+        Due means ``pending`` with ``available_at <= now``, or ``claimed``
+        under a lease that has expired. Each returned view carries a fresh
+        ``claim_token`` and its incremented ``attempts``.
+        """
+        ...
+
+    def published(self, effect: EffectView, *, now: datetime) -> None:
+        """Acknowledge delivery; a stale ``claim_token`` changes nothing."""
+
+    def failed(self, effect: EffectView, *, error: str, retry_at: datetime) -> None:
+        """Return the intent to ``pending`` with its error and next try."""
+
+    def effect(self, effect_id: str) -> EffectView | None:
+        """One outbox row by id, whatever its status."""
+
+
+@runtime_checkable
+class OutboxStore(RuntimeStore, Protocol):
+    """A runtime store with an outbox — every store whose profile declares
+    ``durable_outbox=True``, and only those. Boot refuses a store whose
+    profile and type disagree, so the capability has one meaning."""
+
+    effects: EffectQueue
+
+
+@runtime_checkable
+class EffectReceiver(Protocol):
+    """What consumes one outbox topic.
+
+    ``receive`` may be called more than once for the same intent — after a
+    crash, or after it raised — so it deduplicates on
+    ``effect.idempotency_key`` before acting. Raising reschedules the intent;
+    returning acknowledges it.
+    """
+
+    topic: str
+
+    def receive(self, effect: EffectView) -> None: ...
 
 
 # ------------------------------------------------------------------

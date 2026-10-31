@@ -16,12 +16,14 @@ import concurrent.futures
 import os
 import re
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from functualize._config.errors import (
     AnnotationResolutionError,
     AnnotationResolutionFailure,
+    ConfigurationError,
     RemoteTimeoutError,
     SourceAnnotation,
     UnregisteredProviderError,
@@ -29,11 +31,20 @@ from functualize._config.errors import (
 from functualize._config.merge import deep_merge
 from functualize._config.roles import classify, parse_slot
 from functualize._types.descriptors import ConfigFileInfo
+from functualize._types.discovery_report import (
+    DiscoveryFailure,
+    record_discovery_finding,
+    reserved_section_table,
+)
 from functualize._types.enums import ConfigFileRole
+from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
+from functualize._types.naming import normalize_name
 
 if TYPE_CHECKING:
+    from functualize._config.settings_layers import SettingsLayer
     from functualize._events import EventBus
     from functualize._types import FormatProvider
+    from functualize._types.settings import AppSettingsSchema
 
 
 @runtime_checkable
@@ -200,7 +211,9 @@ class EnvSource:
         """Return 'environ' source identifier."""
         return "environ"
 
-    def __init__(self, environ: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, environ: dict[str, str] | None = None, *, prefix: str = ""
+    ) -> None:
         """Initialize the environment source.
 
         Args:
@@ -208,6 +221,10 @@ class EnvSource:
                 Useful for testing.
         """
         self._environ = environ
+        self._prefix = prefix.rstrip("_").upper()
+
+    def _prefixed(self, key: str) -> str:
+        return f"{self._prefix}_{key}" if self._prefix else key
 
     def _get_environ(self) -> dict[str, str]:
         """Get the environment dict (os.environ or injected override)."""
@@ -223,7 +240,7 @@ class EnvSource:
         scope: Literal["group", "job"] = "job",
     ) -> Any | None:
         """Retrieve a value from environment variables."""
-        env_key = self._build_env_key(key, section, scope)
+        env_key = self._prefixed(self._build_env_key(key, section, scope))
         environ = self._get_environ()
         return environ.get(env_key)
 
@@ -235,7 +252,7 @@ class EnvSource:
         scope: Literal["group", "job"] = "job",
     ) -> bool:
         """Check if the environment variable exists."""
-        env_key = self._build_env_key(key, section, scope)
+        env_key = self._prefixed(self._build_env_key(key, section, scope))
         environ = self._get_environ()
         return env_key in environ
 
@@ -244,13 +261,13 @@ class EnvSource:
         environ = self._get_environ()
         if scope == "group":
             flattened = section.upper().replace("-", "_").replace(".", "_")
-            prefix = f"{flattened}__"
+            prefix = self._prefixed(f"{flattened}__")
             return {
                 env_key[len(prefix) :].lower()
                 for env_key in environ
                 if env_key.startswith(prefix)
             }
-        prefix = f"{section.upper().replace('-', '_')}_"
+        prefix = self._prefixed(f"{section.upper().replace('-', '_')}_")
         return {
             env_key[len(prefix) :].lower()
             for env_key in environ
@@ -289,6 +306,48 @@ class EnvSource:
         if section:
             return f"{section}_{key}".upper().replace("-", "_").replace(".", "_")
         return key.upper().replace("-", "_").replace(".", "_")
+
+
+class LayerSource:
+    """Expose one discovered settings file through the Source protocol."""
+
+    def __init__(self, layer: SettingsLayer, schema: AppSettingsSchema) -> None:
+        self.layer = layer
+        self.schema = schema
+
+    @property
+    def source_type(self) -> str:
+        return self.layer.kind
+
+    @property
+    def source_id(self) -> str:
+        return str(self.layer.path)
+
+    def get(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> Any | None:
+        name = f"{section}.{key}" if section else key
+        return self.schema.value_in(self.layer.values, name)
+
+    def has(
+        self,
+        key: str,
+        section: str | None = None,
+        *,
+        scope: Literal["group", "job"] = "job",
+    ) -> bool:
+        return self.get(key, section, scope=scope) is not None
+
+    def keys(self, section: str, *, scope: Literal["group", "job"] = "job") -> set[str]:
+        return {
+            setting.key
+            for setting in self.schema.settings
+            if setting.section == section and self.has(setting.key, section)
+        }
 
 
 class RemoteSource:
@@ -525,6 +584,83 @@ class RemoteSource:
         return key
 
 
+def _find_section(config: dict[str, Any], section: str) -> dict[str, Any] | None:
+    """Find a config table by the registered name and its written spellings."""
+
+    def find_level(table: dict[str, Any], name: str) -> dict[str, Any] | None:
+        data = table.get(name)
+        if isinstance(data, dict):
+            return data
+
+        for candidate in (name.replace("-", "_"), name.replace("_", "-")):
+            if candidate == name:
+                continue
+            data = table.get(candidate)
+            if isinstance(data, dict):
+                return data
+
+        canonical = normalize_name(name)
+        matches = sorted(
+            key
+            for key, value in table.items()
+            if isinstance(value, dict) and normalize_name(key) == canonical
+        )
+        if len(matches) > 1:
+            raise ConfigurationError(
+                f"Config section {section!r} is ambiguous: keys {matches}"
+            )
+        return table[matches[0]] if matches else None
+
+    # Preserve flat exact and legacy spellings before walking dotted TOML
+    # tables. A flat key with a literal dot has always won over a nested one.
+    data = config.get(section)
+    if isinstance(data, dict):
+        return data
+    for candidate in (section.replace("-", "_"), section.replace("_", "-")):
+        if candidate == section:
+            continue
+        data = config.get(candidate)
+        if isinstance(data, dict):
+            return data
+
+    if "." in section:
+        walked: dict[str, Any] | None = config
+        for part in section.split("."):
+            if walked is None:
+                break
+            walked = find_level(walked, part)
+        if walked is not None:
+            return walked
+
+    return find_level(config, section)
+
+
+def _matching_sections(
+    config: dict[str, Any], section: str
+) -> Iterator[dict[str, Any]]:
+    """Visit every equivalent table so a shadowed secret cannot escape validation."""
+    canonical = normalize_name(section)
+    assert canonical is not None
+
+    for spelling, data in config.items():
+        if isinstance(data, dict) and normalize_name(spelling) == canonical:
+            yield data
+
+    parts = canonical.split(".")
+    if len(parts) == 1:
+        return
+
+    tables = [config]
+    for part in parts:
+        tables = [
+            value
+            for table in tables
+            for spelling, value in table.items()
+            if isinstance(value, dict) and normalize_name(spelling) == part
+        ]
+    yield from tables
+
+
 class FileSource:
     """Discovers, parses, and deep-merges configuration files.
 
@@ -567,6 +703,11 @@ class FileSource:
         a file that plainly exists is not affecting anything.
         """
         return list(self._file_infos)
+
+    @property
+    def discovery_failures(self) -> list[DiscoveryFailure]:
+        """Advisory findings from parsed job configuration documents."""
+        return list(self._discovery_failures)
 
     def __init__(
         self,
@@ -627,6 +768,7 @@ class FileSource:
         self._merged_config: dict[str, Any] = {}
         self._per_file_configs: list[tuple[str, dict[str, Any]]] = []
         self._file_infos: list[ConfigFileInfo] = []
+        self._discovery_failures: list[DiscoveryFailure] = []
 
         # Resolve format_providers from either positional arg or registry kwarg
         providers = format_providers if format_providers is not None else registry
@@ -657,32 +799,7 @@ class FileSource:
 
         The canonical spelling is preferred when a file somehow carries both.
         """
-        data = self._merged_config.get(section)
-        if isinstance(data, dict):
-            return data
-
-        for candidate in (section.replace("-", "_"), section.replace("_", "-")):
-            if candidate == section:
-                continue
-            data = self._merged_config.get(candidate)
-            if isinstance(data, dict):
-                return data
-
-        # A dotted section is a *nested* table: TOML parses `[deploy.web]` into
-        # `{"deploy": {"web": {...}}}`, which no flat lookup above can reach.
-        # Group option paths are dotted (`deploy.web`), and `[deploy.web]` is
-        # how anyone would write that section — silently resolving nothing is
-        # exactly the failure this file warns about a few lines up. A flat key
-        # spelled with a literal dot still wins, so this is purely additive.
-        if "." in section:
-            walked: Any = self._merged_config
-            for part in section.split("."):
-                if not isinstance(walked, dict):
-                    return None
-                walked = walked.get(part)
-            if isinstance(walked, dict):
-                return walked
-        return None
+        return _find_section(self._merged_config, section)
 
     def reject_inline_provider(self, section: str, key: str) -> None:
         """Refuse a legacy provider URI in any file for a secret field.
@@ -692,16 +809,8 @@ class FileSource:
         """
         from functualize._config.annotations import scan_annotations
 
-        spellings = (section, section.replace("-", "_"), section.replace("_", "-"))
         for path, config in self._per_file_configs:
-            for spelling in spellings:
-                data: Any = config.get(spelling)
-                if not isinstance(data, dict) and "." in spelling:
-                    data = config
-                    for part in spelling.split("."):
-                        data = data.get(part) if isinstance(data, dict) else None
-                if not isinstance(data, dict):
-                    continue
+            for data in _matching_sections(config, section):
                 value = data.get(key)
                 if isinstance(value, str) and scan_annotations(
                     {key: value}, self._remote_providers
@@ -765,6 +874,7 @@ class FileSource:
         self._discovered_paths = paths
         self._per_file_configs = []
         self._file_infos = []
+        self._discovery_failures = []
 
         if not paths:
             return
@@ -789,6 +899,7 @@ class FileSource:
             parse_start = time.perf_counter()
 
             config = provider.parse(path)
+            self._report_reserved_section_tables(path, config)
 
             duration_ms = (time.perf_counter() - parse_start) * 1000
             key_count = sum(
@@ -806,6 +917,38 @@ class FileSource:
 
         self._per_file_configs = parsed_configs
         self._merged_config = self._merge(parsed_configs, unparsed)
+
+    def _report_reserved_section_tables(
+        self, path: str, config: dict[str, Any]
+    ) -> None:
+        """Report a top-level table named like a declared settings section.
+
+        ``[shell] program = …`` in a job config file is a settings table in
+        the wrong document: the setting is read from ``.functualize.toml``, so
+        the table reaches no job and nothing says so. Moving it is the fix, and
+        moving it is only obvious once the file is named -- hence a record that
+        names the file and the document the table belongs in.
+
+        Advisory, like every discovery finding: the table still merges exactly
+        as before, and the caller's chain is unaffected.
+
+        Args:
+            path: The file the table was read from.
+            config: That file's parsed top level.
+        """
+        for key, value in config.items():
+            if not isinstance(value, dict):
+                continue
+            if key not in FUNCTUALIZE_SETTINGS.sections():
+                continue
+            finding = reserved_section_table(
+                section=key,
+                module=Path(path).stem,
+                path=path,
+            )
+            if finding not in self._discovery_failures:
+                self._discovery_failures.append(finding)
+            record_discovery_finding(finding)
 
     def _merge(
         self,

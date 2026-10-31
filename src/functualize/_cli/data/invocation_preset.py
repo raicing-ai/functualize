@@ -11,6 +11,7 @@ This module is in the ``_cli/`` layer — it uses only stdlib.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -40,6 +41,7 @@ def get_recent_invocations(
     history: ArgumentHistory,
     job_names: list[str],
     limit: int = 5,
+    render_command: Callable[[str, dict[str, str]], str] | None = None,
 ) -> list[InvocationPreset]:
     """Build invocation presets from ArgumentHistory.
 
@@ -50,6 +52,9 @@ def get_recent_invocations(
         history: The argument history store to query.
         job_names: List of job names to consider.
         limit: Maximum number of presets to return.
+        render_command: The caller's command-line emitter, supplied when a
+            descriptor/trie is available. Keeps display paths and quoting in
+            the same emitter as SmartBar write-back.
 
     Returns:
         A list of ``InvocationPreset`` items sorted by timestamp
@@ -85,7 +90,11 @@ def get_recent_invocations(
             cli_flag = field_name.replace("_", "-")
             parts.append(f"--{cli_flag}")
             parts.append(value)
-        display_text = " ".join(parts)
+        display_text = (
+            render_command(job_name, kwargs)
+            if render_command is not None
+            else " ".join(parts)
+        )
 
         # Use monotonically decreasing timestamp based on processing order
         # to maintain stable ordering (earlier in job_names = more recent).

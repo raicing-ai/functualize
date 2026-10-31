@@ -21,6 +21,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._types.descriptors import JobDescriptor
+from functualize.app.config import ConfigSources
 from functualize.app.utils import suggest_similar_commands as _fuzzy_suggest
 
 # Patch targets for _handle_bare — uses local imports from these modules
@@ -52,6 +53,7 @@ def _mock_cli_config() -> MagicMock:
     mock.discovery = MagicMock()
     mock.dotenv = False
     mock.dotenv_path = None
+    mock.config_sources.return_value = ConfigSources()
     return mock
 
 

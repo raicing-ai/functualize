@@ -122,7 +122,7 @@ def test_sqlite_configured_selects_the_sqlite_store_migrated(
 
     store = app.execution_engine._runtime_store
     assert isinstance(store, SqliteRuntimeStore)
-    assert store.driver.query("SELECT max(version) FROM schema_migrations") == [(2,)]
+    assert store.driver.query("SELECT max(version) FROM schema_migrations") == [(5,)]
     assert isinstance(app.substrate, SQLiteSubstrate)
     assert app.substrate.path == default_database_path(app.fresh_root)
 

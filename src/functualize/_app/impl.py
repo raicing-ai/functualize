@@ -1620,6 +1620,7 @@ def get_group_options_spec(app: Any, group_path: str) -> Any | None:
     )
     from functualize._primitives.group_options_detection import is_group_options_class
     from functualize._types.annotations import resolved_hints
+    from functualize._types.descriptors import GroupOptionsSpec
     from functualize._types.naming import normalize_name
 
     wanted = ".".join(normalize_name(part) or part for part in group_path.split("."))
@@ -1636,6 +1637,28 @@ def get_group_options_spec(app: Any, group_path: str) -> Any | None:
                 continue
             if getattr(annotation, "__group_path__", None) == wanted:
                 return extract_group_options_spec(annotation)
+
+    # A class job's typed fields are the configuration of every method job in
+    # its group, and a secret field's vault identity is that group's — so the
+    # group answers for those fields exactly as a declared `GroupOptions` does.
+    # Without this, `func builtin vault put --group pg --field password` was
+    # rejected as an unknown group while the run resolved that very entry.
+    # A declared `GroupOptions` wins; the class contributes only what it does
+    # not already declare, and both resolve to one storage identity.
+    #
+    # The descriptors, not the registry: the CLI boots lazy, so
+    # `_registered_jobs` is still empty when `vault put` validates its target,
+    # while discovery already carries each method job's class fields.
+    fields: dict[str, Any] = {}
+    for job in app.get_jobs():
+        if job.owner_class is None or job.group != wanted:
+            continue
+        for declared in job.config_fields or job.parameters:
+            fields.setdefault(declared.name, declared)
+    if fields:
+        return GroupOptionsSpec(
+            group=wanted, class_name="", fields=list(fields.values())
+        )
     return None
 
 
@@ -1726,6 +1749,61 @@ def register_runtime_store_factory(app: Any, factory: Any) -> None:
         )
     factories = app.__dict__.setdefault("_runtime_store_factories", [])
     factories.append((_claimant(app, factory), factory))
+
+
+def register_effect_receiver(app: Any, receiver: Any) -> None:
+    """Register a consumer for one outbox topic, before boot selects a store.
+
+    Registering a receiver is what declares that this configuration needs
+    ``durable_outbox=True`` — there is no configuration key for the
+    requirement, and adding one would let a project claim the capability
+    without consuming an effect (``_app/effects.receiver_requirements`` reads
+    this registry, and the step 6.5 refusal it feeds names the setting to
+    change). One receiver per topic: a second would make delivery order
+    observable and delivery itself ambiguous, so it is refused rather than
+    chained. The window is :func:`register_runtime_store_factory`'s — a
+    receiver registered after selection could miss the boot drain and every
+    intent it should have consumed, so it is refused, never silently kept for
+    a drain that will not come.
+
+    The registry is created here, as the factories list is: the facade has a
+    line budget and this function is its only writer.
+
+    Raises:
+        TypeError: ``receiver`` does not satisfy `EffectReceiver`.
+        SubstrateInstallError: Boot already selected the store.
+        ValueError: Its topic is empty, or already registered.
+    """
+    from functualize._types.persistence import EffectReceiver
+
+    if not isinstance(receiver, EffectReceiver):
+        raise TypeError(
+            f"an effect receiver must provide a 'topic' attribute and a "
+            f"receive(effect) method; {receiver!r} does not, and a receiver "
+            f"that cannot be called must fail where it is registered, not at "
+            f"the first delivery."
+        )
+    topic = receiver.topic
+    if not isinstance(topic, str) or not topic:
+        raise ValueError(
+            "an effect receiver's topic must be a non-empty string; a receiver "
+            "for no topic consumes nothing and hides that it was never wired."
+        )
+    if _store_is_selected(app):
+        raise SubstrateInstallError(
+            "boot already selected this app's runtime store; a receiver "
+            "registered now would miss the boot drain and every committed "
+            "intent it exists to consume. Register it from the plugin's "
+            "registration call, which runs before boot selects."
+        )
+    receivers: dict[str, Any] = app.__dict__.setdefault("_effect_receivers", {})
+    if topic in receivers:
+        raise ValueError(
+            f"an effect receiver for topic {topic!r} is already registered; "
+            f"one receiver consumes a topic, because two make delivery order "
+            f"observable and delivery itself ambiguous. Disable one of them."
+        )
+    receivers[topic] = receiver
 
 
 def _store_is_selected(app: Any) -> bool:

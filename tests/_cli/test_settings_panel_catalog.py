@@ -1,47 +1,35 @@
-"""C2.3 — the settings panel's catalog is instance state, not a module global.
+"""The settings panel's catalog is instance state, not a module global.
 
-Before, the panel read `SETTINGS_ORDER` / `DEFAULT_VALUES` at import time, so
-every panel in a process showed func's settings and nothing else. A second app
-(C2/C3) needs its own.
+Each panel renders the declaration it is handed: the shell passes func's
+`surface="tui"` rows, a second app passes its own, and no import-time registry
+decides for them.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from functualize._cli.data.func_settings import FUNC_SETTINGS, FuncSetting
-from functualize._cli.data.settings_schema import SettingSchema
 from functualize._cli.tui.settings_panel import SettingsPanel
+from functualize.plugin import FUNCTUALIZE_SETTINGS, Setting
 
 
-def _catalog() -> tuple[FuncSetting, ...]:
+def _catalog() -> tuple[Setting, ...]:
     return (
-        FuncSetting(
-            name="ui.theme",
-            section="ui",
-            key="theme",
-            schema=SettingSchema(
-                name="ui.theme",
-                type="enum",
-                description="UI theme",
-                choices=["dark", "light"],
-            ),
+        Setting(
+            "ui.theme",
+            "enum",
+            "UI theme",
             default="dark",
+            choices=("dark", "light"),
         ),
-        FuncSetting(
-            name="verbose",
-            section="",
-            key="verbose",
-            schema=SettingSchema(name="verbose", type="bool", description="Verbose"),
-            default="false",
-        ),
+        Setting("verbose", "bool", "Verbose", default="false"),
     )
 
 
 class TestInstanceScopedCatalog:
-    def test_default_is_funcs_catalog(self) -> None:
-        panel = SettingsPanel()
-        assert panel._settings == [s.name for s in FUNC_SETTINGS]
+    def test_no_catalog_means_no_rows(self) -> None:
+        """There is no implicit func catalog to fall back to."""
+        assert SettingsPanel()._settings == []
 
     def test_custom_catalog_replaces_it(self) -> None:
         panel = SettingsPanel(catalog=_catalog())
@@ -49,11 +37,11 @@ class TestInstanceScopedCatalog:
 
     def test_two_panels_coexist_with_different_catalogs(self) -> None:
         """The property that a module-global catalog made impossible."""
-        func_panel = SettingsPanel()
+        func_panel = SettingsPanel(catalog=FUNCTUALIZE_SETTINGS.settings)
         other_panel = SettingsPanel(catalog=_catalog())
 
         assert other_panel._settings == ["ui.theme", "verbose"]
-        assert func_panel._settings == [s.name for s in FUNC_SETTINGS]
+        assert func_panel._settings == [s.name for s in FUNCTUALIZE_SETTINGS.settings]
         assert set(func_panel._settings) & set(other_panel._settings) == set()
 
     def test_defaults_come_from_the_catalog(self) -> None:

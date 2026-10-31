@@ -45,11 +45,17 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 __all__ = [
+    "CLASS_JOB_NAME_COLLISION",
+    "ClassJobCollisionDetail",
     "DiscoveryFailure",
+    "JobNameCollisionDetail",
+    "class_job_name_collision",
     "collecting_discovery_failures",
     "job_name_collision",
     "record_discovery_failure",
     "record_discovery_finding",
+    "reserved_section_name",
+    "reserved_section_table",
 ]
 
 #: ``DiscoveryFailure.error_type`` for a job-name collision. Not an exception
@@ -57,10 +63,59 @@ __all__ = [
 #: raised anywhere -- so it is named here rather than spelled at each site.
 JOB_NAME_COLLISION = "JobNameCollision"
 
+#: ``DiscoveryFailure.error_type`` for a strict collision -- one a class job is
+#: party to, where the name is registered to *nobody*. A different value from
+#: :data:`JOB_NAME_COLLISION` because the payload means something else: that one
+#: says "one of these two runs", this one says "neither does".
+CLASS_JOB_NAME_COLLISION = "ClassJobNameCollision"
+
+#: ``DiscoveryFailure.error_type`` for a name that is also a declared settings
+#: section. Like :data:`JOB_NAME_COLLISION` this is not an exception class
+#: name: nothing is raised, the job registers, and the record exists so the
+#: one address two different things answer to is never discovered by surprise.
+RESERVED_SECTION_NAME = "ReservedSectionName"
+
+
+@dataclass(frozen=True)
+class JobNameCollisionDetail:
+    """In-memory claimant data for a job-name collision.
+
+    The legacy failure payload remains unchanged; delivery surfaces use these
+    fields so neither source path nor Python name is parsed from prose.
+    """
+
+    canonical_name: str
+    dropped_python_name: str
+    dropped_source_file: str
+    registered_python_name: str
+    registered_source_file: str
+
+
+@dataclass(frozen=True)
+class ClassJobCollisionDetail:
+    """In-memory claimant data for a strict (class-job) name collision.
+
+    ``claimants`` pairs a *qualified* name with the file it came from --
+    ``"OtherPostgres.start"`` for a class job, the function's own Python name
+    otherwise. ``JobDescriptor.python_name`` is the method name alone, so a
+    record built from it would name two class-job claimants identically.
+    """
+
+    canonical_name: str
+    claimants: tuple[tuple[str, str], ...]
+
 
 @dataclass(frozen=True)
 class DiscoveryFailure:
-    """One module discovery could not read, and why.
+    """One finding about a module's discovery, and why it is there.
+
+    Most entries are a module discovery could not read. Two kinds are not: a
+    job-name collision, which is derived from the retained entries rather than
+    raised, and a finding a module states about its own code — an abstract
+    ``@job`` class, a method whose group disagrees with its class — which is
+    recorded while the module is imported and replayed on a pass that validates
+    it instead. Both are still the operator's answer to "why is my job not
+    here", which is the only thing this type is for.
 
     Attributes:
         module: The module's name -- its file stem. Not the dotted import
@@ -78,6 +133,7 @@ class DiscoveryFailure:
     path: str
     error_type: str
     message: str
+    collision: JobNameCollisionDetail | ClassJobCollisionDetail | None = None
 
     def as_dict(self) -> dict[str, str]:
         """The payload shape published by ``builtin info``."""
@@ -140,6 +196,7 @@ def job_name_collision(
     dropped_module: str,
     dropped_python_name: str,
     dropped_path: str,
+    kept_path: str = "",
 ) -> DiscoveryFailure:
     """The record for two functions resolving to one canonical job name.
 
@@ -177,6 +234,139 @@ def job_name_collision(
             f"lowercase-hyphenated form, so these are one address: "
             f"{kept_python_name!r} is registered and {dropped_python_name!r} is "
             f"not available. Rename one."
+        ),
+        collision=JobNameCollisionDetail(
+            canonical_name=canonical_name,
+            dropped_python_name=dropped_python_name,
+            dropped_source_file=dropped_path,
+            registered_python_name=kept_python_name,
+            registered_source_file=kept_path,
+        ),
+    )
+
+
+def class_job_name_collision(
+    *,
+    canonical_name: str,
+    claimants: tuple[tuple[str, str], ...],
+    module: str,
+    path: str,
+) -> DiscoveryFailure:
+    """The record for a name a class job and another claimant both resolve to.
+
+    A class job makes a collision *strict*: no claimant is registered, because
+    picking one would hide a job the user wrote rather than run it under a name
+    they never spelled. The message therefore names every claimant and its
+    file, and says so.
+
+    Built here, beside :func:`job_name_collision`, so both renderings of "one
+    name, more than one claimant" are written once.
+
+    Args:
+        canonical_name: The single address every claimant resolved to.
+        claimants: ``(qualified_name, source_file)`` per claimant, in claim
+            order. The qualified name is ``Class.method`` for a class job.
+        module: Value for :attr:`DiscoveryFailure.module`.
+        path: Value for :attr:`DiscoveryFailure.path`.
+
+    Returns:
+        The failure record, ready to publish.
+    """
+    rendered = ", ".join(f"{name!r} ({source})" for name, source in claimants[:-1])
+    listed = f"{rendered} and {claimants[-1][0]!r} ({claimants[-1][1]})"
+    count = len(claimants)
+    declared = "twice" if count == 2 else f"{count} times"
+    outcome = "Neither is registered." if count == 2 else "None of them is registered."
+    return DiscoveryFailure(
+        module=module,
+        path=path,
+        error_type=CLASS_JOB_NAME_COLLISION,
+        message=(
+            f"Job name {canonical_name!r} is declared {declared}: {listed}. {outcome}"
+        ),
+        collision=ClassJobCollisionDetail(
+            canonical_name=canonical_name,
+            claimants=claimants,
+        ),
+    )
+
+
+def reserved_section_name(
+    *,
+    name: str,
+    section: str,
+    module: str,
+    path: str,
+) -> DiscoveryFailure:
+    """The record for a name that is also a declared settings section.
+
+    A job or group called ``shell`` takes the same word a settings table is
+    spelled with, so a ``[shell]`` table in a job config file reads as
+    settings and never reaches that job's own configuration. Nothing is
+    ambiguous to the program -- the job registers and the setting is read from
+    its own document -- but the two-meaning name is worth saying out loud once,
+    which is what this record does.
+
+    Built here for the same reason :func:`job_name_collision` is: one message,
+    written once, reached through the same channel. ``error_type`` carries
+    :data:`RESERVED_SECTION_NAME` rather than a class name because nothing was
+    raised -- ``as_dict`` publishes the same four fields either way, so a
+    surface that lists discovery failures needs no new branch.
+
+    Args:
+        name: The discovered address, dotted for a group (``shell.deploy``).
+        section: The declared settings section the address collides with.
+        module: The module or config file the name came from.
+        path: Path to that file, which is what an operator edits.
+
+    Returns:
+        The failure record, ready to publish.
+    """
+    return DiscoveryFailure(
+        module=module,
+        path=path,
+        error_type=RESERVED_SECTION_NAME,
+        message=(
+            f"{name!r} (in {module!r}) is named after the reserved settings "
+            f"section [{section}]. The job is registered as usual, but a "
+            f"[{section}] table is read as settings, so it never reaches this "
+            f"job's configuration. Rename the job or the group."
+        ),
+    )
+
+
+def reserved_section_table(
+    *,
+    section: str,
+    module: str,
+    path: str,
+) -> DiscoveryFailure:
+    """The record for a settings table found in a job config file.
+
+    Same ``error_type`` as :func:`reserved_section_name` and the same channel:
+    one finding says the *name* is spoken for, the other says the *table* is in
+    the wrong document, and an operator reading ``info`` should not have to
+    learn two vocabularies to see either. What differs is the fix, so it
+    differs in the message -- the table's home is the settings document, and a
+    finding that does not say so leaves the reader to guess.
+
+    Args:
+        section: The declared settings section the table names.
+        module: The config file's stem, named as a module reads.
+        path: Path to the file the table was found in.
+
+    Returns:
+        The failure record, ready to publish.
+    """
+    return DiscoveryFailure(
+        module=module,
+        path=path,
+        error_type=RESERVED_SECTION_NAME,
+        message=(
+            f"[{section}] in {path} is a settings section, not a job's "
+            f"configuration table. Settings are declared in "
+            f".functualize.toml [{section}] (or [tool.functualize] in "
+            f"pyproject.toml); move it there."
         ),
     )
 

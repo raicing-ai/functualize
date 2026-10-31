@@ -18,6 +18,10 @@ What each subject guards:
 - **`FromJob` inside a walk on SQLite** — the walk-scoped reference reads the
   walk's own step records through the port (ruling R-3), so a consumer inside
   a walk receives the producer's recorded value rather than going blind;
+- **`FromStep` inside a walk on both stores** — a step reads an earlier step
+  and a gate's answer, and the epilogue reads that step, all from the walk's
+  own records through the port; the gate is answered the way `--wf-input`
+  answers it, so on SQLite the answer is a candidate row, not a document;
 - **a takeover records no completion time** — the takeover wire (`claim` →
   `_step_that_went_silent` → `_record_timed_out`) writes the `timed_out` record
   through the port, with ruling R-2's `completed_at=None`, which the document
@@ -46,10 +50,11 @@ from functualize._engine.workflow_walker import WalkOutcome, WorkflowWalker
 from functualize._primitives.document_store import DocumentRuntimeStore
 from functualize._primitives.run_store import runner_identity
 from functualize._primitives.substrate import JsonFileSubstrate
+from functualize._types.enums import RunStatus
 from functualize._types.workflow import Loop, WorkflowDeclaration
 from functualize.job import FromJob, job
 from functualize.plugin import Claimed, RuntimeStoreConfig
-from functualize.workflow import END, Edge, Step, workflow
+from functualize.workflow import END, Edge, FromStep, Gate, Step, workflow
 
 if TYPE_CHECKING:
     from functualize.plugin import RuntimeStore
@@ -352,6 +357,112 @@ def _scope_of(app: Any, workflow_name: str) -> str:
     )
     [view] = scopes
     return view.scope_id
+
+
+# -- FromStep inside a walk, on both stores ---------------------------------
+
+#: What the reading step observed — module level for the same reason as `SEEN`.
+READ: list[tuple[str, bool]] = []
+
+
+class _Approval(BaseModel):
+    ok: bool
+
+
+def _plan() -> str:
+    return "planned"
+
+
+def _act(
+    planned: Annotated[str, FromStep("plan")],
+    answer: Annotated[_Approval, FromStep("approve")],
+) -> str:
+    READ.append((planned, answer.ok))
+    return f"acted on {planned}"
+
+
+@workflow(
+    steps=[Step("plan"), Gate("approve", awaits=_Approval), Step("act")],
+    edges=[
+        Edge(source="plan", target="approve"),
+        Edge(source="approve", target="act"),
+        Edge(source="act", target=END),
+    ],
+)
+def _reading_flow(acted: Annotated[str, FromStep("act")] = "MISSING") -> str:
+    return acted
+
+
+def _reading_app(backend: str, root: Path) -> Any:
+    """An app over ``root`` whose walk reads a step and a gate with `FromStep`."""
+    from functualize._config.chain import ResolutionChain
+    from functualize._config.sources import DefaultSource
+    from functualize.app import ConfigSources, FunctualizeApp, JobSources, PluginSources
+
+    config: dict[str, Any] = {}
+    plugins: list[Any] = []
+    if backend == "sqlite":
+        config = {"runtime_store": {"url": f"sqlite://{root / 'state.db'}"}}
+        plugins = [SQLiteSubstratePlugin()]
+    app = FunctualizeApp(
+        "from-step-on-both-stores",
+        job_sources=JobSources(functions=[]),
+        config_sources=ConfigSources(
+            config_resolution_chain=ResolutionChain([DefaultSource(config)])
+        ),
+        plugin_sources=PluginSources(entry_point_group="", explicit_plugins=plugins),
+    )
+    app.register_dynamic_job("plan", _plan)
+    app.register_dynamic_job("act", _act)
+    app.register_dynamic_job("reading", _reading_flow)
+    return app
+
+
+def test_from_step_inside_a_walk_reads_a_step_and_a_gate(
+    backend: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A walk's readers see its own step record and gate answer on both stores.
+
+    The gate is answered through `apply_workflow_flags` — the code
+    `--wf-resume … --wf-input` runs — so on SQLite the answer arrives as an
+    input candidate through the port and on documents through the legacy
+    deposit. `act` must read both its upstreams either way, and the epilogue
+    reads `act`'s record. A reader that looked anywhere but this walk's
+    records, or at one store's records only, leaves `READ` empty or the body
+    on its `MISSING` default.
+    """
+    from functualize.app.adapters.workflow_flags import apply_workflow_flags
+    from functualize.types import RunRequest
+
+    root = tmp_path / backend
+    root.mkdir()
+    # Project mode is "a `.functualize/` exists above start"; without one the
+    # substrate lands in the standalone cache instead of under this root.
+    (root / ".functualize").mkdir()
+    monkeypatch.chdir(root)
+    READ.clear()
+    app = _reading_app(backend, root)
+
+    blocked = app.execute(
+        RunRequest(job_name="reading", surface="app.execute", workflow_scope_id="r1")
+    )
+    assert blocked.status is RunStatus.BLOCKED, blocked.exception
+    assert READ == []
+
+    scope = apply_workflow_flags(
+        app, "reading", {"wf_resume": "r1", "wf_input": '{"ok": true}'}
+    )
+    assert scope == "r1"
+    resumed = app.execute(
+        RunRequest(job_name="reading", surface="app.execute", workflow_scope_id=scope)
+    )
+
+    assert resumed.status is RunStatus.SUCCESS, resumed.exception
+    assert READ == [("planned", True)]
+    assert resumed.return_value == "acted on planned"
+    store = app.workflow_runtime_store()
+    assert store.profile.name == backend
+    store.close()
 
 
 # -- ruling R-2: a takeover records no completion time ----------------------

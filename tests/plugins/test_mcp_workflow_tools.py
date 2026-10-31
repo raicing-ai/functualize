@@ -14,6 +14,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from fastmcp import FastMCP
 from functualize_mcp._workflow_tools import WorkflowToolProvider
 from functualize_substrate_sqlite import SQLiteSubstratePlugin
 from pydantic import BaseModel
@@ -22,7 +23,7 @@ from functualize._app.state import AppState
 from functualize._primitives.substrate import JsonFileSubstrate
 from functualize.app._workflow_view import _topology
 from functualize.app.core import FunctualizeApp
-from functualize.app.utils import ScopeStore
+from functualize.app.utils import RunStore, ScopeStore
 from functualize.types import RunRequest
 from functualize.workflow import END, Edge, Gate, Step, workflow
 
@@ -66,7 +67,10 @@ def _store() -> ScopeStore:
 
 
 def _gated_app(
-    calls: list[str] | None = None, *, sqlite: bool = False
+    calls: list[str] | None = None,
+    *,
+    sqlite: bool = False,
+    workflow_name: str = "trip_planner",
 ) -> FunctualizeApp:
     """An app with one workflow that blocks at a gate between two steps."""
     seen = calls if calls is not None else []
@@ -116,7 +120,7 @@ def _gated_app(
 
     app.register_dynamic_job("forecast", forecast)
     app.register_dynamic_job("travel_plan", travel_plan)
-    app.register_dynamic_job("trip_planner", trip_planner)
+    app.register_dynamic_job(workflow_name, trip_planner)
     return app
 
 
@@ -149,6 +153,44 @@ async def test_sqlite_operator_tools_use_the_selected_runtime_store() -> None:
     assert (
         app.workflow_runtime_store().workflows.workflow("sql-run").status == "cancelled"
     )
+
+
+async def test_sqlite_resume_with_gate_input_answers_and_advances() -> None:
+    """Fused ``resume_workflow`` input records through the port and advances.
+
+    The relational CLI twin (``test_resume_with_fused_input_answers_and_advances``
+    in ``tests/cli/test_workflow_answer_relational.py``) pins the same contract
+    over the CLI surface; here the scope lives in the runtime store, and the
+    fused call must record there too -- never in the scope document.
+    """
+    calls: list[str] = []
+    app = _gated_app(calls, sqlite=True)
+    app.execute(
+        RunRequest(
+            job_name="trip_planner",
+            surface="app.execute",
+            workflow_scope_id="sql-run",
+        )
+    )
+    store = app.workflow_runtime_store()
+    request = store.inputs.for_gate("sql-run", "preferences")
+    assert request is not None and request.status == "open"
+    assert store.inputs.decision(request.request_id) is None
+    assert _store().get_scope("sql-run") is None
+    calls.clear()  # only the remaining steps are the fused call's business
+
+    result = await WorkflowToolProvider(app)._resume_workflow(
+        "sql-run", {"budget": "high"}
+    )
+
+    assert result["status"] == "success"
+    assert result["return_value"] == "itinerary"
+    assert calls == ["travel_plan", "body"]
+    consumed = store.inputs.request(request.request_id)
+    assert consumed is not None and consumed.status == "consumed"
+    assert store.inputs.decision(request.request_id) is not None
+    assert _store().get_scope("sql-run") is None
+    assert store.workflows.workflow("sql-run").status == "completed"
 
 
 class TestGetWorkflowState:
@@ -263,6 +305,28 @@ class TestGetWorkflowState:
 
 
 class TestListWorkflows:
+    @pytest.mark.parametrize("run_spelling", ["job_aaǆ", "job-aadž"])
+    async def test_unicode_workflow_filter_accepts_both_spellings(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_spelling: str
+    ) -> None:
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        app = _gated_app(workflow_name="job_aaǆ")
+        app.execute(
+            RunRequest(
+                job_name=run_spelling,
+                surface="app.execute",
+                workflow_scope_id="unicode-run",
+            )
+        )
+        provider = _provider(app)
+        all_rows = (await provider._list_workflows())["workflows"]
+        assert [row["workflow_id"] for row in all_rows] == ["unicode-run"]
+        for filter_spelling in ("job_aaǆ", "job-aadž"):
+            rows = (await provider._list_workflows(workflow_name=filter_spelling))[
+                "workflows"
+            ]
+            assert rows == all_rows
+
     async def test_no_scopes_lists_nothing(self) -> None:
         result = await _provider(_gated_app())._list_workflows()
         assert result["workflows"] == []
@@ -838,6 +902,34 @@ class TestCancelWorkflow:
 
 
 class TestRegistration:
+    async def test_list_runs_projects_tags_without_a_tag_input(self) -> None:
+        app = _gated_app()
+        store = RunStore(app.substrate)
+        store.open_run(
+            {
+                "run_id": "run-0001",
+                "job": "trip_planner",
+                "run_tags": {"harness": "claude"},
+            }
+        )
+        store.open_run({"run_id": "run-0002", "job": "trip_planner"})
+        provider = WorkflowToolProvider(app, run_store=store)
+
+        rows = (await provider._list_runs())["runs"]
+        assert [row["run_tags"] for row in rows] == [{}, {"harness": "claude"}]
+
+        mcp = FastMCP("run-tag-schema")
+        provider.register_tools(mcp)
+        tools = await mcp.list_tools()
+        schema = next(tool.parameters for tool in tools if tool.name == "list_runs")
+        assert set(schema["properties"]) == {
+            "job",
+            "surface",
+            "state",
+            "scope_id",
+            "limit",
+        }
+
     def test_every_tool_is_registered(self) -> None:
         registered: list[str] = []
 

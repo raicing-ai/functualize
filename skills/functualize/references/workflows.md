@@ -55,7 +55,7 @@ Exported from `functualize.workflow`:
 | `Edge` | A directed connection |
 | `ConditionalEdge` | A branch taken on a runtime condition |
 | `END` | Terminal sentinel |
-| `FromStep` | Reads a recorded step result, to bind a gate tool's argument |
+| `FromStep` | Reads this walk's record for a step or gate — in a step's or the epilogue's parameter, or a gate tool's argument |
 
 Confirm against the installed version:
 
@@ -96,8 +96,10 @@ respectively.
 ## Gates
 
 A `Gate` pauses the walk for input. `Tool(read_file, allowed=FromStep(...))`
-offers a job to the gate with some arguments already fixed by an earlier step's
+offers a job to the gate with some arguments already fixed by an earlier node's
 recorded result, so the gate presents a narrowed choice rather than a raw call.
+The answer itself is the gate's record: a later step or the epilogue reads it
+with `Annotated[Approval, FromStep("approve")]`.
 
 Gate resolution lives in `_gate/`. A paused workflow persists as a scope.
 

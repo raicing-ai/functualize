@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "GLOBAL_OPTIONS_ALWAYS_VALUE",
+    "GLOBAL_OPTION_ACCEPTED_VALUES",
     "OPTIONAL_VALUE_VALID_SET",
     "GLOBAL_OPTIONS_WITH_VALUE",
     "GLOBAL_BOOL_FLAGS",
@@ -59,6 +60,7 @@ GLOBAL_OPTIONS_ALWAYS_VALUE = frozenset(
         "--exclude",
         "--perf-filter",
         "--import-libs",
+        "--run-tag",
         "--perf-report",
         "--emit-format",
     }
@@ -71,7 +73,7 @@ GLOBAL_OPTIONS_ALWAYS_VALUE = frozenset(
 # values. The public rename (e.g. GLOBAL_OPTION_ACCEPTED_VALUES) is a separate
 # follow-up and keeps the tuple shape; the legacy ``default`` half describes
 # what an *absent* flag means, not a bare-flag fallback (there is none).
-OPTIONAL_VALUE_VALID_SET: dict[str, tuple[frozenset[str], str]] = {
+GLOBAL_OPTION_ACCEPTED_VALUES: dict[str, tuple[frozenset[str], str]] = {
     "--perf-report": (frozenset({"text", "json"}), "text"),
     # §C.2 serialization vocabulary for ``out.emit()``. "auto" (dispatch by the
     # emitted value's type) is both the absent-flag default *and* a typeable
@@ -91,6 +93,9 @@ OPTIONAL_VALUE_VALID_SET: dict[str, tuple[frozenset[str], str]] = {
     # aid is how one thing acquires two names.
     "--emit-format": (frozenset({"auto", "json", "ndjson", "raw", "none"}), "auto"),
 }
+
+# Retained while public and delivery callers migrate to the clearer name.
+OPTIONAL_VALUE_VALID_SET = GLOBAL_OPTION_ACCEPTED_VALUES
 
 # The global-flag detector's table (used for --option=value detection and for
 # "move it before the group" advice): with no optional-value flags left, it is

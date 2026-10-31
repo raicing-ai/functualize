@@ -18,6 +18,7 @@ import json
 import os
 import re
 import sys
+from contextlib import suppress
 
 # Paths whose modification requires a task list. Shipped code only: tests,
 # per-plugin tests, conftest, packaging metadata and docs are deliberately free.
@@ -170,8 +171,6 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
+    with suppress(Exception):
         main()
-    except Exception:
-        pass  # fail open: a validator that cannot decide must not decide
     sys.exit(0)

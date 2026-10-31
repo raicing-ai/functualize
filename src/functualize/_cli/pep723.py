@@ -38,6 +38,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from functualize.plugin import SCRIPT_METADATA
+
 _SCRIPT_BLOCK_RE = re.compile(
     r"^# /// script\s*\n((?:#[^\n]*\n)*?)# ///$",
     re.MULTILINE,
@@ -45,12 +47,14 @@ _SCRIPT_BLOCK_RE = re.compile(
 
 _DEPTH_ENV_VAR = "_FUNCTUALIZE_PEP723_DEPTH"
 
-#: Keys recognized in `[tool.functualize]`. Anything else earns a warning
-#: rather than an error: a newer functualize may add keys, and refusing to run
-#: a script because of a field this version has not heard of would be worse
-#: than the typo it protects against. Silence would be worse still — that is
-#: how a misspelled setting looks exactly like a setting with no effect.
-_KNOWN_TOOL_KEYS = frozenset({"job", "skill"})
+# The keys recognized in `[tool.functualize]` are the declared
+# `SCRIPT_METADATA`, not a set kept here: a second list is a second answer to
+# "what may a script declare", and the declaration is where the format is
+# stated. Anything outside it earns a warning rather than an error: a newer
+# functualize may add keys, and refusing to run a script because of a field
+# this version has not heard of would be worse than the typo it protects
+# against. Silence would be worse still — that is how a misspelled setting
+# looks exactly like a setting with no effect.
 
 
 @dataclass(frozen=True)
@@ -62,16 +66,10 @@ class ScriptMetadata:
         job: `[tool.functualize] job` — the function this script runs when
             invoked as a program. None if unset, which keeps the pre-T41
             behaviour (first argument is read as a function name).
-        skill: `[tool.functualize] skill` — the agent skill this script
-            belongs to. Parsed and exposed; nothing reads it yet. See the
-            note on `_parse_tool_table`.
     """
 
     dependencies: list[str] | None = None
     job: str | None = None
-    # TRANSITIONAL(third-party-host-seams/1.2): parsed, not yet consumed;
-    # see STATUS follow-up #29.
-    skill: str | None = None
 
 
 def parse_script_metadata(source_file: Path) -> ScriptMetadata | None:
@@ -128,37 +126,35 @@ def parse_script_metadata(source_file: Path) -> ScriptMetadata | None:
     if not isinstance(deps, list):
         deps = None
 
-    job, skill = _parse_tool_table(data, source_file)
-    return ScriptMetadata(dependencies=deps, job=job, skill=skill)
+    job = _parse_tool_table(data, source_file)
+    return ScriptMetadata(dependencies=deps, job=job)
 
 
-def _parse_tool_table(
-    data: dict[str, Any], source_file: Path
-) -> tuple[str | None, str | None]:
+def _parse_tool_table(data: dict[str, Any], source_file: Path) -> str | None:
     """Read `[tool.functualize]`, warning about anything not understood.
 
-    Returns ``(job, skill)``.
+    Returns the declared ``job``.
 
-    ``skill`` is **TRANSITIONAL(third-party-host-seams/1.2)**: parsed and
-    exposed on ``ScriptMetadata``, read by nothing. That is deliberate — the
-    file format should settle before a consumer exists — but it knowingly
-    creates a fourth instance of the class ``.spec/STATUS.md`` calls *"the
-    worst of the three states"*: accepted, validated, and read by nothing.
-    STATUS follow-up #29 exists so it stays counted rather than invisible.
+    ``skill`` used to be a second key here, parsed and exposed while nothing
+    read it — accepted, validated, and read by nothing, which `.spec/STATUS.md`
+    counts as the worst of the three states. No consumer arrived, so the key
+    is gone from the declaration and a script that still writes it now gets the
+    unknown-key warning below, which names the key and the known set. The
+    script keeps running: the warning is the whole penalty.
     """
     tool = data.get("tool")
     if not isinstance(tool, dict):
-        return None, None
+        return None
     table = tool.get("functualize")
     if not isinstance(table, dict):
-        return None, None
+        return None
 
-    unknown = sorted(set(table) - _KNOWN_TOOL_KEYS)
+    unknown = sorted(set(table) - SCRIPT_METADATA)
     if unknown:
         print(
             f"Warning: {source_file.name}: unknown key(s) in "
             f"[tool.functualize]: {', '.join(unknown)}. Known: "
-            f"{', '.join(sorted(_KNOWN_TOOL_KEYS))}.",
+            f"{', '.join(sorted(SCRIPT_METADATA))}.",
             file=sys.stderr,
         )
 
@@ -166,7 +162,7 @@ def _parse_tool_table(
         value = table.get(key)
         return value if isinstance(value, str) and value else None
 
-    return _string("job"), _string("skill")
+    return _string("job")
 
 
 def parse_pep723_deps(source_file: Path) -> list[str] | None:

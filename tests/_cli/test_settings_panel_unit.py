@@ -13,13 +13,23 @@ tui-environment-and-settings (settings fold into the real func config).
 
 from __future__ import annotations
 
-from functualize._cli.data.func_settings import FUNC_SETTINGS
 from functualize._cli.tui.panels.config_table import FieldDef
-from functualize._cli.tui.settings_panel import (
-    _DEFAULT_VALUES,
-    _SETTINGS_ORDER,
-    SettingsPanel,
-)
+from functualize._cli.tui.settings_panel import SettingsPanel
+from functualize.plugin import FUNCTUALIZE_SETTINGS
+
+# The panel renders whatever declaration it is handed; these tests hand it
+# func's full declaration so every section is covered.
+CATALOG = FUNCTUALIZE_SETTINGS.settings
+_SETTINGS_ORDER = [setting.name for setting in CATALOG]
+_DEFAULT_VALUES = {
+    setting.name: "" if setting.default is None else str(setting.default)
+    for setting in CATALOG
+}
+
+
+def _panel(**kwargs: object) -> SettingsPanel:
+    kwargs.setdefault("catalog", CATALOG)
+    return SettingsPanel(**kwargs)  # type: ignore[arg-type]
 
 
 def _row_of(panel: SettingsPanel, name: str) -> int:
@@ -38,15 +48,14 @@ def _field(panel: SettingsPanel, name: str) -> FieldDef:
 class TestInitialState:
     """Test the initial state of the settings panel."""
 
-    def test_exposes_the_full_catalog(self):
-        """One row per catalog entry — not just the 9 TUI settings.
+    def test_exposes_the_catalog_it_is_given(self):
+        """One row per injected setting, in declaration order.
 
-        The Settings panel is for everything you can put in a functualize
-        setting; showing only the TUI's own knobs was the old parallel-store
-        world.
+        The panel no longer reads a module-level registry: the caller decides
+        what it shows (the shell passes the `surface="tui"` rows).
         """
-        panel = SettingsPanel()
-        assert panel._settings == [s.name for s in FUNC_SETTINGS]
+        panel = _panel()
+        assert panel._settings == [s.name for s in CATALOG]
         assert {"tui.theme", "cli.output", "discovery.scan_depth", "dotenv"} <= set(
             panel._settings
         )
@@ -64,14 +73,14 @@ class TestInitialState:
 
     def test_default_values_populated(self):
         """Settings with defaults show them; the rest display empty."""
-        panel = SettingsPanel()
+        panel = _panel()
         for name in _SETTINGS_ORDER:
             assert name in panel._values
             assert panel._values[name] == _DEFAULT_VALUES.get(name, "")
 
     def test_default_sources_are_default(self):
         """All settings initially show 'default' as source."""
-        panel = SettingsPanel()
+        panel = _panel()
         for name in _SETTINGS_ORDER:
             assert panel._sources[name] == "default"
 
@@ -86,13 +95,13 @@ class TestGetCursorField:
 
     def test_returns_none_before_mount(self):
         """Before mount (no fields built), returns None."""
-        panel = SettingsPanel()
+        panel = _panel()
         # Fields are built on_mount; before that _fields is empty
         assert panel.get_cursor_field() is None
 
     def test_returns_field_def_after_build(self):
         """After building fields, returns a FieldDef at cursor row."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         field = panel.get_cursor_field()
         assert field is not None
@@ -101,7 +110,7 @@ class TestGetCursorField:
 
     def test_cursor_row_navigation(self):
         """action_cursor_down advances cursor and returns next field."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         panel.action_cursor_down()
         field = panel.get_cursor_field()
@@ -110,7 +119,7 @@ class TestGetCursorField:
 
     def test_cursor_wraps_at_end(self):
         """Cursor wraps from last row to first."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         for _ in range(len(_SETTINGS_ORDER) - 1):
             panel.action_cursor_down()
@@ -130,7 +139,7 @@ class TestInsertRequested:
 
     def test_insert_on_value_column_posts_message(self, monkeypatch):
         """Pressing 'i' on value column posts InsertRequested."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -144,7 +153,7 @@ class TestInsertRequested:
 
     def test_insert_on_name_column_jumps_to_value(self, monkeypatch):
         """Pressing 'i' on name column jumps to value column and posts INSERT."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -158,7 +167,7 @@ class TestInsertRequested:
 
     def test_insert_on_source_column_noop(self, monkeypatch):
         """Pressing 'i' on source column is a no-op for settings."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -170,14 +179,14 @@ class TestInsertRequested:
 
     def test_field_def_has_choices_for_enum(self):
         """Enum settings expose choices on FieldDef for autocomplete."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         assert _field(panel, "tui.default_surface").choices == ["panel", "stdout"]
         assert _field(panel, "cli.output").choices == ["rich", "plain", "json"]
 
     def test_field_def_has_choices_for_bool(self):
         """Bool settings expose ['true', 'false'] as choices."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         assert _field(panel, "tui.show_session_stamp").choices == ["true", "false"]
         assert _field(panel, "dotenv").choices == ["true", "false"]
@@ -193,7 +202,7 @@ class TestApplyValueEdit:
 
     def test_valid_enum_value_applies(self, monkeypatch):
         """Valid enum value updates internal state and posts SettingChanged."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -213,7 +222,7 @@ class TestApplyValueEdit:
 
     def test_invalid_enum_value_rejected(self, monkeypatch):
         """Invalid enum value does NOT update state or post message."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -228,7 +237,7 @@ class TestApplyValueEdit:
 
     def test_invalid_int_value_rejected(self, monkeypatch):
         """Non-integer for int field is rejected."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -243,7 +252,7 @@ class TestApplyValueEdit:
 
     def test_int_out_of_range_rejected(self, monkeypatch):
         """Int value outside range is rejected."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -258,7 +267,7 @@ class TestApplyValueEdit:
 
     def test_invalid_bool_value_rejected(self, monkeypatch):
         """Invalid bool value is rejected."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -273,7 +282,7 @@ class TestApplyValueEdit:
 
     def test_valid_bool_value_applies(self, monkeypatch):
         """Valid bool value applies correctly."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -286,7 +295,7 @@ class TestApplyValueEdit:
 
     def test_valid_int_value_applies(self, monkeypatch):
         """Valid int within range applies correctly."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -299,7 +308,7 @@ class TestApplyValueEdit:
 
     def test_func_setting_is_editable_too(self, monkeypatch):
         """The non-TUI settings validate through the same catalog."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))
@@ -323,13 +332,13 @@ class TestGetAvailableActions:
 
     def test_not_focused_returns_empty(self):
         """When not focused, returns empty list."""
-        panel = SettingsPanel()
+        panel = _panel()
         actions = panel.get_available_actions(focused=False)
         assert actions == []
 
     def test_focused_returns_actions(self):
         """When focused, returns action tuples."""
-        panel = SettingsPanel()
+        panel = _panel()
         actions = panel.get_available_actions(focused=True)
         keys = [a[0] for a in actions]
         assert "j/k" in keys
@@ -347,7 +356,7 @@ class TestUpdateSetting:
 
     def test_update_changes_value_and_source(self):
         """update_setting modifies internal state."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         panel.update_setting("tui.theme", "dark", "global config")
         assert panel._values["tui.theme"] == "dark"
@@ -359,7 +368,7 @@ class TestUpdateSetting:
 
     def test_update_unknown_setting_is_ignored(self):
         """Unknown setting name is safely ignored."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel.update_setting("unknown_setting", "value", "source")
         assert "unknown_setting" not in panel._values
 
@@ -374,7 +383,7 @@ class TestSettingChangedMessage:
 
     def test_message_carries_setting_name_value_target(self, monkeypatch):
         """SettingChanged carries setting_name, value, and target."""
-        panel = SettingsPanel()
+        panel = _panel()
         panel._build_fields()
         posted: list = []
         monkeypatch.setattr(panel, "post_message", lambda msg: posted.append(msg))

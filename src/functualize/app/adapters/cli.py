@@ -34,6 +34,7 @@ from rich.table import Table
 from functualize._app.state import AppState
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import EnvironmentSource
+from functualize._types.functualize_settings import INLINE_TUI
 from functualize.app.adapters.click_params import (
     create_callback_click_command,
     create_job_click_command,
@@ -41,6 +42,10 @@ from functualize.app.adapters.click_params import (
     make_duality_group,
 )
 from functualize.app.adapters.lazy_command import make_lazy_command
+from functualize.app.adapters.settings_flags import (
+    generated_setting_options,
+    passed_setting_flags,
+)
 from functualize.types import OPTIONAL_VALUE_VALID_SET
 
 # `--emit-format`'s vocabulary, read from the one flag grammar rather than repeated
@@ -195,6 +200,14 @@ class FallbackGroup(NormalizingGroup):
         except click.UsageError as _exc:
             if "No such command" not in str(_exc):
                 raise
+            path = _dotted_group_path(self, args[0])
+            if path is not None:
+                program = ctx.find_root().info_name or "app"
+                raise click.UsageError(
+                    f"'{args[0]}' crosses a group; navigate groups with spaces: "
+                    f"{program} {' '.join(path)}",
+                    ctx=ctx,
+                ) from None
 
             @click.command(name=args[0], hidden=True)
             @click.pass_context
@@ -206,12 +219,37 @@ class FallbackGroup(NormalizingGroup):
                     all_args = [args[0], *remaining_args]
                     app_obj = obj.get("app")
                     fallbacks = obj.get("fallbacks", [])
-                    exit_code = _run_fallback_chain(all_args, app_obj, fallbacks)
+                    exit_code = _run_fallback_chain(
+                        all_args,
+                        app_obj,
+                        fallbacks,
+                        program=ctx.find_root().info_name,
+                    )
                     raise SystemExit(exit_code)
                 _show_command_not_found(args[0], None)
                 raise SystemExit(1)
 
             return args[0], _fallback_cmd, args[1:]
+
+
+def _dotted_group_path(group: click.Group, token: str) -> tuple[str, ...] | None:
+    """Return a tree path only when one token crosses existing group edges."""
+    if "." not in token or token in group.commands:
+        return None
+    from functualize.app.utils import normalize_segment
+
+    node: click.Command = group
+    path: list[str] = []
+    for segment in token.split("."):
+        if not isinstance(node, click.Group):
+            return None
+        key = segment if segment in node.commands else normalize_segment(segment)
+        child = node.commands.get(key)
+        if child is None:
+            return None
+        path.append(key)
+        node = child
+    return tuple(path) if len(path) > 1 else None
 
 
 # ─── Panel derivation ────────────────────────────────────────────────────
@@ -349,9 +387,11 @@ def _build_job_command(
         func = None
         config_class = None
 
-    # Grouped jobs register under their bare function name inside the
+    # Grouped jobs register under their command-path leaf inside the
     # sub-group; top-level jobs register under their canonical name.
-    command_name = descriptor.func_name if descriptor.group else descriptor.name
+    command_name = (
+        descriptor.command_path.segments[-1] if descriptor.group else descriptor.name
+    )
 
     if func is not None and not getattr(func, "__functualize_lazy__", False):
         command: click.Command = create_job_click_command(
@@ -667,6 +707,8 @@ def _run_fallback_chain(
     args: list[str],
     app: object,
     fallbacks: list[FallbackCommand],
+    *,
+    program: str | None = None,
 ) -> int:
     """Try each fallback in order; first match wins.
 
@@ -680,7 +722,7 @@ def _run_fallback_chain(
     # Last resort: route through discovered jobs
     cmd = args[0] if args else ""
     if cmd and app is not None:
-        exit_code = _try_discovered_job(cmd, args[1:], app)
+        exit_code = _try_discovered_job(cmd, args[1:], app, program=program)
         if exit_code is not None:
             return exit_code
 
@@ -688,7 +730,13 @@ def _run_fallback_chain(
     return 1
 
 
-def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int | None:
+def _try_discovered_job(
+    cmd: str,
+    remaining_args: list[str],
+    app: object,
+    *,
+    program: str | None = None,
+) -> int | None:
     """Attempt to execute a discovered job by name. Returns exit code or None."""
     from functualize.app import FunctualizeApp
 
@@ -701,6 +749,14 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
         return None
 
     descriptor = matching[0]
+    invocation_program = program or app.name
+    if descriptor.group and "." in cmd:
+        print(
+            f"Error: '{cmd}' crosses a group; navigate groups with spaces: "
+            f"{invocation_program} {descriptor.command_path}",
+            file=sys.stderr,
+        )
+        return 2
 
     # run-request-entry (T6/T11): this fallback is one of the app-CLI job
     # paths — a job registered after the click tree was built. It names no
@@ -728,7 +784,12 @@ def _try_discovered_job(cmd: str, remaining_args: list[str], app: object) -> int
         app=app,
         command_name=cmd,
     )
-    return invoke_command_capturing(command, remaining_args, "none", prog_name=cmd)
+    return invoke_command_capturing(
+        command,
+        remaining_args,
+        "none",
+        prog_name=f"{invocation_program} {descriptor.command_path}",
+    )
 
 
 def _show_command_not_found(cmd: str, app: object) -> None:
@@ -751,6 +812,7 @@ def _show_command_not_found(cmd: str, app: object) -> None:
         if isinstance(app, FunctualizeApp):
             jobs = app.get_jobs()
             job_names = [j.name for j in jobs]
+            descriptors_by_name = {j.name: j for j in jobs}
             from functualize.app.utils import suggest_similar_commands
 
             suggestions = suggest_similar_commands(cmd, job_names)
@@ -758,9 +820,17 @@ def _show_command_not_found(cmd: str, app: object) -> None:
                 # The list is capped by `suggest_similar_commands` itself, at
                 # the same number `func` shows. A second, smaller slice here
                 # is how the two doors answered one question differently.
+                # Render every row before printing the header, so a row that
+                # cannot be rendered never leaves an empty "Did you mean:".
+                rows = [
+                    f"  {app.name} {descriptors_by_name[s].command_path}"
+                    if s in descriptors_by_name
+                    else f"  {app.name} {s}"
+                    for s in suggestions
+                ]
                 print("\nDid you mean:", file=sys.stderr)
-                for s in suggestions:
-                    print(f"  {s}", file=sys.stderr)
+                for row in rows:
+                    print(row, file=sys.stderr)
     except Exception:
         pass
 
@@ -931,7 +1001,9 @@ class CliAdapter:
 
         def _callback(
             log_level: str = "INFO",
-            dotenv_file: Path | None = None,
+            # A declared setting, so the generated option supplies it: a path
+            # typed by the declaration, arriving as text.
+            dotenv_file: str | None = None,
             config_directory: Path | None = None,
             perf_report: str | None = None,
             perf_filter: str | None = None,
@@ -948,13 +1020,13 @@ class CliAdapter:
             """Global options processed before any sub-command.
 
             ``**generated`` absorbs the flags built from settings declaring
-            ``cli_flag`` (C3.1). They arrive by destination name, which is why
-            the spec list is re-read here rather than passed down: it is the
-            one place that knows flag → dotted-name.
+            ``cli_flag`` (C3.1). They arrive by destination name and
+            ``passed_setting_flags`` is the one place that knows
+            flag → dotted-name, so nothing here re-derives it.
             """
             import time as _time
 
-            _apply_setting_overrides(generated)
+            _apply_setting_overrides(app_instance, generated)
 
             ctx = click.get_current_context()
 
@@ -997,14 +1069,15 @@ class CliAdapter:
             logging.basicConfig(level=level, force=True, format="%(message)s")
 
             if dotenv_file is not None:
-                if not dotenv_file.exists() or not dotenv_file.is_file():
+                dotenv_path = Path(dotenv_file)
+                if not dotenv_path.is_file():
                     click.echo(
-                        f"Error: dotenv file '{dotenv_file}' does not exist.",
+                        f"Error: dotenv file '{dotenv_path}' does not exist.",
                         err=True,
                     )
                     raise SystemExit(1)
-                load_dotenv(dotenv_file)
-                AppState.set("dotenv_path", str(dotenv_file))
+                load_dotenv(dotenv_path)
+                AppState.set("dotenv_path", str(dotenv_path))
 
             if config_directory is not None:
                 if not config_directory.exists() or not config_directory.is_dir():
@@ -1058,12 +1131,6 @@ class CliAdapter:
                 ["--log-level"],
                 default="INFO",
                 help="Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL.",
-            ),
-            click.Option(
-                ["--dotenv-file"],
-                type=click.Path(path_type=Path),
-                default=None,
-                help="Path to the .env file to load environment variables from.",
             ),
             click.Option(
                 ["--config-directory"],
@@ -1129,7 +1196,7 @@ class CliAdapter:
                     "capability) or print()."
                 ),
             ),
-            *_generated_setting_options(),
+            *generated_setting_options(app_instance.settings_schema),
             *self._cli_group.params,
         ]
 
@@ -1137,20 +1204,18 @@ class CliAdapter:
 # ─── Bare invocation: launch the shell, or print help (C3.3) ────────────
 
 
-def _inline_tui_enabled() -> bool:
+def _inline_tui_enabled(app: FunctualizeApp) -> bool:
     """The `cli.inline_tui` setting — does a bare TTY invocation open a shell?
 
     Defaults to true, so a project app gets the shell without configuring
     anything. Setting it false is the opt-out for a tool that wants a bare
     invocation to behave like a conventional CLI and print its help.
     """
-    from functualize._cli.data.func_settings import FuncSettingsStore
-
     try:
-        value = FuncSettingsStore.discover().effective_values().get("cli.inline_tui")
-    except (OSError, ValueError):
+        value = app.settings.get(INLINE_TUI.name)
+    except (OSError, ValueError, AttributeError):
         return True
-    return str(value).strip().lower() not in ("false", "0", "no", "off")
+    return value is not False
 
 
 def _bare_tty_available() -> bool:
@@ -1172,7 +1237,7 @@ def _handle_bare_invocation(ctx: click.Context, app: FunctualizeApp) -> None:
     - No TTY → print help. There is no terminal to hand a shell, and a piped
       or CI invocation wants something parseable, not a refusal.
     """
-    if not _inline_tui_enabled() or not _bare_tty_available():
+    if not _inline_tui_enabled(app) or not _bare_tty_available():
         click.echo(ctx.get_help())
         ctx.exit(0)
 
@@ -1192,63 +1257,35 @@ def _launch_shell(app: FunctualizeApp) -> int:
     return launch_inline_tui(app)
 
 
-# ─── Generated root flags from the settings schema (C3.1) ───────────────
+# ─── Generated root flags from the settings declaration (C3.1) ─────────
 
 
-def _setting_flag_specs() -> list[tuple[str, str, str, str]]:
-    """``(flag, dest, dotted name, help)`` for every setting declaring a flag.
-
-    Reads the **live** settings schema, so a flag declared by a setting the
-    shell (or a project app's own component) registered is generated too — the
-    catalog is a live view precisely so this cannot go stale.
-
-    ``_cli`` is imported lazily here for the same reason
-    ``register_builtin_commands`` is: ``_cli`` sits above ``app``, so a
-    module-level import would make the graph cyclic.
-    """
-    from functualize._cli.data.func_settings import FUNC_SCHEMA
-
-    specs: list[tuple[str, str, str, str]] = []
-    for setting in FUNC_SCHEMA.settings:
-        flag = setting.cli_flag
-        if not flag:
-            # The whole point of the field: a setting without one stays
-            # file/env-only and must not appear in `--help`.
-            continue
-        dest = flag.lstrip("-").replace("-", "_")
-        specs.append((flag, dest, setting.name, setting.description or ""))
-    return specs
-
-
-def _generated_setting_options() -> list[click.Option]:
-    """Root options for settings that declare ``cli_flag``."""
-    return [
-        click.Option([flag], default=None, help=help_text)
-        for flag, _dest, _name, help_text in _setting_flag_specs()
-    ]
-
-
-def _apply_setting_overrides(values: dict[str, Any]) -> None:
-    """Feed passed generated flags into the settings store's top rung.
+def _apply_setting_overrides(app: FunctualizeApp, values: dict[str, Any]) -> None:
+    """Feed passed generated flags into the app's settings snapshot.
 
     Only flags actually given are recorded: ``None`` means "not passed", which
     must leave file/env resolution exactly as it was. That is what keeps an app
     declaring no flags byte-identical to one that never had this code.
-    """
-    from functualize._cli.data.func_settings import FuncSettingsStore
 
-    overrides = [
-        (name, values[dest], flag)
-        for flag, dest, name, _help in _setting_flag_specs()
-        if values.get(dest) is not None
-    ]
-    if not overrides:
+    Precedence has one home. The declaration's resolver already knows where a
+    command line sits in the ladder — above the environment and the files,
+    below an explicit host override — so the flags enter through it and the app
+    keeps the single snapshot every surface reads. A store beside that snapshot
+    could only ever disagree with it.
+    """
+    from functualize._config.settings_resolution import resolve_settings
+
+    flags = passed_setting_flags(app.settings_schema, values)
+    if not flags:
         return
 
-    store = FuncSettingsStore.discover()
-    for name, value, flag in overrides:
-        store.set_cli_override(name, str(value), flag=flag)
-    AppState.set("settings_store", store)
+    # Assigned through the app's own attribute: `settings` is a cached property
+    # resolved once, and this callback runs after the app exists. Resolving
+    # against the same root and the same declaration leaves the flags
+    # themselves as the only difference between the two snapshots.
+    app._settings_snapshot = resolve_settings(
+        app.settings_schema, app._state_root, flags=flags
+    )
 
 
 # ─── Helper functions for show-info ─────────────────────────────────────
@@ -1415,23 +1452,16 @@ def _show_job_config(app: FunctualizeApp, console: Console, job_name: str) -> No
     config_table.add_column("Value")
     config_table.add_column("Source", style="dim italic")
 
-    from functualize._config.resolved_field import resolve_job_fields
     from functualize._types.redaction import display_value
+    from functualize.app.utils import job_config_fields
 
-    # One resolver. This used to be `_resolve_field_with_source`, a private
-    # re-implementation that knew one env convention, skipped coercion, and so
-    # could report a value the run would not use.
+    # One resolver, and the one `builtin env` reads. This used to be
+    # `_resolve_field_with_source`, a private re-implementation that knew one
+    # env convention, skipped coercion, and so could report a value the run
+    # would not use; then a second view of its own, built at the job's name,
+    # which reported a class job's fields from a section its run never reads.
     try:
-        from functualize._config.job_config import JobConfigView
-
-        fields = resolve_job_fields(
-            job_config_class,
-            job_name,
-            JobConfigView(
-                resolution_chain=app._resolution_chain,
-                default_section_prefix=job_name,
-            ),
-        )
+        fields = job_config_fields(app, job_name)
     except Exception:  # introspection must never mask the real error
         fields = []
 
