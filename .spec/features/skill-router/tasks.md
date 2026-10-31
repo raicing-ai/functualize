@@ -521,7 +521,7 @@ naming `report.main → metrics.verdict`.
 
 ## Wave 4
 
-### [ ] T9 — corpus v1, drafted
+### [x] T9 — corpus v1, drafted
 
 *Files (new):* `tests/skill_router_eval/corpus/v1/scenarios.jsonl`,
 `tests/skill_router_eval/corpus/v1/TWO_SKILL.md`
