@@ -913,11 +913,21 @@ class EventWriter(Protocol):
     Scope events and run events share this shape, which is why ``run_id`` is
     optional: it names the run whose step produced the event when one did. The
     store assigns ``seq`` and nothing rewrites a row, which is what makes "what
-    happened after point N" answerable.
+    happened after point N" answerable. A scope event may name its scope and
+    held generation directly, without another write in the transaction. A
+    generation of 0 is unfenced. When the scope is omitted, it is inferred
+    from the transaction's single scope write. Naming both ``run_id`` and
+    ``scope_id`` raises ``ValueError``.
     """
 
     def append(
-        self, type: str, payload: Any = None, run_id: str | None = None
+        self,
+        type: str,
+        payload: Any = None,
+        run_id: str | None = None,
+        *,
+        scope_id: str | None = None,
+        generation: int = 0,
     ) -> None: ...
 
 

@@ -402,8 +402,18 @@ class SqlEventWriter:
     def __init__(self, tx: BufferedTransaction) -> None:
         self._tx = tx
 
-    def append(self, type: str, payload: Any = None, run_id: str | None = None) -> None:  # noqa: A002 — the port's name
+    def append(
+        self,
+        type: str,
+        payload: Any = None,
+        run_id: str | None = None,
+        *,
+        scope_id: str | None = None,
+        generation: int = 0,
+    ) -> None:  # noqa: A002 — the port's name
         tx = self._tx
+        if scope_id is not None and run_id is not None:
+            raise ValueError("an event cannot name both a run and a scope")
         now = iso(datetime.now(UTC))
         if run_id is not None:
             # An event for a run nobody opened lands nowhere, like the attempt
@@ -423,6 +433,28 @@ class SqlEventWriter:
                     now,
                     tx.namespace,
                     run_id,
+                ),
+            )
+            return
+        if scope_id is not None:
+            tx.require_fence(scope_id, generation)
+            tx.ensure_scope(scope_id, datetime.now(UTC))
+            tx.scopes_written.add(scope_id)
+            fence, fence_args = tx.fence_sql(scope_id, generation)
+            tx.stage(
+                "INSERT INTO scope_events (namespace_id, scope_id, seq, type, payload, "
+                "occurred_at) SELECT ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM "
+                "scope_events WHERE namespace_id = ? AND scope_id = ?), ?, ?, ? "
+                f"WHERE {fence}",
+                (
+                    tx.namespace,
+                    scope_id,
+                    tx.namespace,
+                    scope_id,
+                    type,
+                    dumps(payload),
+                    now,
+                    *fence_args,
                 ),
             )
             return

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — stale workflow events cannot enter a new holder's log
+
+The walk log subscriber now appends directly to the selected store's scope log
+with the walker's held generation. A late event from a superseded walk is
+fenced out, including when the scope changes hands before the append commits.
+Scope identity and generation are routing fields and no longer appear in the
+stored event payload; the subscriber no longer issues an empty state write to
+route the event.
+
 ### Fixed — unknown settings keys are visible in configuration reports
 
 `func builtin config path` annotates unknown keys with their file and a

@@ -2,6 +2,20 @@
 
 Functualize is pre-release (Alpha). Breaking changes are free until v1.0.0.
 
+## Scope-targeted walk-log append
+
+The walker's `workflow.*` bus events carry the generation it holds. The
+walk-log subscriber passes the scope and generation to `EventWriter.append`
+without an empty state write, and the stored payload keeps neither routing
+field. Both runtime stores fence a positive generation at the append: the
+document store checks under its held scope mutation, and SQLite checks before
+staging and predicates the `INSERT` so a takeover before commit lands no row.
+Generation 0 remains the unfenced default for hand-built events; inferred
+routing for append calls naming no scope remains available. The durable
+contract is in ADR-033 and the persistence data-model reference. Conformance
+tests cover stale, current-holder, and generation-0 appends on both stores;
+the SQLite writer suite covers the commit race.
+
 ## Credential plugins and the portable bundle
 
 The next release publishes all fourteen built distributions, including
