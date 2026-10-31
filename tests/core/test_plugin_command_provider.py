@@ -92,12 +92,7 @@ class TestTopLevelCommands:
 
 class TestOrdering:
     def test_builtin_sorts_last(self) -> None:
-        """Existing contract: the reserved surface is the final row(s).
-
-        Since the `vault` top-level alias (vault-remote-redemption A8),
-        the reserved surface is two roots — `builtin` and its alias —
-        and both sort after every user row.
-        """
+        """Existing contract: the reserved subtree is the final row."""
 
         def alpha() -> None:
             """A job."""
@@ -107,7 +102,7 @@ class TestOrdering:
             commands=[dict(name="zeta", callback=lambda: None, namespace="demo")],
         )
         names = [n.name for n in _tree_without_env_plugins(app)]
-        assert names[-2:] == ["builtin", "vault"]
+        assert names[-1] == "builtin"
         assert names.index("alpha") < names.index("demo")
 
 

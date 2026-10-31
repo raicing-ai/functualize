@@ -257,9 +257,7 @@ def test_kind_builtin_narrows_to_the_reserved_subtree(cli_run, project):
     entries = json.loads(result.stdout)
     assert entries
     assert {e["kind"] for e in entries} == {"builtin"}
-    # The reserved surface has two roots since the `vault` top-level alias
-    # (vault-remote-redemption A8): the `builtin` subtree and its alias.
-    assert all(e["path"][0] in {"builtin", "vault"} for e in entries)
+    assert all(e["path"][0] == "builtin" for e in entries)
 
 
 def test_jobs_sort_before_builtins(cli_run, project):

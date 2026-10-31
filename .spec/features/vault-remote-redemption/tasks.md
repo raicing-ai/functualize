@@ -150,7 +150,8 @@ the two spellings cannot drift:
 ```bash
 rg -c 'add_command\(vault_app, name="vault"\)' src/functualize/_cli/builtins/__init__.py
 ```
-after: `1`
+after: `0` — superseded: the alias was mounted here (recorded `1` on 2026-09-24)
+and removed by T20 on the maintainer's decision O4 (2026-11-01).
 
 ### [x] T11 (B6) spent/expired/tampered CLI failure tests; hygiene grep
 
@@ -199,7 +200,7 @@ rg -c 'SHARED_SLOT' src/functualize/_primitives/vault_identity.py
 ```
 after: `3`
 
-### [ ] T20 (D7) remove the top-level `func vault` alias (O4; spec A8)
+### [x] T20 (D7) remove the top-level `func vault` alias (O4; spec A8)
 
 Hit set: the branch's own alias hunks (plan.md → *Files to change*). Source
 reverts to master's shape; the listed tests return to master's version; the

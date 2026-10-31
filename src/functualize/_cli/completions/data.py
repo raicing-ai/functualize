@@ -216,15 +216,10 @@ def extract_completion_data(func_app: Any) -> CompletionData:
     # Builtin subtree, from the registry.
     builtin_children, builtin_subs = _builtin_structure()
     top = command_tree.get("", [])
-    command_tree[""] = _dedupe([*top, "builtin", "vault"])
+    command_tree[""] = _dedupe([*top, "builtin"])
     command_tree["builtin"] = builtin_children
     for child, subs in builtin_subs.items():
         command_tree[f"builtin {child}"] = subs
-    # The one top-level alias (vault-remote-redemption A8) completes with
-    # the same family the `builtin` spelling does.
-    vault_subs = builtin_subs.get("vault")
-    if vault_subs is not None:
-        command_tree["vault"] = vault_subs
 
     return CompletionData(command_tree=command_tree, flag_choices=flag_choices)
 
