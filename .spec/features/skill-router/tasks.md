@@ -121,7 +121,7 @@ now: `0` · after: `1`
 Closes when `uv run pytest tests/skill_router_eval/test_catalog.py -q > /tmp/functualize-t1.log 2>&1`
 passes. Commit: `test(skill-router): derive the bounded skill catalog`.
 
-### [ ] T2 — the `evals/` harness arms and the downstream suite
+### [x] T2 — the `evals/` harness arms and the downstream suite
 
 *Files:* `evals/providers/_harness.py` (modify), `evals/providers/claude_agent.py`
 (modify), `evals/providers/claude_router.py` (modify: one output key),

@@ -33,6 +33,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,6 +41,12 @@ EVALS_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = EVALS_DIR.parent
 SKILLS_DIR = REPO_ROOT / "skills"
 FIXTURES_DIR = EVALS_DIR / "fixtures"
+
+# A skill is a directory holding a SKILL.md. Sorted so the `load-everything`
+# arm builds byte-identical context from one run to the next.
+SKILLS = tuple(
+    path.name for path in sorted(SKILLS_DIR.iterdir()) if (path / "SKILL.md").is_file()
+)
 
 # Kept low on purpose: a runaway agent is a cost incident, not a data point.
 DEFAULT_MAX_TURNS = 30
@@ -573,6 +580,15 @@ class AgentRun:
     num_turns: int = 0
     cost_usd: float = 0.0
     error: str | None = None
+    # What the arm costs before it has done anything: the context the model
+    # saw on its first turn. Read from the first `assistant` event only —
+    # later turns re-send the same transcript, so summing them measures the
+    # conversation's length, not the arm's starting weight.
+    first_turn_input_tokens: int | None = None
+    duration_s: float = 0.0
+    # The model the run actually used, as the `system`/`init` event reports it,
+    # so a silently substituted model is visible in the results.
+    model: str | None = None
     # Set when the stream reports something no amount of waiting will fix, so
     # the run can be abandoned instead of sitting out the retry schedule.
     fatal: str | None = None
@@ -589,9 +605,24 @@ class AgentRun:
 
 
 def build_workspace(
-    fixture: str | None, with_skills: bool, mode: str = "host"
+    fixture: str | None,
+    with_skills: bool,
+    mode: str = "host",
+    *,
+    skills: Sequence[str] | None = None,
 ) -> tuple[Path, Sandbox]:
-    """Create a temp workspace, optionally seeded from a fixture and skills."""
+    """Create a temp workspace, optionally seeded from a fixture and skills.
+
+    `skills` names exactly which `skills/<name>/` directories to mount, which
+    is what a routed arm needs: an explicit `[]` mounts none. Left at `None`,
+    the `with_skills` ablation switch decides as it always has.
+    """
+    if skills is not None:
+        # Before the temp directory exists, so a typo cannot leak one.
+        for name in skills:
+            if not (SKILLS_DIR / name).is_dir():
+                raise FileNotFoundError(f"No such skill: {SKILLS_DIR / name}")
+
     workspace = Path(tempfile.mkdtemp(prefix="fz-eval-"))
     # Beside the workspace, not inside it: agent HOME junk must not show up
     # in collect_files() and be graded as something the agent authored.
@@ -617,7 +648,14 @@ def build_workspace(
     claude_dir = workspace / ".claude"
     claude_dir.mkdir(exist_ok=True)
 
-    if with_skills:
+    if skills is not None:
+        # Copy rather than symlink, for the same reason as below — and one
+        # directory at a time, because the selection is the treatment.
+        for name in skills:
+            shutil.copytree(
+                SKILLS_DIR / name, claude_dir / "skills" / name, dirs_exist_ok=True
+            )
+    elif with_skills:
         # Copy rather than symlink: file tools may refuse to follow links that
         # leave the working directory, and a container would not see them.
         shutil.copytree(SKILLS_DIR, claude_dir / "skills", dirs_exist_ok=True)
@@ -627,6 +665,20 @@ def build_workspace(
         json.dumps({"permissions": {"defaultMode": "bypassPermissions"}}, indent=2)
     )
     return workspace, sandbox
+
+
+def skill_bodies(names: Sequence[str]) -> str:
+    """The `SKILL.md` bodies of `names`, each under its own heading.
+
+    This is the `load-everything` arm: a router that mounts one skill still
+    leaves the *choice* to the agent, so the comparison that matters is against
+    an arm that hands over every body up front.
+    """
+    bodies = []
+    for name in names:
+        skill_md = SKILLS_DIR / name / "SKILL.md"
+        bodies.append(f"## Skill: {name}\n\n{skill_md.read_text().strip()}")
+    return "\n\n".join(bodies)
 
 
 def _expand_tokens(workspace: Path, source_path: str) -> None:
@@ -676,6 +728,7 @@ def run_claude(
     max_turns: int = DEFAULT_MAX_TURNS,
     allowed_tools: list[str] | None = None,
     timeout_s: int = DEFAULT_TIMEOUT_S,
+    append_system_prompt: str | None = None,
 ) -> AgentRun:
     """Run one headless Claude Code session and parse its event stream."""
     argv = [
@@ -700,6 +753,8 @@ def run_claude(
         argv += ["--allowed-tools", *tools]
     if model:
         argv += ["--model", model]
+    if append_system_prompt:
+        argv += ["--append-system-prompt", append_system_prompt]
 
     run = AgentRun()
     label = " ".join(prompt.split())[:44]
@@ -713,6 +768,7 @@ def run_claude(
         proc = sandbox.popen(argv)
     except (OSError, RuntimeError) as exc:
         run.error = str(exc)
+        run.duration_s = time.monotonic() - began
         log_progress(f"✖ agent ERROR {exc}")
         return run
 
@@ -748,6 +804,9 @@ def run_claude(
         proc.kill()
     finally:
         watchdog.cancel()
+        # Set here so every exit path — completed, fatal, timed out — carries
+        # the wall clock the arm actually spent.
+        run.duration_s = time.monotonic() - began
 
     if timed_out.is_set():
         run.error = f"timeout after {timeout_s}s"
@@ -795,7 +854,18 @@ def _absorb(run: AgentRun, event: dict, announce: bool = False) -> None:
     event_type = event.get("type")
 
     if event_type == "assistant":
-        for block in event.get("message", {}).get("content", []) or []:
+        message = event.get("message", {}) or {}
+        if run.first_turn_input_tokens is None:
+            usage = message.get("usage") or {}
+            if usage:
+                # Three fields, because a cached prompt arrives split:
+                # `input_tokens` is only the uncached remainder.
+                run.first_turn_input_tokens = (
+                    int(usage.get("input_tokens") or 0)
+                    + int(usage.get("cache_creation_input_tokens") or 0)
+                    + int(usage.get("cache_read_input_tokens") or 0)
+                )
+        for block in message.get("content", []) or []:
             if block.get("type") != "tool_use":
                 continue
             name = block.get("name", "")
@@ -811,11 +881,15 @@ def _absorb(run: AgentRun, event: dict, announce: bool = False) -> None:
     elif event_type == "system":
         subtype = event.get("subtype")
 
-        if subtype == "init" and announce:
-            log_progress(
-                f"  · model={event.get('model', '?')} "
-                f"auth={event.get('apiKeySource', '?')}"
-            )
+        if subtype == "init":
+            model = event.get("model")
+            if isinstance(model, str) and model:
+                run.model = model
+            if announce:
+                log_progress(
+                    f"  · model={event.get('model', '?')} "
+                    f"auth={event.get('apiKeySource', '?')}"
+                )
 
         elif subtype == "api_retry":
             status = event.get("error_status")
