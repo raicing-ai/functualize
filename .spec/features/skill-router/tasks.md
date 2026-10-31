@@ -427,7 +427,7 @@ passes. Commit: `test(skill-router): add selection and context metrics`.
 
 ## Wave 2
 
-### [ ] T7 — the replay, freeze and select commands
+### [x] T7 — the replay, freeze and select commands
 
 *Files (new):* `tests/skill_router_eval/replay.py`,
 `tests/skill_router_eval/select.py`, `tests/skill_router_eval/test_replay.py`
