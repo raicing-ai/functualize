@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -71,9 +72,7 @@ def _corpus(tmp_path: Path, scenarios: list[dict[str, object]]) -> Path:
 def _version_dir(tmp_path: Path, count: int = 2) -> Path:
     directory = tmp_path / "v1"
     directory.mkdir()
-    scenarios = [
-        _scenario(id=f"k{index:02d}") for index in range(1, count + 1)
-    ]
+    scenarios = [_scenario(id=f"k{index:02d}") for index in range(1, count + 1)]
     (directory / "scenarios.jsonl").write_text(
         "\n".join(_lines(scenarios)) + "\n", encoding="utf-8"
     )
@@ -214,6 +213,7 @@ def test_a_line_that_is_not_an_object_is_refused(tmp_path: Path) -> None:
     with pytest.raises(CorpusError, match=r"line 1: not a JSON object"):
         load_corpus(path)
 
+
 def test_a_line_that_is_not_json_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "scenarios.jsonl"
     path.write_text(json.dumps(_scenario()) + "\nnot json\n", encoding="utf-8")
@@ -304,9 +304,7 @@ def test_the_seeded_count_is_exactly_the_triggering_cases(tmp_path: Path) -> Non
     cases = _triggering(tmp_path, ["functualize-cli"] * 21)
 
     with pytest.raises(CorpusError, match="expected 21 triggering origins, found 20"):
-        check_seeded_labels(
-            load_corpus(_corpus(tmp_path, _seeded(count=20))), cases
-        )
+        check_seeded_labels(load_corpus(_corpus(tmp_path, _seeded(count=20))), cases)
 
 
 def test_a_reused_origin_is_refused(tmp_path: Path) -> None:
@@ -399,7 +397,9 @@ def test_a_lock_round_trips_and_pins_the_whole_question(tmp_path: Path) -> None:
     assert lock.seed == SEED
     assert lock.repeats == REPEATS
     assert lock.time_box_hours == TIME_BOX_HOURS
-    assert dict(lock.per_option) == {option: (2 if option == "functualize-cli" else 0) for option in OPTIONS}
+    assert dict(lock.per_option) == {
+        option: (2 if option == "functualize-cli" else 0) for option in OPTIONS
+    }
     assert dict(lock.per_stratum) == {"clear": 2, "borderline": 0}
     assert dict(lock.declared) == dict(DECLARED)
     assert dict(lock.verdict) == dict(VERDICT)
@@ -580,9 +580,7 @@ def test_a_moved_comparator_identity_is_refused(tmp_path: Path) -> None:
 # The rubric that produced the labels
 # --------------------------------------------------------------------------
 
-LABELING = (
-    Path(__file__).resolve().parent / "corpus" / "v1" / "LABELING.md"
-)
+LABELING = Path(__file__).resolve().parent / "corpus" / "v1" / "LABELING.md"
 
 
 def _sections() -> dict[str, list[str]]:
@@ -631,3 +629,73 @@ def test_the_two_skill_clause_sends_those_requests_elsewhere() -> None:
 
     assert "not labelled" in body
     assert "TWO_SKILL.md" in body
+
+
+# --------------------------------------------------------------------------
+# The drafted corpus, over the file that ships
+# --------------------------------------------------------------------------
+
+VERSION = Path(__file__).resolve().parent / "corpus" / "v1"
+SCENARIOS = VERSION / "scenarios.jsonl"
+TWO_SKILL = VERSION / "TWO_SKILL.md"
+TRIGGERING = (
+    Path(__file__).resolve().parents[2] / "evals" / "suites" / "triggering.yaml"
+)
+SUITE = Path(__file__).resolve().parents[2] / "evals" / "suites" / "skill-router.yaml"
+
+
+def _shipped() -> list:
+    return list(load_corpus(SCENARIOS))
+
+
+def test_the_drafted_corpus_has_the_version_1_shape() -> None:
+    scenarios = _shipped()
+
+    check_v1_shape(scenarios)
+    assert len({scenario.state for scenario in scenarios}) == len(scenarios)
+
+
+def test_every_seeded_scenario_keeps_its_source_label() -> None:
+    check_seeded_labels(_shipped(), TRIGGERING)
+
+
+def test_no_drafted_state_is_a_downstream_task_prompt() -> None:
+    check_disjoint_from_tasks(_shipped(), SUITE)
+
+
+def _two_skill_entries() -> list[str]:
+    entries: list[str] = []
+    current: list[str] | None = None
+    for line in TWO_SKILL.read_text(encoding="utf-8").splitlines():
+        if line.startswith("### "):
+            if current is not None:
+                entries.append(" ".join(current))
+            current = []
+        elif current is not None:
+            current.append(line)
+    if current is not None:
+        entries.append(" ".join(current))
+    return entries
+
+
+def test_every_two_skill_entry_names_two_distinct_options() -> None:
+    entries = _two_skill_entries()
+
+    assert len(entries) >= 3
+    for entry in entries:
+        needed = entry.split("**Needs:**", 1)[1].split("**Why not one:**", 1)[0]
+        named = re.findall(r"`([^`]+)`", needed)
+        assert len(named) == 2, entry
+        assert len(set(named)) == 2, entry
+        for option in named:
+            assert option in OPTIONS, entry
+
+
+def test_no_two_skill_request_sits_in_the_corpus() -> None:
+    states = {scenario.state for scenario in _shipped()}
+
+    for entry in _two_skill_entries():
+        request = entry.split("**Request:**", 1)[1].split("**Needs:**", 1)[0]
+        numbers = re.findall(r'"([^"]+)"', request)
+        assert numbers, entry
+        assert " ".join(" ".join(numbers).split()) not in states
