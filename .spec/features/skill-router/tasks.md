@@ -227,7 +227,7 @@ Commit: `build(evals): mount a chosen skill subset and report first-turn tokens`
 
 ## Wave 1
 
-### [ ] T3 — the corpus loader, the lock and the labelling rubric
+### [x] T3 — the corpus loader, the lock and the labelling rubric
 
 *Files (new):* `tests/skill_router_eval/corpus.py`,
 `tests/skill_router_eval/corpus/v1/LABELING.md`,
