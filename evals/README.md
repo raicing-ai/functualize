@@ -416,6 +416,55 @@ job named in `[tool.functualize]`; `uv run --script` hands the file to `python`,
 which executes the module body — imports and a `def` — and exits **0 having run
 nothing**. A check written that way passes on a file that is not a program.
 
+## The skill-router suite
+
+`suites/skill-router.yaml` asks one question the other suites cannot: is a
+single pre-context selection per task worth more than handing the agent every
+skill? It has no npm script, because it needs a selections file before it can
+run:
+
+```bash
+uv run python -m tests.skill_router_eval.select \
+    --tasks evals/suites/skill-router.yaml --out <outside-repo>/selections.json
+
+FZ_SKILL_ROUTER_SELECTIONS=<outside-repo>/selections.json \
+  npx promptfoo eval -c suites/skill-router.yaml --no-cache --repeat 3 \
+  -o <outside-repo>/results.json
+```
+
+Three arms run the same five downstream tasks:
+
+| Arm | What the agent gets | Read it as |
+| --- | --- | --- |
+| `load-everything` | every skill mounted, and every `SKILL.md` body appended to the system prompt | the ceiling a router has to beat |
+| `native` | every skill mounted; the agent picks one with the `Skill` tool | today's product |
+| `router` | the case's selection only: one skill mounted with its body, nothing at all for `none`, the native toolset for `escalated` | the treatment |
+
+The five cases are the ones that can tell a routed arm apart: two from
+`functualize.yaml`, two from `functualize-app.yaml`, one from
+`functualize-skill.yaml`, copied field for field with deterministic asserts
+only. There is no case for `functualize-cli` — no downstream suite exists for
+it — and none for `none`, where a skill can only get in the way. That gap is
+part of the finding, not a hole in the suite.
+
+Under an arm, `FZ_EVAL_MODEL` and `FZ_EVAL_SANDBOX` are refused rather than
+honoured when they disagree with the suite: one arm on a different model or
+sandbox turns the delta between arms — the entire result — into noise. The
+provider returns `override refused: …` before it builds a workspace.
+
+Each row carries the three numbers the comparison is made of, plus
+`router_outcome` on the router arm only:
+
+| Field | Meaning |
+| --- | --- |
+| `first_turn_input_tokens` | the first `assistant` turn's `input_tokens` + `cache_creation_input_tokens` + `cache_read_input_tokens` — what the arm costs before it does anything |
+| `duration_s` | wall clock for the run |
+| `model` | the model the run actually used, as its `system`/`init` event reports it |
+
+Later turns re-send the transcript, so only the **first** usage is read: a sum
+over turns measures how long the conversation got, not how heavy the arm
+started.
+
 ## Fixtures
 
 A fixture is a directory under `fixtures/`, copied into the throwaway workspace
