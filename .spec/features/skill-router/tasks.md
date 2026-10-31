@@ -551,7 +551,7 @@ passes. Commit: `test(skill-router): draft the version 1 selection corpus`.
 
 ## Wave 5
 
-### [ ] T10 — reviewer label check, then freeze
+### [x] T10 — reviewer label check, then freeze
 
 *Files:* `tests/skill_router_eval/corpus/v1/corpus.lock.json` (new, written by
 the command), `tests/skill_router_eval/test_corpus.py` (extend)

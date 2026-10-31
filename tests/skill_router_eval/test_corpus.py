@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.skill_router_eval import replay
 from tests.skill_router_eval.catalog import (
     NONE,
     OPTIONS,
@@ -16,6 +17,7 @@ from tests.skill_router_eval.catalog import (
     derive_catalog,
     option_meanings,
 )
+from tests.skill_router_eval.comparators import identity_sha256
 from tests.skill_router_eval.corpus import (
     DECLARED,
     INSTRUMENT_FILES,
@@ -699,3 +701,31 @@ def test_no_two_skill_request_sits_in_the_corpus() -> None:
         numbers = re.findall(r'"([^"]+)"', request)
         assert numbers, entry
         assert " ".join(" ".join(numbers).split()) not in states
+
+
+def test_v1_lock_matches_corpus_catalog_and_comparators(tmp_path: Path) -> None:
+    """The freeze is only worth having if today's tree still reproduces it.
+
+    Every argument is re-derived from the working tree, exactly as ``select``
+    and ``replay`` do before a measurement, so a reworded ``SKILL.md``, a moved
+    threshold, an edited instruction or a different comparator identity fails
+    here instead of silently measuring a different question.
+    """
+    factories = replay.resolve_factories(None)
+    identities = {
+        name: identity_sha256(factories[name](VERSION)[1])
+        for name in replay.COMPARATORS
+    }
+    rule_digest = replay.probe_rule_digest(CATALOG, tmp_path / "project")
+    lock = check_lock(
+        VERSION,
+        CATALOG,
+        identities,
+        rule_digest=str(rule_digest),
+        instrument_sha256=replay.instrument_sha256(replay.REPO_ROOT),
+    )
+
+    assert lock.count == 40
+    assert lock.repeats == 5
+    assert lock.seed == 20261013
+    assert set(lock.comparators) == set(replay.COMPARATORS)

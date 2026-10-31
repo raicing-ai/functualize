@@ -1,0 +1,99 @@
+{
+  "version": "v1",
+  "scenarios_sha256": "e04e65ed0c6111806ba58d5b6a90f9496b89164badc87daf994c8c3fd0e27a58",
+  "count": 40,
+  "per_option": {
+    "functualize": 8,
+    "functualize-app": 8,
+    "functualize-cli": 8,
+    "functualize-skill": 8,
+    "none": 8
+  },
+  "per_stratum": {
+    "clear": 25,
+    "borderline": 15
+  },
+  "seed": 20261013,
+  "repeats": 5,
+  "time_box_hours": 72,
+  "catalog": {
+    "version": 1,
+    "skills": [
+      {
+        "name": "functualize",
+        "description": "Write, run, and debug functualize jobs \u2014 job functions, RunContext capabilities (Log, Invoke, Prompt, State, Stdout, Shell, Live), layered config, secrets, and discovery rules. Use when editing jobs.py or any file defining functualize jobs, when a job is not being discovered, when wiring job config or credentials, when listing or inspecting the jobs an app exposes \u2014 a machine-readable catalogue of every job and the arguments it takes, as JSON Schema \u2014 or when the user mentions functualize, `func run`, `func builtin`, `builtin info`, RunContext, or @job. Not for installing, upgrading, or configuring the `func` tool itself \u2014 use functualize-cli.",
+        "sha256": "ef2cb3463e760aa1e69d876e49e1899fd6adcf106d31bd8b417dc2c28c1cfc02",
+        "skill_md_bytes": 11072,
+        "total_bytes": 60426
+      },
+      {
+        "name": "functualize-app",
+        "description": "Build a CLI or TUI program on functualize, end to end \u2014 decide between a single-file script and a scaffolded project, author jobs, configure the FunctualizeApp (job sources, discovery filters, config presets), write tests that actually catch regressions, and verify the program renders and runs. Use when starting a new functualize project, command-line tool, or standalone script, when adding a significant feature to one, when configuring or restructuring an existing functualize app, when asked to make one \"production ready\" or well tested, or when packaging a functualize CLI for distribution.",
+        "sha256": "0fc309b724578003498885203f604177305fbb9b1272fe59b44f0a3905b93613",
+        "skill_md_bytes": 11510,
+        "total_bytes": 17250
+      },
+      {
+        "name": "functualize-cli",
+        "description": "Install, upgrade, inspect and configure the `func` command-line tool itself \u2014 which environment it lives in, the XDG config and data directories, settings precedence, the interactive TUI, the discovery cache and runtime state store, shell completions, and where the bundled AI agent skills are installed from. Use when `func: command not found`, when `func` is not on PATH or you are unsure which environment it lives in, when the wrong version runs, when installing or upgrading functualize, when configuring `func` or its TUI, when clearing or inspecting the cache or state, when wiring shell completions, or when asked where functualize keeps its files. Not for inspecting or authoring the jobs in a project \u2014 that is the functualize skill.",
+        "sha256": "73028118281676213ea494cd3db7b971cdb58dfa1255814096f603e790a95419",
+        "skill_md_bytes": 15438,
+        "total_bytes": 15438
+      },
+      {
+        "name": "functualize-skill",
+        "description": "Author an agent skill whose bundled scripts are functualize jobs \u2014 giving the skill self-contained dependencies, a discoverable --help, structured output, secret masking, and testable scripts. Also covers deciding where a skill should live and how to distribute it: personal, committed to a team repo, published via the skills CLI, or packaged as a Claude Code plugin marketplace. Use when writing a SKILL.md, when a skill needs scripts that do real work, or when asked how to share or publish a skill.",
+        "sha256": "23f42d9a2d5cb2248e92b975c57840019f1e111536ba35c4536842cdcbdf4b22",
+        "skill_md_bytes": 8576,
+        "total_bytes": 18882
+      }
+    ],
+    "none": "No functualize skill applies; answer without loading one."
+  },
+  "catalog_sha256": "47b1ea9b1535d2a0ccb50cb7d93ece6dcf84be1f31e19aaae7b2ce4a224be3b9",
+  "comparators": {
+    "deterministic": "47cd883d098948c2c64401b642dcfdf28f970c888a993b5599d6fd6f33085277",
+    "hermetic": "3fc899129e19f5e59051ec3d1798a23c6392e852a1f66656399e61ad1d67f756",
+    "frontier": "cd34a61f5766ad95f15f4630c8aaf822e944a2a9bc23593dd62c21f2745d70a8",
+    "native": "4f06663f4e6b7b431c83edaf00b65cabe27a059cc6a49923e6c095af1f282c69"
+  },
+  "selection": {
+    "field": "skill",
+    "instructions": "Choose the one functualize skill whose instructions this request needs before work starts, or none if no functualize skill applies.",
+    "options": {
+      "functualize": "Write, run, and debug functualize jobs \u2014 job functions, RunContext capabilities (Log, Invoke, Prompt, State, Stdout, Shell, Live), layered config, secrets, and discovery rules. Use when editing jobs.py or any file defining functualize jobs, when a job is not being discovered, when wiring job config or credentials, when listing or inspecting the jobs an app exposes \u2014 a machine-readable catalogue of every job and the arguments it takes, as JSON Schema \u2014 or when the user mentions functualize, `func run`, `func builtin`, `builtin info`, RunContext, or @job. Not for installing, upgrading, or configuring the `func` tool itself \u2014 use functualize-cli.",
+      "functualize-app": "Build a CLI or TUI program on functualize, end to end \u2014 decide between a single-file script and a scaffolded project, author jobs, configure the FunctualizeApp (job sources, discovery filters, config presets), write tests that actually catch regressions, and verify the program renders and runs. Use when starting a new functualize project, command-line tool, or standalone script, when adding a significant feature to one, when configuring or restructuring an existing functualize app, when asked to make one \"production ready\" or well tested, or when packaging a functualize CLI for distribution.",
+      "functualize-cli": "Install, upgrade, inspect and configure the `func` command-line tool itself \u2014 which environment it lives in, the XDG config and data directories, settings precedence, the interactive TUI, the discovery cache and runtime state store, shell completions, and where the bundled AI agent skills are installed from. Use when `func: command not found`, when `func` is not on PATH or you are unsure which environment it lives in, when the wrong version runs, when installing or upgrading functualize, when configuring `func` or its TUI, when clearing or inspecting the cache or state, when wiring shell completions, or when asked where functualize keeps its files. Not for inspecting or authoring the jobs in a project \u2014 that is the functualize skill.",
+      "functualize-skill": "Author an agent skill whose bundled scripts are functualize jobs \u2014 giving the skill self-contained dependencies, a discoverable --help, structured output, secret masking, and testable scripts. Also covers deciding where a skill should live and how to distribute it: personal, committed to a team repo, published via the skills CLI, or packaged as a Claude Code plugin marketplace. Use when writing a SKILL.md, when a skill needs scripts that do real work, or when asked how to share or publish a skill.",
+      "none": "No functualize skill applies; answer without loading one."
+    },
+    "accept_at": 0.7,
+    "min_margin": 0.1,
+    "fallback": null,
+    "rule_digest": "sha256:4dabd4ab33ec1aedefbd798a458be1a9dd3c4509b37ce8e02cab51ab1fce3857"
+  },
+  "instrument": {
+    "files": [
+      "evals/providers/_harness.py",
+      "evals/providers/claude_agent.py",
+      "evals/providers/claude_router.py",
+      "evals/suites/skill-router.yaml",
+      "tests/skill_router_eval/catalog.py",
+      "tests/skill_router_eval/comparators.py",
+      "tests/skill_router_eval/corpus.py",
+      "tests/skill_router_eval/replay.py",
+      "tests/skill_router_eval/select.py",
+      "tests/skill_router_eval/selection.py"
+    ],
+    "sha256": "d4834659903ce2c1b6d924f8f0577f954f429ff60609ac9e3eed3fc0d5a29dd2"
+  },
+  "declared": {
+    "accept_at": 0.7,
+    "min_margin": 0.1
+  },
+  "verdict": {
+    "min_lead": 0.05,
+    "max_unsafe_none": 0
+  },
+  "frozen_at": "2026-10-31T15:20:35Z"
+}
