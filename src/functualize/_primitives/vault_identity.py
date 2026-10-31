@@ -8,6 +8,21 @@ from typing import Literal
 
 VaultScope = Literal["group", "job"]
 
+#: The environment name that addresses **shared** entries (SD/12779576): as
+#: ``config.base.*`` applies to every environment, an entry written under
+#: ``FUNCTUALIZE_ENV=base`` serves every environment. Matches
+#: ``_config.roles.BASE_SLOT`` by rule, not by import — ``_primitives`` imports
+#: nothing internal — and a test pins the two equal.
+SHARED_SLOT = "base"
+
+
+def _slot(environment: str | None) -> str | None:
+    """Fold an environment name to its stored slot; ``None`` is shared."""
+    if environment is None:
+        return None
+    folded = environment.strip().casefold()
+    return None if folded == SHARED_SLOT else folded
+
 
 @dataclass(frozen=True)
 class VaultIdentity:
@@ -26,7 +41,9 @@ class VaultIdentity:
         if self.environment is not None:
             if not isinstance(self.environment, str) or not self.environment.strip():
                 raise ValueError("Vault environment must be a nonempty string")
-            object.__setattr__(self, "environment", self.environment.strip().casefold())
+            # `base` is the shared slot, so it is stored as no environment —
+            # the one spelling put, remove, inspect, reads and declarations use.
+            object.__setattr__(self, "environment", _slot(self.environment))
 
     def encode(self) -> str:
         """Return the SQLite key and AES-GCM associated data spelling."""
@@ -50,7 +67,9 @@ class VaultIdentity:
         if scope == "group":
             parts = target.split(".")
             targets = tuple(".".join(parts[:end]) for end in range(len(parts), 0, -1))
-        slots = (environment, None) if environment is not None else (None,)
+        active = _slot(environment)
+        # Under SHARED_SLOT the active slot *is* shared: consult it once.
+        slots = (active, None) if active is not None else (None,)
         return tuple(
             cls(scope, candidate, field, slot)
             for slot in slots
