@@ -3230,6 +3230,29 @@ Items identified during development that are worth doing but not yet designed:
     cannot begin after the work has finished. **Done, plus the rate scaling the
     second failure mode needed — see the head of this entry.**
 
+    **Third occurrence (2026-11-01) — the wait above outlasted the job.** The
+    `job_started` wait was the right signal but used `pilot.pause()` as its
+    transport, and `pause(delay=None)` is `await wait_for_idle(0)`
+    (`textual/pilot.py`), which under load runs to its one-second cap
+    (`textual/_wait.py`) — 2.5x the entire 0.4s job. The test resumed after
+    the job had finished: `got 0 polls ... elapsed 0.000s` on `01b3527f`
+    (passed on re-run) and `64ac36ad` (3.13 leg `got 1 polls`; 3.12 re-run
+    `got 0 polls`) — the window opened on the
+    job's tail or not at all, and the assertion reported a blocked loop that
+    never happened. Closed by rebuilding the window around the job: it opens
+    on `job_started` polled with plain `asyncio.sleep` ticks (no idle
+    heuristic on the critical path), closes on the job worker's liveness
+    (`_job_worker_running`, not the shared `tui_app.workers` set, whose
+    emptiness cannot distinguish "never started" from "already finished"),
+    and a window that missed the job — worker already finished at open, or
+    spanning less than half the job's own runtime — fails with its own
+    wording ("a missed window, not a blocked event loop"), never the
+    responsiveness verdict. `BLOCK_SECONDS`, `TICK_INTERVAL` and the
+    `tests/_responsiveness.py` calibration are untouched. Run evidence (20
+    consecutive passes under load; negative control with a synchronous sleep
+    on the loop still failing the responsiveness assertion) is with the pull
+    request.
+
 34. **The pre-filter stack parses each candidate file three to four times.**
     Measured while deciding ADR-017; recorded because the cost is real even
     though the protocol change proposed for it was the wrong fix.
