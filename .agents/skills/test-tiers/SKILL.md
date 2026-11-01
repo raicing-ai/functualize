@@ -21,12 +21,16 @@ result unobservable and its failure invisible.
 
 | Tier | What runs | Measured cost | How to select |
 |---|---|---|---|
-| **Step** | the test files that import what you touched | one file: 3.2 s wall, 0.18 s of it tests; a 26-file importer set (321 tests): 16.4 s at `-n 6` | `tests-for-diff --run` |
+| **Step** | the test files that import what you touched | one small file (7 tests): 6.7 s serial; a 26-file importer set (339 passed, 41 skipped): 25.6 s at `-n 6`; the vault scanner file (153 tests): 51.8 s at `-n 6` | `tests-for-diff --run` |
 | **Wave** | the directories this wave touches | 4 dirs / 2633 tests: 67.0 s at `-n 6`, 310.9 s serial | name the directories |
 | **Tip** | everything, including property tests | 12 598 tests: **1257 s** at `-n 6` locally — no single tool call holds it; 1597 s in CI | shared infrastructure changed, or a release-grade question |
 
-Measured on the shared 6-core host at load 2–7 (2026-09-24/25). Step-tier
-numbers re-measured at `498a8a5`; wave and tip numbers were measured at
+Step costs re-measured on the shared 6-core host at load about 14
+(2026-11-01, tree `38b54460` plus the explicit scanner import). The earlier
+step measurements at load 2–7 were 3.2 s for one small file and 16.4 s for a
+26-file set (321 tests) at `-n 6`. The current 26-file set is
+`src/functualize/_events/bus.py`; the small file is
+`tests/config/test_vault_paths.py`. Wave and tip numbers were measured at
 `1f3b760` — re-measure before quoting them for a different tree. The
 "~10 min" full-suite claim is false: 1257 s locally, 1597 s on the 4-core
 CI runner (`test-fast` 758.6 s, `test-full` 1597.2 s).
@@ -62,6 +66,10 @@ Selection rules, per changed path:
 - a changed `src/functualize/<pkg>/<mod>.py` selects every test file whose
   source imports that module — `functualize.<pkg>.<mod>` in any form, or
   `from functualize.<pkg> import <mod>`;
+- a test that reads a module's source text must also import that module
+  explicitly, with `# noqa: F401` if needed. A `read_text()` path alone has
+  no import edge for the mapper; keep the import beside the other imports and
+  name the source scan in its comment;
 - if no test imports it directly (measured case: `_engine/job_middleware.py`,
   exercised through DI, imported by no test), it falls back to every test
   file referencing `functualize.<pkg>` and says so on stderr;

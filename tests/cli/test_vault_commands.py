@@ -26,6 +26,7 @@ import pytest
 from click.testing import CliRunner, Result
 from pydantic import BaseModel
 
+import functualize._cli.vault_cmd  # noqa: F401 - source-scanned below
 from functualize._app.state import AppState
 from functualize._cli.builtins import (
     BUILTIN_COMMANDS,
