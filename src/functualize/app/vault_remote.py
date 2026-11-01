@@ -40,7 +40,7 @@ import secrets
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from cryptography.hazmat.primitives import hashes
@@ -356,11 +356,13 @@ class RedeemedBundle:
     """What a redeem produced, on the receiver's machine.
 
     This is the one type here that *does* carry values — that is the point
-    of redeeming; the sender-side reports never do.
+    of redeeming; the sender-side reports never do. The generated repr
+    excludes ``items`` (``field(repr=False)``), so logging or rendering a
+    bundle names what it holds without leaking a single value.
     """
 
-    items: list[dict[str, str]]
-    """``[{name, kind, value}]`` as decrypted locally."""
+    items: list[dict[str, str]] = field(repr=False)
+    """``[{name, kind, value}]`` as decrypted locally — never in a repr."""
 
     labels: list[str]
     expires_at: str
