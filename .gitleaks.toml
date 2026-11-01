@@ -42,17 +42,41 @@ title                               = "functualize gitleaks config"
 # renamed or re-keyed to dodge the rule, and the commit that added it is
 # history, so the exemption belongs here.
 #
-# Scoped by line content, like (2) and (3): the regex requires the JSON key
-# `aead_key_b64` itself, so another high-entropy value in that file, or this
-# key's line anywhere else, stays covered.
-[allowlist]
-description = "Illustrative secrets in documentation, and three entropy false positives"
-regexTarget = "line"
+# Scoped to this file *and* this line together (`condition = "AND"`, since an
+# allowlist entry's paths and regexes otherwise match independently), and only
+# for the `generic-api-key` rule: the path anchors the exception to
+# `tests/vault_remote/vectors.json`, the regex requires the JSON key
+# `aead_key_b64` itself, and `targetRules` leaves other rules' findings on the
+# same line visible. Another high-entropy value under a different key in that
+# file, or this key's line anywhere else, stays covered.
+[[allowlists]]
+description = "security-audit skill doc: fabricated sk-live/hunter2 demo pair"
 paths = [
   '''\.agents/skills/auditing-python-security/VULNERABILITIES\.md''',
 ]
+
+[[allowlists]]
+description = "event-payload example line: api.tar.gz duration_ms entropy false positive"
+regexTarget = "line"
 regexes = [
   '''resource="api\.tar\.gz", duration_ms=\d+''',
+]
+
+[[allowlists]]
+description = "vault field-path lookup line: fixture constant name after encryption_key="
+regexTarget = "line"
+regexes = [
   '''"[a-z][a-z0-9_.-]*\.(api_token|token|password|credential)", encryption_key=_KEY''',
+]
+
+[[allowlists]]
+description = "frozen synthetic AEAD test vector, scoped to its file and line"
+condition = "AND"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+paths = [
+  '''^tests/vault_remote/vectors\.json$''',
+]
+regexes = [
   '''"aead_key_b64": "[A-Za-z0-9+/]{32,}={0,2}"''',
 ]
