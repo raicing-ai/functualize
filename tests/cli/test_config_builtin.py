@@ -537,6 +537,78 @@ class TestConfigPath:
             f"  ✓ used    {project_path}",
         ]
 
+    def test_subfolder_lists_the_bounded_project_layers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """From a subfolder: the nested root's file is listed, nothing above it."""
+        import click
+        from click.testing import CliRunner
+
+        outer = tmp_path / "outer"
+        nested = outer / "nested"
+        sub = nested / "sub"
+        sub.mkdir(parents=True)
+        (nested / ".functualize").mkdir()
+        anchor = nested / ".functualize" / ".functualize.toml"
+        anchor.write_text("root = true\n")
+        (outer / ".functualize.toml").write_text("")
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+        monkeypatch.chdir(sub)
+
+        app = click.Group(name="func")
+        from functualize._cli.builtins import register_builtin_commands
+
+        register_builtin_commands(app)
+
+        result = CliRunner().invoke(app, ["builtin", "config", "path"])
+
+        assert result.exit_code == 0
+        lines = result.output.splitlines()
+        # The anchor exists but declares only the root marker, which is not a
+        # setting, so it supplies no value in effect.
+        assert f"  ○ found   {anchor.resolve()}" in lines
+        # Every expected location the walk probes below the root is listed...
+        assert f"  ✗ missing {sub / 'pyproject.toml'}" in lines
+        assert f"  ✗ missing {sub / '.functualize.toml'}" in lines
+        # ...and nothing above the root is, not even the ancestor's file.
+        ancestor_files = (
+            str(outer / "pyproject.toml"),
+            str(outer / ".functualize.toml"),
+        )
+        assert not [line for line in lines if any(f in line for f in ancestor_files)]
+
+    def test_pyproject_without_table_beside_project_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The layer is `.functualize.toml`, not the table-less `pyproject.toml`."""
+        import click
+        from click.testing import CliRunner
+
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
+        (tmp_path / ".functualize.toml").write_text("[cli]\nshow_timing = true\n")
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+        monkeypatch.chdir(tmp_path)
+
+        app = click.Group(name="func")
+        from functualize._cli.builtins import register_builtin_commands
+
+        register_builtin_commands(app)
+
+        result = CliRunner().invoke(app, ["builtin", "config", "path"])
+
+        assert result.exit_code == 0
+        assert f"  ✓ used    {(tmp_path / '.functualize.toml').resolve()}" in (
+            result.output
+        )
+        # `pyproject.toml` is listed as a probed location, and is labelled as
+        # the file it is: no `[tool.functualize]`, so it supplies no layer.
+        assert (
+            f"  ○ found   {(tmp_path / 'pyproject.toml').resolve()}"
+            " (no [tool.functualize])"
+        ) in result.output
+
 
 # =============================================================================
 # config edit tests

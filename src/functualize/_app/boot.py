@@ -52,6 +52,7 @@ from functualize._discovery.pipeline import ResolutionPipeline
 from functualize._discovery.providers import DirectoryScanProvider, StaticProvider
 from functualize._events import HookEvent
 from functualize._primitives.locator import ResourceLocator
+from functualize._primitives.project_root import find_project_boundary
 from functualize._types.errors import (
     RuntimeStoreCapabilityError,
     SubstrateInstallError,
@@ -1230,6 +1231,25 @@ def _warn_about_empty_declared_plugin_directories(
             )
 
 
+def _job_config_stop(start: Path) -> Path:
+    """Where an upward job-config walk from ``start`` ends, inclusive.
+
+    The project boundary (the nearest directory declaring ``root = true``) when
+    the walk would reach it before ``~``; otherwise ``~``, as it always was.
+    Both stages of job-config resolution — finding the config directory and
+    layering it — stop here, so a nested root reads neither an ancestor's file
+    in place of its own nor a key its own file is missing (D3 B1). A boundary
+    *above* ``~`` is never reached first, so it widens nothing.
+    """
+    home = Path.home().resolve()
+    boundary = find_project_boundary(start)
+    if boundary is None:
+        return home
+    if start.resolve().is_relative_to(home) and not boundary.is_relative_to(home):
+        return home
+    return boundary
+
+
 def discover_config_path(
     config_file_regex: str,
     app_name: str,
@@ -1238,8 +1258,10 @@ def discover_config_path(
 ) -> str:
     """Discover config directory by searching upward from CWD.
 
-    Searches parent directories for files matching the given regex pattern.
-    Falls back to ~/.config/<app_name> if no config file is found.
+    Searches parent directories for files matching the given regex pattern,
+    up to the project boundary (a ``root = true`` project file) or ``~``,
+    whichever comes first. Falls back to ~/.config/<app_name> if no config
+    file is found.
 
     Args:
         config_file_regex: Regex pattern for config file name matching.
@@ -1270,6 +1292,7 @@ def discover_config_path(
     regex = re.compile(config_file_regex)
     known = {ext.lower() for ext in extensions} if extensions is not None else None
     current = Path.cwd().resolve()
+    stop = _job_config_stop(current)
 
     while True:
         if current.is_dir():
@@ -1294,7 +1317,7 @@ def discover_config_path(
                     return str(current)
             except (PermissionError, OSError):
                 pass
-        if current == Path.home():
+        if current == stop:
             break
         parent = current.parent
         if parent == current:
@@ -1370,10 +1393,11 @@ def _lazy_vault_source(app: Any, path: Path, *, max_age: Any = None) -> Any:
     source says it once, at the first declared-remote value that needed it.
     """
     from functualize._config.vault_key_resolver import VaultKeyResolver
+    from functualize._config.vault_paths import project_root_for
     from functualize._config.vault_source import VaultSource
     from functualize._primitives.locator import compute_project_id
 
-    resolver = VaultKeyResolver.for_app(compute_project_id(Path.cwd()), app)
+    resolver = VaultKeyResolver.for_app(compute_project_id(project_root_for()), app)
     return VaultSource(
         path, key=resolver, max_age=max_age, environment=app._environment
     )
@@ -1450,10 +1474,16 @@ def build_resolution_chain(
     Returns:
         Configured ResolutionChain instance.
     """
+    # Layering stops where the chosen directory's project stops — the same
+    # boundary discovery used — so a key the nested root's file lacks is not
+    # taken from an ancestor's. An explicit `--config-directory` follows the
+    # same rule from wherever it points (D4 (a)).
     resolver = (
         ResourceLocator()
         .search_explicit(config_path)
-        .search_upward(start=Path(config_path), stop=Path.home())
+        .search_upward(
+            start=Path(config_path), stop=_job_config_stop(Path(config_path))
+        )
         .search_platform_user(app_name=app_name)
     )
     filename_regex = file_regex
