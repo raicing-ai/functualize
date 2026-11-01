@@ -162,13 +162,17 @@ says so in every one of those cases.
 
 - `--print-only` — print `export NAME=value` lines and store nothing. Works
   outside a project.
-- `--dotenv PATH` — write the same lines, without `export`, to a `0600`
-  file, and store nothing in the vault. The file holds the values **in plain
-  text**; keep it out of version control.
+- `--dotenv PATH` — write one `NAME=value` line per entry, without
+  `export`, to a `0600` file, and store nothing in the vault. The file
+  holds the values **in plain text**; keep it out of version control.
 
-Both forms write every value POSIX-quoted (`shlex.quote`), so a value
-holding spaces, quotes, `$(...)`, backticks, a newline or `;` round-trips
-inertly when the output is sourced.
+Each output speaks the syntax of its consumer. `--print-only` lines are
+sourced by a POSIX shell: every value is shell-quoted (`shlex.quote`), so
+spaces, quotes, `$(...)`, backticks, a newline or `;` stay inert when the
+output is sourced. The `--dotenv` file is read back by functualize's own
+dotenv loader (`dotenv_values`): a value made of letters, digits and
+`_-./:@+` is written bare, anything else is double-quoted with `\`, `"`
+and newlines escaped — the file parses back to the exact value.
 
 The names are the environment variables a run already reads for each entry:
 `JOB_FIELD` for a job config field (`DEPLOY_APP_API_KEY`) and `SCOPE__FIELD`

@@ -1445,6 +1445,29 @@ def vault_share_command(
     )
 
 
+def _dotenv_value(value: str) -> str:
+    """Encode one value in dotenv syntax — what functualize's own dotenv
+    reader (python-dotenv) parses.
+
+    A value in the safe character set is written bare; anything else is
+    double-quoted with backslash escapes. The reader resolves them back:
+    `\\n` is a newline, `\\r` a carriage return, `\\\"` a quote, `\\\\` a
+    backslash. Single quotes are no escape hatch — the reader treats them
+    as literal characters and interpolation runs inside them too.
+    """
+    if value and all(
+        ch.isascii() and (ch.isalnum() or ch in "-_./:@+") for ch in value
+    ):
+        return value
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
+    return f'"{escaped}"'
+
+
 def _write_dotenv(path: str, lines: list[str], json_out: bool) -> None:
     import os
 
@@ -1614,11 +1637,16 @@ def vault_redeem_command(
                 unnamed += 1
                 continue
             entries.append((name, str(item["value"])))
-        # One POSIX-quoted encoding for both outputs. A redeemed value may
-        # carry anything — quotes, `$(...)`, backticks, a newline — and a
-        # printed or written line must round-trip inertly when sourced, so
-        # every value goes through `shlex.quote` rather than raw embedding.
-        lines = [f"{name}={shlex.quote(value)}" for name, value in entries]
+        # Two consumers, two encodings. The `--print-only` lines are sourced
+        # by a POSIX shell, so every value goes through `shlex.quote` and
+        # round-trips inertly. The `--dotenv` file is parsed by functualize's
+        # own dotenv reader, which cannot read shell quoting at all — it
+        # gets dotenv syntax and round-trips byte-for-byte through
+        # `dotenv_values`.
+        if materialize is Materialize.DOTENV:
+            lines = [f"{name}={_dotenv_value(value)}" for name, value in entries]
+        else:
+            lines = [f"{name}={shlex.quote(value)}" for name, value in entries]
         if json_out:
             payload: dict[str, Any] = {
                 "ok": True,

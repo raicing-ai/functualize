@@ -429,6 +429,34 @@ class TestRedeemElsewhere:
         assert target.read_text() == f"MYJOB_API_KEY={_SECRET}-api_key\n"
         assert vault_entries(receiver[1]) == []
 
+    @pytest.mark.parametrize(
+        "value",
+        ["alpha'beta", "two words", "a#b", "a$b", "line1\nline2"],
+        ids=["quote", "space", "hash", "dollar", "newline"],
+    )
+    def test_a_dotenv_value_round_trips_through_the_products_reader(
+        self,
+        mock_origin: MockVault,
+        sender: Project,
+        receiver: Project,
+        tmp_path: Path,
+        value: str,
+    ) -> None:
+        """`--dotenv` output is consumed by functualize's own dotenv reader
+        (`dotenv_values`), not by a shell. A value holding a quote, a space,
+        `#`, `$` or a newline must come back byte for byte."""
+        from dotenv import dotenv_values
+
+        app, root = sender
+        vault_put(app, _MY_KEY, value, cwd=root, replace=True)
+        link = _share(mock_origin, sender, "job=myjob")
+        target = tmp_path / "out.env"
+
+        result = _run(receiver, "redeem", link, "--dotenv", str(target))
+
+        assert result.exit_code == 0, result.output
+        assert dotenv_values(target)["MYJOB_API_KEY"] == value
+
     @pytest.mark.parametrize("mode", ["--print-only", "--dotenv"])
     def test_a_value_with_metacharacters_round_trips_inertly(
         self,
@@ -438,10 +466,12 @@ class TestRedeemElsewhere:
         tmp_path: Path,
         mode: str,
     ) -> None:
-        """A redeemed value may hold anything; both output modes must carry
-        it byte-for-byte and must never execute it when the lines are
-        sourced — `$(...)`, backticks, quotes, `$HOME`, a newline, `;`."""
-        sentinel = "$(touch pwned) `touch pwned2` 'q s' \"d\" $HOME\nline2; rm -rf x"
+        """A redeemed value may carry anything — a quote, a space, `#`, `$`,
+        a newline. The consumer decides the encoding: `--print-only` lines
+        are sourced by a POSIX shell and must stay inert; the `--dotenv`
+        file is read by functualize's own dotenv reader and must round-trip
+        byte for byte through it."""
+        sentinel = "$(touch pwned) 'q s' \"d\" a#b $HOME\nline2; rm -rf x"
         app, root = sender
         vault_put(app, _MY_KEY, sentinel, cwd=root, replace=True)
         link = _share(mock_origin, sender, "job=myjob")
@@ -449,28 +479,28 @@ class TestRedeemElsewhere:
         if mode == "--dotenv":
             target = tmp_path / "out.env"
             result = _run(receiver, "redeem", link, mode, str(target))
-            text = target.read_text()
-        else:
-            result = _run(receiver, "redeem", link, mode)
-            text = result.stdout
+            assert result.exit_code == 0, result.output
+            from dotenv import dotenv_values
+
+            parsed = dotenv_values(target)
+            assert parsed["MYJOB_API_KEY"] == sentinel
+            assert not (tmp_path / "pwned").exists()
+            assert not (tmp_path / "pwned2").exists()
+            return
+
+        result = _run(receiver, "redeem", link, mode)
+        text = result.stdout
         assert result.exit_code == 0, result.output
 
         words = shlex.split(text)
-        if mode == "--print-only":
-            assert words[::2] == ["export"] * (len(words) // 2)
-            assignments = words[1::2]
-        else:
-            assignments = words
+        assert words[::2] == ["export"] * (len(words) // 2)
+        assignments = words[1::2]
         assert assignments == [f"MYJOB_API_KEY={sentinel}"]
 
         if shutil.which("sh"):
             sourced = tmp_path / "out.sh"
             sourced.write_text(text)
-            probe = (
-                'set -a; . "$1"; set +a; printf %s "$MYJOB_API_KEY"'
-                if mode == "--dotenv"
-                else '. "$1"; printf %s "$MYJOB_API_KEY"'
-            )
+            probe = '. "$1"; printf %s "$MYJOB_API_KEY"'
             run = subprocess.run(
                 ["sh", "-c", probe, "sh", str(sourced)],
                 capture_output=True,
