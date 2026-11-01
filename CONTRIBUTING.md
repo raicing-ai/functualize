@@ -598,9 +598,21 @@ listed in `.github/scripts/verify_message_hygiene.py`, and a token whose prefix
 is not listed fails, so no tracker is named here and swapping trackers needs no
 edit. Adding a benign prefix to that list is a one-line PR.
 
+The deny-list arm reads prose. A name inside a fenced code block, an inline code
+span, a path or a code file name — `evals/providers/x_agent.py`, `x_router.py` —
+is the change describing the code it touches, not attributing the change to an
+author, and a branch that integrates a provider has to name those. That arm
+therefore matches each line with code removed, while the violation it reports
+still prints the line as written. The trailer, tracker-key, tracker-URL and
+identifier arms are not narrowed: they read every line, code included, because a
+key or a run id in a code block is the same bookkeeping as one in a sentence.
+A block that is opened and never closed is not treated as code either: the text
+is a whole commit range, so an unterminated fence in one commit would otherwise
+exempt every later commit, and the check fails closed instead.
+
 One half is not machine-checked. A model or harness named as free prose — "run by
-X" in a body — has no structural signature. Putting that name on the deny-list is
-how it becomes enforced; until then a reviewer is what catches it.
+X" in a body — has no structural signature, so only a name already on that
+deny-list is caught; a new one is a reviewer's job until it is added.
 
 ### How this is enforced
 
