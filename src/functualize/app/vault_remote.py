@@ -279,9 +279,7 @@ def wrap_cek_for(
     salt = salt if salt is not None else os.urandom(32)
     nonce = nonce if nonce is not None else os.urandom(12)
     kek = _derive_kek(epk, recipient_pub_b64, salt)
-    ct = _aead_encrypt(
-        kek, nonce, cek, canonical({"recipient_kid": recipient_kid})
-    )
+    ct = _aead_encrypt(kek, nonce, cek, canonical({"recipient_kid": recipient_kid}))
     return {
         "recipient_kid": recipient_kid,
         "epk": _pub_to_point(epk.public_key()),
@@ -453,8 +451,7 @@ def parse_link(link: str) -> tuple[str, str, bytes]:
     if not match:
         raise VaultRedeemError(
             "bad_link",
-            "not a vault share link. Expected "
-            "https://<origin>/s/<id>#k1.<key>.",
+            "not a vault share link. Expected https://<origin>/s/<id>#k1.<key>.",
         )
     origin, share_id, fragment = match.groups()
     if not fragment:
@@ -466,7 +463,9 @@ def parse_link(link: str) -> tuple[str, str, bytes]:
     try:
         key = decode_fragment_key(fragment)
     except ValueError as exc:
-        raise VaultRedeemError("bad_link", f"the link's key fragment is unusable: {exc}") from exc
+        raise VaultRedeemError(
+            "bad_link", f"the link's key fragment is unusable: {exc}"
+        ) from exc
     return _validate_origin(origin), share_id, key
 
 
@@ -499,20 +498,16 @@ def create_share(
     origin = _validate_origin(origin)
     labels = list(labels or [])
     if not items:
-        raise VaultRedeemError(
-            "no_items", "nothing to share — no items were given."
-        )
+        raise VaultRedeemError("no_items", "nothing to share — no items were given.")
     if not 1 <= redemptions_allowed <= _MAX_REDEMPTIONS:
         raise VaultRedeemError(
             "bad_redemptions",
-            f"redemptions must be 1..{_MAX_REDEMPTIONS}, "
-            f"got {redemptions_allowed}.",
+            f"redemptions must be 1..{_MAX_REDEMPTIONS}, got {redemptions_allowed}.",
         )
     if not 1 <= expires_in_hours <= _MAX_EXPIRY_HOURS:
         raise VaultRedeemError(
             "bad_expiry",
-            f"expiry must be 1..{_MAX_EXPIRY_HOURS} hours, "
-            f"got {expires_in_hours}.",
+            f"expiry must be 1..{_MAX_EXPIRY_HOURS} hours, got {expires_in_hours}.",
         )
     if len(labels) > _MAX_LABELS or any(len(x) > _MAX_LABEL_CHARS for x in labels):
         raise VaultRedeemError(
@@ -560,14 +555,10 @@ def create_share(
     return f"{origin}/s/{share_id}#{encode_fragment_key(key)}"
 
 
-def fetch_share_meta(
-    origin: str, share_id: str, *, timeout: float = 30.0
-) -> ShareMeta:
+def fetch_share_meta(origin: str, share_id: str, *, timeout: float = 30.0) -> ShareMeta:
     """Preview a share. ``meta`` never burns a redemption (contracts v1)."""
     origin = _validate_origin(origin)
-    response = _request(
-        "GET", f"{origin}/api/shares/{share_id}/meta", timeout=timeout
-    )
+    response = _request("GET", f"{origin}/api/shares/{share_id}/meta", timeout=timeout)
     return ShareMeta(
         labels=list(response["labels"]),
         redemptions_left=int(response["redemptions_left"]),
