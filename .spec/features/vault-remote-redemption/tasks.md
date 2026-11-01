@@ -79,15 +79,17 @@ after: `1`
 
 ### [x] T5 (A5) client↔mock journeys: round-trip, burn, race, hygiene
 
-18 test functions: preview-never-burns, spent→`gone`, expiry→`gone`,
+19 test functions: preview-never-burns, spent→`gone`, expiry→`gone`,
 8-way race on 3 redemptions → exactly 3 winners, wrong-key/tampered → one
-`open_failed` class, malformed links, fragment-never-on-the-wire (tape
+`open_failed` class, a bundle repr that never carries a value, malformed
+links, fragment-never-on-the-wire (tape
 assertion), UA obligation, mock conformance (labels mirror, id conflict):
 
 ```bash
 rg -c 'def test_' tests/vault_remote/test_client.py
 ```
-after: `18`
+after: `19` — re-recorded 2026-11-01: a review follow-up added the
+bundle-repr sentinel test (`test_a_bundle_repr_never_carries_a_value`).
 
 ```bash
 rg -c 'exactly_n_winners' tests/vault_remote/test_client.py

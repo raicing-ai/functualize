@@ -101,6 +101,18 @@ class TestRedeem:
         assert bundle.labels == ["demo"]
         assert bundle.share_id == parse_link(link)[1]
 
+    def test_a_bundle_repr_never_carries_a_value(self, mock_origin: MockVault) -> None:
+        sentinel = "SENTINEL-$(touch pwned)-do-not-print"
+        link = _share(
+            mock_origin,
+            [{"name": "SLACK_BOT_TOKEN", "kind": "secret", "value": sentinel}],
+        )
+        bundle = redeem_link(link)
+
+        assert bundle.items[0]["value"] == sentinel  # it did round-trip
+        assert sentinel not in repr(bundle)
+        assert sentinel not in str(bundle)
+
     def test_spent_share_is_gone_exactly(self, mock_origin: MockVault) -> None:
         link = _share(mock_origin)
         redeem_link(link)
