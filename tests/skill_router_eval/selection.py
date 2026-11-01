@@ -82,6 +82,7 @@ Skill = Literal[
     "none",
 ]
 
+
 class SkillChoice(BaseModel):
     """The gate's answer: one catalog option.
 
@@ -91,6 +92,7 @@ class SkillChoice(BaseModel):
     """
 
     skill: Skill
+
 
 def select_decision(entries: Sequence[Entry]) -> ChoiceDecision:
     """The gate's declaration, built from the catalog the run was given."""
@@ -104,6 +106,7 @@ def select_decision(entries: Sequence[Entry]) -> ChoiceDecision:
         fallback=None,
     )
 
+
 def _stub(option: str) -> Any:
     """A route's job: say which route ran, do nothing else."""
 
@@ -112,9 +115,8 @@ def _stub(option: str) -> Any:
 
     return job
 
-def build_selection(
-    app: FunctualizeApp, text: str, entries: Sequence[Entry]
-) -> None:
+
+def build_selection(app: FunctualizeApp, text: str, entries: Sequence[Entry]) -> None:
     """Register workflow ``select`` and its one job per option on ``app``."""
 
     def intake() -> str:
@@ -144,6 +146,7 @@ def build_selection(
         app.register_dynamic_job(option, _stub(option))
     app.register_dynamic_job(_WORKFLOW, select_workflow)
 
+
 @dataclass(frozen=True)
 class Selection:
     """One request's selection, read back from the gate's record.
@@ -164,6 +167,7 @@ class Selection:
         evidence = self.record.get("evidence") or {}
         rule = evidence.get("rule") or {}
         return rule.get("digest")
+
 
 def _walk(
     text: str,
@@ -208,6 +212,7 @@ def _walk(
     )
     return result, selection
 
+
 def select(
     text: str,
     provider: DecisionProvider,
@@ -217,6 +222,4 @@ def select(
     scope: str,
 ) -> Selection:
     """Walk one request through the selection workflow and read its record."""
-    return _walk(
-        text, provider, entries=entries, project=project, scope=scope
-    )[1]
+    return _walk(text, provider, entries=entries, project=project, scope=scope)[1]

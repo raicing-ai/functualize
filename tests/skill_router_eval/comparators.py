@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType, ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from functualize.plugin import (
     ChoiceRequest,
@@ -48,6 +48,9 @@ from tests.hermetic_eval.comparators import (
 from tests.skill_router_eval.catalog import NONE, SKILLS
 from tests.skill_router_eval.selection import ESCALATED
 
+if TYPE_CHECKING:
+    from tests.skill_router_eval.replay import Factory
+
 __all__ = [
     "KEYWORDS",
     "MAX_TURNS_SUBTYPE",
@@ -60,6 +63,7 @@ __all__ = [
     "NativeRouter",
     "hermetic",
     "hermetic_identity",
+    "identities",
     "identity_sha256",
 ]
 
@@ -141,8 +145,10 @@ MAX_TURNS_SUBTYPE = "error_max_turns"
 #: The tools the native arm is allowed; the provider's own list, for identity.
 _DEFAULT_TOOLS = ("Skill", "Read", "Glob", "Grep")
 
+
 class NativeOverrideError(RuntimeError):
     """An environment override asked for a run the pin does not describe."""
+
 
 class KeywordTable:
     """The deterministic comparator: one regex pass over the state, no model."""
@@ -182,6 +188,7 @@ class KeywordTable:
             "keywords_sha256": sha256(table).hexdigest(),
         }
 
+
 def _load_provider() -> ModuleType:
     """Import ``evals/providers/claude_router.py`` by path, once per process."""
     loaded = sys.modules.get(_PROVIDER_MODULE)
@@ -195,6 +202,7 @@ def _load_provider() -> ModuleType:
     sys.modules[_PROVIDER_MODULE] = module
     spec.loader.exec_module(module)
     return module
+
 
 @dataclass(frozen=True)
 class NativeCell:
@@ -213,6 +221,7 @@ class NativeCell:
     model: str | None
     cost_usd: float | None
     latency_seconds: float
+
 
 class NativeRouter:
     """The native comparator: the real router provider, one round trip per call.
@@ -307,3 +316,26 @@ class NativeRouter:
             "env_overrides": "refused",
             "provider_sha256": sha256(provider.read_bytes()).hexdigest(),
         }
+
+
+def identities(
+    version_dir: Path,
+    factories: Mapping[str, Factory] | None = None,
+) -> dict[str, str]:
+    """One identity digest per comparator, derived against ``version_dir``.
+
+    The lock pins these four digests, so every caller that re-derives them — the
+    freeze, the lock check, the replay's own preflight — has to derive them the
+    same way, or a lock that matches would still mean two different instruments.
+    ``version_dir`` is threaded through because the frontier comparator pins its
+    working directory inside it.
+
+    The import is deferred: ``replay`` imports this module, so a module-level
+    import of the factories would close the cycle.
+    """
+    from tests.skill_router_eval.replay import COMPARATORS, resolve_factories
+
+    resolved = resolve_factories(factories)
+    return {
+        name: identity_sha256(resolved[name](version_dir)[1]) for name in COMPARATORS
+    }

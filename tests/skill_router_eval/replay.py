@@ -45,6 +45,7 @@ from tests.skill_router_eval.comparators import (
     NativeRouter,
     hermetic,
     hermetic_identity,
+    identities,
     identity_sha256,
 )
 
@@ -504,15 +505,11 @@ def freeze(
         with _scratch() as scratch:
             rule_digest = probe_rule_digest(entries, scratch / "project")
         instrument = instrument_sha256(repo_root)
-        identities = {
-            name: identity_sha256(factory(version_dir)[1])
-            for name, factory in factories.items()
-            if name in COMPARATORS
-        }
+        resolved_identities = identities(version_dir, factories)
         lock = corpus.write_lock(
             version_dir,
             entries,
-            identities,
+            resolved_identities,
             selection=_selection_block(entries),
             rule_digest=str(rule_digest),
             instrument_sha256=instrument,

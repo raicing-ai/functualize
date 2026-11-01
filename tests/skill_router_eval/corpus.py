@@ -222,8 +222,7 @@ def _parse_line(number: int, raw: str) -> Scenario:
     stratum = payload["stratum"]
     if stratum not in _STRATA:
         raise CorpusError(
-            f"line {number}: stratum must be one of {list(_STRATA)}, "
-            f"found {stratum!r}"
+            f"line {number}: stratum must be one of {list(_STRATA)}, found {stratum!r}"
         )
 
     rationale = payload["rationale"]
@@ -231,15 +230,13 @@ def _parse_line(number: int, raw: str) -> Scenario:
         raise CorpusError(f"line {number}: rationale must be a non-empty string")
     if not any(section in rationale for section in _RATIONALE_SECTIONS):
         raise CorpusError(
-            f"line {number}: rationale must cite LABELING.md §1-§7, "
-            f"found {rationale!r}"
+            f"line {number}: rationale must cite LABELING.md §1-§7, found {rationale!r}"
         )
 
     origin = payload["origin"]
     if origin != "new" and not _SEEDED_ORIGIN.match(str(origin)):
         raise CorpusError(
-            f"line {number}: origin must be 'new' or 'triggering:<n>', "
-            f"found {origin!r}"
+            f"line {number}: origin must be 'new' or 'triggering:<n>', found {origin!r}"
         )
 
     return Scenario(
@@ -329,9 +326,7 @@ def check_seeded_labels(scenarios: Sequence[Scenario], triggering_yaml: Path) ->
             )
 
 
-def check_disjoint_from_tasks(
-    scenarios: Sequence[Scenario], suite_yaml: Path
-) -> None:
+def check_disjoint_from_tasks(scenarios: Sequence[Scenario], suite_yaml: Path) -> None:
     """Assert no scenario's state is one of the downstream task prompts.
 
     A state copied from a task would measure the task's own prompt, not routing
@@ -482,7 +477,6 @@ def check_lock(
                 f"{digest} != {lock.comparators.get(name)}"
             )
     return lock
-
 
 
 def _lock_to_dict(lock: Lock) -> dict[str, Any]:

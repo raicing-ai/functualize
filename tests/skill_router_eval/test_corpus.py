@@ -17,7 +17,7 @@ from tests.skill_router_eval.catalog import (
     derive_catalog,
     option_meanings,
 )
-from tests.skill_router_eval.comparators import identity_sha256
+from tests.skill_router_eval.comparators import identities
 from tests.skill_router_eval.corpus import (
     DECLARED,
     INSTRUMENT_FILES,
@@ -711,16 +711,12 @@ def test_v1_lock_matches_corpus_catalog_and_comparators(tmp_path: Path) -> None:
     threshold, an edited instruction or a different comparator identity fails
     here instead of silently measuring a different question.
     """
-    factories = replay.resolve_factories(None)
-    identities = {
-        name: identity_sha256(factories[name](VERSION)[1])
-        for name in replay.COMPARATORS
-    }
+    derived = identities(VERSION)
     rule_digest = replay.probe_rule_digest(CATALOG, tmp_path / "project")
     lock = check_lock(
         VERSION,
         CATALOG,
-        identities,
+        derived,
         rule_digest=str(rule_digest),
         instrument_sha256=replay.instrument_sha256(replay.REPO_ROOT),
     )

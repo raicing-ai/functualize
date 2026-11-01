@@ -29,6 +29,7 @@ from tests.skill_router_eval.selection import (
 ENTRIES = derive_catalog()
 REQUEST = "func: command not found after composer global require"
 
+
 class FakeProvider(DecisionProvider):
     """A provider that proposes one option at one probability, and records calls."""
 
@@ -56,6 +57,7 @@ class FakeProvider(DecisionProvider):
     def identity(self) -> dict[str, object]:
         return {"comparator": self.name}
 
+
 class UnavailableProvider(DecisionProvider):
     """A provider that cannot answer at all — the provider_failed path."""
 
@@ -71,12 +73,14 @@ class UnavailableProvider(DecisionProvider):
     def identity(self) -> dict[str, object]:
         return {"comparator": self.name}
 
+
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     """A project directory the app can resolve, never ``tmp_path`` itself."""
     root = tmp_path / "workspace"
     (root / ".functualize").mkdir(parents=True)
     return root
+
 
 # --------------------------------------------------------------------------
 # The declaration

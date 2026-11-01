@@ -40,10 +40,21 @@ from tests.skill_router_eval.metrics import (
 from tests.skill_router_eval.selection import ESCALATED
 
 SKILLS = ("functualize", "functualize-app", "functualize-cli", "functualize-skill")
-UNIFORM = {"functualize": 0.2, "functualize-app": 0.2, "functualize-cli": 0.2,
-           "functualize-skill": 0.2, "none": 0.2}
-CONFIDENT = {"functualize": 0.01, "functualize-app": 0.01, "functualize-cli": 0.96,
-             "functualize-skill": 0.01, "none": 0.01}
+UNIFORM = {
+    "functualize": 0.2,
+    "functualize-app": 0.2,
+    "functualize-cli": 0.2,
+    "functualize-skill": 0.2,
+    "none": 0.2,
+}
+CONFIDENT = {
+    "functualize": 0.01,
+    "functualize-app": 0.01,
+    "functualize-cli": 0.96,
+    "functualize-skill": 0.01,
+    "none": 0.01,
+}
+
 
 def row(**overrides: Any) -> dict[str, Any]:
     """One C-8 row, correct unless the test says otherwise."""
@@ -75,6 +86,7 @@ def row(**overrides: Any) -> dict[str, Any]:
     cell.update(overrides)
     return cell
 
+
 def test_routed_confusion_is_five_by_six() -> None:
     rows = [
         row(),
@@ -88,6 +100,7 @@ def test_routed_confusion_is_five_by_six() -> None:
     assert table["none"][ESCALATED] == 1
     assert table["functualize-app"][ESCALATED] == 0
 
+
 def test_proposed_confusion_names_failed() -> None:
     rows = [
         row(proposal="none"),
@@ -97,6 +110,7 @@ def test_proposed_confusion_names_failed() -> None:
     assert table["functualize-cli"]["none"] == 1
     assert table["functualize-cli"]["failed"] == 1
     assert table["none"]["failed"] == 0
+
 
 def test_accuracy_counts_escalation_as_wrong() -> None:
     rows = [row(scenario=f"k0{index}") for index in range(3)]
@@ -123,6 +137,7 @@ def test_accuracy_counts_escalation_as_wrong() -> None:
         "support": 1,
     }
     assert summary["macro_f1"] == pytest.approx(0.2)
+
 
 def test_errors_at_counts_each_of_the_four_errors() -> None:
     rows = [
@@ -178,12 +193,14 @@ def test_errors_at_counts_each_of_the_four_errors() -> None:
     assert counts["coverage"] == pytest.approx(4 / 6)
     assert counts["selective_accuracy"] == pytest.approx(1 / 4)
 
+
 def test_outcome_at_replays_the_gate() -> None:
     assert outcome_at(row()) == "functualize-cli"
     assert outcome_at(row(distribution=UNIFORM, probability=0.60)) == ESCALATED
     assert outcome_at(row(status="failed", distribution=None)) == ESCALATED
     assert outcome_at(row(status="not_attempted", route=None)) == "not_attempted"
     assert outcome_at(row(comparator="native", distribution=None)) == "functualize-cli"
+
 
 def test_sweep_covers_the_whole_grid() -> None:
     points = sweep([row()])
@@ -193,6 +210,7 @@ def test_sweep_covers_the_whole_grid() -> None:
     assert points[-1]["accept_at"] == pytest.approx(0.95)
     assert points[-1]["min_margin"] == 0.20
     assert all(point["accepted"] == 1 for point in points)
+
 
 def test_conformance_is_silent_until_the_ledger_is_doctored() -> None:
     rows = [
@@ -208,6 +226,7 @@ def test_conformance_is_silent_until_the_ledger_is_doctored() -> None:
     doctored = [row(route="functualize-app"), *rows[1:]]
     assert conformance(doctored) == [("k01", 0)]
 
+
 def test_deterministic_ledger_has_zero_flips() -> None:
     rows = [
         row(scenario=f"k{index:02d}", repeat=repeat)
@@ -218,6 +237,7 @@ def test_deterministic_ledger_has_zero_flips() -> None:
     assert measured["flips"] == 0
     assert measured["mean_modal_agreement"] == 1.0
     assert phase3_agreement(rows, rows)["kappa"] == 1.0
+
 
 def test_brier_scores_the_five_option_distribution() -> None:
     distribution = {
@@ -245,6 +265,7 @@ def test_brier_scores_the_five_option_distribution() -> None:
     assert scored["bins"][5]["accuracy"] == 1.0
     assert calibration([row(distribution=None, probability=None)])["brier"] is None
 
+
 def test_coverage_is_the_share_accepting_a_choice() -> None:
     rows = [
         row(scenario="k01"),
@@ -257,27 +278,40 @@ def test_coverage_is_the_share_accepting_a_choice() -> None:
     assert measured["coverage"] == 0.5
     assert measured["selective_accuracy"] == 1.0
 
+
 def test_native_cost_reads_the_instrument_not_phase_three() -> None:
     rows = [
         row(
             comparator="native",
             distribution=None,
-            native={"selected": "functualize", "error": None,
-                    "model": "claude-sonnet-5", "cost_usd": 0.0421},
+            native={
+                "selected": "functualize",
+                "error": None,
+                "model": "claude-sonnet-5",
+                "cost_usd": 0.0421,
+            },
         ),
         row(
             scenario="k02",
             comparator="native",
             distribution=None,
-            native={"selected": "functualize", "error": None,
-                    "model": "claude-sonnet-5", "cost_usd": 0.0187},
+            native={
+                "selected": "functualize",
+                "error": None,
+                "model": "claude-sonnet-5",
+                "cost_usd": 0.0187,
+            },
         ),
         row(
             scenario="k03",
             comparator="native",
             distribution=None,
-            native={"selected": "functualize", "error": None,
-                    "model": "claude-sonnet-5", "cost_usd": None},
+            native={
+                "selected": "functualize",
+                "error": None,
+                "model": "claude-sonnet-5",
+                "cost_usd": None,
+            },
         ),
     ]
     priced = native_cost(rows)
@@ -294,6 +328,7 @@ def test_native_cost_reads_the_instrument_not_phase_three() -> None:
     # would vanish into a confident zero.
     assert phase3_cost(rows)["usd_total"] == 0.0
 
+
 def test_wilson_interval_brackets_the_share() -> None:
     perfect = wilson(15, 15)
     assert perfect["p"] == 1.0
@@ -304,6 +339,7 @@ def test_wilson_interval_brackets_the_share() -> None:
     assert none["lo"] == 0.0
     assert none["hi"] == pytest.approx(0.2039, abs=1e-4)
     assert wilson(0, 0) == {"p": None, "lo": None, "hi": None}
+
 
 CATALOG = [
     {
@@ -322,6 +358,7 @@ CATALOG = [
     },
 ]
 
+
 def test_context_bytes_matches_the_hand_computed_sizes() -> None:
     listing = 3 + 2
     assert context_bytes(row(route="functualize"), CATALOG) == {
@@ -337,6 +374,7 @@ def test_context_bytes_matches_the_hand_computed_sizes() -> None:
     assert escalated["router"] == listing
     native_row = row(comparator="native", route="functualize")
     assert context_bytes(native_row, CATALOG)["router"] == listing
+
 
 def test_context_summary_ratios_to_native() -> None:
     rows = [
@@ -354,7 +392,10 @@ def test_context_summary_ratios_to_native() -> None:
     assert entry["load_everything"] == 155
     assert entry["load_everything_to_native"] == pytest.approx(31.0)
 
-def promptfoo_run(arm: str, success: bool, tokens: int | None, cost: float) -> dict[str, Any]:
+
+def promptfoo_run(
+    arm: str, success: bool, tokens: int | None, cost: float
+) -> dict[str, Any]:
     return {
         "provider": {"id": "file://evals/providers/claude_agent.py"},
         "vars": {"case": "d1"},
@@ -370,6 +411,7 @@ def promptfoo_run(arm: str, success: bool, tokens: int | None, cost: float) -> d
             "cost": cost,
         },
     }
+
 
 def test_downstream_summary_reports_each_arm_and_the_gap() -> None:
     results = {
@@ -398,10 +440,12 @@ def test_downstream_summary_reports_each_arm_and_the_gap() -> None:
     assert summary["router_minus_native"] == pytest.approx(2 / 3 - 1)
     assert summary["models"] == ["claude-sonnet-5"]
 
+
 def test_downstream_summary_reads_a_bare_run_list() -> None:
     summary = downstream_summary([promptfoo_run("native", True, 10, 0.01)])
     assert summary["arms"]["native"]["successes"] == 1
     assert summary["router_minus_native"] is None
+
 
 def test_verdict_promotes_when_every_condition_holds() -> None:
     hermetic = [row(scenario=f"k{index:02d}") for index in range(1, 21)]
@@ -429,13 +473,11 @@ def test_verdict_promotes_when_every_condition_holds() -> None:
         "downstream": True,
     }
 
+
 def test_verdict_is_negative_without_the_lead() -> None:
     hermetic = [
         *[row(scenario=f"k{index:02d}") for index in range(1, 11)],
-        *[
-            row(scenario=f"k{index:02d}", route=ESCALATED)
-            for index in range(11, 21)
-        ],
+        *[row(scenario=f"k{index:02d}", route=ESCALATED) for index in range(11, 21)],
     ]
     deterministic = [
         *hermetic[:10],
@@ -454,6 +496,7 @@ def test_verdict_is_negative_without_the_lead() -> None:
     )
     assert result["verdict"] == "negative result"
     assert result["detail"]["lead"] == 0.0
+
 
 def test_verdict_names_every_failed_condition() -> None:
     hermetic = [row(scenario=f"k{index:02d}") for index in range(1, 21)]
@@ -474,6 +517,7 @@ def test_verdict_names_every_failed_condition() -> None:
     )
     assert result["verdict"] == "continue research"
     assert result["failed"] == ["context", "downstream"]
+
 
 def test_one_unsafe_none_stops_promotion() -> None:
     hermetic = [

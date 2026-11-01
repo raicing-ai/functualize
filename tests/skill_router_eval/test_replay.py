@@ -536,7 +536,8 @@ def test_a_budgeted_run_and_its_resume_equal_an_uninterrupted_one(
     )
     assert _rows(split) == []
     assert (
-        replay.main(_run_args(tmp_path, split), factories=_factories(), now=Clock()) == 0
+        replay.main(_run_args(tmp_path, split), factories=_factories(), now=Clock())
+        == 0
     )
     assert _comparable(_rows(split)) == _comparable(_rows(whole))
     assert len(_rows(whole)) == 3
@@ -545,7 +546,11 @@ def test_a_budgeted_run_and_its_resume_equal_an_uninterrupted_one(
 def _comparable(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Rows without the two fields a resume cannot reproduce."""
     return [
-        {key: value for key, value in row.items() if key not in {"started_at", "latency_seconds"}}
+        {
+            key: value
+            for key, value in row.items()
+            if key not in {"started_at", "latency_seconds"}
+        }
         for row in rows
     ]
 
@@ -582,7 +587,10 @@ def test_the_time_box_records_the_rest_as_not_attempted(
         == 0
     )
     clock.offset = timedelta(hours=corpus.TIME_BOX_HOURS + 1)
-    assert replay.main(_run_args(tmp_path, run_dir), factories=_factories(), now=clock) == 0
+    assert (
+        replay.main(_run_args(tmp_path, run_dir), factories=_factories(), now=clock)
+        == 0
+    )
     rows = _rows(run_dir)
     assert [row["status"] for row in rows] == ["not_attempted"] * 3
     assert [row["route"] for row in rows] == [None] * 3
@@ -593,7 +601,9 @@ def test_the_header_is_written_once(tmp_path: Path, version_dir: Path) -> None:
     run_dir = tmp_path / "run"
     args = _run_args(tmp_path, run_dir, extra=["--budget-seconds", "0"])
     assert (
-        replay.main(args, factories=_factories(), clock=Ticker(jump_after=0), now=Clock())
+        replay.main(
+            args, factories=_factories(), clock=Ticker(jump_after=0), now=Clock()
+        )
         == 0
     )
     first = (run_dir / "run.json").read_text(encoding="utf-8")
@@ -756,7 +766,8 @@ def test_a_native_run_records_the_cell_verbatim(
 
 
 @pytest.mark.parametrize(
-    ("name", "value"), [("FZ_EVAL_MODEL", "claude-other"), ("FZ_EVAL_SANDBOX", "docker")]
+    ("name", "value"),
+    [("FZ_EVAL_MODEL", "claude-other"), ("FZ_EVAL_SANDBOX", "docker")],
 )
 def test_a_native_override_is_refused_before_anything_is_written(
     tmp_path: Path,

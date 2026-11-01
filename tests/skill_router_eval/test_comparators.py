@@ -35,10 +35,12 @@ OPTIONS_MAP = option_meanings(ENTRIES)
 FIXTURE = Path(__file__).with_name("fixtures") / "native_responses.json"
 CASES = json.loads(FIXTURE.read_text())["cases"]
 
+
 def request(state: str) -> ChoiceRequest:
     return ChoiceRequest(
         state=state, instructions=SELECT_INSTRUCTIONS, options=OPTIONS_MAP
     )
+
 
 class Fake:
     """A ``call_api`` that replays one fixture response and records its argv."""
@@ -50,6 +52,7 @@ class Fake:
     def __call__(self, prompt: str, options: dict, context: dict) -> dict[str, Any]:
         self.calls.append((prompt, options, context))
         return copy.deepcopy(self.response)
+
 
 # --------------------------------------------------------------------------
 # The keyword table
@@ -129,6 +132,7 @@ def test_the_identity_names_the_table_it_ran() -> None:
     assert set(identity) == {"comparator", "keywords_sha256"}
     assert identity["keywords_sha256"] == hashlib.sha256(table).hexdigest()
     assert identity_sha256(identity) == identity_sha256(KeywordTable().identity())
+
 
 # --------------------------------------------------------------------------
 # The native adapter
@@ -267,9 +271,10 @@ def test_the_identity_is_the_provider_and_its_bytes() -> None:
     assert identity["config"] == dict(NATIVE_CONFIG)
     assert identity["tools"] == ["Skill", "Read", "Glob", "Grep"]
     assert identity["env_overrides"] == "refused"
-    assert identity["provider_sha256"] == hashlib.sha256(
-        provider.read_bytes()
-    ).hexdigest()
+    assert (
+        identity["provider_sha256"] == hashlib.sha256(provider.read_bytes()).hexdigest()
+    )
+
 
 # --------------------------------------------------------------------------
 # The Phase 3 comparators, reused rather than re-implemented

@@ -74,9 +74,7 @@ def write_selections(path: Path, payload: Mapping[str, Any]) -> None:
     """Write the selections file, creating its directory."""
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-    )
+    destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def _inside(path: Path, root: Path) -> bool:
