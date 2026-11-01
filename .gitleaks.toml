@@ -32,11 +32,19 @@ title                               = "functualize gitleaks config"
 # credential assigned to `encryption_key=` would not match, because the regex
 # requires the bare identifier `_KEY` and nothing quoted.
 #
-# **4. A generated vault contract fixture.** `tests/vault_remote/vectors.json`
-# contains a deterministic AEAD key used to compare the TypeScript and Python
-# envelope implementations. Its regeneration is reviewed as a unit. Exempt
-# only this file by path: a line regex for `"aead_key_b64": "<base64>"` would
-# also exempt a real key in an unrelated JSON config.
+# **4. A synthetic AEAD key in a frozen test-vector file.** `generic-api-key`
+# trips on `"aead_key_b64": "bynR38hMVvgMjbDVyMHoKkork8fVxPPi0cCxopmId2Y="` in
+# `tests/vault_remote/vectors.json`: `key` is one of its trigger words, the `:`
+# between name and value sits inside its proximity window, and the value is a
+# high-entropy base64 token. There is no secret — the token is a *test vector*,
+# the deterministic contract between the TypeScript and Python implementations,
+# and the file says so: regenerating it is a review-gate event. It cannot be
+# renamed or re-keyed to dodge the rule, and the commit that added it is
+# history, so the exemption belongs here.
+#
+# Scoped by line content, like (2) and (3): the regex requires the JSON key
+# `aead_key_b64` itself, so another high-entropy value in that file, or this
+# key's line anywhere else, stays covered.
 [allowlist]
 description = "Illustrative secrets in documentation and three entropy false positives"
 regexTarget = "line"
@@ -47,4 +55,5 @@ paths = [
 regexes = [
   '''resource="api\.tar\.gz", duration_ms=\d+''',
   '''"[a-z][a-z0-9_.-]*\.(api_token|token|password|credential)", encryption_key=_KEY''',
+  '''"aead_key_b64": "[A-Za-z0-9+/]{32,}={0,2}"''',
 ]
