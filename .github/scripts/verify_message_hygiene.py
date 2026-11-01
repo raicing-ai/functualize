@@ -126,7 +126,8 @@ _ADDRESS = re.compile(r"<([^<>\s]+@[^<>\s]+)>|([^\s<>,]+@[^\s<>,]+\.[A-Za-z]{2,}
 # it was. A fenced block is a line of three or more backticks, opening or
 # closing; an inline span is closed by a run of the same length that opened it;
 # a path token is any run of non-space characters carrying a `/`; a code-file
-# token is a file name in one of the extensions this repository writes.
+# token is a file name in one of the extensions this repository writes. A block
+# that never closes is not code at all — see `_prose_lines`.
 _FENCE = re.compile(r"^\s*`{3,}[^`]*$")
 _TICK_RUN = re.compile(r"`+")
 _PATH_TOKEN = re.compile(r"\S*/\S*")
@@ -134,7 +135,7 @@ _CODE_FILE_TOKEN = re.compile(
     r"\b[\w.-]+\.(?:pyi?|jsonl?|ya?ml|toml|md|txt|cfg|ini|sh|lock)\b",
     re.IGNORECASE,
 )
-_CODE_SPAN_GAP = " "
+_CODE_GAP = " "
 
 
 def _without_code_spans(line: str) -> str:
@@ -157,10 +158,17 @@ def _without_code_spans(line: str) -> str:
         if closing is None:
             continue
         kept.append(line[cursor : opening.start()])
-        kept.append(_CODE_SPAN_GAP)
+        kept.append(_CODE_GAP)
         cursor = closing.end()
     kept.append(line[cursor:])
     return "".join(kept)
+
+
+def _prose(line: str) -> str:
+    """One line with its inline spans, paths and code file names removed."""
+    prose = _without_code_spans(line)
+    prose = _PATH_TOKEN.sub(_CODE_GAP, prose)
+    return _CODE_FILE_TOKEN.sub(_CODE_GAP, prose)
 
 
 def _prose_lines(text: str) -> list[str]:
@@ -168,20 +176,26 @@ def _prose_lines(text: str) -> list[str]:
 
     Blank rather than dropped: the identity arm reports the line it read, so the
     view has to stay indexable by the same position as the original.
+
+    A fence that never closes is not a fence. ``text`` is a whole commit range —
+    every commit's body concatenated — so one stray ```` ``` ```` in one commit
+    would otherwise exempt every later commit in the pull request, a fail-open
+    written in the text this arm inspects, on a context the ruleset requires.
+    When the scan reaches the end while a block is still open, that block is not
+    code: its opening line and everything after it revert to prose.
     """
+    lines = text.splitlines()
     view: list[str] = []
-    in_fence = False
-    for line in text.splitlines():
+    opened_at: int | None = None
+    for line in lines:
         if _FENCE.match(line):
-            in_fence = not in_fence
+            opened_at = None if opened_at is not None else len(view)
             view.append("")
             continue
-        if in_fence:
-            view.append("")
-            continue
-        prose = _without_code_spans(line)
-        prose = _PATH_TOKEN.sub(_CODE_SPAN_GAP, prose)
-        view.append(_CODE_FILE_TOKEN.sub(_CODE_SPAN_GAP, prose))
+        view.append("" if opened_at is not None else _prose(line))
+    if opened_at is not None:
+        for index in range(opened_at, len(lines)):
+            view[index] = _prose(lines[index])
     return view
 
 
@@ -232,8 +246,8 @@ def find_violations(
     for source, text in texts:
         if not text:
             continue
-        lines = text.splitlines() or [text]
-        prose_lines = (_prose_lines(text) or [text]) if denylist else lines
+        lines = text.splitlines()
+        prose_lines = _prose_lines(text) if denylist else lines
         for line, prose in zip(lines, prose_lines, strict=True):
             for prefix, number in _KEY.findall(line):
                 if prefix not in PERMITTED_PREFIXES:
