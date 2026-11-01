@@ -252,6 +252,10 @@ no released store holds a four-part `"base"` key. *T19.*
   local; link-key verification before the burn is a funccloud v2 question.
 - **O4** — the top-level alias is removed.
 - **B** — no public plaintext read: `app.vault._read_value` stays private.
+- **`--dotenv` kept for now** (2026-11-01) — unchanged: an explicit opt-in that
+  writes a 0600 plain-text file, persists nothing in the vault, and needs no
+  project. Revisit if a guard (e.g. refusing an un-ignored path in a git
+  working tree) is wanted.
 - **Share selection** — `--entry` (key=value selector) and `--all` only, no
   `--group`/`--job`/`--field` on `share`; a field-less `group=` selector takes
   the whole subtree; the picker starts with nothing ticked.
