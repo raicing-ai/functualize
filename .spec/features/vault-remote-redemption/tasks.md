@@ -161,14 +161,14 @@ and removed by T20 on the maintainer's decision O4 (2026-11-01).
 
 ### [x] T11 (B6) spent/expired/tampered CLI failure tests; hygiene grep
 
-33 CLI test functions through a real click group against the mock origin —
+35 CLI test functions through a real click group against the mock origin —
 journeys, failures, materializations, alias, and the fragment-hygiene
 assertion over output and captured log records:
 
 ```bash
 rg -c 'def test_' tests/vault_remote/test_cli.py
 ```
-after: `33` — re-recorded 2026-11-01: the file was rewritten by T17 for the
+after: `35` — re-recorded 2026-11-01: the file was rewritten by T17 for the
 `--entry` / redeem-modes surface (recorded `21` on 2026-09-24); review
 follow-ups added the metacharacter round-trip test
 (`test_a_value_with_metacharacters_round_trips_inertly`) and the two
@@ -177,8 +177,11 @@ spent-link notice tests
 `test_only_collisions_without_replace_still_say_the_link_is_spent`); the
 dotenv round-trip fix split that test's two consumers and added
 `test_a_dotenv_value_round_trips_through_the_products_reader`
-(re-recorded `32` → `33` 2026-11-01); the
-fragment-hygiene assertion below is kept unchanged.
+(re-recorded `32` → `33` 2026-11-01); the dotenv interpolation refusal added
+`test_a_value_the_reader_would_interpolate_is_refused` and
+`test_a_refused_entry_leaves_no_earlier_value_behind`, and widened the
+round-trip control to `$HOME` and `$(touch pwned)` (re-recorded `33` → `35`
+2026-11-01); the fragment-hygiene assertion below is kept unchanged.
 
 ```bash
 rg -c 'k1\.' tests/vault_remote/test_cli.py
