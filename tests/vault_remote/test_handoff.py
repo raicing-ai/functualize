@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from functualize.app import FunctualizeApp, JobSources
 from functualize.app.vault import (
     VaultIdentity,
     VaultKeySourceError,
@@ -36,117 +35,18 @@ from functualize.app.vault_handoff import (
     shareable_entries,
 )
 from functualize.app.vault_remote import RedeemedBundle, VaultRedeemError, redeem_link
+from tests.vault_remote.projects import (
+    _APP_KEY,
+    _DEPLOY,
+    _SECRET,
+    _TOKEN,
+    _app,
+    _project,
+)
 
 if TYPE_CHECKING:
+    from functualize.app import FunctualizeApp
     from tests.vault_remote.mock_vault import MockVault
-
-_SECRET = "correct-horse-battery-staple-9f3a"  # gitleaks:allow
-
-_DEPLOY = '''
-from pydantic import BaseModel, Field
-
-from functualize.job import GroupOptions
-from functualize.job.decorators import job
-from functualize.types import Secret
-
-JOB_GROUP = "deploy"
-
-
-class DeployOptions(GroupOptions, group="deploy"):
-    token: Secret[str] = Field(default="")
-
-
-class AppConfig(BaseModel):
-    api_key: Secret[str] = Field(default="")
-    region: str = Field(default="eu-west-1")
-
-
-@job
-def app(config: AppConfig, options: DeployOptions) -> None:
-    """Deploy the app."""
-'''
-
-_INFRA = '''
-from pydantic import Field
-
-from functualize.job import GroupOptions
-from functualize.job.decorators import job
-from functualize.types import Secret
-
-JOB_GROUP = "deploy.infra"
-
-
-class InfraOptions(GroupOptions, group="deploy.infra"):
-    region_key: Secret[str] = Field(default="")
-
-
-@job
-def plan(options: InfraOptions) -> None:
-    """Plan the infra."""
-'''
-
-_TOOLS = '''
-from pydantic import BaseModel, Field
-
-from functualize.job.decorators import job
-from functualize.types import Secret
-
-
-class MyConfig(BaseModel):
-    api_key: Secret[str] = Field(default="")
-
-
-@job
-def myjob(config: MyConfig) -> None:
-    """A job in no group."""
-'''
-
-_TOKEN = VaultIdentity("group", "deploy", "token")
-_APP_KEY = VaultIdentity("job", "deploy.app", "api_key")
-_REGION = VaultIdentity("group", "deploy.infra", "region_key")
-_MY_KEY = VaultIdentity("job", "myjob", "api_key")
-
-
-def _project(root: Path, *modules: tuple[str, str]) -> Path:
-    jobs = root / "jobs"
-    jobs.mkdir(parents=True)
-    for name, source in modules:
-        (jobs / f"{name}.py").write_text(source)
-    (root / ".functualize").mkdir()
-    return root
-
-
-_ALL_JOBS = (("deploy", _DEPLOY), ("infra", _INFRA), ("tools", _TOOLS))
-
-
-@pytest.fixture
-def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from functualize._config.vault_keys import ENV_VAR, generate_key
-
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.setenv(ENV_VAR, generate_key())
-    monkeypatch.setenv("FUNCTUALIZE_ENV", "prod")
-
-
-def _app(root: Path) -> FunctualizeApp:
-    return FunctualizeApp(
-        "handoff", job_sources=JobSources(directories=[str(root / "jobs")], lazy=False)
-    )
-
-
-@pytest.fixture
-def sender(tmp_path: Path, env: None) -> tuple[FunctualizeApp, Path]:
-    root = _project(tmp_path / "sender", *_ALL_JOBS)
-    app = _app(root)
-    for identity in (_TOKEN, _APP_KEY, _REGION, _MY_KEY):
-        vault_put(app, identity, f"{_SECRET}-{identity.field}", cwd=root)
-    return app, root
-
-
-@pytest.fixture
-def receiver(tmp_path: Path, env: None) -> tuple[FunctualizeApp, Path]:
-    root = _project(tmp_path / "receiver", *_ALL_JOBS)
-    return _app(root), root
 
 
 def _fields(selection: object) -> set[str]:

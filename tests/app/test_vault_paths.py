@@ -20,9 +20,10 @@ from functualize.app.vault import (
     vault_inspect,
     vault_put,
 )
+from functualize.app.vault_handoff import ImportReport
+from functualize.app.vault_remote import ShareReport
 from functualize.job import GroupOptions
 from functualize.types import Secret  # noqa: TC001 - pydantic resolves it at run time
-from functualize.app.vault_remote import ImportReport, ShareReport
 
 _JOB_SOURCE = """
 from pydantic import BaseModel, Field
