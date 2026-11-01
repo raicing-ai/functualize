@@ -18,11 +18,14 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Any, Literal, NoReturn
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 import click
 
 from functualize.app.utils import ExitCode
+
+if TYPE_CHECKING:
+    from functualize.app.vault_handoff import ImportRow
 
 __all__ = ["vault_app"]
 
@@ -1721,7 +1724,7 @@ def vault_redeem_command(
         click.echo(f"  skipped    {item['entry']} — {item['reason']}", err=True)
 
 
-def _row_note(row: Any) -> str | None:
+def _row_note(row: ImportRow) -> str | None:
     from functualize.app.vault_handoff import RowStatus
 
     if row.status is RowStatus.SYNCED:
