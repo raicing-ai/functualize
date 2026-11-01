@@ -618,18 +618,25 @@ def redeem_link(link: str, *, timeout: float = 30.0) -> RedeemedBundle:
                 "the envelope's share_id does not match the link — the server "
                 "returned the wrong bundle, and it was discarded unopened.",
             )
-        items = open_envelope(envelope, key)
+        try:
+            items = open_envelope(envelope, key)
+        except (
+            AuthenticationFailed,
+            KeyError,
+            TypeError,
+            ValueError,
+            AttributeError,
+        ):
+            raise VaultRedeemError(
+                "open_failed",
+                "the bundle did not authenticate against this link's key. "
+                "Either the link is wrong, the envelope was altered in "
+                "transit, or its metadata changed — nothing was decrypted.",
+            ) from None
         labels = list(metadata.get("labels", []))
         expires_at = str(metadata.get("expires_at", ""))
     except VaultRedeemError:
         raise
-    except AuthenticationFailed:
-        raise VaultRedeemError(
-            "open_failed",
-            "the bundle did not authenticate against this link's key. "
-            "Either the link is wrong, the envelope was altered in "
-            "transit, or its metadata changed — nothing was decrypted.",
-        ) from None
     except (KeyError, TypeError, ValueError, AttributeError):
         raise VaultRedeemError(
             "bad_response",
