@@ -811,9 +811,13 @@ func builtin vault status    # key provider and key state, age, entry counts
 func builtin vault unlock    # the one command that asks the keyring to unlock
 func builtin vault clear     # delete this project's vault, needs no key
 func builtin vault keygen    # print a fresh 32-byte key, hex-encoded
+func builtin vault share --entry group=deploy   # one-time link for a teammate
+func builtin vault redeem <link>                # store a shared link's entries
+func builtin vault show <link>                  # preview a link; never uses it
 ```
 
-All of them take `--json`.
+All of them take `--json`. `share`, `redeem` and `show` are described in
+[Vault Sharing](../cli/vault-share.md).
 
 The JSON refusal envelope includes a stable `reason`. In particular,
 `scope_required` means the command needs `--group`, `--job`, or both;
