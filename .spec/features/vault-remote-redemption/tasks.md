@@ -183,7 +183,8 @@ after: `3`
 ```bash
 rg -c 'vault share' docs/cli/vault-share.md
 ```
-after: `3`
+after: `4` — re-recorded 2026-11-01: the page was rewritten by T18 for the
+`func builtin vault` surface (recorded `3` on 2026-09-24).
 
 Merge blocker: T2 vectors PASS (held — the suite runs in CI).
 Cross-repo witness: funccloud eval (chain item 3, pins this submodule).
@@ -296,14 +297,20 @@ Verified by breaking each call after a commit and watching a CLI test fail.
 transitional reachability T14 and T21 carried: every function they added is
 now reached from `func builtin vault share|redeem`.
 
-### [ ] T18 (D5) mock-origin tests for every row status and every pre-burn refusal; docs; STATUS
+### [x] T18 (D5) mock-origin tests for every row status and every pre-burn refusal; docs; STATUS
 
 Every pre-burn refusal asserts the mock's tape holds no `POST …/redeem`:
 
 ```bash
 rg -c 'def test_' tests/vault_remote/test_handoff.py
 ```
-after: `24`
+after: `39` (predicted `24` at planning; measured 2026-11-01). Covered: every
+row status — `storable`, `exists`, `synced`, `no_match`, `malformed` — and
+every pre-burn refusal — `no_project`, `no_tty_confirmation`, an exact
+`--only` typo, `gone`, `not_a_vault_share`, `environment_mismatch`, no vault
+key — each asserting the mock's tape holds no `POST …/redeem`. Docs:
+`docs/cli/vault-share.md` rewritten, `docs/guides/configuration.md` links it,
+`CHANGELOG.md` and `.spec/STATUS.md` updated.
 
 ```bash
 rg -c 'func vault ' docs/cli/vault-share.md
