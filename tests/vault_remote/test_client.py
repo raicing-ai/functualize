@@ -208,7 +208,16 @@ class TestFailClosedClient:
     ) -> None:
         """A redeem answer that does not parse into the expected shape is
         one closed failure, never a raw traceback — and it comes after the
-        claim, so the link is spent either way."""
+        claim, so the link is spent either way. What the local opener
+        touches fails as one class: the tampered bundle's message."""
+
+        # Reference first — the tampered bundle's class and message, before
+        # the reshaper below is installed (it fires on every POST redeem).
+        ref_link = _share(mock_origin)
+        mock_origin.corrupt_next_envelope = True
+        with pytest.raises(VaultRedeemError) as ref_exc:
+            redeem_link(ref_link)
+        reference = ref_exc.value
 
         def reshape(method: str, response: dict[str, Any]) -> None:
             if method != "POST" or not response.get("envelope"):
@@ -234,7 +243,14 @@ class TestFailClosedClient:
 
         with pytest.raises(VaultRedeemError) as exc:
             redeem_link(link)
-        assert exc.value.reason == "bad_response"
+        if shape in {"items_not_list", "item_not_dict", "nonce_missing"}:
+            # In-envelope shape: one indistinguishable class — identical
+            # type and message to the tampered bundle's failure.
+            assert type(exc.value) is type(reference)
+            assert str(exc.value) == str(reference)
+            assert exc.value.reason == "open_failed"
+        else:
+            assert exc.value.reason == "bad_response"
         with pytest.raises(VaultRedeemError) as gone:
             redeem_link(link)
         assert gone.value.reason == "gone"
