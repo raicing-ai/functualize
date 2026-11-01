@@ -242,7 +242,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     ),
     BuiltinCommand(
         "vault",
-        "Store, inspect and sync this project's encrypted secrets",
+        "Store, inspect, sync — and share through the FuncCloud Vault",
         (
             ("init", "Ensure this machine has a vault key — never prints it"),
             ("put", "Store one secret at a canonical path"),
@@ -253,7 +253,10 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             ("status", "Show the key provider in use, the age, and the count"),
             ("unlock", "Unlock the OS keyring for the vault key — never prints it"),
             ("clear", "Delete this project's vault"),
-            ("keygen", "Print a fresh vault key"),
+            ("keygen", "Print a fresh key"),
+            ("share", "Seal secrets into one redeemable link"),
+            ("redeem", "Redeem a share link — consume one redemption"),
+            ("show", "Preview a share — never redeems"),
         ),
         requires_subcommand=True,
         # `put` prompts when it has a TTY and no explicit input option, but it

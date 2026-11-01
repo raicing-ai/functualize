@@ -707,6 +707,55 @@ class SecretsVault:
             action = "sync" if origin is VaultOrigin.PROVIDER else "put"
             self._audit(conn, key, action, "ok", provider)
 
+    def supersede(self, key: str, value: str, *, encryption_key: bytes) -> None:
+        """Replace a **provider** entry with a direct one, in one transaction.
+
+        The explicit form of the decision :class:`VaultOriginConflictError`
+        refuses to make as a side effect of ``put``: the row becomes
+        ``DIRECT``, and ``annotation``, ``provider`` and ``synced_at`` are
+        cleared, because the new value was not fetched from anywhere. A later
+        ``sync`` then refuses this key as a direct entry (ADR-023 §3), which is
+        the consequence the caller is expected to have shown the user.
+
+        ``created_at`` is kept: when the entry first appeared is a fact about
+        the entry. The audit row's action is ``supersede``, so the trace says
+        provenance changed rather than looking like an ordinary write.
+
+        Raises:
+            VaultError: No provider entry is stored at ``key`` — a direct entry
+                is replaced with ``put(..., replace=True)``, and a missing one
+                is written with ``put``.
+        """
+        _require_key(encryption_key)
+        nonce = _random_nonce()
+        ciphertext = AESGCM(encryption_key).encrypt(
+            nonce, value.encode("utf-8"), key.encode("utf-8")
+        )
+        with self._session() as conn:
+            changed = conn.execute(
+                "UPDATE secrets SET origin = ?, annotation = NULL, provider = NULL,"
+                " nonce = ?, ciphertext = ?, updated_at = ?, synced_at = NULL,"
+                " key_provider = ?"
+                " WHERE key = ? AND origin = ?",
+                (
+                    VaultOrigin.DIRECT.value,
+                    nonce,
+                    ciphertext,
+                    _utcnow().isoformat(),
+                    self._key_provider_id,
+                    key,
+                    VaultOrigin.PROVIDER.value,
+                ),
+            ).rowcount
+            if changed != 1:
+                msg = (
+                    f"{key!r} holds no provider entry to supersede. Use put "
+                    f"(with replace for an existing direct entry) instead."
+                )
+                raise VaultError(msg)
+            self._ensure_check_value(conn, encryption_key)
+            self._audit(conn, key, "supersede", "ok")
+
     def get(self, key: str, *, encryption_key: bytes) -> str | None:
         """Decrypt and return one value, or None when it is not stored.
 

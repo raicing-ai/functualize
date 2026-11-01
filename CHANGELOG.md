@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — share vault entries with a teammate through a one-time link
+
+`func builtin vault share` seals entries of this project's vault into one link
+that anyone holding it can redeem, without an account; `func builtin vault
+redeem <link>` stores them into the same project's vault on the receiver's
+machine, and `func builtin vault show <link>` previews a share without using
+it. Entries are chosen with `--entry group=…[,job=…][,field=…]` (a group alone
+takes its whole subtree), `--all`, or an interactive checklist. A share belongs
+to the sender's active environment (`FUNCTUALIZE_ENV`) and is redeemed into the
+same one. Before using the link, `redeem` checks everything it can — a project
+to store into, a way to confirm, the share still live, the matching
+environment, a vault key — and refuses with the link still usable. Entries the
+receiver already has, or that `vault sync` wrote, are replaced only when chosen.
+`--print-only` and `--dotenv PATH` write the entries under the environment
+variable names a run reads, without storing them. See
+`docs/cli/vault-share.md`.
+
+### Fixed — `FUNCTUALIZE_ENV=base` addresses shared vault entries
+
+A direct `func builtin vault put` under `FUNCTUALIZE_ENV=base` stored the entry
+for an environment named `base`, which no other environment consulted, while a
+`config.base.*` declaration of the same entry was shared. `base` is the shared
+slot: such an entry is now stored shared and serves every environment, and
+`put`/`remove` report it as `base`.
+
 ### Fixed — `root = true` ends the project for every source, setting, job config and state lookup
 A nested project that declared `root = true` stopped only its settings merge.
 Its ancestor's jobs, libraries, plugins and declared directories still loaded
