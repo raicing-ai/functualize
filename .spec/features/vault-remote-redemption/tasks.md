@@ -162,7 +162,9 @@ assertion over output and captured log records:
 ```bash
 rg -c 'def test_' tests/vault_remote/test_cli.py
 ```
-after: `21`
+after: `29` — re-recorded 2026-11-01: the file was rewritten by T17 for the
+`--entry` / redeem-modes surface (recorded `21` on 2026-09-24); the
+fragment-hygiene assertion below is kept unchanged.
 
 ```bash
 rg -c 'k1\.' tests/vault_remote/test_cli.py
@@ -259,7 +261,7 @@ respectively (and 6 for the group-subtree rule); restored from the commit.
 production caller until the CLI calls it (T17). The production-path check —
 break `vault_cmd` → `vault_handoff`, watch a CLI test fail — is carried by T17.
 
-### [ ] T16 (D3) trim `app/vault_remote.py` to crypto + wire; no key or store code left
+### [x] T16 (D3) trim `app/vault_remote.py` to crypto + wire; no key or store code left
 
 ```bash
 rg -c 'resolve_vault_key|_project_id|SecretsVault|def import_to_vault|def load_vault_items' src/functualize/app/vault_remote.py
@@ -281,7 +283,8 @@ after: `2`
 ```bash
 rg -c 'check_before_redeem' src/functualize/_cli/vault_cmd.py
 ```
-after: `1`
+after: `2` (the import and the one call; predicted `1` at planning, which
+counted only the call)
 
 Reachability for T14 and T21 (carried here): `func builtin vault share` →
 `vault_handoff.select_for_share` / `share`; `func builtin vault redeem` →

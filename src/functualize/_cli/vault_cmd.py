@@ -16,6 +16,8 @@ here reaches the store through ``app.utils``, never ``_config``.
 
 from __future__ import annotations
 
+import sys
+from dataclasses import dataclass
 from typing import Any, Literal, NoReturn
 
 import click
@@ -1071,33 +1073,58 @@ def vault_remove_command(
         click.echo(f"Warning: {report.warning}", err=True)
 
 
-# --- Remote sharing: `func vault share` / `redeem` / `show` ---------------
+# --- Remote sharing: `func builtin vault share` / `redeem` / `show` -------
 #
-# These reach `functualize.app.vault_remote`, never `_config` and never a
-# crypto opinion of their own. They need no app object: the moment you most
-# want to redeem an environment is not a moment you should first have to
-# boot this project.
+# Thin by design (spec A3): every decision lives in
+# `functualize.app.vault_handoff`, every wire call in
+# `functualize.app.vault_remote`. What stays here is flags, the checklist
+# prompt, and rendering.
 #
-# Values appear on the receiver's own terminal in `redeem`'s export lines —
-# that is the point of the command — and nowhere else: not in `--json`, not
-# in `share`'s output, not in any error message.
+# Values appear only where the design says they may: in `redeem --print-only`
+# export lines on the receiver's own terminal, and in a `--dotenv` file. Never
+# in `--json`, in `share`'s output, or in any error message.
 
 
 def _remote_fail(
-    exc: Exception, json_out: bool, *, usage: bool = False
-) -> None:
+    exc: Exception, json_out: bool, *, after_burn: bool = False
+) -> NoReturn:
     """One failure shape for every remote-vault refusal.
 
-    Reuses the local vault's `_fail` envelope, so `--json` callers see the
-    same {ok, reason, message} contract on both halves of the group.
+    Selector and usage mistakes exit ``USAGE``; everything else ``REFUSED``.
+    A failure after the redemption was consumed says so, because the link
+    the user is holding no longer works.
     """
+    from functualize.app.vault import VaultPathError
+
     reason = getattr(exc, "reason", "vault_error")
+    usage = isinstance(exc, VaultPathError) or reason in _USAGE_REASONS
+    message = str(exc)
+    if after_burn:
+        message += " The link's redemption was already used."
     _fail(
         reason,
-        str(exc),
+        message,
         json_out=json_out,
         code=ExitCode.USAGE if usage else ExitCode.REFUSED,
     )
+
+
+_USAGE_REASONS = frozenset(
+    {
+        "bad_expiry",
+        "bad_label",
+        "bad_link",
+        "conflicting_options",
+        "no_project",
+        "no_selection",
+        "no_tty_confirmation",
+    }
+)
+
+
+def _interactive(json_out: bool) -> bool:
+    """A person is at a terminal and output is not machine-read."""
+    return not json_out and sys.stdin.isatty() and sys.stdout.isatty()
 
 
 def _maybe_warn_origin(origin: str) -> None:
@@ -1120,22 +1147,150 @@ def _maybe_warn_origin(origin: str) -> None:
         )
 
 
+@dataclass
+class _CheckRow:
+    """One line of the checklist: a header (covers several entries) or an entry."""
+
+    text: str
+    covers: list[int]
+    selectable: bool = True
+    note: str | None = None
+    header: bool = False
+
+
+def _checklist_rows(
+    entries: list[tuple[str | None, str | None, str, bool, str | None]],
+) -> list[_CheckRow]:
+    """Group entries under group and job headers.
+
+    ``entries`` are ``(group, job, text, selectable, note)``. A group header
+    covers its whole subtree (spec A4: "a group or job header row toggles
+    everything under it"); a job header covers that job's fields.
+    """
+
+    def _in(group: str | None, root: str) -> bool:
+        return group is not None and (group == root or group.startswith(root + "."))
+
+    rows: list[_CheckRow] = []
+    seen_groups: set[str] = set()
+    seen_jobs: set[tuple[str | None, str]] = set()
+    order = sorted(
+        range(len(entries)),
+        key=lambda i: (entries[i][0] or "", entries[i][1] or "", entries[i][2]),
+    )
+    for i in order:
+        group, job, text, selectable, note = entries[i]
+        if group is not None and group not in seen_groups:
+            seen_groups.add(group)
+            covered = [j for j, e in enumerate(entries) if _in(e[0], group) and e[3]]
+            rows.append(
+                _CheckRow(f"group {group}", covered, bool(covered), header=True)
+            )
+        if job is not None and (group, job) not in seen_jobs:
+            seen_jobs.add((group, job))
+            covered = [
+                j
+                for j, e in enumerate(entries)
+                if e[0] == group and e[1] == job and e[3]
+            ]
+            rows.append(_CheckRow(f"  job {job}", covered, bool(covered), header=True))
+        indent = "    " if job is not None else ("  " if group is not None else "")
+        rows.append(_CheckRow(f"{indent}{text}", [i], selectable, note))
+    return rows
+
+
+def _parse_picks(text: str, count: int) -> list[int] | None:
+    """``1,3,5-7`` → zero-based row positions, or ``None`` if malformed."""
+    picks: list[int] = []
+    for part in text.replace(" ", "").split(","):
+        if not part:
+            continue
+        low, sep, high = part.partition("-")
+        if not low.isdigit() or (sep and not high.isdigit()):
+            return None
+        start, end = int(low), int(high) if sep else int(low)
+        if not 1 <= start <= end <= count:
+            return None
+        picks.extend(range(start - 1, end))
+    return picks
+
+
+def _checklist(
+    title: str, rows: list[_CheckRow], preselected: set[int]
+) -> list[int] | None:
+    """A terminal multi-select. Returns entry indices, or ``None`` if cancelled.
+
+    Numbers and ranges toggle rows; a header toggles everything it covers;
+    ``a`` ticks all, ``n`` none; Enter finishes; ``q`` cancels. The job
+    prompt's multi-select lives in `_engine`, which `_cli` may not import, and
+    has neither pre-ticked rows nor headers — hence this one.
+    """
+    selectable = {i for row in rows if row.selectable for i in row.covers}
+    chosen = set(preselected) & selectable
+    while True:
+        click.echo(title, err=True)
+        for number, row in enumerate(rows, 1):
+            if not row.selectable:
+                mark = "[-]"
+            elif row.covers and all(i in chosen for i in row.covers):
+                mark = "[x]"
+            elif any(i in chosen for i in row.covers):
+                mark = "[~]"
+            else:
+                mark = "[ ]"
+            note = f"  — {row.note}" if row.note else ""
+            click.echo(f"  {mark} {number:>2}  {row.text}{note}", err=True)
+        answer = (
+            click.prompt(
+                "Toggle (e.g. 1,3,5-7) · a = all · n = none · Enter = done · q = cancel",
+                default="",
+                show_default=False,
+                err=True,
+            )
+            .strip()
+            .lower()
+        )
+        if answer == "":
+            return sorted(chosen)
+        if answer == "q":
+            return None
+        if answer == "a":
+            chosen = set(selectable)
+            continue
+        if answer == "n":
+            chosen = set()
+            continue
+        picks = _parse_picks(answer, len(rows))
+        if picks is None:
+            click.echo(f"  {answer!r} is not a list of row numbers.", err=True)
+            continue
+        for position in picks:
+            row = rows[position]
+            if not row.selectable:
+                continue
+            if all(i in chosen for i in row.covers):
+                chosen -= set(row.covers)
+            else:
+                chosen |= set(row.covers)
+
+
 @vault_app.command("share")
 @click.option(
-    "--set",
-    "set_pairs",
+    "--entry",
+    "entries",
     multiple=True,
-    metavar="NAME=VALUE",
-    help="An explicit item to share. Repeatable.",
+    metavar="SELECTOR",
+    help="What to share, e.g. group=deploy,field=token or group=deploy (its "
+    "whole subtree). Repeatable.",
 )
 @click.option(
-    "--from-vault",
-    "vault_keys",
-    multiple=True,
-    metavar="KEY",
-    help="A local vault key to include (decrypted at seal time). Repeatable.",
+    "--all",
+    "share_all",
+    is_flag=True,
+    default=False,
+    help="Share every shareable entry.",
 )
-@click.option("--labels", default=None, help="Comma-separated labels, ≤8 × 64 chars.")
+@click.option("--labels", default=None, help="Comma-separated labels, ≤7 × 64 chars.")
 @click.option(
     "--expires",
     default="24h",
@@ -1147,58 +1302,115 @@ def _maybe_warn_origin(origin: str) -> None:
     default=1,
     help="How many times the link may be redeemed (1..10).",
 )
-@click.option("--origin", default=None, help="Vault origin; default $FUNC_VAULT_ORIGIN.")
+@click.option(
+    "--origin", default=None, help="Vault origin; default $FUNC_VAULT_ORIGIN."
+)
 @click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
+@click.pass_context
 def vault_share_command(
-    set_pairs: tuple[str, ...],
-    vault_keys: tuple[str, ...],
+    ctx: click.Context,
+    entries: tuple[str, ...],
+    share_all: bool,
     labels: str | None,
     expires: str,
     redemptions: int,
     origin: str | None,
     json_out: bool,
 ) -> None:
-    """Seal secrets into one redeemable link (no account needed to redeem).
+    """Seal entries of this project's vault into one redeemable link.
 
-    Values are encrypted locally under a fresh key; only the sealed
-    envelope is uploaded. The printed link carries the key in its fragment
-    — anyone holding the complete link can redeem.
+    \b
+      FUNCTUALIZE_ENV=prod func builtin vault share --entry group=deploy
+      func builtin vault share --entry group=deploy.infra,job=app,field=api_token
+      func builtin vault share --all
+      func builtin vault share                      # pick in a checklist
+
+    Only entries stored for the active environment are offered, and the link
+    can only be redeemed into that same environment. Values are encrypted
+    locally under a fresh key; the printed link carries that key — anyone
+    holding the complete link can redeem.
     """
-    from functualize.app.vault_remote import (
-        VaultRedeemError,
-        load_vault_items,
-        parse_expiry,
+    from functualize.app.vault import VaultKeySourceError, VaultPathError
+    from functualize.app.vault_handoff import (
+        ALL,
+        ShareSelection,
+        parse_selector,
+        select_for_share,
         share,
+        shareable_entries,
     )
+    from functualize.app.vault_remote import VaultRedeemError, parse_expiry
 
-    items: list[dict[str, str]] = []
-    for pair in set_pairs:
-        name, sep, value = pair.partition("=")
-        if not sep or not name or not value:
+    app = _vault_app(ctx, "vault share")
+    if entries and share_all:
+        _fail(
+            "conflicting_options",
+            "--entry and --all choose entries two different ways; use one.",
+            json_out=json_out,
+            code=ExitCode.USAGE,
+        )
+    try:
+        hours = parse_expiry(expires)
+        if entries or share_all:
+            selection = select_for_share(
+                app, ALL if share_all else [parse_selector(e) for e in entries]
+            )
+            interactive = False
+        elif _interactive(json_out):
+            candidates = shareable_entries(app)
+            rows = _checklist_rows(
+                [
+                    (
+                        c.group,
+                        c.job,
+                        c.label,
+                        c.shareable,
+                        c.reason
+                        or (f"synced from {c.synced_from}" if c.synced_from else None),
+                    )
+                    for c in candidates
+                ]
+            )
+            env = app.configuration.active_environment()
+            picked = _checklist(f"Share from {env} (nothing selected):", rows, set())
+            if not picked:
+                _fail(
+                    "no_selection",
+                    "Nothing was selected, so nothing was shared.",
+                    json_out=json_out,
+                    code=ExitCode.USAGE,
+                )
+            selection = ShareSelection(tuple(candidates[i] for i in picked))
+            interactive = True
+        else:
             _fail(
-                "bad_item",
-                f"--set expects NAME=VALUE; {pair!r} is not one.",
+                "no_selection",
+                "Choose what to share with --entry SELECTOR (repeatable) or "
+                "--all; with no terminal there is no checklist to pick from.",
                 json_out=json_out,
                 code=ExitCode.USAGE,
             )
-            return
-        items.append({"name": name, "kind": "secret", "value": value})
-
-    label_list = [x.strip() for x in (labels or "").split(",") if x.strip()]
-
-    try:
-        items += load_vault_items(list(vault_keys))
-        hours = parse_expiry(expires)
+        if not interactive and not json_out:
+            click.echo(
+                f"Sharing {len(selection.chosen)} entr"
+                f"{'y' if len(selection.chosen) == 1 else 'ies'}:",
+                err=True,
+            )
+            for c in selection.chosen:
+                click.echo(f"  {c.label}", err=True)
+            for c in selection.skipped:
+                click.echo(f"  skipped {c.label} — {c.reason}", err=True)
+        label_list = [x.strip() for x in (labels or "").split(",") if x.strip()]
         report = share(
-            items,
+            app,
+            selection,
             labels=label_list,
             redemptions=redemptions,
             expires_in_hours=hours,
             origin=origin,
         )
-    except VaultRedeemError as exc:
+    except (VaultRedeemError, VaultPathError, VaultKeySourceError) as exc:
         _remote_fail(exc, json_out)
-        return
 
     if json_out:
         _vault_json(
@@ -1208,6 +1420,7 @@ def vault_share_command(
                 "share_id": report.share_id,
                 "origin": report.origin,
                 "labels": report.labels,
+                "entries": [c.label for c in selection.chosen],
                 "redemptions_allowed": report.redemptions_allowed,
                 "expires_at": report.expires_at,
             }
@@ -1228,151 +1441,292 @@ def vault_share_command(
     )
 
 
+def _write_dotenv(path: str, lines: list[str], json_out: bool) -> None:
+    import os
+
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.chmod(path, 0o600)
+    except OSError as exc:
+        _fail(
+            "dotenv_unwritable",
+            f"Could not write {path}: {exc.strerror}. The link's redemption "
+            f"was already used.",
+            json_out=json_out,
+            code=ExitCode.REFUSED,
+        )
+
+
 @vault_app.command("redeem")
 @click.argument("link")
 @click.option(
-    "--export-lines",
+    "-y",
+    "--yes",
+    "yes",
     is_flag=True,
     default=False,
-    help="Print `export NAME=VALUE` lines (this is also the default).",
+    help="Store every storable entry without asking.",
 )
 @click.option(
-    "--into-vault",
-    "into_vault",
+    "--only",
+    "only",
+    multiple=True,
+    metavar="SELECTOR",
+    help="Store only entries under this selector (as share --entry). Repeatable.",
+)
+@click.option(
+    "--replace",
     is_flag=True,
     default=False,
-    help="Store the bundle in the local vault instead of printing values.",
+    help="Also replace entries that already exist or were synced.",
 )
 @click.option(
-    "--scope",
-    "scope",
-    default=None,
-    metavar="SCOPE",
-    help="Namespace for --into-vault (names land as SCOPE.NAME).",
+    "--print-only",
+    "print_only",
+    is_flag=True,
+    default=False,
+    help="Print export lines; store nothing.",
 )
 @click.option(
     "--dotenv",
     "dotenv_path",
     default=None,
     metavar="PATH",
-    help="Write a 0600 env file instead of printing values.",
+    help="Write a 0600 env file; store nothing in the vault.",
 )
 @click.option("--json", "json_out", is_flag=True, default=False, help="Emit JSON.")
+@click.pass_context
 def vault_redeem_command(
+    ctx: click.Context,
     link: str,
-    export_lines: bool,
-    into_vault: bool,
-    scope: str | None,
+    yes: bool,
+    only: tuple[str, ...],
+    replace: bool,
+    print_only: bool,
     dotenv_path: str | None,
     json_out: bool,
 ) -> None:
-    """Redeem a share link: consume one redemption, decrypt locally.
+    """Redeem a share link into this project's vault.
 
-    The default materialization is export lines on this terminal — nothing
-    is persisted anywhere unless an option says so.
+    \b
+      FUNCTUALIZE_ENV=prod func builtin vault redeem <link>
+      func builtin vault redeem <link> -y
+      func builtin vault redeem <link> --only group=deploy --replace
+      func builtin vault redeem <link> --print-only
+
+    Everything that can be checked without spending the link is checked
+    first: a project here, a way to confirm, the share still live, the same
+    environment it was made for, and a vault key. Only then is one
+    redemption consumed. Entries already stored, or written by `vault sync`,
+    are listed unticked and replaced only when chosen.
     """
-    import os
-
+    from functualize.app.vault import VaultKeySourceError, VaultPathError
+    from functualize.app.vault_handoff import (
+        Materialize,
+        RowStatus,
+        apply_import,
+        check_before_redeem,
+        export_name,
+        parse_selector,
+        plan_import,
+    )
     from functualize.app.vault_remote import (
         VaultRedeemError,
-        fetch_share_meta,
-        import_to_vault,
         parse_link,
         redeem_link,
     )
 
-    if (into_vault and dotenv_path) or (
-        export_lines and (into_vault or dotenv_path)
-    ):
+    if print_only and dotenv_path:
         _fail(
-            "conflicting_output",
-            "--export-lines, --into-vault and --dotenv are mutually "
-            "exclusive materializations.",
+            "conflicting_options",
+            "--print-only and --dotenv are two outputs; use one.",
             json_out=json_out,
             code=ExitCode.USAGE,
         )
-        return
+    if (print_only or dotenv_path) and (yes or only or replace):
+        _fail(
+            "conflicting_options",
+            "-y, --only and --replace choose what to store; --print-only and "
+            "--dotenv store nothing.",
+            json_out=json_out,
+            code=ExitCode.USAGE,
+        )
+    if yes and only:
+        _fail(
+            "conflicting_options",
+            "-y stores everything storable and --only a subset; use one.",
+            json_out=json_out,
+            code=ExitCode.USAGE,
+        )
+
+    materialize = (
+        Materialize.PRINT
+        if print_only
+        else Materialize.DOTENV
+        if dotenv_path
+        else Materialize.STORE
+    )
+    app = _vault_app(ctx, "vault redeem")
+    interactive = _interactive(json_out)
 
     try:
-        origin, share_id, _ = parse_link(link)
-        # The origin note is prose for a human terminal; in --json the
-        # origin travels as a field instead, so stdout stays parsable.
+        selectors = [parse_selector(s) for s in only]
+        origin, _share_id, _key = parse_link(link)
         if not json_out:
             _maybe_warn_origin(origin)
-        # Meta first: the preview that never burns is what makes the
-        # summary below truthful, including redemptions left after this one.
-        meta = fetch_share_meta(origin, share_id)
+        meta = check_before_redeem(
+            app,
+            link,
+            materialize=materialize,
+            interactive=interactive,
+            confirmed_without_prompt=yes or bool(only),
+            only=selectors,
+        )
+    except (VaultRedeemError, VaultPathError, VaultKeySourceError) as exc:
+        _remote_fail(exc, json_out)
+
+    try:
         bundle = redeem_link(link)
     except VaultRedeemError as exc:
         _remote_fail(exc, json_out)
-        return
-
-    names = [item["name"] for item in bundle.items]
-    materialized = "export-lines"
-    import_report = None
-
-    if into_vault:
-        materialized = "vault"
-        try:
-            import_report = import_to_vault(bundle, scope=scope)
-        except VaultRedeemError as exc:
-            _remote_fail(exc, json_out)
-            return
-    elif dotenv_path:
-        materialized = "dotenv"
-        lines = "\n".join(
-            f"{item['name']}={item['value']}" for item in bundle.items
-        )
-        try:
-            fd = os.open(dotenv_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(lines + "\n")
-            os.chmod(dotenv_path, 0o600)
-        except OSError as exc:
-            _fail(
-                "dotenv_unwritable",
-                f"Could not write {dotenv_path}: {exc.strerror}.",
-                json_out=json_out,
-                code=ExitCode.REFUSED,
-            )
-            return
-
-    if json_out:
-        payload: dict[str, Any] = {
-            "ok": True,
-            "share_id": bundle.share_id,
-            "origin": origin,
-            "labels": bundle.labels,
-            "expires_at": bundle.expires_at,
-            "redemptions_left_after": meta.redemptions_left - 1,
-            "names": names,
-            "materialized": materialized,
-        }
-        if import_report is not None:
-            payload["imported"] = import_report.imported
-            payload["scope"] = import_report.scope
-        if dotenv_path:
-            payload["dotenv"] = dotenv_path
-        _vault_json(payload)
-        return
 
     used = meta.redemptions_total - meta.redemptions_left + 1
-    click.echo(
-        f"Redeemed {len(names)} item(s)"
-        f" ({', '.join(bundle.labels) or 'no labels'}) · "
-        f"redemption {used} of {meta.redemptions_total} · "
-        f"expires {bundle.expires_at}",
-        err=True,
+    summary = (
+        f"Redeemed {len(bundle.items)} item(s) · redemption {used} of "
+        f"{meta.redemptions_total} · expires {bundle.expires_at}"
     )
-    if import_report is not None:
-        for key in import_report.imported:
-            click.echo(f"  stored   {key}")
-        click.echo(f"→ {import_report.path}", err=True)
-    elif dotenv_path:
-        click.echo(f"Wrote {dotenv_path} (0600).", err=True)
-    else:
+
+    if materialize is not Materialize.STORE:
+        from functualize.app.vault import VaultIdentity
+
+        lines: list[str] = []
+        unnamed = 0
         for item in bundle.items:
-            click.echo(f"export {item['name']}={item['value']}")
+            try:
+                name = export_name(VaultIdentity.decode(str(item["name"])))
+            except ValueError:
+                unnamed += 1
+                continue
+            lines.append(f"{name}={item['value']}")
+        if json_out:
+            payload: dict[str, Any] = {
+                "ok": True,
+                "share_id": bundle.share_id,
+                "labels": bundle.labels,
+                "materialized": materialize.value,
+                "names": [line.split("=", 1)[0] for line in lines],
+                "unreadable": unnamed,
+            }
+            if dotenv_path:
+                _write_dotenv(dotenv_path, lines, json_out)
+                payload["dotenv"] = dotenv_path
+            _vault_json(payload)
+            return
+        click.echo(summary, err=True)
+        if unnamed:
+            click.echo(
+                f"  {unnamed} item(s) had unreadable names and were left out.", err=True
+            )
+        if dotenv_path:
+            _write_dotenv(dotenv_path, lines, json_out)
+            click.echo(
+                f"Wrote {dotenv_path} (0600). Nothing was stored in the vault.",
+                err=True,
+            )
+        else:
+            for line in lines:
+                click.echo(f"export {line}")
+        return
+
+    plan = plan_import(bundle, app)
+    try:
+        if selectors:
+            chosen = plan.select(selectors, replace=replace)
+            consent = replace
+        elif yes:
+            chosen = [
+                row.index
+                for row in plan.rows
+                if row.status is RowStatus.STORABLE
+                or (replace and row.status in (RowStatus.EXISTS, RowStatus.SYNCED))
+            ]
+            consent = replace
+        else:
+            preselected = {row.index for row in plan.rows if row.default_ticked}
+            if replace:
+                preselected |= {
+                    row.index
+                    for row in plan.rows
+                    if row.status in (RowStatus.EXISTS, RowStatus.SYNCED)
+                }
+            rows = _checklist_rows(
+                [
+                    (
+                        row.group,
+                        row.job,
+                        row.label,
+                        row.status.selectable,
+                        _row_note(row),
+                    )
+                    for row in plan.rows
+                ]
+            )
+            click.echo(summary, err=True)
+            picked = _checklist("Store into this project's vault:", rows, preselected)
+            if not picked:
+                click.echo(
+                    "Nothing was stored. The link's redemption was already used.",
+                    err=True,
+                )
+                return
+            chosen = picked
+            consent = True  # ticking an existing or synced row is the consent
+        report = apply_import(app, plan, bundle, chosen, replace=consent)
+    except (VaultRedeemError, VaultPathError, VaultKeySourceError) as exc:
+        _remote_fail(exc, json_out, after_burn=True)
+
+    skipped = [
+        {"entry": row.label, "reason": _row_note(row) or "not selected"}
+        for row in plan.rows
+        if row.index not in set(chosen)
+    ]
+    if json_out:
+        _vault_json(
+            {
+                "ok": True,
+                "share_id": bundle.share_id,
+                "labels": bundle.labels,
+                "materialized": "vault",
+                "stored": list(report.stored),
+                "replaced": list(report.replaced),
+                "superseded": list(report.superseded),
+                "skipped": skipped,
+                "redemptions_left_after": meta.redemptions_left - 1,
+            }
+        )
+        return
+    if selectors or yes:
+        click.echo(summary, err=True)
+    for label in report.stored:
+        click.echo(f"  stored     {label}")
+    for label in report.replaced:
+        click.echo(f"  replaced   {label}")
+    for label in report.superseded:
+        click.echo(
+            f"  replaced   {label} (was synced; vault sync will report it until removed)"
+        )
+    for item in skipped:
+        click.echo(f"  skipped    {item['entry']} — {item['reason']}", err=True)
+
+
+def _row_note(row: Any) -> str | None:
+    from functualize.app.vault_handoff import RowStatus
+
+    if row.status is RowStatus.SYNCED:
+        return f"synced from {row.synced_from}; {row.reason}"
+    return row.reason
 
 
 @vault_app.command("show")
@@ -1418,9 +1772,8 @@ def vault_show_command(link: str, json_out: bool) -> None:
         from datetime import UTC, datetime
 
         try:
-            return (
-                datetime.fromtimestamp(int(raw), tz=UTC)
-                .strftime("%Y-%m-%d %H:%M UTC")
+            return datetime.fromtimestamp(int(raw), tz=UTC).strftime(
+                "%Y-%m-%d %H:%M UTC"
             )
         except ValueError:
             return raw

@@ -1813,7 +1813,7 @@ class TestTheDeclaredReasonCodesAreReachable:
 
         src = _Path(__file__).resolve().parents[2] / "src" / "functualize"
         emitted = set()
-        for module in ("_cli/vault_cmd.py", "app/vault.py"):
+        for module in ("_cli/vault_cmd.py", "app/vault.py", "app/vault_handoff.py"):
             text = (src / module).read_text()
             emitted |= set(re.findall(r'_fail\(\s*"([a-z_]+)"', text))
             emitted |= set(re.findall(r'VaultPathError\(\s*"([a-z_]+)"', text))
@@ -1846,14 +1846,17 @@ class TestTheDeclaredReasonCodesAreReachable:
             "confirmation_required",
             "key_mismatch",
             "vault_format_unsupported",
-            # The three literal `_fail` codes the remote-sharing verbs add
-            # (vault-remote-redemption). The remote layer's own reason codes
-            # (`gone`, `not_found`, `open_failed`, …) arrive through
-            # `_remote_fail`'s dynamic reason and belong to the frozen
-            # funccloud contracts, not this table.
-            "bad_item",
-            "conflicting_output",
+            # The remote-sharing verbs (vault-remote-redemption): literal
+            # `_fail` codes in `vault_cmd`, selector and plaintext-read codes in
+            # `vault_handoff` / `app.vault`. The wire's own codes (`gone`,
+            # `not_found`, `open_failed`, …) and the handoff's VaultRedeemError
+            # codes arrive through `_remote_fail`'s dynamic reason, not this
+            # table.
+            "conflicting_options",
+            "no_selection",
             "dotenv_unwritable",
+            "bad_selector",
+            "not_stored",
         }
 
         assert emitted <= declared, f"emitted but undeclared: {emitted - declared}"
