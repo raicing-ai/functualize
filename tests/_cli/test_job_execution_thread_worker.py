@@ -135,8 +135,10 @@ async def test_ui_stays_responsive_while_job_executes(
         if not _job_worker_running(tui_app):
             pytest.fail(
                 "the slow job finished before the measurement window opened "
-                "— the measurement missed the job entirely, which says "
-                "nothing about event-loop responsiveness"
+                "— the job ran to completion before the loop resumed: the "
+                "pre-migration block signature, or the test resumed too late "
+                "to observe the job. Either way the measurement missed the "
+                "job entirely — not a frozen loop observed inside a window"
             )
 
         ticks = 0
