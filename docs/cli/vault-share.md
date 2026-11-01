@@ -172,7 +172,19 @@ spaces, quotes, `$(...)`, backticks, a newline or `;` stay inert when the
 output is sourced. The `--dotenv` file is read back by functualize's own
 dotenv loader (`dotenv_values`): a value made of letters, digits and
 `_-./:@+` is written bare, anything else is double-quoted with `\`, `"`
-and newlines escaped — the file parses back to the exact value.
+and newlines escaped, and every value without `${` parses back to the exact
+value.
+
+A value containing `${` cannot be written there at all. The loader
+substitutes `${NAME}` before any program sees it — in bare, double-quoted
+and single-quoted values alike — and no escape form preserves the text:
+`\${` and `$${` each leak a character. A substituted secret looks exactly
+like a real one, so the command refuses instead of writing it: those
+entries are left out of the file (a refresh therefore also drops any stale
+value already there), the remaining entries are still written `0600`, and
+the run exits `3` with a message naming the variables — never their values
+— and pointing at `--print-only`, which reads them as shell-quoted exports.
+The redemption is already spent by then, so recovering needs a new share.
 
 The names are the environment variables a run already reads for each entry:
 `JOB_FIELD` for a job config field (`DEPLOY_APP_API_KEY`) and `SCOPE__FIELD`

@@ -431,8 +431,16 @@ class TestRedeemElsewhere:
 
     @pytest.mark.parametrize(
         "value",
-        ["alpha'beta", "two words", "a#b", "a$b", "line1\nline2"],
-        ids=["quote", "space", "hash", "dollar", "newline"],
+        [
+            "alpha'beta",
+            "two words",
+            "a#b",
+            "a$b",
+            "line1\nline2",
+            "$HOME",
+            "$(touch pwned)",
+        ],
+        ids=["quote", "space", "hash", "dollar", "newline", "bare-var", "cmdsub"],
     )
     def test_a_dotenv_value_round_trips_through_the_products_reader(
         self,
@@ -444,7 +452,12 @@ class TestRedeemElsewhere:
     ) -> None:
         """`--dotenv` output is consumed by functualize's own dotenv reader
         (`dotenv_values`), not by a shell. A value holding a quote, a space,
-        `#`, `$` or a newline must come back byte for byte."""
+        `#`, `$` or a newline must come back byte for byte.
+
+        The reader substitutes `${NAME}` only: a bare `$`, `$NAME` and
+        `$(...)` are literal to it, so they must keep round-tripping rather
+        than join the refusal.
+        """
         from dotenv import dotenv_values
 
         app, root = sender
@@ -510,6 +523,94 @@ class TestRedeemElsewhere:
             assert run.stdout == sentinel.encode()
             assert not (tmp_path / "pwned").exists()
             assert not (tmp_path / "pwned2").exists()
+
+
+class TestDotenvInterpolationRefusal:
+    """`--dotenv` writes what functualize's dotenv reader reads back — so a
+    value the reader would substitute cannot be written at all."""
+
+    @pytest.mark.parametrize("json_out", [False, True], ids=["human", "json"])
+    @pytest.mark.parametrize(
+        "value",
+        ["a${HOME}b", "${MYJOB_TOKEN}", "p@ss ${X:-dflt}"],
+        ids=["embedded", "whole-value", "with-default"],
+    )
+    def test_a_value_the_reader_would_interpolate_is_refused(
+        self,
+        mock_origin: MockVault,
+        sender: Project,
+        receiver: Project,
+        tmp_path: Path,
+        value: str,
+        json_out: bool,
+    ) -> None:
+        """The reader substitutes `${NAME}` before any program sees it — in
+        bare, double-quoted and single-quoted values alike — and no escape
+        form preserves the text. A substituted secret is indistinguishable
+        from a real one, so the entry is left out of the file and the run
+        refuses, naming the variable and never the value, while the entries
+        that can be written still are."""
+        from dotenv import dotenv_values
+
+        app, root = sender
+        vault_put(app, _MY_KEY, value, cwd=root, replace=True)
+        link = _share(mock_origin, sender)
+        target = tmp_path / "out.env"
+        args = ["redeem", link, "--dotenv", str(target)]
+        if json_out:
+            args.append("--json")
+
+        result = _run(receiver, *args)
+
+        assert result.exit_code == 3, result.output
+        assert "MYJOB_API_KEY" in result.output
+        assert value not in result.output
+        if json_out:
+            envelope = json.loads(result.stdout)
+            assert envelope["ok"] is False
+            assert envelope["reason"] == "dotenv_interpolated"
+        assert stat.S_IMODE(target.stat().st_mode) == 0o600
+        parsed = dotenv_values(target)
+        assert "MYJOB_API_KEY" not in parsed
+        assert parsed["DEPLOY__TOKEN"] == f"{_SECRET}-token"
+        assert parsed["DEPLOY_APP_API_KEY"] == f"{_SECRET}-api_key"
+        assert parsed["DEPLOY_INFRA__REGION_KEY"] == f"{_SECRET}-region_key"
+
+    def test_a_refused_entry_leaves_no_earlier_value_behind(
+        self,
+        mock_origin: MockVault,
+        sender: Project,
+        receiver: Project,
+        tmp_path: Path,
+    ) -> None:
+        """The file is rewritten, not merged: a second `--dotenv` run must
+        not keep the value the first one wrote for a name it now refuses —
+        that stale value is exactly the substituted older secret the
+        refusal exists to prevent."""
+        from dotenv import dotenv_values
+
+        app, root = sender
+        target = tmp_path / "out.env"
+
+        first = _run(
+            receiver,
+            "redeem",
+            _share(mock_origin, sender, "job=myjob"),
+            "--dotenv",
+            str(target),
+        )
+        assert first.exit_code == 0, first.output
+        assert dotenv_values(target)["MYJOB_API_KEY"] == f"{_SECRET}-api_key"
+
+        vault_put(app, _MY_KEY, "a${HOME}b", cwd=root, replace=True)
+        second = _run(
+            receiver, "redeem", _share(mock_origin, sender), "--dotenv", str(target)
+        )
+
+        assert second.exit_code == 3, second.output
+        parsed = dotenv_values(target)
+        assert "MYJOB_API_KEY" not in parsed
+        assert parsed["DEPLOY__TOKEN"] == f"{_SECRET}-token"
 
 
 class TestShow:

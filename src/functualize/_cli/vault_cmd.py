@@ -1454,6 +1454,11 @@ def _dotenv_value(value: str) -> str:
     `\\n` is a newline, `\\r` a carriage return, `\\\"` a quote, `\\\\` a
     backslash. Single quotes are no escape hatch — the reader treats them
     as literal characters and interpolation runs inside them too.
+
+    Encoding cannot make `${` survive: the reader substitutes it in every
+    quoting style, and `\\${` and `$${` each leave a stray character behind.
+    Callers check `_dotenv_interpolates` first and refuse those values
+    instead of writing them.
     """
     if value and all(
         ch.isascii() and (ch.isalnum() or ch in "-_./:@+") for ch in value
@@ -1466,6 +1471,38 @@ def _dotenv_value(value: str) -> str:
         .replace("\r", "\\r")
     )
     return f'"{escaped}"'
+
+
+def _dotenv_interpolates(value: str) -> bool:
+    """True when the dotenv reader would substitute this value at load time.
+
+    Deliberately a substring test: telling `${NAME}` from an unterminated
+    `${` would buy a parser and refuse nothing in practice, and the cost of
+    over-refusing is one re-share while the cost of leaking a substituted
+    value is an incident.
+    """
+    return "${" in value
+
+
+def _dotenv_refuse(refused: list[str], path: str, json_out: bool) -> NoReturn:
+    """Exit nonzero after the writable entries have landed.
+
+    The names are named; no value is, ever. The redemption is already spent
+    by the time this can run, so the message says so rather than implying
+    the link still works.
+    """
+    marker = "${"
+    _fail(
+        "dotenv_interpolated",
+        f"Left {', '.join(refused)} out of {path}: a value containing "
+        f"{marker} cannot be written there intact, because functualize's "
+        f"dotenv reader substitutes it when it loads the file and no quoting "
+        f"survives that — what landed would look like a secret and be a "
+        f"different string. The other entries were written. Use --print-only "
+        f"to read the refused ones. The link's redemption was already used.",
+        json_out=json_out,
+        code=ExitCode.REFUSED,
+    )
 
 
 def _write_dotenv(path: str, lines: list[str], json_out: bool) -> None:
@@ -1642,9 +1679,18 @@ def vault_redeem_command(
         # round-trips inertly. The `--dotenv` file is parsed by functualize's
         # own dotenv reader, which cannot read shell quoting at all — it
         # gets dotenv syntax and round-trips byte-for-byte through
-        # `dotenv_values`.
+        # `dotenv_values`, except for values holding `${`: the reader
+        # substitutes those, no encoding survives it, and a substituted
+        # secret is indistinguishable from a real one. Those are left out of
+        # the file and the run refuses; the rest are still written.
+        refused: list[str] = []
+        lines: list[str] = []
         if materialize is Materialize.DOTENV:
-            lines = [f"{name}={_dotenv_value(value)}" for name, value in entries]
+            for name, value in entries:
+                if _dotenv_interpolates(value):
+                    refused.append(name)
+                else:
+                    lines.append(f"{name}={_dotenv_value(value)}")
         else:
             lines = [f"{name}={shlex.quote(value)}" for name, value in entries]
         if json_out:
@@ -1659,6 +1705,8 @@ def vault_redeem_command(
             if dotenv_path:
                 _write_dotenv(dotenv_path, lines, json_out)
                 payload["dotenv"] = dotenv_path
+                if refused:
+                    _dotenv_refuse(refused, dotenv_path, json_out)
             _vault_json(payload)
             return
         click.echo(summary, err=True)
@@ -1668,6 +1716,8 @@ def vault_redeem_command(
             )
         if dotenv_path:
             _write_dotenv(dotenv_path, lines, json_out)
+            if refused:
+                _dotenv_refuse(refused, dotenv_path, json_out)
             click.echo(
                 f"Wrote {dotenv_path} (0600). Nothing was stored in the vault.",
                 err=True,

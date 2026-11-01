@@ -618,6 +618,9 @@ def redeem_link(link: str, *, timeout: float = 30.0) -> RedeemedBundle:
                 "the envelope's share_id does not match the link — the server "
                 "returned the wrong bundle, and it was discarded unopened.",
             )
+        # Data-shape failures only — a missing field, bad base64, bad UTF-8,
+        # a tag mismatch. Do not widen this: every other exception type must
+        # reach the outer handlers so an in-envelope failure stays one class.
         try:
             items = open_envelope(envelope, key)
         except (
