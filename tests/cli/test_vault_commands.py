@@ -1855,6 +1855,9 @@ class TestTheDeclaredReasonCodesAreReachable:
             "conflicting_options",
             "no_selection",
             "dotenv_unwritable",
+            # The `--dotenv` refusal: the value holds `${`, which the reader
+            # substitutes, so the entry is left out and the run exits 3.
+            "dotenv_interpolated",
             "bad_selector",
             "not_stored",
         }
