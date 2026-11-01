@@ -24,7 +24,15 @@ from click.testing import CliRunner
 
 from functualize._cli.builtins import register_builtin_commands
 from functualize.app.vault import VaultIdentity, vault_put
-from tests.vault_remote.projects import _MY_KEY, _SECRET, _TOKEN, _app, _project
+from tests.vault_remote.projects import (
+    _APP_KEY,
+    _MY_KEY,
+    _REGION,
+    _SECRET,
+    _TOKEN,
+    _app,
+    _project,
+)
 
 if TYPE_CHECKING:
     from functualize.app import FunctualizeApp
@@ -318,6 +326,56 @@ class TestRedeemIntoTheVault:
     ) -> None:
         link = "https://example.test/s/" + "0" * 32 + "#k1." + "A" * 43
         assert _run(receiver, "redeem", link, *flags).exit_code == 2
+
+    def test_yes_with_everything_existing_still_says_the_link_is_spent(
+        self, mock_origin: MockVault, sender: Project, receiver: Project
+    ) -> None:
+        from functualize.app.vault import _read_value
+
+        app, root = receiver
+        for identity, value in (
+            (_TOKEN, "own-token"),
+            (_APP_KEY, "own-app-key"),
+            (_REGION, "own-region"),
+            (_MY_KEY, "own-mine"),
+        ):
+            vault_put(app, identity, value, cwd=root)
+        link = _share(mock_origin, sender)
+
+        result = _run(receiver, "redeem", link, "-y")
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "Nothing was stored. The link's redemption was already used."
+            in result.output
+        )
+        assert _read_value(app, _TOKEN, cwd=root) == "own-token"
+        assert _redeem_posts(mock_origin) == 1
+
+    def test_only_collisions_without_replace_still_say_the_link_is_spent(
+        self, mock_origin: MockVault, sender: Project, receiver: Project
+    ) -> None:
+        from functualize.app.vault import _read_value
+
+        app, root = receiver
+        vault_put(app, _TOKEN, "own-token", cwd=root)
+        link = _share(mock_origin, sender)
+
+        result = _run(
+            receiver,
+            "redeem",
+            link,
+            "--only",
+            "group=deploy,field=token",
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "Nothing was stored. The link's redemption was already used."
+            in result.output
+        )
+        assert _read_value(app, _TOKEN, cwd=root) == "own-token"
+        assert _redeem_posts(mock_origin) == 1
 
 
 class TestRedeemElsewhere:

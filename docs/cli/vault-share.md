@@ -154,8 +154,9 @@ someone stored directly.
 | `--only SELECTOR` (repeatable) | new entries under the selectors, without asking |
 | `--replace` | with `-y` / `--only`: also existing and synced entries; with the checklist: ticks them too |
 
-Ticking nothing, or cancelling, stores nothing — and the link's redemption
-has been used.
+Ticking nothing, cancelling, or a selection that ends up storing nothing
+stores nothing — and the link's redemption has been used. The command
+says so in every one of those cases.
 
 ### Without the vault
 
