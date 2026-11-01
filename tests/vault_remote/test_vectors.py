@@ -40,9 +40,7 @@ from functualize.app.vault_remote import (
 )
 
 _VECTORS_PATH = Path(__file__).parent / "vectors.json"
-_VECTORS_SHA256 = (
-    "7eed69b024a56ee4c3eaa14ef8c872285d8995895153ca68fbeeeeb4b5be1eef"
-)
+_VECTORS_SHA256 = "7eed69b024a56ee4c3eaa14ef8c872285d8995895153ca68fbeeeeb4b5be1eef"
 
 V = json.loads(_VECTORS_PATH.read_text())
 KEY = base64.b64decode(V["aead_key_b64"])
@@ -72,8 +70,9 @@ class TestFragmentKeyStrings:
         assert decode_fragment_key(V["fragment_string"]) == KEY
 
     def test_vector_string_survives_a_round_trip(self) -> None:
-        assert encode_fragment_key(decode_fragment_key(V["fragment_string"])) == (
-            V["fragment_string"]
+        assert (
+            encode_fragment_key(decode_fragment_key(V["fragment_string"]))
+            == (V["fragment_string"])
         )
 
     def test_master_key_string_round_trips(self) -> None:
@@ -129,8 +128,7 @@ class TestVectorReproduction:
             items,
             KEY,
             nonces=[
-                base64.b64decode(it["nonce"])
-                for it in V["fragment_envelope"]["items"]
+                base64.b64decode(it["nonce"]) for it in V["fragment_envelope"]["items"]
             ],
         )
         assert envelope == V["fragment_envelope"]
@@ -236,9 +234,7 @@ class TestEnvelopeProperties:
         assert sorted(o["value"] for o in opened) == sorted(V["opened_values"])
 
     def test_empty_items_round_trip(self) -> None:
-        sealed = seal_envelope(
-            "fragment", V["fragment_envelope"]["metadata"], [], KEY
-        )
+        sealed = seal_envelope("fragment", V["fragment_envelope"]["metadata"], [], KEY)
         assert open_envelope(sealed, KEY) == []
 
     def test_seal_refuses_a_short_key(self) -> None:
@@ -266,14 +262,16 @@ class TestMasterMode:
 class TestRecipientWrapping:
     def test_unwrap_reproduces_the_vector_cek(self) -> None:
         private = ec_key_from_jwk(V["recipient"]["private_jwk"])
-        assert unwrap_cek(V["recipient"]["wrap"], private).hex() == (
-            V["recipient"]["cek_hex"]
+        assert (
+            unwrap_cek(V["recipient"]["wrap"], private).hex()
+            == (V["recipient"]["cek_hex"])
         )
 
     def test_vector_jwk_matches_its_public_point(self) -> None:
         d = base64.urlsafe_b64decode(V["recipient"]["private_jwk"]["d"] + "==")
-        assert ec_scalar_to_pub_point(int.from_bytes(d, "big")) == (
-            V["recipient"]["public_point_b64"]
+        assert (
+            ec_scalar_to_pub_point(int.from_bytes(d, "big"))
+            == (V["recipient"]["public_point_b64"])
         )
 
     def test_fresh_wrap_round_trips(self) -> None:

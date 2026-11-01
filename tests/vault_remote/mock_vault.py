@@ -98,8 +98,10 @@ class MockVault:
             return 400, {"error": {"code": "bad_envelope"}}
 
         labels = body.get("labels")
-        if not isinstance(labels, list) or len(labels) > 8 or any(
-            not isinstance(x, str) or len(x) > 64 for x in labels
+        if (
+            not isinstance(labels, list)
+            or len(labels) > 8
+            or any(not isinstance(x, str) or len(x) > 64 for x in labels)
         ):
             return 400, {"error": {"code": "bad_labels"}}
         if parsed["metadata"].get("labels") != labels:
@@ -178,9 +180,7 @@ class MockVault:
         self, share_id: str, auth: str | None
     ) -> tuple[int, dict[str, Any]]:
         token = auth[7:] if auth and auth.startswith("Bearer ") else None
-        digest = (
-            hashlib.sha256(token.encode()).hexdigest() if token else None
-        )
+        digest = hashlib.sha256(token.encode()).hexdigest() if token else None
         with self._lock:
             row = self.shares.get(share_id)
             if row is None:
@@ -211,9 +211,7 @@ def _make_handler(vault: MockVault) -> type[BaseHTTPRequestHandler]:
                 {
                     "method": self.command,
                     "path": self.path,
-                    "headers": {
-                        k.lower(): v for k, v in self.headers.items()
-                    },
+                    "headers": {k.lower(): v for k, v in self.headers.items()},
                     "body": body,
                 }
             )

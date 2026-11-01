@@ -44,9 +44,7 @@ def _share(
     items: list[dict[str, str]] | None = None,
     **kwargs: Any,
 ) -> str:
-    return create_share(
-        mock_origin.origin, items or _ITEMS, labels=["demo"], **kwargs
-    )
+    return create_share(mock_origin.origin, items or _ITEMS, labels=["demo"], **kwargs)
 
 
 class TestShare:
@@ -79,9 +77,7 @@ class TestShare:
 
 
 class TestPreviewNeverBurns:
-    def test_meta_keeps_the_counter_constant(
-        self, mock_origin: MockVault
-    ) -> None:
+    def test_meta_keeps_the_counter_constant(self, mock_origin: MockVault) -> None:
         link = _share(mock_origin)
         origin, share_id, _ = parse_link(link)
         seen = [fetch_share_meta(origin, share_id) for _ in range(3)]
@@ -121,9 +117,7 @@ class TestRedeem:
             redeem_link(link)
         assert exc.value.reason == "gone"
 
-    def test_exactly_n_winners_for_n_redemptions(
-        self, mock_origin: MockVault
-    ) -> None:
+    def test_exactly_n_winners_for_n_redemptions(self, mock_origin: MockVault) -> None:
         """The wire's atomicity guarantee, asserted through the client: 8
         concurrent claims on a 3-redemption share yield exactly 3 winners,
         with the other 5 refused as `gone` — never a 4th decryption."""
@@ -133,8 +127,7 @@ class TestRedeem:
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             futures = [pool.submit(redeem_link, link) for _ in range(8)]
             outcomes = [
-                f.result() if f.exception() is None else f.exception()
-                for f in futures
+                f.result() if f.exception() is None else f.exception() for f in futures
             ]
         winners = [o for o in outcomes if isinstance(o, RedeemedBundle)]
         refusals = [o for o in outcomes if isinstance(o, VaultRedeemError)]
@@ -144,9 +137,7 @@ class TestRedeem:
 
 
 class TestFailClosedClient:
-    def test_wrong_key_link_fails_as_one_class(
-        self, mock_origin: MockVault
-    ) -> None:
+    def test_wrong_key_link_fails_as_one_class(self, mock_origin: MockVault) -> None:
         link = _share(mock_origin)
         wrong = link[: link.rindex("#")] + "#" + _other_fragment_key()
         with pytest.raises(VaultRedeemError) as exc:
@@ -154,9 +145,7 @@ class TestFailClosedClient:
         assert exc.value.reason == "open_failed"
         assert _SECRET not in str(exc.value)
 
-    def test_tampered_envelope_fails_closed(
-        self, mock_origin: MockVault
-    ) -> None:
+    def test_tampered_envelope_fails_closed(self, mock_origin: MockVault) -> None:
         link = _share(mock_origin)
         mock_origin.corrupt_next_envelope = True
         with pytest.raises(VaultRedeemError) as exc:
@@ -204,14 +193,10 @@ class TestFragmentHygiene:
                 assert fragment not in hay, exchange["path"]
                 assert key_b64 not in hay, exchange["path"]
 
-    def test_the_user_agent_obligation_is_honored(
-        self, mock_origin: MockVault
-    ) -> None:
+    def test_the_user_agent_obligation_is_honored(self, mock_origin: MockVault) -> None:
         link = _share(mock_origin)
         redeem_link(link)
-        agents = {
-            e["headers"].get("user-agent") for e in mock_origin.requests
-        }
+        agents = {e["headers"].get("user-agent") for e in mock_origin.requests}
         assert agents == {f"functualize/{__version__}"}
 
 
@@ -223,7 +208,10 @@ class TestMockConformance:
             origin + "/api/shares",
             data=json.dumps(body).encode(),
             method="POST",
-            headers={"user-agent": "conformance-check/1", "content-type": "application/json"},
+            headers={
+                "user-agent": "conformance-check/1",
+                "content-type": "application/json",
+            },
         )
         try:
             with urllib.request.urlopen(req, timeout=5) as r:
@@ -231,9 +219,7 @@ class TestMockConformance:
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())
 
-    def test_labels_must_mirror_the_envelope(
-        self, mock_origin: MockVault
-    ) -> None:
+    def test_labels_must_mirror_the_envelope(self, mock_origin: MockVault) -> None:
         link = _share(mock_origin)
         share_id = parse_link(link)[1]
         envelope = mock_origin.shares[share_id]["envelope"]
@@ -248,9 +234,7 @@ class TestMockConformance:
         assert status == 400
         assert payload == {"error": {"code": "labels_mismatch"}}
 
-    def test_share_id_collisions_are_a_conflict(
-        self, mock_origin: MockVault
-    ) -> None:
+    def test_share_id_collisions_are_a_conflict(self, mock_origin: MockVault) -> None:
         link = _share(mock_origin)
         share_id = parse_link(link)[1]
         envelope = mock_origin.shares[share_id]["envelope"]
@@ -266,6 +250,4 @@ class TestMockConformance:
         assert payload == {"error": {"code": "share_id_conflict"}}
 
     def test_the_default_origin_is_the_public_vault(self) -> None:
-        assert DEFAULT_ORIGIN == (
-            "https://funccloud-vault.raicing-ai.workers.dev"
-        )
+        assert DEFAULT_ORIGIN == ("https://funccloud-vault.raicing-ai.workers.dev")
