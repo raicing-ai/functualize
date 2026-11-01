@@ -268,7 +268,7 @@ rg -c 'resolve_vault_key|_project_id|SecretsVault|def import_to_vault|def load_v
 ```
 after: `0`
 
-### [ ] T17 (D4) CLI: `share` via `--entry`/`--all`/picker (no `--group`/`--job`/`--field`/`--set`); `redeem` modes (TTY multi-select, `-y`, `--only`, `--replace`, `--print-only`, `--dotenv`), pre-burn order
+### [x] T17 (D4) CLI: `share` via `--entry`/`--all`/picker (no `--group`/`--job`/`--field`/`--set`); `redeem` modes (TTY multi-select, `-y`, `--only`, `--replace`, `--print-only`, `--dotenv`), pre-burn order
 
 ```bash
 rg -c '"--set"|"--from-vault"|"--into-vault"|"--scope"' src/functualize/_cli/vault_cmd.py
@@ -290,6 +290,11 @@ Reachability for T14 and T21 (carried here): `func builtin vault share` →
 `vault_handoff.select_for_share` / `share`; `func builtin vault redeem` →
 `check_before_redeem` → `redeem_link` → `plan_import` → `apply_import`.
 Verified by breaking each call after a commit and watching a CLI test fail.
+**Verified 2026-11-01 at `88224c9`** with `tests/vault_remote/test_cli.py`:
+`select_for_share` 21 failures, `check_before_redeem` 3, `apply_import` 4,
+`vault_handoff.share` 21; restored from the commit. This closes the
+transitional reachability T14 and T21 carried: every function they added is
+now reached from `func builtin vault share|redeem`.
 
 ### [ ] T18 (D5) mock-origin tests for every row status and every pre-burn refusal; docs; STATUS
 
