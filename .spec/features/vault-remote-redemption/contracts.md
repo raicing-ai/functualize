@@ -36,17 +36,27 @@ Produced (this repo):
     `vault put` reason codes);
   - `shareable_entries(app, *, cwd) -> list[ShareCandidate]` (identity,
     shareable or the reason not, `synced from` annotation) — the picker's rows;
-  - `select_for_share(app, selectors | ALL, *, cwd) -> list[ShareCandidate]`;
-  - `share(app, selectors, *, labels, ttl, redemptions, origin, cwd) ->
-    ShareReport` (adds `env:<active>`);
-  - `check_before_redeem(app, link, *, mode, cwd) -> ShareMeta` — every
-    pre-burn refusal;
+  - `select_for_share(app, selectors | ALL, *, cwd) -> ShareSelection(chosen,
+    skipped)`;
+  - `share(app, selection, *, labels, redemptions, expires_in_hours, origin,
+    cwd) -> ShareReport` (adds `env:<active>`; a caller label starting
+    `env:` is refused as `bad_label`);
+  - `check_before_redeem(app, link, *, materialize, interactive,
+    confirmed_without_prompt, only, cwd) -> ShareMeta` — every pre-burn
+    refusal (`no_project`, `no_tty_confirmation`, selector errors, `gone` /
+    `not_found` from meta, `not_a_vault_share`, `environment_mismatch`,
+    `VaultKeySourceError`);
   - `plan_import(bundle, app, *, cwd) -> ImportPlan(rows)`; a row carries
     identity, status (`storable|exists|synced|no_match|malformed`), the
     `synced from` annotation when there is one, and a reason — never a value,
     in any field or repr;
-  - `apply_import(app, plan, selected, *, replace, cwd) -> ImportReport` (names
-    only);
+  - `ImportPlan.default_selection()` and `ImportPlan.select(selectors, *,
+    replace)` (`--only`);
+  - `apply_import(app, plan, bundle, selected, *, replace, cwd) ->
+    ImportReport(stored, replaced, superseded, skipped)` (labels only). The
+    bundle must be the planned one (same share id, same item names in order)
+    or `plan_mismatch` stores nothing. Rows hold an index into the bundle,
+    never a value;
   - `export_name(identity) -> str` (`JOB_FIELD` / `SCOPE__FIELD`).
 - Conventions on the wire:
   - vault-entry item: `name = VaultIdentity.encode()`, `kind = "secret"`;
