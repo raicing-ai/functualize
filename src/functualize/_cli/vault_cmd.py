@@ -1718,6 +1718,14 @@ def vault_redeem_command(
         return
     if selectors or yes:
         click.echo(summary, err=True)
+        if not report.stored and not report.replaced and not report.superseded:
+            # A13: selecting nothing still spends the redemption, and the
+            # command must say so on every non-interactive path, not only
+            # the checklist's empty pick.
+            click.echo(
+                "Nothing was stored. The link's redemption was already used.",
+                err=True,
+            )
     for label in report.stored:
         click.echo(f"  stored     {label}")
     for label in report.replaced:

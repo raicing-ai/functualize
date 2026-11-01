@@ -161,17 +161,20 @@ and removed by T20 on the maintainer's decision O4 (2026-11-01).
 
 ### [x] T11 (B6) spent/expired/tampered CLI failure tests; hygiene grep
 
-21 CLI test functions through a real click group against the mock origin —
+32 CLI test functions through a real click group against the mock origin —
 journeys, failures, materializations, alias, and the fragment-hygiene
 assertion over output and captured log records:
 
 ```bash
 rg -c 'def test_' tests/vault_remote/test_cli.py
 ```
-after: `30` — re-recorded 2026-11-01: the file was rewritten by T17 for the
-`--entry` / redeem-modes surface (recorded `21` on 2026-09-24); a review
-follow-up added the metacharacter round-trip test
-(`test_a_value_with_metacharacters_round_trips_inertly`); the
+after: `32` — re-recorded 2026-11-01: the file was rewritten by T17 for the
+`--entry` / redeem-modes surface (recorded `21` on 2026-09-24); review
+follow-ups added the metacharacter round-trip test
+(`test_a_value_with_metacharacters_round_trips_inertly`) and the two
+spent-link notice tests
+(`test_yes_with_everything_existing_still_says_the_link_is_spent`,
+`test_only_collisions_without_replace_still_say_the_link_is_spent`); the
 fragment-hygiene assertion below is kept unchanged.
 
 ```bash
