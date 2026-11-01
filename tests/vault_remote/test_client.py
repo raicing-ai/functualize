@@ -3,7 +3,10 @@
 Everything here exercises ``functualize.app.vault_remote`` end to end over
 real HTTP against the in-process contracts-v1 server — no monkeypatching
 inside the client, because the guarantees under test (fragment never sent,
-UA obligation, burn semantics) live at the transport boundary.
+UA obligation, burn semantics) live at the transport boundary. Where a
+hostile or buggy server must be simulated, the request function is wrapped
+so the real request — and its burn — still happens and only the answer the
+client reads back is reshaped.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from functualize import __version__
+from functualize.app import vault_remote
 from functualize.app.vault_remote import (
     DEFAULT_ORIGIN,
     RedeemedBundle,
@@ -148,6 +152,25 @@ class TestRedeem:
         assert {e.reason for e in refusals} == {"gone"}
 
 
+def _reshape_answers(monkeypatch: pytest.MonkeyPatch, reshape: Any) -> None:
+    """Let the real request happen — and its burn — then reshape the
+    answer the client reads back: exactly a hostile or buggy server."""
+    real = vault_remote._request
+
+    def mutator(
+        method: str,
+        url: str,
+        body: dict[str, Any] | None = None,
+        token: str | None = None,
+        timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        response = real(method, url, body=body, token=token, timeout=timeout)
+        reshape(method, response)
+        return response
+
+    monkeypatch.setattr(vault_remote, "_request", mutator)
+
+
 class TestFailClosedClient:
     def test_wrong_key_link_fails_as_one_class(self, mock_origin: MockVault) -> None:
         link = _share(mock_origin)
@@ -168,6 +191,90 @@ class TestFailClosedClient:
         with pytest.raises(VaultRedeemError) as exc:
             redeem_link(f"{mock_origin.origin}/s/{'0' * 32}#{_other_fragment_key()}")
         assert exc.value.reason == "not_found"
+
+    @pytest.mark.parametrize(
+        "shape",
+        [
+            "envelope_not_json",
+            "envelope_not_object",
+            "metadata_not_object",
+            "items_not_list",
+            "item_not_dict",
+            "nonce_missing",
+        ],
+    )
+    def test_a_malformed_redeem_answer_fails_closed_after_the_burn(
+        self, mock_origin: MockVault, monkeypatch: pytest.MonkeyPatch, shape: str
+    ) -> None:
+        """A redeem answer that does not parse into the expected shape is
+        one closed failure, never a raw traceback — and it comes after the
+        claim, so the link is spent either way."""
+
+        def reshape(method: str, response: dict[str, Any]) -> None:
+            if method != "POST" or not response.get("envelope"):
+                return
+            if shape == "envelope_not_json":
+                response["envelope"] = "{oops"
+                return
+            envelope = json.loads(response["envelope"])
+            if shape == "envelope_not_object":
+                envelope = []
+            elif shape == "metadata_not_object":
+                envelope["metadata"] = 5
+            elif shape == "items_not_list":
+                envelope["items"] = 5
+            elif shape == "item_not_dict":
+                envelope["items"] = ["x"]
+            elif shape == "nonce_missing":
+                del envelope["items"][0]["nonce"]
+            response["envelope"] = json.dumps(envelope)
+
+        _reshape_answers(monkeypatch, reshape)
+        link = _share(mock_origin)
+
+        with pytest.raises(VaultRedeemError) as exc:
+            redeem_link(link)
+        assert exc.value.reason == "bad_response"
+        with pytest.raises(VaultRedeemError) as gone:
+            redeem_link(link)
+        assert gone.value.reason == "gone"
+
+    def test_a_malformed_meta_answer_is_one_bad_response(
+        self, mock_origin: MockVault, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def reshape(method: str, response: dict[str, Any]) -> None:
+            if method == "GET":
+                response.pop("labels")
+
+        _reshape_answers(monkeypatch, reshape)
+        origin, share_id, _ = parse_link(_share(mock_origin))
+
+        with pytest.raises(VaultRedeemError) as exc:
+            fetch_share_meta(origin, share_id)
+        assert exc.value.reason == "bad_response"
+
+    @pytest.mark.parametrize("payload", [b"<html>gateway</html>", b"[1, 2]"])
+    def test_a_body_that_is_not_a_json_object_is_one_bad_response(
+        self, mock_origin: MockVault, monkeypatch: pytest.MonkeyPatch, payload: bytes
+    ) -> None:
+        class _Answered:
+            def read(self) -> bytes:
+                return payload
+
+            def __enter__(self) -> _Answered:
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+        link = _share(mock_origin)
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            lambda req, timeout: _Answered(),  # noqa: ARG005
+        )
+        with pytest.raises(VaultRedeemError) as exc:
+            redeem_link(link)
+        assert exc.value.reason == "bad_response"
 
     @pytest.mark.parametrize(
         "link",

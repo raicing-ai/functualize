@@ -425,14 +425,13 @@ def _request(
         req.add_header("authorization", f"Bearer {token}")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            answered: dict[str, Any] = json.loads(response.read())
-            return answered
+            raw = response.read()
     except urllib.error.HTTPError as exc:
         try:
             payload = json.loads(exc.read())
+            code = payload.get("error", {}).get("code") or f"http_{exc.code}"
         except Exception:
-            payload = {}
-        code = payload.get("error", {}).get("code") or f"http_{exc.code}"
+            code = f"http_{exc.code}"
         raise VaultRedeemError(
             code, f"{method} {url} failed: {exc.code} ({code})."
         ) from None
@@ -440,6 +439,18 @@ def _request(
         raise VaultRedeemError(
             "unreachable", f"{method} {url} did not answer: {exc.reason}."
         ) from None
+    try:
+        answered = json.loads(raw)
+    except ValueError as exc:
+        raise VaultRedeemError(
+            "bad_response", f"{method} {url} answered a body that is not JSON."
+        ) from exc
+    if not isinstance(answered, dict):
+        raise VaultRedeemError(
+            "bad_response",
+            f"{method} {url} answered a body that is not a JSON object.",
+        )
+    return answered
 
 
 def parse_link(link: str) -> tuple[str, str, bytes]:
@@ -561,12 +572,23 @@ def fetch_share_meta(origin: str, share_id: str, *, timeout: float = 30.0) -> Sh
     """Preview a share. ``meta`` never burns a redemption (contracts v1)."""
     origin = _validate_origin(origin)
     response = _request("GET", f"{origin}/api/shares/{share_id}/meta", timeout=timeout)
+    try:
+        labels = list(response["labels"])
+        redemptions_left = int(response["redemptions_left"])
+        redemptions_total = int(response["redemptions_total"])
+        expires_at = str(response["expires_at"])
+        created_at = str(response["created_at"])
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise VaultRedeemError(
+            "bad_response",
+            "the server's meta answer did not contain the expected fields.",
+        ) from None
     return ShareMeta(
-        labels=list(response["labels"]),
-        redemptions_left=int(response["redemptions_left"]),
-        redemptions_total=int(response["redemptions_total"]),
-        expires_at=str(response["expires_at"]),
-        created_at=str(response["created_at"]),
+        labels=labels,
+        redemptions_left=redemptions_left,
+        redemptions_total=redemptions_total,
+        expires_at=expires_at,
+        created_at=created_at,
     )
 
 
@@ -585,20 +607,22 @@ def redeem_link(link: str, *, timeout: float = 30.0) -> RedeemedBundle:
     )
     try:
         envelope = json.loads(response["envelope"])
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise VaultRedeemError(
-            "bad_response",
-            "the server's redeem answer did not contain a parsable envelope.",
-        ) from exc
-    metadata = envelope.get("metadata", {})
-    if metadata.get("share_id") != share_id:
-        raise VaultRedeemError(
-            "server_mismatch",
-            "the envelope's share_id does not match the link — the server "
-            "returned the wrong bundle, and it was discarded unopened.",
-        )
-    try:
+        if not isinstance(envelope, dict):
+            raise TypeError("the envelope is not a JSON object")
+        metadata = envelope.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise TypeError("the envelope's metadata is not a JSON object")
+        if metadata.get("share_id") != share_id:
+            raise VaultRedeemError(
+                "server_mismatch",
+                "the envelope's share_id does not match the link — the server "
+                "returned the wrong bundle, and it was discarded unopened.",
+            )
         items = open_envelope(envelope, key)
+        labels = list(metadata.get("labels", []))
+        expires_at = str(metadata.get("expires_at", ""))
+    except VaultRedeemError:
+        raise
     except AuthenticationFailed:
         raise VaultRedeemError(
             "open_failed",
@@ -606,10 +630,15 @@ def redeem_link(link: str, *, timeout: float = 30.0) -> RedeemedBundle:
             "Either the link is wrong, the envelope was altered in "
             "transit, or its metadata changed — nothing was decrypted.",
         ) from None
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise VaultRedeemError(
+            "bad_response",
+            "the server's redeem answer did not contain a parsable envelope.",
+        ) from None
     return RedeemedBundle(
         items=items,
-        labels=list(metadata.get("labels", [])),
-        expires_at=str(metadata.get("expires_at", "")),
+        labels=labels,
+        expires_at=expires_at,
         share_id=share_id,
     )
 
