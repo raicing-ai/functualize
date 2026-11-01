@@ -16,6 +16,7 @@ here reaches the store through ``app.utils``, never ``_config``.
 
 from __future__ import annotations
 
+import shlex
 import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
@@ -1604,7 +1605,7 @@ def vault_redeem_command(
     if materialize is not Materialize.STORE:
         from functualize.app.vault import VaultIdentity
 
-        lines: list[str] = []
+        entries: list[tuple[str, str]] = []
         unnamed = 0
         for item in bundle.items:
             try:
@@ -1612,14 +1613,19 @@ def vault_redeem_command(
             except ValueError:
                 unnamed += 1
                 continue
-            lines.append(f"{name}={item['value']}")
+            entries.append((name, str(item["value"])))
+        # One POSIX-quoted encoding for both outputs. A redeemed value may
+        # carry anything — quotes, `$(...)`, backticks, a newline — and a
+        # printed or written line must round-trip inertly when sourced, so
+        # every value goes through `shlex.quote` rather than raw embedding.
+        lines = [f"{name}={shlex.quote(value)}" for name, value in entries]
         if json_out:
             payload: dict[str, Any] = {
                 "ok": True,
                 "share_id": bundle.share_id,
                 "labels": bundle.labels,
                 "materialized": materialize.value,
-                "names": [line.split("=", 1)[0] for line in lines],
+                "names": [name for name, _ in entries],
                 "unreadable": unnamed,
             }
             if dotenv_path:

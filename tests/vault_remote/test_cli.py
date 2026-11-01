@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
+import shutil
 import stat
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,7 +24,7 @@ from click.testing import CliRunner
 
 from functualize._cli.builtins import register_builtin_commands
 from functualize.app.vault import VaultIdentity, vault_put
-from tests.vault_remote.projects import _SECRET, _TOKEN, _app, _project
+from tests.vault_remote.projects import _MY_KEY, _SECRET, _TOKEN, _app, _project
 
 if TYPE_CHECKING:
     from functualize.app import FunctualizeApp
@@ -367,6 +370,58 @@ class TestRedeemElsewhere:
         assert stat.S_IMODE(target.stat().st_mode) == 0o600
         assert target.read_text() == f"MYJOB_API_KEY={_SECRET}-api_key\n"
         assert vault_entries(receiver[1]) == []
+
+    @pytest.mark.parametrize("mode", ["--print-only", "--dotenv"])
+    def test_a_value_with_metacharacters_round_trips_inertly(
+        self,
+        mock_origin: MockVault,
+        sender: Project,
+        receiver: Project,
+        tmp_path: Path,
+        mode: str,
+    ) -> None:
+        """A redeemed value may hold anything; both output modes must carry
+        it byte-for-byte and must never execute it when the lines are
+        sourced — `$(...)`, backticks, quotes, `$HOME`, a newline, `;`."""
+        sentinel = "$(touch pwned) `touch pwned2` 'q s' \"d\" $HOME\nline2; rm -rf x"
+        app, root = sender
+        vault_put(app, _MY_KEY, sentinel, cwd=root, replace=True)
+        link = _share(mock_origin, sender, "job=myjob")
+
+        if mode == "--dotenv":
+            target = tmp_path / "out.env"
+            result = _run(receiver, "redeem", link, mode, str(target))
+            text = target.read_text()
+        else:
+            result = _run(receiver, "redeem", link, mode)
+            text = result.stdout
+        assert result.exit_code == 0, result.output
+
+        words = shlex.split(text)
+        if mode == "--print-only":
+            assert words[::2] == ["export"] * (len(words) // 2)
+            assignments = words[1::2]
+        else:
+            assignments = words
+        assert assignments == [f"MYJOB_API_KEY={sentinel}"]
+
+        if shutil.which("sh"):
+            sourced = tmp_path / "out.sh"
+            sourced.write_text(text)
+            probe = (
+                'set -a; . "$1"; set +a; printf %s "$MYJOB_API_KEY"'
+                if mode == "--dotenv"
+                else '. "$1"; printf %s "$MYJOB_API_KEY"'
+            )
+            run = subprocess.run(
+                ["sh", "-c", probe, "sh", str(sourced)],
+                capture_output=True,
+                cwd=tmp_path,
+            )
+            assert run.returncode == 0, run.stderr
+            assert run.stdout == sentinel.encode()
+            assert not (tmp_path / "pwned").exists()
+            assert not (tmp_path / "pwned2").exists()
 
 
 class TestShow:
