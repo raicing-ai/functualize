@@ -152,9 +152,11 @@ A11 **The environment is checked before the burn.** Redeeming consumes a
 redemption, and items are only readable afterwards, so everything the
 receiver can check locally happens **before the origin is asked to redeem**:
 
-- **project**: no functualize project is found from the working directory →
-  refuse (nothing to validate against), naming `cd` into the project,
-  `--print-only` and `--dotenv`;
+- **project**: the app built from the working directory has no jobs, so
+  there is nothing to validate against → refuse, naming `cd` into the
+  project, `--print-only` and `--dotenv`. (A `.functualize/` directory is not
+  the test: `func` runs loose scripts anywhere, and the vault path itself
+  falls back to the working directory without one.)
 - **environment**: in store mode, `redeem` first reads meta (no burn, the same
   call `vault show` makes). If the share's `env:<name>` label differs from the
   receiver's active environment, refuse and name

@@ -237,7 +237,7 @@ after: `1`
 **no production caller yet**: `app/vault_handoff.py` (T14) is the first. The
 reachability check for these three functions is carried by T14.
 
-### [ ] T14 (D1) `app/vault_handoff.py`: selector grammar · shareable entries · select (exact/subtree/all) · env label · pre-burn checks · plan/apply · export names
+### [x] T14 (D1) `app/vault_handoff.py`: selector grammar · shareable entries · select (exact/subtree/all) · env label · pre-burn checks · plan/apply · export names
 
 ```bash
 rg -c '^def (parse_selector|shareable_entries|select_for_share|share|check_before_redeem|plan_import|apply_import|export_name)' src/functualize/app/vault_handoff.py
@@ -249,10 +249,15 @@ rg -c 'from functualize\._config\.vault import|_project_id' src/functualize/app/
 ```
 after: `0`
 
-Reachability for T21 (carried here): `share` → `select_for_share` →
-`app.vault._read_value`; redeem → `check_before_redeem` → `vault_require_key`;
-`apply_import` → `vault_supersede_synced`. Each verified by breaking the call
-after a commit and watching a handoff test fail.
+Reachability for T21 (carried here): `share` → `app.vault._read_value`;
+`check_before_redeem` → `vault_require_key`; `apply_import` →
+`vault_supersede_synced`. **Verified 2026-11-01 at `d8fc654`** by breaking each
+call and running `tests/vault_remote/test_handoff.py`: 2, 1 and 1 failures
+respectively (and 6 for the group-subtree rule); restored from the commit.
+
+**Transitional (disclosed 2026-11-01):** the handoff itself has no
+production caller until the CLI calls it (T17). The production-path check —
+break `vault_cmd` → `vault_handoff`, watch a CLI test fail — is carried by T17.
 
 ### [ ] T16 (D3) trim `app/vault_remote.py` to crypto + wire; no key or store code left
 
@@ -277,6 +282,11 @@ after: `2`
 rg -c 'check_before_redeem' src/functualize/_cli/vault_cmd.py
 ```
 after: `1`
+
+Reachability for T14 and T21 (carried here): `func builtin vault share` →
+`vault_handoff.select_for_share` / `share`; `func builtin vault redeem` →
+`check_before_redeem` → `redeem_link` → `plan_import` → `apply_import`.
+Verified by breaking each call after a commit and watching a CLI test fail.
 
 ### [ ] T18 (D5) mock-origin tests for every row status and every pre-burn refusal; docs; STATUS
 
