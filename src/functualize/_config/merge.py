@@ -1,11 +1,13 @@
 """Deep-merge algorithm for layered configuration dictionaries.
 
-Only imports from stdlib — no internal package dependencies.
+Imports stdlib and the ``root = true`` predicate from
+``_primitives/project_root.py``, so the merge and every other walk agree on
+what ends a project.
 """
 
 from typing import Any
 
-from functualize._types.functualize_settings import ROOT_KEY
+from functualize._primitives.project_root import ROOT_KEY, is_root_config
 
 
 def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -63,7 +65,7 @@ def merge_config_layers(
     active_layers: list[dict[str, Any]] = []
     for layer in layers:
         active_layers.append(layer)
-        if layer.get(root_key) is True:
+        if _stops(layer, root_key):
             break
 
     # Merge from lowest priority (last) to highest (first)
@@ -75,3 +77,14 @@ def merge_config_layers(
     result.pop(root_key, None)
 
     return result
+
+
+def _stops(layer: dict[str, Any], root_key: str) -> bool:
+    """Whether ``layer`` ends the merge.
+
+    The default key is the project root, and asks the one predicate every walk
+    shares; a custom ``root_key`` keeps its own boolean test.
+    """
+    if root_key == ROOT_KEY:
+        return is_root_config(layer)
+    return layer.get(root_key) is True
