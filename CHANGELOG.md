@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the message-hygiene identity arm reads prose, not code
+
+**Contributor-facing; no runtime behaviour changes.** The identity arm
+substring-matched the deny-list against every line of the PR title, the PR body
+and the commit log exactly as written, with no exemption for code. A change that
+integrates a provider therefore could not describe itself: naming its own
+modules, paths and model ids in a commit message failed the check, and on one PR
+that was seven findings of which every one was the provider's own file name — not
+an author, which is the only thing this arm exists to refuse.
+
+The arm now matches each line against a view with fenced code blocks, inline code
+spans, path tokens and code-file tokens removed, while the violation it reports
+still prints the original line. The read is deliberately narrow: a prose `Generated
+by X` is still refused, and the trailer, tracker-key, tracker-URL and identifier
+arms are untouched — they still read every line as written, so a key or a run id
+inside a fenced block is refused exactly as before. No deny-list value, workflow,
+job name or `::error::` shape changes.
+
 ### Fixed — `root = true` ends the project for every source, setting, job config and state lookup
 A nested project that declared `root = true` stopped only its settings merge.
 Its ancestor's jobs, libraries, plugins and declared directories still loaded
