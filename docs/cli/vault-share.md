@@ -116,7 +116,7 @@ spending it, and refuses — leaving the link usable — when:
 1. there is no project here to store into (the directory has no jobs);
 2. there is no terminal to confirm on and neither `-y`, `--only` nor
    `--print-only` was given;
-3. an exact `--only` selector names nothing in this project;
+3. an `--only` selector names nothing in this project;
 4. the share is spent, expired or unknown (read from its preview, which
    never redeems);
 5. the share was made for another environment, or not by `vault share`;

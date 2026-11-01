@@ -308,10 +308,14 @@ Every pre-burn refusal asserts the mock's tape holds no `POST …/redeem`:
 ```bash
 rg -c 'def test_' tests/vault_remote/test_handoff.py
 ```
-after: `39` (predicted `24` at planning; measured 2026-11-01). Covered: every
+after: `41` (predicted `24` at planning; measured 2026-11-01; re-recorded
+2026-11-01: a review follow-up added the wide-selector preflight tests,
+`test_a_wide_typo_in_only_refuses_before_any_request` and
+`test_a_wide_selector_that_names_something_passes_with_one_meta_read`).
+Covered: every
 row status — `storable`, `exists`, `synced`, `no_match`, `malformed` — and
-every pre-burn refusal — `no_project`, `no_tty_confirmation`, an exact
-`--only` typo, `gone`, `not_a_vault_share`, `environment_mismatch`, no vault
+every pre-burn refusal — `no_project`, `no_tty_confirmation`, an exact or
+wide `--only` typo, `gone`, `not_a_vault_share`, `environment_mismatch`, no vault
 key — each asserting the mock's tape holds no `POST …/redeem`. Docs:
 `docs/cli/vault-share.md` rewritten, `docs/guides/configuration.md` links it,
 `CHANGELOG.md` and `.spec/STATUS.md` updated.
