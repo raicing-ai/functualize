@@ -443,6 +443,48 @@ class Materialize(StrEnum):
     """A 0600 dotenv file; nothing persisted in the vault."""
 
 
+def _require_wide_target(app: Any, selector: Selector) -> None:
+    """Refuse a wide selector that names nothing, before the link is spent.
+
+    A redeem POST is atomic and burns the share. Only exact `--only`
+    targets were resolved first, so a wide typo (`group=deployy`,
+    `job=pla`) redeemed everything and then selected nothing. This demands
+    that something the selector's own matching rules could select exists —
+    a job descriptor under a job-wide selector, or a job in the group
+    subtree or group options at its scope — which is what decides whether
+    ``select_for_share`` can produce rows.
+    """
+    if selector.job is not None:
+        for descriptor in app.get_jobs():
+            name = str(getattr(descriptor, "name", "") or "")
+            group = getattr(descriptor, "group", None)
+            leaf = (
+                name[len(group) + 1 :]
+                if group and name.startswith(f"{group}.")
+                else name
+            )
+            if leaf == selector.job and group == selector.group:
+                return
+        raise VaultPathError(
+            "unknown_job",
+            f"No job named {selector.job!r}. "
+            f"Run `func builtin info jobs` to see what is available.",
+            path=str(selector),
+        )
+    root = selector.group
+    assert root is not None
+    if any(_in_subtree(getattr(d, "group", None), root) for d in app.get_jobs()):
+        return
+    if app.get_group_options_spec(root) is not None:
+        return
+    raise VaultPathError(
+        "unknown_group",
+        f"No group options are declared for group {root!r}. "
+        f"Run `func builtin info jobs` to see what is available.",
+        path=str(selector),
+    )
+
+
 def check_before_redeem(
     app: Any,
     link: str,
@@ -465,8 +507,9 @@ def check_before_redeem(
     Args:
         interactive: A terminal is attached, so a prompt can be shown.
         confirmed_without_prompt: ``-y`` or ``--only`` was given.
-        only: Parsed ``--only`` selectors; exact ones are validated against
-            this project now, so a typo cannot cost the redemption.
+        only: Parsed ``--only`` selectors; every named target — exact or
+            wide — is validated against this project now, so a typo cannot
+            cost the redemption.
     """
     origin, share_id, _key = parse_link(link)
     store = materialize is Materialize.STORE
@@ -489,6 +532,8 @@ def check_before_redeem(
             resolve_vault_identity(
                 app, group=selector.group, job=selector.job, field=str(selector.field)
             )
+        else:
+            _require_wide_target(app, selector)
     meta = fetch_share_meta(origin, share_id, timeout=timeout)
     env_labels = [x for x in meta.labels if x.startswith(ENV_LABEL_PREFIX)]
     if len(env_labels) != 1:

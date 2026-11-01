@@ -356,6 +356,63 @@ class TestCheckBeforeRedeem:
             )
         assert len(mock_origin.requests) == before
 
+    @pytest.mark.parametrize(
+        ("only", "reason"),
+        [
+            ("group=does-not-exist", "unknown_group"),
+            ("job=does-not-exist", "unknown_job"),
+        ],
+    )
+    def test_a_wide_typo_in_only_refuses_before_any_request(
+        self,
+        mock_origin: MockVault,
+        sender: tuple[FunctualizeApp, Path],
+        receiver: tuple[FunctualizeApp, Path],
+        only: str,
+        reason: str,
+    ) -> None:
+        """A wide selector used to be accepted unvalidated: the link was
+        spent and the selection then came up empty. The refusal must come
+        before any request, exactly like an exact typo."""
+        link = _link(mock_origin, sender, "group=deploy")
+        before = len(mock_origin.requests)
+
+        with pytest.raises(VaultPathError) as exc:
+            _check(
+                receiver,
+                link,
+                interactive=False,
+                confirmed_without_prompt=True,
+                only=[parse_selector(only)],
+            )
+        assert exc.value.reason == reason
+        assert len(mock_origin.requests) == before
+        assert _redeem_posts(mock_origin) == 0
+
+    @pytest.mark.parametrize(
+        "only", ["group=deploy", "group=deploy.infra,job=plan", "job=myjob"]
+    )
+    def test_a_wide_selector_that_names_something_passes_with_one_meta_read(
+        self,
+        mock_origin: MockVault,
+        sender: tuple[FunctualizeApp, Path],
+        receiver: tuple[FunctualizeApp, Path],
+        only: str,
+    ) -> None:
+        link = _link(mock_origin, sender, "group=deploy")
+        before = len(mock_origin.requests)
+
+        _check(
+            receiver,
+            link,
+            interactive=False,
+            confirmed_without_prompt=True,
+            only=[parse_selector(only)],
+        )
+
+        assert len(mock_origin.requests) == before + 1
+        assert _redeem_posts(mock_origin) == 0
+
     def test_an_environment_mismatch_refuses_without_redeeming(
         self,
         mock_origin: MockVault,
