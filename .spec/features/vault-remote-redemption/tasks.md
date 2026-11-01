@@ -164,8 +164,10 @@ assertion over output and captured log records:
 ```bash
 rg -c 'def test_' tests/vault_remote/test_cli.py
 ```
-after: `29` — re-recorded 2026-11-01: the file was rewritten by T17 for the
-`--entry` / redeem-modes surface (recorded `21` on 2026-09-24); the
+after: `30` — re-recorded 2026-11-01: the file was rewritten by T17 for the
+`--entry` / redeem-modes surface (recorded `21` on 2026-09-24); a review
+follow-up added the metacharacter round-trip test
+(`test_a_value_with_metacharacters_round_trips_inertly`); the
 fragment-hygiene assertion below is kept unchanged.
 
 ```bash

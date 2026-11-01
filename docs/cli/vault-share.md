@@ -165,6 +165,10 @@ has been used.
   file, and store nothing in the vault. The file holds the values **in plain
   text**; keep it out of version control.
 
+Both forms write every value POSIX-quoted (`shlex.quote`), so a value
+holding spaces, quotes, `$(...)`, backticks, a newline or `;` round-trips
+inertly when the output is sourced.
+
 The names are the environment variables a run already reads for each entry:
 `JOB_FIELD` for a job config field (`DEPLOY_APP_API_KEY`) and `SCOPE__FIELD`
 for a group option (`DEPLOY__TOKEN`, `DEPLOY_INFRA__REGION_KEY`).
