@@ -79,17 +79,21 @@ after: `1`
 
 ### [x] T5 (A5) client↔mock journeys: round-trip, burn, race, hygiene
 
-19 test functions: preview-never-burns, spent→`gone`, expiry→`gone`,
+22 test functions: preview-never-burns, spent→`gone`, expiry→`gone`,
 8-way race on 3 redemptions → exactly 3 winners, wrong-key/tampered → one
 `open_failed` class, a bundle repr that never carries a value, malformed
+answers and malformed
 links, fragment-never-on-the-wire (tape
 assertion), UA obligation, mock conformance (labels mirror, id conflict):
 
 ```bash
 rg -c 'def test_' tests/vault_remote/test_client.py
 ```
-after: `19` — re-recorded 2026-11-01: a review follow-up added the
-bundle-repr sentinel test (`test_a_bundle_repr_never_carries_a_value`).
+after: `22` — re-recorded 2026-11-01: a review follow-up added the
+bundle-repr sentinel test (`test_a_bundle_repr_never_carries_a_value`) and
+the malformed-answer tests (`test_a_malformed_redeem_answer_fails_closed_after_the_burn`,
+`test_a_malformed_meta_answer_is_one_bad_response`,
+`test_a_body_that_is_not_a_json_object_is_one_bad_response`).
 
 ```bash
 rg -c 'exactly_n_winners' tests/vault_remote/test_client.py
