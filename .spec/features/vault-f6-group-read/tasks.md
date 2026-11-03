@@ -1,0 +1,38 @@
+# F6 group secret read — execution tasks
+
+Execute only after the member approves this Plan and its surviving smells. Each task is one implementation context; `[F]` lists are the source/reference hit set or a new seam derived from it. No task may weaken `contracts.md` C1–C3. Mark a task `[x]` only with its stated evidence. Record transitional behavior if a wave is committed before the public read is complete.
+
+## Wave 0 — vocabulary and adapter
+
+- [ ] **0.1 Typed ports and absence error.** [F] `src/functualize/_types/protocols.py`, `src/functualize/_config/vault.py`. Inputs: confirmed C1/C2, existing `VaultError` and `Secret`. Define `@runtime_checkable Protocol` `Vault.read(group: str, field: str) -> Secret[str]` and typed `VaultReaderFactory.open() -> Vault`; add `VaultEntryMissingError(VaultError)` with group/field only. No second environment or source argument. Check: `uv run mypy src/`, `uv run lint-imports`; public import is completed in wave 1. Evidence: typed definitions and error inheritance, no secret-bearing error content.
+- [ ] **0.2 Compose the local reader.** [F] `src/functualize/_app/vault_reader.py` (new seam from `build_vault_source`/`VaultSource.get` references), `tests/app/test_vault_reader.py` (new direct test). Inputs: 0.1, `_app/boot.build_vault_source`, live `app.resolution_chain()`, `_config/vault_source.py`. Implement the factory and per-invocation adapter described in `plan.md`; read only `VaultSource.get(field, group, scope="group")`, convert `None` to missing, wrap success before return, propagate stored read failures. Tests cover missing source/file, refresh, custom chain, group-only scope, active→shared order and unreadable stop. Check: `uv run pytest -q tests/app/test_vault_reader.py tests/config/test_vault_identity.py tests/config/test_vault_miss.py`; `uv run lint-imports`. Evidence: direct tests prove same candidate order and no lower-source substitution, including provider-origin entries.
+
+## Wave 1 — capability wire
+
+- [ ] **1.1 Register the injection type.** [F] `src/functualize/_engine/capabilities/vault.py` (new capability seam), `src/functualize/_engine/capabilities/registry.py`, `src/functualize/_primitives/capability_names.py`. Inputs: 0.1; ADR-014 registry and C1. `CapabilitySpec(name="Vault", type=Vault, factory=...)` uses the engine's typed reader factory; `rc_accessor=None`; add the exact string name to primitive set. No runtime peer import or new invocation input. Check: `uv run lint-imports`, `uv run pytest -q tests/engine/test_capability_registry.py tests/discovery/test_capability_parity.py`. Evidence: import-time name agreement and discovery parity remain green.
+- [ ] **1.2 Supply the factory through boot.** [F] `src/functualize/_app/boot.py`, `src/functualize/_engine/executor.py`, `tests/engine/test_engine_is_sealed.py`. Inputs: 0.2, 1.1; `build_engine` is the common static/standard construction site. Pass a typed factory from `_app`; engine stores it and exposes it only to the capability factory. A hostless engine's unsupported Vault request must fail clearly, never create an inert reader. Test both boot paths and sealed constructor behavior. Check: `uv run pytest -q tests/engine/test_engine_is_sealed.py tests/engine/test_capability_registry.py`; `uv run mypy src/`; `uv run lint-imports`. Evidence: both app boots hand the same reader factory path to the registry.
+- [ ] **1.3 Export the confirmed public names.** [F] `src/functualize/job/capabilities.py`, `src/functualize/job/__init__.py`, `src/functualize/app/vault.py`. Inputs: 0.1, 1.1. Reexport `Vault` from `functualize.job`; reexport `VaultEntryMissingError`, `VaultEntryUnreadableError`, `VaultDecryptionError` from `functualize.app.vault`. No `RunContext` accessor or free function. Check: `uv run python -c 'from functualize.job import Vault; from functualize.app.vault import VaultEntryMissingError, VaultEntryUnreadableError, VaultDecryptionError; from functualize.types import Secret; print(Vault.__name__, Secret.__name__)'`; `uv run lint-imports`. Evidence: public imports resolve exactly as C1/C2.
+
+## Wave 2 — executable contract and documentation
+
+- [ ] **2.1 Exercise the job path and failure distinction.** [F] `tests/integration/test_group_vault_read.py` (new real-job test), `tests/integration/test_local_vault_e2e.py`, `tests/integration/test_local_vault_no_plaintext.py`. Inputs: 1.1–1.3; existing end-to-end local vault and secrecy fixtures. Test public import and injection through static and standard app paths; `Secret[str]` return; active exact/ancestor then shared exact/ancestor; job and other-environment exclusion; no vault and no candidate raise missing; stored unreadable/decryption fail with no fallthrough; direct/provider origins; no provider call with network disabled; marker absent from stdout/stderr/logs/errors/diagnostics. Test ordinary config miss still falls through. Check: `uv run pytest -q tests/integration/test_group_vault_read.py tests/integration/test_local_vault_e2e.py tests/integration/test_local_vault_no_plaintext.py tests/config/test_vault_miss.py`. Evidence: real job fails if boot wiring is removed; security and regression assertions pass.
+- [ ] **2.2 Document the public call and durable decision.** [F] `docs/guides/configuration.md`, `contributor/adr/044-group-vault-read.md` (next ADR number from `contributor/adr/043-...md`). Inputs: 2.1 results, C1–C3, ADR-023 and SD/12779576 v7. Give a job example with `Vault.read`, missing versus unreadable handling, local-only read and explicit sync, and the precedence rule. ADR records typed port, composition adapter, no parallel candidate walker, and the C1-only public surface. Check: `rg -n 'Vault.read|VaultEntryMissingError|VaultEntryUnreadableError|vault sync' docs/guides/configuration.md contributor/adr/044-group-vault-read.md`; inspect example against public imports. Evidence: docs and ADR agree with tested behavior and have no plaintext print example.
+- [ ] **2.3 Verify and prepare the implementation handoff.** [F] `.spec/features/vault-f6-group-read/tasks.md` (gate evidence only; no production edit). Inputs: completed 0.1–2.2. Run `uv run ruff check src/ tests/`, `uv run ruff format --check src/ tests/`, `uv run mypy src/`, `uv run lint-imports`, `uv run pytest` and repository contract-diff gate. After a feature commit, remove the boot-to-factory call temporarily, run the real-job test to observe failure, then restore only that sabotage and verify again. Check each contract row and shape invariant; record actual command outputs and residual smells. Evidence: all gates, reachability sabotage, and contract review in the implementation handoff; no merge or release from this task.
+
+## Dependency and review notes
+
+Wave 0 establishes the reusable core. Wave 1 joins its adapter to job injection and exports C1/C2; tasks 1.1 and 1.2 must complete in sequence, while 1.3 may follow 1.1. Wave 2 tests and documents the complete path. The executor's existing class size is not permission to add vault resolution there. If C1 cannot be wired across these ports under `lint-imports`, return to Specify for a reconfirmed contract rather than design a second public call.
+
+The member must review the task waves and `plan.md`'s **Shotgun Surgery** (guarded capability declarations) and **Divergent Change** (existing engine and app vault surfaces) entries before Execute. Both are disclosed as accepted existing conditions; neither is a forbidden pattern or a new policy source.
+
+## Task Dependency Graph
+
+```json
+{
+  "waves": [
+    {"id": 0, "tasks": ["0.1", "0.2"]},
+    {"id": 1, "tasks": ["1.1", "1.2", "1.3"]},
+    {"id": 2, "tasks": ["2.1", "2.2", "2.3"]}
+  ]
+}
+```
