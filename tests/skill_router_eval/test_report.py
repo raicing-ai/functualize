@@ -9,6 +9,7 @@ spawned and nothing is measured: the rows are built to land on a branch.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -488,6 +489,61 @@ def test_provenance_carries_every_digest(
         assert digest in benchmark
     assert block["selections_sha256"] in benchmark
     assert block["downstream_sha256"] in benchmark
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "catalog_sha256",
+        "comparator",
+        "identity_sha256",
+        "repo_commit",
+        "rule_digest",
+        "instrument_sha256",
+    ),
+)
+def test_missing_selection_identity_exits_two(
+    promote: dict[str, Any], tmp_path: Path, field: str
+) -> None:
+    """Every selection identity field must be present before a report is written."""
+    selections = promote["selections"]
+    payload = json.loads(selections.read_text(encoding="utf-8"))
+    del payload[field]
+    selections.write_text(json.dumps(payload), encoding="utf-8")
+    out = tmp_path / "report"
+    assert _run(promote, out) == 2
+    assert not (out / "verdict.json").exists()
+
+
+@pytest.mark.parametrize("value", (None, ""))
+def test_blank_selection_rule_digest_exits_two(
+    promote: dict[str, Any], tmp_path: Path, value: str | None
+) -> None:
+    """An identity key with no value cannot establish the selection rule."""
+    selections = promote["selections"]
+    payload = json.loads(selections.read_text(encoding="utf-8"))
+    payload["rule_digest"] = value
+    selections.write_text(json.dumps(payload), encoding="utf-8")
+    out = tmp_path / "report"
+    assert _run(promote, out) == 2
+    assert not (out / "verdict.json").exists()
+
+
+def test_reordered_run_directories_keep_ledger_provenance(
+    promote: dict[str, Any], tmp_path: Path
+) -> None:
+    """Each ledger digest belongs to the comparator in its own header."""
+    expected = {
+        json.loads((directory / "run.json").read_text(encoding="utf-8"))[
+            "comparator"
+        ]: hashlib.sha256((directory / "cells.jsonl").read_bytes()).hexdigest()
+        for directory in promote["run_dirs"]
+    }
+    promote["run_dirs"].reverse()
+    out = tmp_path / "report"
+    assert _run(promote, out) == 0
+    block = json.loads((out / "metrics.json").read_text(encoding="utf-8"))["provenance"]
+    assert block["ledgers"] == expected
 
 
 def test_a_doctored_ledger_exits_four(promote: dict[str, Any], tmp_path: Path) -> None:

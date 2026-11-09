@@ -733,9 +733,9 @@ rg -l "^(from|import) functualize\._" tests/skill_router_eval | wc -l
 now: `0` · after: `0` · invariant
 
 ```bash
-rg -l "^import subprocess|^from subprocess" tests/skill_router_eval tests/evals/test_skill_router_arms.py 2>/dev/null | wc -l
+rg -l '^[[:space:]]*(import subprocess|from subprocess import)' tests/skill_router_eval tests/evals/test_skill_router_arms.py 2>/dev/null | wc -l
 ```
-now: `0` · after: `0` · invariant
+now: `1` (`replay.py` imports inside `_repo_commit`) · after: `0` · invariant
 
 Closes when all of the above hold. Commit nothing unless a check needed a
 fix; such a fix lands before T16. **A fix to a file in `INSTRUMENT_FILES`

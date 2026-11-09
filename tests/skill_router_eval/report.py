@@ -68,6 +68,14 @@ _AGREED = (
     "instrument_sha256",
     "repo_commit",
 )
+_SELECTION_IDENTITY = (
+    "catalog_sha256",
+    "comparator",
+    "identity_sha256",
+    "repo_commit",
+    "rule_digest",
+    "instrument_sha256",
+)
 
 
 class ReportError(Exception):
@@ -129,14 +137,25 @@ def _agree(
     headers = {name: header for name, (header, _rows) in grouped.items()}
     first_name = COMPARATORS[0]
     reference = headers[first_name]
+    for field in _SELECTION_IDENTITY:
+        if not isinstance(selections.get(field), str) or not selections[field]:
+            raise ReportError(f"the selections hold no {field}")
+    for name, header in headers.items():
+        if (
+            not isinstance(header.get("identity_sha256"), str)
+            or not header["identity_sha256"]
+        ):
+            raise ReportError(f"{name} holds no identity_sha256")
     for field in _AGREED:
         for name, header in headers.items():
+            if not isinstance(header.get(field), str) or not header[field]:
+                raise ReportError(f"{name} holds no {field}")
             if header.get(field) != reference.get(field):
                 raise ReportError(
                     f"{name} holds {field} {header.get(field)!r}, "
                     f"{first_name} holds {reference.get(field)!r}"
                 )
-        if field in selections and selections.get(field) != reference.get(field):
+        if field in _SELECTION_IDENTITY and selections[field] != reference[field]:
             raise ReportError(
                 f"the selections hold {field} {selections.get(field)!r}, "
                 f"the runs hold {reference.get(field)!r}"
@@ -762,8 +781,8 @@ def build(
     block = provenance(
         grouped,
         run_dirs={
-            name: Path(directory)
-            for name, directory in zip(COMPARATORS, run_dirs, strict=True)
+            header["comparator"]: Path(directory)
+            for (header, _rows), directory in zip(runs, run_dirs, strict=True)
         },
         reference=reference,
         selections_sha256=_sha256(selections),
