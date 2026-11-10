@@ -753,6 +753,21 @@ themselves are held by the maintainer, outside the repository (B-25); the
 computed verdict is a recommendation. Still open: the verdict's disposition is
 the maintainer's, and Phases 4–5 remain.
 
+### Skill router evaluation — delivered
+
+Phase 4 of the decision-layer experiment. The instrument is
+`tests/skill_router_eval/` with three downstream arms in `evals/`: one frozen
+corpus replayed through one five-option selection gate against four comparators,
+five agent tasks run under three skill-loading arms, and a computed verdict. The
+method and the commands are `contributor/reference/skill-router-evaluation.md`.
+Corpus `v1` (`tests/skill_router_eval/corpus/v1/`, 40 scenarios) is frozen at
+digest `e04e65ed0c6111806ba58d5b6a90f9496b89164badc87daf994c8c3fd0e27a58` over
+catalog `47b1ea9b1535d2a0ccb50cb7d93ece6dcf84be1f31e19aaae7b2ce4a224be3b9`.
+The results, ledgers and verdict are the `SD` page *Skill Router — Corpus v1
+Results*; the computed verdict is a recommendation. Still open: its disposition
+is the maintainer's, Phase 5, and two-skill requests (`TWO_SKILL.md`), which the
+single-skill label set does not score.
+
 ### Gate-name resolution — delivered
 
 Gate references resolve once per public entry via `resolve_name` against the

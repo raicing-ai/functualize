@@ -587,7 +587,7 @@ remote before any measurement. Commit: `test(skill-router): freeze the version 1
 
 ## Wave 6
 
-### [ ] T11 — the live routing measurement and the selections (no commit)
+### [x] T11 — the live routing measurement and the selections (no commit)
 
 *Files:* none in the repository. The outputs are four run directories and
 `selections.json` under `~/.local/state/functualize-skill-router-eval/`.
@@ -617,7 +617,7 @@ Closes when each `cells.jsonl` has 200 lines and `selections.json` has 5 cases
 
 ## Wave 7
 
-### [ ] T12 — the live downstream runs (no commit)
+### [x] T12 — the live downstream runs (no commit)
 
 *Files:* none in the repository. The output is
 `~/.local/state/functualize-skill-router-eval/v1-downstream.json`.
@@ -642,7 +642,7 @@ half). No commit.
 
 ## Wave 8
 
-### [ ] T13 — the report, published and delivered (no commit)
+### [x] T13 — the report, published and delivered (no commit)
 
 *Files:* none in the repository.
 
@@ -667,7 +667,7 @@ the delivery comment exists. No commit.
 
 ## Wave 9
 
-### [ ] T14 — the durable half: the method, not the numbers
+### [x] T14 — the durable half: the method, not the numbers
 
 *Files:* `contributor/reference/skill-router-evaluation.md` (new),
 `.spec/STATUS.md` (modify)
