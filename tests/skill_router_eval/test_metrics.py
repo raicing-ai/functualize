@@ -394,7 +394,12 @@ def test_context_summary_ratios_to_native() -> None:
 
 
 def promptfoo_run(
-    arm: str, success: bool, tokens: int | None, cost: float
+    arm: str,
+    success: bool,
+    tokens: int | None,
+    cost: float,
+    *,
+    skills_loaded: Any = None,
 ) -> dict[str, Any]:
     return {
         "provider": {"id": "file://evals/providers/claude_agent.py"},
@@ -407,6 +412,7 @@ def promptfoo_run(
                 "first_turn_input_tokens": tokens,
                 "num_turns": 4,
                 "duration_s": 30.0,
+                "skills_loaded": skills_loaded,
             },
             "cost": cost,
         },
@@ -439,6 +445,32 @@ def test_downstream_summary_reports_each_arm_and_the_gap() -> None:
     assert router["duration_s_mean"] == 30.0
     assert summary["router_minus_native"] == pytest.approx(2 / 3 - 1)
     assert summary["models"] == ["claude-sonnet-5"]
+
+
+def test_downstream_summary_counts_the_skills_each_run_loaded() -> None:
+    """The provider records skill names; an empty list is a zero, not a gap."""
+    runs = [
+        promptfoo_run("router", True, 10, 0.01, skills_loaded=[]),
+        promptfoo_run("router", True, 10, 0.01, skills_loaded=["functualize"]),
+        promptfoo_run("router", True, 10, 0.01, skills_loaded=["a", "b"]),
+        promptfoo_run("router", True, 10, 0.01, skills_loaded=None),
+        promptfoo_run("native", True, 10, 0.01, skills_loaded=[]),
+        promptfoo_run("native", True, 10, 0.01, skills_loaded=[]),
+    ]
+    arms = downstream_summary(runs)["arms"]
+    assert arms["router"]["skills_loaded_mean"] == pytest.approx(1.0)
+    assert arms["native"]["skills_loaded_mean"] == 0.0
+
+
+@pytest.mark.parametrize("value", ["functualize", {"functualize": 1}, True])
+def test_downstream_summary_leaves_an_unreadable_skill_count_unknown(
+    value: Any,
+) -> None:
+    runs = [
+        promptfoo_run("router", True, 10, 0.01, skills_loaded=value),
+        promptfoo_run("router", True, 10, 0.01, skills_loaded=3),
+    ]
+    assert downstream_summary(runs)["arms"]["router"]["skills_loaded_mean"] == 3.0
 
 
 def test_downstream_summary_reads_a_bare_run_list() -> None:

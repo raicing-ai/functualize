@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -211,8 +212,14 @@ def _downstream(
     load_everything_successes: int = 12,
     runs: int = 15,
     router_model: str = MODEL,
+    skills_loaded: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A promptfoo results file with three arms of ``runs`` cases each."""
+    """A promptfoo results file with three arms of ``runs`` cases each.
+
+    ``skills_loaded`` is the provider's real shape — the list of skill names a
+    run loaded — per arm, one skill unless an arm is given its own value.
+    """
+    loaded = dict(skills_loaded or {})
     entries = []
     for arm, successes, model in (
         ("load-everything", load_everything_successes, MODEL),
@@ -226,7 +233,7 @@ def _downstream(
                 "first_turn_input_tokens": 400 + index,
                 "num_turns": 5,
                 "duration_s": 12.0,
-                "skills_loaded": 1,
+                "skills_loaded": loaded.get(arm, ["functualize"]),
             }
             entries.append(
                 {
@@ -667,3 +674,39 @@ def test_the_evidence_is_recomputed_from_the_files(
     assert metrics["conformance"] == []
     assert metrics["downstream"]["arms"]["router"]["successes"] == 12
     assert metrics["comparators"]["hermetic"]["context"]["router_to_native"] == 0.5
+
+
+def _downstream_column(benchmark: str, arm: str, column: str) -> str:
+    """One cell of the benchmark's downstream table."""
+    table = benchmark.split("## Downstream", 1)[1].split("\n## ", 1)[0]
+    lines = [line for line in table.splitlines() if line.startswith("|")]
+    headers = [cell.strip() for cell in lines[0].strip("|").split("|")]
+    for line in lines[2:]:
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if cells[0] == arm:
+            return cells[headers.index(column)]
+    raise AssertionError(f"no {arm} row in the downstream table")
+
+
+def test_skills_loaded_renders_a_zero_apart_from_an_unknown(
+    promote: dict[str, Any], tmp_path: Path
+) -> None:
+    """A run that loaded nothing is a measured 0, not the dash of no data."""
+    promote["downstream"].write_text(
+        json.dumps(
+            _downstream(
+                skills_loaded={
+                    "load-everything": ["a", "b"],
+                    "native": None,
+                    "router": [],
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+    out = tmp_path / "report"
+    assert _run(promote, out) == 0
+    benchmark = (out / "benchmark.md").read_text(encoding="utf-8")
+    assert _downstream_column(benchmark, "router", "skills loaded") == "0.0000"
+    assert _downstream_column(benchmark, "native", "skills loaded") == report._DASH
+    assert _downstream_column(benchmark, "load-everything", "skills loaded") == "2.0000"

@@ -603,9 +603,24 @@ def _run_record(entry: Mapping[str, Any]) -> dict[str, Any]:
         "cost_usd": cost if cost is not None else output.get("cost_usd"),
         "num_turns": output.get("num_turns"),
         "duration_s": output.get("duration_s"),
-        "skills_loaded": output.get("skills_loaded"),
+        "skills_loaded": _skill_count(output.get("skills_loaded")),
         "model": output.get("model"),
     }
+
+
+def _skill_count(value: Any) -> int | float | None:
+    """How many skills one run loaded, or ``None`` when that is unknown.
+
+    The agent provider records the names it loaded as a list, so the count is
+    its length, and an empty list is a run that loaded nothing — a zero that
+    belongs in the mean. A bare number is taken as the count already made.
+    Anything else is unknown rather than guessed at.
+    """
+    if isinstance(value, list | tuple):
+        return len(value)
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return value
+    return None
 
 
 def _vars(entry: Mapping[str, Any]) -> Mapping[str, Any]:
