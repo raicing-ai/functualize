@@ -1,9 +1,9 @@
 """Remote vault sharing — the vendored FuncCloud Vault client (EnvelopeV1).
 
-``func vault share`` and ``func vault redeem`` are this module's two users,
-but the behavior lives here rather than in the CLI, per the ``app/vault.py``
-pattern: an embedding application can hand a working environment to another
-machine with the same calls and no CLI present.
+``func builtin vault share`` and ``func builtin vault redeem`` are this
+module's two users, but the behavior lives here rather than in the CLI, per the
+``app/vault.py`` pattern: an embedding application can hand a working
+environment to another machine with the same calls and no CLI present.
 
 Provenance, and the one rule that follows from it
 -------------------------------------------------

@@ -22,7 +22,11 @@ environment, a vault key — and refuses with the link still usable. Entries the
 receiver already has, or that `vault sync` wrote, are replaced only when chosen.
 `--print-only` and `--dotenv PATH` write the entries under the environment
 variable names a run reads, without storing them. See
-`docs/cli/vault-share.md`.
+`docs/cli/vault-share.md`. A value `--dotenv` cannot write intact — one
+containing `${`, which the dotenv reader substitutes at load time — is refused:
+that entry is left out of the file, the rest are written, and the run exits 3
+with `dotenv_interpolated` after the one-time link is spent, so the remedy is a
+fresh share.
 
 ### Fixed — `FUNCTUALIZE_ENV=base` addresses shared vault entries
 
