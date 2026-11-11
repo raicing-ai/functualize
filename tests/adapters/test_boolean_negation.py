@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from typing import Annotated
 
+import click
 import pytest
+from click.testing import CliRunner
 from pydantic import BaseModel, Field
 
 from functualize.app.adapters.click_params import build_click_params
@@ -133,3 +135,49 @@ class TestTheCollisionRuleIsDeterministic:
         assert "--no-cache" in params["no_cache"].opts, (
             "the literal field must own --no-cache"
         )
+
+
+def optional_boolean(loud: bool | None = None) -> None:
+    """A plain optional boolean has three values."""
+
+
+def colliding_boolean(loud: bool | None = None, no_loud: bool = False) -> None:
+    """The sibling owns the negative spelling."""
+
+
+@pytest.mark.parametrize(
+    "function, flags, expected",
+    [
+        (optional_boolean, (), "None"),
+        (optional_boolean, ("--loud",), "True"),
+        (optional_boolean, ("--no-loud",), "False"),
+        (colliding_boolean, (), "None"),
+        (colliding_boolean, ("--loud",), "True"),
+        (colliding_boolean, ("--no-loud",), "None"),
+    ],
+)
+def test_optional_boolean_click_values(function, flags, expected) -> None:
+    params = build_click_params(function, None)[0]
+    command = click.Command(
+        "probe",
+        params=params,
+        callback=lambda **kwargs: click.echo(repr(kwargs["loud"])),
+    )
+    result = CliRunner().invoke(command, list(flags))
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == expected
+
+
+@pytest.mark.parametrize(
+    "function, negative",
+    [(optional_boolean, ["--no-loud"]), (colliding_boolean, [])],
+)
+def test_optional_boolean_option_shape(function, negative) -> None:
+    params = _params(function, None)
+    loud = params["loud"]
+    assert loud.opts == ["--loud"]
+    assert loud.secondary_opts == negative
+    assert loud.is_flag is True
+    assert loud.default is None
+    if function is colliding_boolean:
+        assert "--no-loud" in params["no_loud"].opts

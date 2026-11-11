@@ -880,11 +880,15 @@ def build_click_params(
         if is_flag:
             # A plain bool param renders as a --flag/--no-flag pair, unless a
             # sibling is literally named `no_<x>` and owns that spelling.
+            from functualize.app.utils import unwrap_optional_type
+
+            optional_bool = unwrap_optional_type(base_type) == (bool, True)
             negative = negative_flag_for(param.name, _signature_names)
             options.append(
                 click.Option(
                     [f"--{hyphen}/{negative}" if negative else f"--{hyphen}"],
                     default=param.default if has_default else False,
+                    is_flag=True if optional_bool else None,
                 )
             )
         elif not has_default and not multiple:

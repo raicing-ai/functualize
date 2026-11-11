@@ -46,7 +46,7 @@ checks. Each task requires a commit or reviewable diff and the named evidence.
 
 ## Wave 2: Click rendering
 
-### [ ] 3.1 Render optional boolean tri-state and collision
+### [x] 3.1 Render optional boolean tri-state and collision
 
 - **Input:** task 2.1; existing `negative_flag_for` rule at
   `_types/flag_grammar.py:195`.
