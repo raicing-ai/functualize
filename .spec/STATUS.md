@@ -3186,9 +3186,16 @@ Items identified during development that are worth doing but not yet designed:
     **Verified not to be a weakening**, at both iterations. With the real defect
     reintroduced — the sync job called inline instead of through
     `run_worker(..., thread=True)` — the old and both new versions fail. The
-    final one fails on the responsiveness assertion: the job body runs, so the
-    start event is set, but the polling window is then empty and the scaled
-    floor is not met. 5/5 clean runs locally.
+    final one, at the current head, fails at the pre-check
+    (`tests/_cli/test_job_execution_thread_worker.py:136`), not at the
+    responsiveness assertion: the job body runs inline, so the start event is
+    set and the job is done before the window can open — "the pre-migration
+    block signature" — and the verdict names the missed window ("the
+    measurement missed the job entirely"). The responsiveness assertion is
+    exercised by a different control: a mid-window freeze — the window loop's
+    tick sleep made synchronous across the measured window — which fails
+    there ("the sync call is still blocking the event loop"). 5/5 clean runs
+    locally.
 
     An earlier sabotage attempt (freezing the loop at dispatch while the thread
     also ran) passed against **both** versions — worth recording, because it
@@ -3229,6 +3236,31 @@ Items identified during development that are worth doing but not yet designed:
     worker is observably running before it starts counting, so the measurement
     cannot begin after the work has finished. **Done, plus the rate scaling the
     second failure mode needed — see the head of this entry.**
+
+    **Third occurrence (2026-11-01) — the wait above outlasted the job.** The
+    `job_started` wait was the right signal but used `pilot.pause()` as its
+    transport, and `pause(delay=None)` is `await wait_for_idle(0)`
+    (`textual/pilot.py`), which under load runs to its one-second cap
+    (`textual/_wait.py`) — 2.5x the entire 0.4s job. The test resumed after
+    the job had finished: `got 0 polls ... elapsed 0.000s` on `01b3527f`
+    (passed on re-run) and `64ac36ad` (3.13 leg `got 1 polls`; 3.12 re-run
+    `got 0 polls`) — the window opened on the
+    job's tail or not at all, and the assertion reported a blocked loop that
+    never happened. Closed by rebuilding the window around the job: it opens
+    on `job_started` polled with plain `asyncio.sleep` ticks (no idle
+    heuristic on the critical path), closes on the job worker's liveness
+    (`_job_worker_running`, not the shared `tui_app.workers` set, whose
+    emptiness cannot distinguish "never started" from "already finished"),
+    and a window that missed the job — worker already finished at open, or
+    spanning less than half the job's own runtime — fails with its own
+    wording per path ("the measurement missed the job entirely" when the
+    worker was already finished at open; "a missed window, not a blocked
+    event loop" when the window spanned less than half the job), never the
+    responsiveness verdict. `BLOCK_SECONDS`, `TICK_INTERVAL` and the
+    `tests/_responsiveness.py` calibration are untouched. Run evidence (20
+    consecutive passes under load; negative control with a synchronous sleep
+    on the loop still failing the responsiveness assertion) is with the pull
+    request.
 
 34. **The pre-filter stack parses each candidate file three to four times.**
     Measured while deciding ADR-017; recorded because the cost is real even
