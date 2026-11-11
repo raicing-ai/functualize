@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — optional job parameters receive CLI flags
+
+Parameters declared as `X | None` or `Optional[X]` now accept the same CLI
+input as `X`, including distinct absent, positive, and negative states for
+optional booleans.
+
 ### Fixed — the message-hygiene identity arm reads prose, not code
 
 **Contributor-facing; no runtime behaviour changes.** The identity arm
