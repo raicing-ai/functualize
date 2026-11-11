@@ -75,6 +75,8 @@ EXPECTED_EXPORTS: dict[str, set[str]] = {
         "JobConfigView",
         "TTY",
         "Live",
+        # The explicit group secret read (F6): `vault.read(group, field)`.
+        "Vault",
         "TerminalUnavailable",
         "Shell",
         "ShellError",

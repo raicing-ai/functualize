@@ -49,7 +49,9 @@ from typing import TYPE_CHECKING, Any
 # be exactly one set of them, or a CLI `except` clause would silently stop
 # catching what the store actually raises.
 from functualize._config.vault import (
+    VaultDecryptionError,
     VaultEntryExistsError,
+    VaultEntryMissingError,
     VaultEntryUnreadableError,
     VaultError,
     VaultFormatError,
@@ -71,7 +73,9 @@ __all__ = [
     "VaultInitReport",
     "VaultInspectionReport",
     "VaultMutationReport",
+    "VaultDecryptionError",
     "VaultEntryExistsError",
+    "VaultEntryMissingError",
     "VaultEntryUnreadableError",
     "VaultError",
     "VaultFormatError",
