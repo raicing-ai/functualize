@@ -651,8 +651,10 @@ both CLI surfaces, one test per acceptance criterion) and
 wrapper, but is not added to the run's output-redaction set the way a secret
 config field is, so text a job builds from `get_secret_value()` is not
 scrubbed from `Stdout`/`Shell` output. A user type named `Vault` used as a job
-parameter annotation is now read as the capability. No `examples/` caller yet
-for the new public names.
+parameter annotation is now read as the capability. The `examples/` caller these
+names owe lives in `examples/standalone/secrets_lab/jobs/publish.py`: it reads a
+run-time-chosen target's group credential and hands the `Secret` to the function
+that uses it, and `tests/test_group_vault_read.py` pins both failure kinds.
 
 ### Rise / RiseKit foundation — revision 7 specified, Execute gated on a released 0.5.0
 
