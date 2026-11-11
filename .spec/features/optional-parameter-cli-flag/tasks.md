@@ -67,7 +67,7 @@ checks. Each task requires a commit or reviewable diff and the named evidence.
 
 ## Wave 3: public behavior
 
-### [ ] 3.2 Prove the public command contract
+### [x] 3.2 Prove the public command contract
 
 - **Input:** tasks 2.1 and 3.1; `spec.md` E1-E7 and `contracts.md` command
   table.
