@@ -242,24 +242,31 @@ The target is `--target`, the credential's own value is never rendered, and
 addressing a target nobody provisioned costs one log line rather than a failed
 run.
 
-Two failures of that read are not the same, and the job treats them differently:
+Three failures of that read are not the same, and the job treats them differently:
 
 | what the vault holds | what happens |
 | --- | --- |
 | nothing, at the address or above it | `VaultEntryMissingError` — caught, the target is skipped, the run succeeds |
-| an entry the available key cannot open | `VaultEntryUnreadableError` — deliberately not caught: a credential that exists and will not decrypt is a broken key, and skipping the target would hide it |
+| an entry the available key does not open | `VaultEntryUnreadableError` — deliberately not caught: a credential that exists and will not decrypt is a broken key, and skipping the target would hide it |
+| an entry whose stored bytes do not authenticate | `VaultDecryptionError` — also not caught: the store is damaged or foreign, not keyed wrongly, and no alternate key repairs it |
 
-The group is declared in the same module as `CloudflareD1Options`, because the
-vault only accepts a field its group declares `Secret[str]` — without that
-class, the `vault put --group cloudflare.d1` above is refused as an unknown
-group. A declaration is discovered from the jobs that inject its options:
-`group_status` is that job, and it reaches the same entry the config way, which
-`func group-status` reports. `publish` injects none, so nothing resolves its
-credential before the body runs and the read is the only way in.
+`CloudflareD1Options` is what makes any of this storable: the vault only accepts
+a field its group declares `Secret[str]`, so without that class the `vault put
+--group cloudflare.d1` above is refused as an unknown group. Where the class may
+live depends on the provider that scans the tree. A cached provider discovers a
+declaration that sits alone in a job-free `jobs/deploy/_group.py`; the eager
+direct sources this lab boots — `JobSources(..., lazy=False)` in
+`tests/test_group_vault_read.py` — discover a group only in a module that also
+holds a job injecting its options. `group_status` is that job here: it reaches
+the same entry the config way, which `func group-status` reports. `publish`
+injects nothing, because a job that declares the group's options has them
+resolved and injected before its body runs — which is exactly what an explicit
+read must not depend on.
 
 `tests/test_group_vault_read.py` drives all of it through a plain
-`FunctualizeApp` — including the wrong-key run — and never asserts a plaintext.
-The stored identity, the candidate order and the two error classes are in
+`FunctualizeApp` — including the wrong-key and damaged-store runs — and never
+asserts a plaintext. The stored identity, the candidate order and the three
+error classes are in
 [configuration.md](../../../docs/guides/configuration.md#reading-a-groups-secret-from-a-job).
 
 ## Tests

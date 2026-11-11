@@ -6,10 +6,12 @@ the injected ``Vault`` for that target's entry by address. This file drives that
 through the same plain ``FunctualizeApp`` the rest of the lab uses, with no
 ``func`` process anywhere.
 
-Two outcomes of the read differ in kind and both are pinned here. An address
+Three outcomes of the read differ in kind, and each is pinned here. An address
 with nothing stored is recoverable — the job reports the skip and the run
-succeeds. An entry that is stored and cannot be opened stops the run, because a
-credential that exists but will not decrypt is a broken key, not an absent one.
+succeeds. An entry that is stored and whose key does not open the store stops
+the run, because a credential that exists but will not decrypt is a broken key,
+not an absent one. And a store whose stored bytes no longer authenticate stops
+it too, since damage to the file is not something a key can be corrected into.
 
 No assertion names the stored value: the evidence is its length and the fact
 that the marker appears in neither what the run returns nor what it raises.
@@ -17,6 +19,7 @@ that the marker appears in neither what the run returns nor what it raises.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -24,6 +27,7 @@ import pytest
 from functualize.app import FunctualizeApp, JobSources
 from functualize.app.core import request_for
 from functualize.app.vault import (
+    VaultDecryptionError,
     VaultEntryUnreadableError,
     VaultIdentity,
     vault_init,
@@ -76,6 +80,13 @@ def _provision(app: FunctualizeApp) -> None:
     vault_init(key_source="env")
     vault_put(app, VaultIdentity("group", _GROUP, "api_token"), _MARKER)
     app.refresh()
+
+
+def _store(project: Path) -> Path:
+    """The file the app just wrote, found where the platform keeps it."""
+    stores = sorted((project.parent / "data").rglob("vault.db"))
+    assert len(stores) == 1, stores
+    return stores[0]
 
 
 def _succeeded(result: JobResult) -> JobResult:
@@ -141,3 +152,39 @@ def test_a_stored_entry_that_cannot_be_opened_stops_the_run(
     assert isinstance(result.exception, VaultEntryUnreadableError)
     assert _MARKER not in str(result.exception)
     assert _MARKER not in str(result)
+
+
+def test_a_store_whose_bytes_do_not_authenticate_stops_the_run(
+    project: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """A damaged file, not a wrong key: nothing is skipped, and nothing leaks.
+
+    A copy taken mid-write, or a restore that lost bytes, leaves the entry
+    present while its ciphertext no longer authenticates. The key is the one
+    that wrote it, so the wrong-key refusal above never runs and the decrypt
+    fails on the value itself — a state no alternate key or retry resolves.
+    Staging it means damaging the file, deliberately: no public call corrupts a
+    store on purpose.
+    """
+    app = _app(project)
+    _provision(app)
+
+    with sqlite3.connect(_store(project)) as conn:
+        rows = conn.execute("SELECT key, length(ciphertext) FROM secrets").fetchall()
+        assert len(rows) == 1, rows
+        key, size = rows[0]
+        conn.execute(
+            "UPDATE secrets SET ciphertext = ? WHERE key = ?",
+            (b"\x00" * size, key),
+        )
+
+    damaged = _app(project)
+    result = damaged.execute(request_for("publish"))
+
+    assert result.status is not RunStatus.SUCCESS
+    assert isinstance(result.exception, VaultDecryptionError)
+    assert _MARKER not in str(result.exception)
+    assert _MARKER not in str(result)
+    captured = capfd.readouterr()
+    assert _MARKER not in captured.out
+    assert _MARKER not in captured.err

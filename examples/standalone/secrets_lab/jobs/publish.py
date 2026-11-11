@@ -12,23 +12,32 @@ Three things make the read work, and none of them is a declaration on `publish`:
 **The group declaration.** ``CloudflareD1Options`` is what makes an entry at
 ``cloudflare.d1`` storable at all — the vault only accepts a field the group
 declares ``Secret[str]``, so `func builtin vault put --group cloudflare.d1
---field api_token` is refused without it, and a group is discovered from the
-jobs that inject its options. ``group_status`` is that job; `publish` injects
-neither, because a job bound to a group has that group's fields resolved before
-its body runs, which is the one thing an explicit read must not depend on.
+--field api_token` is refused without it. Where that class may live depends on
+the provider that scans the tree. A cached provider keeps a declaration that
+sits alone in a job-free ``jobs/deploy/_group.py``: it caches group options
+before its no-jobs early return (``_discovery/sync.py``). The eager direct
+sources this lab boots — ``JobSources(..., lazy=False)`` — do not, and find a
+group only in a module that also holds a job injecting its options.
+``group_status`` is that job here. `publish` injects nothing, because a job
+that declares the group's options has them resolved and injected before its
+body runs (``_engine/executor.py``), which is the one thing an explicit read
+must not depend on.
 
 **The candidate walk.** ``vault.read`` asks for the address it is given, then
 that address's nearest ancestors. One credential at ``cloudflare.d1`` therefore
 answers for every target beneath it, which is why a job that does not know its
 target in advance can still serve all of them.
 
-**The two failures are not the same.** An address with nothing stored — exact
+**The three failures are not the same.** An address with nothing stored — exact
 group or any ancestor — raises ``VaultEntryMissingError``, which a job can
 reasonably survive: the target is skipped. An entry that is *stored* and cannot
 be opened with the available key raises ``VaultEntryUnreadableError``, which
 this job deliberately does not catch: silently skipping a target whose
 credential exists but will not decrypt would hide a broken key behind an empty
-deploy.
+deploy. And an entry whose stored bytes do not authenticate at all raises
+``VaultDecryptionError`` — a damaged or foreign store, not a key supplied
+wrongly — which nothing here catches either, because no key is going to repair
+it and the run must not read as a clean deploy.
 """
 
 from pydantic import BaseModel, Field
