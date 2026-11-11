@@ -711,6 +711,72 @@ environment variable no longer overrides it. That is the preset's whole
 proposition — the value comes from the store you named — but it is a change
 from `classic()` worth knowing before you switch.
 
+### Reading a group's secret from a job
+
+Config fields reach a job because the job declared them. Sometimes the job only
+learns *which* target it is working on while it runs — one of several
+environments, one subject of many — and needs that target's credential. Ask the
+injected `Vault` capability for it:
+
+```python
+from functualize.app.vault import VaultEntryMissingError
+from functualize.job import Log, Vault
+from functualize.types import Secret
+
+
+def deploy_target(vault: Vault, log: Log) -> None:
+    target = "cloudflare_dev.d1.main"          # decided at run time
+    try:
+        token: Secret[str] = vault.read(target, "api_token")
+    except VaultEntryMissingError:
+        log(f"no credential provisioned for {target}; skipping it")
+        return
+    publish(target, token)                     # unwrap only inside the trusted call
+```
+
+`vault` is supplied by the framework, never by the caller: it is not a CLI flag,
+an MCP argument or a TUI field. `read(group, field)` takes the group path (or a
+subject address) and the field, and nothing else — no environment, no source.
+
+**Which entry it returns.** The same group lookup config resolution uses, and
+nothing past it:
+
+1. the active environment's entry for the exact group, then its nearest
+   ancestors — `cloudflare_dev.d1.main`, `cloudflare_dev.d1`, `cloudflare_dev`;
+2. then the shared slot, in the same order.
+
+The first entry that is **stored** wins, whether you typed it with `vault put` or
+`vault sync` wrote it. So an active-environment ancestor beats a shared entry for
+the exact group. Job-scope entries and other named environments are never
+candidates, and the environment is the one the app already selected for the run
+(`FUNCTUALIZE_ENV`, see above).
+
+**What can go wrong, and how to tell.**
+
+| Situation | You get |
+|---|---|
+| Nothing stored at any candidate, or the project has no vault yet | `VaultEntryMissingError` |
+| The first stored candidate cannot be opened (no key, wrong key) | `VaultEntryUnreadableError` |
+| The first stored candidate will not authenticate | `VaultDecryptionError` |
+
+All three are importable from `functualize.app.vault` and are `VaultError`s. A
+missing entry is the one to decide on. The other two mean something *was*
+provisioned and this machine cannot read it, so the read stops there: it does not
+try an ancestor or the shared slot, because running on a different credential
+than the one you stored would look like success.
+
+Unlike a config field, `read` never falls back to an environment variable, a
+config file or a default. A config field whose vault entry is absent still
+resolves from the next source exactly as before; only this explicit read reports
+the absence.
+
+**Local only, and masked.** `read` opens the local vault and never contacts a
+provider — refresh it with `func builtin vault sync`. The value arrives as
+`Secret[str]`, which renders as `•••` in an f-string, a log line, a `repr` or a
+traceback; `get_secret_value()` is for the call that actually needs it. Neither
+the call nor its errors print the value, and `vault list` / `vault inspect`
+remain metadata-only.
+
 ### The key
 
 The vault key is resolved by a `VaultKeyProvider`:
