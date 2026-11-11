@@ -14,7 +14,96 @@ meets contracts C11 (T14, wave 0). Discovery-dependent tasks are stated against
 the C11 requirements, not against an interface that does not exist yet. Their
 exact call shapes are fixed when 0.5.0 is released.
 
+## Repository topology proposal — owner decision pending
+
+**Recommendation: separate Rise source, shared private FuncCloud workspace.**
+Develop the Rise distributions in the existing private `raicing-ai/rise`
+repository. Private `raicing-ai/funccloud` pins that repository beside its
+existing `functualize` submodule and owns the cross-repository workspace,
+integration guidance, and private coordination material. Public
+`raicing-ai/functualize` remains the source of the open convention and public
+API boundary (ADR-043, ADR-044, and the revision 7 status entry); it must not
+require access to private Rise or FuncCloud to build, test, or understand that
+convention. Rise depends only on the public Functualize API. A submodule is a
+consumer's pinned commit, not Rise's source home.
+
+This supersedes the earlier `plugins/rise/` source-placement recommendation,
+while retaining its one-way dependency and the goal of one useful checkout.
+It is a **multi-repository workspace**, not an atomic monorepo: a change across
+the boundary needs source PRs in the affected repositories and a reviewed
+FuncCloud pin PR. The existing revision 6 implementation paths and lockstep
+release steps below, in `contracts.md` C1 and in `tasks.md`, are historical
+working material, **not executable tasks**. Revision 7 is recorded on
+`master` in `.spec/STATUS.md` and ADR-043/044; after the owner decides the
+topology, re-plan the task graph against that record and the released APIs.
+
+| Rejected placement | What breaks or costs more |
+|---|---|
+| `plugins/rise/` in public Functualize | The first development commit exposes Rise before the owner says it is usable. Keeping it on a private branch still exposes that branch in a public repository. Rise also inherits Functualize's tag and release workflow. It does allow one atomic core-and-Rise PR, which the recommendation gives up. |
+| Rise source inside private FuncCloud | The public Rise convention and contribution surface become inaccessible to users without a FuncCloud account, contrary to FuncCloud's open-specification boundary. Extracting source later adds a migration, and a private integration repository becomes the product's release owner. |
+| Another umbrella repository of submodules | It adds a second coordination home and another set of pins without making cross-repository changes atomic. FuncCloud already serves that workspace role. |
+
+**Ordered repository and PR sequence (proposal):**
+
+1. **Functualize, this PR:** record this topology answer in the working
+   `plan.md` and `contracts.md` for review; do not merge revision 6's tracked
+   feature artifacts as an executable revision 7 plan. The owner decides the
+   placement before a durable topology ADR or implementation change lands.
+2. **Functualize, durable-record PR after approval:** add a topology ADR and
+   update the Rise `.spec/STATUS.md` entry to name the private source and the
+   public specification boundary. Keep ADR-043/044's product and dependency
+   decisions. Once that durable PR lands, close this older working-record PR;
+   its tracked feature artifacts cannot pass the repository's
+   `spec-artifacts-cleared` merge gate as they stand.
+3. **Rise, private repository:** seed its empty default branch with a minimal
+   repository identity, then open a scaffold PR for `AGENTS.md`, the native
+   spec workflow, a uv workspace, the Rise/RiseKit distribution skeletons,
+   CI, and public-API-only dependency checks. Keep product behavior gated on
+   a released Functualize 0.5.0 containing the prerequisites. The repository
+   stays private through development and does not publish a package yet.
+4. **FuncCloud, private repository:** after Rise has a commit to pin, open a
+   PR adding `rise/` as a second submodule, pinning a compatible Functualize
+   commit, and adding a `docs/wiki/` repository map, bootstrap instructions,
+   and a CI smoke test that initializes both pinned sources and reports their
+   SHAs. A recursive clone provides a reading workspace. Parallel editing
+   uses separate Rise and Functualize worktrees and a recorded pair of SHAs;
+   a FuncCloud worktree alone does not create editable child worktrees.
+5. **Rise, then FuncCloud:** after the 0.5.0 release gate, implement and test
+   Rise in its own PRs. Merge compatible source changes first, then advance
+   FuncCloud pins through reviewed PRs. Decide public visibility and package
+   publication separately when Rise is usable.
+
+The intended end state of `raicing-ai/rise` is a **private, active source
+repository and FuncCloud submodule target** during development: neither empty
+nor archived. Its later public release needs a separate owner decision.
+
+**Private knowledge boundary.** Keep curated project memory, the private
+documentation wiki, repo maps, and agent coordination runbooks in
+`funccloud/docs/wiki/`, readable by members and agents granted access to
+FuncCloud. Keep raw agent memory and transcripts in the controlled memory
+service outside Git; keep secrets outside both Git repositories. Public
+Functualize holds only open behavior, APIs, and decisions. Putting private
+material in that public repository would expose internal topology, private
+plans, tenant details, and any accidentally copied tokens or transcripts;
+deleting a later commit cannot retract existing clones, forks, or caches.
+
 ## Alignment
+
+**Current shape pointer:** SD/18153475 **v29**, `Authority: Approved`, read
+2026-11-11; SD/5407068 **v23**, also `Authority: Approved`, remains its
+canonical layer. The approved shape assigns "`func rise …`, subjects,
+contracts, environments, addresses, NDJSON, realizations, the router" to
+Rise, "Toolkit bases and builders" to RiseKit, and "Contracts and
+implementations" to provider packages (§8). Its non-goals include "designing
+core interfaces", "approver authentication, Merge/Deploy authority and
+OAuth", "Worker secret delivery and the runtime integration", "a target
+preview", and "Rise as a deployment engine itself" (§8). Neither approved
+page chooses Rise's source repository; the topology proposal above preserves
+these ownership and non-goal boundaries. The revision 6 alignment below is
+historical and must not override the current shape or the revision 7 record on
+`master`.
+
+### Revision 6 alignment (historical)
 
 **Shape Intent SD/5407068, v18, `Authority: Approved`.** It was approved by the
 owner in inline comment 12648493, and it covers "Decisions 1–27 as of v16, plus

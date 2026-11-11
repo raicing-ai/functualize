@@ -7,6 +7,42 @@ Names become stable only once listed in a release.
 
 Canon references (`D<n>`) are to SD/5407068 v18. Behaviour references (`S<n>`)
 are to `spec.md`.
+For the topology proposal below, the shape pointer is SD/18153475 v29
+(`Authority: Approved`) and its canonical layer is SD/5407068 v23
+(`Authority: Approved`), both read 2026-11-11. The revision 6 references in
+the remainder of this file are historical; the revision 7 durable record on
+`master` governs product behavior.
+
+## C0. Source and workspace boundary (proposal; owner decision pending)
+
+The proposed source home for `functualize-rise`, `functualize-risekit`, and
+provider distributions is the existing **private** `raicing-ai/rise`
+repository. Its package directories are fixed by that repository's scaffold,
+not by the revision 6 directories in C1 below. The proposed release train is
+Rise's own, after the released Functualize 0.5.0 prerequisite is satisfied.
+The distribution names, import package names, and one-way public-API
+dependency in C1 remain the boundary; its `plugins/**` directory cells and
+lockstep-release sentence describe the superseded revision 6 placement and
+must not be used as implementation instructions.
+
+| Repository | Owns | Consumption contract |
+|---|---|---|
+| Public `raicing-ai/functualize` | Open Rise convention, Functualize public API, and their durable decisions | Builds and explains the convention without a private repository checkout; core imports no Rise package |
+| Private `raicing-ai/rise` | Rise/RiseKit/provider source, package tests, release workflow, and product documentation during development | Depends on released Functualize public API; keeps its source and release cadence independent |
+| Private `raicing-ai/funccloud` | Pinned `functualize/` and `rise/` submodules, compatibility smoke test, private `docs/wiki/`, and coordination runbooks | Changes to either source land in its source repository first; a FuncCloud PR then updates exact pins |
+
+A FuncCloud checkout may initialize both pinned submodules for reading and
+integration tests. `git worktree add` on the superproject does not guarantee
+recursive, editable child worktrees; source edits use separate worktrees and
+record the tested SHAs. Private wiki and curated project memory are available
+only to authorized FuncCloud readers. Raw memory, transcripts, and credentials
+are not repository content. Nothing in the public specification may import or
+link to private source as a prerequisite for building or understanding it.
+
+This is a topology proposal, not approval to start a code wave. The revision 6
+`spec.md` and `tasks.md` still describe the older in-tree placement; the
+revision 7 durable record on `master` and the owner decision gate govern the
+next task graph.
 
 ## C1. Distributions and import packages
 
