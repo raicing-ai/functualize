@@ -622,6 +622,38 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### A job reads a group's secret through `Vault` — implemented, review pending
+
+**What a job author sees.** `from functualize.job import Vault`; a job declares
+`vault: Vault` and calls `vault.read(group, field)` with a group path or subject
+address chosen at run time, and gets `Secret[str]`. The lookup is the existing
+group lookup — active environment exact group then nearest ancestors, then the
+shared slot in the same order — and the first **stored** entry wins. Nothing
+stored anywhere, or no vault file, raises the new `VaultEntryMissingError`; a
+stored entry that cannot be opened raises `VaultEntryUnreadableError` or
+`VaultDecryptionError` and stops there. All three are importable from
+`functualize.app.vault`. The read never falls back to env, files or defaults,
+never contacts a provider, and is not an invocation input; ordinary config
+resolution keeps its fall-through on a vault miss. Guide:
+*Reading a group's secret from a job* in `docs/guides/configuration.md`.
+
+**How it is wired.** Typed ports `Vault` / `VaultReaderFactory` in
+`_types/protocols.py`; `_app/vault_reader.py` makes one
+`VaultSource.get(field, group, scope="group")` call per read over the app's live
+chain (or the source boot builds when the chain has none); `build_engine` hands
+the factory to the engine; `_engine/capabilities/vault.py` registers the
+capability with no `RunContext` accessor. Decision record: ADR-044. Proofs:
+`tests/integration/test_group_vault_read.py` (real jobs on both boot paths and
+both CLI surfaces, one test per acceptance criterion) and
+`tests/app/test_vault_reader.py`.
+
+**Known limits.** A value read this way is masked in every rendering of the
+wrapper, but is not added to the run's output-redaction set the way a secret
+config field is, so text a job builds from `get_secret_value()` is not
+scrubbed from `Stdout`/`Shell` output. A user type named `Vault` used as a job
+parameter annotation is now read as the capability. No `examples/` caller yet
+for the new public names.
+
 ### Unknown settings keys are reported, from one declaration — delivered on PR #130, two criteria with the maintainer
 
 **What a user sees.** A key in a settings document that no setting declares is
