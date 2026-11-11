@@ -22,6 +22,7 @@ from functualize.app.utils import (
     CLI_MARKER_TYPE_NAMES,
     INJECTED_PARAM_TYPE_NAMES,
     is_cli_value_type,
+    unwrap_optional_type,
 )
 
 # ---------------------------------------------------------------------------
@@ -218,8 +219,12 @@ def parse_annotation(annotation: Any) -> AnnotationInfo:
             is_cli_compatible=True,
         )
 
-    # Case 4: Check if base type is a DI-registered type
-    if _is_di_type(base_type):
+    # Keep the original annotation for rendering; classify an optional value
+    # by the same inner type that the Click renderer uses.
+    value_type, _ = unwrap_optional_type(base_type)
+
+    # Case 4: Check if the inner type is a DI-registered type
+    if _is_di_type(value_type):
         return AnnotationInfo(
             base_type=base_type,
             is_annotated=is_annotated,
@@ -229,8 +234,8 @@ def parse_annotation(annotation: Any) -> AnnotationInfo:
             is_cli_compatible=False,
         )
 
-    # Case 5: Check if base type is a BaseModel subclass (config parameter)
-    if _is_basemodel_subclass(base_type):
+    # Case 5: Check if the inner type is a BaseModel subclass (config parameter)
+    if _is_basemodel_subclass(value_type):
         return AnnotationInfo(
             base_type=base_type,
             is_annotated=is_annotated,
@@ -244,14 +249,14 @@ def parse_annotation(annotation: Any) -> AnnotationInfo:
     cli_markers = [m for m in metadata if _is_cli_marker(m)]
     field_meta = next((m for m in metadata if _is_field_info(m)), None)
 
-    # Determine CLI compatibility from base type
+    # Determine CLI compatibility from the inner type
     # One list, reached through the public re-export because `_cli` may import
     # public folders only — the same route, and the same reason, as the
     # injected-capability names above. Four layers classified a job signature
     # and each kept its own answer: this one decided a `UUID` parameter did not
     # exist, while the extractor published it and the DI gate demanded a
     # provider for it.
-    is_compatible = base_type in CLI_COMPATIBLE_TYPES or is_cli_value_type(base_type)
+    is_compatible = value_type in CLI_COMPATIBLE_TYPES or is_cli_value_type(value_type)
 
     return AnnotationInfo(
         base_type=base_type,

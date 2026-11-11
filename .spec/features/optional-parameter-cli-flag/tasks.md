@@ -23,7 +23,7 @@ checks. Each task requires a commit or reviewable diff and the named evidence.
 
 ## Wave 1: eligibility and safety
 
-### [ ] 2.1 Classify optional annotations without changing base_type
+### [x] 2.1 Classify optional annotations without changing base_type
 
 - **Input:** task 1.1's public bridge; `parse_annotation` references in the
   builder and CLI unit tests.

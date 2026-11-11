@@ -294,3 +294,10 @@ class TestDICLIMutualExclusion:
             f"is_cli_compatible={result.is_cli_compatible} "
             f"for bare type {base_type.__name__}"
         )
+
+    @given(base_type=st.one_of(_cli_type, _di_type))
+    def test_optional_types_never_both_di_and_cli(self, base_type: type) -> None:
+        optional = base_type | None
+        result = parse_annotation(optional)
+        assert result.base_type == optional
+        assert not (result.is_di_param and result.is_cli_compatible)
