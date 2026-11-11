@@ -207,6 +207,27 @@ record-first, at-most-once rule and is documented as deliberately not the
 outbox. The decision is ADR-034; a runnable receiver ships in
 `examples/plugins/effect_receiver/`.
 
+### Added — `FromStep` reads a step's result or a gate's answer wherever it is written
+
+`FromStep("x")` used to work only in a gate tool's bound arguments; on a step
+job's parameter or the workflow epilogue it was silently ignored, so a step
+after a gate could not read the gate's answer. It is now one declared read of
+the walk's own record — a step's result or a gate's answer — in all three
+places: a step parameter, the epilogue body and a gate tool binding. A read
+never runs anything and never consults a fingerprint; `FromJob` is unchanged.
+
+Boot refuses an unknown node, a node the graph does not order before its
+reader, a gate binding that names its own gate, and a parameter declaring both
+`FromJob` and `FromStep`, each with a message naming `FromStep('<node>')`, the
+parameter and the reader. At run time a node a conditional branch skipped
+yields the declared default, and with none the run fails with
+`FromStepUnavailableError`; so does a read from a job running outside a walk.
+Two deliberate changes: a gate-tool binding whose node has no record used to
+resolve to `None` and now fails with that error, and
+`func builtin workflow resume` prints the epilogue's return value when the walk
+completes. Recorded in
+[ADR-034](contributor/adr/034-fromstep-reads-the-walk-everywhere.md).
+
 ### Changed — an interrupted effecting step stops in doubt instead of re-running
 `Step(job, effecting=True)` now writes an `attempting` record before its job
 runs. A resume that finds one — the runner died between the effect and the
@@ -319,6 +340,21 @@ active-environment key. Sync fetches only base and selected-overlay
 declarations; job runs still read the local vault offline. This extends the
 earlier scoped-identity change described below.
 
+### Fixed — a step longer than one lease period no longer loses its walk's lease
+
+A walk renewed its lease only between nodes, so a step running past the
+300-second lease let the lease expire under it and a second runner could
+claim the walk mid-step. A per-walk heartbeat now renews the lease when the
+walk starts and every 60 seconds after, during a step and while the end is
+reported, and is stopped and joined before the claim is released. A stale
+generation supersedes the old walk; a transient storage failure is retried at
+the next interval. An in-process step is still never forcibly interrupted.
+One limit is accepted, not closed: a renewal whose own durable write stalls
+past the lease (more than 240 seconds at the default settings) lands already
+expired, so a second claim is possible while the first step still runs.
+Generation fencing rejects the old runner's stored writes, but effects
+outside the store can repeat.
+
 ### Fixed — a second SQLite walk in one process cannot take a live lease
 
 Two walks in one process use the same runner identity. SQLite previously let
@@ -348,6 +384,48 @@ consumer never receives a value recorded under a different option value. Jobs
 that declare no `GroupOptions` parameter keep byte-identical keys, so their
 existing records still match; jobs that do declare one miss once, deliberately,
 because their previous records could not tell option values apart.
+### Fixed — a group option reaches the job's dependencies
+
+A command group's option given on the command line reached the invoked job
+but not the jobs it declares as dependencies, so in `func demo --target b
+deploy` the dependency of `deploy` resolved its `GroupOptions` as if the flag
+had never been passed. The group's option map is now passed into
+every declared dependency request, so a dependency resolves the same group
+option as the invoked job at every depth, with command-line values still
+taking precedence over the environment. Workflow steps and explicit
+invocation children keep their existing boundary. The group-options guide
+documents the dependency behaviour.
+
+### Changed — `ToolScope.approval_required()` gates tool calls
+
+`approval_required()` was documented as a safety control, but nothing consumed
+it: a tool the user marked as needing approval ran ungated. Approval is now
+enforced at the one point every in-tree agent path crosses, the
+`functualize-ai-pydantic` tool translator. The gate is called as
+`gate(tool_name, args, ToolCallContext)` and only a return of exactly `True`
+admits the call; with no gate, every call to a gated tool is refused. A refusal
+is a tool result, `Tool call refused: approval required for '<name>'.`, the
+agent loop continues, and `AI_TOOL_CALLED` reports `status="denied"`. A gate
+that raises ends the run with its own exception on `AI.run`,
+`run_agent_loop` and `run_with_history`.
+
+Approval follows each tool, not the combined scope: `a.approval_required(g) + b`
+gates only `a`'s tools, applying approval twice requires both gates, and a tool
+reached through both a gated and an ungated filter is gated. **Plugin API:**
+`ToolDef` gains `requires_approval: bool = False` and `approval_gate`
+(appended after `config_class`), and `ToolCallContext` is a new public type in
+`functualize_ai`.
+
+### Fixed — the shell skill reference teaches a form the capability accepts
+
+The shipped skill's shell reference showed `sh("ls -la")` as the common case —
+the one form the capability refuses, a bare raw string with neither
+`shell=True` nor template parameters. It now teaches the list form
+(`sh(["ls", "-la"])`), and the raw string only with `shell=True` or template
+parameters, and says why a bare string is refused. No runtime behaviour
+changes; the skills test suite now resolves every `sh(...)` example the
+shipped skills show against the capability's own command-form rules.
+
 ### Fixed — decorated run middleware executes around jobs
 
 Run middleware registered with `@app.hooks.run_middleware`, with or without a
