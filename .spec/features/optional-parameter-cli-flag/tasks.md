@@ -6,7 +6,7 @@ checks. Each task requires a commit or reviewable diff and the named evidence.
 
 ## Wave 0: shared optional classification
 
-### [ ] 1.1 Re-export the existing optional helper
+### [x] 1.1 Re-export the existing optional helper
 
 - **Input:** `plan.md` AFTER diagram; `_config/job_config.py::_unwrap_optional`.
 - **[F]:** `src/functualize/app/utils.py`.
