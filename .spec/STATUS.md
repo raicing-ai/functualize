@@ -654,6 +654,60 @@ scrubbed from `Stdout`/`Shell` output. A user type named `Vault` used as a job
 parameter annotation is now read as the capability. No `examples/` caller yet
 for the new public names.
 
+### Rise / RiseKit foundation — revision 7 specified, Execute gated on a released 0.5.0
+
+**What it is.** Rise defines typed operational subjects, contracts,
+observations, dependency routing, and convergent operations. RiseKit supplies
+reusable authoring bases and contract checks. A provider package owns
+contracts and implementations. Functualize discovers, configures, and runs
+ordinary jobs. A Cloudflare Worker plus D1 provider is the forcing case. The
+boundary is recorded in
+[ADR-043](../contributor/adr/043-rise-is-a-convention-on-the-public-api.md);
+selection, registry, and the `func rise` commands in
+[ADR-044](../contributor/adr/044-the-repository-says-what-the-cloner-decides-how.md).
+
+**Authority.** Shape intent SD/18153475 v28 has `Authority: Approved` and marks
+the three earlier post-approval deltas binding. The owner confirmed them in
+MCH-151 comment `01a1539f-4b62-72e1-84fa-4e3f3d2702b3` on 2026-10-19 and decided
+the six restatement deviations on 2026-10-30 (MCH-151 comment `01a18d2e-c1b1`,
+applied in `01a18d39-d7ac`). SD/5407068 v22 remains the canonical layer (owner,
+MCH-151 comment `01a153c1`, 2026-10-19T10:42:32Z).
+
+**Entry gate.** A **released** Functualize 0.5.0 must include class-based
+discovery (MCH-184) and scoped vault v3 (MCH-185). The public resolved-secret
+read is F6, a generic core amendment whose spelling belongs to the vault owner.
+Run tags are a separate core feature. Before Execute: verify the released 0.5.0
+against those prerequisites and capture actual call shapes (an unmet item
+returns the feature to Specify rather than gaining a workaround), then re-plan
+`tasks.md` into ordered waves with a parseable dependency graph and review the
+task list and surviving smells. The revision 6 tasks still name
+`rise validate`, `rise diagnose`, `--scope`, and a single-candidate router;
+they are not executable as r7.
+
+**Acceptance, re-derived against released APIs before any Execute task
+closes.** AC-1 boundary ADR and no core Rise import; AC-2 concrete
+`@job(group=...)` subjects work without Rise; AC-3 addresses, `Ref`,
+`[rise] default` overlays, field precedence and subject-address vault reads;
+AC-4 `config` findings and referential `ps --format json` NDJSON with masked
+secrets; AC-5 dependency-ordered, idempotent `up` with `--force-reconcile`,
+`--dry-run`, `--no-deps`, `--wait`; AC-6 binding stability and selection order;
+AC-7/7a registry search, refusal before installation, explicit `add`, HTTPS,
+disk and Git/GitHub sources; AC-8 exit codes, `start`/`stop`, v1 `down`
+refusal, offline Cloudflare Worker plus D1 forcing case; AC-9 live Cloudflare
+tier only with credentials, confined to a `rise-test-` prefix.
+
+**Not this feature.** Instance routes, `Setting()` markers, run-record source
+provenance, Gate resolution from ordinary jobs, and person-required mechanics
+have separate owners. Approver authentication, Merge/Deploy authority, OAuth,
+Worker secret delivery/runtime integration, target preview, destructive
+adoption, registry signing, trust policy, and publishing are outside this
+foundation. PR #73 (`feat/rise-risetkit-foundation`) is the older revision 6
+lineage; it is not superseded by this entry's merge.
+
+The full revision 7 record (spec, contracts, plan) is recoverable at
+`673d2fc9`, the reviewed head before the clearing:
+`git fetch origin refs/pull/132/head && git show 673d2fc9:.spec/features/rise-risetkit-foundation/spec.md`.
+
 ### Unknown settings keys are reported, from one declaration — delivered on PR #130, two criteria with the maintainer
 
 **What a user sees.** A key in a settings document that no setting declares is
@@ -3164,9 +3218,16 @@ Items identified during development that are worth doing but not yet designed:
     **Verified not to be a weakening**, at both iterations. With the real defect
     reintroduced — the sync job called inline instead of through
     `run_worker(..., thread=True)` — the old and both new versions fail. The
-    final one fails on the responsiveness assertion: the job body runs, so the
-    start event is set, but the polling window is then empty and the scaled
-    floor is not met. 5/5 clean runs locally.
+    final one, at the current head, fails at the pre-check
+    (`tests/_cli/test_job_execution_thread_worker.py:136`), not at the
+    responsiveness assertion: the job body runs inline, so the start event is
+    set and the job is done before the window can open — "the pre-migration
+    block signature" — and the verdict names the missed window ("the
+    measurement missed the job entirely"). The responsiveness assertion is
+    exercised by a different control: a mid-window freeze — the window loop's
+    tick sleep made synchronous across the measured window — which fails
+    there ("the sync call is still blocking the event loop"). 5/5 clean runs
+    locally.
 
     An earlier sabotage attempt (freezing the loop at dispatch while the thread
     also ran) passed against **both** versions — worth recording, because it
@@ -3207,6 +3268,31 @@ Items identified during development that are worth doing but not yet designed:
     worker is observably running before it starts counting, so the measurement
     cannot begin after the work has finished. **Done, plus the rate scaling the
     second failure mode needed — see the head of this entry.**
+
+    **Third occurrence (2026-11-01) — the wait above outlasted the job.** The
+    `job_started` wait was the right signal but used `pilot.pause()` as its
+    transport, and `pause(delay=None)` is `await wait_for_idle(0)`
+    (`textual/pilot.py`), which under load runs to its one-second cap
+    (`textual/_wait.py`) — 2.5x the entire 0.4s job. The test resumed after
+    the job had finished: `got 0 polls ... elapsed 0.000s` on `01b3527f`
+    (passed on re-run) and `64ac36ad` (3.13 leg `got 1 polls`; 3.12 re-run
+    `got 0 polls`) — the window opened on the
+    job's tail or not at all, and the assertion reported a blocked loop that
+    never happened. Closed by rebuilding the window around the job: it opens
+    on `job_started` polled with plain `asyncio.sleep` ticks (no idle
+    heuristic on the critical path), closes on the job worker's liveness
+    (`_job_worker_running`, not the shared `tui_app.workers` set, whose
+    emptiness cannot distinguish "never started" from "already finished"),
+    and a window that missed the job — worker already finished at open, or
+    spanning less than half the job's own runtime — fails with its own
+    wording per path ("the measurement missed the job entirely" when the
+    worker was already finished at open; "a missed window, not a blocked
+    event loop" when the window spanned less than half the job), never the
+    responsiveness verdict. `BLOCK_SECONDS`, `TICK_INTERVAL` and the
+    `tests/_responsiveness.py` calibration are untouched. Run evidence (20
+    consecutive passes under load; negative control with a synchronous sleep
+    on the loop still failing the responsiveness assertion) is with the pull
+    request.
 
 34. **The pre-filter stack parses each candidate file three to four times.**
     Measured while deciding ADR-017; recorded because the cost is real even
