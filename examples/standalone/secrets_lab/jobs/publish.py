@@ -34,10 +34,14 @@ reasonably survive: the target is skipped. An entry that is *stored* and cannot
 be opened with the available key raises ``VaultEntryUnreadableError``, which
 this job deliberately does not catch: silently skipping a target whose
 credential exists but will not decrypt would hide a broken key behind an empty
-deploy. And an entry whose stored bytes do not authenticate at all raises
-``VaultDecryptionError`` — a damaged or foreign store, not a key supplied
-wrongly — which nothing here catches either, because no key is going to repair
-it and the run must not read as a clean deploy.
+deploy. And an entry that will not decrypt raises ``VaultDecryptionError`` —
+the stored value did not authenticate under the key in use, which on its own
+says nothing about which of the two is at fault — and nothing here catches that
+either. A store written before the key check row existed cannot even say
+whether the key is the right one, so the repair there is to retry with the key
+that wrote it; in this example the check row already names that key and the
+bytes are damaged on purpose, so no key repairs them. Either way the run must
+not read as a clean deploy.
 """
 
 from pydantic import BaseModel, Field

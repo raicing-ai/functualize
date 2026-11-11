@@ -248,7 +248,7 @@ Three failures of that read are not the same, and the job treats them differentl
 | --- | --- |
 | nothing, at the address or above it | `VaultEntryMissingError` — caught, the target is skipped, the run succeeds |
 | an entry the available key does not open | `VaultEntryUnreadableError` — deliberately not caught: a credential that exists and will not decrypt is a broken key, and skipping the target would hide it |
-| an entry whose stored bytes do not authenticate | `VaultDecryptionError` — also not caught: the store is damaged or foreign, not keyed wrongly, and no alternate key repairs it |
+| an entry that will not decrypt | `VaultDecryptionError` — also not caught: the stored value failed to authenticate, so either the store was written under another key or its bytes are damaged; retrying with the key that wrote it separates the two |
 
 `CloudflareD1Options` is what makes any of this storable: the vault only accepts
 a field its group declares `Secret[str]`, so without that class the `vault put

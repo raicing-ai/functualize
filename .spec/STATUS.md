@@ -654,7 +654,7 @@ scrubbed from `Stdout`/`Shell` output. A user type named `Vault` used as a job
 parameter annotation is now read as the capability. The `examples/` caller these
 names owe lives in `examples/standalone/secrets_lab/jobs/publish.py`: it reads a
 run-time-chosen target's group credential and hands the `Secret` to the function
-that uses it, and `tests/test_group_vault_read.py` pins both failure kinds.
+that uses it, and `tests/test_group_vault_read.py` pins all three failure kinds.
 
 ### Rise / RiseKit foundation — revision 7 specified, Execute gated on a released 0.5.0
 
