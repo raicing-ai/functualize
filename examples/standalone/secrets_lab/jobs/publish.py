@@ -1,0 +1,86 @@
+"""A secret a job asks for by an address it only learns while it runs.
+
+A config field reaches a job because the job declared it. This job cannot work
+that way: which target it publishes to is decided per run, and the address it
+reads is *deeper* than any group it declares. It asks the injected ``Vault`` for
+that target's entry instead, and passes the wrapper on to the one function that
+needs the value. Nothing here logs the credential, and a ``Secret`` refuses to
+render it if anything tried.
+
+Three things make the read work, and none of them is a declaration on `publish`:
+
+**The group declaration.** ``CloudflareD1Options`` is what makes an entry at
+``cloudflare.d1`` storable at all — the vault only accepts a field the group
+declares ``Secret[str]``, so `func builtin vault put --group cloudflare.d1
+--field api_token` is refused without it, and a group is discovered from the
+jobs that inject its options. ``group_status`` is that job; `publish` injects
+neither, because a job bound to a group has that group's fields resolved before
+its body runs, which is the one thing an explicit read must not depend on.
+
+**The candidate walk.** ``vault.read`` asks for the address it is given, then
+that address's nearest ancestors. One credential at ``cloudflare.d1`` therefore
+answers for every target beneath it, which is why a job that does not know its
+target in advance can still serve all of them.
+
+**The two failures are not the same.** An address with nothing stored — exact
+group or any ancestor — raises ``VaultEntryMissingError``, which a job can
+reasonably survive: the target is skipped. An entry that is *stored* and cannot
+be opened with the available key raises ``VaultEntryUnreadableError``, which
+this job deliberately does not catch: silently skipping a target whose
+credential exists but will not decrypt would hide a broken key behind an empty
+deploy.
+"""
+
+from pydantic import BaseModel, Field
+
+from functualize.app.vault import VaultEntryMissingError
+from functualize.job import (  # noqa: TC001 -- the engine reads these at run time
+    GroupOptions,
+    Log,
+    Vault,
+)
+from functualize.job.decorators import job
+from functualize.types import Secret
+
+
+class CloudflareD1Options(GroupOptions, group="cloudflare.d1"):
+    """The credential every target under it inherits, and the group it is stored for."""
+
+    api_token: Secret[str] = Field(default="", description="Cloudflare API token")
+
+
+class PublishConfig(BaseModel):
+    target: str = Field(
+        default="cloudflare.d1.main",
+        description="Subject address of the target, decided at run time",
+    )
+
+
+def _publish(target: str, token: Secret[str]) -> str:
+    """The trusted call: the only place the value is unwrapped."""
+    return (
+        f"published to {target} "
+        f"with a {len(token.get_secret_value())}-character credential"
+    )
+
+
+@job(extra_description="Publish to a target, using the credential its group holds")
+def publish(config: PublishConfig, vault: Vault, log: Log) -> str:
+    """Read the target's credential, or report that nobody provisioned one."""
+    try:
+        token: Secret[str] = vault.read(config.target, "api_token")
+    except VaultEntryMissingError:
+        log(f"no credential provisioned for {config.target}; nothing published")
+        return f"skipped {config.target}"
+    summary = _publish(config.target, token)
+    log(summary)
+    return summary
+
+
+@job(extra_description="Report the group's own flags, resolved without a read")
+def group_status(options: CloudflareD1Options, log: Log) -> str:
+    """The same entry `publish` reads by address, reached the config way."""
+    provisioned = bool(options.api_token.get_secret_value())
+    summary = f"cloudflare.d1 api_token is {'set' if provisioned else 'not set'}"
+    log(summary)
+    return summary
