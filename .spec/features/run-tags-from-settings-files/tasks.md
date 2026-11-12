@@ -159,7 +159,7 @@ not a completed feature gate.
   the existing test harness without adding a wire tag field. Acceptance: a
   real MCP run tool reaches the app-door overlay.
 
-- [ ] **8.4 Cover TUI and inline TUI.** [F]
+- [x] **8.4 Cover TUI and inline TUI.** [F]
   `tests/tui/test_tui_app.py`,
   `tests/_cli/test_inline_tui_v2_autocomplete_integration.py`.
   Use a selected project file in each UI test and assert the opened run record
