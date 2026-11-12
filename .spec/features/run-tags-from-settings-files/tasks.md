@@ -71,7 +71,7 @@ not a completed feature gate.
 
 ## Wave 3 — add a legal public forwarding seam
 
-- [ ] **4.1 Expose tag resolution to delivery.** [F]
+- [x] **4.1 Expose tag resolution to delivery.** [F]
   `src/functualize/app/config.py`, `tests/app/test_facade_request.py`.
   Complete the public seam started in task 2.1 for the temporary forwarding
   shim: the resolver and typed error (plus `parse_tag` for the existing

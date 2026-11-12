@@ -10,10 +10,14 @@ in, so scope creation cannot be skipped.
 from __future__ import annotations
 
 from collections.abc import Generator
+from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
 from functualize._app.state import AppState
+from functualize._config.settings_layers import SettingsLayer
+from functualize.app.config import RunTagError, parse_tag, resolve_run_tags
 from functualize.app.core import FunctualizeApp, request_for
 from functualize.types import RunRequest
 
@@ -39,6 +43,23 @@ def _greet(name: str = "world") -> str:
 def test_facade_accepts_a_request(app: FunctualizeApp) -> None:
     result = app.execute(RunRequest(job_name="greet", surface="app.execute"))
     assert result.return_value == "hello world"
+
+
+def test_public_config_seam_resolves_frozen_tags_for_a_request() -> None:
+    layer = SettingsLayer(
+        Path("/checkout/.functualize.toml"),
+        "project",
+        "",
+        {"run": {"tags": ["team:alpha"]}},
+    )
+
+    tags = resolve_run_tags((layer,), environ={})
+    request = RunRequest(job_name="greet", surface="app.execute", run_tags=tags)
+
+    assert request.run_tags == {"team": "alpha"}
+    assert isinstance(request.run_tags, MappingProxyType)
+    with pytest.raises(RunTagError, match="needs a key"):
+        parse_tag(":x", where="--run-tag")
 
 
 def test_request_carries_kwargs(app: FunctualizeApp) -> None:
