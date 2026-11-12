@@ -123,7 +123,6 @@ def _file_label(layer: SettingsLayer) -> str:
     return f"[{section}] tags in {layer.path}"
 
 
-# TRANSITIONAL(run-tags-from-settings-files/5.1): CLI merge will call this resolver.
 def resolve_run_tags(
     layers: Sequence[SettingsLayer],
     *,

@@ -83,8 +83,9 @@ not a completed feature gate.
 
 ## Wave 4 — connect the CLI path
 
-- [ ] **5.1 Replace global-only CLI merge.** [F]
-  `src/functualize/_cli/main.py`, `tests/cli/test_run_tags_layers.py`,
+- [x] **5.1 Replace global-only CLI merge.** [F]
+  `src/functualize/_cli/main.py`, `src/functualize/_config/run_tags.py`
+  (remove the fulfilled transitional marker), `tests/cli/test_run_tags_layers.py`,
   `tests/cli/test_run_tags_pre_boot.py`.
   `_merge_run_tags` supplies selected raw layers and raw flag items to the
   public seam. Do not parse env or flags in delivery. Preserve its

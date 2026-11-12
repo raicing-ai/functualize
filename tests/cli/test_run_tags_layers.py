@@ -1,9 +1,8 @@
-"""The three run-tag layers, merged per key with the later layer winning.
+"""Run-tag layers merge per key with the later layer winning.
 
-Lowest to highest: the user's global config (`[run] tags`), then
-`FUNCTUALIZE_RUN_TAGS`, then `--run-tag`. Across layers a repeated key is an
-override; within one layer it is refused, naming that layer. The project file
-is not a layer at all.
+Lowest to highest: global config, farthest through nearest selected project
+file, `FUNCTUALIZE_RUN_TAGS`, then `--run-tag`. Across layers a repeated key
+is an override; within one layer it is refused, naming that layer.
 
 The config file is read quietly here. `read_global_config` reports a broken
 file once, at boot; reading it through that function before boot as well
@@ -18,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from functualize._cli.run_tags import RunTagError, parse_env
+from functualize.app.config import RunTagError, parse_env
 from tests.conftest import surfaces
 
 pytestmark = surfaces("func")
@@ -95,9 +94,7 @@ class TestThreeLayersMerge:
             {"model": "opus"}
         ]
 
-    def test_the_project_file_is_not_a_layer(
-        self, cli_run, project_tree, xdg_dirs
-    ) -> None:
+    def test_the_project_file_is_a_layer(self, cli_run, project_tree, xdg_dirs) -> None:
         """A selected project `[run] tags` list contributes to the run."""
         root = project_tree(functualize_toml='[run]\ntags = ["repo:x"]\n', jobs=_JOB)
 
@@ -152,6 +149,27 @@ class TestThreeLayersMerge:
         assert result.exit_code == 0, result.stderr
         assert [r["run_tags"] for r in _records(root, xdg_dirs.cache)] == [
             {"outer": "yes", "tier": "near", "inner": "yes"}
+        ]
+
+    def test_root_marker_stops_outer_run_tags(
+        self, cli_run, project_tree, xdg_dirs
+    ) -> None:
+        outer = project_tree(functualize_toml='[run]\ntags = ["outer:yes"]\n')
+        boundary = outer / "boundary"
+        boundary.mkdir()
+        (boundary / ".functualize.toml").write_text(
+            'root = true\n[run]\ntags = ["boundary:yes"]\n'
+        )
+        inner = boundary / "inner"
+        jobs = inner / ".functualize" / "jobs"
+        jobs.mkdir(parents=True)
+        (jobs / "release.py").write_text(_JOB["release.py"])
+
+        result = cli_run(["release"], cwd=inner)
+
+        assert result.exit_code == 0, result.stderr
+        assert [r["run_tags"] for r in _records(outer, xdg_dirs.cache)] == [
+            {"boundary": "yes"}
         ]
 
 
@@ -214,7 +232,7 @@ class TestDuplicates:
                 '[run]\ntags = ["s:1", "s:2"]\n',
                 None,
                 [],
-                "[run] tags gives run tag key 's' twice (items 1 and 2).",
+                "[run] tags in <path> gives run tag key 's' twice (items 1 and 2).",
                 id="config",
             ),
         ],
@@ -240,7 +258,8 @@ class TestDuplicates:
         result = cli_run([*argv, "release"], cwd=root)
 
         assert result.exit_code == 2
-        assert f"Error: {message}" in result.stderr
+        global_path = xdg_dirs.functualize_config / "config.toml"
+        assert f"Error: {message.replace('<path>', str(global_path))}" in result.stderr
         assert "released" not in result.stdout
         assert _records(root, xdg_dirs.cache) == []
 

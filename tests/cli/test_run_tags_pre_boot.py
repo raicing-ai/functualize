@@ -211,14 +211,14 @@ _REFUSED = [
         None,
         None,
         '[run]\ntags = ["a:b", ":x"]\n',
-        "[run] tags item 2 ':x': a run tag needs a key before ':'.",
+        "[run] tags in <path> item 2 ':x': a run tag needs a key before ':'.",
         id="config-empty-key",
     ),
     pytest.param(
         None,
         None,
         '[run]\ntags = "a:b"\n',
-        "[run] tags in the global config must be a list of strings.",
+        "[run] tags in <path> must be a list of strings.",
         id="config-not-a-list",
     ),
     pytest.param(
@@ -257,7 +257,8 @@ class TestARefusedTagStopsBeforeBoot:
         result = cli_run([*argv, "release"], cwd=project.root)
 
         assert result.exit_code == 2, result.stderr
-        assert f"Error: {message}" in result.stderr
+        global_path = xdg_dirs.functualize_config / "config.toml"
+        assert f"Error: {message.replace('<path>', str(global_path))}" in result.stderr
         assert "released" not in result.stdout
         assert not project.ran.exists(), "the job body ran"
         assert not project.imported.exists(), "the job module was imported"
