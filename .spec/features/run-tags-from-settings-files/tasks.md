@@ -186,7 +186,7 @@ not a completed feature gate.
 
 ## Wave 10 — checkpoint
 
-- [ ] **10.1 Verify the complete feature.** [F] This task changes no source
+- [x] **10.1 Verify the complete feature.** [F] This task changes no source
   file unless a failed gate identifies a concrete fix; any fix is scoped to
   its failing task. Run the repository's native Ruff, format, mypy, import
   boundary, and selected feature tests, then the full required test gate.
