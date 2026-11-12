@@ -22,7 +22,9 @@ changes:
   merged map. The resolver reads the raw selected layers: `run.tags` stays a
   declared setting, so the unknown-key census still recognises it, but the
   generic settings snapshot neither publishes it nor coerces
-  `FUNCTUALIZE_RUN_TAGS` into it.
+  `FUNCTUALIZE_RUN_TAGS` into it. A selected file carrying only `[run] tags`
+  still reads `✓ used` on the config-path surface: it supplies a value in
+  effect.
 - *Every door.* `FunctualizeApp.execute` overlays the request's `run_tags` per
   key on defaults resolved once per app, so runs from HTTP, Lambda, the MCP run
   tools, the TUI and inline TUI, event submission and workflow control carry
