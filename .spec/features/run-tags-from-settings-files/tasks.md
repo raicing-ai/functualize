@@ -145,7 +145,7 @@ not a completed feature gate.
   defaults and explicit overrides, and child runs copy the effective map
   without rereading settings.
 
-- [ ] **8.2 Cover HTTP and Lambda.** [F]
+- [x] **8.2 Cover HTTP and Lambda.** [F]
   `plugins/adapters/functualize-http/tests/test_request_envelope.py`,
   `plugins/adapters/functualize-lambda/tests/test_request_envelope.py`.
   Add representative adapter requests with project-file defaults and observe
