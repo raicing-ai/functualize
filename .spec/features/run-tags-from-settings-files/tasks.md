@@ -12,7 +12,7 @@ not a completed feature gate.
 
 ## Wave 0 — pin the old behavior as a failing-first test
 
-- [ ] **1.1 Invert the project-file test.** [F]
+- [x] **1.1 Invert the project-file test.** [F]
   `tests/cli/test_run_tags_layers.py`.
   Replace `test_the_project_file_is_not_a_layer` with an assertion that a
   selected project `[run] tags` item reaches the recorded CLI run. Add file

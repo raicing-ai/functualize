@@ -98,14 +98,61 @@ class TestThreeLayersMerge:
     def test_the_project_file_is_not_a_layer(
         self, cli_run, project_tree, xdg_dirs
     ) -> None:
-        """AC12: `[run] tags` in `.functualize.toml` contributes nothing."""
+        """A selected project `[run] tags` list contributes to the run."""
         root = project_tree(functualize_toml='[run]\ntags = ["repo:x"]\n', jobs=_JOB)
 
         result = cli_run(["release"], cwd=root)
 
         assert result.exit_code == 0, result.stderr
         assert "[run]" not in result.stderr
-        assert [r["run_tags"] for r in _records(root, xdg_dirs.cache)] == [{}]
+        assert [r["run_tags"] for r in _records(root, xdg_dirs.cache)] == [
+            {"repo": "x"}
+        ]
+
+    @pytest.mark.parametrize(
+        ("items", "detail"),
+        [
+            pytest.param('["good:1", ":x"]', "item 2 ':x'", id="malformed"),
+            pytest.param(
+                '["s:1", "s:2"]',
+                "gives run tag key 's' twice (items 1 and 2)",
+                id="duplicate",
+            ),
+        ],
+    )
+    def test_project_file_refusal_names_path_and_item(
+        self, cli_run, project_tree, xdg_dirs, items: str, detail: str
+    ) -> None:
+        root = project_tree(functualize_toml=f"[run]\ntags = {items}\n", jobs=_JOB)
+
+        result = cli_run(["release"], cwd=root)
+
+        assert result.exit_code == 2
+        assert str(root / ".functualize.toml") in result.stderr
+        assert detail in result.stderr
+        assert "released" not in result.stdout
+        assert _records(root, xdg_dirs.cache) == []
+
+    def test_nearest_project_file_overrides_per_key(
+        self, cli_run, project_tree, xdg_dirs
+    ) -> None:
+        root = project_tree(
+            functualize_toml='[run]\ntags = ["outer:yes", "tier:outer"]\n'
+        )
+        child = root / "child"
+        jobs = child / ".functualize" / "jobs"
+        jobs.mkdir(parents=True)
+        (jobs / "release.py").write_text(_JOB["release.py"])
+        (child / ".functualize.toml").write_text(
+            '[run]\ntags = ["tier:near", "inner:yes"]\n'
+        )
+
+        result = cli_run(["release"], cwd=child)
+
+        assert result.exit_code == 0, result.stderr
+        assert [r["run_tags"] for r in _records(root, xdg_dirs.cache)] == [
+            {"outer": "yes", "tier": "near", "inner": "yes"}
+        ]
 
 
 class TestDuplicates:
