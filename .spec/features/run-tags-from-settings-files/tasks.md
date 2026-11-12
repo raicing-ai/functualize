@@ -166,7 +166,7 @@ not a completed feature gate.
   has its default tags. Acceptance: neither UI path depends on the CLI
   `_merge_run_tags` helper to get its map.
 
-- [ ] **8.5 Cover event submit and workflow control.** [F]
+- [x] **8.5 Cover event submit and workflow control.** [F]
   `tests/app/test_event_submit_scope.py`,
   `tests/workflow/test_workflow_control.py`.
   Exercise each existing call path to `app.execute` with project-file defaults
