@@ -79,6 +79,16 @@ async def test_ui_stays_responsive_while_job_executes(
     and polls the loop while the worker is active. A frozen loop (the
     pre-fix async-worker-calling-sync-code pattern) starves this poll
     loop almost entirely; a thread-worker migration leaves it responsive.
+
+    The measurement window must *contain* the job. It opens on the job's
+    own started-event and closes on the job worker's liveness (never the
+    shared ``tui_app.workers`` set, whose emptiness cannot distinguish
+    "never started" from "already finished"), and a window that misses the
+    job fails with its own wording instead of the blocked-loop verdict.
+    This matters because `Pilot.pause()` -- `wait_for_idle(0)` -- can run
+    to its one-second cap under load and outlast the whole 0.4s job: the
+    third occurrence of this test failing (two runs, `STATUS.md` #33) was
+    exactly that, reported as a blocked loop that never happened.
     """
     async with tui_app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
@@ -91,20 +101,20 @@ async def test_ui_stays_responsive_while_job_executes(
         await pilot.pause()
 
         tui_app.action_execute()
-        await pilot.pause()
 
-        # Wait until the worker is genuinely RUNNING before counting anything.
-        # Without this the poll loop can be reached after the job has already
-        # finished -- `tui_app.workers` is then falsy, the loop never iterates,
-        # and zero ticks is reported as "the sync call blocked the loop". That
-        # is the *same* observation a frozen loop produces, so the failure was
-        # indistinguishable from the defect the test exists to catch.
-        # `test_reentry_guard_ignores_second_trigger_while_running` below
-        # already waits this way; this test did not.
-        # Generous, because this is a *startup* wait and not a measurement:
-        # how long Textual takes to get a thread going says nothing about
-        # whether the loop stays responsive once it has. Only a job that never
-        # runs at all should fail here.
+        # Open the window on the job's own started-event, polled with plain
+        # asyncio.sleep ticks -- NOT `pilot.pause()`. `pause(delay=None)` is
+        # `await wait_for_idle(0)` (textual/pilot.py), and `wait_for_idle`
+        # (textual/_wait.py) only breaks early when the process CPU is quiet;
+        # under load it runs to its one-second cap -- 2.5x the entire job --
+        # and the test resumed after the job had already finished. That
+        # produced `ticks == 0`, `elapsed == 0.000s`, which the window below
+        # then reported as "the sync call is still blocking the event loop" --
+        # arithmetically impossible for a genuinely blocked loop, which always
+        # completes at least one tick before its deadline. The event (set by
+        # the job body's first line) says the job started; the worker running
+        # below says it is still going; nothing here depends on the idle
+        # heuristic that used to outlast the job.
         start_deadline = time.monotonic() + 10.0
         while not job_started.is_set():
             if time.monotonic() > start_deadline:
@@ -112,18 +122,50 @@ async def test_ui_stays_responsive_while_job_executes(
                     "the slow job never began executing — it did not run in a "
                     "worker at all, which is the pre-migration defect"
                 )
-            await pilot.pause()
+            await asyncio.sleep(TICK_INTERVAL)
+
+        # A job that finished before the window could open is a *missed
+        # measurement*, and the old `tui_app.workers` window could not tell
+        # that apart from a blocked loop: both look like an empty worker set
+        # and zero ticks. `Worker._start` sets state RUNNING synchronously at
+        # dispatch (textual/worker.py) and the job body keeps it there, so
+        # "job started but worker not running" can only mean the job already
+        # ended. Fail with what actually happened -- never the responsiveness
+        # verdict below.
+        if not _job_worker_running(tui_app):
+            pytest.fail(
+                "the slow job finished before the measurement window opened "
+                "— the job ran to completion before the loop resumed: the "
+                "pre-migration block signature, or the test resumed too late "
+                "to observe the job. Either way the measurement missed the "
+                "job entirely — not a frozen loop observed inside a window"
+            )
 
         ticks = 0
         started = time.monotonic()
         deadline = started + BLOCK_SECONDS + 1.0
-        while tui_app.workers and time.monotonic() < deadline:
+        while _job_worker_running(tui_app) and time.monotonic() < deadline:
             await asyncio.sleep(TICK_INTERVAL)
             ticks += 1
         elapsed = time.monotonic() - started
 
         await tui_app.workers.wait_for_complete()
         await pilot.pause()
+
+    # A window that saw less than half the job's own runtime measured only
+    # its tail, not the loop's behaviour during it: the rate scaling below
+    # floors the ceiling at 1-2 ticks for such a window (`max(1, ...)`),
+    # which even a healthy loop cannot reach for a job it barely saw. A
+    # window that opened late is a *missed measurement* -- report it with
+    # its own wording, never as a blocked loop. (A genuinely blocked loop
+    # keeps the worker alive past its freeze, so its window is long: it
+    # reaches the responsiveness assertion below, which is where it fails.)
+    if elapsed < BLOCK_SECONDS / 2:
+        pytest.fail(
+            f"the measurement window opened too late: it saw only "
+            f"{elapsed:.3f}s of the {BLOCK_SECONDS}s job — a missed "
+            "window, not a blocked event loop"
+        )
 
     # Compare *rates*, not counts. `idle_polls` was measured over the full
     # BLOCK_SECONDS, but the window actually polled starts once the worker is

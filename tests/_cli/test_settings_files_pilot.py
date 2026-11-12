@@ -5,9 +5,9 @@ steering: action_* calls pass even when no key routes to them).
 
 What they pin down:
 - The General ring (Ctrl+E) carries Jobs, Settings, and Settings Files.
-- The Settings table shows the full catalog resolved from the *real* func
-  config files — not the retired parallel `functualize.toml`/`settings.toml`
-  pair, and not a hardcoded defaults dict.
+- The Settings table shows the declaration's `surface="tui"` rows, resolved
+  from the *real* func config files — not the retired parallel
+  `functualize.toml`/`settings.toml` pair, and not a hardcoded defaults dict.
 - Enter on a settings file pushes the shared Detail view; staging an edit
   and Ctrl+S writes it into the real file, typed.
 """
@@ -81,13 +81,20 @@ class TestGeneralRingComposition:
 class TestSettingsTableIsReal:
     @pytest.mark.asyncio
     async def test_values_come_from_the_real_config_file(self, project: Path) -> None:
-        """cli.output = "plain" in .functualize.toml must show, with source."""
+        """tui.theme in .functualize.toml must show, with its source.
+
+        The panel is the TUI surface: its rows are the declaration's
+        `surface="tui"` settings, so the fixture's `[cli]` value is
+        deliberately absent from this table while still visible in the chain.
+        """
+        (project / ".functualize.toml").write_text('[tui]\ntheme = "dark"\n')
         tui = _make_tui(project)
         async with tui.run_test() as pilot:
             panel = await _open_general_ring_panel(pilot, tui, SettingsPanel)
 
-            assert panel._values["cli.output"] == "plain"
-            assert ".functualize.toml" in panel._sources["cli.output"]
+            assert panel._values["tui.theme"] == "dark"
+            assert ".functualize.toml" in panel._sources["tui.theme"]
+            assert "cli.output" not in panel._values
 
     @pytest.mark.asyncio
     async def test_unset_settings_fall_back_to_default(self, project: Path) -> None:

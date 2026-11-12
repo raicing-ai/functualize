@@ -411,81 +411,57 @@ class TestConfigTableNavigationPreservation:
 
 @pytest.mark.slow
 class TestSettingsPanelPreservation:
-    """SettingsPanel exposes a coherent, navigable settings registry.
+    """The panel's rows come from the declaration, not a module registry.
 
-    These were three `@given(data=st.data())` tests whose generated `data` was
-    never drawn from — 50 identical iterations each — asserting a snapshot of
-    the registry: exactly 9 settings, under bare names, with a fixed default
-    apiece. The registry has since moved to dotted names and grown to 27, so
-    the snapshot broke without any behaviour changing. What is actually worth
-    protecting is the registry's internal coherence, which does not churn as
-    settings are added.
+    These used to snapshot a module-global `SETTINGS_ORDER` / `_DEFAULT_VALUES`
+    pair, which is gone. What is worth pinning now is the handoff: the shell
+    passes the declaration's `surface="tui"` rows, they are unique, and the
+    panel renders every one of them.
 
     **Validates: Requirements 3.4**
     """
 
-    def test_every_default_belongs_to_a_listed_setting(self) -> None:
-        """`_DEFAULT_VALUES` never carries a key the panel does not display.
-
-        The reverse does not hold: settings that are unset by nature — the
-        discovery filters, `import_libs`, `shell.program` — appear in the panel
-        with no static default.
-        """
-        from functualize._cli.tui.settings_panel import (
-            _DEFAULT_VALUES,
-            _SETTINGS_ORDER,
-        )
-
-        assert set(_DEFAULT_VALUES).issubset(_SETTINGS_ORDER), (
-            "Defaults exist for settings the panel never lists: "
-            f"{sorted(set(_DEFAULT_VALUES) - set(_SETTINGS_ORDER))}"
-        )
-
-    def test_settings_order_has_no_duplicates(self) -> None:
+    def test_tui_rows_are_unique_and_namespaced(self) -> None:
         """A setting listed twice would render twice and edit ambiguously."""
-        from functualize._cli.tui.settings_panel import _SETTINGS_ORDER
+        from functualize.plugin import FUNCTUALIZE_SETTINGS
 
-        assert len(_SETTINGS_ORDER) == len(set(_SETTINGS_ORDER))
+        names = [
+            setting.name
+            for setting in FUNCTUALIZE_SETTINGS.settings
+            if setting.surface == "tui"
+        ]
 
-    def test_settings_are_namespaced_or_top_level_known(self) -> None:
-        """Settings are addressed by dotted name within a known namespace.
+        assert names
+        assert len(names) == len(set(names))
+        assert all("." in name for name in names)
 
-        The bare-name spelling (`theme`, `execution_mode`) is gone; a setting
-        now says which section owns it, which is what makes it writable back
-        to a config file.
-        """
-        from functualize._cli.tui.settings_panel import _SETTINGS_ORDER
+    def test_panel_renders_every_row_it_is_given(self) -> None:
+        from functualize._cli.tui.settings_panel import SettingsPanel
+        from functualize.plugin import FUNCTUALIZE_SETTINGS
 
-        known_namespaces = {"tui", "cli", "discovery", "plugins", "shell", "vault"}
-        top_level = {"dotenv", "dotenv_path", "import_libs"}
+        catalog = tuple(
+            setting
+            for setting in FUNCTUALIZE_SETTINGS.settings
+            if setting.surface == "tui"
+        )
+        panel = SettingsPanel(catalog=catalog)
 
-        for setting in _SETTINGS_ORDER:
-            if setting in top_level:
-                continue
-            assert "." in setting, (
-                f"Setting {setting!r} is neither namespaced nor a known top-level key"
-            )
-            assert setting.split(".", 1)[0] in known_namespaces, (
-                f"Setting {setting!r} sits in an unknown namespace"
-            )
+        assert panel._settings == [setting.name for setting in catalog]
 
     def test_settings_panel_actions_include_navigation(self) -> None:
         """SettingsPanel get_available_actions always includes j/k navigate hint.
 
         **Validates: Requirements 3.4**
         """
-        from functualize._cli.tui.settings_panel import (
-            _DEFAULT_VALUES,
-            _SETTINGS_ORDER,
-            SettingsPanel,
-        )
+        from functualize._cli.tui.settings_panel import SettingsPanel
+        from functualize.plugin import FUNCTUALIZE_SETTINGS
 
-        # SettingsPanel provides fallback actions even without mounting
-        # (the except branch in get_available_actions)
-        panel = SettingsPanel.__new__(SettingsPanel)
-        panel._settings = list(_SETTINGS_ORDER)
-        panel._values = dict(_DEFAULT_VALUES)
-        panel._sources = {s: "default" for s in panel._settings}
+        catalog = tuple(
+            setting
+            for setting in FUNCTUALIZE_SETTINGS.settings
+            if setting.surface == "tui"
+        )
+        panel = SettingsPanel(catalog=catalog)
 
         actions = panel.get_available_actions(focused=True)
         action_keys = [k for k, _v in actions]

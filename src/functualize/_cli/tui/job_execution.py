@@ -596,7 +596,8 @@ def run_job(app: FunctualizeInlineTUI, tokens: list[str]) -> None:
     # EXCLUSIVE, but non-exclusive: the shell steps aside, runs the job to
     # stdout, then relaunches. PANEL (the framework default in the TUI) falls
     # through to the in-panel worker below.
-    from functualize._cli.orchestrator import RenderSurface, resolve_surface
+    from functualize.app.adapters.surface_gate import resolve_surface
+    from functualize.types import RenderSurface
 
     surface = resolve_surface(
         requires_tty=False,

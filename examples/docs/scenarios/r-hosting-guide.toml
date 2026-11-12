@@ -10,7 +10,7 @@ description = "Every snippet in the Hosting Functualize guide runs as written"
 [source]
 file = "docs/guides/hosting.md"
 lines = "13-186"
-description = "Install detection, command planning, skills hosting, and the PEP 723 skill key"
+description = "Install detection, command planning, skills hosting, and the PEP 723 entry-point key"
 
 requires = []
 
@@ -177,19 +177,20 @@ command = "func builtin skills list && func builtin skills path && func builtin 
 expected = { exit_code = 0 }
 timeout = 60
 
-# --- "Declaring a skill from a single-file script" ------------------------
+# --- "Declaring a script's entry point" ----------------------------------
 
 [[steps]]
 engine = "shell"
-description = "a script declaring `skill` parses it and warns about nothing"
+description = "the retired `skill` key warns rather than failing; `job` is still honoured"
 command = """
 python - <<'PY'
 import contextlib
+import dataclasses
 import io
 import tempfile
 from pathlib import Path
 
-from functualize._cli.pep723 import parse_script_metadata
+from functualize._cli.pep723 import ScriptMetadata, parse_script_metadata
 
 SCRIPT = '''#!/usr/bin/env -S func
 # /// script
@@ -212,15 +213,23 @@ with tempfile.TemporaryDirectory() as td:
     with contextlib.redirect_stderr(stderr):
         meta = parse_script_metadata(path)
 
-assert meta is not None
+warning = stderr.getvalue()
+# Still read: the block parses and `job` is honoured beside the retired key.
+assert meta is not None, "a retired key must not make the block unreadable"
 assert meta.job == "deploy", meta.job
-assert meta.skill == "yourapp-deploy", meta.skill
 assert meta.dependencies == ["httpx"], meta.dependencies
-assert "unknown key" not in stderr.getvalue(), stderr.getvalue()
-print("SKILL-KEY-OK")
+# Retired: nothing carries `skill` any more.
+assert "skill" not in {f.name for f in dataclasses.fields(ScriptMetadata)}
+assert not hasattr(meta, "skill"), meta
+# Warned, naming the key and the known set, as the guide says.
+assert (
+    "Warning: deploy.py: unknown key(s) in [tool.functualize]: skill. Known: job."
+    in warning
+), warning
+print("SKILL-KEY-WARNED")
 PY
 """
-expected = { exit_code = 0, stdout_contains = "SKILL-KEY-OK" }
+expected = { exit_code = 0, stdout_contains = "SKILL-KEY-WARNED" }
 timeout = 60
 
 [[steps]]

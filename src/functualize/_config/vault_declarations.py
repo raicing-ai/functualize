@@ -15,6 +15,14 @@ if TYPE_CHECKING:
     from functualize._config.manifest import SourceAnnotation
 
 
+_VAULT_SECRET_SECTION = "vault_secret"
+_GROUP = "group"
+_JOB = "job"
+_FIELD = "field"
+_SOURCE = "source"
+_VAULT_SECRET_FIELDS = frozenset({_GROUP, _JOB, _FIELD, _SOURCE})
+
+
 class VaultDeclarationError(ValueError):
     """A declaration cannot safely identify one secret and its provider."""
 
@@ -42,7 +50,7 @@ def parse_vault_declarations(
     for path, config in per_file_values:
         slot = parse_slot(path)
         environment = None if slot is None or slot.casefold() == BASE_SLOT else slot
-        blocks = config.get("vault_secret", [])
+        blocks = config.get(_VAULT_SECRET_SECTION, [])
         if not isinstance(blocks, list):
             raise VaultDeclarationError(
                 f"{path}: [[vault_secret]] must be an array of tables"
@@ -51,13 +59,13 @@ def parse_vault_declarations(
             location = f"{path}: [[vault_secret]] #{number}"
             if not isinstance(block, dict):
                 raise VaultDeclarationError(f"{location}: expected a table")
-            group, job = block.get("group"), block.get("job")
-            field, source = block.get("field"), block.get("source")
+            group, job = block.get(_GROUP), block.get(_JOB)
+            field, source = block.get(_FIELD), block.get(_SOURCE)
             if group is None and job is None:
                 raise VaultDeclarationError(
                     f"{location}: supply group, job, or both group and job"
                 )
-            if set(block) - {"group", "job", "field", "source"}:
+            if set(block) - _VAULT_SECRET_FIELDS:
                 raise VaultDeclarationError(
                     f"{location}: unsupported key in declaration"
                 )

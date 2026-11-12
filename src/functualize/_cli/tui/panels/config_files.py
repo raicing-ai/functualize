@@ -24,6 +24,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable
 
+from functualize.plugin import SettingsSources
 from functualize.types import ConfigFileRole
 
 if TYPE_CHECKING:
@@ -270,10 +271,11 @@ def discover_config_files(
     else:
         # Fallback: when kernel paths are unavailable (e.g., no FunctualizeApp
         # instance), use CWD standard locations for basic discovery.
+        project_names = SettingsSources().project_file_names
         standard_paths: list[Path] = [
-            cwd / ".functualize.toml",
+            cwd / project_names[1],
             cwd / "functualize.toml",
-            cwd / "pyproject.toml",
+            cwd / project_names[0],
         ]
         all_paths.extend(standard_paths)
 

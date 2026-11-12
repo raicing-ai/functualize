@@ -5,6 +5,8 @@ ship with the core functualize package:
 
 - ``CliAdapter``: Click-based CLI delivery (requires ``[cli]`` extras)
 - ``TuiAdapter``: Terminal UI adapter via inline TUI (requires ``[cli]`` extras)
+- ``early_setting_flags``: the ``phase="early"`` flags in argv, read before an
+  app is constructed (requires ``[cli]`` extras)
 
 It also exposes the ``AdapterPlugin`` protocol that all adapters
 (built-in and external) must satisfy.
@@ -12,9 +14,9 @@ It also exposes the ``AdapterPlugin`` protocol that all adapters
 External adapters (HTTP, Lambda) live in separate plugin packages
 under ``plugins/`` in the monorepo.
 
-Note: CliAdapter and TuiAdapter are lazily imported to avoid pulling CLI
-dependencies (click, rich, textual) into environments that only use
-the core library (e.g., Lambda or HTTP deployments).
+Note: CliAdapter, TuiAdapter and early_setting_flags are lazily imported to
+avoid pulling CLI dependencies (click, rich, textual) into environments that
+only use the core library (e.g., Lambda or HTTP deployments).
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ __all__ = [
     "AdapterPlugin",
     "CliAdapter",
     "TuiAdapter",
+    "early_setting_flags",
 ]
 
 
@@ -52,4 +55,8 @@ def __getattr__(name: str) -> Any:
         from functualize.app.adapters.tui import TuiAdapter
 
         return TuiAdapter
+    if name == "early_setting_flags":
+        from functualize.app.adapters.settings_flags import early_setting_flags
+
+        return early_setting_flags
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

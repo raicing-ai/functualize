@@ -8,9 +8,12 @@ additive for project apps rather than a change to func.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import click
 import pytest
 
+from functualize.app import ConfigSources, FunctualizeApp, JobSources, PluginSources
 from functualize.app.adapters import cli as cli_mod
 
 
@@ -48,51 +51,75 @@ def _run(ctx: _Ctx, app: object = None) -> None:
         cli_mod._handle_bare_invocation(ctx, app)  # type: ignore[arg-type]
 
 
-class TestSettingResolution:
-    def test_enabled_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A project app gets the shell without configuring anything."""
-        monkeypatch.setattr(
-            "functualize._cli.data.func_settings.FuncSettingsStore.discover",
-            classmethod(
-                lambda cls: type("S", (), {"effective_values": lambda s: {}})()
-            ),
-        )
-        assert cli_mod._inline_tui_enabled() is True
+def _app() -> FunctualizeApp:
+    return FunctualizeApp(
+        "example",
+        job_sources=JobSources(functions=[]),
+        config_sources=ConfigSources(),
+        plugin_sources=PluginSources(entry_point_group="", explicit_plugins=[]),
+    )
 
-    @pytest.mark.parametrize("value", ["false", "False", "0", "no", "off"])
-    def test_opt_out_spellings(
-        self, monkeypatch: pytest.MonkeyPatch, value: str
+
+class TestSettingResolution:
+    def test_enabled_by_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
     ) -> None:
-        monkeypatch.setattr(
-            "functualize._cli.data.func_settings.FuncSettingsStore.discover",
-            classmethod(
-                lambda cls: type(
-                    "S", (), {"effective_values": lambda s: {"cli.inline_tui": value}}
-                )()
-            ),
-        )
-        assert cli_mod._inline_tui_enabled() is False
+        """A project app gets the shell without configuring anything."""
+        monkeypatch.chdir(tmp_path)
+        assert cli_mod._inline_tui_enabled(_app()) is True
+
+    @pytest.mark.parametrize("value", ["false", "False", "0"])
+    def test_opt_out_spellings(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path, value: str
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("FUNCTUALIZE_CLI_INLINE_TUI", value)
+        app = _app()
+        assert app.settings.get("cli.inline_tui") is False
+        assert cli_mod._inline_tui_enabled(app) is False
+
+    @pytest.mark.parametrize("value", ["no", "off"])
+    def test_untyped_aliases_do_not_opt_out(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path, value: str
+    ) -> None:
+        """The adapter uses the resolver's typed boolean, not its own parser."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("FUNCTUALIZE_CLI_INLINE_TUI", value)
+        app = _app()
+        assert app.settings.get("cli.inline_tui") == value
+        assert cli_mod._inline_tui_enabled(app) is True
 
     def test_unreadable_config_still_enables(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A broken config file must not silently disable the shell."""
 
-        def _boom(cls: object) -> None:
-            raise OSError("unreadable")
+        class _Settings:
+            def get(self, name: str) -> None:
+                assert name == "cli.inline_tui"
+                raise OSError("unreadable")
 
+        app = SimpleNamespace(settings=_Settings())
+        assert cli_mod._inline_tui_enabled(app) is True
+
+    def test_typed_false_reaches_bare_branch(
+        self, tty: None, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("FUNCTUALIZE_CLI_INLINE_TUI", "false")
         monkeypatch.setattr(
-            "functualize._cli.data.func_settings.FuncSettingsStore.discover",
-            classmethod(_boom),
+            cli_mod, "_launch_shell", lambda app: pytest.fail("must not launch")
         )
-        assert cli_mod._inline_tui_enabled() is True
+        ctx = _Ctx()
+        _run(ctx, _app())
+        assert ctx.helped and ctx.exited_with == 0
 
 
 class TestBareBranch:
     def test_tty_and_enabled_launches_the_shell(
         self, tty: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(cli_mod, "_inline_tui_enabled", lambda: True)
+        monkeypatch.setattr(cli_mod, "_inline_tui_enabled", lambda app: True)
         launched: list[object] = []
         monkeypatch.setattr(
             cli_mod, "_launch_shell", lambda app: (launched.append(app), 7)[1]
@@ -110,7 +137,7 @@ class TestBareBranch:
         self, tty: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Otherwise it would not be an opt-out."""
-        monkeypatch.setattr(cli_mod, "_inline_tui_enabled", lambda: False)
+        monkeypatch.setattr(cli_mod, "_inline_tui_enabled", lambda app: False)
         monkeypatch.setattr(
             cli_mod,
             "_launch_shell",
@@ -126,7 +153,7 @@ class TestBareBranch:
     def test_non_tty_prints_help(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """No terminal to hand a shell; a piped run wants something parseable."""
         monkeypatch.setattr(cli_mod, "_bare_tty_available", lambda: False)
-        monkeypatch.setattr(cli_mod, "_inline_tui_enabled", lambda: True)
+        monkeypatch.setattr(cli_mod, "_inline_tui_enabled", lambda app: True)
 
         ctx = _Ctx()
         _run(ctx)
@@ -141,7 +168,9 @@ class TestBareBranch:
         monkeypatch.setattr(cli_mod, "_bare_tty_available", lambda: False)
         calls: list[str] = []
         monkeypatch.setattr(
-            cli_mod, "_inline_tui_enabled", lambda: (calls.append("setting"), False)[1]
+            cli_mod,
+            "_inline_tui_enabled",
+            lambda app: (calls.append("setting"), False)[1],
         )
 
         ctx = _Ctx()
@@ -157,9 +186,9 @@ class TestFuncItselfIsUnchanged:
         assert DEFAULT_VALUES["cli.inline_tui"] == "true"
 
     def test_it_is_a_recognized_config_key(self) -> None:
-        from functualize._cli.config import _RECOGNIZED_KEYS
+        from functualize._types.functualize_settings import FUNCTUALIZE_SETTINGS
 
-        assert "inline_tui" in _RECOGNIZED_KEYS["cli"]
+        assert "inline_tui" in FUNCTUALIZE_SETTINGS.keys_in("cli")
 
     def test_funcs_bare_path_does_not_route_through_the_adapter(self) -> None:
         """`func` handles bare invocation pre-boot, in `main.py::_handle_bare`.

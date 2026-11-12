@@ -9,6 +9,24 @@ from __future__ import annotations
 from enum import Enum
 
 
+class RenderSurface(Enum):
+    """Owner of the terminal while a job renders.
+
+    PANEL belongs to the inline TUI, STDOUT to the released terminal's
+    scrollback and live zone, and EXCLUSIVE to a job using the terminal
+    directly.
+    """
+
+    PANEL = "panel"
+    STDOUT = "stdout"
+    EXCLUSIVE = "exclusive"
+
+
+SURFACE_PREFERENCES = tuple(
+    surface.value for surface in RenderSurface if surface is not RenderSurface.EXCLUSIVE
+)
+
+
 class RunStatus(Enum):
     """Status of a run context execution."""
 

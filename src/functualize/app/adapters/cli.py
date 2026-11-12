@@ -34,6 +34,7 @@ from rich.table import Table
 from functualize._app.state import AppState
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import EnvironmentSource
+from functualize._types.functualize_settings import INLINE_TUI
 from functualize.app.adapters.click_params import (
     create_callback_click_command,
     create_job_click_command,
@@ -41,6 +42,10 @@ from functualize.app.adapters.click_params import (
     make_duality_group,
 )
 from functualize.app.adapters.lazy_command import make_lazy_command
+from functualize.app.adapters.settings_flags import (
+    generated_setting_options,
+    passed_setting_flags,
+)
 from functualize.types import OPTIONAL_VALUE_VALID_SET
 
 # `--emit-format`'s vocabulary, read from the one flag grammar rather than repeated
@@ -996,7 +1001,9 @@ class CliAdapter:
 
         def _callback(
             log_level: str = "INFO",
-            dotenv_file: Path | None = None,
+            # A declared setting, so the generated option supplies it: a path
+            # typed by the declaration, arriving as text.
+            dotenv_file: str | None = None,
             config_directory: Path | None = None,
             perf_report: str | None = None,
             perf_filter: str | None = None,
@@ -1013,13 +1020,13 @@ class CliAdapter:
             """Global options processed before any sub-command.
 
             ``**generated`` absorbs the flags built from settings declaring
-            ``cli_flag`` (C3.1). They arrive by destination name, which is why
-            the spec list is re-read here rather than passed down: it is the
-            one place that knows flag → dotted-name.
+            ``cli_flag`` (C3.1). They arrive by destination name and
+            ``passed_setting_flags`` is the one place that knows
+            flag → dotted-name, so nothing here re-derives it.
             """
             import time as _time
 
-            _apply_setting_overrides(generated)
+            _apply_setting_overrides(app_instance, generated)
 
             ctx = click.get_current_context()
 
@@ -1062,14 +1069,15 @@ class CliAdapter:
             logging.basicConfig(level=level, force=True, format="%(message)s")
 
             if dotenv_file is not None:
-                if not dotenv_file.exists() or not dotenv_file.is_file():
+                dotenv_path = Path(dotenv_file)
+                if not dotenv_path.is_file():
                     click.echo(
-                        f"Error: dotenv file '{dotenv_file}' does not exist.",
+                        f"Error: dotenv file '{dotenv_path}' does not exist.",
                         err=True,
                     )
                     raise SystemExit(1)
-                load_dotenv(dotenv_file)
-                AppState.set("dotenv_path", str(dotenv_file))
+                load_dotenv(dotenv_path)
+                AppState.set("dotenv_path", str(dotenv_path))
 
             if config_directory is not None:
                 if not config_directory.exists() or not config_directory.is_dir():
@@ -1123,12 +1131,6 @@ class CliAdapter:
                 ["--log-level"],
                 default="INFO",
                 help="Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL.",
-            ),
-            click.Option(
-                ["--dotenv-file"],
-                type=click.Path(path_type=Path),
-                default=None,
-                help="Path to the .env file to load environment variables from.",
             ),
             click.Option(
                 ["--config-directory"],
@@ -1194,7 +1196,7 @@ class CliAdapter:
                     "capability) or print()."
                 ),
             ),
-            *_generated_setting_options(),
+            *generated_setting_options(app_instance.settings_schema),
             *self._cli_group.params,
         ]
 
@@ -1202,20 +1204,18 @@ class CliAdapter:
 # ─── Bare invocation: launch the shell, or print help (C3.3) ────────────
 
 
-def _inline_tui_enabled() -> bool:
+def _inline_tui_enabled(app: FunctualizeApp) -> bool:
     """The `cli.inline_tui` setting — does a bare TTY invocation open a shell?
 
     Defaults to true, so a project app gets the shell without configuring
     anything. Setting it false is the opt-out for a tool that wants a bare
     invocation to behave like a conventional CLI and print its help.
     """
-    from functualize._cli.data.func_settings import FuncSettingsStore
-
     try:
-        value = FuncSettingsStore.discover().effective_values().get("cli.inline_tui")
-    except (OSError, ValueError):
+        value = app.settings.get(INLINE_TUI.name)
+    except (OSError, ValueError, AttributeError):
         return True
-    return str(value).strip().lower() not in ("false", "0", "no", "off")
+    return value is not False
 
 
 def _bare_tty_available() -> bool:
@@ -1237,7 +1237,7 @@ def _handle_bare_invocation(ctx: click.Context, app: FunctualizeApp) -> None:
     - No TTY → print help. There is no terminal to hand a shell, and a piped
       or CI invocation wants something parseable, not a refusal.
     """
-    if not _inline_tui_enabled() or not _bare_tty_available():
+    if not _inline_tui_enabled(app) or not _bare_tty_available():
         click.echo(ctx.get_help())
         ctx.exit(0)
 
@@ -1257,63 +1257,35 @@ def _launch_shell(app: FunctualizeApp) -> int:
     return launch_inline_tui(app)
 
 
-# ─── Generated root flags from the settings schema (C3.1) ───────────────
+# ─── Generated root flags from the settings declaration (C3.1) ─────────
 
 
-def _setting_flag_specs() -> list[tuple[str, str, str, str]]:
-    """``(flag, dest, dotted name, help)`` for every setting declaring a flag.
-
-    Reads the **live** settings schema, so a flag declared by a setting the
-    shell (or a project app's own component) registered is generated too — the
-    catalog is a live view precisely so this cannot go stale.
-
-    ``_cli`` is imported lazily here for the same reason
-    ``register_builtin_commands`` is: ``_cli`` sits above ``app``, so a
-    module-level import would make the graph cyclic.
-    """
-    from functualize._cli.data.func_settings import FUNC_SCHEMA
-
-    specs: list[tuple[str, str, str, str]] = []
-    for setting in FUNC_SCHEMA.settings:
-        flag = setting.cli_flag
-        if not flag:
-            # The whole point of the field: a setting without one stays
-            # file/env-only and must not appear in `--help`.
-            continue
-        dest = flag.lstrip("-").replace("-", "_")
-        specs.append((flag, dest, setting.name, setting.description or ""))
-    return specs
-
-
-def _generated_setting_options() -> list[click.Option]:
-    """Root options for settings that declare ``cli_flag``."""
-    return [
-        click.Option([flag], default=None, help=help_text)
-        for flag, _dest, _name, help_text in _setting_flag_specs()
-    ]
-
-
-def _apply_setting_overrides(values: dict[str, Any]) -> None:
-    """Feed passed generated flags into the settings store's top rung.
+def _apply_setting_overrides(app: FunctualizeApp, values: dict[str, Any]) -> None:
+    """Feed passed generated flags into the app's settings snapshot.
 
     Only flags actually given are recorded: ``None`` means "not passed", which
     must leave file/env resolution exactly as it was. That is what keeps an app
     declaring no flags byte-identical to one that never had this code.
-    """
-    from functualize._cli.data.func_settings import FuncSettingsStore
 
-    overrides = [
-        (name, values[dest], flag)
-        for flag, dest, name, _help in _setting_flag_specs()
-        if values.get(dest) is not None
-    ]
-    if not overrides:
+    Precedence has one home. The declaration's resolver already knows where a
+    command line sits in the ladder — above the environment and the files,
+    below an explicit host override — so the flags enter through it and the app
+    keeps the single snapshot every surface reads. A store beside that snapshot
+    could only ever disagree with it.
+    """
+    from functualize._config.settings_resolution import resolve_settings
+
+    flags = passed_setting_flags(app.settings_schema, values)
+    if not flags:
         return
 
-    store = FuncSettingsStore.discover()
-    for name, value, flag in overrides:
-        store.set_cli_override(name, str(value), flag=flag)
-    AppState.set("settings_store", store)
+    # Assigned through the app's own attribute: `settings` is a cached property
+    # resolved once, and this callback runs after the app exists. Resolving
+    # against the same root and the same declaration leaves the flags
+    # themselves as the only difference between the two snapshots.
+    app._settings_snapshot = resolve_settings(
+        app.settings_schema, app._state_root, flags=flags
+    )
 
 
 # ─── Helper functions for show-info ─────────────────────────────────────

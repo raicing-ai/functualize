@@ -153,10 +153,9 @@ it cannot take the CLI down with it.
 
 ---
 
-## Declaring a skill from a single-file script
+## Declaring a script's entry point
 
-A script that belongs to a skill can say so in the metadata block it already
-carries:
+A single-file script says which function it runs when invoked as a program:
 
 ```python title="deploy.py"
 #!/usr/bin/env -S func
@@ -165,27 +164,19 @@ carries:
 #
 # [tool.functualize]
 # job = "deploy"
-# skill = "yourapp-deploy"
 # ///
 ```
 
 `job` names the function the file runs; see
-[Usage Modes](modes.md#single-file-mode). `skill` names the skill the script
-belongs to.
+[Usage Modes](modes.md#single-file-mode). It is the only key
+`[tool.functualize]` accepts.
 
-!!! note "`skill` is parsed, not yet consumed"
-
-    It is recognised and validated — declaring it no longer earns an "unknown
-    key" warning — and it is exposed on `ScriptMetadata.skill`. Nothing reads
-    it yet. It ships ahead of a consumer so the file format can settle before
-    anything depends on it; write it if you want your scripts ready, but do not
-    expect behaviour from it.
-
-Any *other* key under `[tool.functualize]` warns rather than failing. A newer
-functualize may add keys, and refusing to run a script because of a field this
-version has not heard of would be worse than the typo the warning protects
-against — but silence would be worse still, because that is how a misspelled
-setting looks exactly like a setting with no effect.
+Any *other* key warns rather than failing — a misspelled `jb`, or the retired
+`skill` a script may still carry from an earlier release. The warning names the
+key and the known set, and the script runs anyway. Failing would be worse than
+the typo it protects against, since a newer functualize may well accept keys
+this version has not heard of; silence would be worse still, because that is how
+a misspelled setting looks exactly like a setting with no effect.
 
 ---
 

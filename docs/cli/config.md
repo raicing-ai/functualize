@@ -133,6 +133,7 @@ The env var name is constructed by uppercasing the full key path with underscore
 | `[discovery].require_file_prefix` | `FUNCTUALIZE_DISCOVERY_REQUIRE_FILE_PREFIX` |
 | `[cli].output` | `FUNCTUALIZE_CLI_OUTPUT` |
 | `[cli].show_timing` | `FUNCTUALIZE_CLI_SHOW_TIMING` |
+| `[run].tags` | `FUNCTUALIZE_RUN_TAGS` |
 
 ### Top-Level Keys
 
@@ -145,7 +146,13 @@ segment:
 | `dotenv_path` | `FUNCTUALIZE_DOTENV_PATH` |
 | `import_libs` | `FUNCTUALIZE_IMPORT_LIBS` |
 | `jobs_directories` | `FUNCTUALIZE_JOBS_DIRECTORIES` |
-| `extra_directories` | `FUNCTUALIZE_EXTRA_DIRECTORIES` |
+| `[discovery].extra_directories` | `FUNCTUALIZE_DISCOVERY_EXTRA_DIRECTORIES` |
+
+The top-level and `[discovery]` file spellings of `extra_directories` share
+this one environment variable. The old `FUNCTUALIZE_EXTRA_DIRECTORIES` is not
+read. Shell and plugin settings likewise use their full paths:
+`FUNCTUALIZE_SHELL_PROGRAM`, `FUNCTUALIZE_SHELL_SUDO_PASSWORD`, and
+`FUNCTUALIZE_PLUGINS_STRICT`.
 
 ```bash
 export FUNCTUALIZE_DOTENV=true
@@ -178,6 +185,45 @@ export FUNCTUALIZE_DISCOVERY_EXCLUDE_PATTERNS="**/test_*.py,**/migrations/**"
 ```
 
 ---
+
+## Settings Reference
+
+These are the declared framework settings. Dotted names identify their TOML
+section; the top-level names have no section. `root` is a document marker,
+not a setting. `[aliases]` accepts free-form names.
+
+| Setting | Purpose |
+|---|---|
+| `tui.theme` | Active theme ID |
+| `tui.display_auto_switch` | Display panel switching |
+| `tui.default_surface` | Panel or stdout rendering |
+| `tui.show_session_stamp` | Session stamp on exit |
+| `tui.history_retention` | Number of history entries |
+| `tui.signature_enabled` | Signature slot visibility |
+| `tui.default_override_target` | File or environment override target |
+| `cli.output` | Rich, plain, or JSON output |
+| `cli.show_timing` | Show run timing |
+| `discovery.require_file_prefix` | Required file prefix |
+| `discovery.require_file_postfix` | Required file postfix |
+| `discovery.require_file_import` | Required import in a file |
+| `discovery.require_file_marker` | Required marker in a file |
+| `discovery.require_job_decorators` | Required job decorators |
+| `discovery.require_job_prefix` | Required job prefix |
+| `discovery.require_job_postfix` | Required job postfix |
+| `discovery.extra_directories` | Additional job directories |
+| `discovery.exclude_patterns` | Excluded file patterns |
+| `discovery.scan_depth` | Directory scan depth |
+| `plugins.strict` | Refuse unloaded plugin metadata |
+| `shell.program` | Shell binary for raw commands |
+| `shell.sudo_password` | Password supplied to `sh.sudo()` |
+| `cli.inline_tui` | Launch the shell for a bare TTY invocation |
+| `vault.keyring_timeout` | Keyring wait duration |
+| `dotenv` | Load `.env` at startup |
+| `dotenv_path` | Explicit `.env` path |
+| `import_libs` | Import paths for job modules |
+| `jobs_directories` | Job directories |
+| `plugins_directories` | Plugin directories |
+| `run.tags` | Observation tags merged per key onto every run |
 
 ## List Merge Behavior
 
@@ -230,15 +276,20 @@ Show config file paths with their status:
 
 ```bash
 $ func builtin config path
-✓ used    /home/user/project/pyproject.toml
-✗ missing /home/user/project/.functualize.toml
-○ found   /home/user/.config/functualize/config.toml
+✗ missing /home/user/.config/functualize/config.toml
+✗ missing /home/user/project/pyproject.toml
+✓ used    /home/user/project/.functualize.toml
 ```
 
 Status indicators:
-- **`✓ used`** — file exists and contributed values
-- **`○ found`** — file exists but all values were overridden by higher-priority sources
+- **`✓ used`** — file exists and supplies at least one effective setting
+- **`○ found`** — file exists but supplies no effective setting: its values are overridden, it has only unknown keys, or its `pyproject.toml` lacks `[tool.functualize]`
 - **`✗ missing`** — file does not exist
+
+A file containing only `root = true` is `○ found`: the marker stops the upward
+walk but supplies no setting. Adding a known setting to that file makes it
+`✓ used` when the setting contributes. Unknown keys appear as annotations on
+the file's line; `info --json` also lists them under `config.unknown_keys`.
 
 ### `func builtin config edit`
 
@@ -268,8 +319,8 @@ The configuration system follows **warn and continue** for ambient config, **fai
 | Global config missing | Proceed with defaults (silent) |
 | Global config unreadable (permissions) | Warning to stderr, proceed with defaults |
 | TOML syntax error | Warning to stderr with file + line, proceed with defaults |
-| Unrecognized section in config | Silently ignored |
-| Unrecognized key in recognized section | Warning to stderr, key ignored |
+| Unrecognized section in a settings file | May name a job section; no setting is removed or warning emitted |
+| Unrecognized key in a participating settings file | Shown by `config path` and in `info --json` as `config.unknown_keys`; resolution continues without changing the exit code |
 | Type mismatch for recognized key | Warning to stderr, schema default substituted |
 | Invalid `[cli].output` value | Warning, falls back to "rich" |
 | Invalid alias key (pattern mismatch) | Warning, alias skipped |

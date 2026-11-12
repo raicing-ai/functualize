@@ -9,6 +9,8 @@ Usage:
     from functualize.plugin import DisplayProvider, PanelProvider, ThemeProvider
 """
 
+from functualize._config.settings_layers import SettingsLayer
+from functualize._config.settings_resolution import ResolvedSettings, resolve_settings
 from functualize._discovery.providers import Job, StaticProvider
 from functualize._events.bus import EventBus, StructuredEvent
 from functualize._events.hooks import HookEvent
@@ -29,6 +31,20 @@ from functualize._types.errors import (
     RuntimeStoreCapabilityError,
     RuntimeStoreSelectionError,
     SubstrateInstallError,
+)
+from functualize._types.functualize_settings import (
+    DOTENV_PATH,
+    EXCLUDE_PATTERNS,
+    EXTRA_DIRECTORIES,
+    FUNCTUALIZE_SETTINGS,
+    IMPORT_LIBS,
+    JOBS_DIRECTORIES,
+    REQUIRE_JOB_DECORATORS,
+    REQUIRE_JOB_POSTFIX,
+    REQUIRE_JOB_PREFIX,
+    ROOT_KEY,
+    SCAN_DEPTH,
+    SCRIPT_METADATA,
 )
 from functualize._types.gate_resolution import (
     GATE_ACCEPTED_TOPIC,
@@ -140,6 +156,27 @@ from functualize.plugin.protocols import (
 
 __all__ = [
     # Event infrastructure
+    "FUNCTUALIZE_SETTINGS",
+    # Two settings a surface has to name rather than iterate: `func` validates
+    # `--dotenv-file` before resolution (an unreadable path is a usage error,
+    # not a setting) and caps `--exclude` at its declared limit. Both are
+    # declared once and read here — the alternative was the flag's dotted name
+    # written out in the CLI, which is the second statement this feature exists
+    # to delete.
+    # The discovery keys the flat pre-boot dicts are keyed by. `func` writes and
+    # reads `effective`/`cli_flags` with these names, so they come from the
+    # declaration rather than being spelled a second time.
+    "DOTENV_PATH",
+    "EXCLUDE_PATTERNS",
+    "EXTRA_DIRECTORIES",
+    "IMPORT_LIBS",
+    "JOBS_DIRECTORIES",
+    "REQUIRE_JOB_DECORATORS",
+    "REQUIRE_JOB_POSTFIX",
+    "REQUIRE_JOB_PREFIX",
+    "ROOT_KEY",
+    "SCAN_DEPTH",
+    "SCRIPT_METADATA",
     "EventBus",
     "HookEvent",
     "StructuredEvent",
@@ -169,12 +206,15 @@ __all__ = [
     # write a plugin. They stay internal until something needs to name one.
     "PluginHost",
     "AppSettingsSchema",
+    "ResolvedSettings",
+    "resolve_settings",
     "CommandNode",
     "CommandProvider",
     "DEFAULT_SIGIL",
     "InputMode",
     "InputModeRegistry",
     "Setting",
+    "SettingsLayer",
     "SettingsSources",
     "PromptCollector",
     "Surface",

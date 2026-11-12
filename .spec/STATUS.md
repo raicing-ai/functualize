@@ -622,6 +622,167 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### Rise / RiseKit foundation — revision 7 specified, Execute gated on a released 0.5.0
+
+**What it is.** Rise defines typed operational subjects, contracts,
+observations, dependency routing, and convergent operations. RiseKit supplies
+reusable authoring bases and contract checks. A provider package owns
+contracts and implementations. Functualize discovers, configures, and runs
+ordinary jobs. A Cloudflare Worker plus D1 provider is the forcing case. The
+boundary is recorded in
+[ADR-043](../contributor/adr/043-rise-is-a-convention-on-the-public-api.md);
+selection, registry, and the `func rise` commands in
+[ADR-044](../contributor/adr/044-the-repository-says-what-the-cloner-decides-how.md).
+
+**Authority.** Shape intent SD/18153475 v28 has `Authority: Approved` and marks
+the three earlier post-approval deltas binding. The owner confirmed them in
+MCH-151 comment `01a1539f-4b62-72e1-84fa-4e3f3d2702b3` on 2026-10-19 and decided
+the six restatement deviations on 2026-10-30 (MCH-151 comment `01a18d2e-c1b1`,
+applied in `01a18d39-d7ac`). SD/5407068 v22 remains the canonical layer (owner,
+MCH-151 comment `01a153c1`, 2026-10-19T10:42:32Z).
+
+**Entry gate.** A **released** Functualize 0.5.0 must include class-based
+discovery (MCH-184) and scoped vault v3 (MCH-185). The public resolved-secret
+read is F6, a generic core amendment whose spelling belongs to the vault owner.
+Run tags are a separate core feature. Before Execute: verify the released 0.5.0
+against those prerequisites and capture actual call shapes (an unmet item
+returns the feature to Specify rather than gaining a workaround), then re-plan
+`tasks.md` into ordered waves with a parseable dependency graph and review the
+task list and surviving smells. The revision 6 tasks still name
+`rise validate`, `rise diagnose`, `--scope`, and a single-candidate router;
+they are not executable as r7.
+
+**Acceptance, re-derived against released APIs before any Execute task
+closes.** AC-1 boundary ADR and no core Rise import; AC-2 concrete
+`@job(group=...)` subjects work without Rise; AC-3 addresses, `Ref`,
+`[rise] default` overlays, field precedence and subject-address vault reads;
+AC-4 `config` findings and referential `ps --format json` NDJSON with masked
+secrets; AC-5 dependency-ordered, idempotent `up` with `--force-reconcile`,
+`--dry-run`, `--no-deps`, `--wait`; AC-6 binding stability and selection order;
+AC-7/7a registry search, refusal before installation, explicit `add`, HTTPS,
+disk and Git/GitHub sources; AC-8 exit codes, `start`/`stop`, v1 `down`
+refusal, offline Cloudflare Worker plus D1 forcing case; AC-9 live Cloudflare
+tier only with credentials, confined to a `rise-test-` prefix.
+
+**Not this feature.** Instance routes, `Setting()` markers, run-record source
+provenance, Gate resolution from ordinary jobs, and person-required mechanics
+have separate owners. Approver authentication, Merge/Deploy authority, OAuth,
+Worker secret delivery/runtime integration, target preview, destructive
+adoption, registry signing, trust policy, and publishing are outside this
+foundation. PR #73 (`feat/rise-risetkit-foundation`) is the older revision 6
+lineage; it is not superseded by this entry's merge.
+
+The full revision 7 record (spec, contracts, plan) is recoverable at
+`673d2fc9`, the reviewed head before the clearing:
+`git fetch origin refs/pull/132/head && git show 673d2fc9:.spec/features/rise-risetkit-foundation/spec.md`.
+
+### Unknown settings keys are reported, from one declaration — delivered on PR #130, two criteria with the maintainer
+
+**What a user sees.** A key in a settings document that no setting declares is
+named where configuration is inspected, and is never fatal.
+`func builtin config path` lists exactly the layers resolution uses: the upward
+walk stopped by `root = true`, plus the expected locations that are not layers,
+global first, nearest project file last. Each line carries `✓ used` (supplies a
+value in effect), `○ found` (exists, supplies none — a marker-only
+`root = true` file reads this way) or `✗ missing`. A file with
+unknown keys gets ` — unknown key "roots" (did you mean "root"?); unknown key
+"cli.outptu" (did you mean "cli.output"?)`. `func builtin info --json` always
+carries `config.unknown_keys` as `{file, key, suggestion}` records, `[]` when
+clean. Exit codes do not change, nothing is printed on an ordinary run, and a
+warm `func <job>` never imports the check. The global file's old per-run warning
+is gone. There is no `config check` command; `config path` and `info` are the
+two surfaces. Recorded in
+[ADR-042](../contributor/adr/042-an-unknown-settings-key-is-reported-never-fatal.md).
+
+**The rule underneath** ([ADR-041](../contributor/adr/041-a-setting-is-declared-once.md)).
+Every setting is declared once, as a `Setting` in `FUNCTUALIZE_SETTINGS`. An app
+adds its own through `extend()`, which refuses a name already declared. One
+layer list and one resolver produce a frozen `ResolvedSettings` snapshot with
+provenance. The CLI before boot, the app, the engine, the TUI and the builtins
+all read that snapshot. There is no process registry and no import-time
+registration. The job `ResolutionChain` resolves no declared settings section.
+
+**Reserved settings-section names.** A word that names a declared settings
+section (`aliases`, `cli`, `discovery`, `plugins`, `shell`, `tui`, `vault`)
+is reported when it is also used for something else. Both cases use the
+existing discovery-failure channel, with `error_type` `ReservedSectionName`
+(`RESERVED_SECTION_NAME`, `_types/discovery_report.py`), and both are advisory.
+
+- *A job or group named after a section.* `func builtin info --json` lists the
+  finding in `discovery_failures`, naming the address, the section and the
+  source file. A dotted group is reported on its reserved segment. The job
+  **still registers and runs**: the finding only says that a `[shell]` table
+  is read as settings and never reaches that job's configuration
+  (`_discovery/collisions.py`, `reserved_section_name`).
+- *A settings table inside a job config file.* A top-level table named like a
+  section in `config.*.toml`, such as `[shell] program = …` in
+  `config.base.toml`, is reported with the file and the document it belongs
+  in: `.functualize.toml [shell]`, or `[tool.functualize]` in
+  `pyproject.toml`. The finding appears in `discovery_failures` and as a
+  `Discovery failure:` line under `func builtin config path`. The table
+  **still merges** into the job chain exactly as before
+  (`_config/sources.py`, `_report_reserved_section_tables`;
+  `reserved_section_table`).
+
+`tests/discovery/test_reserved_section_names.py` pins both cases, including
+the still-registers and still-merges halves.
+
+**Rules that outlive the feature:**
+
+- A new setting is a declaration edit, never a string read elsewhere. The
+  check, the generated root flags, the pre-boot early-flag scan, `config show`,
+  the TUI settings panel and the docs reference all derive from the
+  declaration.
+- A settings-backed root flag exists because its setting declares `cli_flag`.
+  `func` and an embedded app generate the same options from their own schema.
+  `phase="early"` flags are read before boot by the public
+  `functualize.app.adapters.early_setting_flags(schema, argv)` and enter the
+  first snapshot as its flag layer.
+- Each setting has exactly one environment name, `AppSettingsSchema.env_var_for`.
+
+**Ratchet state at the closing push.** `tests/spec/test_settings_ratchet.py`
+guards:
+- AC12 (no collection literal repeating declared names outside the
+  declaration, `test_declared_names_are_not_repeated_as_collection_literals`);
+- AC18 (no job-chain read of a declared section, no second settings-file
+  reader);
+- AC20 (no process registry);
+- AC22 (one schema source for generated flags);
+- AC30 (one owner of the surface vocabulary);
+- AC31 (the nine retained public→`_cli` delivery imports, pinned).
+
+`tests/config/test_settings_pin.py` pins the declared vocabulary and resolved
+values. **AC13 has no ratchet:** zero config-key string literals in read
+position outside the declaration and the resolver. Its read-position definition
+is with the maintainer. The gate-1 review counted 36 such literals still
+present at `413679fa`.
+
+**Known limitation — AC5 is with the maintainer.** At `8f979601`,
+`[plugins] disabled` and `[discovery] jobs_directories` are reported as
+unknown, though AC5 calls both known and the runtime honours them. The second
+also gets the suggestion `discovery.extra_directories`. Both are declaration
+gaps. The check reports them faithfully.
+
+**Task graph, terminal state.** `tasks.md` Revision 8, waves 0–9: every row
+complete except 8.1 (Ratchets), which stays open on AC13 alone. Row 9.2 was
+added late: the doc-verify scenario for the hosting guide still asserted the
+retired PEP 723 `skill` key, because neither the page nor the scenario was in
+any row's file list.
+
+**Owned elsewhere.** `JobExecutionEngine` and `FunctualizeInlineTUI` are each
+over the constitution's ~500-line limit. They were **maintainer-accepted for
+this merge only**, with PR 2 named as the owner. PR 2 on this branch line
+decomposes both classes, the long functions in the files this feature edited,
+and the nine delivery imports. It starts after PR #130 merges, with its
+own architecture pass. The advisory dead-code delta leaves
+`func_settings.tui_settings` and `FuncSettingsStore.set_cli_override` reachable
+only from tests.
+
+The full feature record (spec, contracts, plan, tasks) is gone from PR #130's
+head, which is past the clearing commit. It stays recoverable at
+`fe1eae887f50`, the commit before the clearing:
+`git fetch origin refs/pull/130/head && git show fe1eae887f50:.spec/features/config-unknown-keys/spec.md`.
+
 ### Lease heartbeat — implemented, review pending
 
 A claimed workflow walk renews its 300-second lease once when it starts, before
@@ -980,6 +1141,102 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### `root = true` ends the project for every walk (2026-10-28, `sdd/project-root-bounds-sources`)
+
+**The decision worth keeping.** *A project file that declares `root = true`
+ends the project for everything a walk resolves, and one primitive owns that
+answer.* Before, four upward walks each had their own stop and only the
+settings merge read the marker, so a nested root still listed and ran an
+ancestor's jobs, imported its library, loaded its convention plugins, used its
+state and project mode, took job-config values from its `config.base.toml`,
+and showed its settings file in the TUI — while `builtin config path` showed
+none of it. Now `_primitives/project_root.py` holds the derived candidates,
+`is_root_config`, `find_project_boundary`, walk C (`find_functualize_dir`,
+bounded inclusive) and `project_identity_dir`; walk A is the one function
+`_config/project_dirs.py::project_config_layers`; walk B's two stages share
+`_app/boot.py::_job_config_stop`. The project file list is declared once, in
+`_types/settings.py` (`PROJECT_FILE_NAMES`, `PROJECT_FILE_SECTION_PREFIXES`),
+and `SettingsSources.project_file_names` defaults to it. User-facing rules and
+the migration steps are in `docs/guides/configuration.md` § *Project
+boundaries and `root = true`*; rationale and rejected alternatives in
+[ADR-043](../contributor/adr/043-root-true-bounds-every-project-walk.md).
+
+Decisions taken on the way (maintainer, 2026-10-21 to 2026-10-28): **D1 (a)**
+the settings catalog and its write targets list only the bounded project files
+plus the global file; **D2 (b)** walk C stops at the root, and a root without
+its own `.functualize/` is standalone with the root directory as its one
+identity, ancestor data untouched and never copied automatically; **D3 (b),
+design B1** both job-config stages stop at the root; **D4 (a)** an explicit
+`--config-directory` layers up to the boundary of the directory it names;
+**D5 (a)** `builtin config path` lists the bounded project files that apply and
+the expected candidates around them — global first, nearest project file last,
+`✓ used` / `○ found` / `✗ missing`, unknown keys in place; smell 2
+(the project file list written out six times) fixed in scope.
+
+**Rules that outlive the feature:**
+
+- **Never write a fifth walk.** Anything that asks "which project files
+  apply" reads `project_config_layers`; anything that asks "where is
+  `.functualize/`" or "what is this project's key" asks `project_root.py`.
+  A loop over `resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)` outside
+  `project_config_layers` is the defect this fixed. The one allowed
+  difference is the settings store (`_config/settings_layers.py`): it probes
+  each schema's own `project_file_names` and stops on the same
+  `is_root_config` predicate, because a second app declares its own names and
+  section prefixes and the store needs each file's text to write an edit back;
+  `builtin config path` renders that snapshot.
+  `tests/config/test_settings_layers.py` pins its files and order to walk A's
+  for a marker-only root.
+- **Only boolean `true` is a root.** `root = "true"` does not stop anything;
+  `is_root_config` is the one predicate, and `merge_config_layers` asks it for
+  the default key.
+- **Walk C is bounded inclusive.** A `.functualize/` *in* the root directory is
+  the project's; one above it is another project's.
+- **Identity order is fixed:** `.functualize/`'s parent, else the root
+  directory, else the start. The vault key lookups (`vault status`,
+  `vault sync`, the remote-first source) take the same identity as the vault
+  file. Child projects keep `ancestor_search=False` (ADR-011).
+- **Walk B never widens.** The boundary applies only when it is reached
+  before `~`; a boundary above `~` leaves `~` as the stop.
+- **`cache_format` and `fresh_format` bind `find_functualize_dir`
+  unqualified** — `tests/conftest.py::_isolate_state_root` patches
+  `fresh_format`'s binding.
+- **The project file names have one spelling**, in `_types/settings.py`.
+  `_cli/pep723.py`'s `[tool.functualize]` (a script header) and the TUI's
+  legacy job-config name `functualize.toml` are different file kinds and stay
+  literals.
+
+**Known limitations and findings left open:**
+
+- `tests/cli/test_root_boundary_migration.py` replays the migration against
+  the pre-fix tree of `f30285c`, a branch-only commit. After the squash merge
+  a fresh clone lacks it and the test **skips with its reason**; re-pin
+  `PRE_FIX` to a commit on `master` that predates the fix to keep it running.
+- Pre-existing, measured 2026-10-21 and out of scope: a nested `.functualize/`
+  with no project config file, run from a subfolder, loses the nested
+  project's own convention jobs (they are collected only at walk-A hit levels
+  plus cwd). Also measured 2026-10-20: `auto_discover` computes an
+  `exclude_patterns` list from the raw layers that nothing reads.
+- `tui.*` settings register only when `functualize._cli.tui` is imported, so
+  `test_func_settings_store.py::TestChainPrecedence::test_default_when_nothing_sets_it`
+  fails when run without that import (inherited from `master`).
+- `functualize.app.utils.project_config_file_table` is a new public export
+  without an `examples/` caller.
+- The remote-first vault source's key id under a root, and the `vault sync`
+  migration step (it needs a provider), have no end-to-end test.
+
+Pinned by `tests/cli/test_root_boundary_sources.py` (jobs, directories, lib,
+cold/warm cache, settings layers), `tests/cli/test_root_boundary_identity.py`
+(plugins, mode, shared identity, ancestor hashes),
+`tests/cli/test_root_boundary_job_config.py` (both walk-B stages, overlay,
+global, explicit directory, programmatic app on boot and `refresh()`),
+`tests/cli/test_root_boundary_migration.py` (both migrations with real data),
+`tests/primitives/test_project_root.py` (marker forms, derived candidates,
+identity), `tests/config/test_project_dirs.py` (`project_config_layers`),
+`tests/app/test_project_root_identity_wiring.py` (state and cache identity
+through `boot_standard`) and `tests/cli/test_config_builtin.py`
+(`config path`).
+
 ### Run tags label every run, are fixed when it opens, and filter the run log (2026-10-29, `sdd/run-tags`)
 
 **The decision worth keeping.** *A run tag is an observation about one run,
@@ -995,10 +1252,10 @@ list`, `run show`, `--format json`, the MCP run tools) carries `run_tags`, and
 `run list --tag KEY:VALUE` keeps a run only when every given pair matches
 exactly. The SQLite store gains schema revision **5**, a `run_tags` table. The
 surfaces: `_cli/run_tags.py` (the one grammar), `_cli/main.py` (the pre-boot
-merge and the forward to every run-building door), `_cli/config.py`
-(`[run] tags`), `_types/run_request.py`, the request builders,
+merge, the read of `[run] tags` off the global layer, and the forward to every
+run-building door), `_types/run_request.py`, the request builders,
 `_engine/executor.py` (the record), both stores, `app/_run_view.py` (the
-projection and filter) and `_cli/builtins.py` (`--tag`, the table and `run
+projection and filter) and `_cli/builtins/_run.py` (`--tag`, the table and `run
 show`). Rationale in
 [ADR-040](../contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md).
 
@@ -2521,7 +2778,12 @@ Items identified during development that are worth doing but not yet designed:
     a success nor an error, and that is the case the mapping has to name rather
     than round off.
 
-22. **AMENDED (2026-09-06) — the cause is a product defect, and it is proven.**
+22. **RESOLVED — the direct-run surface reads the declared setting.**
+    `tui.default_surface` now comes from the app's resolved settings snapshot,
+    independently of whether the TUI package was imported. The standalone
+    surface-gate test and the root-stop fixture pin the result. The original
+    finding follows for history.
+
     `tui.default_surface` is **not** in `_BASE_SETTINGS`; the shell registers it
     as an import side effect of `_cli/tui/__init__.py:88`, and a direct
     `func <job>` run under true-lazy boot never imports that package. So
@@ -2727,7 +2989,11 @@ Items identified during development that are worth doing but not yet designed:
     cost about a minute, not ten — only the `cargo` build beyond it is
     expensive, and the fix does not reach it.
 
-29. **`[tool.functualize] skill` is accepted, validated, and read by nothing.**
+29. **RESOLVED — removed, no consumer arrived.** The PEP 723 parser rejects
+    `[tool.functualize] skill` as unknown and keeps `job`. The former
+    accepted-but-unused behaviour follows for history.
+
+    `[tool.functualize] skill` was accepted, validated, and read by nothing.
     Shipped knowingly by `third-party-host-seams`/1.2, and recorded here
     because that task required it to be — this is the fourth member of a class
     this file already calls *"the worst of the three states"*.
@@ -2961,9 +3227,16 @@ Items identified during development that are worth doing but not yet designed:
     **Verified not to be a weakening**, at both iterations. With the real defect
     reintroduced — the sync job called inline instead of through
     `run_worker(..., thread=True)` — the old and both new versions fail. The
-    final one fails on the responsiveness assertion: the job body runs, so the
-    start event is set, but the polling window is then empty and the scaled
-    floor is not met. 5/5 clean runs locally.
+    final one, at the current head, fails at the pre-check
+    (`tests/_cli/test_job_execution_thread_worker.py:136`), not at the
+    responsiveness assertion: the job body runs inline, so the start event is
+    set and the job is done before the window can open — "the pre-migration
+    block signature" — and the verdict names the missed window ("the
+    measurement missed the job entirely"). The responsiveness assertion is
+    exercised by a different control: a mid-window freeze — the window loop's
+    tick sleep made synchronous across the measured window — which fails
+    there ("the sync call is still blocking the event loop"). 5/5 clean runs
+    locally.
 
     An earlier sabotage attempt (freezing the loop at dispatch while the thread
     also ran) passed against **both** versions — worth recording, because it
@@ -3004,6 +3277,31 @@ Items identified during development that are worth doing but not yet designed:
     worker is observably running before it starts counting, so the measurement
     cannot begin after the work has finished. **Done, plus the rate scaling the
     second failure mode needed — see the head of this entry.**
+
+    **Third occurrence (2026-11-01) — the wait above outlasted the job.** The
+    `job_started` wait was the right signal but used `pilot.pause()` as its
+    transport, and `pause(delay=None)` is `await wait_for_idle(0)`
+    (`textual/pilot.py`), which under load runs to its one-second cap
+    (`textual/_wait.py`) — 2.5x the entire 0.4s job. The test resumed after
+    the job had finished: `got 0 polls ... elapsed 0.000s` on `01b3527f`
+    (passed on re-run) and `64ac36ad` (3.13 leg `got 1 polls`; 3.12 re-run
+    `got 0 polls`) — the window opened on the
+    job's tail or not at all, and the assertion reported a blocked loop that
+    never happened. Closed by rebuilding the window around the job: it opens
+    on `job_started` polled with plain `asyncio.sleep` ticks (no idle
+    heuristic on the critical path), closes on the job worker's liveness
+    (`_job_worker_running`, not the shared `tui_app.workers` set, whose
+    emptiness cannot distinguish "never started" from "already finished"),
+    and a window that missed the job — worker already finished at open, or
+    spanning less than half the job's own runtime — fails with its own
+    wording per path ("the measurement missed the job entirely" when the
+    worker was already finished at open; "a missed window, not a blocked
+    event loop" when the window spanned less than half the job), never the
+    responsiveness verdict. `BLOCK_SECONDS`, `TICK_INTERVAL` and the
+    `tests/_responsiveness.py` calibration are untouched. Run evidence (20
+    consecutive passes under load; negative control with a synchronous sleep
+    on the loop still failing the responsiveness assertion) is with the pull
+    request.
 
 34. **The pre-filter stack parses each candidate file three to four times.**
     Measured while deciding ADR-017; recorded because the cost is real even

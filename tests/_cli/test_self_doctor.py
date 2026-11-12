@@ -157,7 +157,7 @@ class TestItReportsWhatItCannotAssume:
         )
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "broken"\nversion = "0"\n'
-            "[tool.functualize]\nrequire_file_import = false\n"
+            "[tool.functualize.discovery]\nrequire_file_import = false\n"
         )
         report = build_report(cwd=tmp_path)
         # Whatever the verdict, a report came back rather than an exception.

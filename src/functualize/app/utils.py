@@ -24,6 +24,7 @@ from functualize._config.merge import merge_config_layers
 from functualize._config.project_dirs import (
     PROJECT_CONFIG_CANDIDATES,
     collect_convention_directories,
+    project_config_layers,
     read_toml_file,
     resolve_effective_directories,
     resolve_effective_directories_from_layers,
@@ -65,6 +66,7 @@ from functualize._primitives.parameter_types import (
     is_cli_value_type,
 )
 from functualize._primitives.plugin_kinds import PluginKind, classify_group
+from functualize._primitives.project_root import project_config_file_table
 from functualize._primitives.run_store import RunStore, new_run_id, runner_identity
 from functualize._primitives.scope_format import (
     SCOPES_LIMIT,
@@ -92,6 +94,18 @@ from functualize._types.flag_grammar import (
     match_group_flag,
     negative_aliases,
     negative_flag_for,
+)
+
+# Every config key this module reads or writes comes from here rather than from
+# a literal: `discovery` + `scan_depth`, `jobs_directories`, `extra_directories`
+# and the rest are one statement in the declaration, and discovery is a reader
+# of that statement, not a second copy of it.
+from functualize._types.functualize_settings import (
+    EXCLUDE_PATTERNS,
+    EXTRA_DIRECTORIES,
+    IMPORT_LIBS,
+    JOBS_DIRECTORIES,
+    SCAN_DEPTH,
 )
 from functualize._types.naming import (
     BUILTIN_SEGMENT,
@@ -268,6 +282,7 @@ __all__ = [
     "is_display_provider",
     "JobMaterializationError",
     "list_project_config_files",
+    "project_config_file_table",
     "NodeKind",
     "pending_gates",
     "read_display_modules_from_cache",
@@ -484,24 +499,30 @@ def enumerate_group_names(jobs_directories: list[str]) -> set[str]:
 def _first_existing_candidate_file(
     directory: Path, candidates: list[str | tuple[str, Any]]
 ) -> Path | None:
-    """Return the path of the first candidate filename that exists in directory."""
+    """Return the file the project walk reads in ``directory``, or None.
+
+    The walk's own per-directory first-match rule, not "the first name that
+    exists": a ``pyproject.toml`` without a ``[tool.functualize]`` table is
+    somebody else's file, so a ``.functualize.toml`` beside it is the layer.
+    """
+    locator = ResourceLocator().search_explicit(directory)
     for candidate in candidates:
-        filename = candidate if isinstance(candidate, str) else candidate[0]
-        file_path = directory / filename
-        if file_path.is_file():
-            return file_path
+        if locator.resolve_first_candidate([candidate]) is not None:
+            filename = candidate if isinstance(candidate, str) else candidate[0]
+            return directory / filename
     return None
 
 
 def list_project_config_files(cwd: Path) -> list[tuple[Path, Path]]:
     """List individual project config file candidates, without merging.
 
-    Performs the same upward walk + platform-user search as
-    ``resolve_project_config``, but returns the resolved file path found in
-    each directory instead of a merged config dict. This is the single
-    source of truth for "which files could a project-level config write go
-    to" — callers building a file picker/target selector should use this
-    instead of re-implementing the directory walk.
+    Reads the same layers as ``resolve_project_config`` (walk A, ending at the
+    project root), but returns the resolved file path found in each directory
+    instead of a merged config dict. This is the single source of truth for
+    "which files could a project-level config write go to" — callers building
+    a file picker/target selector should use this instead of re-implementing
+    the directory walk. A file above a ``root = true`` layer is another
+    project's, and is not listed.
 
     Args:
         cwd: The current working directory to start searching from.
@@ -510,11 +531,7 @@ def list_project_config_files(cwd: Path) -> list[tuple[Path, Path]]:
         List of (directory, file_path) tuples in priority order (nearest
         first), one per directory that has a matching candidate file.
     """
-    locator = (
-        ResourceLocator().search_upward(start=cwd).search_platform_user("functualize")
-    )
-
-    results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
+    results = project_config_layers(cwd)
 
     files: list[tuple[Path, Path]] = []
     for directory, _config in results:
@@ -754,10 +771,10 @@ def _read_config_scan_depth(*configs: dict[str, Any]) -> int | None:
         The configured scan depth, or None if no layer sets a usable value.
     """
     for config in configs:
-        section = config.get("discovery")
-        if isinstance(section, dict) and "scan_depth" in section:
+        section = config.get(SCAN_DEPTH.section)
+        if isinstance(section, dict) and SCAN_DEPTH.key in section:
             try:
-                return int(section["scan_depth"])
+                return int(section[SCAN_DEPTH.key])
             except (ValueError, TypeError):
                 return None
     return None
@@ -853,11 +870,11 @@ def _normalize_overrides(
         return overrides
     # Plain dict: extract known fields and construct DiscoveryOverrides
     return DiscoveryOverrides(
-        scan_depth=overrides.get("scan_depth"),
-        import_libs=overrides.get("import_libs"),
-        jobs_directories=overrides.get("jobs_directories"),
-        extra_directories=overrides.get("extra_directories"),
-        exclude_patterns=overrides.get("exclude_patterns"),
+        scan_depth=overrides.get(SCAN_DEPTH.key),
+        import_libs=overrides.get(IMPORT_LIBS.key),
+        jobs_directories=overrides.get(JOBS_DIRECTORIES.key),
+        extra_directories=overrides.get(EXTRA_DIRECTORIES.key),
+        exclude_patterns=overrides.get(EXCLUDE_PATTERNS.key),
     )
 
 
@@ -869,15 +886,15 @@ def _overrides_to_cli_dict(
         return {}
     result: dict[str, Any] = {}
     if typed.scan_depth is not None:
-        result["scan_depth"] = typed.scan_depth
+        result[SCAN_DEPTH.key] = typed.scan_depth
     if typed.import_libs is not None:
-        result["import_libs"] = typed.import_libs
+        result[IMPORT_LIBS.key] = typed.import_libs
     if typed.jobs_directories is not None:
-        result["jobs_directories"] = typed.jobs_directories
+        result[JOBS_DIRECTORIES.key] = typed.jobs_directories
     if typed.extra_directories is not None:
-        result["extra_directories"] = typed.extra_directories
+        result[EXTRA_DIRECTORIES.key] = typed.extra_directories
     if typed.exclude_patterns is not None:
-        result["exclude_patterns"] = typed.exclude_patterns
+        result[EXCLUDE_PATTERNS.key] = typed.exclude_patterns
     return result
 
 
@@ -907,9 +924,10 @@ def auto_discover(
                     Clamped to [0, 5]. Negative values → 0.
                     Deprecated in favor of ``overrides.scan_depth``;
                     kept for backward compatibility.
-        search_ancestors: When True (default), use ResourceLocator.search_upward()
-                    for full upward-walk config resolution. When False, only check
-                    the given CWD directory for config (local-only mode).
+        search_ancestors: When True (default), walk upward for config
+                    (``project_config_layers``), ending at the project root.
+                    When False, only check the given CWD directory for config
+                    (local-only mode).
 
     Returns:
         DiscoveryResult with anchor, job_sources, import_libs, merged_config,
@@ -935,14 +953,9 @@ def auto_discover(
 
     # --- Config resolution ---
     if search_ancestors:
-        # Full upward-walk using ResourceLocator + candidate-based matching
-        locator = (
-            ResourceLocator()
-            .search_upward(start=cwd)
-            .search_platform_user("functualize")
-        )
-
-        results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
+        # Walk A, ending at the project root: nothing above a `root = true`
+        # layer contributes jobs, libraries or convention directories.
+        results = project_config_layers(cwd)
 
         if results:
             # Extract layers in priority order (nearest first)
@@ -982,23 +995,19 @@ def auto_discover(
         config_directories: list[str] = []
         seen_config: set[str] = set()
 
-        for dir_str in effective.get("jobs_directories", []):
+        for dir_str in effective.get(JOBS_DIRECTORIES.key, []):
             if dir_str not in seen_config and Path(dir_str).is_dir():
                 seen_config.add(dir_str)
                 config_directories.append(dir_str)
 
-        for dir_str in effective.get("extra_directories", []):
+        for dir_str in effective.get(EXTRA_DIRECTORIES.key, []):
             if dir_str not in seen_config and Path(dir_str).is_dir():
                 seen_config.add(dir_str)
                 config_directories.append(dir_str)
 
     else:
-        # Local-only mode: ResourceLocator-based but CWD-only (no upward walk)
-        locator = (
-            ResourceLocator().search_explicit(cwd).search_platform_user("functualize")
-        )
-
-        results = locator.resolve_all_candidates(PROJECT_CONFIG_CANDIDATES)
+        # Local-only mode: CWD-only (no upward walk)
+        results = project_config_layers(cwd, search_ancestors=False)
 
         if results:
             layers = [config for (_directory, config) in results]
@@ -1030,19 +1039,19 @@ def auto_discover(
         config_directories = []
         seen_config = set()
 
-        for dir_str in effective.get("jobs_directories", []):
+        for dir_str in effective.get(JOBS_DIRECTORIES.key, []):
             if dir_str not in seen_config and Path(dir_str).is_dir():
                 seen_config.add(dir_str)
                 config_directories.append(dir_str)
 
-        for dir_str in effective.get("extra_directories", []):
+        for dir_str in effective.get(EXTRA_DIRECTORIES.key, []):
             if dir_str not in seen_config and Path(dir_str).is_dir():
                 seen_config.add(dir_str)
                 config_directories.append(dir_str)
 
     # Effective import_libs and jobs_directories lists
-    effective_import_libs = effective.get("import_libs", [])
-    effective_jobs_directories = effective.get("jobs_directories", [])
+    effective_import_libs = effective.get(IMPORT_LIBS.key, [])
+    effective_jobs_directories = effective.get(JOBS_DIRECTORIES.key, [])
 
     # Config fallback for scan_depth ([discovery].scan_depth), then clamp to [0, 5]
     if resolved_scan_depth is None:
@@ -1871,6 +1880,7 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
         KeyStatus,
         resolve_vault_key,
     )
+    from functualize._config.vault_paths import project_root_for
     from functualize._primitives.locator import compute_project_id
     from functualize.app.vault import VaultKeyStatus, vault_key_state
 
@@ -1894,7 +1904,7 @@ def vault_status(app: Any = None, cwd: str | Path | None = None) -> VaultStatusR
         # Unlocked, so a silent read answers at once; the short bound only
         # guards a hung backend.
         lookup = resolve_vault_key(
-            compute_project_id(Path(cwd) if cwd is not None else Path.cwd()),
+            compute_project_id(project_root_for(cwd)),
             access=KeyAccess.BOUNDED,
             timeout=2.0,
         )
@@ -1989,6 +1999,7 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
         describe_key_failure,
         resolve_vault_key,
     )
+    from functualize._config.vault_paths import project_root_for
     from functualize._primitives.locator import compute_project_id
     from functualize._types.enums import ConfigFileRole
     from functualize.app.vault import VaultIdentity, resolve_vault_identity
@@ -2059,7 +2070,7 @@ def vault_sync(app: Any, cwd: str | Path | None = None) -> VaultSyncReport:
             path=path,
         )
 
-    project_id = compute_project_id(Path(cwd) if cwd is not None else Path.cwd())
+    project_id = compute_project_id(project_root_for(cwd))
     # Bounded like a job run: sync also runs from scripts, where an unbounded
     # wait on a locked keyring is the hang this exists to remove.
     timeout = app_keyring_timeout(app)

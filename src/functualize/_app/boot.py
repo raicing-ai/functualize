@@ -52,11 +52,17 @@ from functualize._discovery.pipeline import ResolutionPipeline
 from functualize._discovery.providers import DirectoryScanProvider, StaticProvider
 from functualize._events import HookEvent
 from functualize._primitives.locator import ResourceLocator
+from functualize._primitives.project_root import find_project_boundary
 from functualize._types.errors import (
     RuntimeStoreCapabilityError,
     SubstrateInstallError,
 )
 from functualize._types.from_job import declared_dependency_names
+from functualize._types.functualize_settings import (
+    FUNCTUALIZE_SETTINGS,
+    PLUGINS_STRICT,
+    SHELL_SUDO_PASSWORD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -433,6 +439,9 @@ def build_engine(
 
     app: Any = host
 
+    def _setting_value(name: str) -> Any:
+        return resolve_declared_setting(app, name)
+
     def _config_view_factory(
         *, section_prefix: str, scope: Literal["group", "job"] = "job"
     ) -> Any:
@@ -451,6 +460,7 @@ def build_engine(
         max_invoke_depth=app._execution_config.max_invoke_depth,
         plugin_config_registry=app.plugin_config_registry,
         host=host,
+        settings_resolver=_setting_value,
         gate_registry=app._gate_registry,
         # Landed on another branch (agent-step-port) while this construction
         # site was being consolidated, so it reached `boot.py`'s two inline
@@ -1221,6 +1231,25 @@ def _warn_about_empty_declared_plugin_directories(
             )
 
 
+def _job_config_stop(start: Path) -> Path:
+    """Where an upward job-config walk from ``start`` ends, inclusive.
+
+    The project boundary (the nearest directory declaring ``root = true``) when
+    the walk would reach it before ``~``; otherwise ``~``, as it always was.
+    Both stages of job-config resolution — finding the config directory and
+    layering it — stop here, so a nested root reads neither an ancestor's file
+    in place of its own nor a key its own file is missing (D3 B1). A boundary
+    *above* ``~`` is never reached first, so it widens nothing.
+    """
+    home = Path.home().resolve()
+    boundary = find_project_boundary(start)
+    if boundary is None:
+        return home
+    if start.resolve().is_relative_to(home) and not boundary.is_relative_to(home):
+        return home
+    return boundary
+
+
 def discover_config_path(
     config_file_regex: str,
     app_name: str,
@@ -1229,8 +1258,10 @@ def discover_config_path(
 ) -> str:
     """Discover config directory by searching upward from CWD.
 
-    Searches parent directories for files matching the given regex pattern.
-    Falls back to ~/.config/<app_name> if no config file is found.
+    Searches parent directories for files matching the given regex pattern,
+    up to the project boundary (a ``root = true`` project file) or ``~``,
+    whichever comes first. Falls back to ~/.config/<app_name> if no config
+    file is found.
 
     Args:
         config_file_regex: Regex pattern for config file name matching.
@@ -1261,6 +1292,7 @@ def discover_config_path(
     regex = re.compile(config_file_regex)
     known = {ext.lower() for ext in extensions} if extensions is not None else None
     current = Path.cwd().resolve()
+    stop = _job_config_stop(current)
 
     while True:
         if current.is_dir():
@@ -1285,7 +1317,7 @@ def discover_config_path(
                     return str(current)
             except (PermissionError, OSError):
                 pass
-        if current == Path.home():
+        if current == stop:
             break
         parent = current.parent
         if parent == current:
@@ -1361,10 +1393,11 @@ def _lazy_vault_source(app: Any, path: Path, *, max_age: Any = None) -> Any:
     source says it once, at the first declared-remote value that needed it.
     """
     from functualize._config.vault_key_resolver import VaultKeyResolver
+    from functualize._config.vault_paths import project_root_for
     from functualize._config.vault_source import VaultSource
     from functualize._primitives.locator import compute_project_id
 
-    resolver = VaultKeyResolver.for_app(compute_project_id(Path.cwd()), app)
+    resolver = VaultKeyResolver.for_app(compute_project_id(project_root_for()), app)
     return VaultSource(
         path, key=resolver, max_age=max_age, environment=app._environment
     )
@@ -1441,10 +1474,16 @@ def build_resolution_chain(
     Returns:
         Configured ResolutionChain instance.
     """
+    # Layering stops where the chosen directory's project stops — the same
+    # boundary discovery used — so a key the nested root's file lacks is not
+    # taken from an ancestor's. An explicit `--config-directory` follows the
+    # same rule from wherever it points (D4 (a)).
     resolver = (
         ResourceLocator()
         .search_explicit(config_path)
-        .search_upward(start=Path(config_path), stop=Path.home())
+        .search_upward(
+            start=Path(config_path), stop=_job_config_stop(Path(config_path))
+        )
         .search_platform_user(app_name=app_name)
     )
     filename_regex = file_regex
@@ -2193,15 +2232,42 @@ def validate_job_deps(app: Any) -> None:
 def _resolve_plugins_strict(app: Any) -> bool:
     """Resolve the ``plugins.strict`` boolean from config (default False)."""
     try:
-        resolved = app._resolution_chain.resolve("strict", "plugins")
+        value = app.settings.get(PLUGINS_STRICT.name)
     except Exception:
         return False
-    value = resolved.value
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "on")
     return bool(value)
+
+
+def resolve_declared_setting(app: Any, name: str) -> Any:
+    """Read the app snapshot, with the stored vault value for a secret setting.
+
+    Vault lookup remains deferred until a consumer asks for the secret. Boot
+    installs this callable in the engine; it never opens the keyring simply
+    because a vault exists or because unrelated settings were resolved.
+    """
+    schema = app._config_sources.settings or FUNCTUALIZE_SETTINGS
+    setting = schema.setting(name)
+    if setting is None:
+        return None
+    snapshot = app.settings
+    value = snapshot.get(name)
+    if name != SHELL_SUDO_PASSWORD.name:
+        return value
+    if snapshot.provenance.get(name) == "cli":
+        return value
+    chain = getattr(app, "_resolution_chain", None)
+    if chain is None:
+        return value
+    for source in chain.sources:
+        if getattr(source, "source_id", None) == "vault":
+            stored = source.get(setting.key, setting.section)
+            if stored is not None:
+                return stored
+    return value
 
 
 def validate_plugin_ext_metadata(app: Any) -> None:

@@ -103,9 +103,17 @@ _SRC = _ROOT / "src" / "functualize"
 #:
 #: No headroom added on top. A tight ceiling that is raised to exactly what fits
 #: still binds the next addition; one raised to the next round number does not.
+#:
+#: **307 → 320, 2026-10-29** (declared application settings). The app now owns
+#: one snapshot slot and two read-only properties: the host's setting schema and
+#: its lazily resolved snapshot. The properties are the public read door, so
+#: grouping them behind another facade would change that surface. Moving the
+#: resolution call to a helper would still leave the delegating property and
+#: add a second place to trace the first read. The 13 new executable lines are
+#: the measured cost; the ceiling remains exact, with no extra headroom.
 _BUDGETS: list[tuple[str, str, int]] = [
     ("_engine/capabilities/runcontext.py", "RunContext", 500),
-    ("app/core.py", "FunctualizeApp", 307),
+    ("app/core.py", "FunctualizeApp", 320),
 ]
 
 

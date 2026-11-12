@@ -51,6 +51,7 @@ class TestAdapterDirectoryContents:
             "cli.py",
             "click_params.py",
             "lazy_command.py",
+            "settings_flags.py",
             "surface_gate.py",
             "tui.py",
             "workflow_flags.py",
@@ -102,10 +103,10 @@ class TestAppAdaptersExports:
     and AdapterPlugin."""
 
     def test_all_contains_expected_symbols(self):
-        """__all__ should list exactly AdapterPlugin, CliAdapter, TuiAdapter."""
+        """__all__ includes the preboot setting flag reader."""
         from functualize.app import adapters
 
-        expected = {"AdapterPlugin", "CliAdapter", "TuiAdapter"}
+        expected = {"AdapterPlugin", "CliAdapter", "TuiAdapter", "early_setting_flags"}
         actual = set(adapters.__all__)
         assert actual == expected, (
             f"app/adapters/__all__ should be {sorted(expected)}, "

@@ -1,15 +1,17 @@
 """Settings panel for the TUI General Ring.
 
-Displays a navigable table of **every** functualize setting — ``[tui]``,
-``[cli]``, ``[discovery]``, and the top-level keys — with cell-level cursor
-control and INSERT mode editing via the SmartBar autocomplete pattern,
-matching the ConfigTablePanel's idiomatic approach.
+Displays a navigable table of the settings **its app declares** for this
+surface, with cell-level cursor control and INSERT mode editing via the
+SmartBar autocomplete pattern, matching the ConfigTablePanel's idiomatic
+approach.
 
-Values come from ``FuncSettingsStore`` (defaults < global config.toml <
-project file(s) < FUNCTUALIZE_* env — the same layers ``resolve_cli_config``
-merges), so the Source column reports where a value actually came from.
-Enter on a row drills into the shared ``SourceChainDetailView`` to see and
-edit that setting's whole chain.
+The panel owns no catalog: it renders whatever ``Setting`` rows it is handed,
+which is how one panel serves func and a second app whose settings have
+nothing to do with func's. Values come from ``FuncSettingsStore``, whose
+snapshot is the resolution (defaults < global config.toml < project file(s) <
+FUNCTUALIZE_* env < root CLI flag), so the Source column reports where a value
+actually came from. Enter on a row drills into the shared
+``SourceChainDetailView`` to see and edit that setting's whole chain.
 
 This is a General Ring panel with panel_priority = 90.
 
@@ -20,8 +22,8 @@ Textual imports are guarded behind try/except ImportError.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 try:
     from textual.app import ComposeResult  # noqa: TC002
@@ -34,25 +36,15 @@ except ImportError as _exc:
         "Install with: pip install functualize[cli]"
     ) from _exc
 
-from functualize._cli.data.func_settings import (
-    DEFAULT_VALUES,
-    FUNC_SETTINGS,
-    SETTINGS_ORDER,
-    validate_func_setting,
-)
-from functualize._cli.data.settings_schema import validate_against
+from functualize._cli.data.func_settings import setting_schema
+from functualize._cli.data.settings_schema import ValidationResult, validate_against
 from functualize._cli.tui.panels.config_table import FieldDef
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from functualize._cli.data.config_target import ConfigTarget
-
-# The settings and their defaults live in the catalog, which is the thing
-# that actually resolves them — duplicating the lists here is how the panel
-# and the rest of the app drift apart. Names are dotted (``tui.theme``).
-_SETTINGS_ORDER: Sequence[str] = SETTINGS_ORDER
-_DEFAULT_VALUES: Mapping[str, str] = DEFAULT_VALUES
+    from functualize.plugin import Setting
 
 # Column indices. The table really does have four columns; comments and
 # docstrings here used to claim three and stop at Source.
@@ -66,8 +58,8 @@ _NUM_COLUMNS = 4
 class SettingsPanel(Widget):
     """Navigable settings table with SmartBar-based INSERT mode editing.
 
-    Displays all 9 TUI settings with columns: Setting, Value, Source.
-    Uses a DataTable with cell-level cursor and posts InsertRequested
+    Displays the declared settings with columns: Setting, Value, Source,
+    Description. Uses a DataTable with cell-level cursor and posts InsertRequested
     messages so the app can wire editing through the SmartBar +
     FunctualizeAutoComplete autocomplete flow — identical to ConfigTablePanel.
 
@@ -118,20 +110,22 @@ class SettingsPanel(Widget):
         *,
         cwd: Path | None = None,
         id: str | None = None,
-        catalog: tuple[Any, ...] | None = None,
+        catalog: Sequence[Setting] | None = None,
     ) -> None:
         """
         Args:
             cwd: Project root the settings resolve against.
             id: Widget id.
-            catalog: The settings this panel shows. Defaults to func's. Held as
-                **instance state**, not read from a module global, so two apps
-                (or two panels) can show different catalogs in one process —
-                which is what makes the panel reusable by a second app (C2).
+            catalog: The settings this panel shows — the app's declaration.
+                Empty when omitted, **not** func's catalog: a panel that
+                invented rows its app does not resolve would offer edits that
+                nothing can persist, and would show func's settings in a second
+                app. Held as **instance state**, never read from a module
+                global, so two panels can show different declarations in one
+                process.
         """
         super().__init__(id=id)
-        entries = FUNC_SETTINGS if catalog is None else catalog
-        self._catalog: tuple[Any, ...] = tuple(entries)
+        self._catalog: tuple[Setting, ...] = tuple(catalog or ())
         self._settings: list[str] = [s.name for s in self._catalog]
         # Some settings genuinely have no default (most [discovery] filters);
         # they display as empty until a file or env var sets them.
@@ -153,19 +147,19 @@ class SettingsPanel(Widget):
 
     # ── catalog lookups (instance-scoped, not module-global) ─────────────
 
-    def _setting(self, name: str) -> Any | None:
-        """The catalog entry for ``name``, from **this panel's** catalog."""
+    def _setting(self, name: str) -> Setting | None:
+        """The declared setting ``name``, from **this panel's** declaration."""
         for entry in self._catalog:
             if entry.name == name:
                 return entry
         return None
 
-    def _validate(self, name: str, value: str) -> Any:
-        """Validate against this panel's catalog rather than func's globals."""
+    def _validate(self, name: str, value: str) -> ValidationResult:
+        """Validate against the declared setting's own bounds."""
         entry = self._setting(name)
         if entry is None:
-            return validate_func_setting(name, value)
-        return validate_against(entry.schema, value)
+            return ValidationResult(False, f"Unknown setting: {name}")
+        return validate_against(setting_schema(entry), value)
 
     def compose(self) -> ComposeResult:
         """Render a DataTable for settings."""
@@ -216,7 +210,7 @@ class SettingsPanel(Widget):
         """Update a setting's value and source from external state.
 
         Args:
-            name: Setting name (must be in _SETTINGS_ORDER).
+            name: Setting name (must be one this panel declares).
             value: Current effective value.
             source: Source label (e.g., "default", "unsaved", "file").
         """
@@ -351,16 +345,15 @@ class SettingsPanel(Widget):
         self._fields = []
         for name in self._settings:
             setting = self._setting(name)
-            schema = setting.schema if setting else None
             value = self._values[name]
             source = self._sources[name]
 
             # Determine choices for this setting
             choices: list[str] | None = None
-            if schema is not None:
-                if schema.type == "enum":
-                    choices = schema.choices
-                elif schema.type == "bool":
+            if setting is not None:
+                if setting.type == "enum":
+                    choices = list(setting.choices or ())
+                elif setting.type == "bool":
                     choices = ["true", "false"]
 
             field = FieldDef(
@@ -368,8 +361,8 @@ class SettingsPanel(Widget):
                 value=value,
                 source=source,
                 choices=choices,
-                description=schema.description if schema else "",
-                type_annotation=schema.type if schema else "str",
+                description=setting.description if setting is not None else "",
+                type_annotation=setting.type if setting is not None else "str",
                 original_value=value,
                 original_source=source,
             )

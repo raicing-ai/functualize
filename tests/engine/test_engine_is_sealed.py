@@ -202,14 +202,15 @@ class TestTheRegistryIsNotShared:
 
 class TestTheChainIsReadLive:
     def test_a_rebuilt_chain_is_visible_to_the_engine_without_a_write(self) -> None:
-        """AC-5. `refresh()` rebuilds the chain in place. The engine used to be
-        written into at that moment — at runtime, from a refresh — so this says
-        the read is live instead."""
+        """Declared shell settings are read from the current app snapshot."""
+        from dataclasses import replace
+
         app = _static_app()
         engine = app.execution_engine
 
-        app._resolution_chain = ResolutionChain(
-            [DefaultSource({"shell": {"program": "rebuilt-sh"}})]
+        app._settings_snapshot = replace(
+            app.settings,
+            values={**app.settings.values, "shell.program": "rebuilt-sh"},
         )
 
         assert engine._resolve_shell_setting("program") == "rebuilt-sh"

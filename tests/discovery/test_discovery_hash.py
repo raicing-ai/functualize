@@ -100,6 +100,11 @@ class TestDiscoveryHashFromConfig:
             discovery_hash_from_config(DiscoveryConfig())
         )
 
+    def test_unset_digest_is_pinned(self) -> None:
+        assert discovery_hash_from_config(None) == (
+            "sha256:da5f26abe7611fed2d13b9aafcb75c632181848a8ff8d502c20c4f8d4cb4114f"
+        )
+
     def test_none_config_matches_the_all_unset_config(self) -> None:
         """A provider with no config must agree with one holding a default config.
 

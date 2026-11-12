@@ -4,10 +4,30 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from functualize._cli.orchestrator import RenderSurface, resolve_surface
+import pytest
+
 from functualize._engine.surface_routing import active_live_zone
+from functualize._types.functualize_settings import DEFAULT_SURFACE
+from functualize.app.adapters.surface_gate import resolve_surface
+from functualize.job import surface_hint
+from functualize.types import RenderSurface
 
 # --- resolution ladder ------------------------------------------------------
+
+
+def test_surface_preferences_derive_from_the_public_enum() -> None:
+    assert DEFAULT_SURFACE.choices == tuple(
+        surface.value
+        for surface in RenderSurface
+        if surface is not RenderSurface.EXCLUSIVE
+    )
+    for surface in (RenderSurface.PANEL, RenderSurface.STDOUT):
+        assert (
+            surface_hint(surface.value)(lambda: None).__functualize_surface_hint__
+            == surface.value
+        )
+    with pytest.raises(ValueError):
+        surface_hint(RenderSurface.EXCLUSIVE.value)
 
 
 def test_requires_tty_forces_exclusive_over_everything() -> None:
