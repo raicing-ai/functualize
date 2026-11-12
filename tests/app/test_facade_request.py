@@ -84,14 +84,16 @@ def test_execute_caches_file_and_env_tags_then_overlays_explicit_request(
     application = FunctualizeApp(name="tagged")
     application.register_dynamic_job("greet", _greet)
 
+    explicit = {"team": "request"}
     application.execute(
         RunRequest(
             job_name="greet",
             surface="app.execute",
-            run_tags={"team": "request"},
+            run_tags=explicit,
         )
     )
     assert isinstance(application._run_tag_defaults, MappingProxyType)
+    explicit["team"] = "mutated after the run"
     monkeypatch.setenv("FUNCTUALIZE_RUN_TAGS", "team:changed")
     (project / ".functualize.toml").write_text('[run]\ntags = ["team:changed"]\n')
     application.execute(RunRequest(job_name="greet", surface="app.execute"))

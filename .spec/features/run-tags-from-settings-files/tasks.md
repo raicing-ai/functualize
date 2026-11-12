@@ -137,7 +137,7 @@ not a completed feature gate.
 
 ## Wave 8 — prove surface and inheritance behavior
 
-- [ ] **8.1 Add app-door integration evidence.** [F]
+- [x] **8.1 Add app-door integration evidence.** [F]
   `tests/app/test_facade_request.py`,
   `tests/engine/test_run_record_run_tags.py`.
   Exercise direct app, an explicit request override, and child-run exact-copy
