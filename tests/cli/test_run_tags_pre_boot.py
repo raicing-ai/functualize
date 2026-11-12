@@ -272,6 +272,35 @@ class TestARefusedTagStopsBeforeBoot:
         assert listed.exit_code == 0, listed.stderr
         assert json.loads(listed.stdout)["runs"] == []
 
+    @pytest.mark.parametrize(
+        ("tags", "detail"),
+        [
+            ('["ok:1", ":x"]', "item 2 ':x'"),
+            ('["s:1", "s:2"]', "gives run tag key 's' twice (items 1 and 2)"),
+        ],
+    )
+    def test_project_tag_refusal_happens_before_job_import(
+        self,
+        cli_run,
+        project_tree,
+        tmp_path: Path,
+        xdg_dirs,
+        tags: str,
+        detail: str,
+    ) -> None:
+        project = _release_project(project_tree, tmp_path)
+        config = project.root / ".functualize.toml"
+        config.write_text(f"[run]\ntags = {tags}\n")
+
+        result = cli_run(["release"], cwd=project.root)
+
+        assert result.exit_code == 2
+        assert str(config) in result.stderr
+        assert detail in result.stderr
+        assert not project.imported.exists(), "the job module was imported"
+        assert not project.ran.exists(), "the job body ran"
+        assert _records(project.root, xdg_dirs.cache) == {}
+
     def test_the_merge_happens_before_discovery(
         self, cli_run, project_tree, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
