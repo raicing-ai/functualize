@@ -1,7 +1,7 @@
 extend                              = { useDefault = true }
 title                               = "functualize gitleaks config"
 
-# Two allowlisted things, each scoped as narrowly as the format allows.
+# Four allowlisted things, each scoped as narrowly as the format allows.
 #
 # **1. The security-audit skill.** It documents hardcoded-credential
 # vulnerabilities by showing a vulnerable→fixed pair, and its "vulnerable" half
@@ -31,11 +31,18 @@ title                               = "functualize gitleaks config"
 # individually visible; this exempts the *lookup*, not the value. An actual
 # credential assigned to `encryption_key=` would not match, because the regex
 # requires the bare identifier `_KEY` and nothing quoted.
+#
+# **4. A generated vault contract fixture.** `tests/vault_remote/vectors.json`
+# contains a deterministic AEAD key used to compare the TypeScript and Python
+# envelope implementations. Its regeneration is reviewed as a unit. Exempt
+# only this file by path: a line regex for `"aead_key_b64": "<base64>"` would
+# also exempt a real key in an unrelated JSON config.
 [allowlist]
-description = "Illustrative secrets in documentation, and two entropy false positives"
+description = "Illustrative secrets in documentation and three entropy false positives"
 regexTarget = "line"
 paths = [
   '''\.agents/skills/auditing-python-security/VULNERABILITIES\.md''',
+  '''tests/vault_remote/vectors\.json''',
 ]
 regexes = [
   '''resource="api\.tar\.gz", duration_ms=\d+''',
