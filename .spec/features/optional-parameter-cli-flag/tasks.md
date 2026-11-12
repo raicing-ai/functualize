@@ -91,7 +91,10 @@ checks. Each task requires a commit or reviewable diff and the named evidence.
 ### [ ] 4.1 Run complete verification and record the fix
 
 - **Input:** tasks 3.1 and 3.2; `CHANGELOG.md` Unreleased → Fixed.
-- **[F]:** `CHANGELOG.md`.
+- **[F]:** `CHANGELOG.md`, `tests/adapters/test_click_params_parity.py`
+  (maintainer-approved scope correction, 2026-11-12: only to add the new
+  optional `path` option to `job_plain`'s snapshot, with a stable rendering
+  for click's address-bearing `FuncParamType` repr).
 - **Work:** add a concise user-visible changelog entry, then run focused and
   full quality gates. Check E5 against existing parity/flag snapshots. After
   committing the implementation, temporarily remove its production call path
