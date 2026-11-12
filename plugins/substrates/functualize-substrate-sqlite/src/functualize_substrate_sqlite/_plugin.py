@@ -34,7 +34,7 @@ class SQLiteSubstratePlugin:
     """Registers the SQLite runtime store; selecting it is configuration."""
 
     name: str = "substrate-sqlite"
-    version: str = "0.4.0"
+    version: str = "0.5.0"
     description: str = "SQLite runtime store, selected by configuration"
 
     def __call__(self, app: PluginHost) -> None:
