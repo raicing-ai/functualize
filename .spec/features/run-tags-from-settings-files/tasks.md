@@ -99,7 +99,7 @@ not a completed feature gate.
 
 ## Wave 5 — remove the old delivery module
 
-- [ ] **5.2 Remove remaining delivery imports of the old parser.** [F]
+- [x] **5.2 Remove remaining delivery imports of the old parser.** [F]
   `src/functualize/_cli/builtins/_run.py`,
   `src/functualize/_cli/run_tags.py` (delete).
   Route the builtin filter's `parse_tag` and `RunTagError` through the public
