@@ -28,8 +28,6 @@ from functualize.app.config import (
     ExecutionConfig,
     JobSources,
     PluginSources,
-    merge_layers,
-    resolve_run_tags,
 )
 
 if TYPE_CHECKING:
@@ -633,17 +631,10 @@ class FunctualizeApp:
         Returns:
             JobResult with status, duration, return value, and metadata.
         """
-        if self._run_tag_defaults is None:
-            # Static wiring defers settings-file discovery until the first run.
-            # Standard boot fills this cache immediately after loading dotenv.
-            self._run_tag_defaults = resolve_run_tags(self.settings.layers)
-        effective_tags = merge_layers(self._run_tag_defaults, request.run_tags)
-        group_option_values = (
-            dict(request.group_option_values)
-            if request.group_option_values is not None
-            else None
-        )
-        kwargs = dict(request.kwargs)
+        # Copies the caller's mappings and overlays the request's run tags on
+        # this app's defaults, which are resolved once (boot, or the first run
+        # under static wiring).
+        from functualize._app.impl import prepare_run_request
 
         # **No scope minted here.** `engine.run()` does it, because that is
         # where every run passes and this method is not: the CLI calls
@@ -652,13 +643,7 @@ class FunctualizeApp:
         # out a private dict and became a hard failure the moment state was made
         # durable — the same entrypoint divergence, found again, in the one
         # place still doing work the engine should own.
-        return self._execution_engine.run(
-            request.replace(
-                kwargs=kwargs,
-                group_option_values=group_option_values,
-                run_tags=effective_tags,
-            )
-        )
+        return self._execution_engine.run(prepare_run_request(self, request))
 
     def execute_parallel(
         self,

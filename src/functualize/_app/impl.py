@@ -47,6 +47,7 @@ if TYPE_CHECKING:
         JobDescriptor,
     )
     from functualize._types.host import OnReadyHandler
+    from functualize._types.run_request import RunRequest
     from functualize.app.config import ConfigSources, JobSources, PluginSources
 
 logger = logging.getLogger(__name__)
@@ -1404,6 +1405,34 @@ def _build_resolution_chain(
         environment=app._environment,
         event_bus=app.event_bus,
         remote_source=build_vault_source(app),
+    )
+
+
+def prepare_run_request(app: Any, request: RunRequest) -> RunRequest:
+    """The request ``FunctualizeApp.execute`` hands the engine.
+
+    Copies the caller's ``kwargs`` and ``group_option_values`` so a mapping
+    the caller keeps cannot change a run in flight, and overlays the request's
+    ``run_tags`` per key on the app's default tags. Standard boot fills those
+    defaults immediately after loading dotenv; static wiring defers
+    settings-file discovery until this, the first run. Either way they are
+    resolved once per app, so no later run rereads a settings file.
+
+    It lives here rather than in ``execute`` because the facade has a line
+    budget (``tests/test_facade_loc_limits.py``).
+    """
+    from functualize._config.run_tags import merge_layers, resolve_run_tags
+
+    if app._run_tag_defaults is None:
+        app._run_tag_defaults = resolve_run_tags(app.settings.layers)
+    return request.replace(
+        kwargs=dict(request.kwargs),
+        group_option_values=(
+            dict(request.group_option_values)
+            if request.group_option_values is not None
+            else None
+        ),
+        run_tags=merge_layers(app._run_tag_defaults, request.run_tags),
     )
 
 
