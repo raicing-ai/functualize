@@ -88,7 +88,7 @@ checks. Each task requires a commit or reviewable diff and the named evidence.
 
 ## Wave 4: validation and release record
 
-### [ ] 4.1 Run complete verification and record the fix
+### [x] 4.1 Run complete verification and record the fix
 
 - **Input:** tasks 3.1 and 3.2; `CHANGELOG.md` Unreleased → Fixed.
 - **[F]:** `CHANGELOG.md`, `tests/adapters/test_click_params_parity.py`
