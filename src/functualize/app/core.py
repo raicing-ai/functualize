@@ -28,6 +28,8 @@ from functualize.app.config import (
     ExecutionConfig,
     JobSources,
     PluginSources,
+    merge_layers,
+    resolve_run_tags,
 )
 
 if TYPE_CHECKING:
@@ -185,6 +187,7 @@ class FunctualizeApp:
             config_sources if config_sources is not None else ConfigSources()
         )
         self._settings_snapshot: ResolvedSettings | None = self._config_sources.resolved
+        self._run_tag_defaults: Mapping[str, str] | None = None
         self._plugin_sources = (
             plugin_sources if plugin_sources is not None else PluginSources()
         )
@@ -630,6 +633,11 @@ class FunctualizeApp:
         Returns:
             JobResult with status, duration, return value, and metadata.
         """
+        if self._run_tag_defaults is None:
+            # Static wiring defers settings-file discovery until the first run.
+            # Standard boot fills this cache immediately after loading dotenv.
+            self._run_tag_defaults = resolve_run_tags(self.settings.layers)
+        effective_tags = merge_layers(self._run_tag_defaults, request.run_tags)
         group_option_values = (
             dict(request.group_option_values)
             if request.group_option_values is not None
@@ -648,6 +656,7 @@ class FunctualizeApp:
             request.replace(
                 kwargs=kwargs,
                 group_option_values=group_option_values,
+                run_tags=effective_tags,
             )
         )
 

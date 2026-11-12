@@ -110,7 +110,7 @@ not a completed feature gate.
 
 ## Wave 6 — connect all app-door runs
 
-- [ ] **6.1 Merge defaults at `app.execute`.** [F]
+- [x] **6.1 Merge defaults at `app.execute`.** [F]
   `src/functualize/app/core.py`, `tests/app/test_facade_request.py`.
   Cache effective defaults per app, overlay explicit
   `RunRequest.run_tags` per key, replace the request with a frozen map, and

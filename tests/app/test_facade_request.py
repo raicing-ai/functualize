@@ -16,8 +16,17 @@ from types import MappingProxyType
 import pytest
 
 from functualize._app.state import AppState
+from functualize._config import ResolutionChain
 from functualize._config.settings_layers import SettingsLayer
-from functualize.app.config import RunTagError, parse_tag, resolve_run_tags
+from functualize._primitives.run_store import RunStore
+from functualize.app.config import (
+    ConfigSources,
+    JobSources,
+    PluginSources,
+    RunTagError,
+    parse_tag,
+    resolve_run_tags,
+)
 from functualize.app.core import FunctualizeApp, request_for
 from functualize.types import RunRequest
 
@@ -60,6 +69,65 @@ def test_public_config_seam_resolves_frozen_tags_for_a_request() -> None:
     assert isinstance(request.run_tags, MappingProxyType)
     with pytest.raises(RunTagError, match="needs a key"):
         parse_tag(":x", where="--run-tag")
+
+
+def test_execute_caches_file_and_env_tags_then_overlays_explicit_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".functualize.toml").write_text(
+        '[run]\ntags = ["team:file", "file:yes"]\n'
+    )
+    monkeypatch.chdir(project)
+    monkeypatch.setenv("FUNCTUALIZE_RUN_TAGS", "team:env,env:yes")
+    application = FunctualizeApp(name="tagged")
+    application.register_dynamic_job("greet", _greet)
+
+    application.execute(
+        RunRequest(
+            job_name="greet",
+            surface="app.execute",
+            run_tags={"team": "request"},
+        )
+    )
+    assert isinstance(application._run_tag_defaults, MappingProxyType)
+    monkeypatch.setenv("FUNCTUALIZE_RUN_TAGS", "team:changed")
+    (project / ".functualize.toml").write_text('[run]\ntags = ["team:changed"]\n')
+    application.execute(RunRequest(job_name="greet", surface="app.execute"))
+
+    store = RunStore(application.execution_engine._state_store().substrate)
+    records = [store.get_run(run_id) for run_id in store.run_ids()]
+    assert [record["run_tags"] for record in records if record] == [
+        {"team": "request", "file": "yes", "env": "yes"},
+        {"team": "env", "file": "yes", "env": "yes"},
+    ]
+
+
+def test_static_app_defers_tag_file_read_until_execute(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "static"
+    project.mkdir()
+    (project / ".functualize.toml").write_text('[run]\ntags = ["source:file"]\n')
+    monkeypatch.chdir(project)
+    application = FunctualizeApp(
+        "static",
+        job_sources=JobSources(functions=[_greet]),
+        config_sources=ConfigSources(
+            config_resolution_chain=ResolutionChain([]), dotenv=False
+        ),
+        plugin_sources=PluginSources(entry_point_group="", explicit_plugins=[]),
+    )
+    assert application._static_wiring
+    assert application._settings_snapshot is None
+    assert application._run_tag_defaults is None
+
+    application.execute(RunRequest(job_name="_greet", surface="app.execute"))
+
+    store = RunStore(application.execution_engine._state_store().substrate)
+    records = [store.get_run(run_id) for run_id in store.run_ids()]
+    assert [record["run_tags"] for record in records if record] == [{"source": "file"}]
 
 
 def test_request_carries_kwargs(app: FunctualizeApp) -> None:
