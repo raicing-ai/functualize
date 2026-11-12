@@ -82,6 +82,15 @@ def resolve_settings(
 
     for setting in schema.settings:
         name = setting.name
+        if name == "run.tags":
+            # Run tags have a strict per-source grammar and per-key overlay.
+            # The ordinary list merger must not accept the schema-derived
+            # FUNCTUALIZE_RUN_TAGS value or flatten the selected file layers.
+            for layer in layers:
+                run_section = layer.values.get("run")
+                if isinstance(run_section, dict) and "tags" in run_section:
+                    contributors[layer.path].add(name)
+            continue
         candidates: list[tuple[Any, str, Path | None]] = []
         flag_value = supplied_flags.get(name, supplied_flags.get(setting.key))
         if flag_value is not None:

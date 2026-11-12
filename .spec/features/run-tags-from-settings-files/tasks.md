@@ -53,7 +53,7 @@ not a completed feature gate.
 
 ## Wave 2 — remove the misleading generic value
 
-- [ ] **3.1 Reserve `run.tags` for the strict resolver.** [F]
+- [x] **3.1 Reserve `run.tags` for the strict resolver.** [F]
   `src/functualize/_config/settings_resolution.py`,
   `tests/spec/test_settings_ratchet.py`.
   Keep the existing setting declaration and unknown-key census. The generic
