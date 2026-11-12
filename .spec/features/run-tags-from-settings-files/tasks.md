@@ -27,8 +27,10 @@ not a completed feature gate.
 
 ## Wave 1 — establish the one grammar and layer resolver
 
-- [ ] **2.1 Move and extend the run-tag grammar.** [F]
+- [x] **2.1 Move and extend the run-tag grammar.** [F]
   `src/functualize/_config/run_tags.py` (new),
+  `src/functualize/_cli/run_tags.py` (temporary forwarding shim),
+  `src/functualize/app/config.py` (temporary public forwarding seam),
   `tests/cli/test_run_tags.py`.
   Move `RunTagError`, `MAX_TAGS`, `parse_tag`, source parsers, and
   `merge_layers` from the old module without creating a second parser. Add a
@@ -42,11 +44,12 @@ not a completed feature gate.
   duplicate, and malformed-item cases. Acceptance: parser tests exercise the
   new module and fail if the file walk is reduced to global only. Production
   path to finish in later waves: selected settings layers → resolver → CLI
-  `RunRequest` or app defaults. Until task 5.2 deletes the old module, its
-  still-live copy is transitional: label that site
-  `# TRANSITIONAL(run-tags-from-settings-files/5.2): CLI imports move to the
-  config resolver before this copy is deleted.` Its current behavior remains
-  global-only; do not describe the new parser as live on the CLI yet.
+  `RunRequest` or app defaults. The delivery module must become a thin
+  forwarding shim in this same commit, via `app.config`, so no committed
+  revision carries two grammars. Label the shim
+  `# TRANSITIONAL(run-tags-from-settings-files/5.2): remove after CLI callers
+  move to the public seam.` The CLI's current merge behavior remains
+  global-only until task 5.1; do not describe the new resolver as live there.
 
 ## Wave 2 — remove the misleading generic value
 
@@ -70,8 +73,9 @@ not a completed feature gate.
 
 - [ ] **4.1 Expose tag resolution to delivery.** [F]
   `src/functualize/app/config.py`, `tests/app/test_facade_request.py`.
-  Re-export the resolver and typed error (plus `parse_tag` for the existing
-  builtin run filter) through the public app config seam, updating its
+  Complete the public seam started in task 2.1 for the temporary forwarding
+  shim: the resolver and typed error (plus `parse_tag` for the existing
+  builtin run filter) are available from `app.config`, updating its
   `__all__` as appropriate. Show that the seam returns a frozen map and that
   a direct request can retain an explicit `run_tags` map; leave final app
   overlay for task 6.1. Acceptance: `_cli` can use the public seam without
