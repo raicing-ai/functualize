@@ -152,7 +152,7 @@ not a completed feature gate.
   the opened run's tags. Assert neither wire gains a tag input. Acceptance:
   both adapters reach `app.execute` with the same default map.
 
-- [ ] **8.3 Cover MCP run tools.** [F]
+- [x] **8.3 Cover MCP run tools.** [F]
   `plugins/adapters/functualize-mcp/tests/test_server.py`,
   `tests/plugins/test_mcp_tools.py`.
   Exercise a run-tool request and observe recorded project-file defaults; use

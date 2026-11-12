@@ -17,6 +17,7 @@ Both tests fail against the pre-fix codegen (``exec`` raises
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 from fastmcp import FastMCP
@@ -24,12 +25,40 @@ from functualize_mcp._config import MCPConfig
 from functualize_mcp._server import MCPServer, _build_tool_function
 from functualize_mcp._translator import MCPToolDef
 
+from functualize._primitives.run_store import RunStore
+from functualize.app.core import FunctualizeApp
 from tests.conftest import (  # type: ignore[import-not-found]
     FakeApp,
     FakeJobResult,
 )
 
 HOSTILE_DESCRIPTION = "Triple ''' quote and backslash \\\\ and a newline\ninside."
+
+
+def test_generated_mcp_run_tool_records_project_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "mcp-tool"
+    project.mkdir()
+    (project / ".functualize.toml").write_text('[run]\ntags = ["door:mcp"]\n')
+    monkeypatch.chdir(project)
+    app = FunctualizeApp("mcp-tool")
+
+    def greet() -> str:
+        return "hello"
+
+    app.register_dynamic_job("greet", greet)
+    tool = _build_tool_function(
+        "greet",
+        _tool_def("greet", "Greet.", {"type": "object", "properties": {}}),
+        app,
+    )
+    result = asyncio.run(tool())
+
+    assert result["status"] == "success"
+    store = RunStore(app.execution_engine._state_store().substrate)
+    records = [store.get_run(run_id) for run_id in store.run_ids()]
+    assert [record["run_tags"] for record in records if record] == [{"door": "mcp"}]
 
 
 def _tool_def(name: str, description: str, schema: dict) -> MCPToolDef:
