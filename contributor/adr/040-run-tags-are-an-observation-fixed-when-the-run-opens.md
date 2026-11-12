@@ -4,6 +4,45 @@
 **Date**: 2026-10-29
 **Deciders**: maintainer
 
+**Amended 2026-11-12 — selected project files are a source, and every door
+applies the defaults.** The observation, exact-copy and fixed-at-open
+decisions stand; what a run's tags are made from, and which doors apply them,
+changes:
+
+- *The grammar* lives in `_config/run_tags.py`, reached by delivery through
+  `functualize.app.config`; `_cli/run_tags.py` is gone. There is still one.
+- *Sources, lowest to highest:* the global config's `[run] tags`; the
+  `[run] tags` of each selected project settings file, farthest to nearest
+  (`[tool.functualize.run] tags` in `pyproject.toml`) — the files the settings
+  walk selects, one per directory, stopping at `root = true`;
+  `FUNCTUALIZE_RUN_TAGS`; then `--run-tag` on the CLI, or an explicit
+  `RunRequest.run_tags` on the app door. Merged per key, the later winning. A
+  key repeated inside one file is refused with that file's path and both item
+  positions; across sources it is an override; the 32-tag limit applies to the
+  merged map. The resolver reads the raw selected layers: `run.tags` stays a
+  declared setting, so the unknown-key census still recognises it, but the
+  generic settings snapshot neither publishes it nor coerces
+  `FUNCTUALIZE_RUN_TAGS` into it.
+- *Every door.* `FunctualizeApp.execute` overlays the request's `run_tags` per
+  key on defaults resolved once per app, so runs from HTTP, Lambda, the MCP run
+  tools, the TUI and inline TUI, event submission and workflow control carry
+  the file and environment tags. None of those wires gains a tag input. `func`
+  resolves its own map before discovery, as before, now including the project
+  files.
+- *When a bad tag is refused.* `func`: exit 2 before any job module imports,
+  in every mode, `builtin` included. Standard boot: immediately after loading
+  `.env`, before plugins or jobs import, as a `RunTagError`. Static wiring
+  stays free of filesystem I/O while it is constructed, so it resolves and
+  validates on the first `execute`, which raises before that run opens. The
+  defaults are then fixed for the app's lifetime.
+- No store or wire schema changes: the overlay is complete before the run
+  record is written.
+
+The "three sources", "the project file is not a source", "only the `func` CLI
+accepts tags in this version", "runs started from the TUI are untagged" and
+`_cli/run_tags.py` wording below records the 2026-10-29 revision and is
+superseded by this amendment.
+
 ## Context
 
 People and tools want to find and group runs by facts the job knows nothing

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — project settings files tag runs, through every door
+A project can now tag every run started inside it: `[run] tags` in each
+selected project settings file (`[tool.functualize.run] tags` in
+`pyproject.toml`) joins the run-tag sources between the global config and
+`FUNCTUALIZE_RUN_TAGS`, farthest file first and nearest last, so a nested
+project overrides its parent key by key and `root = true` ends the walk, as it
+does for every other setting. Before, a project `[run] tags` list was accepted
+and ignored. A malformed item, or a key repeated inside one file, is refused
+with exit 2, naming the file and the item, before any job module is imported —
+for every `func` command, `builtin` ones included.
+
+Runs that enter through an application now carry the same defaults: the HTTP
+and Lambda adapters, the MCP run tools, the TUI and inline TUI, event
+submission and workflow control. They still take no tag input; a `RunRequest`
+built in Python can pass `run_tags`, which override the defaults per key. A
+normally booted application resolves its defaults once, right after loading
+`.env` and before importing any plugin or job, so a bad tag stops the boot; one
+built with explicit static wiring stays free of file reads while it is
+constructed and resolves them on its first run, which fails before it opens.
+`run.tags` is no longer offered as an ordinary resolved setting. Recorded as an
+amendment to
+[ADR-040](contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md).
+
 ### Fixed — the message-hygiene identity arm reads prose, not code
 
 **Contributor-facing; no runtime behaviour changes.** The identity arm

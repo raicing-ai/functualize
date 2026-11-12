@@ -175,7 +175,7 @@ not a completed feature gate.
 
 ## Wave 9 — update durable behavior records
 
-- [ ] **9.1 Update user and contributor text.** [F]
+- [x] **9.1 Update user and contributor text.** [F]
   `contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md`,
   `docs/cli/run.md`, `CHANGELOG.md`.
   Record that project settings files and app-door execution now participate,
