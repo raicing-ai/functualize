@@ -736,6 +736,12 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     # joins the resolution chain.
     load_boot_dotenv(app)
 
+    # Refuse malformed selected tags before job or plugin imports. Resolving
+    # here also fixes the defaults for this app's lifetime after dotenv loads.
+    from functualize._config.run_tags import resolve_run_tags
+
+    app._run_tag_defaults = resolve_run_tags(app.settings.layers)
+
     # Imports + resource locator (measures lazy import cost)
     perf_timeline.mark("boot.imports.start")
 

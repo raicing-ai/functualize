@@ -30,6 +30,8 @@ from typing import Any
 
 import pytest
 
+from functualize.app.config import RunTagError
+from functualize.app.core import FunctualizeApp
 from tests.conftest import surfaces
 
 # `func`-only: this is the pre-boot dispatch layer of `_cli/main.py`; an app
@@ -334,6 +336,60 @@ class TestARefusedTagStopsBeforeBoot:
 
 
 class TestBuiltinMode:
+    @pytest.mark.parametrize(
+        ("tags", "detail"),
+        [('["broken"]', "broken"), ('["team:a", "team:b"]', "items 1 and 2")],
+    )
+    def test_standard_boot_refuses_project_tags_before_imports(
+        self,
+        project_tree,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        tags: str,
+        detail: str,
+    ) -> None:
+        from functualize._plugins.loader import PluginLoader
+
+        project = _release_project(project_tree, tmp_path)
+        config = project.root / ".functualize.toml"
+        config.write_text(f"[run]\ntags = {tags}\n")
+        monkeypatch.chdir(project.root)
+
+        def _plugin_import(*_args: Any, **_kwargs: Any) -> None:
+            pytest.fail("plugin loading started before tag preflight")
+
+        monkeypatch.setattr(PluginLoader, "load_all", _plugin_import)
+        with pytest.raises(RunTagError) as refused:
+            FunctualizeApp("refused")
+
+        assert str(config) in str(refused.value)
+        assert detail in str(refused.value)
+        assert not project.imported.exists(), "the job module was imported"
+
+    @pytest.mark.parametrize(
+        ("tags", "detail"),
+        [('["broken"]', "broken"), ('["team:a", "team:b"]', "items 1 and 2")],
+    )
+    def test_http_serve_reports_project_tag_usage_error(
+        self,
+        cli_run,
+        project_tree,
+        tmp_path: Path,
+        tags: str,
+        detail: str,
+    ) -> None:
+        project = _release_project(project_tree, tmp_path)
+        config = project.root / ".functualize.toml"
+        config.write_text(f"[run]\ntags = {tags}\n")
+
+        refused = cli_run(["builtin", "serve", "http"], cwd=project.root)
+
+        assert refused.exit_code == 2
+        assert "Error: " in refused.stderr
+        assert str(config) in refused.stderr
+        assert detail in refused.stderr
+        assert not project.imported.exists(), "the job module was imported"
+
     def test_the_flag_is_clicks_own_refusal(self, cli_run) -> None:
         """AC10: BUILTIN declares no delivery input, so Click refuses it."""
         result = cli_run(["--run-tag", "a:b", "builtin", "run", "list"])

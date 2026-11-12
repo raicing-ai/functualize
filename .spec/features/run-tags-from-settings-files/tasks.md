@@ -123,7 +123,7 @@ not a completed feature gate.
 
 ## Wave 7 — validate during standard boot
 
-- [ ] **7.1 Add explicit standard-boot tag preflight.** [F]
+- [x] **7.1 Add explicit standard-boot tag preflight.** [F]
   `src/functualize/_app/boot.py`,
   `tests/cli/test_run_tags_pre_boot.py`.
   Immediately after `load_boot_dotenv`, resolve and cache default run tags
