@@ -58,7 +58,11 @@ if TYPE_CHECKING:
     from functualize._engine.result import RegisteredJob
     from functualize._types.group_options import GroupOptions
     from functualize._types.persistence import RuntimeStore
-    from functualize._types.protocols import EngineHost, StoreSubstrate
+    from functualize._types.protocols import (
+        EngineHost,
+        StoreSubstrate,
+        VaultReaderFactory,
+    )
     from functualize._types.run_request import RunRequest
 
 logger = logging.getLogger(__name__)
@@ -272,6 +276,7 @@ class JobExecutionEngine:
         *,
         runtime_store: RuntimeStore,
         substrate: StoreSubstrate,
+        vault_reader_factory: VaultReaderFactory | None = None,
     ) -> None:
         self._di_registry = di_registry
         self._hook_registry = hook_registry
@@ -326,6 +331,12 @@ class JobExecutionEngine:
         #: step 6.5, before this object exists; the engine is not a second
         #: decider and has no path to a store it was not given.
         self.substrate: StoreSubstrate = substrate
+        #: Opens the reader behind an injected ``Vault`` (F6). Handed in by the
+        #: composition root, because the vault source lives in ``_config`` and
+        #: this layer may not import it; the engine carries the port and no
+        #: vault policy. None for an engine built outside ``build_engine``,
+        #: where a ``Vault`` request is a resolution failure.
+        self._vault_reader_factory = vault_reader_factory
         #: Scopes this process has already built, by id, so two runs
         #: naming one scope share it rather than racing on the file.
         self._scopes: dict[str, Any] = {}
@@ -351,6 +362,15 @@ class JobExecutionEngine:
         a unit test — and must ask its own question instead.
         """
         return self._host
+
+    @property
+    def vault_reader_factory(self) -> VaultReaderFactory | None:
+        """The factory an injected ``Vault`` is opened from, or None.
+
+        Read-only, like :attr:`host`: it is a constructor argument and nothing
+        replaces it afterwards.
+        """
+        return self._vault_reader_factory
 
     @property
     def fresh_root(self) -> Path:

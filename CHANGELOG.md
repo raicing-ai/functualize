@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — a job can read a group's secret from the local vault with `Vault.read`
+A job that only learns at run time which target it is working on can now ask
+for that target's credential: declare `vault: Vault` (from `functualize.job`)
+and call `vault.read("cloudflare_dev.d1.main", "api_token")`. It returns
+`Secret[str]`, masked in every rendering. The entry is chosen by the same group
+lookup config uses — the active environment's exact group, then its nearest
+ancestors, then the shared slot in that order — and the first stored entry
+wins. When nothing is stored the call raises the new `VaultEntryMissingError`;
+when the chosen entry exists but cannot be opened it raises
+`VaultEntryUnreadableError` or `VaultDecryptionError` and does not try a
+weaker candidate. All three are exported from `functualize.app.vault`. The
+read never substitutes an environment variable, config file or default, never
+contacts a provider (`vault sync` still does that), and adds no CLI, MCP or TUI
+input. Ordinary config resolution is unchanged: a config field whose vault
+entry is absent still resolves from the next source. See *Reading a group's
+secret from a job* in `docs/guides/configuration.md`.
+
 ### Added — share vault entries with a teammate through a one-time link
 
 `func builtin vault share` seals entries of this project's vault into one link

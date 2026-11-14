@@ -89,6 +89,7 @@ __all__ = [
     "VaultEntry",
     "VaultOrigin",
     "VaultEntryExistsError",
+    "VaultEntryMissingError",
     "VaultEntryUnreadableError",
     "VaultFormatError",
     "VaultError",
@@ -275,6 +276,37 @@ class VaultEntryUnreadableError(VaultError):
     quietly running on something else hands them a different secret than they
     intended — while the run reports success.
     """
+
+
+class VaultEntryMissingError(VaultError):
+    """An explicit group read found no stored entry anywhere it may look.
+
+    Raised only by the public ``Vault.read(group, field)`` call, and only after
+    the whole candidate sequence came back empty: the active environment from
+    the exact group up through its nearest ancestors, then the shared slot in
+    the same order. A project with no vault file is the same answer. It is not
+    "the exact address was absent" -- an ancestor or shared entry would have
+    been returned.
+
+    Deliberately distinct from :class:`VaultEntryUnreadableError`. A miss is
+    "nothing was provisioned for this target", which a caller may decide on
+    (decline to operate on it); an unreadable entry is "something was
+    provisioned and this machine cannot open it", which must never be treated
+    as absence. Ordinary config resolution does not raise this: a vault miss
+    there still continues to the lower-priority sources (ADR-023 §1).
+
+    Carries the requested address and field, never a value: there is none.
+    """
+
+    def __init__(self, group: str, field: str) -> None:
+        self.group = group
+        self.field = field
+        super().__init__(
+            f"No vault entry for group {group!r} field {field!r} in the active "
+            f"environment or the shared slot, at this group or any ancestor. "
+            f"Nothing is provisioned for it; `func builtin vault put` or "
+            f"`func builtin vault sync` stores one."
+        )
 
 
 class VaultEntryExistsError(VaultError):

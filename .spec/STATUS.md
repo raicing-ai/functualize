@@ -622,6 +622,45 @@ Full specifications and atomized task lists for these features exist in the main
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
 
+### A job reads a group's secret through `Vault` — implemented, review pending
+
+**What a job author sees.** `from functualize.job import Vault`; a job declares
+`vault: Vault` and calls `vault.read(group, field)` with a group path or subject
+address chosen at run time, and gets `Secret[str]`. The lookup is the existing
+group lookup — active environment exact group then nearest ancestors, then the
+shared slot in the same order — and the first **stored** entry wins. Nothing
+stored anywhere, or no vault file, raises the new `VaultEntryMissingError`; a
+stored entry that cannot be opened raises `VaultEntryUnreadableError` or
+`VaultDecryptionError` and stops there. All three are importable from
+`functualize.app.vault`. The read never falls back to env, files or defaults,
+never contacts a provider, and is not an invocation input; ordinary config
+resolution keeps its fall-through on a vault miss. Guide:
+*Reading a group's secret from a job* in `docs/guides/configuration.md`.
+
+**How it is wired.** Typed ports `Vault` / `VaultReaderFactory` in
+`_types/protocols.py`; `_app/vault_reader.py` makes one
+`VaultSource.get(field, group, scope="group")` call per read over the app's live
+chain (or the source boot builds when the chain has none); `build_engine` hands
+the factory to the engine; `_engine/capabilities/vault.py` registers the
+capability with no `RunContext` accessor. Decision record: ADR-044. Proofs:
+`tests/integration/test_group_vault_read.py` (real jobs on both boot paths and
+both CLI surfaces, one test per acceptance criterion) and
+`tests/app/test_vault_reader.py`.
+
+**Known limits.** A value read this way is masked in every rendering of the
+wrapper, but is not added to the run's output-redaction set the way a secret
+config field is, so text a job builds from `get_secret_value()` is not
+scrubbed from `Stdout`/`Shell` output. A user type named `Vault` used as a job
+parameter annotation is now read as the capability. The `examples/` caller these
+names owe lives in `examples/standalone/secrets_lab/jobs/publish.py`: it reads a
+run-time-chosen target's group credential and hands the `Secret` to the function
+that uses it, and `tests/test_group_vault_read.py` pins all three failure kinds.
+The shipped skill table (`skills/functualize/references/capabilities.md`) omits
+the `Vault` row until the skill-router corpus moves to `corpus/v2`, because the
+frozen v1 lock digests every file under `skills/functualize/`; the exemption is
+`_UNDOCUMENTED_UNTIL_CORPUS_V2` in `tests/skills/test_api_claims.py`, and both go
+when v2 lands.
+
 ### Rise / RiseKit foundation — revision 7 specified, Execute gated on a released 0.5.0
 
 **What it is.** Rise defines typed operational subjects, contracts,
@@ -633,6 +672,15 @@ boundary is recorded in
 [ADR-043](../contributor/adr/043-rise-is-a-convention-on-the-public-api.md);
 selection, registry, and the `func rise` commands in
 [ADR-044](../contributor/adr/044-the-repository-says-what-the-cloner-decides-how.md).
+
+**Source and workspace (decided 2026-11-12).** Rise's source lives in the
+private `raicing-ai/rise` repository, not in this one. The private
+`raicing-ai/funccloud` repository is the workspace: it pins `functualize/` and
+`rise/` as submodules and holds the private wiki and coordination runbooks.
+This public repository keeps the convention's durable record and the public
+API that Rise depends on. No build, test, CI job, dependency or documentation
+link here reaches either private repository. See
+[ADR-043 → *Addendum — where Rise's source lives*](../contributor/adr/043-rise-is-a-convention-on-the-public-api.md).
 
 **Authority.** Shape intent SD/18153475 v28 has `Authority: Approved` and marks
 the three earlier post-approval deltas binding. The owner confirmed them in
@@ -670,7 +718,8 @@ have separate owners. Approver authentication, Merge/Deploy authority, OAuth,
 Worker secret delivery/runtime integration, target preview, destructive
 adoption, registry signing, trust policy, and publishing are outside this
 foundation. PR #73 (`feat/rise-risetkit-foundation`) is the older revision 6
-lineage; it is not superseded by this entry's merge.
+lineage. Its topology proposal is now recorded in the ADR-043 addendum, and
+its in-tree `plugins/` placement is superseded.
 
 The full revision 7 record (spec, contracts, plan) is recoverable at
 `673d2fc9`, the reviewed head before the clearing:
@@ -914,6 +963,21 @@ themselves are held by the maintainer, outside the repository (B-25); the
 computed verdict is a recommendation. Still open: the verdict's disposition is
 the maintainer's, and Phases 4–5 remain.
 
+### Skill router evaluation — delivered
+
+Phase 4 of the decision-layer experiment. The instrument is
+`tests/skill_router_eval/` with three downstream arms in `evals/`: one frozen
+corpus replayed through one five-option selection gate against four comparators,
+five agent tasks run under three skill-loading arms, and a computed verdict. The
+method and the commands are `contributor/reference/skill-router-evaluation.md`.
+Corpus `v1` (`tests/skill_router_eval/corpus/v1/`, 40 scenarios) is frozen at
+digest `e04e65ed0c6111806ba58d5b6a90f9496b89164badc87daf994c8c3fd0e27a58` over
+catalog `47b1ea9b1535d2a0ccb50cb7d93ece6dcf84be1f31e19aaae7b2ce4a224be3b9`.
+The results, ledgers and verdict are the `SD` page *Skill Router — Corpus v1
+Results*; the computed verdict is a recommendation. Still open: its disposition
+is the maintainer's, Phase 5, and two-skill requests (`TWO_SKILL.md`), which the
+single-skill label set does not score.
+
 ### Gate-name resolution — delivered
 
 Gate references resolve once per public entry via `resolve_name` against the
@@ -997,6 +1061,32 @@ machine. §1.1's sentence placing `ATTEMPT` enforcement "where the relational wr
 longer part of this task: the relational writer's own record already rewrote it to name
 `_run_sql.py`'s `require_transition(ATTEMPT, …)` calls. §1.2's lower-casing note gains the
 `RunState` pointer.
+
+### Skill router — specified, not implemented
+
+Phase 4 of the decision-layer experiment. The package is
+`.spec/features/skill-router/` on `sdd/skill-router`: `spec.md` (behaviour and
+the scope guard), `contracts.md` (C-1…C-11, including the catalog declaration
+and the selection result), `plan.md` (alignment to the approved shape page,
+BEFORE/AFTER, surviving smells) and `tasks.md` — 16 atomized tasks in 12
+binding waves — with `research.md` carrying the measured reality. Scope after
+the approved shape page: everything is contributor tooling —
+`tests/skill_router_eval/` holds the instrument and `evals/` the downstream
+arms, no shipped file and no `examples/` change — and the selection proposes
+exactly one of `functualize`, `functualize-app`, `functualize-cli`,
+`functualize-skill` or `none`, one `ChoiceRequest` through the unchanged seam.
+Nothing in `src/` has changed. Execute is not yet authorised: wave 0 waits on
+the maintainer's P-1 (downstream task list), P-2 (verdict constants) and S-1
+(Duplicate Code instead of editing Phase 3). The implementation lands on the
+same branch and pull request; the spec artifacts are cleared in that branch's
+last commit (T16), when the delivered state is recorded under its own entry.
+
+The package review at `d34b70d3` required four repairs. The revised package
+unwraps the native provider's `output` and pins its three-turn call config,
+prices native USD from the provider's reported cost, locks the selection rule
+and measuring code along with the corpus, and records the Plan retrieval over
+the reviewed commit. These are specification repairs only; P-1, P-2 and S-1
+remain open for the maintainer, and Execute remains unauthorised.
 
 ## Deferred
 

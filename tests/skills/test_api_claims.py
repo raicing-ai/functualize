@@ -97,6 +97,15 @@ def _resolve_public_names() -> dict[str, object]:
     return resolved
 
 
+#: Capabilities injected by the engine but deliberately absent from the shipped
+#: table until the skill-router corpus moves to `corpus/v2`: the frozen v1 lock
+#: digests every file under `skills/functualize/`, so the row cannot be added
+#: without versioning the corpus. Remove this set when v2 lands — re-adding the
+#: row while a name is still listed here fails the test as "documented but not
+#: injected", so the exemption cannot outlive its reason.
+_UNDOCUMENTED_UNTIL_CORPUS_V2 = frozenset({"Vault"})
+
+
 def _capability_types_from_engine() -> set[str]:
     """The types the engine injects.
 
@@ -108,7 +117,7 @@ def _capability_types_from_engine() -> set[str]:
     """
     from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 
-    return set(INJECTED_PARAM_TYPE_NAMES)
+    return set(INJECTED_PARAM_TYPE_NAMES) - _UNDOCUMENTED_UNTIL_CORPUS_V2
 
 
 #: Heading whose table is *the* capability table. Scoped deliberately: the

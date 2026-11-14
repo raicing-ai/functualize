@@ -62,5 +62,6 @@ INJECTED_PARAM_TYPE_NAMES: frozenset[str] = frozenset(
         "JobConfigView",
         "TTY",
         "Live",
+        "Vault",
     }
 )
