@@ -307,11 +307,12 @@ class TestTheFamilyIsRegistered:
         assert declared.terminal_subcommands == ()
 
     def test_the_documented_names(self) -> None:
-        """Ten, and the five that were here before are all still among them.
+        """Thirteen, and the five that were here before are all still among them.
 
         Written as two assertions rather than one set so the compatibility
         claim is legible: this feature is additive, and no existing subcommand
-        was renamed or dropped (spec §14.5).
+        was renamed or dropped (spec §14.5). The three `vault-remote-
+        redemption` verbs (share/redeem/show) extend the same group.
         """
         declared = next(c for c in BUILTIN_COMMANDS if c.name == "vault")
         names = set(declared.subcommand_map)
@@ -328,6 +329,9 @@ class TestTheFamilyIsRegistered:
             "clear",
             "keygen",
             "unlock",
+            "share",
+            "redeem",
+            "show",
         }
 
 
@@ -1809,7 +1813,7 @@ class TestTheDeclaredReasonCodesAreReachable:
 
         src = _Path(__file__).resolve().parents[2] / "src" / "functualize"
         emitted = set()
-        for module in ("_cli/vault_cmd.py", "app/vault.py"):
+        for module in ("_cli/vault_cmd.py", "app/vault.py", "app/vault_handoff.py"):
             text = (src / module).read_text()
             emitted |= set(re.findall(r'_fail\(\s*"([a-z_]+)"', text))
             emitted |= set(re.findall(r'VaultPathError\(\s*"([a-z_]+)"', text))
@@ -1842,6 +1846,20 @@ class TestTheDeclaredReasonCodesAreReachable:
             "confirmation_required",
             "key_mismatch",
             "vault_format_unsupported",
+            # The remote-sharing verbs (vault-remote-redemption): literal
+            # `_fail` codes in `vault_cmd`, selector and plaintext-read codes in
+            # `vault_handoff` / `app.vault`. The wire's own codes (`gone`,
+            # `not_found`, `open_failed`, …) and the handoff's VaultRedeemError
+            # codes arrive through `_remote_fail`'s dynamic reason, not this
+            # table.
+            "conflicting_options",
+            "no_selection",
+            "dotenv_unwritable",
+            # The `--dotenv` refusal: the value holds `${`, which the reader
+            # substitutes, so the entry is left out and the run exits 3.
+            "dotenv_interpolated",
+            "bad_selector",
+            "not_stored",
         }
 
         assert emitted <= declared, f"emitted but undeclared: {emitted - declared}"
@@ -2508,3 +2526,52 @@ class TestUnlockSaysHowItEnded:
         text = (result.stdout + result.stderr).lower()
         for product in ("gnome", "kwallet", "credential manager", "secret service"):
             assert product not in text
+
+
+class TestBaseIsTheSharedSlot:
+    """SD/12779576: the environment name ``base`` addresses shared entries.
+
+    Measured before the fix: ``FUNCTUALIZE_ENV=base … vault put`` stored a
+    four-part ``…,"base"]`` key that a ``prod`` run never consulted.
+    """
+
+    def _app(self, project: Path) -> FunctualizeApp:
+        return FunctualizeApp(
+            "vaulttest",
+            job_sources=JobSources(directories=[str(project / "jobs")], lazy=False),
+        )
+
+    def test_a_put_under_base_stores_and_reports_the_shared_entry(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FUNCTUALIZE_ENV", "base")
+        put = _run(
+            ["put", "--job", "report", "--field", "password", "--stdin"],
+            app=self._app(project),
+            stdin=_CONSPICUOUS,
+        )
+
+        assert put.exit_code == ExitCode.OK, put.output
+        assert "(base, new;" in put.output
+        assert {e.key for e in SecretsVault(vault_location()).list_entries()} == {
+            VaultIdentity("job", "report", "password").encode()
+        }
+
+    def test_a_prod_run_sees_the_entry_written_under_base(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FUNCTUALIZE_ENV", "base")
+        _run(
+            ["put", "--job", "report", "--field", "password", "--stdin"],
+            app=self._app(project),
+            stdin=_CONSPICUOUS,
+        )
+        AppState.reset()
+        monkeypatch.setenv("FUNCTUALIZE_ENV", "prod")
+        seen = _run(
+            ["inspect", "--job", "report", "--field", "password", "--json"],
+            app=self._app(project),
+        )
+
+        assert seen.exit_code == ExitCode.OK, seen.output
+        assert json.loads(seen.stdout)["exists"] is True
