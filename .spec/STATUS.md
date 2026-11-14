@@ -947,6 +947,40 @@ member decision. Delivered on `fix/gate-name-resolution`; the surface
 behaviour is documented in `docs/guides/workflows.md` → *Gate answering*,
 and `examples/standalone/gate_refusal/` is the reference caller.
 
+### Optional parameter CLI flag — delivered
+
+A job parameter declared `X | None` or `Optional[X]` now gets the same CLI
+option as a plain `X`. Before, the annotation failed the CLI-compatibility
+check and the parameter was silently dropped from the command: `func greet
+--greeting hi ada` answered `No such option '--greeting'`, and leaving the
+value out was the only way to pass it.
+
+**The classification rule.** CLI compatibility, DI-type and config-model
+checks are judged on the unwrapped inner type, through the one optional rule
+the config layer already had (`_config/job_config.py` `_unwrap_optional`,
+reached by `_cli` as `functualize.app.utils.unwrap_optional_type`), while
+`AnnotationInfo.base_type` keeps the declared annotation. Explicit `Provide`
+and CLI markers keep their precedence. `RunContext | None`
+and `TTY | None` stay injected and take no option. A parameter without a
+default is unchanged, and an inner type with no CLI form of its own gains none
+through `Optional`.
+
+**`bool | None` is a tri-state.** Absent gives `None`, `--loud` gives `True`,
+`--no-loud` gives `False`. When a sibling parameter is literally named
+`no_loud`, it owns `--no-loud`, and `loud` keeps only a bare `--loud` with an
+absent value of `None` — the approved degradation: that command has no
+`False` spelling for `loud`.
+
+**What pins it.** `tests/cli/test_optional_parameter_cli.py` drives `func` and
+an embedded `FunctualizeApp` through both optional spellings, the tri-state,
+the `no_loud` collision, the documented optional `RunContext`/`TTY` examples
+and warm cached discovery. `tests/adapters/test_click_params_parity.py`
+freezes `job_plain`'s new `--path` row. The plan's two surviving smells were
+accepted by the maintainer as follow-up work: see *Potential Follow-ups* **35**.
+The full spec, contracts, plan and task graph are recoverable from the pull
+request's last commit's parent:
+`git fetch origin refs/pull/141/head && git show FETCH_HEAD^:.spec/features/optional-parameter-cli-flag/plan.md`.
+
 ### persistence-port-status-typing — designed, not implemented
 
 Recorded here because `.spec/features/persistence-port-status-typing/` is deleted before merge,
@@ -3343,6 +3377,45 @@ Items identified during development that are worth doing but not yet designed:
 
     Close this by adding that per-scan memo, or by deciding the cold-boot cost
     is acceptable and saying so.
+
+35. **`build_click_params` still mixes filtering with emission, and the
+    optional rule still has four implementations.** Both were presented as
+    surviving smells of the change that first gave an optional job parameter a
+    CLI flag, and the maintainer accepted them as follow-up work rather than
+    work for that change (2026-11-14).
+
+    `src/functualize/app/adapters/click_params.py:708` `build_click_params` is
+    204 lines and decides both which parameters become Click options and how
+    each one is emitted; the flag change added four lines to it. The filter
+    half and the emit half stay interleaved, including the marker precedence
+    and the negative-flag sibling handling.
+
+    The optional rule exists in three spellings that are not drop-in
+    replacements for each other, plus one verbatim copy:
+
+    - `_config/job_config.py:246` `_unwrap_optional` →
+      `(tp) -> tuple[Any, bool]`, re-exported as `unwrap_optional_type` at
+      `app/utils.py:23`. Its flag is read by config classification
+      (`_is_supported_type`, `job_config.py:334`), config coercion
+      (`coerce_value`, `:394`) and the Click optional-bool check
+      (`click_params.py:885`).
+    - `_config/job_config.py:466` — a nested copy of the same function inside
+      `validate_job_config_types`, read at `:490`.
+    - `_discovery/providers.py:397` `_unwrap_optional` → `(annotation) -> Any`
+      (discovery).
+    - `_discovery/schema_extractor.py:225` `_unwrap_optional_annotation` →
+      `(annotation) -> Any` (schema extraction).
+
+    Unifying them has to settle the return shape first — the two discovery
+    helpers return only the inner type, while config and the Click renderer
+    read the optional flag — which is why that did not ride along with the CLI
+    fix, and why no new copy was introduced.
+
+    **Closes when** `build_click_params` is split into a filter half and an
+    emit half with `tests/adapters/test_click_params_parity.py` and
+    `tests/cli/test_optional_parameter_cli.py` unchanged and green, and the
+    unwrappers are either unified on one signature or documented as
+    deliberately different. Each half needs its own tests.
 
 ## Recently Completed (2026-10)
 

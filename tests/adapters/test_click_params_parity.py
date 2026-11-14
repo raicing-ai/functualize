@@ -22,6 +22,10 @@ That is a decision, not drift: recorded as D3 of the boolean-flag-negation
 package and taken by the maintainer before the work began. ``flag`` and ``http`` are unchanged; they are
 plain signature bools, which always had the pair, and the asymmetry between
 them and the three above is precisely what the feature removed.
+
+**``job_plain``'s ``path: Path | None = None`` gained ``--path``** when optional
+job parameters became CLI flags. Typer never rendered it, so the original
+capture had no ``path`` row; its absence was the defect, not the contract.
 """
 
 from __future__ import annotations
@@ -93,13 +97,21 @@ def plugin_cb(
     return "x"
 
 
+def _type_repr(t: object) -> str:
+    # click's FuncParamType (a converter such as ``Path``) has no repr of its own,
+    # so the default one carries an object address; its ``name`` is stable.
+    if type(t).__name__ == "FuncParamType":
+        return f"FuncParamType({t.name})"  # type: ignore[attr-defined]
+    return repr(t)
+
+
 def _snap(p: object) -> tuple:
     return (
         p.name,  # type: ignore[attr-defined]
         type(p).__name__,
         tuple(p.opts),  # type: ignore[attr-defined]
         tuple(p.secondary_opts),  # type: ignore[attr-defined]
-        repr(p.type),  # type: ignore[attr-defined]
+        _type_repr(p.type),  # type: ignore[attr-defined]
         p.required,  # type: ignore[attr-defined]
         repr(p.default),  # type: ignore[attr-defined]
         p.nargs,  # type: ignore[attr-defined]
@@ -179,6 +191,18 @@ EXPECTED: dict[str, list[tuple]] = {
             "False",
             1,
             True,
+            False,
+        ),
+        (
+            "path",
+            "Option",
+            ("--path",),
+            (),
+            "FuncParamType(Path)",
+            False,
+            "None",
+            1,
+            False,
             False,
         ),
     ],
