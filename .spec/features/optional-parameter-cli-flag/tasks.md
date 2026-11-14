@@ -112,7 +112,7 @@ checks. Each task requires a commit or reviewable diff and the named evidence.
 
 ## Wave 5: implementation review handoff
 
-### [ ] 5.1 Present implementation evidence for review
+### [x] 5.1 Present implementation evidence for review
 
 - **Input:** task 4.1's green local gates and E1-E7 evidence.
 - **[F]:** none (checkpoint).
@@ -125,6 +125,11 @@ checks. Each task requires a commit or reviewable diff and the named evidence.
   disposition. No tracker key, task id, agent/model name, or agent trailer in
   commit, branch, PR title, or PR body.
 - **Depends on:** 4.1.
+- **Disposition:** reviewer APPROVE with zero blockers at `968e2f6b` (review
+  comment `01a1cf27-0cee-7bc1-b62b-005c6b8c5ad1`, 2026-11-12T09:46:45Z);
+  maintainer accepted both surviving smells as follow-up work (comment
+  `01a1d812-b689-7a05-8cf2-09cccb7528a7`, 2026-11-14T03:21:07Z), recorded as
+  `.spec/STATUS.md` *Potential Follow-ups* 35.
 
 ## Wave 6: merge preparation
 
