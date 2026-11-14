@@ -634,6 +634,15 @@ boundary is recorded in
 selection, registry, and the `func rise` commands in
 [ADR-044](../contributor/adr/044-the-repository-says-what-the-cloner-decides-how.md).
 
+**Source and workspace (decided 2026-11-12).** Rise's source lives in the
+private `raicing-ai/rise` repository, not in this one. The private
+`raicing-ai/funccloud` repository is the workspace: it pins `functualize/` and
+`rise/` as submodules and holds the private wiki and coordination runbooks.
+This public repository keeps the convention's durable record and the public
+API that Rise depends on. No build, test, CI job, dependency or documentation
+link here reaches either private repository. See
+[ADR-043 → *Addendum — where Rise's source lives*](../contributor/adr/043-rise-is-a-convention-on-the-public-api.md).
+
 **Authority.** Shape intent SD/18153475 v28 has `Authority: Approved` and marks
 the three earlier post-approval deltas binding. The owner confirmed them in
 MCH-151 comment `01a1539f-4b62-72e1-84fa-4e3f3d2702b3` on 2026-10-19 and decided
@@ -670,7 +679,8 @@ have separate owners. Approver authentication, Merge/Deploy authority, OAuth,
 Worker secret delivery/runtime integration, target preview, destructive
 adoption, registry signing, trust policy, and publishing are outside this
 foundation. PR #73 (`feat/rise-risetkit-foundation`) is the older revision 6
-lineage; it is not superseded by this entry's merge.
+lineage. Its topology proposal is now recorded in the ADR-043 addendum, and
+its in-tree `plugins/` placement is superseded.
 
 The full revision 7 record (spec, contracts, plan) is recoverable at
 `673d2fc9`, the reviewed head before the clearing:
