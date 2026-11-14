@@ -1,10 +1,15 @@
-"""Validate and merge run tags supplied at the CLI process boundary."""
+"""Validate and merge run tags from selected settings layers and run inputs."""
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from functualize._config.settings_layers import SettingsLayer
 
 TAG_KEY_RE = re.compile(r"[a-z0-9][a-z0-9._-]*")
 MAX_VALUE_LEN = 256
@@ -86,11 +91,12 @@ def parse_env(raw: str) -> dict[str, str]:
     )
 
 
-def parse_config_list(items: object) -> dict[str, str]:
-    """Validate ``[run] tags`` from the global user config file."""
+def parse_config_list(items: object, *, where: str = "[run] tags") -> dict[str, str]:
+    """Validate one file's ``[run] tags`` list with its source label."""
     if not isinstance(items, list):
-        raise RunTagError("[run] tags in the global config must be a list of strings.")
-    return _parse_items(items, where="[run] tags")
+        location = "[run] tags in the global config" if where == "[run] tags" else where
+        raise RunTagError(f"{location} must be a list of strings.")
+    return _parse_items(items, where=where)
 
 
 def parse_flag_list(items: Sequence[str] | None) -> dict[str, str]:
@@ -110,3 +116,33 @@ def merge_layers(*layers: Mapping[str, str]) -> Mapping[str, str]:
     if len(merged) > MAX_TAGS:
         raise RunTagError(f"a run may have at most {MAX_TAGS} run tags.")
     return MappingProxyType(merged)
+
+
+def _file_label(layer: SettingsLayer) -> str:
+    section = f"{layer.section_prefix}.run" if layer.section_prefix else "run"
+    return f"[{section}] tags in {layer.path}"
+
+
+def resolve_run_tags(
+    layers: Sequence[SettingsLayer],
+    *,
+    flag_items: Sequence[str] | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Mapping[str, str]:
+    """Overlay selected files, environment, and CLI flags per key.
+
+    ``settings_layers`` supplies nearest-first projects and the global file
+    last. Reverse that sequence to apply the ordinary precedence ladder.
+    Files are never reopened here. Every source is validated before merging.
+    """
+    parsed: list[Mapping[str, str]] = []
+    for layer in reversed(layers):
+        run_section = layer.values.get("run")
+        if not isinstance(run_section, dict) or "tags" not in run_section:
+            continue
+        parsed.append(parse_config_list(run_section["tags"], where=_file_label(layer)))
+
+    source = os.environ if environ is None else environ
+    parsed.append(parse_env(source.get("FUNCTUALIZE_RUN_TAGS", "")))
+    parsed.append(parse_flag_list(flag_items))
+    return merge_layers(*parsed)

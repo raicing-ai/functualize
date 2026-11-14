@@ -7,10 +7,13 @@ from collections import Counter
 from pathlib import Path
 
 import click
+import pytest
 from click.testing import CliRunner
 
 from functualize._cli.builtins._config import register_config
 from functualize._cli.data.func_settings import FUNC_SETTINGS, tui_settings
+from functualize._config.run_tags import RunTagError, resolve_run_tags
+from functualize._config.settings_resolution import resolve_settings
 from functualize._types.enums import SURFACE_PREFERENCES, RenderSurface
 from functualize.job import surface_hint
 from functualize.plugin import FUNCTUALIZE_SETTINGS
@@ -129,6 +132,30 @@ def test_root_marker_is_found_until_a_setting_contributes(
     with_setting = runner.invoke(group, ["config", "path"])
     assert with_setting.exit_code == 0
     assert f"✓ used    {config}" in with_setting.output
+
+    config.write_text('root = true\n[run]\ntags = ["a:b"]\n')
+    tag_only = runner.invoke(group, ["config", "path"])
+    assert tag_only.exit_code == 0
+    assert f"✓ used    {config}" in tag_only.output
+
+
+def test_run_tags_are_reserved_for_the_strict_layer_resolver(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / ".functualize.toml"
+    project.write_text('[run]\ntags = ["a:b"]\n')
+    snapshot = resolve_settings(
+        FUNCTUALIZE_SETTINGS,
+        tmp_path,
+        env={"FUNCTUALIZE_RUN_TAGS": "x:1,y"},
+        global_dir=tmp_path / "xdg",
+    )
+
+    assert "run.tags" not in snapshot.values
+    assert "run.tags" not in snapshot.provenance
+    assert snapshot.contributes[project] == frozenset({"run.tags"})
+    with pytest.raises(RunTagError, match="FUNCTUALIZE_RUN_TAGS"):
+        resolve_run_tags(snapshot.layers, environ={"FUNCTUALIZE_RUN_TAGS": "x:1,y"})
 
 
 def _calls(path: Path) -> list[ast.Call]:

@@ -30,6 +30,8 @@ from typing import Any
 
 import pytest
 
+from functualize.app.config import RunTagError
+from functualize.app.core import FunctualizeApp
 from tests.conftest import surfaces
 
 # `func`-only: this is the pre-boot dispatch layer of `_cli/main.py`; an app
@@ -211,14 +213,14 @@ _REFUSED = [
         None,
         None,
         '[run]\ntags = ["a:b", ":x"]\n',
-        "[run] tags item 2 ':x': a run tag needs a key before ':'.",
+        "[run] tags in <path> item 2 ':x': a run tag needs a key before ':'.",
         id="config-empty-key",
     ),
     pytest.param(
         None,
         None,
         '[run]\ntags = "a:b"\n',
-        "[run] tags in the global config must be a list of strings.",
+        "[run] tags in <path> must be a list of strings.",
         id="config-not-a-list",
     ),
     pytest.param(
@@ -257,7 +259,8 @@ class TestARefusedTagStopsBeforeBoot:
         result = cli_run([*argv, "release"], cwd=project.root)
 
         assert result.exit_code == 2, result.stderr
-        assert f"Error: {message}" in result.stderr
+        global_path = xdg_dirs.functualize_config / "config.toml"
+        assert f"Error: {message.replace('<path>', str(global_path))}" in result.stderr
         assert "released" not in result.stdout
         assert not project.ran.exists(), "the job body ran"
         assert not project.imported.exists(), "the job module was imported"
@@ -270,6 +273,35 @@ class TestARefusedTagStopsBeforeBoot:
         )
         assert listed.exit_code == 0, listed.stderr
         assert json.loads(listed.stdout)["runs"] == []
+
+    @pytest.mark.parametrize(
+        ("tags", "detail"),
+        [
+            ('["ok:1", ":x"]', "item 2 ':x'"),
+            ('["s:1", "s:2"]', "gives run tag key 's' twice (items 1 and 2)"),
+        ],
+    )
+    def test_project_tag_refusal_happens_before_job_import(
+        self,
+        cli_run,
+        project_tree,
+        tmp_path: Path,
+        xdg_dirs,
+        tags: str,
+        detail: str,
+    ) -> None:
+        project = _release_project(project_tree, tmp_path)
+        config = project.root / ".functualize.toml"
+        config.write_text(f"[run]\ntags = {tags}\n")
+
+        result = cli_run(["release"], cwd=project.root)
+
+        assert result.exit_code == 2
+        assert str(config) in result.stderr
+        assert detail in result.stderr
+        assert not project.imported.exists(), "the job module was imported"
+        assert not project.ran.exists(), "the job body ran"
+        assert _records(project.root, xdg_dirs.cache) == {}
 
     def test_the_merge_happens_before_discovery(
         self, cli_run, project_tree, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -304,6 +336,60 @@ class TestARefusedTagStopsBeforeBoot:
 
 
 class TestBuiltinMode:
+    @pytest.mark.parametrize(
+        ("tags", "detail"),
+        [('["broken"]', "broken"), ('["team:a", "team:b"]', "items 1 and 2")],
+    )
+    def test_standard_boot_refuses_project_tags_before_imports(
+        self,
+        project_tree,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        tags: str,
+        detail: str,
+    ) -> None:
+        from functualize._plugins.loader import PluginLoader
+
+        project = _release_project(project_tree, tmp_path)
+        config = project.root / ".functualize.toml"
+        config.write_text(f"[run]\ntags = {tags}\n")
+        monkeypatch.chdir(project.root)
+
+        def _plugin_import(*_args: Any, **_kwargs: Any) -> None:
+            pytest.fail("plugin loading started before tag preflight")
+
+        monkeypatch.setattr(PluginLoader, "load_all", _plugin_import)
+        with pytest.raises(RunTagError) as refused:
+            FunctualizeApp("refused")
+
+        assert str(config) in str(refused.value)
+        assert detail in str(refused.value)
+        assert not project.imported.exists(), "the job module was imported"
+
+    @pytest.mark.parametrize(
+        ("tags", "detail"),
+        [('["broken"]', "broken"), ('["team:a", "team:b"]', "items 1 and 2")],
+    )
+    def test_http_serve_reports_project_tag_usage_error(
+        self,
+        cli_run,
+        project_tree,
+        tmp_path: Path,
+        tags: str,
+        detail: str,
+    ) -> None:
+        project = _release_project(project_tree, tmp_path)
+        config = project.root / ".functualize.toml"
+        config.write_text(f"[run]\ntags = {tags}\n")
+
+        refused = cli_run(["builtin", "serve", "http"], cwd=project.root)
+
+        assert refused.exit_code == 2
+        assert "Error: " in refused.stderr
+        assert str(config) in refused.stderr
+        assert detail in refused.stderr
+        assert not project.imported.exists(), "the job module was imported"
+
     def test_the_flag_is_clicks_own_refusal(self, cli_run) -> None:
         """AC10: BUILTIN declares no delivery input, so Click refuses it."""
         result = cli_run(["--run-tag", "a:b", "builtin", "run", "list"])

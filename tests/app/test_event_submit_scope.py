@@ -15,12 +15,14 @@ because the facade is what creates the scope *and* hands the id back.
 from __future__ import annotations
 
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from functualize._app.impl import on_job_submit_event
 from functualize._app.state import AppState
+from functualize._primitives.run_store import RunStore
 from functualize.app.core import FunctualizeApp
 
 
@@ -65,6 +67,23 @@ def test_submitted_job_actually_runs(app: FunctualizeApp) -> None:
     app.register_dynamic_job("record", lambda value="x": seen.append(value))
     on_job_submit_event(app, _Event(job_name="record", kwargs={"value": "ran"}))
     assert seen == ["ran"]
+
+
+def test_event_submit_records_selected_project_tags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "event-submit"
+    project.mkdir()
+    (project / ".functualize.toml").write_text('[run]\ntags = ["door:event"]\n')
+    monkeypatch.chdir(project)
+    application = FunctualizeApp("event-submit")
+    application.register_dynamic_job("greet", _greet)
+
+    on_job_submit_event(application, _Event(job_name="greet", kwargs={}))
+
+    store = RunStore(application.execution_engine._state_store().substrate)
+    records = [store.get_run(run_id) for run_id in store.run_ids()]
+    assert [record["run_tags"] for record in records if record] == [{"door": "event"}]
 
 
 def test_unregistered_job_is_a_warning_not_a_crash(
