@@ -4,6 +4,7 @@ Re-exports the capability types from their source locations so that
 job authors can import everything from `functualize.job`:
 
     from functualize.job import Log, Invoke, Prompt, Perf, State, JobContext, JobConfigView
+    from functualize.job import Vault
     from functualize.job import JobResult, InvokeResult
 
 These types are used for:
@@ -24,6 +25,7 @@ from functualize._types.interactivity import (
     PromptRequest,
     PromptResponse,
 )
+from functualize._types.protocols import Vault
 from functualize.job._freshness import Freshness, FreshnessVerdict
 from functualize.job._invoke import Invoke, InvokeResult
 from functualize.job._job_context import JobContext
@@ -56,6 +58,7 @@ __all__ = [
     "State",
     "Stdout",
     "TTY",
+    "Vault",
     # Supporting types (useful for job authors)
     "InvokeResult",
     "JobResult",
