@@ -77,6 +77,10 @@ def call_api(prompt: str, options: dict, _context: dict) -> dict:
                 "skills_loaded": run.skills_loaded,
                 "selected": ours[0] if ours else None,
                 "any_fired": bool(ours),
+                # Which model answered, as its own `init` event reports it: a
+                # routing run whose model was silently substituted is not the
+                # measurement the suite thinks it made.
+                "model": run.model,
                 "text": run.text,
                 "error": run.error,
             },
