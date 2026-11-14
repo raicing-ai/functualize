@@ -655,6 +655,11 @@ parameter annotation is now read as the capability. The `examples/` caller these
 names owe lives in `examples/standalone/secrets_lab/jobs/publish.py`: it reads a
 run-time-chosen target's group credential and hands the `Secret` to the function
 that uses it, and `tests/test_group_vault_read.py` pins all three failure kinds.
+The shipped skill table (`skills/functualize/references/capabilities.md`) omits
+the `Vault` row until the skill-router corpus moves to `corpus/v2`, because the
+frozen v1 lock digests every file under `skills/functualize/`; the exemption is
+`_UNDOCUMENTED_UNTIL_CORPUS_V2` in `tests/skills/test_api_claims.py`, and both go
+when v2 lands.
 
 ### Rise / RiseKit foundation — revision 7 specified, Execute gated on a released 0.5.0
 
