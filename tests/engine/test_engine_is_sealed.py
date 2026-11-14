@@ -232,3 +232,49 @@ class TestTheInvokeDepthIsReadFromTheHost:
 
         assert app.max_invoke_depth == 3
         assert app.execution_engine.max_invoke_depth == 3
+
+
+class TestTheVaultReaderIsHandedIn:
+    """F6: the engine is given the reader behind `Vault`, and never finds one."""
+
+    def test_both_boot_paths_hand_the_engine_the_apps_reader_factory(
+        self, tmp_path: Path
+    ) -> None:
+        from functualize._app.vault_reader import LocalVaultReaderFactory
+        from functualize._types.protocols import VaultReaderFactory
+
+        for app in (_static_app(), _standard_app(tmp_path)):
+            factory = app.execution_engine.vault_reader_factory
+
+            assert isinstance(factory, LocalVaultReaderFactory)
+            assert isinstance(factory, VaultReaderFactory)
+            assert factory._app is app
+
+    def test_the_factory_is_a_constructor_argument_not_a_writable_field(
+        self,
+    ) -> None:
+        engine = _static_app().execution_engine
+
+        with pytest.raises(AttributeError):
+            engine.vault_reader_factory = None  # type: ignore[misc]
+
+    def test_an_engine_built_without_one_refuses_a_vault_request(self) -> None:
+        """No inert reader: an engine with no factory cannot pretend the vault
+        is empty, so the capability fails as a resolution failure."""
+        from types import SimpleNamespace
+
+        from functualize._engine.capabilities.registry import SPEC_BY_TYPE
+        from functualize._engine.capabilities.spec import CapabilityContext
+        from functualize._primitives import MissingProviderError
+        from functualize._types.protocols import Vault
+
+        spec = SPEC_BY_TYPE[Vault]
+        ctx = CapabilityContext(
+            engine=SimpleNamespace(vault_reader_factory=None),
+            context=SimpleNamespace(job_name="deploy"),
+            caps={},
+        )
+
+        with pytest.raises(MissingProviderError, match="Vault"):
+            assert spec.factory is not None
+            spec.factory(ctx)

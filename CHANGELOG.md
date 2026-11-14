@@ -30,6 +30,23 @@ constructed and resolves them on its first run, which fails before it opens.
 amendment to
 [ADR-040](contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md).
 
+### Added — a job can read a group's secret from the local vault with `Vault.read`
+A job that only learns at run time which target it is working on can now ask
+for that target's credential: declare `vault: Vault` (from `functualize.job`)
+and call `vault.read("cloudflare_dev.d1.main", "api_token")`. It returns
+`Secret[str]`, masked in every rendering. The entry is chosen by the same group
+lookup config uses — the active environment's exact group, then its nearest
+ancestors, then the shared slot in that order — and the first stored entry
+wins. When nothing is stored the call raises the new `VaultEntryMissingError`;
+when the chosen entry exists but cannot be opened it raises
+`VaultEntryUnreadableError` or `VaultDecryptionError` and does not try a
+weaker candidate. All three are exported from `functualize.app.vault`. The
+read never substitutes an environment variable, config file or default, never
+contacts a provider (`vault sync` still does that), and adds no CLI, MCP or TUI
+input. Ordinary config resolution is unchanged: a config field whose vault
+entry is absent still resolves from the next source. See *Reading a group's
+secret from a job* in `docs/guides/configuration.md`.
+
 ### Fixed — the message-hygiene identity arm reads prose, not code
 
 **Contributor-facing; no runtime behaviour changes.** The identity arm

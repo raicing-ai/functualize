@@ -1,0 +1,199 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# Axis 4: does pre-context skill selection beat loading everything?
+#
+# The same five downstream tasks run under three arms:
+#
+#   load-everything — every skill mounted, and every SKILL.md body appended to
+#                     the system prompt;
+#   native          — today's behaviour: skills are mounted and the agent
+#                     reaches for one with the Skill tool;
+#   router          — one selection per case, read from
+#                     `FZ_SKILL_ROUTER_SELECTIONS` (the `select` command's
+#                     `selections.json`): a named skill mounts only itself and
+#                     its body; `none` mounts nothing; `escalated` keeps the
+#                     native toolset.
+#
+# The failures worth reading are per arm, not summed: a router arm that ties
+# `native` on the tasks while moving fewer tokens is the result; one that loses
+# a case has lost it to a mis-selection, which the router arm reports.
+#
+#   FZ_SKILL_ROUTER_SELECTIONS=<run>/selections.json \
+#     npx promptfoo eval -c suites/skill-router.yaml --no-cache --repeat 3 \
+#     -o <outside-repo>/results.json
+#
+# The five cases are copied verbatim from functualize.yaml (2),
+# functualize-app.yaml (2) and functualize-skill.yaml (1): prompt, fixture,
+# setup, checks and asserts, with deterministic asserts only. There is no case
+# for `functualize-cli` (no suite exists for it) and none for `none` (a task
+# nothing can improve has nothing to measure).
+
+description: skill router — does one selection per task beat loading everything?
+
+prompts:
+  - '{{task}}'
+
+providers:
+  - id: file://../providers/claude_agent.py
+    label: load-everything
+    config:
+      arm: load-everything
+      # Pinned: routing and task quality differ per model, so an
+      # unpinned default makes runs non-comparable. FZ_EVAL_MODEL overrides —
+      # except under an arm, which refuses the override (spec B-5).
+      model: claude-sonnet-5
+      sandbox: docker
+      max_turns: 40
+      # promptfoo's OWN worker timeout, in MILLISECONDS — same value as
+      # functualize.yaml, so a harness timeout fires before promptfoo's.
+      timeout: 1320000
+      timeout_s: 1200
+  - id: file://../providers/claude_agent.py
+    label: native
+    config:
+      arm: native
+      model: claude-sonnet-5
+      sandbox: docker
+      max_turns: 40
+      timeout: 1320000
+      timeout_s: 1200
+  - id: file://../providers/claude_agent.py
+    label: router
+    config:
+      arm: router
+      model: claude-sonnet-5
+      sandbox: docker
+      max_turns: 40
+      timeout: 1320000
+      timeout_s: 1200
+
+defaultTest:
+  options:
+    # A list-valued var is a promptfoo *var-expansion axis*, not a list value:
+    # without this, `checks` arrive as a bare string and the provider iterates
+    # them one CHARACTER per container.
+    disableVarExpansion: true
+  vars:
+    setup:
+      - 'uv sync --quiet 2>/dev/null || true'
+
+tests:
+  - description: uses Secret for a credential instead of a plain string
+    vars:
+      case: d1
+      expect: functualize
+      fixture: uv-mise-repo
+      task: >-
+        Add a job called `notify` that posts a message to a webhook. It needs a
+        DATADOG_API_KEY credential to authenticate. Do not make a real network
+        call — just build the request and return the URL you would have hit.
+    assert:
+      - type: python
+        value: file://../asserts/source_contract.py
+        config:
+          require:
+            - pattern: 'json_schema_extra\s*=\s*\{[^}]*secret'
+              label: config field marked secret
+            - pattern: 'Secret\('
+              label: credential wrapped in Secret(...) at the boundary
+          forbid:
+            - pattern: 'os\.environ\[|os\.getenv\('
+              label: hand-rolled env var read, bypassing the resolution chain
+
+  - description: diagnoses a silently undiscovered job via the CLI, not by guessing
+    vars:
+      case: d2
+      expect: functualize
+      fixture: undiscovered-job
+      task: >-
+        `audit` is defined in jobs/inventory.py but it does not appear in the
+        CLI. `restock` in the same file works fine. Find out why and fix it.
+      checks:
+        - 'uv run func audit WIDGET-1'
+    assert:
+      - type: python
+        value: file://../asserts/trace_contract.py
+        config:
+          require_bash:
+            - pattern: 'func\s+builtin'
+              label: asked the app about itself (`func builtin ...`)
+      - type: python
+        value: file://../asserts/checks_pass.py
+
+  - description: reaches for JobConfig rather than a pile of flags
+    vars:
+      case: d3
+      expect: functualize-app
+      fixture: uv-mise-repo
+      task: >-
+        Add a job called `deploy` that needs: a target environment, a region, a
+        timeout in seconds, and a dry-run switch. These come from our
+        deployment config and are the same on most runs — only dry-run really
+        varies per invocation.
+      checks:
+        - 'uv run func deploy --help'
+    assert:
+      - type: python
+        value: file://../asserts/source_contract.py
+        config:
+          require:
+            - pattern: 'BaseModel|JobConfig'
+              label: config modelled with pydantic
+      - type: python
+        value: file://../asserts/checks_pass.py
+
+  - description: standalone — one file with a PEP 723 header, not a scaffolded project
+    vars:
+      case: d4
+      expect: functualize-app
+      fixture: loose-script
+      task: >-
+        I need a single command that reports how much disk each subdirectory
+        under a given path is using. I want to hand it to a colleague who has
+        uv installed and nothing else — no project, no package, one file they
+        can run. Call the file `disk_report.py` and let it take the directory
+        as `--path`.
+      checks:
+        - 'uv tool run --from "functualize[cli] @ file://$(cat functualize-path.txt)" func disk_report.py --help'
+        - 'uv tool run --from "functualize[cli] @ file://$(cat functualize-path.txt)" func disk_report.py --path .'
+        - 'test ! -f pyproject.toml'
+    assert:
+      - type: python
+        value: file://../asserts/trace_contract.py
+        config:
+          forbid_bash:
+            - pattern: 'scaffold\s+init'
+              label: scaffolded a project for a one-file program
+      - type: python
+        value: file://../asserts/source_contract.py
+        config:
+          require:
+            - pattern: '#\s*///\s*script'
+              label: PEP 723 inline metadata block
+            - pattern: '(?m)^#\s*\[tool\.functualize\]'
+              label: '[tool.functualize] table present'
+            - pattern: '(?m)^#\s*job\s*='
+              label: job = declares which job the file is
+            - pattern: 'functualize\[cli\]'
+              label: '[cli] extra in dependencies'
+      - type: python
+        value: file://../asserts/checks_pass.py
+
+  - description: authors a skill whose script runs and whose frontmatter is legal
+    vars:
+      case: d5
+      expect: functualize-skill
+      fixture: bootstrap
+      task: >-
+        Write an agent skill called `changelog-check` that verifies a repo's
+        CHANGELOG.md has an entry for the current version in pyproject.toml.
+        The script should do real work — structured output, a proper --help,
+        and it should be testable. Put it somewhere sensible in this repo.
+      checks:
+        - 'test -f "$(find . -name SKILL.md -path "*changelog-check*" | head -1)"'
+        - 'cd "$(dirname "$(find . -name SKILL.md -path "*changelog-check*" | head -1)")" 2>/dev/null || exit 1; uv run func --help'
+    assert:
+      - type: python
+        value: file://../asserts/checks_pass.py
+      - type: python
+        value: file://../asserts/frontmatter_legal.py
