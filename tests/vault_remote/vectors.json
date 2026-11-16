@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "generated_by": "ts/envelope.mjs",
+  "note": "Deterministic contract between TS and Python implementations. Regeneration is a review-gate event.",
+  "aead_key_b64": "bynR38hMVvgMjbDVyMHoKkork8fVxPPi0cCxopmId2Y=",
+  "fragment_string": "k1.bynR38hMVvgMjbDVyMHoKkork8fVxPPi0cCxopmId2Y",
+  "fragment_envelope": {
+    "v": 1,
+    "mode": "fragment",
+    "metadata": {
+      "labels": [
+        "staging",
+        "aws"
+      ],
+      "created_at": "2026-09-24T02:00:00Z",
+      "expires_at": "2026-10-01T02:00:00Z",
+      "share_id": "b34c9e1a7d2f4c8ea6b05d3f9e2a1c7d"
+    },
+    "items": [
+      {
+        "name": "AWS_SECRET_ACCESS_KEY",
+        "kind": "secret",
+        "nonce": "AAAAAAAAAAAAAAAA",
+        "ct": "u73Onruw0i1i6bT7RLbhkO5O532i5/Vln0HDLWMfWFl4lPzUrSCQQ9T31Z7r9RMHd1xAVlFXNJg="
+      },
+      {
+        "name": "AWS_REGION",
+        "kind": "config",
+        "nonce": "AAAAAAAAAAAAAAAB",
+        "ct": "AR88ovnnFb1SsiSaB+MWsM36aqUbVaPPaYzzhsqX"
+      },
+      {
+        "name": "note",
+        "kind": "meta",
+        "nonce": "AAAAAAAAAAAAAAAC",
+        "ct": "1ui3uJqcARlXC/WIjwifbnZYjsNC0p8tw54DmkTb1uOEajxy94CrURrlwb/0UFHiDQLKyY4EU24vkYT1jM2jRFW0xVxme4kc52B0IHNxpv+/VUVcBQ=="
+      }
+    ]
+  },
+  "opened_values": [
+    "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    "ap-southeast-1",
+    "temporary staging credentials for the demo bundle — ünïcödé ✓"
+  ],
+  "canonical": {
+    "input": {
+      "b": 2,
+      "a": 1,
+      "nested": {
+        "z": [
+          "x",
+          3,
+          true
+        ],
+        "m": "ünïcödé"
+      },
+      "i": 1
+    },
+    "expected": "{\"a\":1,\"b\":2,\"i\":1,\"nested\":{\"m\":\"ünïcödé\",\"z\":[\"x\",3,true]}}"
+  },
+  "recipient": {
+    "private_jwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "d": "x-6aJ3Zy9N12qnhQIljqsufYGuRrlfBZQyrwE1E2BYk",
+      "x": "0GuCL_QfPObd0cDwHJTyBHxLSbZ9bUwBgIK1r6HGQPo",
+      "y": "TCI8mRMP3vPcO8q5y4Er4GWl4e4vUHGMuRRpi4rpVgA"
+    },
+    "public_point_b64": "BNBrgi/0Hzzm3dHA8ByU8gR8S0m2fW1MAYCCta+hxkD6TCI8mRMP3vPcO8q5y4Er4GWl4e4vUHGMuRRpi4rpVgA=",
+    "cek_hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "wrap": {
+      "recipient_kid": "kid-test-1",
+      "epk": "BLQ4BqrQYILEpY0ZjbcCzNIaQ1O/59tz6fTrWI2CvxtxgcnIB8naXdIyMD61ZRUTm70kX5MAwULfj/jsZL1Ga6o=",
+      "salt": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "nonce": "AAAAAAAAAAAAAAAA",
+      "ct": "hT54M32RlaPsejAECbMARn90ifvzhnO9fl5alKXK+uqR5yIZo+Sw8QeWC10OlqaH"
+    }
+  }
+}

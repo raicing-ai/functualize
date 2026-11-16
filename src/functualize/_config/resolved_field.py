@@ -35,7 +35,7 @@ from functualize._types.redaction import is_secret_field
 if TYPE_CHECKING:
     from functualize._config.job_config import JobConfigView
 
-__all__ = ["ResolvedField", "group_env_name_for", "resolve_job_fields"]
+__all__ = ["ResolvedField", "env_name_for", "group_env_name_for", "resolve_job_fields"]
 
 #: ``source`` value meaning "no source provided this, and there is no default".
 UNSET = "unset"
