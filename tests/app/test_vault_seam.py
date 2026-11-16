@@ -734,3 +734,120 @@ class TestUnlockSignalPolicy:
         assert time.monotonic() - started < 5.0
         assert exc.value.reason == "unlock_abandoned"
         assert signal.getsignal(signal.SIGINT) is before
+
+
+def _seed_provider_entry(app: FunctualizeApp, project: Path, value: str) -> str:
+    """Write a `vault sync`-shaped entry for the job token, as sync would."""
+    from functualize._config.vault import SecretsVault
+    from functualize._config.vault_key_resolver import resolve_vault_key
+    from functualize._config.vault_paths import vault_path_for_project
+
+    resolution = resolve_vault_key("ignored")
+    assert resolution.key is not None
+    key = VaultIdentity(
+        "job", "deploy", "api_token", app.configuration.active_environment()
+    ).encode()
+    SecretsVault(vault_path_for_project(project)).put(
+        key,
+        value,
+        encryption_key=resolution.key,
+        annotation="aws-sm://shared/deploy-token",
+        provider="aws-sm",
+    )
+    return key
+
+
+class TestSupersedeSynced:
+    """Redeem's one sanctioned provenance change (spec A13, decision O2)."""
+
+    def test_it_replaces_a_synced_entry_with_a_direct_one(
+        self, app: FunctualizeApp, project: Path
+    ) -> None:
+        from functualize.app.vault import _read_value, vault_supersede_synced
+
+        _seed_provider_entry(app, project, "from-aws")
+
+        report = vault_supersede_synced(app, _JOB_TOKEN, _SECRET, cwd=project)
+
+        assert report.replaced is True
+        assert report.origin is VaultOrigin.DIRECT
+        assert _read_value(app, _JOB_TOKEN, cwd=project) == _SECRET
+        assert _SECRET not in repr(report)
+
+    def test_the_entry_no_longer_claims_its_provider(
+        self, app: FunctualizeApp, project: Path
+    ) -> None:
+        from functualize.app.utils import vault_entries
+        from functualize.app.vault import vault_supersede_synced
+
+        key = _seed_provider_entry(app, project, "from-aws")
+        vault_supersede_synced(app, _JOB_TOKEN, _SECRET, cwd=project)
+
+        entry = next(e for e in vault_entries(project) if e.key == key)
+        assert (entry.annotation, entry.provider, entry.synced_at) == (
+            None,
+            None,
+            None,
+        )
+
+    def test_it_refuses_when_no_synced_entry_is_there(
+        self, app: FunctualizeApp, project: Path
+    ) -> None:
+        from functualize._config.vault import VaultError
+        from functualize.app.vault import vault_supersede_synced
+
+        vault_put(app, _JOB_TOKEN, "typed-in", cwd=project)
+
+        with pytest.raises(VaultError, match="no provider entry"):
+            vault_supersede_synced(app, _JOB_TOKEN, _SECRET, cwd=project)
+
+
+class TestRequireKey:
+    def test_it_is_silent_when_a_key_is_available(self, project: Path) -> None:
+        from functualize.app.vault import vault_require_key
+
+        assert vault_require_key(cwd=project) is None
+
+    def test_it_refuses_with_the_lookups_reason_when_none_is(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from functualize._config.vault_keys import ENV_VAR
+        from functualize.app.vault import vault_require_key
+
+        monkeypatch.delenv(ENV_VAR)
+        monkeypatch.setattr(
+            "functualize._config.vault_keys.default_providers", lambda: ()
+        )
+
+        with pytest.raises(VaultKeySourceError) as exc:
+            vault_require_key(cwd=project)
+        assert exc.value.reason in {"no_keyring", "key_not_stored", "key_locked"}
+
+
+class TestReadValue:
+    def test_it_reads_the_active_environment_entry(
+        self, app: FunctualizeApp, project: Path
+    ) -> None:
+        from functualize.app.vault import _read_value
+
+        vault_put(app, _JOB_TOKEN, _SECRET, cwd=project)
+
+        assert _read_value(app, _JOB_TOKEN, cwd=project) == _SECRET
+
+    def test_nothing_stored_is_a_path_error_not_a_none(
+        self, app: FunctualizeApp, project: Path
+    ) -> None:
+        from functualize.app.vault import _read_value
+
+        with pytest.raises(VaultPathError) as exc:
+            _read_value(app, _JOB_TOKEN, cwd=project)
+        assert exc.value.reason == "not_stored"
+
+    def test_it_is_not_public(self) -> None:
+        """Maintainer decision 2026-11-01 (option B): no public plaintext read."""
+        import functualize.app.vault as seam
+
+        assert "_read_value" not in seam.__all__
+        assert not any(
+            name.startswith(("vault_read", "vault_get")) for name in seam.__all__
+        )

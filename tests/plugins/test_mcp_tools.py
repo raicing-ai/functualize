@@ -9,12 +9,16 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
 from functualize_mcp._config import MCPConfig
 from functualize_mcp._tools import MCPToolRegistry
+
+from functualize._primitives.run_store import RunStore
+from functualize.app.core import FunctualizeApp
 
 if TYPE_CHECKING:
     from functualize.types import RunRequest
@@ -284,6 +288,28 @@ class TestGetJobSchema:
 
 class TestRunJob:
     """Tests for the run_job tool."""
+
+    def test_real_run_tool_records_project_defaults(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = tmp_path / "mcp-core"
+        project.mkdir()
+        (project / ".functualize.toml").write_text('[run]\ntags = ["door:mcp-core"]\n')
+        monkeypatch.chdir(project)
+        app = FunctualizeApp("mcp-core")
+
+        def greet() -> str:
+            return "hello"
+
+        app.register_dynamic_job("greet", greet)
+        result = asyncio.run(MCPToolRegistry(app, config=MCPConfig())._run_job("greet"))
+
+        assert result["status"] == "success"
+        store = RunStore(app.execution_engine._state_store().substrate)
+        records = [store.get_run(run_id) for run_id in store.run_ids()]
+        assert [record["run_tags"] for record in records if record] == [
+            {"door": "mcp-core"}
+        ]
 
     def test_executes_visible_job(self, basic_app: FakeApp):
         """run_job executes a visible job and returns result."""

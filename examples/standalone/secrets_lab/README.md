@@ -8,7 +8,8 @@ secrets_lab/
 ├── config.base.toml     # non-secret config, per-job sections. No [secrets] block.
 ├── jobs/
 │   ├── sync.py          # a secret with an empty default, next to a decoy
-│   └── report.py        # a REQUIRED secret with no default
+│   ├── report.py        # a REQUIRED secret with no default
+│   └── publish.py       # a target chosen at run time; its group secret, read
 └── pyproject.toml
 ```
 
@@ -209,6 +210,64 @@ a different entry from a job field with the same names.
 `tests/test_vault_lifecycle.py` is that code, and it asserts that this whole
 example imports nothing private — if the published API were incomplete for its
 own headline lifecycle, that test could not be written.
+
+### When the job only learns its target while running
+
+Every secret so far reaches its job because the job declared a field for it.
+`jobs/publish.py` cannot work that way: its target arrives in a config field,
+so the address is only known per run. It asks the injected `Vault` for that
+address instead, and passes the value on as a `Secret`:
+
+```python
+token: Secret[str] = vault.read(config.target, "api_token")
+```
+
+`read` asks for the address it is given, then that address's nearest ancestors,
+so one credential stored at `cloudflare.d1` answers for every target beneath it
+— `cloudflare.d1.main`, `cloudflare.d1.canary`, and any target added later. The
+target arrives in a config field, so one job serves all of them:
+
+```console
+$ func builtin vault put --group cloudflare.d1 --field api_token --stdin
+Stored --group cloudflare.d1 --field api_token (dev, new; default).
+
+$ func publish --target cloudflare.d1.canary
+published to cloudflare.d1.canary with a 35-character credential
+
+$ func publish --target cloudflare.eu.main
+no credential provisioned for cloudflare.eu.main; nothing published
+```
+
+The target is `--target`, the credential's own value is never rendered, and
+addressing a target nobody provisioned costs one log line rather than a failed
+run.
+
+Three failures of that read are not the same, and the job treats them differently:
+
+| what the vault holds | what happens |
+| --- | --- |
+| nothing, at the address or above it | `VaultEntryMissingError` — caught, the target is skipped, the run succeeds |
+| an entry the available key does not open | `VaultEntryUnreadableError` — deliberately not caught: a credential that exists and will not decrypt is a broken key, and skipping the target would hide it |
+| an entry that will not decrypt | `VaultDecryptionError` — also not caught: the stored value failed to authenticate, so either the store was written under another key or its bytes are damaged; retrying with the key that wrote it separates the two |
+
+`CloudflareD1Options` is what makes any of this storable: the vault only accepts
+a field its group declares `Secret[str]`, so without that class the `vault put
+--group cloudflare.d1` above is refused as an unknown group. Where the class may
+live depends on the provider that scans the tree. A cached provider discovers a
+declaration that sits alone in a job-free `jobs/deploy/_group.py`; the eager
+direct sources this lab boots — `JobSources(..., lazy=False)` in
+`tests/test_group_vault_read.py` — discover a group only in a module that also
+holds a job injecting its options. `group_status` is that job here: it reaches
+the same entry the config way, which `func group-status` reports. `publish`
+injects nothing, because a job that declares the group's options has them
+resolved and injected before its body runs — which is exactly what an explicit
+read must not depend on.
+
+`tests/test_group_vault_read.py` drives all of it through a plain
+`FunctualizeApp` — including the wrong-key and damaged-store runs — and never
+asserts a plaintext. The stored identity, the candidate order and the three
+error classes are in
+[configuration.md](../../../docs/guides/configuration.md#reading-a-groups-secret-from-a-job).
 
 ## Tests
 

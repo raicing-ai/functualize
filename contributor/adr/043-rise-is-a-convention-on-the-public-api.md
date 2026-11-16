@@ -104,3 +104,85 @@ All plugin-to-core arrows use public API. Core-to-Rise arrows are forbidden.
 
 The full revision 7 record (spec, contracts, plan) is recoverable from
 PR #132 at `673d2fc9`; see `.spec/STATUS.md` → *Rise / RiseKit foundation*.
+
+## Addendum — where Rise's source lives (2026-11-12)
+
+**Deciders**: maintainer, 2026-11-12, recorded in MCH-151. It chooses option C
+of the topology recommendation posted there on 2026-11-11. The approved shape
+SD/18153475 sets Rise's boundary but not its source repository; this addendum
+records that choice.
+
+**Decision.** Three repositories, each with one job:
+
+| Repository | Visibility | Owns |
+|---|---|---|
+| `raicing-ai/functualize` (this one) | public | the Functualize public API that Rise depends on, and the durable record of the Rise convention: this ADR, ADR-044 and the `.spec/STATUS.md` entry |
+| `raicing-ai/rise` | private | the source, tests, release workflow and product documentation of `functualize-rise`, `functualize-risekit` and provider distributions such as `functualize-rise-cloudflare`, during development |
+| `raicing-ai/funccloud` | private | the workspace: pinned `functualize/` and `rise/` submodules, a check that builds the pinned pair together, and the private documentation wiki and coordination runbooks |
+
+- **Rise stays private until it is usable.** Making it public, and publishing
+  its packages, is a separate maintainer decision.
+- **Rise keeps its own release cadence.** It does not ride Functualize's tags.
+  It depends on a *released* Functualize, so the entry gate above is
+  unchanged: a released 0.5.0 must contain class-based discovery (MCH-184)
+  and scoped vault v3 (MCH-185), and F6 must exist as a public read.
+- **A submodule is how FuncCloud consumes Rise, not where Rise lives.** The
+  Rise source repository comes first; FuncCloud pins an existing commit of it.
+
+**What this repository does not depend on.** No build step, test, CI job,
+package dependency, submodule or documentation link in
+`raicing-ai/functualize` reaches into `raicing-ai/rise` or
+`raicing-ai/funccloud`. Everything here builds, tests and reads without
+access to either. The boundary above (B1–B6) is unchanged: core imports no
+Rise package, and Rise depends on the public Functualize API only.
+
+**Private knowledge stays out of this repository.**
+
+- Curated project memory, the private documentation wiki, repository maps
+  and agent coordination runbooks live in FuncCloud's `docs/wiki/`. They are
+  readable by members and agents granted FuncCloud access.
+- Raw agent memory and transcripts live in the controlled memory service,
+  outside Git.
+- Secrets live outside every repository.
+- Nothing of the above is committed here. A public commit cannot be
+  retracted from existing clones, forks or caches, so internal plans, tenant
+  details, transcripts or a copied token placed here would stay exposed.
+
+**Order of work.**
+
+1. This record, in this repository.
+2. Seed `raicing-ai/rise`, which is empty today, with its default branch.
+   Then open a scaffold PR there: repository rules, the spec workflow, a uv
+   workspace, distribution skeletons, CI, and a check that Rise imports only
+   the public Functualize API.
+3. Open a FuncCloud PR that adds `rise/` as a submodule at an existing Rise
+   commit, pins a compatible Functualize commit, adds the wiki repository
+   map and bootstrap notes, and checks the pinned pair together.
+4. After a released 0.5.0 meets the entry gate, implement Rise in Rise PRs.
+   Advance FuncCloud's pins through reviewed FuncCloud PRs.
+
+`raicing-ai/rise` therefore ends development as an **active private source
+repository and FuncCloud submodule target**, neither empty nor archived.
+
+### Consequences
+
+- **Positive.** Rise develops privately on its own cadence. One FuncCloud
+  checkout gives a reading workspace with both sources and the private wiki.
+- **Negative.** A change that crosses the boundary is no longer one PR. It
+  needs a source PR in each affected repository, then a FuncCloud pin PR,
+  and that pin PR must report the exact pair of SHAs it tested. A recursive
+  clone of FuncCloud is a reading workspace only: a superproject worktree
+  does not create editable child worktrees, so parallel edits use separate
+  source worktrees.
+- **Superseded.** The earlier in-tree placement of the three distributions
+  under `plugins/` in this repository, and their lockstep release with
+  Functualize, are superseded. That placement appeared in the revision 6
+  working record and in a 2026-11-01 recommendation.
+
+### Alternatives considered
+
+| Alternative | Why rejected |
+|---|---|
+| Rise under `plugins/` in public `raicing-ai/functualize` | The first commit would publish Rise before the maintainer considers it usable, and Rise would inherit Functualize's tags and release workflow. Its one advantage, atomic core-and-Rise PRs, does not outweigh that. |
+| Rise source inside private `raicing-ai/funccloud` | FuncCloud would become Rise's release owner, and extracting Rise later would be a migration. |
+| A new umbrella repository of submodules | It adds a second coordination home and another set of pins, and still makes no cross-repository change atomic. FuncCloud already serves that role. |

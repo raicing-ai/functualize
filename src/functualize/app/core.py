@@ -185,6 +185,7 @@ class FunctualizeApp:
             config_sources if config_sources is not None else ConfigSources()
         )
         self._settings_snapshot: ResolvedSettings | None = self._config_sources.resolved
+        self._run_tag_defaults: Mapping[str, str] | None = None
         self._plugin_sources = (
             plugin_sources if plugin_sources is not None else PluginSources()
         )
@@ -630,12 +631,10 @@ class FunctualizeApp:
         Returns:
             JobResult with status, duration, return value, and metadata.
         """
-        group_option_values = (
-            dict(request.group_option_values)
-            if request.group_option_values is not None
-            else None
-        )
-        kwargs = dict(request.kwargs)
+        # Copies the caller's mappings and overlays the request's run tags on
+        # this app's defaults, which are resolved once (boot, or the first run
+        # under static wiring).
+        from functualize._app.impl import prepare_run_request
 
         # **No scope minted here.** `engine.run()` does it, because that is
         # where every run passes and this method is not: the CLI calls
@@ -644,12 +643,7 @@ class FunctualizeApp:
         # out a private dict and became a hard failure the moment state was made
         # durable — the same entrypoint divergence, found again, in the one
         # place still doing work the engine should own.
-        return self._execution_engine.run(
-            request.replace(
-                kwargs=kwargs,
-                group_option_values=group_option_values,
-            )
-        )
+        return self._execution_engine.run(prepare_run_request(self, request))
 
     def execute_parallel(
         self,

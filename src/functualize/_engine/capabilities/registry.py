@@ -48,6 +48,7 @@ from functualize._engine.capabilities.spec import CapabilityContext, CapabilityS
 from functualize._engine.capabilities.state import CAPABILITY as _STATE
 from functualize._engine.capabilities.stdout import CAPABILITY as _STDOUT
 from functualize._engine.capabilities.tty import CAPABILITY as _TTY
+from functualize._engine.capabilities.vault import CAPABILITY as _VAULT
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 
 __all__ = [
@@ -83,6 +84,7 @@ CAPABILITY_SPECS: tuple[CapabilitySpec, ...] = (
     _JOB_CONTEXT,
     _TTY,
     _LIVE,
+    _VAULT,
     _RUN_CONTEXT,
     _JOB_CONFIG_VIEW,
 )

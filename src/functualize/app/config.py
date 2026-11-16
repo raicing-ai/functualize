@@ -26,6 +26,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from functualize._config.run_tags import (
+    RunTagError as RunTagError,
+)
+from functualize._config.run_tags import (
+    merge_layers as merge_layers,
+)
+from functualize._config.run_tags import (
+    parse_config_list as parse_config_list,
+)
+from functualize._config.run_tags import (
+    parse_env as parse_env,
+)
+from functualize._config.run_tags import (
+    parse_flag_list as parse_flag_list,
+)
+from functualize._config.run_tags import (
+    parse_tag as parse_tag,
+)
+from functualize._config.run_tags import (
+    resolve_run_tags as resolve_run_tags,
+)
 from functualize._discovery import Job
 from functualize._primitives.entry_point_groups import PLUGINS
 

@@ -97,7 +97,7 @@ def register_run(builtin_app: click.Group) -> None:
         answers "what is waiting on me", where order is incidental; a run list
         answers "what just happened", where it is the whole question.
         """
-        from functualize._cli.run_tags import RunTagError, parse_tag
+        from functualize.app.config import RunTagError, parse_tag
         from functualize.app.utils import list_runs
 
         try:

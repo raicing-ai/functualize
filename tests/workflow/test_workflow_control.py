@@ -21,6 +21,7 @@ import pytest
 from pydantic import BaseModel
 
 from functualize._app.state import AppState
+from functualize._primitives.run_store import RunStore
 from functualize.app._workflow_control import guarded_execute
 from functualize.app.core import FunctualizeApp
 from functualize.app.utils import (
@@ -361,6 +362,27 @@ class TestTheFunnelCannotBeBypassed:
     ) -> None:
         """Direct callers with no workflow state to consult must still work."""
         assert guarded_execute(app, store, "build", policy=None) is not None
+
+    def test_guarded_execute_records_selected_project_tags(self, project: Path) -> None:
+        (project / ".functualize.toml").write_text(
+            '[run]\ntags = ["door:workflow-control"]\n'
+        )
+        instance = FunctualizeApp("workflow-control")
+
+        def build() -> str:
+            return "built"
+
+        instance.register_dynamic_job("build", build)
+        result = guarded_execute(
+            instance, ScopeStore.for_project(project), "build", policy=None
+        )
+
+        assert result is not None
+        run_store = RunStore(instance.execution_engine._state_store().substrate)
+        records = [run_store.get_run(run_id) for run_id in run_store.run_ids()]
+        assert [record["run_tags"] for record in records if record] == [
+            {"door": "workflow-control"}
+        ]
 
 
 class TestPurge:

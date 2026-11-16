@@ -13,6 +13,8 @@ Protocols defined here:
 - JobTransform: Job descriptor interceptors/modifiers
 - ModulePreFilter: Pre-import discovery predicates
 - VaultKeyProvider: Where the local secrets vault's key comes from
+- Vault: The job-facing explicit group secret read
+- VaultReaderFactory: How the engine obtains a ``Vault`` for one invocation
 - EngineHost: What the execution engine needs from outside itself
 - AgentStepExecutor: Runs a workflow step by delegating it to an agent
 - StoreSubstrate: Where functualize keeps its own bookkeeping
@@ -65,6 +67,7 @@ if TYPE_CHECKING:
 
     from functualize._types.descriptors import JobDescriptor, RegisteredJob
     from functualize._types.host import PluginHost
+    from functualize._types.redaction import Secret
     from functualize._types.run_request import RunRequest
     from functualize._types.workflow import Notification
 
@@ -495,6 +498,63 @@ class VaultKeyUnlocker(VaultKeyProvider, Protocol):
             unlocked now); False when the person cancelled or no key could be
             reached.
         """
+        ...
+
+
+@runtime_checkable
+class Vault(Protocol):
+    """Read one group secret from the local vault, as a job.
+
+    The injected job capability behind ``from functualize.job import Vault``.
+    A job declares ``vault: Vault`` and names the group (a command group path
+    or a subject address) and the field at run time::
+
+        def deploy_target(vault: Vault) -> None:
+            token = vault.read("cloudflare_dev.d1.main", "api_token")
+
+    The lookup is the existing group lookup and nothing else: the active
+    environment's entries from the exact group through its nearest ancestors,
+    then the shared slot in the same order. The first **stored** entry is the
+    answer, even when it cannot be opened. No job-scope entry, other named
+    environment, environment variable, config file or default is consulted,
+    and nothing contacts a provider -- ``vault sync`` is the remote operation.
+
+    There is no second argument for an environment or a source on purpose:
+    the environment is the one the app already selected for the run.
+    """
+
+    def read(self, group: str, field: str) -> Secret[str]:  # type: ignore[type-arg]
+        """Return the selected entry's value, wrapped and masked.
+
+        ``Secret`` is not generic to mypy; ``Secret[str]`` is the spelling the
+        public contract and every config annotation use, and the value it
+        holds is always a ``str``.
+
+        Raises:
+            VaultEntryMissingError: No candidate is stored, including when the
+                project has no vault file.
+            VaultEntryUnreadableError: The first stored candidate exists and no
+                usable key opens it. Later candidates are not consulted.
+            VaultDecryptionError: The first stored candidate will not
+                authenticate. Later candidates are not consulted.
+            ValueError: ``group`` or ``field`` is not a valid address.
+        """
+        ...
+
+
+@runtime_checkable
+class VaultReaderFactory(Protocol):
+    """Where the engine gets a :class:`Vault` for one invocation.
+
+    The engine may not import the config layer that owns the vault source
+    (peer layers are independent), so the composition root builds a factory
+    and hands it to the engine at its one construction site. The engine holds
+    the port and calls :meth:`open` when a job declares ``Vault``; it carries
+    no vault policy of its own.
+    """
+
+    def open(self) -> Vault:
+        """A reader over the app's current vault source."""
         ...
 
 
@@ -1046,10 +1106,12 @@ __all__ = [
     "PluginWithShutdown",
     "Source",
     "StoreSubstrate",
+    "Vault",
     "VaultKeyInitializer",
     "VaultKeyProvider",
     "VaultKeyProbe",
     "VaultKeyUnlocker",
+    "VaultReaderFactory",
     # The probe port's answer vocabulary
     "KeyAvailability",
     # Agent step port payload vocabulary

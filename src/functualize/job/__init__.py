@@ -43,6 +43,7 @@ from functualize.job.capabilities import (
     State,
     Stdout,
     TerminalUnavailable,
+    Vault,
 )
 from functualize.job.context import RunContext, RunStatus
 from functualize.job.decorators import (
@@ -103,6 +104,7 @@ __all__ = [
     "JobConfigView",
     "TTY",
     "Live",
+    "Vault",
     "TerminalUnavailable",
     # CLI annotation markers
     "Arg",
