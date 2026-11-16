@@ -703,40 +703,20 @@ def _config_sources_for_flags(cli_config: Any, flags: dict[str, Any]) -> Any:
 
 
 def _merge_run_tags(flag_items: list[str] | None) -> Mapping[str, str]:
-    """Merge the three run-tag layers, or exit 2 naming the refused item.
-
-    Called before discovery: the map is complete before the app object exists,
-    so a malformed tag stops the process before any job body can run. Lowest to
-    highest — the global config's ``[run] tags``, ``FUNCTUALIZE_RUN_TAGS``,
-    ``--run-tag`` — merged per key, the later layer winning. The project file
-    is not a source: only the user's config file is read.
-
-    The file is read through the settings layers, as `_extract_aliases` reads
-    it: the global layer is the user's config file, and an unreadable or
-    malformed file is a layer with no values, so it contributes no tags here.
-    Only the global layer is consulted; project layers are never a source.
-    """
-    from functualize._cli import run_tags as tag_rules
-    from functualize.app.config import resolve_app_settings
+    """Resolve raw selected file, environment, and flag tags before discovery."""
+    from functualize.app.config import (
+        RunTagError,
+        resolve_app_settings,
+        resolve_run_tags,
+    )
     from functualize.app.utils import ExitCode, resolve_user_config_dir
 
-    config_tags: object = None
     layers = resolve_app_settings(
         Path.cwd(), global_dir=resolve_user_config_dir()
     ).layers
-    for layer in layers:
-        if layer.kind != "global":
-            continue
-        run_section = layer.values.get("run")
-        if isinstance(run_section, dict):
-            config_tags = run_section.get("tags")
     try:
-        return tag_rules.merge_layers(
-            tag_rules.parse_config_list(config_tags) if config_tags is not None else {},
-            tag_rules.parse_env(os.environ.get("FUNCTUALIZE_RUN_TAGS", "")),
-            tag_rules.parse_flag_list(flag_items),
-        )
-    except tag_rules.RunTagError as exc:
+        return resolve_run_tags(layers, flag_items=flag_items)
+    except RunTagError as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(ExitCode.USAGE) from exc
 

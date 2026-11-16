@@ -1,8 +1,37 @@
 """Tests for the FunctualizeTUI app."""
 
+from pathlib import Path
+
+import pytest
 from textual.screen import Screen
 
+from functualize._cli.inline_tui import _run_handoff
+from functualize._primitives.run_store import RunStore
 from functualize.app.adapters.tui import FunctualizeTUI
+from functualize.app.core import FunctualizeApp
+
+
+def test_tui_shell_handoff_records_selected_project_tags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "tui-shell"
+    project.mkdir()
+    (project / ".functualize.toml").write_text('[run]\ntags = ["door:tui-shell"]\n')
+    monkeypatch.chdir(project)
+    app = FunctualizeApp("tui-shell")
+
+    def greet() -> str:
+        return "hello"
+
+    app.register_dynamic_job("greet", greet)
+    _run_handoff(app, ["greet"])
+
+    store = RunStore(app.execution_engine._state_store().substrate)
+    records = [store.get_run(run_id) for run_id in store.run_ids()]
+    assert [record["run_tags"] for record in records if record] == [
+        {"door": "tui-shell"}
+    ]
+
 
 # --- Mock screen classes for testing (originals deleted per dead code removal) ---
 

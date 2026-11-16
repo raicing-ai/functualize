@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import MappingProxyType
 
 import pytest
 
-from functualize._cli.run_tags import (
+from functualize._config.run_tags import (
     RunTagError,
     merge_layers,
     parse_config_list,
     parse_env,
     parse_flag_list,
     parse_tag,
+    resolve_run_tags,
 )
+from functualize._config.settings_layers import SettingsLayer
 
 
 def test_parse_tag_splits_only_first_colon() -> None:
@@ -121,3 +124,62 @@ def test_maximum_counts_distinct_merged_keys() -> None:
     assert len(merge_layers(first, {"k0": "y"})) == 32
     with pytest.raises(RunTagError, match="at most 32 run tags"):
         merge_layers(first, {"extra": "x"})
+
+
+def _layer(path: str, kind: str, items: object) -> SettingsLayer:
+    prefix = "tool.functualize" if path.endswith("pyproject.toml") else ""
+    return SettingsLayer(Path(path), kind, prefix, {"run": {"tags": items}})
+
+
+def test_selected_layers_merge_from_global_to_nearest_then_env_and_flag() -> None:
+    layers = (
+        _layer("/checkout/child/.functualize.toml", "project", ["tier:near"]),
+        _layer(
+            "/checkout/pyproject.toml",
+            "project",
+            ["host:outer", "tier:outer"],
+        ),
+        _layer("/home/config.toml", "global", ["host:global", "base:yes"]),
+    )
+
+    result = resolve_run_tags(
+        layers,
+        environ={"FUNCTUALIZE_RUN_TAGS": "tier:env,model:old"},
+        flag_items=["model:new"],
+    )
+
+    assert dict(result) == {
+        "host": "outer",
+        "base": "yes",
+        "tier": "env",
+        "model": "new",
+    }
+    assert isinstance(result, MappingProxyType)
+
+
+@pytest.mark.parametrize(
+    ("path", "items", "detail"),
+    [
+        ("/checkout/.functualize.toml", ["a:1", ":x"], "item 2 ':x'"),
+        (
+            "/checkout/pyproject.toml",
+            ["s:1", "s:2"],
+            "gives run tag key 's' twice (items 1 and 2)",
+        ),
+        ("/checkout/.functualize.toml", "a:1", "must be a list of strings"),
+    ],
+)
+def test_selected_file_refusal_names_path_and_item(
+    path: str, items: object, detail: str
+) -> None:
+    with pytest.raises(RunTagError) as error:
+        resolve_run_tags((_layer(path, "project", items),), environ={})
+    assert path in str(error.value)
+    assert detail in str(error.value)
+    if path.endswith("pyproject.toml"):
+        assert "[tool.functualize.run] tags" in str(error.value)
+
+
+def test_environment_still_uses_strict_grammar_through_layer_resolver() -> None:
+    with pytest.raises(RunTagError, match="FUNCTUALIZE_RUN_TAGS"):
+        resolve_run_tags((), environ={"FUNCTUALIZE_RUN_TAGS": "a:1,b"})

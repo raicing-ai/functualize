@@ -12,12 +12,42 @@ the `kwargs` key (Lambda); they are now under `arguments`.
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from typing import Any
 
 import pytest
-from functualize_http import _envelope
+from functualize_http import HttpServerCore, _envelope
+
+from functualize._primitives.run_store import RunStore
+from functualize.app.core import FunctualizeApp
 
 _SURFACE = "http"
+
+
+def test_http_request_records_project_defaults_without_wire_tag_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "http"
+    project.mkdir()
+    (project / ".functualize.toml").write_text('[run]\ntags = ["door:http"]\n')
+    monkeypatch.chdir(project)
+    app = FunctualizeApp("http")
+
+    def greet() -> str:
+        return "hello"
+
+    app.register_dynamic_job("greet", greet)
+    status, _body = asyncio.run(
+        HttpServerCore(app).handle_request(
+            "POST", "/jobs/greet/execute", b'{"run_tags": {"door": "wire"}}'
+        )
+    )
+
+    assert status == 200
+    store = RunStore(app.execution_engine._state_store().substrate)
+    records = [store.get_run(run_id) for run_id in store.run_ids()]
+    assert [record["run_tags"] for record in records if record] == [{"door": "http"}]
 
 
 class TestJobArgumentsAreNested:

@@ -17,12 +17,44 @@ from unittest.mock import MagicMock
 
 from functualize._cli.completions.provenance import CompletionProvenanceClassifier
 from functualize._cli.data.argument_history import ArgumentHistory
+from functualize._cli.tui.app import FunctualizeInlineTUI
 from functualize._cli.tui.path_suggestion_scanner import PathSuggestionScanner
 from functualize._cli.tui.smart_bar_autocomplete import SmartBarAutoComplete
+from functualize._primitives.run_store import RunStore
+from functualize.app.core import FunctualizeApp
 from functualize.types import FieldDescriptor, JobDescriptor
 
 if TYPE_CHECKING:
     import pytest
+
+
+async def test_inline_tui_records_selected_project_tags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "inline-tui"
+    project.mkdir()
+    (project / ".functualize.toml").write_text('[run]\ntags = ["door:tui-inline"]\n')
+    monkeypatch.chdir(project)
+    app = FunctualizeApp("inline-tui")
+
+    def greet() -> str:
+        return "hello"
+
+    app.register_dynamic_job("greet", greet)
+    tui = FunctualizeInlineTUI(app)
+    async with tui.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        tui._smart_bar.value = "greet"
+        await pilot.pause()
+        tui.action_execute()
+        await pilot.pause()
+        await tui.workers.wait_for_complete()
+
+    store = RunStore(app.execution_engine._state_store().substrate)
+    records = [store.get_run(run_id) for run_id in store.run_ids()]
+    assert [record["run_tags"] for record in records if record] == [
+        {"door": "tui-inline"}
+    ]
 
 
 # ---------------------------------------------------------------------------
