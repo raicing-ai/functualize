@@ -20,6 +20,7 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
+from functualize._config.job_config import _unwrap_optional as unwrap_optional_type
 from functualize._config.merge import merge_config_layers
 from functualize._config.project_dirs import (
     PROJECT_CONFIG_CANDIDATES,
@@ -324,6 +325,7 @@ __all__ = [
     "CLI_VALUE_TYPE_NAMES",
     "INJECTED_PARAM_TYPE_NAMES",
     "is_cli_value_type",
+    "unwrap_optional_type",
     "agent_epilog",
     "resolve_effective_directories",
     "resolve_project_config",

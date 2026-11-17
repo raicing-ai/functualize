@@ -11,8 +11,10 @@ Requirements: 1.2, 1.3, 1.4, 1.7
 from __future__ import annotations
 
 import enum
+from datetime import date
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
+from uuid import UUID
 
 import pytest
 from pydantic import BaseModel, Field
@@ -31,6 +33,7 @@ def _is_cli_compatible_type(annotation: object) -> bool:
 
 
 from functualize.job import (  # noqa: E402
+    TTY,
     Invoke,
     JobConfigView,
     JobContext,
@@ -213,3 +216,29 @@ class TestEnumSubclass:
     def test_annotated_enum_with_field(self):
         annotation = Annotated[Color, Field(description="pick a color")]
         assert _is_cli_compatible_type(annotation) is True
+
+
+@pytest.mark.parametrize(
+    "annotation, compatible, injected",
+    [
+        (str | None, True, False),
+        (Optional[str], True, False),  # noqa: UP045 - pin typing.Optional spelling
+        (bool | None, True, False),
+        (Path | None, True, False),
+        (UUID | None, True, False),
+        (date | None, True, False),
+        (Color | None, True, False),
+        (RunContext | None, False, True),
+        (TTY | None, False, True),
+        (MyConfig | None, False, False),
+        (list[str] | None, False, False),
+        (str | int, False, False),
+    ],
+)
+def test_optional_classification_preserves_original_annotation(
+    annotation: object, compatible: bool, injected: bool
+) -> None:
+    result = parse_annotation(annotation)
+    assert result.base_type == annotation
+    assert result.is_cli_compatible is compatible
+    assert result.is_di_param is injected

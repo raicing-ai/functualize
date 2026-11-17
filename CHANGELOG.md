@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — optional job parameters receive CLI flags
+
+Parameters declared as `X | None` or `Optional[X]` now accept the same CLI
+input as `X`, including distinct absent, positive, and negative states for
+optional booleans.
+
 ### Changed — project settings files tag runs, through every door
 A project can now tag every run started inside it: `[run] tags` in each
 selected project settings file (`[tool.functualize.run] tags` in
