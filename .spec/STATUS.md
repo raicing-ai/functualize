@@ -611,6 +611,7 @@ separate pointer.
 | Builtins as Jobs | Whether first-party CLI commands (`skills`, `scaffold`, …) should be implemented as functualize jobs rather than click callbacks, so terminal ownership is declared on the function instead of duplicated on a registry entry. **Undecided — B1 open**: convert anything at all? |
 | A GitHub Action for functualize | Whether to ship a `setup-functualize`-style GitHub Action now that standalone binaries exist (ADR-015), versus documenting the two-line `uv tool install` recipe. **Undecided — B1 open**: is the non-Python-repo CI audience real? |
 | Output-Flag Normalization | Six builtin commands answer "text or JSON?" with two spellings (`--json` / `--format`) and three different behaviors. **D1 open**: which spelling and vocabulary wins across all six. |
+| Run Tags From Every Settings File, on Every Surface (SD/23953415 v2, Approved 2026-11-10) | Project settings files become run-tag sources on the ordinary ladder (`global < farthest project file < … < nearest project file < FUNCTUALIZE_RUN_TAGS < --run-tag`), and the file and environment layers reach every door that opens a run, `FunctualizeApp.execute` included. A malformed project tag refuses at boot. **Parser placement, recorded 2026-11-11:** the binding rule is one strict grammar as the only parser of every tag source, never the generic list reader (SD/23953415 §7). Its location is the spec's to choose (§6.1, §7 "Provisional"). Because `_cli/` may import public folders only and the kernel never imports `_cli/` (`.spec/CONSTITUTION.md` → *Layer Dependency Rules*, rows `_app/` and `_cli/`), the grammar and the layer resolver leave `_cli/run_tags.py` for an internal module the kernel already reaches (`_config/`, as `app/core.py:43,263` reads `_config.settings_resolution`), re-exported to `_cli/` through a public folder. No amendment to the shape was needed. Waves 0–10 complete on the feature branch: CLI and app-door defaults, standard-boot refusal, surface evidence, ADR-040 amendment and the feature checkpoint. Independent review and verification pending. |
 | Workflow Run Parameters | **The silent-drop half shipped 2026-09-03** (`feat/workflow-run-params`): a `@workflow` job now refuses a launch argument its signature cannot accept before the graph walks, so the approval is no longer spent on a run that was never going to succeed. **What remains is the run-scoped parameter layer**, and it is a correctness defect on its own: no per-run channel exists, so a value set for a walk does **not survive a gate** — re-measured 2026-09-08, `LAB__STRICT=true` walks to the gate with `strict=True` and the resume in a shell without it runs `check.signoff`, the step whose whole purpose is to apply strict mode, with `strict=False`. One `scope_id`, two answers, selected by the resuming shell. The three trigger plugins can parameterize a single job and not a walk. Implement a run-scoped layer or declare walks unparameterizable and enforce it. |
 
 ## Open Features
@@ -621,6 +622,45 @@ Full specifications and atomized task lists for these features exist in the main
 |---------|-------|-------------|
 | TUI Shell Completion Types | 5 phases | Shell mode in the inline TUI gets four upgrades: (A) type-aware tokenizer distinguishing executables (green), directories (blue), flags (dim), and pipes (boundary); (B) a coloured token highlight bar below the input; (C) a preflight mirror row showing the resolved command with description; (D) background `--help` caching for command descriptions. ~8 new files in `_cli/completions/` and `_cli/tui/`. |
 | Interactive Gate Prompt | Draft | Three coordinated CLI flags for workflow gates: `--prompt-gates` (prompt inline on TTY, complete walk in one invocation), `--scope-id` (resume existing blocked scope from the CLI), and `Gate(strategy=...)` (declare preferred resolution strategy per gate, overridable by flags). Touches: `_cli/` dispatch, `_engine/`, `_workflow/`. |
+
+### A job reads a group's secret through `Vault` — implemented, review pending
+
+**What a job author sees.** `from functualize.job import Vault`; a job declares
+`vault: Vault` and calls `vault.read(group, field)` with a group path or subject
+address chosen at run time, and gets `Secret[str]`. The lookup is the existing
+group lookup — active environment exact group then nearest ancestors, then the
+shared slot in the same order — and the first **stored** entry wins. Nothing
+stored anywhere, or no vault file, raises the new `VaultEntryMissingError`; a
+stored entry that cannot be opened raises `VaultEntryUnreadableError` or
+`VaultDecryptionError` and stops there. All three are importable from
+`functualize.app.vault`. The read never falls back to env, files or defaults,
+never contacts a provider, and is not an invocation input; ordinary config
+resolution keeps its fall-through on a vault miss. Guide:
+*Reading a group's secret from a job* in `docs/guides/configuration.md`.
+
+**How it is wired.** Typed ports `Vault` / `VaultReaderFactory` in
+`_types/protocols.py`; `_app/vault_reader.py` makes one
+`VaultSource.get(field, group, scope="group")` call per read over the app's live
+chain (or the source boot builds when the chain has none); `build_engine` hands
+the factory to the engine; `_engine/capabilities/vault.py` registers the
+capability with no `RunContext` accessor. Decision record: ADR-044. Proofs:
+`tests/integration/test_group_vault_read.py` (real jobs on both boot paths and
+both CLI surfaces, one test per acceptance criterion) and
+`tests/app/test_vault_reader.py`.
+
+**Known limits.** A value read this way is masked in every rendering of the
+wrapper, but is not added to the run's output-redaction set the way a secret
+config field is, so text a job builds from `get_secret_value()` is not
+scrubbed from `Stdout`/`Shell` output. A user type named `Vault` used as a job
+parameter annotation is now read as the capability. The `examples/` caller these
+names owe lives in `examples/standalone/secrets_lab/jobs/publish.py`: it reads a
+run-time-chosen target's group credential and hands the `Secret` to the function
+that uses it, and `tests/test_group_vault_read.py` pins all three failure kinds.
+The shipped skill table (`skills/functualize/references/capabilities.md`) omits
+the `Vault` row until the skill-router corpus moves to `corpus/v2`, because the
+frozen v1 lock digests every file under `skills/functualize/`; the exemption is
+`_UNDOCUMENTED_UNTIL_CORPUS_V2` in `tests/skills/test_api_claims.py`, and both go
+when v2 lands.
 
 ### Rise / RiseKit foundation — revision 7 specified, Execute gated on a released 0.5.0
 
@@ -633,6 +673,15 @@ boundary is recorded in
 [ADR-043](../contributor/adr/043-rise-is-a-convention-on-the-public-api.md);
 selection, registry, and the `func rise` commands in
 [ADR-044](../contributor/adr/044-the-repository-says-what-the-cloner-decides-how.md).
+
+**Source and workspace (decided 2026-11-12).** Rise's source lives in the
+private `raicing-ai/rise` repository, not in this one. The private
+`raicing-ai/funccloud` repository is the workspace: it pins `functualize/` and
+`rise/` as submodules and holds the private wiki and coordination runbooks.
+This public repository keeps the convention's durable record and the public
+API that Rise depends on. No build, test, CI job, dependency or documentation
+link here reaches either private repository. See
+[ADR-043 → *Addendum — where Rise's source lives*](../contributor/adr/043-rise-is-a-convention-on-the-public-api.md).
 
 **Authority.** Shape intent SD/18153475 v28 has `Authority: Approved` and marks
 the three earlier post-approval deltas binding. The owner confirmed them in
@@ -670,7 +719,8 @@ have separate owners. Approver authentication, Merge/Deploy authority, OAuth,
 Worker secret delivery/runtime integration, target preview, destructive
 adoption, registry signing, trust policy, and publishing are outside this
 foundation. PR #73 (`feat/rise-risetkit-foundation`) is the older revision 6
-lineage; it is not superseded by this entry's merge.
+lineage. Its topology proposal is now recorded in the ADR-043 addendum, and
+its in-tree `plugins/` placement is superseded.
 
 The full revision 7 record (spec, contracts, plan) is recoverable at
 `673d2fc9`, the reviewed head before the clearing:
@@ -914,6 +964,21 @@ themselves are held by the maintainer, outside the repository (B-25); the
 computed verdict is a recommendation. Still open: the verdict's disposition is
 the maintainer's, and Phases 4–5 remain.
 
+### Skill router evaluation — delivered
+
+Phase 4 of the decision-layer experiment. The instrument is
+`tests/skill_router_eval/` with three downstream arms in `evals/`: one frozen
+corpus replayed through one five-option selection gate against four comparators,
+five agent tasks run under three skill-loading arms, and a computed verdict. The
+method and the commands are `contributor/reference/skill-router-evaluation.md`.
+Corpus `v1` (`tests/skill_router_eval/corpus/v1/`, 40 scenarios) is frozen at
+digest `e04e65ed0c6111806ba58d5b6a90f9496b89164badc87daf994c8c3fd0e27a58` over
+catalog `47b1ea9b1535d2a0ccb50cb7d93ece6dcf84be1f31e19aaae7b2ce4a224be3b9`.
+The results, ledgers and verdict are the `SD` page *Skill Router — Corpus v1
+Results*; the computed verdict is a recommendation. Still open: its disposition
+is the maintainer's, Phase 5, and two-skill requests (`TWO_SKILL.md`), which the
+single-skill label set does not score.
+
 ### Gate-name resolution — delivered
 
 Gate references resolve once per public entry via `resolve_name` against the
@@ -931,6 +996,40 @@ an `AttributeError` text. `gate: str` and `deposit_gate_input` were kept by
 member decision. Delivered on `fix/gate-name-resolution`; the surface
 behaviour is documented in `docs/guides/workflows.md` → *Gate answering*,
 and `examples/standalone/gate_refusal/` is the reference caller.
+
+### Optional parameter CLI flag — delivered
+
+A job parameter declared `X | None` or `Optional[X]` now gets the same CLI
+option as a plain `X`. Before, the annotation failed the CLI-compatibility
+check and the parameter was silently dropped from the command: `func greet
+--greeting hi ada` answered `No such option '--greeting'`, and leaving the
+value out was the only way to pass it.
+
+**The classification rule.** CLI compatibility, DI-type and config-model
+checks are judged on the unwrapped inner type, through the one optional rule
+the config layer already had (`_config/job_config.py` `_unwrap_optional`,
+reached by `_cli` as `functualize.app.utils.unwrap_optional_type`), while
+`AnnotationInfo.base_type` keeps the declared annotation. Explicit `Provide`
+and CLI markers keep their precedence. `RunContext | None`
+and `TTY | None` stay injected and take no option. A parameter without a
+default is unchanged, and an inner type with no CLI form of its own gains none
+through `Optional`.
+
+**`bool | None` is a tri-state.** Absent gives `None`, `--loud` gives `True`,
+`--no-loud` gives `False`. When a sibling parameter is literally named
+`no_loud`, it owns `--no-loud`, and `loud` keeps only a bare `--loud` with an
+absent value of `None` — the approved degradation: that command has no
+`False` spelling for `loud`.
+
+**What pins it.** `tests/cli/test_optional_parameter_cli.py` drives `func` and
+an embedded `FunctualizeApp` through both optional spellings, the tri-state,
+the `no_loud` collision, the documented optional `RunContext`/`TTY` examples
+and warm cached discovery. `tests/adapters/test_click_params_parity.py`
+freezes `job_plain`'s new `--path` row. The plan's two surviving smells were
+accepted by the maintainer as follow-up work: see *Potential Follow-ups* **35**.
+The full spec, contracts, plan and task graph are recoverable from the pull
+request's last commit's parent:
+`git fetch origin refs/pull/141/head && git show FETCH_HEAD^:.spec/features/optional-parameter-cli-flag/plan.md`.
 
 ### persistence-port-status-typing — designed, not implemented
 
@@ -997,6 +1096,32 @@ machine. §1.1's sentence placing `ATTEMPT` enforcement "where the relational wr
 longer part of this task: the relational writer's own record already rewrote it to name
 `_run_sql.py`'s `require_transition(ATTEMPT, …)` calls. §1.2's lower-casing note gains the
 `RunState` pointer.
+
+### Skill router — specified, not implemented
+
+Phase 4 of the decision-layer experiment. The package is
+`.spec/features/skill-router/` on `sdd/skill-router`: `spec.md` (behaviour and
+the scope guard), `contracts.md` (C-1…C-11, including the catalog declaration
+and the selection result), `plan.md` (alignment to the approved shape page,
+BEFORE/AFTER, surviving smells) and `tasks.md` — 16 atomized tasks in 12
+binding waves — with `research.md` carrying the measured reality. Scope after
+the approved shape page: everything is contributor tooling —
+`tests/skill_router_eval/` holds the instrument and `evals/` the downstream
+arms, no shipped file and no `examples/` change — and the selection proposes
+exactly one of `functualize`, `functualize-app`, `functualize-cli`,
+`functualize-skill` or `none`, one `ChoiceRequest` through the unchanged seam.
+Nothing in `src/` has changed. Execute is not yet authorised: wave 0 waits on
+the maintainer's P-1 (downstream task list), P-2 (verdict constants) and S-1
+(Duplicate Code instead of editing Phase 3). The implementation lands on the
+same branch and pull request; the spec artifacts are cleared in that branch's
+last commit (T16), when the delivered state is recorded under its own entry.
+
+The package review at `d34b70d3` required four repairs. The revised package
+unwraps the native provider's `output` and pins its three-turn call config,
+prices native USD from the provider's reported cost, locks the selection rule
+and measuring code along with the corpus, and records the Plan retrieval over
+the reviewed commit. These are specification repairs only; P-1, P-2 and S-1
+remain open for the maintainer, and Execute remains unauthorised.
 
 ## Deferred
 
@@ -3303,6 +3428,45 @@ Items identified during development that are worth doing but not yet designed:
     Close this by adding that per-scan memo, or by deciding the cold-boot cost
     is acceptable and saying so.
 
+35. **`build_click_params` still mixes filtering with emission, and the
+    optional rule still has four implementations.** Both were presented as
+    surviving smells of the change that first gave an optional job parameter a
+    CLI flag, and the maintainer accepted them as follow-up work rather than
+    work for that change (2026-11-14).
+
+    `src/functualize/app/adapters/click_params.py:708` `build_click_params` is
+    204 lines and decides both which parameters become Click options and how
+    each one is emitted; the flag change added four lines to it. The filter
+    half and the emit half stay interleaved, including the marker precedence
+    and the negative-flag sibling handling.
+
+    The optional rule exists in three spellings that are not drop-in
+    replacements for each other, plus one verbatim copy:
+
+    - `_config/job_config.py:246` `_unwrap_optional` →
+      `(tp) -> tuple[Any, bool]`, re-exported as `unwrap_optional_type` at
+      `app/utils.py:23`. Its flag is read by config classification
+      (`_is_supported_type`, `job_config.py:334`), config coercion
+      (`coerce_value`, `:394`) and the Click optional-bool check
+      (`click_params.py:885`).
+    - `_config/job_config.py:466` — a nested copy of the same function inside
+      `validate_job_config_types`, read at `:490`.
+    - `_discovery/providers.py:397` `_unwrap_optional` → `(annotation) -> Any`
+      (discovery).
+    - `_discovery/schema_extractor.py:225` `_unwrap_optional_annotation` →
+      `(annotation) -> Any` (schema extraction).
+
+    Unifying them has to settle the return shape first — the two discovery
+    helpers return only the inner type, while config and the Click renderer
+    read the optional flag — which is why that did not ride along with the CLI
+    fix, and why no new copy was introduced.
+
+    **Closes when** `build_click_params` is split into a filter half and an
+    emit half with `tests/adapters/test_click_params_parity.py` and
+    `tests/cli/test_optional_parameter_cli.py` unchanged and green, and the
+    unwrappers are either unified on one signature or documented as
+    deliberately different. Each half needs its own tests.
+
 ## Recently Completed (2026-10)
 
 | Feature | Description |
@@ -3316,6 +3480,7 @@ Items identified during development that are worth doing but not yet designed:
 | workflow-persistence-atomic | `feat/sqlite-runtime-provider`: FUN-19 waves 5–6 — **the walk's own scope IO moves onto the selected store**. Only a walk's *claim* used to travel the persistence port (`_engine/frontier.py:224`); its entry, renewal, release, step records, branches, position, status, `State` and event log still wrote the legacy `ScopeStore` — **46 `self._store.*` call sites**, in `_engine/frontier.py`, `_engine/workflow_walker.py` and `_engine/workflow_runner.py`. On a store that is not the document backend the two paths never met: the claim landed in `workflow_scopes`, the release looked in legacy `documents`, found generation 0 / owner `nobody`, raised `StaleGenerationError`, and the walk stopped `SUPERSEDED` — so a workflow parked at a gate could not be finished, or picked up by another process, on the store it had selected. Six commands join the port (`StartWalk`, `RenewLease`, `ReleaseLease`, `RecordStep`, `RecordBranch`, `MoveScope`) and `CompleteStep` is widened to carry the step's outcome and markers, the first-time branch, position, status and the events; four the port already carried become the walk's only path rather than one of two (`ClaimWorkflow`, `StateBatch` for `State` inside a step, `SuspendAtGate`/`ConsumeInput`, `EventWriter.append`); and `WorkflowReader.step`/`.steps`/`.branch`/`.state` and `WorkflowView.graph_digest` are what it reads back, every one of them added to the conformance BASELINE so a store that implements the port and omits them is non-conformant rather than quietly partial. `tests/spec/test_the_walk_writes_only_through_the_port.py` is the enforcement: an `ast` sweep of every module under `_engine/` that allows **three functions** in `executor.py` and **one module** (`capabilities/state.py` — the non-walk `State`), each with its reason in the assertion message, and a second test that refuses an allowlist entry for a function that no longer exists. The relational store needs revision **`0002`** (`result_kind`, `result_type`, `effecting` on `workflow_steps`, forward-only and additive) so a step record keeps what the document records always kept. The operator surfaces (`list`, `show`, `cancel`, `reclaim`, and their MCP counterparts) read and write the same scopes the walk wrote, which is the maintainer's answer to the feature's open decision: move them onto the port, rather than refuse them on a store a user selected. Rationale in **ADR-033**; the command-by-command contract is the reference's §4. |
 | sqlite-runtime-provider | `feat/sqlite-runtime-provider`: FUN-19 — the relational runtime store, and the first store that is not the document backend. One config key selects it, `runtime_store.url` (read at boot step 6.5, `_app/store_selection.py`), so installing the plugin no longer changes where anything lives; `functualize-substrate-sqlite` **0.4.0** registers the `sqlite` scheme and `[plugin.substrate-sqlite] db_path` is gone. Revision `0001` (`_schema/0001_runtime_schema.sql`, frozen and checksummed) creates the fourteen §2 tables plus `runtime_cutover`, name for name, and `migrate()` refuses on a checksum mismatch, a gap, a ledger ahead of the code, runtime tables with no ledger and partial state; the same boot pass applies the relational retention statement. Three deliberate behaviour changes: boot **refuses** instead of falling back to documents (S-2); the `runtime_cutover` marker with provenances `documents` and `born-relational` (precedence G-1…G-4) decides whether a legacy database may open; the `functualize-sqlite-import` CLI is the only path in. The engine still writes legacy `documents['runs']`, so `tests/integration/test_substrate_durability.py`'s strict xfail stands, and H-3's observation limit is its own issue (MCH-156). Details below. |
 | runtime-schema-migrations | `feat/runtime-schema-migrations`: FUN-18 — the four runtime state machines as data. Scope status was assigned at **thirteen production call sites across five modules** and validated in none; `_types/lifecycle.py` now holds `SCOPE`/`RUN`/`ATTEMPT`/`INPUT_REQUEST` (closed state sets, legal pairs, absorbing/evictable sets) as data with no logic, `_primitives/transitions.py` is the one refusal (`IllegalTransition`), and every stored writer calls it — `ScopeStore.set_scope_status` and `RunStore.close_run`, each reading the current value inside the batch it is already writing, plus `RunStore.open_run` on the creation edge, which checks the pair before it writes and so refuses without touching the file. Four transition pairs the table briefly needed are gone with the defect that produced them: a resumed walk left its parked status in place, so a walk that resumed and then finished wrote `COMPLETED` over a record that said `blocked`; every entry now stamps `running` (D2 = 1) and a gate resolved inline no longer parks a live walk. `_types/retention.py`'s `RetentionPolicy` replaces the three separate `500` caps. One behaviour loss is recorded rather than hidden: `completed` is evictable and `resume` accepts it, so an evicted scope's retry answers `workflow_not_found`. No public API change; the durable half landed in `contributor/reference/` because this tree is deleted at clearing. Details below. |
+| vault-remote-redemption | `spec/vault-remote-redemption`: `func builtin vault share` / `redeem` / `show` — hand a working environment to a teammate, accountlessly, through the FuncCloud Vault (chain item 2 of the cross-repo vault-redeem-journey; the wire + crypto contracts are frozen in the funccloud repo and consumed here, never redefined). The EnvelopeV1 client is vendored into `functualize.app.vault_remote` (crypto + wire only), behaviour-faithful from the funccloud reference; the cross-language vector file is copied verbatim and sha256-pinned, and reproducing it byte-identically is the merge blocker. Local policy lives in the new `functualize.app.vault_handoff` and reaches the store only through `functualize.app.vault`. **Share** takes `--entry` selectors (`group`/`job`/`field`; a field-less `group=` takes its subtree), `--all`, or a checklist that starts empty, from the sender's active environment only; items are named by their `VaultIdentity` and the share is labelled `env:<environment>`. **Redeem** makes every check that can precede the burn first (project, a way to confirm, the share still live, the same environment, a vault key), then stores into the vault after a checklist with every new entry ticked, or with `-y` / `--only`; existing and `vault sync`-written entries start unticked and are replaced only when chosen (a synced one becomes direct, which `vault sync` then reports — ADR-023 §3). `--print-only` and `--dotenv` (0600, plain text) write the run-time variable names (`JOB_FIELD`, `SCOPE__FIELD`) and store nothing. A value the dotenv reader would substitute — it contains `${` — is refused: that entry is left out of the file, the rest are written, and the run exits 3 with `dotenv_interpolated`, after the one-time link is spent, so the remedy is a fresh share. Not checkable before the burn under wire v1: the link's own key and the bundle's contents — a v2 manifest is proposed to funccloud (Confluence SD/23822368). Also on the branch: `FUNCTUALIZE_ENV=base` now addresses the shared slot (it stored a fourth environment), and `SecretsVault.supersede` / `vault_supersede_synced` / `vault_require_key`. Dropped along the way: `--set`, `--from-vault`, `--into-vault`/`--scope`, and the top-level `func vault` alias (vault commands stay under `func builtin vault`). CI runs against an in-process mock origin; a live tier behind `FUNC_VAULT_LIVE=1`. No new dependencies. Docs at `docs/cli/vault-share.md`; the decisions and rejected alternatives in ADR-045 (`contributor/adr/045-a-vault-share-carries-real-identities-checked-before-the-burn.md`); the feature spec was `.spec/features/vault-remote-redemption/` on the branch (cleared before merge). Full feature record (spec, contracts, plan, tasks) archived in Confluence before this clearing: https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/26935301 (PR #133). |
 | substrate-capability-probe | `spike/substrate-capability-probe`: FUN-25's Wave 0 — `StoreProfile` was a set of assertions taken from vendor documentation, and this turned it into measurements before FUN-17 freezes the port. Ten fields across **eight columns** — the seven candidate backends plus Supabase Postgres — published at [`contributor/reference/substrate-capability-matrix.md`](../contributor/reference/substrate-capability-matrix.md): 80 cells, **76 measured** and **4 explicitly `NOT MEASURED` with their reasons**, all four in D1's column, whose evidence row states the split rather than stamping the column as measured. No `src/` or `plugins/` change at all — the diff to `master` is a probe suite under `tests/substrate_probe/`, one reference document, the durable-half rows it migrated (`CHANGELOG.md` and this file), and `.env.example`. The branch also carries one separately authored commit that is **not** this spike's work: `8300682`, the member's `ci:` governance change adding the `research-artifacts-cleared` gate, riding here with its landing decision still open. **All three open questions are answered**, each in its own section rather than inferred from a neighbouring column: Q1 — R2's conditional `PutObject` is atomic (one of eight writers won); Q2 — D1's REST latency is a measured distribution (plan against the p95, 516 ms); Q3 — retired at planning time, with a regression guard for the property. *(Corrected 2026-09-23 after the credentialed waves: this row previously said seven backends, 40 measured of 80, and two questions unanswered — the detail section below had already outgrown all three.)* Details below. |
 | runtime-persistence-ports | `feat/runtime-persistence-ports`: FUN-17 — the engine is constructed *with* a `RuntimeStore` and has no path to storage it was not given. Sixteen tasks over eleven waves: the port vocabulary as values (`_types/persistence.py` — `StoreProfile`, 8 commands, 6 outcomes, 6 views, 10 protocols), the document backend that declares its real capability and refuses cross-aggregate atomicity, engine construction moved after configuration resolution, the walk claiming through the port with a lost claim as a *value* (`WalkOutcome.HELD`), and a cancel that now refuses rather than proceeding unclaimed. Four ADRs (025–028); the public API is unchanged. Merge gate at `93ecd18`: **11 103 passed / 1 601 skipped / 0 failed**. TD-1 and the durable reading are recorded below. |
 | runtime-persistence-repair | `fix/runtime-persistence-defects`: four defects in the document stores, repaired before anything migrates them. A superseded runner was correctly refused on its *record* write and then overwrote the live holder's job state; two runners claiming one scope at the same instant could both be told they won; a storage plugin that could not open left the engine running on the filesystem substrate the operator had explicitly not chosen; and the TUI's `!` history wrote a backend the CLI never read. Claims are now compare-and-swap on both documents, every `rc.state` write is fenced through one seam, a failed substrate install fails boot, and `Stored.revision` is an opaque token. Cross-document atomicity is deliberately absent — it is FUN-17's `RuntimeTransaction`. Details below. |

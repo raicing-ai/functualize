@@ -35,7 +35,7 @@ from functualize._primitives.run_store import RunStore
 from functualize._primitives.scope_store import ScopeStore
 from functualize._types.enums import RunStatus
 from functualize._types.run_request import RunRequest
-from functualize.job import Fingerprint, RunContext, job
+from functualize.job import Fingerprint, Invoke, RunContext, job
 
 THREE_TAGS = {"harness": "claude", "model": "opus", "session-id": "abc"}
 
@@ -103,6 +103,35 @@ class TestTheRecordCarriesTheMap:
         )
 
         assert _only_record(runs)["run_tags"] == THREE_TAGS
+
+
+def test_app_child_run_copies_effective_defaults_and_override(_project: Path) -> None:
+    config = _project / ".functualize.toml"
+    config.write_text('[run]\ntags = ["team:file", "source:project"]\n')
+
+    def child() -> str:
+        return "child"
+
+    def parent(invoke: Invoke) -> str:
+        config.write_text('[run]\ntags = ["team:changed"]\n')
+        invoke("child")
+        return "parent"
+
+    app = FunctualizeApp("tagged")
+    app.register_dynamic_job("parent", parent)
+    app.register_dynamic_job("child", child)
+    result = app.execute(
+        RunRequest(
+            job_name="parent", surface="app.execute", run_tags={"team": "request"}
+        )
+    )
+
+    assert result.status is RunStatus.SUCCESS, result.exception
+    store = RunStore(app.execution_engine._state_store().substrate)
+    records = [store.get_run(run_id) for run_id in store.run_ids()]
+    by_job = {record["job"]: record for record in records if record}
+    assert by_job["parent"]["run_tags"] == {"team": "request", "source": "project"}
+    assert by_job["child"]["run_tags"] == by_job["parent"]["run_tags"]
 
     def test_an_untagged_run_stores_an_empty_map(
         self, engine: JobExecutionEngine, runs: RunStore

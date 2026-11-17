@@ -126,3 +126,39 @@ def test_v1_store_refuses_without_changing_bytes(
     assert path.read_bytes() == before
     vault.clear()
     assert not path.exists()
+
+
+class TestBaseIsTheSharedSlot:
+    """SD/12779576: the environment name ``base`` addresses shared entries.
+
+    Measured before the fix: a direct ``put`` under ``FUNCTUALIZE_ENV=base``
+    stored ``["group","deploy","token","base"]`` — a fourth environment that a
+    ``prod`` run never consulted — while a ``config.base.*`` declaration of the
+    same identity was shared. One identity, two spellings.
+    """
+
+    @pytest.mark.parametrize("spelling", ["base", "BASE", " Base "])
+    def test_base_is_the_shared_identity(self, spelling: str) -> None:
+        shared = VaultIdentity("group", "deploy", "token")
+
+        assert VaultIdentity("group", "deploy", "token", spelling) == shared
+        assert (
+            VaultIdentity("group", "deploy", "token", spelling).encode()
+            == '["group","deploy","token"]'
+        )
+
+    def test_a_base_run_consults_shared_entries_once(self) -> None:
+        candidates = VaultIdentity.lookup_candidates(
+            "group", "deploy.web", "token", "base"
+        )
+
+        assert [(item.target, item.environment) for item in candidates] == [
+            ("deploy.web", None),
+            ("deploy", None),
+        ]
+
+    def test_the_slot_name_matches_the_config_layers(self) -> None:
+        from functualize._config.roles import BASE_SLOT
+        from functualize._primitives.vault_identity import SHARED_SLOT
+
+        assert SHARED_SLOT == BASE_SLOT

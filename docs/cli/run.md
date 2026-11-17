@@ -108,24 +108,52 @@ run-01M6316CWX94YJYNZZ5E0MG3WQ  nightly-build  success  func.job  16ms  attempt:
   `run show` prints nonempty tags on a `run_tags:` line after `parent_run_id`
   when that field is present. Untagged runs have no tag line.
 
-A run gets its tags from three places, merged per key, a later source winning:
+A run gets its tags from these places, merged per key, a later source winning:
 
 1. `[run] tags = ["host:laptop"]` in your global config
    (`~/.config/functualize/config.toml`);
-2. `FUNCTUALIZE_RUN_TAGS="harness:claude,model:opus"` in the environment —
+2. `[run] tags` in each selected project settings file, farthest first and
+   nearest last — `[tool.functualize.run] tags` in a `pyproject.toml`. These
+   are the files the settings walk already selects: one per directory, from
+   the working directory upward, stopping at the nearest `root = true`;
+3. `FUNCTUALIZE_RUN_TAGS="harness:claude,model:opus"` in the environment —
    comma-separated, surrounding spaces trimmed, blank items skipped. A
    nonempty piece without `:` after a valid tag is refused as a comma in that
    preceding tag's value, since it cannot be distinguished from a missing
    colon in the next tag; a piece with `:` starts a new tag;
-3. `--run-tag KEY:VALUE` before the job name, repeatable:
+4. `--run-tag KEY:VALUE` before the job name, repeatable:
    `func --run-tag harness:claude nightly-build`. `builtin` commands start no
    run and refuse it: `Error: No such option '--run-tag'.`
 
-A key given twice in one source is refused, naming that source; a malformed
-tag stops the command with exit `2` before any job runs. A run started from
-inside a job — a workflow step, a dependency, an `rc.invoke` child — carries an
-exact copy of its parent's tags. Tags never reach the job itself: they are not
-arguments, not part of the cache key, and not visible on `RunContext`.
+So a project can tag every run started inside it, a nested project overrides
+its parent key by key, and the environment and the command line still win. A
+key given twice in one source is refused, naming that source — for a settings
+file, its path and the two item positions; the same key in two sources is an
+override. A run holds at most 32 tags after the merge.
+
+`func` merges the tags before it discovers anything, so a malformed or
+repeated tag stops the command with exit `2` before any job module is imported.
+That is true of every `func` command, `builtin` ones included: a bad
+`[run] tags` in the project stops `func builtin run list` and
+`func builtin serve http` too.
+
+**Runs started outside the command line get the same defaults.** A run that
+enters through an application — the HTTP and Lambda adapters, the MCP run
+tools, the TUI and the inline TUI, an event-submitted job, workflow control —
+carries the tags of the global config, the selected project files and
+`FUNCTUALIZE_RUN_TAGS`. None of those wires takes a tag input; only Python code
+that builds a `RunRequest` can pass `run_tags`, and those override the defaults
+key by key. An application reads its defaults **once**: a normally booted app
+right after it loads `.env`, before any plugin or job is imported, so a bad tag
+stops the boot; an app built with explicit static wiring, which reads no file
+while it is constructed, on its first run, which then fails before it opens.
+Editing a settings file or the environment afterwards changes the tags of the
+next application, not of one already running.
+
+A run started from inside a job — a workflow step, a dependency, an
+`rc.invoke` child — carries an exact copy of its parent's tags. Tags never
+reach the job itself: they are not arguments, not part of the cache key, and
+not visible on `RunContext`.
 
 > **Tags are stored in plain text — never put a secret in one.** They are
 > written to the run log and shown by `run list`, `run show`, `--format json`

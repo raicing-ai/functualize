@@ -433,6 +433,7 @@ def build_engine(
     Returns:
         The engine, ready to execute.
     """
+    from functualize._app.vault_reader import LocalVaultReaderFactory
     from functualize._config.chain import ResolutionChain
     from functualize._config.job_config import JobConfigView, resolve_job_config
     from functualize._engine.executor import JobExecutionEngine
@@ -473,6 +474,10 @@ def build_engine(
         config_resolver=resolve_job_config,
         runtime_store=runtime_store,
         substrate=substrate,
+        # The reader behind an injected `Vault`. Built here because the vault
+        # source is `_config`'s and the engine may not import it; it reads the
+        # app's live chain per invocation, so a `refresh()` is observed.
+        vault_reader_factory=LocalVaultReaderFactory(app),
     )
     return engine
 
@@ -735,6 +740,12 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     # 0. Dotenv first — variables must be in os.environ before EnvSource
     # joins the resolution chain.
     load_boot_dotenv(app)
+
+    # Refuse malformed selected tags before job or plugin imports. Resolving
+    # here also fixes the defaults for this app's lifetime after dotenv loads.
+    from functualize._config.run_tags import resolve_run_tags
+
+    app._run_tag_defaults = resolve_run_tags(app.settings.layers)
 
     # Imports + resource locator (measures lazy import cost)
     perf_timeline.mark("boot.imports.start")

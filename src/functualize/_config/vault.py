@@ -89,6 +89,7 @@ __all__ = [
     "VaultEntry",
     "VaultOrigin",
     "VaultEntryExistsError",
+    "VaultEntryMissingError",
     "VaultEntryUnreadableError",
     "VaultFormatError",
     "VaultError",
@@ -275,6 +276,37 @@ class VaultEntryUnreadableError(VaultError):
     quietly running on something else hands them a different secret than they
     intended — while the run reports success.
     """
+
+
+class VaultEntryMissingError(VaultError):
+    """An explicit group read found no stored entry anywhere it may look.
+
+    Raised only by the public ``Vault.read(group, field)`` call, and only after
+    the whole candidate sequence came back empty: the active environment from
+    the exact group up through its nearest ancestors, then the shared slot in
+    the same order. A project with no vault file is the same answer. It is not
+    "the exact address was absent" -- an ancestor or shared entry would have
+    been returned.
+
+    Deliberately distinct from :class:`VaultEntryUnreadableError`. A miss is
+    "nothing was provisioned for this target", which a caller may decide on
+    (decline to operate on it); an unreadable entry is "something was
+    provisioned and this machine cannot open it", which must never be treated
+    as absence. Ordinary config resolution does not raise this: a vault miss
+    there still continues to the lower-priority sources (ADR-023 §1).
+
+    Carries the requested address and field, never a value: there is none.
+    """
+
+    def __init__(self, group: str, field: str) -> None:
+        self.group = group
+        self.field = field
+        super().__init__(
+            f"No vault entry for group {group!r} field {field!r} in the active "
+            f"environment or the shared slot, at this group or any ancestor. "
+            f"Nothing is provisioned for it; `func builtin vault put` or "
+            f"`func builtin vault sync` stores one."
+        )
 
 
 class VaultEntryExistsError(VaultError):
@@ -706,6 +738,55 @@ class SecretsVault:
             # provider it never touched.
             action = "sync" if origin is VaultOrigin.PROVIDER else "put"
             self._audit(conn, key, action, "ok", provider)
+
+    def supersede(self, key: str, value: str, *, encryption_key: bytes) -> None:
+        """Replace a **provider** entry with a direct one, in one transaction.
+
+        The explicit form of the decision :class:`VaultOriginConflictError`
+        refuses to make as a side effect of ``put``: the row becomes
+        ``DIRECT``, and ``annotation``, ``provider`` and ``synced_at`` are
+        cleared, because the new value was not fetched from anywhere. A later
+        ``sync`` then refuses this key as a direct entry (ADR-023 §3), which is
+        the consequence the caller is expected to have shown the user.
+
+        ``created_at`` is kept: when the entry first appeared is a fact about
+        the entry. The audit row's action is ``supersede``, so the trace says
+        provenance changed rather than looking like an ordinary write.
+
+        Raises:
+            VaultError: No provider entry is stored at ``key`` — a direct entry
+                is replaced with ``put(..., replace=True)``, and a missing one
+                is written with ``put``.
+        """
+        _require_key(encryption_key)
+        nonce = _random_nonce()
+        ciphertext = AESGCM(encryption_key).encrypt(
+            nonce, value.encode("utf-8"), key.encode("utf-8")
+        )
+        with self._session() as conn:
+            changed = conn.execute(
+                "UPDATE secrets SET origin = ?, annotation = NULL, provider = NULL,"
+                " nonce = ?, ciphertext = ?, updated_at = ?, synced_at = NULL,"
+                " key_provider = ?"
+                " WHERE key = ? AND origin = ?",
+                (
+                    VaultOrigin.DIRECT.value,
+                    nonce,
+                    ciphertext,
+                    _utcnow().isoformat(),
+                    self._key_provider_id,
+                    key,
+                    VaultOrigin.PROVIDER.value,
+                ),
+            ).rowcount
+            if changed != 1:
+                msg = (
+                    f"{key!r} holds no provider entry to supersede. Use put "
+                    f"(with replace for an existing direct entry) instead."
+                )
+                raise VaultError(msg)
+            self._ensure_check_value(conn, encryption_key)
+            self._audit(conn, key, "supersede", "ok")
 
     def get(self, key: str, *, encryption_key: bytes) -> str | None:
         """Decrypt and return one value, or None when it is not stored.

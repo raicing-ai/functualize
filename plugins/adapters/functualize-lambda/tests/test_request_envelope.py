@@ -12,12 +12,39 @@ the `kwargs` key (Lambda); they are now under `arguments`.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
-from functualize_lambda import _envelope
+from functualize_lambda import LambdaAdapter, _envelope
+
+from functualize._primitives.run_store import RunStore
+from functualize.app.core import FunctualizeApp
 
 _SURFACE = "lambda"
+
+
+def test_lambda_request_records_project_defaults_without_wire_tag_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "lambda"
+    project.mkdir()
+    (project / ".functualize.toml").write_text('[run]\ntags = ["door:lambda"]\n')
+    monkeypatch.chdir(project)
+    app = FunctualizeApp("lambda")
+
+    def greet() -> str:
+        return "hello"
+
+    app.register_dynamic_job("greet", greet)
+    adapter = LambdaAdapter()
+    adapter(app)
+    response = adapter.run({"job": "greet", "run_tags": {"door": "wire"}}, None)
+
+    assert response["statusCode"] == 200
+    store = RunStore(app.execution_engine._state_store().substrate)
+    records = [store.get_run(run_id) for run_id in store.run_ids()]
+    assert [record["run_tags"] for record in records if record] == [{"door": "lambda"}]
 
 
 class TestJobArgumentsAreNested:

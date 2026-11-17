@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — optional job parameters receive CLI flags
+
+Parameters declared as `X | None` or `Optional[X]` now accept the same CLI
+input as `X`, including distinct absent, positive, and negative states for
+optional booleans.
+
+### Changed — project settings files tag runs, through every door
+A project can now tag every run started inside it: `[run] tags` in each
+selected project settings file (`[tool.functualize.run] tags` in
+`pyproject.toml`) joins the run-tag sources between the global config and
+`FUNCTUALIZE_RUN_TAGS`, farthest file first and nearest last, so a nested
+project overrides its parent key by key and `root = true` ends the walk, as it
+does for every other setting. Before, a project `[run] tags` list was accepted
+and ignored. A malformed item, or a key repeated inside one file, is refused
+with exit 2, naming the file and the item, before any job module is imported —
+for every `func` command, `builtin` ones included.
+
+Runs that enter through an application now carry the same defaults: the HTTP
+and Lambda adapters, the MCP run tools, the TUI and inline TUI, event
+submission and workflow control. They still take no tag input; a `RunRequest`
+built in Python can pass `run_tags`, which override the defaults per key. A
+normally booted application resolves its defaults once, right after loading
+`.env` and before importing any plugin or job, so a bad tag stops the boot; one
+built with explicit static wiring stays free of file reads while it is
+constructed and resolves them on its first run, which fails before it opens.
+`run.tags` is no longer offered as an ordinary resolved setting. Recorded as an
+amendment to
+[ADR-040](contributor/adr/040-run-tags-are-an-observation-fixed-when-the-run-opens.md).
+
+### Added — a job can read a group's secret from the local vault with `Vault.read`
+A job that only learns at run time which target it is working on can now ask
+for that target's credential: declare `vault: Vault` (from `functualize.job`)
+and call `vault.read("cloudflare_dev.d1.main", "api_token")`. It returns
+`Secret[str]`, masked in every rendering. The entry is chosen by the same group
+lookup config uses — the active environment's exact group, then its nearest
+ancestors, then the shared slot in that order — and the first stored entry
+wins. When nothing is stored the call raises the new `VaultEntryMissingError`;
+when the chosen entry exists but cannot be opened it raises
+`VaultEntryUnreadableError` or `VaultDecryptionError` and does not try a
+weaker candidate. All three are exported from `functualize.app.vault`. The
+read never substitutes an environment variable, config file or default, never
+contacts a provider (`vault sync` still does that), and adds no CLI, MCP or TUI
+input. Ordinary config resolution is unchanged: a config field whose vault
+entry is absent still resolves from the next source. See *Reading a group's
+secret from a job* in `docs/guides/configuration.md`.
+
+### Added — share vault entries with a teammate through a one-time link
+
+`func builtin vault share` seals entries of this project's vault into one link
+that anyone holding it can redeem, without an account; `func builtin vault
+redeem <link>` stores them into the same project's vault on the receiver's
+machine, and `func builtin vault show <link>` previews a share without using
+it. Entries are chosen with `--entry group=…[,job=…][,field=…]` (a group alone
+takes its whole subtree), `--all`, or an interactive checklist. A share belongs
+to the sender's active environment (`FUNCTUALIZE_ENV`) and is redeemed into the
+same one. Before using the link, `redeem` checks everything it can — a project
+to store into, a way to confirm, the share still live, the matching
+environment, a vault key — and refuses with the link still usable. Entries the
+receiver already has, or that `vault sync` wrote, are replaced only when chosen.
+`--print-only` and `--dotenv PATH` write the entries under the environment
+variable names a run reads, without storing them. See
+`docs/cli/vault-share.md`. A value `--dotenv` cannot write intact — one
+containing `${`, which the dotenv reader substitutes at load time — is refused:
+that entry is left out of the file, the rest are written, and the run exits 3
+with `dotenv_interpolated` after the one-time link is spent, so the remedy is a
+fresh share.
+
+### Fixed — `FUNCTUALIZE_ENV=base` addresses shared vault entries
+
+A direct `func builtin vault put` under `FUNCTUALIZE_ENV=base` stored the entry
+for an environment named `base`, which no other environment consulted, while a
+`config.base.*` declaration of the same entry was shared. `base` is the shared
+slot: such an entry is now stored shared and serves every environment, and
+`put`/`remove` report it as `base`.
+
 ## [0.5.0] - 2026-11-12
 
 ### Fixed — the message-hygiene identity arm reads prose, not code
