@@ -145,7 +145,8 @@ uv run python -m tests.skill_router_eval.replay --corpus v2 \
 
 # 2. Selections for the router arm.
 uv run python -m tests.skill_router_eval.select \
-  --tasks evals/suites/skill-router.yaml --out "$STATE/v2-selections.json" </dev/null
+  --corpus v2 --tasks evals/suites/skill-router.yaml \
+  --out "$STATE/v2-selections.json" </dev/null
 
 # 3. Downstream: one call per arm, each writing its own results file.
 cd evals && FZ_SKILL_ROUTER_SELECTIONS="$STATE/v2-selections.json" \
