@@ -52,7 +52,7 @@
   },
   "catalog_sha256": "47b1ea9b1535d2a0ccb50cb7d93ece6dcf84be1f31e19aaae7b2ce4a224be3b9",
   "comparators": {
-    "hermetic": "a28b67987b750dd457b3baa3889d1b508c919feaaca9f67eeab8218ed201325b",
+    "hermetic": "3fc899129e19f5e59051ec3d1798a23c6392e852a1f66656399e61ad1d67f756",
     "frontier": "cd34a61f5766ad95f15f4630c8aaf822e944a2a9bc23593dd62c21f2745d70a8",
     "deterministic": "47cd883d098948c2c64401b642dcfdf28f970c888a993b5599d6fd6f33085277",
     "native": "4f06663f4e6b7b431c83edaf00b65cabe27a059cc6a49923e6c095af1f282c69"

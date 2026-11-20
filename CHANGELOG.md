@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] - 2026-11-12
 
+### Changed — the skill router evaluation uses its v2 corpus
+
+The shipped skills identify as 0.5.0. The live, unmeasured v2 corpus lock now
+records those skill bytes and the release's hermetic comparator identity. The
+measured v1 lock remains byte-identical to its historical record.
+
 ### Fixed — optional job parameters receive CLI flags
 
 Parameters declared as `X | None` or `Optional[X]` now accept the same CLI
