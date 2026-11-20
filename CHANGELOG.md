@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-12
+
 ### Fixed — optional job parameters receive CLI flags
 
 Parameters declared as `X | None` or `Optional[X]` now accept the same CLI
@@ -82,7 +84,6 @@ for an environment named `base`, which no other environment consulted, while a
 slot: such an entry is now stored shared and serves every environment, and
 `put`/`remove` report it as `base`.
 
-## [0.5.0] - 2026-11-12
 
 ### Fixed — the message-hygiene identity arm reads prose, not code
 
