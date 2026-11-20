@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -582,7 +583,10 @@ def test_a_moved_comparator_identity_is_refused(tmp_path: Path) -> None:
 # The rubric that produced the labels
 # --------------------------------------------------------------------------
 
-LABELING = Path(__file__).resolve().parent / "corpus" / "v1" / "LABELING.md"
+CORPUS_ROOT = Path(__file__).resolve().parent / "corpus"
+V1_VERSION = CORPUS_ROOT / "v1"
+V2_VERSION = CORPUS_ROOT / "v2"
+LABELING = V1_VERSION / "LABELING.md"
 
 
 def _sections() -> dict[str, list[str]]:
@@ -637,9 +641,8 @@ def test_the_two_skill_clause_sends_those_requests_elsewhere() -> None:
 # The drafted corpus, over the file that ships
 # --------------------------------------------------------------------------
 
-VERSION = Path(__file__).resolve().parent / "corpus" / "v1"
-SCENARIOS = VERSION / "scenarios.jsonl"
-TWO_SKILL = VERSION / "TWO_SKILL.md"
+SCENARIOS = V1_VERSION / "scenarios.jsonl"
+TWO_SKILL = V1_VERSION / "TWO_SKILL.md"
 TRIGGERING = (
     Path(__file__).resolve().parents[2] / "evals" / "suites" / "triggering.yaml"
 )
@@ -703,18 +706,18 @@ def test_no_two_skill_request_sits_in_the_corpus() -> None:
         assert " ".join(" ".join(numbers).split()) not in states
 
 
-def test_v1_lock_matches_corpus_catalog_and_comparators(tmp_path: Path) -> None:
-    """The freeze is only worth having if today's tree still reproduces it.
+def test_v2_lock_matches_corpus_catalog_and_comparators(tmp_path: Path) -> None:
+    """The live freeze must still reproduce today's tree.
 
     Every argument is re-derived from the working tree, exactly as ``select``
     and ``replay`` do before a measurement, so a reworded ``SKILL.md``, a moved
     threshold, an edited instruction or a different comparator identity fails
     here instead of silently measuring a different question.
     """
-    derived = identities(VERSION)
+    derived = identities(V2_VERSION)
     rule_digest = replay.probe_rule_digest(CATALOG, tmp_path / "project")
     lock = check_lock(
-        VERSION,
+        V2_VERSION,
         CATALOG,
         derived,
         rule_digest=str(rule_digest),
@@ -725,3 +728,39 @@ def test_v1_lock_matches_corpus_catalog_and_comparators(tmp_path: Path) -> None:
     assert lock.repeats == 5
     assert lock.seed == 20261013
     assert set(lock.comparators) == set(replay.COMPARATORS)
+
+
+def test_v1_lock_is_an_unaltered_historical_record() -> None:
+    """Pin v1's recorded question without consulting today's skill or instrument."""
+    lock_path = V1_VERSION / "corpus.lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+
+    # The whole-file pin also protects nested catalog, selection, and verdict data.
+    assert hashlib.sha256(lock_path.read_bytes()).hexdigest() == (
+        "07212ff3c9c732b2f7ce8a9477468c2b811460b6866d94e2e9e5a38f2d86528c"
+    )
+    scenarios_digest = (
+        "e04e65ed0c6111806ba58d5b6a90f9496b89164badc87daf994c8c3fd0e27a58"
+    )
+    assert hashlib.sha256(SCENARIOS.read_bytes()).hexdigest() == scenarios_digest
+    assert lock["version"] == "v1"
+    assert lock["scenarios_sha256"] == scenarios_digest
+    assert lock["count"] == 40
+    assert lock["seed"] == 20261013
+    assert lock["repeats"] == 5
+    assert lock["time_box_hours"] == 72
+    assert lock["catalog_sha256"] == (
+        "47b1ea9b1535d2a0ccb50cb7d93ece6dcf84be1f31e19aaae7b2ce4a224be3b9"
+    )
+    assert lock["instrument"]["sha256"] == (
+        "0ae70ffcd294d214b3e2878b2452656c14a7f5a8046040e10e694799ab10f007"
+    )
+    assert lock["selection"]["rule_digest"] == (
+        "sha256:4dabd4ab33ec1aedefbd798a458be1a9dd3c4509b37ce8e02cab51ab1fce3857"
+    )
+    assert lock["comparators"] == {
+        "hermetic": "3fc899129e19f5e59051ec3d1798a23c6392e852a1f66656399e61ad1d67f756",
+        "frontier": "cd34a61f5766ad95f15f4630c8aaf822e944a2a9bc23593dd62c21f2745d70a8",
+        "deterministic": "47cd883d098948c2c64401b642dcfdf28f970c888a993b5599d6fd6f33085277",
+        "native": "4f06663f4e6b7b431c83edaf00b65cabe27a059cc6a49923e6c095af1f282c69",
+    }

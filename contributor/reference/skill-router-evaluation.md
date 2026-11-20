@@ -71,6 +71,8 @@ meaning, a threshold or a measuring module edited after the first cell
 therefore voids the corpus; the remedy is a new version directory (`v2/`),
 never a re-freeze of a measured one. Model overrides (`FZ_EVAL_MODEL`,
 `FZ_EVAL_SANDBOX`) are refused rather than obeyed.
+Older version locks are historical records checked for unchanged bytes; the
+newest version's lock is checked against the current working tree.
 
 ## The selection gate
 
@@ -137,26 +139,27 @@ All commands run from the repository root. Outputs go under
 ```bash
 # 1. Routing: one run directory per comparator. Re-invoke the same command
 #    with the same --run-dir until it prints "run complete".
-uv run python -m tests.skill_router_eval.replay --corpus v1 \
-  --comparator hermetic --run-dir "$STATE/v1-hermetic" </dev/null
+uv run python -m tests.skill_router_eval.replay --corpus v2 \
+  --comparator hermetic --run-dir "$STATE/v2-hermetic" </dev/null
 # … and the same for frontier, deterministic and native.
 
 # 2. Selections for the router arm.
 uv run python -m tests.skill_router_eval.select \
-  --tasks evals/suites/skill-router.yaml --out "$STATE/v1-selections.json" </dev/null
+  --corpus v2 --tasks evals/suites/skill-router.yaml \
+  --out "$STATE/v2-selections.json" </dev/null
 
 # 3. Downstream: one call per arm, each writing its own results file.
-cd evals && FZ_SKILL_ROUTER_SELECTIONS="$STATE/v1-selections.json" \
+cd evals && FZ_SKILL_ROUTER_SELECTIONS="$STATE/v2-selections.json" \
   npx promptfoo eval -c suites/skill-router.yaml --no-cache --repeat 3 \
-  --filter-providers router -o "$STATE/v1-downstream-router.json"
+  --filter-providers router -o "$STATE/v2-downstream-router.json"
 
 # 4. The report, then its byte-for-byte check.
 uv run python -m tests.skill_router_eval.report \
-  --run-dir "$STATE/v1-hermetic" --run-dir "$STATE/v1-frontier" \
-  --run-dir "$STATE/v1-deterministic" --run-dir "$STATE/v1-native" \
-  --selections "$STATE/v1-selections.json" \
-  --downstream "$STATE/v1-downstream.json" --out "$STATE/v1-report"
-uv run python -m tests.skill_router_eval.report … --check "$STATE/v1-report"
+  --run-dir "$STATE/v2-hermetic" --run-dir "$STATE/v2-frontier" \
+  --run-dir "$STATE/v2-deterministic" --run-dir "$STATE/v2-native" \
+  --selections "$STATE/v2-selections.json" \
+  --downstream "$STATE/v2-downstream.json" --out "$STATE/v2-report"
+uv run python -m tests.skill_router_eval.report … --check "$STATE/v2-report"
 ```
 
 What the commands expect and how they stop:
