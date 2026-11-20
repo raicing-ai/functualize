@@ -33,6 +33,7 @@ All are exported from `functualize.job`.
 | `JobContext` | Metadata about this invocation | `.name`, `.trace_id`, `.span_id`, `.cwd`, `.job_directory`, `.invoke_depth`, `.scope_id`, `.metadata` |
 | `Freshness` | The verdict this job's own `Fingerprint` produced | `.verdict()` → the state, key, recorded value, declared sources and generates, and the resolved source map; no verdict at all when the job declares no `Fingerprint`. Reading it does not oblige a skip |
 | `JobConfigView` | Raw resolved config | key access with source tracking |
+| `Vault` | Read a group's stored secret | `.read(group, field)` → `Secret[str]`; active environment exact group → nearest ancestors, then shared in the same order. Nothing stored raises the missing-entry error; a stored entry that cannot be opened raises a read failure and stops there |
 
 Confirm against the installed version rather than this table:
 

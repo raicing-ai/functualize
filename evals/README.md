@@ -425,7 +425,8 @@ run:
 
 ```bash
 uv run python -m tests.skill_router_eval.select \
-    --tasks evals/suites/skill-router.yaml --out <outside-repo>/selections.json
+    --corpus v2 --tasks evals/suites/skill-router.yaml \
+    --out <outside-repo>/selections.json
 
 FZ_SKILL_ROUTER_SELECTIONS=<outside-repo>/selections.json \
   npx promptfoo eval -c suites/skill-router.yaml --no-cache --repeat 3 \
