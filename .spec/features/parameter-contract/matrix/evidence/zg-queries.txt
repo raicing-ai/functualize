@@ -1,0 +1,173 @@
+### zg query "list parameter repeatable CLI flag multiple values"
+query groups (1):
+Q1 [primary]: list parameter repeatable CLI flag multiple values
+hits: 6
+#1 matchedBy=fts+vector src/functualize/app/adapters/click_params.py:652-705
+symbol: function _option_from_marker
+658	"""Build a ``click.Option`` from an ``Option()`` marker (short/long flags).
+#2 matchedBy=fts+vector src/functualize/_config/job_config.py:594-611
+594	def _is_absent_cli_value(value: Any) -> bool:
+#3 matchedBy=fts+vector src/functualize/app/adapters/settings_flags.py:79-96
+79	def generated_setting_options(schema: AppSettingsSchema) -> list[click.Option]:
+#4 matchedBy=fts+vector src/functualize/app/adapters/click_params.py:471-519
+symbol: function _config_field_option
+506	long_flag = f"--{name.replace('_', '-')}"
+#5 matchedBy=fts+vector src/functualize/app/adapters/click_params.py:708-911
+symbol: function build_click_params
+828	                        required=True,
+#6 matchedBy=fts+vector src/functualize/app/adapters/click_params.py:291-445
+symbol: function build_click_params_from_fields
+360	                )
+
+### zg query "caller supplied value overrides injected capability kwargs"
+query groups (1):
+Q1 [primary]: caller supplied value overrides injected capability kwargs
+hits: 6
+#1 matchedBy=fts+vector src/functualize/_engine/context.py:24-157
+symbol: class ExecutionContext
+107	    run_id: str | None = None
+#2 matchedBy=fts+vector src/functualize/_engine/executor.py:213-2959
+symbol: class JobExecutionEngine
+2247	
+#3 matchedBy=fts+vector src/functualize/_engine/freshness_key.py:102-169
+symbol: class FreshnessKeys
+103	"""Hash resolved job config, caller arguments, and resolved group options.
+#4 matchedBy=fts+vector src/functualize/_engine/freshness_key.py:115-129
+115	def for_run(self, context: Any) -> str:
+#5 matchedBy=fts+vector src/functualize/_engine/executor.py:2215-2262
+symbol: function _inject_from_job scope: JobExecutionEngine
+2241	# The declared `T` in `Annotated[T, FromJob(...)]`. The writer stored
+#6 matchedBy=fts+vector src/functualize/_engine/executor.py:1286-1672
+symbol: function _execute_lifecycle scope: JobExecutionEngine
+1407	# The @workflow prelude (§A.7): walk the declared graph first, and run
+
+### zg query "unsupported parameter type refused at discovery registered not registered"
+query groups (1):
+Q1 [primary]: unsupported parameter type refused at discovery registered not registered
+hits: 6
+#1 matchedBy=fts+vector src/functualize/_engine/resolution.py:98-266
+symbol: function build_resolution_plan
+103	"""Build a ResolutionPlan by analyzing a function's signature.
+#2 matchedBy=fts+vector docs/guides/job-config.md:25-71
+heading: Supported Field Types
+heading_level: 2
+scope: JobConfig with Pydantic
+53	    convert at the point of use.
+#3 matchedBy=fts+vector src/functualize/_engine/capabilities/registry.py:118-143
+118	def _check_name_agreement() -> None:
+#4 matchedBy=fts+vector src/functualize/_config/errors.py:49-63
+49	class UnsupportedFormatError(ConfigurationError):
+#5 matchedBy=fts+vector src/functualize/_types/errors.py:490-515
+490	def _message(self) -> str:
+#6 matchedBy=fts+vector src/functualize/_types/errors.py:451-515
+symbol: class NotifierUnavailableError
+476	def __init__(
+
+### zg query "type annotation string stored in discovery cache descriptor"
+query groups (1):
+Q1 [primary]: type annotation string stored in discovery cache descriptor
+hits: 6
+#1 matchedBy=fts+vector src/functualize/_discovery/cached_provider.py:283-315
+283	def get_job(self, name: str) -> JobDescriptor | None:
+#2 matchedBy=fts+vector src/functualize/_discovery/cached_provider.py:75-1233
+symbol: class CachedDirectoryScanProvider
+537	            cached_discovery_hash = data.get("discovery_hash")
+#3 matchedBy=fts+vector src/functualize/_discovery/filter_factory.py:198-229
+198	def discovery_hash_from_config(config: DiscoveryConfig | None) -> str:
+#4 matchedBy=fts+vector src/functualize/_discovery/providers.py:348-394
+348	def _annotation_to_type_str(annotation: Any) -> str:
+#5 matchedBy=fts+vector src/functualize/_discovery/schema_extractor.py:186-222
+186	def _type_from_annotation(config_class: type[BaseModel], field_name: str) -> str:
+#6 matchedBy=fts+vector src/functualize/app/_workflow_view.py:664-700
+664	def _job_input_schema(descriptor: Any) -> dict[str, Any] | None:
+
+### zg query "MCP tool function generated from schema exec signature"
+query groups (1):
+Q1 [primary]: MCP tool function generated from schema exec signature
+hits: 6
+#1 matchedBy=fts+vector plugins/adapters/functualize-mcp/src/functualize_mcp/_server.py:170-261
+symbol: function _build_tool_function
+173	"""Build a dynamically-typed async function for a job tool.
+#2 matchedBy=fts+vector docs/guides/mcp.md:130-143
+heading: Schema Export
+heading_level: 2
+scope: MCP Adapter
+130	## Schema Export
+#3 matchedBy=fts+vector plugins/adapters/functualize-mcp/src/functualize_mcp/_server.py:128-141
+128	def _register_single_tool(self, tool_def: MCPToolDef) -> None:
+#4 matchedBy=fts+vector plugins/adapters/functualize-mcp/src/functualize_mcp/_server.py:49-167
+symbol: class MCPServer
+128	def _register_single_tool(self, tool_def: MCPToolDef) -> None:
+#5 matchedBy=fts+vector plugins/domains/functualize-ai-pydantic/src/functualize_ai_pydantic/_tool_translator.py:49-102
+symbol: function _translate_single scope: ToolScopeTranslator
+50	"""Translate a single ToolDef into a PydanticAI Tool.
+#6 matchedBy=fts+vector plugins/domains/functualize-ai-pydantic/src/functualize_ai_pydantic/_tool_translator.py:21-102
+symbol: class ToolScopeTranslator
+22	"""Translates ToolScope.to_tool_defs() output to PydanticAI native format.
+
+### zg query "TUI smart bar parses arguments differently from CLI"
+query groups (1):
+Q1 [primary]: TUI smart bar parses arguments differently from CLI
+hits: 6
+#1 matchedBy=fts+vector src/functualize/_cli/tui/__init__.py:1-37
+1	"""TUI subpackage — UI widgets, state machines, and UI logic."""
+#2 matchedBy=fts+vector src/functualize/_cli/tui/__init__.py:31-74
+31	from functualize._cli.tui.shortcut_save_modal import ShortcutSaveModal
+#3 matchedBy=fts+vector graphify-out/GRAPH_REPORT.md:419-422
+heading: Community 16 - "Smart Bar Cursor Parsing"
+heading_level: 3
+scope: Graph Report - feat-local-vault-access  (2026-09-17)::Communities (309 total, 31 thin omitted)
+419	### Community 16 - "Smart Bar Cursor Parsing"
+#4 matchedBy=fts+vector src/functualize/_cli/tui/app.py:1882-1901
+1882	def _sync_config_table_from_smartbar(self) -> None:
+#5 matchedBy=fts+vector src/functualize/_cli/tui/sync.py:321-364
+symbol: function sync_bar_to_overrides
+327	"""Parse SmartBar CLI text and apply matching values onto fields.
+#6 matchedBy=fts+vector contributor/architecture/codemaps/modules.md:126-146
+heading: `_cli/tui/` — Full-Screen TUI Subsystem (largest single subsystem)
+heading_level: 4
+scope: Module Catalog::Internal Implementation::`_cli/` — CLI + TUI Delivery
+126	#### `_cli/tui/` — Full-Screen TUI Subsystem (largest single subsystem)
+
+### zg query "coerce wire arguments HTTP Lambda to annotated type validation"
+query groups (1):
+Q1 [primary]: coerce wire arguments HTTP Lambda to annotated type validation
+hits: 6
+#1 matchedBy=fts+vector src/functualize/_config/job_config.py:614-636
+614	def _coerce_for_field(value: Any, target_type: Any) -> Any:
+#2 matchedBy=fts+vector src/functualize/_config/job_config.py:367-436
+symbol: function coerce_value
+368	"""Coerce a value to the target type.
+#3 matchedBy=fts+vector src/functualize/_discovery/providers.py:70-205
+symbol: function extract_parameters_from_signature
+73	"""Extract FieldDescriptors from a function's signature via introspection.
+#4 matchedBy=fts+vector src/functualize/_engine/validation.py:135-177
+135	def _build_validation_model(
+#5 matchedBy=fts+vector docs/api/types.md:61-102
+heading: `request_from_envelope`
+heading_level: 2
+scope: Types Module — Run Model Vocabulary
+61	## `request_from_envelope`
+#6 matchedBy=fts+vector src/functualize/_config/resolved_field.py:225-240
+225	def _coerce(value: Any, target_type: Any) -> Any:
+
+### zg query "DI provider registered for builtin type str classification"
+query groups (1):
+Q1 [primary]: DI provider registered for builtin type str classification
+hits: 6
+#1 matchedBy=fts+vector src/functualize/_engine/resolution.py:98-266
+symbol: function build_resolution_plan
+103	"""Build a ResolutionPlan by analyzing a function's signature.
+#2 matchedBy=fts+vector src/functualize/_cli/scaffold/templates/domain-plugin/_plugin.py.j2:1-30
+1	"""Plugin boot and registration for {{ project_name }}."""
+#3 matchedBy=fts+vector src/functualize/_config/registry.py:27-217
+symbol: class ProviderRegistry
+28	"""Discovers and manages Format_Providers and Remote_Providers.
+#4 matchedBy=fts+vector src/functualize/_cli/completions/provenance.py:39-226
+symbol: class CompletionProvenanceClassifier
+40	"""Classifies jobs by their origin for TUI provenance badges.
+#5 matchedBy=fts+vector src/functualize/_config/registry.py:43-71
+43	def register_format_provider(self, provider: FormatProvider) -> None:
+#6 matchedBy=fts+vector src/functualize/_config/registry.py:73-101
+73	def register_remote_provider(self, provider: RemoteProvider) -> None:
+

@@ -1,0 +1,11 @@
+$ func greet --zzz 1
+
+Error: No such option '--zzz'.
+# exit 2
+TUI   "greet --zzz 1" -> {"kwargs": {"zzz": "1"}, "status": "Failure", "return_value": null, "exception": "TypeError: greet() got an unexpected keyword argument 'zzz'"}
+LAMBDA {"arguments": {"zzz": 1}} -> {"event": {"arguments": {"zzz": 1}}, "statusCode": 500, "status": "Failure", "body": null, "error": "greet() got an unexpected keyword argument 'zzz'"}
+HTTP  POST /jobs/greet/execute {"arguments": {"zzz": 1}} -> {"status": "Failure", "duration_ms": 25.57762386277318, "return_value": null, "error": "greet() got an unexpected keyword argument 'zzz'"} [500]
+MCP   tools/call greet {"zzz": 1} -> isError=True 1 validation error for call[greet]
+zzz
+  Unexpected keyword argument [type=unexpected_keyword_argument, input_value=1, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.1

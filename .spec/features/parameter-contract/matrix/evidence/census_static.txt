@@ -1,0 +1,39 @@
+symbol | defined in | def line | prod refs | test refs | prod files
+parse_annotation | _cli/annotation_utils.py | 155 | 9 | 51 | _cli/annotation_utils.py, _config/annotations.py, _config/manifest.py, _config/vault_declarations.py, app/adapters/click_params.py
+CLI_COMPATIBLE_TYPES | _cli/annotation_utils.py | 39 | 2 | 0 | _cli/annotation_utils.py
+_is_di_type | _cli/annotation_utils.py | 89 | 1 | 0 | _cli/annotation_utils.py
+_is_basemodel_subclass | _cli/annotation_utils.py | 99 | 1 | 0 | _cli/annotation_utils.py
+is_cli_value_type | _primitives/parameter_types.py | 86 | 8 | 0 | _cli/annotation_utils.py, _engine/executor.py, _primitives/parameter_types.py, app/utils.py
+has_explicit_cli_marker | _primitives/parameter_types.py | 103 | 3 | 0 | _engine/executor.py, _primitives/parameter_types.py
+CLI_VALUE_TYPE_NAMES | _primitives/parameter_types.py | 55 | 4 | 0 | _primitives/parameter_types.py, app/utils.py
+CLI_MARKER_TYPE_NAMES | _primitives/parameter_types.py | 75 | 6 | 0 | _cli/annotation_utils.py, _primitives/parameter_types.py, app/utils.py
+INJECTED_PARAM_TYPE_NAMES | _primitives/capability_names.py | 49 | 20 | 8 | _cli/annotation_utils.py, _discovery/providers.py, _engine/capabilities/registry.py, _engine/executor.py, _primitives/capability_names.py, _primitives/parameter_types.py, app/adapters/click_params.py, app/utils.py
+_click_type_for | app/adapters/click_params.py | 142 | 10 | 6 | app/adapters/click_params.py
+_field_click_type | app/adapters/click_params.py | 265 | 1 | 2 | app/adapters/click_params.py
+build_click_params | app/adapters/click_params.py | 708 | 6 | 19 | _types/commands.py, app/adapters/click_params.py
+build_click_params_from_fields | app/adapters/click_params.py | 291 | 13 | 26 | _cli/completions/data.py, _cli/main.py, _cli/tui/smart_bar_autocomplete.py, app/adapters/cli.py, app/adapters/click_params.py
+build_click_params_from_descriptor | app/adapters/click_params.py | 277 | 3 | 12 | app/adapters/click_params.py, app/adapters/lazy_command.py
+_option_from_marker | app/adapters/click_params.py | 652 | 1 | 0 | app/adapters/click_params.py
+_config_field_option | app/adapters/click_params.py | 471 | 6 | 1 | app/adapters/click_params.py
+_config_option_params | app/adapters/click_params.py | 561 | 3 | 5 | app/adapters/click_params.py
+_unwrap_optional | _config/job_config.py | 246 | 11 | 0 | _config/job_config.py, _discovery/providers.py, app/adapters/click_params.py, app/utils.py
+_unwrap_list | _config/job_config.py | 260 | 6 | 0 | _config/job_config.py, app/adapters/click_params.py
+unwrap_optional_type | app/utils.py | ? | 6 | 0 | _cli/annotation_utils.py, app/adapters/click_params.py, app/utils.py
+TYPE_MAP | _primitives/job_schema.py | 53 | 2 | 1 | _primitives/job_schema.py
+field_property | _primitives/job_schema.py | 106 | 7 | 10 | functualize-mcp/src/functualize_mcp/_translator.py, _primitives/job_schema.py, app/utils.py
+job_input_schema | _primitives/job_schema.py | 158 | 8 | 8 | functualize-mcp/src/functualize_mcp/_translator.py, _cli/info.py, _primitives/job_schema.py, app/utils.py
+_annotation_to_type_str | _discovery/providers.py | 348 | 5 | 1 | _discovery/providers.py
+_JSON_SCHEMA_TYPE_MAP | _discovery/schema_extractor.py | 20 | 4 | 0 | _discovery/schema_extractor.py
+_TYPE_MAP | _cli/tui/type_hint_formatter.py | 10 | 4 | 1 | functualize-mcp/src/functualize_mcp/_server.py, _cli/tui/type_hint_formatter.py
+_TYPE_MAP | plugins/adapters/functualize-mcp/src/functualize_mcp/_server.py | 39 | 4 | 1 | functualize-mcp/src/functualize_mcp/_server.py, _cli/tui/type_hint_formatter.py
+_TS_TYPE_MAP | plugins/adapters/functualize-mcp/src/functualize_mcp/_schema_export.py | 28 | 2 | 0 | functualize-mcp/src/functualize_mcp/_schema_export.py
+_build_tool_function | plugins/adapters/functualize-mcp/src/functualize_mcp/_server.py | 170 | 1 | 8 | functualize-mcp/src/functualize_mcp/_server.py
+_build_input_schema | plugins/adapters/functualize-mcp/src/functualize_mcp/_translator.py | 249 | 1 | 0 | functualize-mcp/src/functualize_mcp/_translator.py
+_merge_group_options | plugins/adapters/functualize-mcp/src/functualize_mcp/_translator.py | 154 | 1 | 0 | functualize-mcp/src/functualize_mcp/_translator.py
+build_resolution_plan | _engine/resolution.py | 98 | 10 | 31 | _engine/__init__.py, _engine/executor.py, _engine/job_middleware.py, _engine/middleware.py, _engine/resolution.py
+parse_cli_args_to_kwargs | _cli/tui/cli_arg_parser.py | 16 | 11 | 6 | _cli/inline_tui.py, _cli/tui/app.py, _cli/tui/chain_resolution.py, _cli/tui/cli_arg_parser.py, _cli/tui/sync.py
+_candidates_flag | _cli/tui/smart_bar_autocomplete.py | 529 | 1 | 0 | _cli/tui/smart_bar_autocomplete.py
+_extract_short_names | _cli/tui/smart_bar_autocomplete.py | 794 | 1 | 0 | _cli/tui/smart_bar_autocomplete.py
+_cached_positional_params | _cli/tui/smart_bar_autocomplete.py | 130 | 2 | 0 | _cli/tui/functualize_autocomplete.py, _cli/tui/smart_bar_autocomplete.py
+filter_used_flags | _cli/completions/flag_filtering.py | 21 | 4 | 7 | _cli/completions/__init__.py, _cli/tui/smart_bar_autocomplete.py
+request_from_envelope | _types/run_request.py | 291 | 9 | 9 | functualize-http/src/functualize_http/__init__.py, functualize-lambda/src/functualize_lambda/__init__.py, functualize-mcp/src/functualize_mcp/_tools.py, types/__init__.py

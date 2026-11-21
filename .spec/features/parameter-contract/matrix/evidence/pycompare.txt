@@ -1,0 +1,47 @@
+out311.json: 166 rows compared on 15 fields; 7 differences
+   C085 k_absent
+      3.13: rc=1: 1. No provider for Widget (parameter 'p' of job 'c085', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for Widget (parameter 'p' of job 'c085', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   C087 k_pos
+      3.13: rc=1: 1. No provider for Point (parameter 'p' of job 'c087', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for Point (parameter 'p' of job 'c087', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   E138 k_absent
+      3.13: rc=1: 1. No provider for Widget (parameter 'p' of job 'e138', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for Widget (parameter 'p' of job 'e138', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   E138 k_pos
+      3.13: rc=1: 1. No provider for Widget (parameter 'p' of job 'e138', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for Widget (parameter 'p' of job 'e138', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   E139 k_absent
+      3.13: UNCAUGHT(traceback) rc=1: functualize._primitives.di.MissingProviderError: No provider for str (job 's', available: ['ProvWidget', 'MCPA
+      other: UNCAUGHT(traceback) rc=1: functualize._primitives.di.MissingProviderError: No provider for str (job 's', available: ['MCPAdapterPlugin',
+   H166 k_absent
+      3.13: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   H166 k_flag
+      3.13: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['MCPAdapterPlugin', 'ProvWidget'])
+out312.json: 166 rows compared on 15 fields; 8 differences
+   C085 k_absent
+      3.13: rc=1: 1. No provider for Widget (parameter 'p' of job 'c085', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for Widget (parameter 'p' of job 'c085', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   C085 k_flag
+      3.13: rc=1: 1. No provider for Widget (parameter 'p' of job 'c085', available: ['MCPAdapterPlugin', 'ProvWidget'])
+      other: rc=1: 1. No provider for Widget (parameter 'p' of job 'c085', available: ['ProvWidget', 'MCPAdapterPlugin'])
+   C087 k_pos
+      3.13: rc=1: 1. No provider for Point (parameter 'p' of job 'c087', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for Point (parameter 'p' of job 'c087', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   E138 k_absent
+      3.13: rc=1: 1. No provider for Widget (parameter 'p' of job 'e138', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for Widget (parameter 'p' of job 'e138', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   E138 k_flag
+      3.13: rc=1: 1. No provider for Widget (parameter 'p' of job 'e138', available: ['MCPAdapterPlugin', 'ProvWidget'])
+      other: rc=1: 1. No provider for Widget (parameter 'p' of job 'e138', available: ['ProvWidget', 'MCPAdapterPlugin'])
+   H166 k_absent
+      3.13: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   H166 k_flag
+      3.13: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   H166 k_pos
+      3.13: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['MCPAdapterPlugin', 'ProvWidget'])
+      other: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['ProvWidget', 'MCPAdapterPlugin'])

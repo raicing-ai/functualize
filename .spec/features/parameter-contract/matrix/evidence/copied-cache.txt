@@ -1,0 +1,7 @@
+# cp -r proj proj_mcp (cache.json included); rm proj_mcp/.functualize/jobs/g156.py; cd proj_mcp; func mcp serve
+⚠ e142.py not loaded — FromJob[...] is not a type. Write Annotated[<return type>, FromJob('e142_up')] instead — a function object is not valid in a type position (PEP 484), so the subscript form cannot type-check.
+Error: Group 'g160g' has more than one GroupOptions declaration: '<scratch>/proj/.functualize/jobs/g160.py' and '<scratch>/proj_mcp/.functualize/jobs/g160.py'. A group's flags must be declared exactly once — merge them into a single class.
+Error: Group 'g161g' has more than one GroupOptions declaration: '<scratch>/proj/.functualize/jobs/g161.py' and '<scratch>/proj_mcp/.functualize/jobs/g161.py'. A group's flags must be declared exactly once — merge them into a single class.
+
+$ python3 -c "import json; print(sorted({...}))"  # distinct directories named in proj/.functualize/cache.json
+['<scratch>/proj']

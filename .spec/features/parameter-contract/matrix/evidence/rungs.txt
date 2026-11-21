@@ -1,0 +1,84 @@
+F143
+   none      rc=0 OBS f='d' type=str
+   env       rc=0 OBS f='fromenv' type=str
+   file      rc=0 OBS f='fromfile' type=str
+   env+file  rc=0 OBS f='fromenv' type=str
+   cli+all   rc=0 OBS f='fromcli' type=str
+F144
+   none      rc=2 f144: f: Error: Missing required value 'f'. Set it with the F144_F environment variable, in your config file, or run interactively to be prompted. (no
+   env       rc=0 OBS f=8 type=int
+   file      rc=0 OBS f=9 type=int
+   env+file  rc=0 OBS f=8 type=int
+   cli+all   rc=0 OBS f=7 type=int
+F145
+   none      rc=0 OBS f=[] type=list
+   env       rc=0 OBS f=['e1', 'e2'] type=list
+   file      rc=0 OBS f=['f1', 'f2'] type=list
+   env+file  rc=0 OBS f=['e1', 'e2'] type=list
+   cli+all   rc=0 OBS f=['c1', 'c2'] type=list
+F145a
+   none      rc=0 OBS f=[] type=list
+   env       rc=0 OBS f=['e1', 'e2'] type=list
+   file      rc=0 OBS f=['f1', 'f2'] type=list
+   env+file  rc=0 OBS f=['e1', 'e2'] type=list
+   cli+all   rc=0 OBS f=['c1'] type=list
+F146
+   none      rc=0 OBS f=None type=NoneType
+   env       rc=0 OBS f='fromenv' type=str
+   file      rc=0 OBS f='fromfile' type=str
+   env+file  rc=0 OBS f='fromenv' type=str
+   cli+all   rc=0 OBS f='fromcli' type=str
+F147
+   none      rc=0 OBS f=None type=NoneType
+   env       rc=0 OBS f=['e1', 'e2'] type=list
+   file      rc=0 OBS f=['f1', 'f2'] type=list
+   env+file  rc=0 OBS f=['e1', 'e2'] type=list
+   cli+all   rc=0 OBS f=['c1', 'c2'] type=list
+F148
+   none      rc=0 OBS f=Secret('•••') type=Secret
+   env       rc=0 OBS f=Secret('•••') type=Secret
+   file      rc=0 OBS f=Secret('•••') type=Secret
+   env+file  rc=0 OBS f=Secret('•••') type=Secret
+   cli+all   rc=0 OBS f=Secret('•••') type=Secret
+F149
+   none      rc=0 OBS f='d' type=str
+   env       rc=0 OBS f='fromenv' type=str
+   file      rc=0 OBS f='fromfile' type=str
+   env+file  rc=0 OBS f='fromenv' type=str
+   cli+all   rc=0 OBS f='fromcli' type=str
+F150
+   none      rc=0 OBS f={} type=dict
+   env       rc=2 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   file      rc=0 OBS f={'k': 'file'} type=dict
+   env+file  rc=2 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   cli+all   rc=2 Error: Invalid value for '--f': dictionary update sequence element #0 has length 1; 2 is required
+F151
+   none      rc=0 OBS f=Body(x=0) type=Body
+   env       rc=2 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   file      rc=0 OBS f=Body(x=6) type=Body
+   env+file  rc=2 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   cli+all   rc=1 TypeError: BaseModel.__init__() takes 1 positional argument but 2 were given
+F152
+   none      rc=0 OBS f=[] type=list
+   env       rc=0 OBS f=['e1', 'e2'] type=list
+   file      rc=0 OBS f=['f1', 'f2'] type=list
+   env+file  rc=0 OBS f=['e1', 'e2'] type=list
+   cli+all   rc=0 OBS f=['c1', 'c2'] type=list
+A002
+   none      rc=0 OBS p='d' type=str
+   env       rc=0 OBS p='d' type=str
+   file      rc=0 OBS p='d' type=str
+   env+file  rc=0 OBS p='d' type=str
+   cli+all   rc=0 OBS p='fromcli' type=str
+G161
+   none      rc=0 OBS p='d' type=str
+   env       rc=0 OBS p='fromenv' type=str
+   file      rc=0 OBS p='fromfile' type=str
+   env+file  rc=0 OBS p='fromenv' type=str
+   cli+all   rc=0 OBS p='fromcli' type=str
+G160
+   none      rc=0 OBS p=[] type=list
+   env       rc=0 OBS p=['e1', 'e2'] type=list
+   file      rc=0 OBS p=['f1', 'f2'] type=list
+   env+file  rc=0 OBS p=['e1', 'e2'] type=list
+   cli+all   rc=0 OBS p=['c1'] type=list

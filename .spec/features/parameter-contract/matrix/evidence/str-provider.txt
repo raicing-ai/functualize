@@ -1,0 +1,45 @@
+## PC_STR_PROVIDER=0  (1 = the plugin calls app.di.provide(str, 'prov-str-s2', qualifier='s2'))
+$ func s-pos x
+p = 'x'
+# exit 0
+$ func s-flag
+p = 'd'
+# exit 0
+$ func s-flag --p x
+p = 'x'
+# exit 0
+$ func s-marked --p x
+p = 'x'
+# exit 0
+$ func s-provided
+    raise MissingProviderError(type_, qualifier, available_types)
+functualize._primitives.di.MissingProviderError: No provider for str (job 's2', available: ['MCPAdapterPlugin', 'ProvWidget'])
+# exit 1
+$ func i-flag --n 5
+n = 5
+# exit 0
+
+## PC_STR_PROVIDER=1  (1 = the plugin calls app.di.provide(str, 'prov-str-s2', qualifier='s2'))
+$ func s-pos x
+    raise AmbiguousProviderError(type_, matching_qualifiers)
+functualize._primitives.di.AmbiguousProviderError: Ambiguous provider for str: multiple qualifiers available ['s2']. Use Annotated[str, Provide('qualifier')] to disambiguate.
+# exit 1
+$ func s-flag
+    raise AmbiguousProviderError(type_, matching_qualifiers)
+functualize._primitives.di.AmbiguousProviderError: Ambiguous provider for str: multiple qualifiers available ['s2']. Use Annotated[str, Provide('qualifier')] to disambiguate.
+# exit 1
+$ func s-flag --p x
+    raise AmbiguousProviderError(type_, matching_qualifiers)
+functualize._primitives.di.AmbiguousProviderError: Ambiguous provider for str: multiple qualifiers available ['s2']. Use Annotated[str, Provide('qualifier')] to disambiguate.
+# exit 1
+$ func s-marked --p x
+    raise AmbiguousProviderError(type_, matching_qualifiers)
+functualize._primitives.di.AmbiguousProviderError: Ambiguous provider for str: multiple qualifiers available ['s2']. Use Annotated[str, Provide('qualifier')] to disambiguate.
+# exit 1
+$ func s-provided
+p = 'prov-str-s2'
+# exit 0
+$ func i-flag --n 5
+n = 5
+# exit 0
+

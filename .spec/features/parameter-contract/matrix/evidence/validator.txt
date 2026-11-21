@@ -1,0 +1,2 @@
+Cfg_f150 -> TypeError: Unsupported type for field 'f': dict[str, str]. Supported types are: str, int, float, bool, Enum subclasses, Secret[str], Optional[T] for supported T, and list[T] for supported T.
+Cfg_f151 -> TypeError: Unsupported type for field 'f': <class 'f151.Body'>. Supported types are: str, int, float, bool, Enum subclasses, Secret[str], Optional[T] for supported T, and list[T] for supported T.

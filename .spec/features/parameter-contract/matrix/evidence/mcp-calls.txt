@@ -1,0 +1,29 @@
+# func mcp serve (stdio) on a project holding rows B053 B066 C082 C079 A049 B072 A038 B057 only — G156 excluded because it stops the server (F-12)
+tools/call b053 {"p": ["a", "b"]}
+  isError=False -> {"status":"success","return_value":null,"duration_ms":7.462762761861086,"metadata":{"resolved_inputs":{"p":["a","b"]},"run_type":"job","run_status":"Running","start_time":"2026-11-20T13:12:57.160543Z","end_time":null,"duration":null}}
+tools/call b066 {"p": ["a", "b"]}
+  isError=True -> 1 validation error for call[b066]
+p
+  Input should be a valid string [type=string_type, input_value=['a', 'b'], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+tools/call c082 {"p": {"k": "v"}}
+  isError=True -> 1 validation error for call[c082]
+p
+  Input should be a valid string [type=string_type, input_value={'k': 'v'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+tools/call c079 {"p": ["a", "b"]}
+  isError=True -> 1 validation error for call[c079]
+p
+  Input should be a valid string [type=string_type, input_value=['a', 'b'], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+tools/call a049 {"p": "s3cr3t"}
+  isError=False -> {"status":"success","return_value":null,"duration_ms":0.8468590676784515,"metadata":{"resolved_inputs":{"p":"s3cr3t"},"run_type":"job","run_status":"Running","start_time":"2026-11-20T13:12:57.207920Z","end_time":null,"duration":null}}
+tools/call b072 {"p": ["a", "b"]}
+  isError=False -> {"status":"success","return_value":null,"duration_ms":0.7063569501042366,"metadata":{"resolved_inputs":{"p":["a","b"]},"run_type":"job","run_status":"Running","start_time":"2026-11-20T13:12:57.229959Z","end_time":null,"duration":null}}
+tools/call a038 {"p": "PT1H"}
+  isError=False -> {"status":"success","return_value":null,"duration_ms":0.9198850020766258,"metadata":{"resolved_inputs":{"p":"PT1H"},"run_type":"job","run_status":"Running","start_time":"2026-11-20T13:12:57.256527Z","end_time":null,"duration":null}}
+tools/call b057 {"p": ["/tmp/x"]}
+  isError=True -> 1 validation error for call[b057]
+p
+  Input should be a valid string [type=string_type, input_value=['/tmp/x'], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.13/v/string_type

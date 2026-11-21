@@ -1,0 +1,12 @@
+11
+examples/standalone/secrets_lab/password_manager_key.py:33 __init__(items: dict[str, str])
+examples/standalone/hermetic_router/tests/test_router.py:268 test_the_providers_own_assessment_never_decides(distribution: dict[str, float])
+examples/standalone/freshness_lab/jobs/self_caching_job.py:50 _write(payload: dict[str, object])
+examples/standalone/gate_refusal/tests/test_gate_refusal.py:48 test_it_records_under_the_canonical_name(blocked: tuple[FunctualizeApp, ScopeStore, str])
+examples/standalone/gate_refusal/tests/test_gate_refusal.py:60 test_it_raises_with_the_roster_of_real_gates(blocked: tuple[FunctualizeApp, ScopeStore, str])
+examples/standalone/gate_refusal/tests/test_gate_refusal.py:72 test_the_user_shaped_helper_names_the_real_gates(blocked: tuple[FunctualizeApp, ScopeStore, str])
+examples/standalone/deploy_tool/tests/test_deploy_tool.py:159 test_both_spellings_are_read_pre_boot(argv: list[str])
+examples/standalone/secrets_lab/tests/test_password_manager_key.py:25 _provider(answers: list[str | None])
+examples/standalone/secrets_lab/jobs/publish.py:72 _publish(token: Secret[str])
+examples/plugins/custom_adapter/src/functualize_webhook/_adapter.py:68 run(kwargs: dict[str, Any] | None)
+examples/plugins/custom_state_backend/src/functualize_state_memory/_backend.py:68 write(payload: dict[str, Any])

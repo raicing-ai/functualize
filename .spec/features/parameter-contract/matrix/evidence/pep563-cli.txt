@@ -1,0 +1,46 @@
+out563.json: 166 rows compared on 15 fields; 15 differences
+   C085 k_pos
+      3.13: rc=1: 1. No provider for Widget (parameter 'p' of job 'c085', available: ['MCPAdapterPlugin', 'ProvWidget'])
+      other: rc=1: 1. No provider for Widget (parameter 'p' of job 'c085', available: ['ProvWidget', 'MCPAdapterPlugin'])
+   C087 k_absent
+      3.13: rc=1: 1. No provider for Point (parameter 'p' of job 'c087', available: ['MCPAdapterPlugin', 'ProvWidget'])
+      other: rc=1: 1. No provider for Point (parameter 'p' of job 'c087', available: ['ProvWidget', 'MCPAdapterPlugin'])
+   C087 k_flag
+      3.13: rc=1: 1. No provider for Point (parameter 'p' of job 'c087', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for Point (parameter 'p' of job 'c087', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   C087 k_pos
+      3.13: rc=1: 1. No provider for Point (parameter 'p' of job 'c087', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for Point (parameter 'p' of job 'c087', available: ['MCPAdapterPlugin', 'ProvWidget'])
+   E142 verdict
+      3.13: REJECTED_DISCOVERY
+      other: ACCEPTED_POSITIONAL
+   E142 help_pos
+      3.13: False
+      other: True
+   E142 info
+      3.13: None
+      other: {'type': 'string'}
+   E142 info_req
+      3.13: False
+      other: True
+   E142 mcp
+      3.13: None
+      other: {'type': 'string'}
+   E142 mcp_req
+      3.13: False
+      other: True
+   E142 k_absent
+      3.13: rc=1: Run 'func' to see all available commands.
+      other: rc=2: Error: Missing argument 'P'.
+   E142 k_flag
+      3.13: rc=1: Run 'func' to see all available commands.
+      other: rc=2: Error: No such option '--p'. Did you mean '--help'?
+   E142 k_pos
+      3.13: rc=1: Run 'func' to see all available commands.
+      other: ok: p='x' type=str
+   E142 usage
+      3.13: 
+      other: Usage: func e142 [OPTIONS] P
+   H166 k_flag
+      3.13: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['ProvWidget', 'MCPAdapterPlugin'])
+      other: rc=1: 1. No provider for ProvWidget (parameter 'p' of job 'h166', available: ['MCPAdapterPlugin', 'ProvWidget'])
