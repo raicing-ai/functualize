@@ -1,0 +1,9 @@
+$ rg -n 'CACHE_VERSION\s*(==|!=|>=)\s*[0-9]+|"version"\s*:\s*2[0-9]' tests/
+tests/discovery/test_job_declaration_discovery.py:169:        assert data["version"] == CACHE_VERSION == 25
+tests/types/test_descriptor_owner_class.py:40:    assert CACHE_VERSION == 25
+tests/types/test_descriptor_owner_class.py:44:    cache_file.write_text(json.dumps({"version": 22, "entries": {}}))
+
+$ rg -n -e '== 25\b' -e '\b25 ==' -e 'CACHE_VERSION.*25' -e 'version.*\b25\b' tests/ plugins/*/*/tests/
+tests/discovery/test_job_declaration_discovery.py:169:        assert data["version"] == CACHE_VERSION == 25
+tests/discovery/test_schema_extractor.py:127:        assert age.default == 25
+tests/types/test_descriptor_owner_class.py:40:    assert CACHE_VERSION == 25

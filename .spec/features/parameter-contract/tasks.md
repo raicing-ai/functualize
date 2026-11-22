@@ -22,14 +22,39 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 
 ## Wave 0 — the record, the outcome row, the table, two independent fixes
 
-### [x] 0.1 Contract types, the descriptor field, the cache codec
+### [ ] 0.1 Contract types, the descriptor field, the cache codec
 
 - **Input:** `schema.md` (types, invariants 3 and 5, cache encoding).
 - **[F]:**
   - `src/functualize/_types/parameter_contract.py` (new);
   - `src/functualize/_types/descriptors.py`;
   - `src/functualize/_primitives/cache_format.py`;
-  - `tests/types/test_parameter_contract_codec.py` (new).
+  - `tests/types/test_parameter_contract_codec.py` (new);
+  - `tests/types/test_descriptor_owner_class.py` (scope repair, 2026-11-22, see below);
+  - `tests/discovery/test_job_declaration_discovery.py` (scope repair, 2026-11-22, see below).
+- **Scope repair (2026-11-22, added after the first tick; the task is reopened).** The plan missed
+  the fallout of 0.1's own `CACHE_VERSION` bump from 25 to 26. Two tests pin the constant's current
+  value, and both are red by construction once 0.1 lands:
+  - `tests/types/test_descriptor_owner_class.py:40`, `assert CACHE_VERSION == 25`;
+  - `tests/discovery/test_job_declaration_discovery.py:169`, `assert data["version"] == CACHE_VERSION == 25`.
+
+  They move to 26. The other version literals near them are **poison values that stay**: they set a
+  deliberately old version to test refusal and rebuild, and editing them would delete the tests'
+  meaning. Those are `test_descriptor_owner_class.py:44` (`"version": 22`),
+  `test_job_declaration_discovery.py:133` (`21`), `test_nfkc_cache_rebuild.py:35` (`21`) and
+  `test_discovery_failures.py:674` (`version=20`).
+
+  Census at the time of the repair (`matrix/evidence/cache-version-pins.txt`):
+  - `rg -n 'CACHE_VERSION\s*(==|!=|>=)\s*[0-9]+|"version"\s*:\s*2[0-9]' tests/` → 3 hits: the 2
+    pins plus the `:44` poison literal;
+  - `rg -n -e "== 25\b" -e "CACHE_VERSION.*25" tests/ plugins/*/*/tests/` → the 2 pins plus one
+    unrelated `age.default == 25`.
+
+  Every other test reads the symbol `CACHE_VERSION`, not a number.
+
+  The task was ticked when its first gate passed, and is reopened, because the constitution allows
+  `[x]` only when its gate is green against the code as it stands, and the repaired gate is red until
+  both pins move. The code committed in `70c2a202` stands; only the two assertions change.
 - **Work:**
   - Add the frozen dataclasses and enums.
   - Add `FieldDescriptor.contract` (optional, default `None`). Do **not** touch
@@ -41,7 +66,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **Invariant:** `_types/parameter_contract.py` imports stdlib only. A descriptor with a contract
   round-trips through the codec equal to itself.
 - **Gate/evidence:**
-  - `uv run pytest tests/types/test_parameter_contract_codec.py tests/test_descriptor.py tests/discovery/test_cache_manager.py tests/config/test_descriptor_cache_fidelity.py`;
+  - `uv run pytest tests/types/test_parameter_contract_codec.py tests/test_descriptor.py tests/discovery/test_cache_manager.py tests/config/test_descriptor_cache_fidelity.py tests/types/test_descriptor_owner_class.py tests/discovery/test_job_declaration_discovery.py`;
   - `rg -n "^CACHE_VERSION = 26" src/functualize/_primitives/cache_format.py` → 1 hit (today
     `CACHE_VERSION = 25`, 1 hit);
   - `lint-imports` "Types import nothing internal" KEPT.
@@ -63,12 +88,13 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **Invariant:** `REFUSED` keeps exit 3 / HTTP 412. Every family's table maps `INVALID`.
 - **Gate/evidence:** `uv run pytest tests/types/`, which includes the existing
   `test_every_surface_declares_its_family.py`.
-- **Execute finding (2026-11-22):** the gate is red at
-  `tests/types/test_descriptor_owner_class.py::test_cache_reader_refuses_version_22`, which asserts
-  `CACHE_VERSION == 25`. Task 0.1 correctly bumped it to 26. This existing test is outside both
-  tasks' `[F]` scopes; the outcome implementation is committed, but 0.2 remains unchecked pending
-  a task-scope revision for the version assertion. Raw gate output:
-  `/tmp/functualize-wave0-02-pytest.log` in the executing worktree.
+- **Execute finding (2026-11-22), resolved by scope repair.** This gate was red at
+  `tests/types/test_descriptor_owner_class.py::test_cache_reader_refuses_version_22`, which asserted
+  `CACHE_VERSION == 25`. The cause is not this task: 0.1's version bump has fallout that 0.1 now
+  owns (see 0.1's scope repair, with the second pin at
+  `tests/discovery/test_job_declaration_discovery.py:169`). 0.2's outcome code is committed
+  (`7a610a7d`). The task is ticked when `uv run pytest tests/types/` is green, after 0.1's repair
+  lands.
 - **Depends on:** none.
 
 ### [ ] 0.3 The declaration table
