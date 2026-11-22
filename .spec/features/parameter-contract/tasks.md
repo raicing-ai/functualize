@@ -72,7 +72,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - `lint-imports` "Types import nothing internal" KEPT.
 - **Depends on:** none.
 
-### [ ] 0.2 One new outcome: `RunStatus.INVALID`
+### [x] 0.2 One new outcome: `RunStatus.INVALID`
 
 - **Input:** `plan.md` § *The refusal outcome*; `_types/enums.py:31-50`; `_types/exit_codes.py:41`;
   `_types/http_status.py:54-74`.

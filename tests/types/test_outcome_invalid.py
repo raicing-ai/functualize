@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functualize._types.descriptors import JobResult
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
 from functualize._types.http_status import http_status_for_status
@@ -24,3 +25,10 @@ def test_invalid_maps_to_usage_and_bad_request() -> None:
 def test_every_family_treats_invalid_as_a_failure() -> None:
     assert all(is_failure(RunStatus.INVALID, family=family) for family in Family)
     assert status_from_wire(wire_value(RunStatus.INVALID)) is RunStatus.INVALID
+
+
+def test_lambda_response_uses_the_http_status_table() -> None:
+    from functualize_lambda import _response
+
+    result = JobResult(status=RunStatus.INVALID, return_value=None, duration_ms=0.0)
+    assert _response(result)["statusCode"] == 400
