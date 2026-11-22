@@ -175,7 +175,9 @@ from functualize._primitives.project_root import (
 # nowhere after it — the finding vanished while the jobs beside it stayed listed.
 # A v24 cache has no such section and its absence is indistinguishable from "this
 # module states nothing", so the bump forces the one rebuild that records it.
-CACHE_VERSION = 25
+# v26: parameter contracts are persisted with field descriptors. Rebuild older
+# entries so the warm path sees the same declaration record as the cold path.
+CACHE_VERSION = 26
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"

@@ -22,7 +22,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 
 ## Wave 0 — the record, the outcome row, the table, two independent fixes
 
-### [ ] 0.1 Contract types, the descriptor field, the cache codec
+### [x] 0.1 Contract types, the descriptor field, the cache codec
 
 - **Input:** `schema.md` (types, invariants 3 and 5, cache encoding).
 - **[F]:**

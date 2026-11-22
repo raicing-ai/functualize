@@ -18,6 +18,15 @@ from functualize._types.enums import ConfigFileRole
 from functualize._types.errors import JobFailedError
 from functualize._types.naming import CommandPath
 from functualize._types.outcome import Family, is_failure
+from functualize._types.parameter_contract import (
+    CliSpelling,
+    Container,
+    Injection,
+    ParameterContract,
+    Scalar,
+    ValueShape,
+    Verdict,
+)
 
 if TYPE_CHECKING:
     from functualize._types.enums import RunStatus
@@ -82,6 +91,8 @@ class FieldDescriptor:
     stdin_flag: str | None = None
     secret: bool = False
     from_config_model: bool = False
+    # TRANSITIONAL(2.1): discovery begins populating this record in a later wave.
+    contract: ParameterContract | None = None
 
     @property
     def type(self) -> str:
@@ -644,7 +655,64 @@ def _field_to_dict(fd: FieldDescriptor) -> dict[str, Any]:
         "stdin_flag": fd.stdin_flag,
         "secret": fd.secret,
         "from_config_model": fd.from_config_model,
+        "contract": _contract_to_dict(fd.contract) if fd.contract is not None else None,
     }
+
+
+def _shape_to_dict(shape: ValueShape) -> dict[str, Any]:
+    return {
+        "scalar": shape.scalar.value,
+        "container": shape.container.value,
+        "optional": shape.optional,
+        "enum_values": list(shape.enum_values),
+        "elements": [_shape_to_dict(element) for element in shape.elements],
+    }
+
+
+def _shape_from_dict(data: dict[str, Any]) -> ValueShape:
+    return ValueShape(
+        scalar=Scalar(data["scalar"]),
+        container=Container(data["container"]),
+        optional=data["optional"],
+        enum_values=tuple(data["enum_values"]),
+        elements=tuple(_shape_from_dict(element) for element in data["elements"]),
+    )
+
+
+def _contract_to_dict(contract: ParameterContract) -> dict[str, Any]:
+    return {
+        "name": contract.name,
+        "verdict": contract.verdict.value,
+        "shape": _shape_to_dict(contract.shape) if contract.shape is not None else None,
+        "required": contract.required,
+        "default_json": contract.default_json,
+        "cli": vars(contract.cli) if contract.cli is not None else None,
+        "json_schema": contract.json_schema,
+        "injection": vars(contract.injection)
+        if contract.injection is not None
+        else None,
+        "reject_reason": contract.reject_reason,
+        "display": contract.display,
+        "description": contract.description,
+    }
+
+
+def _contract_from_dict(data: dict[str, Any]) -> ParameterContract:
+    return ParameterContract(
+        name=data["name"],
+        verdict=Verdict(data["verdict"]),
+        shape=_shape_from_dict(data["shape"]) if data["shape"] is not None else None,
+        required=data["required"],
+        default_json=data["default_json"],
+        cli=CliSpelling(**data["cli"]) if data["cli"] is not None else None,
+        json_schema=data["json_schema"],
+        injection=Injection(**data["injection"])
+        if data["injection"] is not None
+        else None,
+        reject_reason=data["reject_reason"],
+        display=data["display"],
+        description=data["description"],
+    )
 
 
 def _serialize_default(default: Any, required: bool, *, secret: bool = False) -> Any:
@@ -749,4 +817,7 @@ def _field_from_dict(data: Any) -> FieldDescriptor:
         # "render this the way a plain signature parameter is rendered", which
         # is what every pre-v19 entry was rendered as anyway.
         from_config_model=bool(data.get("from_config_model", False)),
+        contract=_contract_from_dict(data["contract"])
+        if data.get("contract") is not None
+        else None,
     )
