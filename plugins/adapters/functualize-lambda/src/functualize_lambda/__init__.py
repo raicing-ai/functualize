@@ -5,7 +5,7 @@ Supports two deployment patterns:
 
 1. Fat Lambda (internal routing):
    - Single Lambda function handling multiple jobs
-   - Event contains {"job": "job_name", "kwargs": {...}}
+   - Event contains {"job": "job_name", "arguments": {...}}
    - Adapter routes to the correct job via app.execute()
 
 2. Thin Lambda (per-job handler):
@@ -151,7 +151,7 @@ class LambdaAdapter:
 
         Args:
             *args: Expected to be (event, context) where event is a dict
-                containing "job" (required) and "kwargs" (optional).
+                containing "job" (required) and "arguments" (optional).
 
         Returns:
             Dict with "statusCode" (200 or 500) and "body" (result or
@@ -175,7 +175,7 @@ class LambdaAdapter:
 
         Returns a callable with the standard Lambda signature
         (event, context) that always executes the specified job.
-        Event kwargs can still be provided via event.get("kwargs", {}).
+        Job arguments can still be provided via event.get("arguments", {}).
 
         Args:
             job_name: The name of the job this handler will execute.
@@ -217,7 +217,7 @@ class LambdaAdapter:
         """Internal: parse event and execute the job.
 
         Args:
-            event: Lambda event dict with "job" and optional "kwargs".
+            event: Lambda event dict with "job" and optional "arguments".
 
         Returns:
             Dict with "statusCode" and "body".

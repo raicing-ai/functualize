@@ -114,7 +114,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   its planned consumers are 1.1's contract tests and 11.1/11.2's docs/parity tests.
 - **Depends on:** none.
 
-### [ ] 0.4 Lambda docstrings name the shared envelope (F-28)
+### [x] 0.4 Lambda docstrings name the shared envelope (F-28)
 
 - **Input:** `gates-authoring.txt` `lambda-kwargs-doc`: 4 hits, at `__init__.py:8`, `:154`, `:178`
   and `:220`.
