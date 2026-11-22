@@ -1,0 +1,172 @@
+### dead-symbols
+$ rg -n -w -e SwappableCompleter -e format_type_hint -e coerce_kwargs -e field_metadata src plugins/adapters/*/src plugins/domains/*/src
+src/functualize/app/utils.py:245:    "coerce_kwargs",
+src/functualize/app/utils.py:607:def coerce_kwargs(
+src/functualize/_cli/tui/type_hint_formatter.py:24:def format_type_hint(
+src/functualize/_cli/annotation_utils.py:63:        field_metadata: Pydantic ``FieldInfo`` instance if present, else None.
+src/functualize/_cli/annotation_utils.py:71:    field_metadata: Any | None = None
+src/functualize/_cli/annotation_utils.py:183:            field_metadata=None,
+src/functualize/_cli/annotation_utils.py:199:                field_metadata=None,
+src/functualize/_cli/annotation_utils.py:217:            field_metadata=None,
+src/functualize/_cli/annotation_utils.py:232:            field_metadata=None,
+src/functualize/_cli/annotation_utils.py:243:            field_metadata=None,
+src/functualize/_cli/annotation_utils.py:265:        field_metadata=field_meta,
+src/functualize/_cli/completions/__init__.py:13:from functualize._cli.completions.engine import DropdownItem, SwappableCompleter
+src/functualize/_cli/completions/__init__.py:33:    "SwappableCompleter",
+src/functualize/_cli/completions/engine.py:1:"""SwappableCompleter — strategy pattern for mode-aware autocomplete.
+src/functualize/_cli/completions/engine.py:58:class SwappableCompleter:
+src/functualize/_cli/tui/__init__.py:35:from functualize._cli.tui.type_hint_formatter import format_type_hint
+src/functualize/_cli/tui/__init__.py:69:    "format_type_hint",
+# hits: 17
+
+### type-maps
+$ rg -n -e '\bTYPE_MAP\b' -e '_TYPE_MAP\b' -e '_JSON_SCHEMA_TYPE_MAP' -e '_resolve_type_string' -e '_annotation_to_type_str' -e '_python_type_to_json_type' -e '_annotation_to_json_type' src plugins/adapters/*/src plugins/domains/*/src
+plugins/domains/functualize-ai/src/functualize_ai/_tool_scope.py:428:            "type": _python_type_to_json_type(type_ann),
+plugins/domains/functualize-ai/src/functualize_ai/_tool_scope.py:447:def _python_type_to_json_type(type_str: str) -> str:
+plugins/domains/functualize-ai/src/functualize_ai/_tool_scope.py:508:            json_type = _annotation_to_json_type(annotation)
+plugins/domains/functualize-ai/src/functualize_ai/_tool_scope.py:528:def _annotation_to_json_type(annotation: Any) -> str:
+src/functualize/_discovery/schema_extractor.py:20:_JSON_SCHEMA_TYPE_MAP: dict[str, str] = {
+src/functualize/_discovery/schema_extractor.py:114:    if json_type and json_type in _JSON_SCHEMA_TYPE_MAP:
+src/functualize/_discovery/schema_extractor.py:115:        return _JSON_SCHEMA_TYPE_MAP[json_type]
+src/functualize/_discovery/schema_extractor.py:179:        if ref_type in _JSON_SCHEMA_TYPE_MAP:
+src/functualize/_discovery/schema_extractor.py:180:            return _JSON_SCHEMA_TYPE_MAP[ref_type]
+src/functualize/_primitives/job_schema.py:28:    "TYPE_MAP",
+src/functualize/_primitives/job_schema.py:53:TYPE_MAP: dict[str, dict[str, Any]] = {
+src/functualize/_primitives/job_schema.py:116:    prop.update(TYPE_MAP.get(annotation or "", {"type": "string"}))
+plugins/adapters/functualize-mcp/src/functualize_mcp/_server.py:39:_TYPE_MAP: dict[str, str] = {
+plugins/adapters/functualize-mcp/src/functualize_mcp/_server.py:206:        py_type = _TYPE_MAP.get(field_schema.get("type", ""), "Any")
+src/functualize/app/adapters/click_params.py:220:def _resolve_type_string(type_str: str) -> Any:
+src/functualize/app/adapters/click_params.py:231:            return _resolve_type_string(s[: -len(" | None")]) | None
+src/functualize/app/adapters/click_params.py:233:            inner = _resolve_type_string(s[len("list[") : -1])
+src/functualize/app/adapters/click_params.py:274:    return _click_type_for(_resolve_type_string(field.type_annotation))
+plugins/adapters/functualize-mcp/src/functualize_mcp/_schema_export.py:28:_TS_TYPE_MAP: dict[str, str] = {
+plugins/adapters/functualize-mcp/src/functualize_mcp/_schema_export.py:296:            item_type = _TS_TYPE_MAP.get(items.get("type", ""), "unknown")
+plugins/adapters/functualize-mcp/src/functualize_mcp/_schema_export.py:299:        return _TS_TYPE_MAP.get(json_type, "unknown")
+src/functualize/_discovery/providers.py:175:        type_str = _annotation_to_type_str(base_annotation)
+src/functualize/_discovery/providers.py:348:def _annotation_to_type_str(annotation: Any) -> str:
+src/functualize/_discovery/providers.py:367:        inner_str = _annotation_to_type_str(unwrapped)
+src/functualize/_discovery/providers.py:376:                inner = _annotation_to_type_str(args[0])
+src/functualize/_discovery/providers.py:381:                k = _annotation_to_type_str(args[0])
+src/functualize/_discovery/providers.py:382:                v = _annotation_to_type_str(args[1])
+src/functualize/_cli/tui/type_hint_formatter.py:10:_TYPE_MAP: dict[str, str] = {
+src/functualize/_cli/tui/type_hint_formatter.py:52:    elif type_annotation in _TYPE_MAP:
+src/functualize/_cli/tui/type_hint_formatter.py:53:        base_type = _TYPE_MAP[type_annotation]
+# hits: 30
+
+### tui-parser
+$ rg -n -w parse_cli_args_to_kwargs src
+src/functualize/_cli/tui/app.py:35:    parse_cli_args_to_kwargs,
+src/functualize/_cli/tui/app.py:1591:        kwargs = parse_cli_args_to_kwargs(resolution.args)
+src/functualize/_cli/tui/app.py:2245:            parse_cli_args_to_kwargs(args, fields=self._get_job_fields(job_name))
+src/functualize/_cli/tui/cli_arg_parser.py:16:def parse_cli_args_to_kwargs(
+src/functualize/_cli/tui/cli_arg_parser.py:104:    the pre-boot path that pulls in ``parse_cli_args_to_kwargs``.
+src/functualize/_cli/tui/chain_resolution.py:32:    parse_cli_args_to_kwargs,
+src/functualize/_cli/tui/chain_resolution.py:225:    provided = parse_cli_args_to_kwargs(resolution.args, fields=field_descriptors)
+src/functualize/_cli/tui/chain_resolution.py:499:            provided = parse_cli_args_to_kwargs(
+src/functualize/_cli/tui/sync.py:30:    parse_cli_args_to_kwargs,
+src/functualize/_cli/tui/sync.py:355:    provided = parse_cli_args_to_kwargs(resolution.args, fields=fields)
+src/functualize/_cli/inline_tui.py:157:        parse_cli_args_to_kwargs,
+src/functualize/_cli/inline_tui.py:200:    kwargs = parse_cli_args_to_kwargs(resolution.args, fields=fields)
+# hits: 12
+
+### mcp-exec
+$ rg -n 'exec\(fn_source' plugins/adapters/functualize-mcp/src
+plugins/adapters/functualize-mcp/src/functualize_mcp/_server.py:256:    exec(fn_source, exec_ns)  # noqa: S102
+# hits: 1
+
+### engine-old-binding
+$ rg -n -w -e ArgValidator -e unexpected_keyword_error src
+src/functualize/_engine/executor.py:41:from functualize._engine.validation import ArgValidator, unexpected_keyword_error
+src/functualize/_engine/executor.py:306:        self._arg_validator = ArgValidator()
+src/functualize/_engine/executor.py:1401:            launch_error = unexpected_keyword_error(
+src/functualize/_engine/validation.py:4:- unexpected_keyword_error(): decides whether a callable can accept a set of
+src/functualize/_engine/validation.py:6:- ArgValidator: validates function kwargs against Pydantic Field() constraints
+src/functualize/_engine/validation.py:29:def unexpected_keyword_error(
+src/functualize/_engine/validation.py:89:class ArgValidator:
+# hits: 7
+
+### registry-kind
+$ rg -n 'base_type in registered_types|always classified as' src/functualize/_engine/resolution.py
+209:            # Optional[T] is always classified as "di"
+240:        if base_type in registered_types or qualifier is not None:
+# hits: 2
+
+### unsatisfiable
+$ rg -n 'UnsatisfiableParameter' src
+src/functualize/_app/boot.py:1897:                error_type="UnsatisfiableParameter",
+# hits: 1
+
+### optional-unwrappers
+$ rg -n -e 'def _unwrap_optional' -e 'def _is_optional_type' -e 'def _unwrap_optional_annotation' -e 'def unwrap_optional_type' src
+src/functualize/_config/job_config.py:246:def _unwrap_optional(tp: Any) -> tuple[Any, bool]:
+src/functualize/_config/job_config.py:466:    def _unwrap_optional(tp: Any) -> tuple[Any, bool]:
+src/functualize/_discovery/schema_extractor.py:225:def _unwrap_optional_annotation(annotation: Any) -> Any:
+src/functualize/_discovery/providers.py:397:def _unwrap_optional(annotation: Any) -> Any:
+src/functualize/_engine/resolution.py:58:def _is_optional_type(annotation: Any) -> tuple[bool, type | None]:
+# hits: 5
+
+### list-unwrappers
+$ rg -n -e 'def _unwrap_list' -e 'def _get_list_inner_type' src
+src/functualize/_config/job_config.py:260:def _unwrap_list(tp: Any) -> tuple[Any, bool]:
+src/functualize/_config/job_config.py:475:    def _unwrap_list(tp: Any) -> tuple[Any, bool]:
+src/functualize/app/adapters/click_params.py:101:def _get_list_inner_type(base_type: Any) -> Any:
+# hits: 3
+
+### lambda-kwargs-doc
+$ rg -n '"kwargs"' plugins/adapters/functualize-lambda/src
+plugins/adapters/functualize-lambda/src/functualize_lambda/__init__.py:8:   - Event contains {"job": "job_name", "kwargs": {...}}
+plugins/adapters/functualize-lambda/src/functualize_lambda/__init__.py:154:                containing "job" (required) and "kwargs" (optional).
+plugins/adapters/functualize-lambda/src/functualize_lambda/__init__.py:178:        Event kwargs can still be provided via event.get("kwargs", {}).
+plugins/adapters/functualize-lambda/src/functualize_lambda/__init__.py:220:            event: Lambda event dict with "job" and optional "kwargs".
+# hits: 4
+
+### validate-config
+$ rg -n -w validate_job_config_types src
+src/functualize/_app/boot.py:519:    from functualize._config.job_config import validate_job_config_types
+src/functualize/_app/boot.py:524:        config_validator=validate_job_config_types,
+src/functualize/_app/boot.py:803:    from functualize._config.job_config import validate_job_config_types
+src/functualize/_app/boot.py:808:        config_validator=validate_job_config_types,
+src/functualize/_config/job_config.py:439:def validate_job_config_types(job_config_class: type) -> None:
+# hits: 5
+
+### name-skip
+$ rg -n '"rc", "run_context", "log"' src
+src/functualize/_cli/tui/smart_bar_autocomplete.py:552:            if field.name in ("rc", "run_context", "log"):
+src/functualize/_cli/tui/smart_bar_autocomplete.py:721:            f for f in fields if f.name not in ("rc", "run_context", "log")
+# hits: 2
+
+### str-type-reads
+$ rg -n -F -e '== "bool"' -e 'type_annotation.startswith(' -e 'type_annotation.strip().startswith(' src plugins/domains/*/src
+src/functualize/app/utils.py:596:    if type_annotation.startswith("list[") and type_annotation.endswith("]"):
+src/functualize/app/adapters/settings_flags.py:72:    if setting.type == "bool":
+src/functualize/app/adapters/click_params.py:357:            if field.type_annotation.strip().startswith("list"):
+src/functualize/_config/settings_resolution.py:32:    if setting.type == "bool" and isinstance(value, str):
+src/functualize/_cli/dispatch.py:526:    elif setting.type == "bool":
+src/functualize/_cli/dispatch.py:715:            if field.type_annotation == "bool":
+src/functualize/_cli/tui/settings_panel.py:356:                elif setting.type == "bool":
+src/functualize/_cli/tui/type_hint_formatter.py:49:    elif type_annotation.startswith("list["):
+src/functualize/_cli/data/func_settings.py:555:            elif setting.type == "bool":
+src/functualize/_cli/tui/bar.py:294:            if (getattr(f, "type_annotation", "") or "") == "bool":
+src/functualize/_cli/data/settings_schema.py:110:    elif schema.type == "bool":
+src/functualize/_cli/tui/smart_bar_autocomplete.py:559:            is_list = field.type_annotation.startswith("list[")
+src/functualize/_cli/tui/sync.py:123:    if getattr(field, "type_annotation", "") == "bool":
+# hits: 13
+
+### job-param-string-reads (narrowed: settings readers excluded, they read Setting.type)
+$ rg -n -F -e 'type_annotation == "bool"' -e '"type_annotation", "") or "") == "bool"' -e '"type_annotation", "") == "bool"' -e 'type_annotation.startswith(' -e 'type_annotation.strip().startswith(' src plugins/domains/*/src
+src/functualize/app/utils.py:596:    if type_annotation.startswith("list[") and type_annotation.endswith("]"):
+src/functualize/app/adapters/click_params.py:357:            if field.type_annotation.strip().startswith("list"):
+src/functualize/_cli/tui/type_hint_formatter.py:49:    elif type_annotation.startswith("list["):
+src/functualize/_cli/tui/bar.py:294:            if (getattr(f, "type_annotation", "") or "") == "bool":
+src/functualize/_cli/dispatch.py:715:            if field.type_annotation == "bool":
+src/functualize/_cli/tui/smart_bar_autocomplete.py:559:            is_list = field.type_annotation.startswith("list[")
+src/functualize/_cli/tui/sync.py:123:    if getattr(field, "type_annotation", "") == "bool":
+# hits: 7
+
+### injection-by-type-name
+$ rg -n -F -e '"type_annotation", "") or "").strip()' src plugins/adapters/*/src
+src/functualize/_primitives/job_schema.py:185:        annotation = (getattr(field, "type_annotation", "") or "").strip()
+src/functualize/_cli/tui/app.py:2274:                if (getattr(field, "type_annotation", "") or "").strip()
+src/functualize/_cli/tui/smart_bar_autocomplete.py:554:            if (getattr(field, "type_annotation", "") or "").strip() in injection_types:
+# hits: 3
+

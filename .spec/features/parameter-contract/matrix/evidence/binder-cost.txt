@@ -1,0 +1,31 @@
+parameters in the signature: 15
+build  (one TypeAdapter per parameter, once per process): median 1,326 µs, max 552,858 µs = 88 µs per parameter
+bind   (validate every argument, per call):                median 18.5 µs, max 12,875.0 µs
+today  ArgValidator create_model, 1 Field() param, build:  median 507 µs
+
+parameters in the signature: 15
+build  (one TypeAdapter per parameter, once per process): median 1,380 µs, max 545,599 µs = 92 µs per parameter
+bind   (validate every argument, per call):                median 17.6 µs, max 345.8 µs
+today  ArgValidator create_model, 1 Field() param, build:  median 393 µs
+
+parameters in the signature: 15
+build  (one TypeAdapter per parameter, once per process): median 2,169 µs, max 512,707 µs = 145 µs per parameter
+bind   (validate every argument, per call):                median 17.5 µs, max 258.4 µs
+today  ArgValidator create_model, 1 Field() param, build:  median 441 µs
+
+func a002 wall 1.83s
+func a002 wall 1.62s
+func a002 wall 1.80s
+one: 1127.0 ms
+one: 448.1 ms
+one: 493.6 ms
+today: 510.7 ms
+today: 514.4 ms
+today: 683.4 ms
+wide: 493.9 ms
+wide: 516.6 ms
+wide: 591.9 ms
+in-process after boot: first TypeAdapter(str) 0.4 ms; next 7 adapters 2.3 ms
+in-process after boot: first TypeAdapter(str) 0.5 ms; next 7 adapters 1.4 ms
+in-process after boot: first TypeAdapter(str) 0.3 ms; next 7 adapters 1.2 ms
+in-process after boot: first TypeAdapter(str) 0.6 ms; next 7 adapters 1.7 ms

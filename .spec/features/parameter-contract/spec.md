@@ -53,8 +53,8 @@ read.
     parameters";
   - ADR-010's `TYPE_MAP` mechanism (its intent is kept);
   - the caller-may-supply-a-DI-parameter rule in `_engine/validation.py:43-47` (R-2).
-- **Open against prior art:** ADR-018, as **DC-1** below. It blocks confirmation of the behaviours
-  marked *(DC-1)*.
+- **Prior art reconciled:** ADR-018, as **DC-1** below, decided **B** (ADR-018's model) by the
+  member on 2026-11-22.
 
 ## Users and scope
 
@@ -70,7 +70,8 @@ read.
 
 **In scope:** signature parameters of `@job` functions and `@job` class methods; config-model fields
 (their flag, their refusal, their binding); `GroupOptions` fields (repeatable lists, schema parity).
-The surfaces are the eleven above, plus `func mcp schema --format markdown|openai|typescript`. DI
+The surfaces are the eleven above, plus `func mcp schema --format markdown|openai|typescript` and,
+*(revised in Plan, S-1)*, the `functualize-ai` tool scope. DI
 *classification* is in scope, as is the deletion of the superseded derivers (D7).
 
 **Out of scope** (page §8):
@@ -85,7 +86,8 @@ The surfaces are the eleven above, plus `func mcp schema --format markdown|opena
 
 ## Required behaviour
 
-Each behaviour cites the page findings it closes. "Every surface" means the eleven above.
+Each behaviour cites the page findings it closes. "Every surface" means the eleven above plus the
+`functualize-ai` tool scope (S-1).
 
 ### A. Classification — one verdict per parameter
 
@@ -173,16 +175,22 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
   - `integer`, `number` and `boolean` for `Optional[int|float|bool]`;
   - `format: date-time` for an optional `datetime`;
   - an object for `INVOCATION_ONLY` mappings.
-- **B-21.** The `markdown`, `openai` and `typescript` exports of `func mcp schema` derive from that
-  same schema (`research.md` R-8).
+- **B-21** *(revised in Plan, S-1)*. The `markdown`, `openai` and `typescript` exports of
+  `func mcp schema` derive from that same schema (`research.md` R-8). So does the AI plugin's tool
+  scope: `functualize-ai` `ToolScope.to_tool_defs` publishes job parameters to LLM tool calls, and
+  today renders them through its own type map (`_tool_scope.py:408`). Its calls reach jobs through
+  the engine door like every other `invoke`.
 - **B-22.** `required` equals CLI requiredness (F-08). `INJECTED` parameters never appear in any
   schema, `Provide(...)` and provider-backed classes included (F-14).
 
 ### F. Binding — one door for every surface
 
-- **B-23.** Every surface hands its raw values to one binding step before the job runs: the CLI's
-  parsed values, the TUI's, MCP's arguments, and the HTTP and Lambda envelope's `arguments` and
-  `group_option_values`. Binding is the only place a supplied value becomes the job's argument.
+- **B-23** *(revised in Plan, S-2)*. Every surface hands its raw values to one binding step before
+  the job runs: the CLI's parsed values, the TUI's, MCP's arguments, the AI tool scope's, and the
+  HTTP and Lambda envelope's `arguments` and `group_option_values`. Binding is the only place a
+  **value supplied by a surface** becomes the job's argument. In-process `PRE_EXECUTE` hooks keep
+  their documented ability to modify kwargs after binding (`contributor/architecture/codemaps/data-flow.md`
+  §2). That is a plugin's decision, not a caller's.
 - **B-24.** Binding converts every supplied value to the declared type. A `UUID` arrives as `UUID`,
   `Path` as `Path`, `Enum` as the member, `Secret[str]` (on a config field) as `Secret`, `list` as
   `list`, `tuple` as `tuple` (F-22). The same input produces the same job argument on every surface.
@@ -274,7 +282,7 @@ become rows of the parity test and which stay external measurements.
 - **Every acceptance run is executed twice, cold and warm** (`pitfalls.md` §23), and **compiled both
   ways for PEP 563** (§4).
 
-## DC-1 · What happens to a job whose parameter is refused at discovery (open — blocks confirmation)
+## DC-1 · What happens to a job whose parameter is refused at discovery — decided: B
 
 **The decision.** When discovery refuses a parameter, for example `filters: str | int`, `p: object`, or an unmarked
 class with no registered provider, does the *job* disappear, or stay listed and
@@ -315,9 +323,19 @@ Error: No such command 'report'.                                                
 
 **What proceeds regardless:** every behaviour above not marked *(DC-1)*.
 
+**Decision record.** **B** — the job is reported, stays registered, publishes no inputs, and refuses
+on every call, naming the job, the parameter and the remedy. Decided by the member in comment
+`01a2012e-723d-7822-9fc6-b4dcc3ab1ec6`, 2026-11-22T02:55:50Z, verbatim: *"spec confirmed, DC-1 = B"*.
+Page `SD/28901379` v5 (2026-11-22 02:57:48Z) carries it as its §5.7 v5 amendment. B-9's open half
+therefore reads: the job stays registered; `func builtin info` lists it with its reason; every surface
+refuses a call to it with that reason (CLI and TUI exit 2, HTTP and Lambda 400, MCP `isError`) and
+publishes no inputs for it; and this holds on cold and warm boots alike (F-33).
+
 ## Confirmation gate
 
-This specification and `contracts.md` require member confirmation, including the DC-1 choice, before
-the architecture gate and the task plan (`plan.md`, `tasks.md`) are written
-(`.claude/commands/agentic-specify.md` step 6). Plan's architecture gate may send this file back
-here. If it does, the change is re-confirmed.
+**Confirmed** by the member, with DC-1 = B, in comment `01a2012e-723d-7822-9fc6-b4dcc3ab1ec6` at
+2026-11-22T02:55:50Z (`.claude/commands/agentic-specify.md` step 6).
+
+**Revised by Plan's architecture gate,** in two places marked *(revised in Plan)*: S-1 (B-21) and S-2
+(B-23). The revisions are re-confirmed with the task list before Execute (`plan.md` § *Spec
+revisions*).

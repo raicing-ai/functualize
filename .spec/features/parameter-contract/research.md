@@ -182,3 +182,44 @@ same JSON schema through `functualize_mcp/_schema_export.py`, which keeps its ow
   error below `engine.run()` needs a `prelude_refusal` arm).
 - **Counts and negatives:** every number in `spec.md` comes from the matrix kit or from a command named
   next to it.
+
+## Plan-phase findings (architecture gate and blast radius, 2026-11-22)
+
+These are recorded here because they reshaped the approach (`.claude/commands/agentic-plan.md`
+step 7). Each one's evidence is in `matrix/evidence/`.
+
+- **P-1 · F-07 located** (`f07-trace.txt`, `f07-click.txt`). Click 8.4.1 ignores `required=True` when
+  `default=None` is passed explicitly, and `_option_from_marker` always passes it
+  (`click_params.py:693`).
+- **P-2 · F-34 located.** On a cold boot the descriptor holds the `Enum` member, which
+  `job_schema._is_json_native` drops. On a warm boot `_serialize_default` (`descriptors.py:650`) has
+  already encoded it as `"red"`.
+- **P-3 · H3 measured** (`binder-cost.txt`).
+
+  | | measured |
+  | --- | --- |
+  | first `TypeAdapter` inside a real `func` process, after boot | 0.3–0.6 ms |
+  | seven more adapters | 1.2–2.3 ms |
+  | binding 15 arguments per call | ~18 µs median |
+  | a whole invocation | ~1.7 s |
+
+  In a fresh interpreter that has built no pydantic schema, the first adapter costs 450–1,100 ms, and
+  boot already pays that today.
+- **P-4 · A seventh schema renderer.** `functualize-ai` `ToolScope._fields_to_schema`
+  (`_tool_scope.py:408`) publishes job parameters to LLM tool calls through its own type map. This is
+  spec revision S-1.
+- **P-5 · `PRE_EXECUTE` hooks may modify kwargs after any binding** (`data-flow.md` §2). This is spec
+  revision S-2.
+- **P-6 · The codemap contradicts the code.** `data-flow.md` §2 says "Resolution priority … DI >
+  RunContext > Config > Default". `executor.py:1432-1434` lets the caller win (F-20). It is corrected
+  in task 9.1.
+- **P-7 · More derivation sites than the page's census listed.**
+  - `app/utils.py::coerce_kwargs` and `_resolve_type`: a public export with **no production caller**
+    (serena `find_referencing_symbols`: tests only).
+  - `_cli/dispatch.walk_group_path` (`:715`): the pre-boot group-flag walk decides arity by
+    `type_annotation == "bool"`, and is the likely seat of F-10's group-list collapse.
+  - `_cli/tui/sync.build_command_line`: the bar emitter (`data-flow.md` §7).
+  - `create_callback_click_command` (`click_params.py:1571`): plugin command callbacks share the live
+    builder.
+- **P-8 · `JobExecutionEngine` measures 2,747 lines** (`executor.py:213-2959`, `ast` walk). That is
+  already past the constitution's ~500-LOC cap, and is surviving smell SS-4 ("not grown").

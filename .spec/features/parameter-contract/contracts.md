@@ -116,6 +116,8 @@ Byte-identical for every job, group options included. Property types come from t
   `timedelta` → `format: duration` *(provisional)*.
 - An `Enum` publishes `enum: [values]`.
 - `func mcp schema --format markdown|openai|typescript` render from this document.
+- The `functualize-ai` tool scope (`ToolScope.to_tool_defs`) publishes this document as each tool's
+  parameters.
 
 ## 6. MCP
 
@@ -139,8 +141,15 @@ Byte-identical for every job, group options included. Property types come from t
 | outcome | HTTP | Lambda (thin and fat) |
 | --- | --- | --- |
 | success | 200, `{"status": "Success", "return_value": …}` (unchanged) | `statusCode` 200 (unchanged) |
-| refused argument: missing, unknown, injected, does not convert | **4xx**, body names the argument and the reason; the exact code is fixed in Plan against `_types/http_status.py` *(provisional)* | **4xx** `statusCode`, same body |
+| refused argument (missing, unknown, injected, does not convert) **or** a call to a job whose parameter discovery refused | **400**, `{"status": "Invalid", "error": "<argument>: <reason>"}` | `statusCode` **400**, same body |
 | run failed | 500 with `error` (unchanged) | 500 with `error` (unchanged) |
+
+**The outcome this needs.** The tables have no "bad argument" status today. `REFUSED` means "a
+declared precondition … was not met" and maps to exit 3 and HTTP 412; `ExitCode.USAGE = 2` exists
+with no `RunStatus` mapped to it. This change **adds one status**, `RunStatus.INVALID` (value
+`"Invalid"`, name *(provisional)*): "the call could not be bound to the job's declaration — nothing
+ran". It maps to exit 2, HTTP 400 and Lambda 400, and MCP reports it as `isError: true`. `REFUSED`
+keeps its meaning and its codes.
 
 - **Fat Lambda event:** `{"job": "<name>", "arguments": {…}}`. Its docstrings say `arguments`, and
   `kwargs` is not read.
@@ -155,11 +164,11 @@ A warning on every boot path, naming the file, job, parameter and remedy:
   Declare one type, or Annotated[..., Option()] with a convertible type.          # wording (provisional)
 ```
 
-- **DC-1 = B (recommended):** the job stays registered, and `func builtin info` lists it among
-  discovery failures with `error_type` `"UnsupportedParameter"` *(provisional)*. Every call refuses
-  with that message (CLI exit 2; HTTP and Lambda 4xx; MCP `isError: true`). No schema publishes
-  inputs for it.
-- **DC-1 = A:** the job is not registered, and calling it returns `Error: No such command 'report'.`
+**DC-1 = B (decided 2026-11-22, comment `01a2012e`):** the job stays registered, and
+`func builtin info` lists it among discovery failures with `error_type` `"UnsupportedParameter"`
+*(provisional)*, next to ADR-018's `"UnsatisfiableParameter"`. Every call refuses with that message:
+CLI and TUI exit 2, HTTP and Lambda 400 with `status` `"Invalid"`, MCP `isError: true`, with the tool
+listed and declaring no inputs. This is identical on cold and warm boots.
 
 ## 9. Public Python API
 
@@ -170,6 +179,7 @@ A warning on every boot path, naming the file, job, parameter and remedy:
   behaviour from it.
 - **The descriptor cache** rebuilds once after upgrade (`CACHE_VERSION` bump). No user action is
   needed.
+- **`functualize.types.RunStatus`** gains `INVALID` (§7).
 - **No new** environment variable, config key or CLI flag.
 
 ## 10. Test and documentation artifacts (repository-visible)
