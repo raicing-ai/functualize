@@ -61,6 +61,7 @@ _STATUS_EXIT_CODES: dict[RunStatus, ExitCode] = {
     # docstring, reachable only from `requires_tty`, since the table was
     # pinned.
     RunStatus.REFUSED: ExitCode.REFUSED,
+    RunStatus.INVALID: ExitCode.USAGE,
     RunStatus.FAILURE: ExitCode.JOB_RAISED,
     RunStatus.TIMEOUT: ExitCode.JOB_RAISED,
     RunStatus.CANCELLED: ExitCode.JOB_RAISED,

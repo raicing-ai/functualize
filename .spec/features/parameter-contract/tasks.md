@@ -63,6 +63,12 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **Invariant:** `REFUSED` keeps exit 3 / HTTP 412. Every family's table maps `INVALID`.
 - **Gate/evidence:** `uv run pytest tests/types/`, which includes the existing
   `test_every_surface_declares_its_family.py`.
+- **Execute finding (2026-11-22):** the gate is red at
+  `tests/types/test_descriptor_owner_class.py::test_cache_reader_refuses_version_22`, which asserts
+  `CACHE_VERSION == 25`. Task 0.1 correctly bumped it to 26. This existing test is outside both
+  tasks' `[F]` scopes; the outcome implementation is committed, but 0.2 remains unchecked pending
+  a task-scope revision for the version assertion. Raw gate output:
+  `/tmp/functualize-wave0-02-pytest.log` in the executing worktree.
 - **Depends on:** none.
 
 ### [ ] 0.3 The declaration table
