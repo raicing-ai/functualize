@@ -168,7 +168,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 
 ## Wave 1 — the classifier
 
-### [ ] 1.1 `build_contract`
+### [x] 1.1 `build_contract`
 
 - **Input:** `spec.md` B-1 to B-8 and B-14 (B-2 *revised in Execute*); `contracts.md` §1;
   `schema.md` (invariant 1, `admit`); task 0.1 types; task 0.3 table; `matrix/table_diff.py`,
@@ -236,6 +236,38 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     registry neither has a provider, so both are `REJECTED_DISCOVERY`; the old table's `INJECTED` for
     H165 assumed the `PC_STR_PROVIDER=1` experiment.
   - Ten rows are corrected in all (`table-corrections.txt`).
+- **Execute evidence (2026-11-22):**
+  - `python3 .spec/features/parameter-contract/matrix/table_diff.py` → `0 rows differ`, exit 0.
+  - `uv run pytest tests/primitives/test_build_contract.py` → 1172 passed, 4 skipped. Every row passes
+    `declared_verdict` (no registry in the test) and `admit(…, PROVIDERS)` → `expected_verdict` in both
+    annotation modes. Contracts are equal across the two modes for 165 rows. The skips are E142 in
+    eager mode: there `FromJob[...]` raises `TypeError` when the module imports, which the test
+    asserts before skipping; under PEP 563 the builder refuses it. The F-21 property holds: adding
+    `("builtins.str", "s2")` moves exactly one contract in the table, H165 `p`, to `INJECTED`.
+  - `wc -l src/functualize/_primitives/parameter_contract.py` → 499. `lint-imports` → 7 kept, 0
+    broken. `mypy src/`, `ruff check`, `ruff format --check` clean.
+  - Wave tier (`tests/primitives/ tests/types/ tests/spec/` and the isolation/hygiene modules) →
+    2321 passed, 10 skipped. The step mapper exits 3 because `tests/_support/` changed. Its only
+    importer is the new test (`rg -l parameter_matrix` outside `.spec/`: 1 file).
+  - **Not yet reachable, disclosed.** No production code calls the module yet. It carries
+    `# TRANSITIONAL(parameter-contract/2.1)`. Its first production path is task 2.1:
+    `func <job>` → `DirectoryScanProvider` → `extract_parameters_from_signature` →
+    `build_contracts`, then `admit` at boot. Task 2.2 adds `build_field_contract`. The sabotage
+    below proves the gate is not vacuous; it does not prove wiring.
+  - **Sabotage, after committing the change (before this evidence was amended in):** `admit`'s provider check was replaced by `or True` (admit
+    everything). The gate went red: 18 failed, 1154 passed. The failures were the 7 provider rows
+    C085, C086, C087, E138, E139, H165 and H166 in both modes, the F-21 property in both modes, the
+    exact-pair test and the reason test. `git checkout --` restored the file, and the tree was clean.
+  - **Decisions inside B-1 to B-8, for the reviewer:**
+    - A config-model or `GroupOptions` parameter is `INJECTED` with an empty `Injection()`: the
+      engine fills it, and its fields get their own contracts.
+    - `*args`, `**kwargs`, `self` and `cls` are skipped, as the engine skips them.
+    - An unannotated parameter is `str` (C090, C091).
+    - `Literal[...]` is an `ENUM` scalar.
+    - `Annotated[Iterator[T], Stdin()]` stays a flag, keeping `stdin_reader`'s streaming form.
+    - A config field accepts the B-3 scalars, `Secret[str]`, and `list`/`tuple` of a scalar. It
+      refuses `dict`, `set`, fixed tuples and models (F-29).
+    - A secret default is never encoded into `default_json`.
 - **Depends on:** 0.1, 0.3.
 
 ### [ ] 1.2 The SQLite substrate stores `invalid`: revision 6, and a runner that can rebuild a table safely

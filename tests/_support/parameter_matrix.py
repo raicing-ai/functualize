@@ -1571,12 +1571,12 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         "label": "p: tuple[str, int]",
         "declaration": "p: tuple[str, int]",
         "declaration_source": "\n@job\ndef c081(p: tuple[str, int]) -> str:\n    return _show(p=p)\n",
-        "expected_verdict": "REJECTED_DISCOVERY",
-        "proposed": "REJECTED_DISCOVERY",
+        "expected_verdict": "INVOCATION_ONLY",
+        "proposed": "INVOCATION_ONLY",
         "cli_spelling": (),
-        "wire_spelling": (),
+        "wire_spelling": ("p",),
         "required": True,
-        "delivered_type": None,
+        "delivered_type": "tuple",
         "hidden": False,
         "flag_argv": ("--p", "a", "1"),
         "pos_argv": ("a",),
@@ -1589,12 +1589,12 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         "label": "p: dict[str, str]",
         "declaration": "p: dict[str, str]",
         "declaration_source": "\n@job\ndef c082(p: dict[str, str]) -> str:\n    return _show(p=p)\n",
-        "expected_verdict": "REJECTED_DISCOVERY",
-        "proposed": "REJECTED_DISCOVERY",
+        "expected_verdict": "INVOCATION_ONLY",
+        "proposed": "INVOCATION_ONLY",
         "cli_spelling": (),
-        "wire_spelling": (),
+        "wire_spelling": ("p",),
         "required": True,
-        "delivered_type": None,
+        "delivered_type": "dict",
         "hidden": False,
         "flag_argv": ("--p", "k=v"),
         "pos_argv": ("k=v",),
@@ -1607,12 +1607,12 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         "label": "p: dict[str, str] = {}",
         "declaration": "p: dict[str, str] = {}",
         "declaration_source": "\n@job\ndef c083(p: dict[str, str] = {}) -> str:\n    return _show(p=p)\n",
-        "expected_verdict": "REJECTED_DISCOVERY",
-        "proposed": "REJECTED_DISCOVERY",
+        "expected_verdict": "INVOCATION_ONLY",
+        "proposed": "INVOCATION_ONLY",
         "cli_spelling": (),
-        "wire_spelling": (),
+        "wire_spelling": ("p",),
         "required": False,
-        "delivered_type": None,
+        "delivered_type": "dict",
         "hidden": False,
         "flag_argv": ("--p", "k=v"),
         "pos_argv": ("k=v",),
@@ -1625,12 +1625,12 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         "label": "p: set[str]",
         "declaration": "p: set[str]",
         "declaration_source": "\n@job\ndef c084(p: set[str]) -> str:\n    return _show(p=p)\n",
-        "expected_verdict": "REJECTED_DISCOVERY",
-        "proposed": "REJECTED_DISCOVERY",
+        "expected_verdict": "INVOCATION_ONLY",
+        "proposed": "INVOCATION_ONLY",
         "cli_spelling": (),
-        "wire_spelling": (),
+        "wire_spelling": ("p",),
         "required": True,
-        "delivered_type": None,
+        "delivered_type": "set",
         "hidden": False,
         "flag_argv": ("--p", "a", "--p", "b"),
         "pos_argv": ("a",),
@@ -2051,12 +2051,12 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         "@job\n"
         "def d105(p: Annotated[Widget, Option()] = None) -> str:\n"
         "    return _show(p=p)\n",
-        "expected_verdict": "ACCEPTED_FLAG",
-        "proposed": "ACCEPTED_FLAG",
-        "cli_spelling": ("--p",),
-        "wire_spelling": ("p",),
+        "expected_verdict": "REJECTED_DISCOVERY",
+        "proposed": "REJECTED_DISCOVERY",
+        "cli_spelling": (),
+        "wire_spelling": (),
         "required": False,
-        "delivered_type": "Widget",
+        "delivered_type": None,
         "hidden": False,
         "flag_argv": ("--p", "w"),
         "pos_argv": ("w",),
@@ -2679,7 +2679,7 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         'def e138(p: Annotated[Widget, Provide("w")]) -> str:\n'
         "    return _show(p=p)\n",
         "expected_verdict": "REJECTED_DISCOVERY",
-        "proposed": "INJECTED with a provider; else REJECTED_DISCOVERY",
+        "proposed": "REJECTED_DISCOVERY",
         "cli_spelling": (),
         "wire_spelling": (),
         "required": True,
@@ -2700,7 +2700,7 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         'def e139(p: Annotated[str, Provide("s")]) -> str:\n'
         "    return _show(p=p)\n",
         "expected_verdict": "REJECTED_DISCOVERY",
-        "proposed": "INJECTED with a provider; else REJECTED_DISCOVERY",
+        "proposed": "REJECTED_DISCOVERY",
         "cli_spelling": (),
         "wire_spelling": (),
         "required": True,
@@ -2966,12 +2966,12 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         "@job\n"
         "def f150(p: Cfg_f150) -> str:\n"
         "    return _show(f=p.f)\n",
-        "expected_verdict": "CONFIG_FIELD",
-        "proposed": "CONFIG_FIELD (file/env rungs only, no flag)",
+        "expected_verdict": "REJECTED_DISCOVERY",
+        "proposed": "REJECTED_DISCOVERY",
         "cli_spelling": (),
-        "wire_spelling": ("f",),
+        "wire_spelling": (),
         "required": False,
-        "delivered_type": "dict[str, str]",
+        "delivered_type": None,
         "hidden": False,
         "flag_argv": ("--f", "k=v"),
         "pos_argv": (),
@@ -2990,12 +2990,12 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         "@job\n"
         "def f151(p: Cfg_f151) -> str:\n"
         "    return _show(f=p.f)\n",
-        "expected_verdict": "CONFIG_FIELD",
-        "proposed": "CONFIG_FIELD (file/env rungs only, no flag)",
+        "expected_verdict": "REJECTED_DISCOVERY",
+        "proposed": "REJECTED_DISCOVERY",
         "cli_spelling": (),
-        "wire_spelling": ("f",),
+        "wire_spelling": (),
         "required": False,
-        "delivered_type": "Body",
+        "delivered_type": None,
         "hidden": False,
         "flag_argv": ("--f", "x"),
         "pos_argv": (),
@@ -3284,12 +3284,12 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         "@job\n"
         'def h165(p: Annotated[str, Provide("s2")]) -> str:\n'
         "    return _show(p=p)\n",
-        "expected_verdict": "INJECTED",
-        "proposed": "INJECTED",
+        "expected_verdict": "REJECTED_DISCOVERY",
+        "proposed": "REJECTED_DISCOVERY",
         "cli_spelling": (),
         "wire_spelling": (),
         "required": True,
-        "delivered_type": "str",
+        "delivered_type": None,
         "hidden": False,
         "flag_argv": ("--p", "x"),
         "pos_argv": ("x",),
@@ -3342,8 +3342,34 @@ def _surface_expectations(row: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+#: The providers the matrix project boots with, as exact ``(type, qualifier)``
+#: pairs: the probe plugin registers ``ProvWidget`` unqualified and under ``"w"``.
+#: No ``str`` provider is registered; that is the ``PC_STR_PROVIDER=1``
+#: experiment, not the matrix.
+PROVIDERS: frozenset[tuple[str, str | None]] = frozenset(
+    {("provlib.ProvWidget", None), ("provlib.ProvWidget", "w")}
+)
+
+#: Rows whose verdict *from the declaration alone* is ``INJECTED``: an unmarked
+#: class or a ``Provide`` marker. Whether a provider exists for exactly their
+#: ``(type, qualifier)`` decides their ``expected_verdict`` (spec B-2).
+_DECLARED_INJECTED: frozenset[str] = frozenset(
+    {"C085", "C086", "C087", "E138", "E139", "H162", "H163", "H164", "H165", "H166"}
+)
+
+
+def _declared_verdict(row: dict[str, Any]) -> str:
+    """The verdict before availability is applied; ``expected_verdict`` after."""
+    return "INJECTED" if row["id"] in _DECLARED_INJECTED else row["expected_verdict"]
+
+
 ROWS: tuple[dict[str, Any], ...] = tuple(
-    {**row, "surfaces": _surface_expectations(row)} for row in _RAW_ROWS
+    {
+        **row,
+        "declared_verdict": _declared_verdict(row),
+        "surfaces": _surface_expectations(row),
+    }
+    for row in _RAW_ROWS
 )
 
 
