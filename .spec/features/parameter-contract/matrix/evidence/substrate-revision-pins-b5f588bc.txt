@@ -1,0 +1,85 @@
+$ git rev-parse --short HEAD
+b5f588bc
+$ rg -n '\[\(5,\)\]|schema_version|revision' plugins/substrates/*/*/tests   # the glob as dispatched
+rg: plugins/substrates/*/*/tests: No such file or directory (os error 2)
+exit 2
+$ rg -n '\[\(5,\)\]|\[\(6,\)\]|schema_version|revision' plugins/substrates/*/tests   # corrected glob
+plugins/substrates/functualize-substrate-sqlite/tests/test_runtime_store.py:56:    assert store.driver.query("SELECT max(version) FROM schema_migrations") == [(6,)]
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:1:"""The migration runner and revisions — data model §2 and §7."""
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:121:            assert driver.query("SELECT max(version) FROM schema_migrations") == [(6,)]
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:166:def test_an_applied_revision_whose_column_is_gone_is_refused(
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:177:def test_a_pre_merge_revision_3_gate_database_is_refused_naming_the_renumber(
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:180:    """A database built while the gate SQL was revision 3 refuses at boot.
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:183:    the gate-interactions SQL as revision 3; the merged set keeps step_attempt
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:219:    assert driver.query("SELECT count(*) FROM schema_migrations") == [(6,)]
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:223:def test_an_edited_revision_is_refused(driver: LocalSqliteDriver) -> None:
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:273:                "CREATE TABLE documents (key TEXT PRIMARY KEY, payload TEXT, revision INTEGER)",
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:282:def test_a_failing_revision_leaves_neither_schema_nor_ledger(
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:431:def test_revision_5_is_additive_and_revision_4_stays_a_rollback_target(
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:443:def test_an_applied_revision_5_whose_table_is_gone_is_refused(
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:490:def test_revision_6_preserves_a_populated_revision_5_database(
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:537:def test_revision_6_refuses_a_driver_without_fk_migration_capability(
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:554:    assert driver.query("SELECT max(version) FROM schema_migrations") == [(5,)]
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:557:def test_revision_6_ledger_without_its_status_check_is_refused(
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:561:    revision = SHIPPED_MIGRATIONS[5]
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:566:                (revision.version, revision.name, revision.checksum),
+plugins/substrates/functualize-substrate-sqlite/tests/test_gate_interactions_sql.py:1:"""Gate interactions on the relational schema (revision 0004).
+plugins/substrates/functualize-substrate-sqlite/tests/test_gate_interactions_sql.py:6:— all three or none (AC-1); a revision-2 file migrates with every row intact.
+plugins/substrates/functualize-substrate-sqlite/tests/test_gate_interactions_sql.py:160:def test_a_revision_2_file_migrates_with_its_rows_intact(tmp_path: Path) -> None:
+plugins/substrates/functualize-substrate-sqlite/tests/test_gate_interactions_sql.py:190:def test_revision_4_is_shipped_verbatim() -> None:
+plugins/substrates/functualize-substrate-sqlite/tests/test_legacy_import.py:218:    substrate.write("runs", document, expect=stored.revision)
+plugins/substrates/functualize-substrate-sqlite/tests/test_plugin_selection.py:125:    assert store.driver.query("SELECT max(version) FROM schema_migrations") == [(5,)]
+plugins/substrates/functualize-substrate-sqlite/tests/test_sqlite_substrate.py:123:    def test_a_stale_revision_refuses(self, substrate: SQLiteSubstrate) -> None:
+plugins/substrates/functualize-substrate-sqlite/tests/test_sqlite_substrate.py:129:        assert substrate.write("k", {"v": 2}, expect=stored.revision) is False
+plugins/substrates/functualize-substrate-sqlite/tests/test_sqlite_substrate.py:133:    def test_a_matching_revision_writes(self, substrate: SQLiteSubstrate) -> None:
+plugins/substrates/functualize-substrate-sqlite/tests/test_sqlite_substrate.py:137:        assert substrate.write("k", {"v": 2}, expect=stored.revision) is True
+plugins/substrates/functualize-substrate-sqlite/tests/test_sqlite_substrate.py:148:        """Exactly one of two compare-and-swaps against one revision lands.
+plugins/substrates/functualize-substrate-sqlite/tests/test_sqlite_substrate.py:163:            results.append(substrate.write("k", {"v": value}, expect=stored.revision))
+plugins/substrates/functualize-substrate-sqlite/tests/test_sqlite_substrate.py:172:            f"two compare-and-swaps against one revision: {results}"
+exit 0
+$ rg -n -e 'migrate\(.*\) == [0-9]' -e '== *[56]\b' -e 'max\(version\)' -i plugins/substrates/*/tests
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:85:    assert migrate(driver) == 6
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:106:        assert migrate(driver, SHIPPED_MIGRATIONS[:1]) == 1
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:121:            assert driver.query("SELECT max(version) FROM schema_migrations") == [(6,)]
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:139:    assert migrate(driver, SHIPPED_MIGRATIONS[:2]) == 2
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:158:    assert migrate(driver) == 6
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:192:    assert migrate(driver, pre_merge) == 3
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:218:    assert migrate(driver) == 6
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:279:    assert migrate(driver) == 6
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:379:        assert migrate(driver, SHIPPED_MIGRATIONS[:4]) == 4
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:391:        assert migrate(driver) == 6
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:437:    assert migrate(driver, SHIPPED_MIGRATIONS[:4]) == 4
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:439:    assert migrate(driver, SHIPPED_MIGRATIONS[:5]) == 5
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:440:    assert migrate(driver) == 6
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:451:    assert refused.value.version == 5
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:493:    assert migrate(driver, SHIPPED_MIGRATIONS[:5]) == 5
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:519:    assert migrate(driver) == 6
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:523:    assert migrate(driver) == 6  # a warm boot accepts the renamed table
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:540:    assert migrate(driver, SHIPPED_MIGRATIONS[:5]) == 5
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:554:    assert driver.query("SELECT max(version) FROM schema_migrations") == [(5,)]
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:560:    assert migrate(driver, SHIPPED_MIGRATIONS[:5]) == 5
+plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py:572:    assert refused.value.version == 6
+plugins/substrates/functualize-substrate-sqlite/tests/test_runtime_store.py:56:    assert store.driver.query("SELECT max(version) FROM schema_migrations") == [(6,)]
+plugins/substrates/functualize-substrate-sqlite/tests/test_gate_interactions_sql.py:164:        assert migrate(driver, SHIPPED_MIGRATIONS[:2]) == 2
+plugins/substrates/functualize-substrate-sqlite/tests/test_gate_interactions_sql.py:182:        assert migrate(driver) == 6
+plugins/substrates/functualize-substrate-sqlite/tests/test_plugin_selection.py:125:    assert store.driver.query("SELECT max(version) FROM schema_migrations") == [(5,)]
+plugins/substrates/functualize-substrate-sqlite/tests/test_readers.py:294:    assert len(views) == 5
+plugins/substrates/functualize-substrate-sqlite/tests/test_import_cli.py:120:        assert _run("--db", str(db)).returncode == 5
+exit 0
+$ rg -n 'schema_migrations|migrate\(' tests/ src/   # root suite and core
+tests/spec/test_a_substrate_plugin_loads_through_its_entry_point.py:189:    migrate(driver)
+tests/spec/test_a_substrate_plugin_loads_through_its_entry_point.py:190:    driver.batch([("UPDATE schema_migrations SET checksum = 'doctored'", ())])
+tests/_support/jobs/with_deps.py:6:def migrate(log: Log):
+tests/substrate_probe/tier_a.py:374:            migrate(driver)
+tests/integration/test_ungrouped_backward_compat.py:72:            def migrate():
+tests/integration/test_ungrouped_backward_compat.py:107:            def migrate():
+tests/integration/test_ungrouped_backward_compat.py:151:            def migrate():
+tests/core/test_builtin_reservation_boot.py:45:            "JOB_GROUP = 'builtin'\ndef migrate() -> None: ...\n",
+tests/conformance/sqlite_hooks.py:160:                    "INSERT INTO schema_migrations (version, name, checksum, applied_at) "
+tests/conformance/sqlite_hooks.py:190:            self._execute(path, "UPDATE schema_migrations SET checksum = 'doctored'")
+tests/conformance/sqlite_hooks.py:194:                "INSERT INTO schema_migrations (version, name, checksum, applied_at) "
+tests/conformance/sqlite_hooks.py:198:            self._execute(path, "DELETE FROM schema_migrations WHERE version = 1")
+tests/conformance/sqlite_hooks.py:218:            if "schema_migrations" not in tables:
+tests/conformance/sqlite_hooks.py:221:                "SELECT max(version) FROM schema_migrations"
+tests/cli/test_help_panels.py:161:            'def migrate():\n    """Run migrations."""\n    pass\n'
+exit 0

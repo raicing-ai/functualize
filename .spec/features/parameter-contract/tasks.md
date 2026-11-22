@@ -125,6 +125,11 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   annotation modes; each row has nine surface expectations. The missing-provider rows C085, C087,
   E138, E139 and H166 are `REJECTED_DISCOVERY`. This is test data, so it has no production call path;
   its planned consumers are 1.1's contract tests and 11.1/11.2's docs/parity tests.
+- **Correction (2026-11-22, designer):** 10 of the 166 rows encoded today's measurement, or an
+  undecided provider case, instead of intent. `matrix/report.py::proposed()` is corrected and
+  `matrix/evidence/table-corrections.txt` gives each row's spec clause. Task 1.1 corrects the table
+  rows, because 1.1 is the table's first reader and the table is test code. The tick stands: this
+  task's gate (166 rows) is unaffected.
 - **Depends on:** none.
 
 ### [x] 0.4 Lambda docstrings name the shared envelope (F-28)
@@ -165,11 +170,13 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 
 ### [ ] 1.1 `build_contract`
 
-- **Input:** `spec.md` B-1 to B-8 and B-14; `contracts.md` §1; `schema.md`; task 0.1 types;
-  task 0.3 table.
+- **Input:** `spec.md` B-1 to B-8 and B-14 (B-2 *revised in Execute*); `contracts.md` §1;
+  `schema.md` (invariant 1, `admit`); task 0.1 types; task 0.3 table; `matrix/table_diff.py`,
+  `table-corrections.txt`.
 - **[F]:**
   - `src/functualize/_primitives/parameter_contract.py` (new);
-  - `tests/primitives/test_build_contract.py` (new).
+  - `tests/primitives/test_build_contract.py` (new);
+  - `tests/_support/parameter_matrix.py` (the table correction below; added 2026-11-22).
 - **Work:**
   - Classify from `resolved_hints()` and the markers. The capability names come from
     `_primitives/capability_names.py:49`; also `Provide`, `FromJob` and `Secret`.
@@ -177,11 +184,42 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - Produce `json_schema` from `TypeAdapter(...).json_schema()` of the declared shape (D4).
   - Produce `reject_reason` text in the §5.7 shape.
   - Admit `timedelta` as an ISO 8601 duration.
+  - **`admit(contract, has_provider)`** (`schema.md` invariant 1), in the same module. It is pure:
+    `has_provider(provider_type: str, qualifier: str | None) -> bool` is passed in, and nothing from
+    `_primitives/di.py` is imported.
+    - `build_contract` fills `Injection.provider_type`, the declared type's qualified name, for
+      `Provide("q")` **and** for an unmarked class. It fills `qualifier` for `Provide("q")`.
+  - **Correct the table** (`tests/_support/parameter_matrix.py`) to `report.proposed()`. Set each
+    row's raw cells, which `_surface_expectations` expands to the nine surfaces:
+
+    | row | `expected_verdict` = `proposed` | `cli_spelling` | `wire_spelling` | `required` | `delivered_type` |
+    | --- | --- | --- | --- | --- | --- |
+    | C081 | `INVOCATION_ONLY` | `()` | `("p",)` | `True` | `"tuple"` |
+    | C082 | `INVOCATION_ONLY` | `()` | `("p",)` | `True` | `"dict"` |
+    | C083 | `INVOCATION_ONLY` | `()` | `("p",)` | `False` | `"dict"` |
+    | C084 | `INVOCATION_ONLY` | `()` | `("p",)` | `True` | `"set"` |
+    | D105 | `REJECTED_DISCOVERY` | `()` | `()` | `False` | `None` |
+    | F150, F151 | `REJECTED_DISCOVERY` | `()` | `()` | `False` | `None` |
+    | H165 | `REJECTED_DISCOVERY` | `()` | `()` | `True` | `None` |
+    | E138, E139 | `REJECTED_DISCOVERY` (only the `proposed` text changes) | unchanged | unchanged | unchanged | unchanged |
+
+    - An `INVOCATION_ONLY` row has no spelling on help, bash, zsh, SmartBar or TUI, and is a supplied
+      input on info, MCP, HTTP and Lambda (B-5, B-15).
+    - Add `PROVIDERS = frozenset({("provlib.ProvWidget", None), ("provlib.ProvWidget", "w")})`: the
+      registry the matrix project boots with (`matrix/plugin_probe.py`; `report.MATRIX_PROVIDERS`).
+    - Add a per-row `declared_verdict`, the verdict before `admit`. It is `INJECTED` for C085, C086,
+      C087, E138, E139 and H162–H166, and equals `expected_verdict` everywhere else.
 - **Invariant:** one verdict per parameter. PEP 563 makes no difference (E142, F-32). Under the
   ~500-LOC cap.
 - **Gate/evidence:**
+  - `python3 .spec/features/parameter-contract/matrix/table_diff.py` → no rows, exit 0 (today 10
+    rows, exit 1);
   - `uv run pytest tests/primitives/test_build_contract.py` passes for every row of the table in
-    both annotation modes;
+    both annotation modes:
+    - `build_contract(row).verdict == declared_verdict`, with no registry anywhere in the test;
+    - `admit(build_contract(row), has_provider=PROVIDERS)` gives `expected_verdict`;
+    - **F-21/UC-6 property:** with `("builtins.str", "s2")` added to the providers, H165 becomes
+      `INJECTED` and every other row's verdict is unchanged;
   - `wc -l src/functualize/_primitives/parameter_contract.py` ≤ 500;
   - `lint-imports` "Primitives import nothing internal" KEPT.
 - **Execute finding (2026-11-22):** implementation paused before code. `spec.md` B-5 requires
@@ -190,6 +228,14 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   table distinguishes E138/E139 and H162–H166 by whether providers are registered. A builder
   receiving only a declaration cannot reproduce those availability-dependent verdicts. The
   every-row gate needs a designer correction; no row or requirement was silently reinterpreted.
+- **Designer correction (2026-11-22):**
+  - The table, not B-5, was wrong for C081–C084.
+  - B-2 is narrowed, in the page's own terms, to one availability rule (`spec.md` B-2), applied by
+    `admit` against an explicit provider set. The builder still reads no registry.
+  - E139 (`Provide("s")`) and H165 (`Provide("s2")`) are different qualifiers. In the matrix
+    registry neither has a provider, so both are `REJECTED_DISCOVERY`; the old table's `INJECTED` for
+    H165 assumed the `PC_STR_PROVIDER=1` experiment.
+  - Ten rows are corrected in all (`table-corrections.txt`).
 - **Depends on:** 0.1, 0.3.
 
 ### [ ] 1.2 The SQLite substrate stores `invalid`: revision 6, and a runner that can rebuild a table safely
@@ -207,6 +253,8 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - `src/functualize_substrate_sqlite/_legacy_source.py`;
   - `tests/test_migrations.py`, `tests/test_runtime_store.py`, `tests/test_gate_interactions_sql.py`,
     `tests/test_legacy_import.py`, `tests/test_driver.py`;
+  - `tests/test_plugin_selection.py` (added 2026-11-22, scope repair: its `:125` pins the head
+    revision, `[(5,)]` → `[(6,)]`);
   - `contributor/reference/runtime-persistence-data-model.md` (repository root).
 - **Work, the recipe** (`plan.md` § *The substrate status set*):
   - **Revision 6, `0006_run_status_invalid.sql`, contains, in order:**
@@ -271,7 +319,21 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     green, including `test_each_status_check_equals_its_machines_state_set[runs-machine1]`, red today;
   - `git diff 21c4bb81 -- plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_schema/000[1-5]*.sql`
     → empty;
+  - `rg -n '\[\(5,\)\]' plugins/substrates/functualize-substrate-sqlite/tests` → exactly one hit,
+    `test_migrations.py:554`. That is the deliberate one: a driver without the capability is refused
+    and its ledger stays at 5. `test_plugin_selection.py:125` must no longer appear;
   - the plugin-package loop (wave barrier) → all green.
+- **Scope repair (2026-11-22, designer):** `tests/test_plugin_selection.py` joins `[F]`. A sweep of
+  every substrate test and the root suite found no other head-revision pin
+  (`matrix/evidence/substrate-revision-pins-b5f588bc.txt`):
+  - every `migrate(driver) == 6` and every `[(6,)]` is already moved;
+  - the `== 5`/`== 4`/`== 2`/`== 1` hits are prefix migrations `SHIPPED_MIGRATIONS[:n]`, which
+    stay;
+  - `test_readers.py:294` and `test_import_cli.py:120` are not revisions;
+  - `tests/conformance/sqlite_hooks.py:221` reads `max(version)` without pinning a number.
+
+  The dispatched glob `plugins/substrates/*/*/tests` matches nothing (the evidence shows the `rg`
+  error), so the sweep used `plugins/substrates/*/tests`.
 - **Execute finding (2026-11-22):** revision 6 and its runner, driver, legacy map, tests and §7
   documentation are committed, but the package gate is `227 passed, 3 failed`: all three variants
   of `test_sqlite_configured_selects_the_sqlite_store_migrated` in
@@ -300,6 +362,16 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     mode agrees (plan R-5).
   - A `REJECTED_DISCOVERY` parameter records `DiscoveryFailure(error_type="UnsupportedParameter")`
     and a boot warning. The job stays registered (DC-1 = B).
+  - **Availability (spec B-2, added 2026-11-22).** After plugins register their providers, boot
+    passes every `INJECTED` contract through `admit`.
+    - The predicate is built from `app.di`'s **exact** `(type, qualifier)` entries, keyed by the
+      type's qualified name. Use `available_types()` / `available_qualifiers()`, not
+      `DIRegistry.has(T)`: that call answers true for a type registered only under other qualifiers,
+      which `resolve` refuses as ambiguous.
+    - Do this on cold **and** warm boots, from the descriptor's contract, not the live function.
+      `validate_di_bindings` skips lazy entries, which is F-33.
+    - A `REJECTED_DISCOVERY` result is reported like any other. The cached descriptor keeps the
+      contract **before** `admit`.
 - **Invariant:** cold and warm descriptors compare equal.
 - **Gate/evidence:** `uv run pytest tests/discovery/test_contract_discovery.py tests/discovery/test_discovery_failures.py tests/integration/test_warm_cold_boot.py`. The new test boots each table row cold and warm in a subprocess.
 - **Reachability:** `func <job>` → `DirectoryScanProvider` → `extract_parameters_from_signature`.
@@ -456,7 +528,8 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - DI fills `INJECTED` names only. A caller key for one never arrives, because `bind` refuses it.
   - `build_resolution_plan` reads `contract.verdict`, so `base_type in registered_types` and
     "Optional[T] is always classified as di" go.
-  - A missing provider refuses before the call, on cold and warm alike (F-33).
+  - A missing provider refuses before the call, on cold and warm alike (F-33). The refusal reads
+    2.1's `admit` result for the job; there is no second availability check.
   - `BindRefusal` becomes `JobResult(status=INVALID)`.
 - **Invariant:** `JobExecutionEngine` does not grow: `ast` line count ≤ 2,747 (`executor.py:213-2959`
   at `da912d76`).

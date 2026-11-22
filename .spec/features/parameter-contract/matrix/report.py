@@ -15,6 +15,13 @@ IJ = "INJECTED"
 CF = "CONFIG_FIELD"
 RU = "REJECTED_USAGE"
 RD = "REJECTED_DISCOVERY"
+IO = "INVOCATION_ONLY"
+
+#: The DI registry the matrix project boots with: `plugin_probe.py` registers `ProvWidget` by
+#: type and under qualifier "w", and nothing else (its `str`/"s2" provider exists only with
+#: PC_STR_PROVIDER=1, the separate `str-provider.txt` experiment). Every proposed verdict below
+#: that depends on provider availability is decided against exactly this set (spec B-2).
+MATRIX_PROVIDERS = frozenset({("provlib.ProvWidget", None), ("provlib.ProvWidget", "w")})
 
 # Observed-verdict corrections the mechanical classifier cannot see.
 OBS_OVERRIDE = {
@@ -26,6 +33,28 @@ OBS_OVERRIDE = {
 
 
 def proposed(rid: str, decl: str) -> str:
+    """The intended verdict for a row: spec B-1 to B-9 and page SD/28901379 v5 §5.1, never today's.
+
+    Every value here is **intent**. None is copied from a measurement; the measured verdict is
+    `analyze.verdict()`, and `OBS_OVERRIDE` corrects only that *observed* column, for four rows the
+    mechanical classifier cannot see (B078, D097, G160, G161). No proposed verdict carries an
+    override.
+
+    Corrected 2026-11-22 after Execute found that rows had been encoding the measurement:
+    - C081 to C084 (`tuple[str, int]`, `dict[str, str]`, `= {}`, `set[str]`) are
+      `INVOCATION_ONLY`, per B-5 (D5 = B'). They had been returning today's `REJECTED_DISCOVERY`.
+    - D105 (`Annotated[Widget, Option()]`) is `REJECTED_DISCOVERY`: "a CLI marker on a type
+      nothing converts" (B-8); `Widget` is not a B-3 scalar.
+    - F150 and F151 (config `dict` / nested model fields) are `REJECTED_DISCOVERY` (B-8, AC-4,
+      page "refused at discovery"). They had been `CONFIG_FIELD`, which is today.
+    - E138, E139 and H165 are decided by B-2's availability rule against `MATRIX_PROVIDERS`.
+      Declared `INJECTED`, they have no provider for their own (type, qualifier), so they are
+      `REJECTED_DISCOVERY`. H165 had been `INJECTED`, as if the `str`/"s2" provider were
+      registered.
+
+    Availability-dependent rows (declared `INJECTED`, verdict decided by `MATRIX_PROVIDERS`):
+    C085, C086, C087, E138, E139, H162 to H166.
+    """
     n = int(rid[1:])
     if rid[0] == "A":
         if 49 <= n <= 52:
@@ -42,6 +71,8 @@ def proposed(rid: str, decl: str) -> str:
     if rid[0] == "C":
         if rid in ("C079", "C080"):
             return FL + " (repeatable, tuple)"
+        if rid in ("C081", "C082", "C083", "C084"):
+            return IO
         if rid == "C090":
             return PO
         if rid == "C091":
@@ -50,23 +81,21 @@ def proposed(rid: str, decl: str) -> str:
     if rid[0] == "D":
         return {
             "D092": PO, "D093": PO, "D101": PO,
-            "D102": RD, "D103": RD, "D104": RD,
+            "D102": RD, "D103": RD, "D104": RD, "D105": RD,
             "D106": FL + " (repeatable, tuple)",
             "D099": FL + "; absent+no pipe → " + RU,
             "D094": FL + "; absent → " + RU,
         }.get(rid, FL)
     if rid[0] == "E":
-        if rid in ("E138", "E139"):
-            return IJ + " with a provider; else " + RD
-        if rid == "E142":
+        if rid in ("E138", "E139", "E142"):
             return RD
         return IJ
     if rid[0] == "F":
         if rid in ("F150", "F151"):
-            return CF + " (file/env rungs only, no flag)"
+            return RD
         return CF
     if rid[0] == "H":
-        return RD if rid == "H166" else IJ
+        return RD if rid in ("H165", "H166") else IJ
     return {
         "G153": PO, "G154": FL + " (repeatable)", "G155": RD,
         "G156": PO, "G157": PO + " (q: " + FL + ")",

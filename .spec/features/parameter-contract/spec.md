@@ -95,10 +95,30 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
   `ACCEPTED_FLAG`, `ACCEPTED_POSITIONAL`, `INJECTED`, `CONFIG_FIELD`, `INVOCATION_ONLY`,
   `REJECTED_DISCOVERY`. `REJECTED_USAGE` describes a call, not a parameter. The verdict is decided
   once, at discovery, from the declaration, and every surface reads that one decision.
-- **B-2.** The verdict depends only on the declaration: annotation, markers, default, signature kind.
-  It never depends on what the DI registry holds. Registering any provider, `str` included, changes
-  the classification of no other parameter (F-21). Provider *availability* decides only whether an
-  `INJECTED` parameter can run.
+- **B-2** *(revised in Execute, 2026-11-22)*. A parameter's **kind** depends only on its
+  declaration: annotation, markers, default, signature kind. Kind means caller-supplied (flag or
+  positional), `INVOCATION_ONLY`, `CONFIG_FIELD`, `INJECTED`, or refused for its shape. No DI
+  registry is read to decide it (F-21). Registering a provider, `str` included, therefore changes the
+  verdict of **no other** parameter: `p: str` and `Annotated[str, Option()]` stay caller inputs
+  (UC-6).
+  - **The one availability rule.** A parameter whose kind is `INJECTED` through `Provide("q")` or
+    as an unmarked class that is not a value type has one dependency of its own: its declared type
+    together with its qualifier (`None` for an unmarked class).
+    - If a provider is registered for **exactly** that pair, the verdict is `INJECTED`.
+    - Otherwise it is `REJECTED_DISCOVERY` (B-8, B-9, DC-1).
+    - "Exactly" means the pair that resolution would use. A type registered only under other
+      qualifiers does not satisfy an unqualified dependency, because resolving it is ambiguous
+      (F-21).
+  - **Where and when it applies.** This rule is the only registry input to any verdict. It is
+    applied once per boot, after plugins have registered their providers, and identically on cold
+    and warm boots (B-7). It is never cached, because the cache holds only the declaration-derived
+    contract.
+  - **What it does not cover.** The 15 capability types and `FromJob(...)` are always `INJECTED`.
+    Their values come from the engine and from another job, not from a registered provider.
+  - The page's source: §5.1 "`INJECTED` … an unmarked class that is not a value type (a provider
+    must exist, otherwise `REJECTED_DISCOVERY`)", and the reject list "an unmarked class with no
+    registered provider (C085, C087, E138, H166)". Both sit beside "Never from what the DI registry
+    happens to hold (F-21)", which §7 scopes as "F-21: kind is decided from the declaration only".
 - **B-3.** These types are caller-supplied scalars: `str`, `int`, `float`, `bool`, `Path`, `UUID`,
   `date`, `datetime`, `time`, `timedelta`, `Decimal`, and any `Enum`. Each is also caller-supplied
   when wrapped in `Optional[T]` or `T | None`.
@@ -121,7 +141,8 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
   - positional-only parameters;
   - two CLI markers on one parameter;
   - a CLI marker on a type nothing converts;
-  - an unmarked class with no registered provider;
+  - an unmarked class, or an `Annotated[T, Provide("q")]`, with no provider registered for its own
+    type and qualifier (B-2's availability rule; page rows C085, C087, E138, H166);
   - config fields of an unsupported type (`dict`, nested model; F-29, the refusal
     `docs/guides/job-config.md:47` already documents).
 - **B-9 (DC-1).** A `REJECTED_DISCOVERY` verdict is reported with a warning naming the file, the job,
@@ -339,3 +360,10 @@ publishes no inputs for it; and this holds on cold and warm boots alike (F-33).
 **Revised by Plan's architecture gate,** in two places marked *(revised in Plan)*: S-1 (B-21) and S-2
 (B-23). The revisions are re-confirmed with the task list before Execute (`plan.md` § *Spec
 revisions*).
+
+**Revised in Execute (2026-11-22),** in one place marked *(revised in Execute)*: B-2, with B-8's
+provider item worded to match. Wave 1 found that the old B-2 ("it never depends on what the DI
+registry holds") contradicted B-8 ("an unmarked class with no registered provider" is refused) and
+the page's §5.1 `INJECTED` row. The revision resolves that contradiction in the page's own terms: kind
+comes from the declaration, plus one availability rule. It does not overrule the page.
+The revision is reported to the member with the corrected task list (`plan.md` § *Spec revisions*).

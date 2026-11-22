@@ -54,6 +54,9 @@
   - **Verified mechanically** with `matrix/anchor_check.py` over every task's `Input:` block: 32
     tasks, 0 inputs outside the new anchor (16 outside the old one). Re-run after task 1.2 was added:
     33 tasks, 0 outside the new anchor (17 outside the old).
+- **B-2's availability rule (2026-11-22, wave 1):** spec revision S-3 (§*Spec revisions*). Kind
+  comes from the declaration. A parameter's own provider decides only between `INJECTED` and
+  `REJECTED_DISCOVERY`, through `admit`. The declaration table is corrected for ten rows in task 1.1.
 - **The substrate status set (2026-11-22, after wave 0):** `runs.status` widens through revision 6
   (§*The substrate status set*). The persisted set stays `RunStatus` as-is, per data-model §1.2, and
   is owned by new task 1.2. Plugin package tests run separately in every gate that touches `plugins/**`
@@ -200,6 +203,21 @@ older.
   (`data-flow.md` §2). `spec.md` B-23 now says binding governs every value **a surface supplies**,
   and in-process hooks keep their documented power. That is a plugin's decision, not a caller's.
 - **DC-1 recorded as decided** (B, comment `01a2012e`).
+- **S-3 · B-2 contradicted B-8 and the page (found in Execute, wave 1; revised 2026-11-22).**
+  - **The contradiction.** The old B-2 said the verdict "never depends on what the DI registry
+    holds". B-8 and page §5.1 refuse "an unmarked class with no registered provider (C085, C087,
+    E138, H166)", and the page's `INJECTED` row says "a provider must exist, otherwise
+    `REJECTED_DISCOVERY`".
+  - **The page is not self-contradictory.** It scopes its "never from what the DI registry happens
+    to hold" to *kind* ("F-21: kind is decided from the declaration only").
+  - **The revision.** B-2 now says: kind comes from the declaration, plus one availability rule.
+    - The rule checks the parameter's own `(type, qualifier)`, matched exactly.
+    - It is applied once per boot after plugins register, cold and warm alike, and never cached.
+    - Capabilities and `FromJob` are outside it.
+  - **Where it lives.** A pure `admit(contract, has_provider)` beside `build_contract` (task 1.1),
+    called at boot (task 2.1) and read at the door (task 5.1).
+  - **The table.** It is corrected for the ten rows that encoded today's measurement or an undecided
+    provider case (`matrix/evidence/table-corrections.txt`).
 
 ## AFTER
 

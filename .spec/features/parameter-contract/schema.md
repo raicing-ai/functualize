@@ -52,7 +52,8 @@ class Injection:                           # verdict INJECTED only
     capability: str | None = None          # one of INJECTED_PARAM_TYPE_NAMES
     qualifier: str | None = None           # Provide("q")
     from_job: str | None = None            # FromJob target name
-    provider_type: str | None = None       # an unmarked class resolved by type; availability is checked at the door
+    provider_type: str | None = None       # the declared type's qualified name, for Provide("q") AND an unmarked class;
+                                           # with `qualifier`, the one dependency B-2's availability rule checks
 
 
 @dataclass(frozen=True)
@@ -72,8 +73,18 @@ class ParameterContract:
 
 ## Invariants (asserted by the contract's own unit tests, task 1.1)
 
-1. **Exactly one verdict per parameter,** and it is a function of the declaration only. The builder
-   receives no DI registry (spec B-2).
+1. **Exactly one verdict per parameter.** `build_contract` decides it from the declaration only and
+   receives no DI registry (spec B-2). One pure function, `admit(contract, has_provider)`, applies
+   B-2's availability rule.
+   - It returns the contract unchanged, unless the contract is `INJECTED` through `Provide` or an
+     unmarked class and `has_provider(provider_type, qualifier)` is false. Then it returns a
+     `REJECTED_DISCOVERY` contract whose `reject_reason` names the type, the qualifier and the
+     remedy.
+   - `has_provider` is a predicate the caller builds from the boot's registry. The primitive never
+     imports the registry.
+   - Capability and `FromJob` contracts are never changed.
+   - The cache stores the contract **before** `admit`, so availability is re-decided on every boot
+     (B-7).
 2. **`json_schema` is derived from `shape`** by one function. No surface derives a JSON type any other
    way (B-20).
 3. **`default_json` round-trips through `cache.json` unchanged.** A cold descriptor and a warm one

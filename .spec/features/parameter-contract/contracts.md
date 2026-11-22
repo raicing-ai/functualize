@@ -31,7 +31,8 @@ def deploy(
 | `Annotated[list[T], Arg()]` | `ACCEPTED_POSITIONAL`, variadic | `list[T]` |
 | `Annotated[T, Option(...)]`, `Annotated[T, Arg()]`, `Annotated[T, Stdin()]` | as marked | `T` |
 | `dict[str, T]`, `set[T]`, fixed `tuple[A, B, …]` of the scalars above | `INVOCATION_ONLY` | `dict` / `set` / `tuple` |
-| one of the 15 capability types (bare or `\| None`), `Annotated[T, Provide("q")]`, `FromJob(...)`, an unmarked class with a registered provider | `INJECTED` | the engine's value, never the caller's |
+| one of the 15 capability types (bare or `\| None`), `FromJob(...)`; `Annotated[T, Provide("q")]` or an unmarked class, **with** a provider registered for exactly its type and qualifier (spec B-2) | `INJECTED` | the engine's value, never the caller's |
+| `Annotated[T, Provide("q")]` or an unmarked class with **no** provider for exactly its type and qualifier | `REJECTED_DISCOVERY` (decided per boot; never cached) | — (DC-1) |
 | a field of a `BaseModel` parameter, of a supported type | `CONFIG_FIELD` | resolved CLI → env → file → `.env` → default |
 | anything on the reject list (`spec.md` B-8) | `REJECTED_DISCOVERY` | — (see §8 and DC-1) |
 

@@ -1,0 +1,25 @@
+$ git rev-parse --short HEAD
+b5f588bc
+$ python3 .spec/features/parameter-contract/matrix/table_diff.py   # report.py corrected; the table is corrected by task 1.1
+C081  'p: tuple[str, int]'                              table: REJECTED_DISCOVERY / 'REJECTED_DISCOVERY'  ->  INVOCATION_ONLY
+      because B-5: INVOCATION_ONLY for fixed tuple[A, B, ...] (D5 = B')
+C082  'p: dict[str, str]'                               table: REJECTED_DISCOVERY / 'REJECTED_DISCOVERY'  ->  INVOCATION_ONLY
+      because B-5: INVOCATION_ONLY for dict[str, T] (D5 = B')
+C083  'p: dict[str, str] = {}'                          table: REJECTED_DISCOVERY / 'REJECTED_DISCOVERY'  ->  INVOCATION_ONLY
+      because B-5: INVOCATION_ONLY for dict[str, T]; has a default, so not required
+C084  'p: set[str]'                                     table: REJECTED_DISCOVERY / 'REJECTED_DISCOVERY'  ->  INVOCATION_ONLY
+      because B-5: INVOCATION_ONLY for set[T] (D5 = B')
+D105  'p: Annotated[Widget, Option()] = None'           table: ACCEPTED_FLAG / 'ACCEPTED_FLAG'  ->  REJECTED_DISCOVERY
+      because B-8: 'a CLI marker on a type nothing converts'; Widget is not a B-3 scalar (D104 is the same clause)
+E138  'p: Annotated[Widget, Provide("w")]'              table: REJECTED_DISCOVERY / 'INJECTED with a provider; else REJECTED_DISCOVERY'  ->  REJECTED_DISCOVERY
+      because B-2 availability: declared INJECTED; no provider for (Widget, 'w') -> B-8 provider item
+E139  'p: Annotated[str, Provide("s")]'                 table: REJECTED_DISCOVERY / 'INJECTED with a provider; else REJECTED_DISCOVERY'  ->  REJECTED_DISCOVERY
+      because B-2 availability: declared INJECTED; no provider for (str, 's') -> B-8 provider item
+F150  'p: Cfg_{rid}'                                    table: CONFIG_FIELD / 'CONFIG_FIELD (file/env rungs only, no flag)'  ->  REJECTED_DISCOVERY
+      because B-8: 'config fields of an unsupported type (dict, nested model; F-29)'; AC-4
+F151  'p: Cfg_{rid}'                                    table: CONFIG_FIELD / 'CONFIG_FIELD (file/env rungs only, no flag)'  ->  REJECTED_DISCOVERY
+      because B-8: 'config fields of an unsupported type (dict, nested model; F-29)'; AC-4
+H165  'p: Annotated[str, Provide("s2")]'                table: INJECTED / 'INJECTED'  ->  REJECTED_DISCOVERY
+      because B-2 availability: no (str, 's2') provider in the matrix registry (only with PC_STR_PROVIDER=1) -> B-8 provider item
+10 rows differ; verdicts: {'ACCEPTED_FLAG': 77, 'ACCEPTED_POSITIONAL': 19, 'CONFIG_FIELD': 8, 'INJECTED': 35, 'INVOCATION_ONLY': 4, 'REJECTED_DISCOVERY': 23}; total 166
+exit 1
