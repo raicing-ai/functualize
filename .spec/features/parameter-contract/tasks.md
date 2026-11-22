@@ -482,7 +482,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     those three files in `[F]`.
 - **Depends on:** 1.1.
 
-### [ ] 2.2 Config and group fields get contracts; the config-type refusal runs (F-29)
+### [x] 2.2 Config and group fields get contracts; the config-type refusal runs (F-29)
 
 - **Input:** 1.1. `validate_job_config_types` executed 0 of 42 statements under `func`
   (`cov_census.txt`).
@@ -495,6 +495,37 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - An unsupported config field type (`dict`, nested model) becomes a `REJECTED_DISCOVERY` contract
     on every boot path.
 - **Gate/evidence:** `uv run pytest tests/discovery/test_config_field_contracts.py tests/group_options/test_group_options_discovery.py`. Rows F150 and F151 are reported, not run.
+- **Execute evidence (2026-11-22):**
+  - `extract_field_descriptors` gives each config field `build_field_contract` (`CONFIG_FIELD`, or a
+    refusal for `dict` and nested models). `extract_group_options_fields` replaces it with the
+    group-level `ACCEPTED_FLAG` contract.
+  - The refusal is reported through 2.1's boot step. That step walks `config_fields` since the 2.1
+    follow-up commit, and it is the one place that decides availability. `validate_job_config_types`
+    (`_config/job_config.py`, outside `[F]`) is not wired: the contract is now the refusal, on every
+    boot path.
+  - Gate → 48 passed. F143–F152 get their verdicts in both annotation modes; G160 and G161 are
+    group-level flags. Field contracts survive the cache codec. Through the real `func builtin info
+    --json`, cold and then warm, F150 and F151 each appear exactly once as `UnsupportedParameter`
+    naming their file, with the warning on stderr. No other config row is reported, and both jobs
+    stay listed. The test never runs them; the door that refuses a run is 5.1.
+  - **Found by the existing suite, fixed in scope:**
+    `tests/config/test_descriptor_cache_fidelity.py::…::test_a_secret_default_is_never_written_to_the_cache`.
+    A plain `str` field marked `json_schema_extra={"secret": True}` had its default encoded into
+    `contract.default_json`, and from there into the cache. The classifier sees only the `Secret`
+    type. Both extractors now drop a secret-marked default from the contract
+    (`schema_extractor.without_secret_default`), and a new test covers config and group fields. For
+    the reviewer: `build_field_contract` itself cannot see `json_schema_extra`, so any future caller
+    must apply the same rule.
+  - Wave tier: `tests/discovery tests/group_options tests/config tests/app tests/integration
+    tests/core tests/tui_group_options` → 4159 passed. The only failures are 2.1's three known
+    double-report tests. `tests/_cli tests/cli` → 3306 passed.
+  - **Reachability:** `func <job>` → `CachedDirectoryScanProvider` → descriptor `config_fields` via
+    `extract_field_descriptors` → `report_unsupported_parameters` at boot.
+  - **Sabotage, after committing the change (before this evidence was amended in):**
+    - `contract=None` in `extract_field_descriptors` failed 23 of 39.
+    - Walking only `descriptor.parameters` at boot (reverting the 2.1 follow-up) failed the cold/warm
+      `func` report test.
+    - Each was restored with `git checkout --`, and the tree was clean.
 - **Depends on:** 1.1.
 
 ### [ ] 2.3 `bind`

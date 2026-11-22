@@ -7,14 +7,18 @@ cache storage and lazy command wrapper reconstruction.
 
 from __future__ import annotations
 
+import dataclasses
 import enum
 import types
 from typing import TYPE_CHECKING, Any, get_args, get_origin
 
+from functualize._primitives.parameter_contract import build_field_contract
 from functualize._types.descriptors import FieldDescriptor
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
+
+    from functualize._types.parameter_contract import ParameterContract
 
 # JSON schema type → FieldDescriptor type string
 _JSON_SCHEMA_TYPE_MAP: dict[str, str] = {
@@ -43,6 +47,7 @@ def extract_field_descriptors(
     schema = config_class.model_json_schema()
     required_fields = set(schema.get("required", []))
     properties = schema.get("properties", {})
+    model_fields = getattr(config_class, "model_fields", {})
     fields: list[FieldDescriptor] = []
 
     for name, prop in properties.items():
@@ -72,10 +77,42 @@ def extract_field_descriptors(
                 # marker exists because the *consumer* cannot tell: a warm boot
                 # sees one `config_fields` list that may hold either kind.
                 from_config_model=True,
+                # A config field's verdict (spec B-1): `CONFIG_FIELD`, or a
+                # refusal for a type no config source can supply (F-29).
+                contract=_field_contract(name, model_fields, secret=secret),
             )
         )
 
     return fields
+
+
+def _field_contract(
+    name: str, model_fields: dict[str, Any], *, secret: bool
+) -> ParameterContract | None:
+    """The field's contract, or None for a property no model field declares."""
+    info = model_fields.get(name)
+    if info is None:  # an alias-keyed property: no field of that name
+        info = next(
+            (f for f in model_fields.values() if getattr(f, "alias", None) == name),
+            None,
+        )
+    if info is None:
+        return None
+    return without_secret_default(build_field_contract(name, info), secret=secret)
+
+
+def without_secret_default(
+    contract: ParameterContract, *, secret: bool
+) -> ParameterContract:
+    """Drop a secret field's default from its contract, as from its descriptor.
+
+    The cache is a file on disk. ``json_schema_extra={"secret": True}`` marks a
+    plain ``str`` field secret, which the classifier cannot see from the type,
+    so the default ``_serialize_default`` already drops is dropped here too.
+    """
+    if not secret or contract.required:
+        return contract
+    return dataclasses.replace(contract, default_json=None)
 
 
 def _map_json_schema_type(
