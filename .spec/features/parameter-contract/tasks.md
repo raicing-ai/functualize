@@ -30,6 +30,11 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     Measured on `21c4bb81`: 11 of 12 packages green, and the substrate red at
     `tests/test_migrations.py::test_each_status_check_equals_its_machines_state_set[runs-machine1]`
     (`matrix/evidence/plugin-suites-21c4bb81.txt`).
+- **Every wave barrier also runs the whole root suite.** Run `uv run pytest tests -q -n auto`;
+  when one invocation would exceed the 600-second call cap, partition `tests/` into disjoint
+  foreground chunks that cover every root test file exactly once, and report each command and
+  result. This catches cross-package fallout that neither a task's narrow gate nor the plugin
+  loop sees. A wave does not complete while any root or plugin chunk is red.
 - **Every task's gate also includes** `uv run lint-imports` (baseline "7 kept, 0 broken"), plus
   `uv run ruff check`, `ruff format --check` and `mypy src/` on the files it touches.
 
