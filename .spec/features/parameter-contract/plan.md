@@ -52,7 +52,12 @@
     tasks are written against, while Verify mandates reading two of them (`spec.md` and
     `contracts.md`, `agentic-verify.md` steps 2 and 2b).
   - **Verified mechanically** with `matrix/anchor_check.py` over every task's `Input:` block: 32
-    tasks, 0 inputs outside the new anchor (16 outside the old one).
+    tasks, 0 inputs outside the new anchor (16 outside the old one). Re-run after task 1.2 was added:
+    33 tasks, 0 outside the new anchor (17 outside the old).
+- **The substrate status set (2026-11-22, after wave 0):** `runs.status` widens through revision 6
+  (§*The substrate status set*). The persisted set stays `RunStatus` as-is, per data-model §1.2, and
+  is owned by new task 1.2. Plugin package tests run separately in every gate that touches `plugins/**`
+  and at every wave barrier (§*Plugin package tests*).
 
 Workflow mode: repository-native (`.claude/rules/spec-workflow.md`). Phase: Plan, steps 1–10. Step 11
 (the task review with the member) follows this file. `.spec/STATE.md` is absent: no work in flight.
@@ -306,6 +311,95 @@ mapped once in each family:
 
 `REFUSED` keeps its meaning. 400 rather than 422: the request is wrong as a request, which is the
 meaning the page's §5.6 examples already used.
+
+### The substrate status set (decided 2026-11-22, after wave 0)
+
+**The finding.** Task 0.2 added `RunStatus.INVALID`. The SQLite substrate's `runs.status` column is
+a `CHECK` list frozen in `0001_runtime_schema.sql` that does not contain `'invalid'`. The engine
+opens the run row before it binds arguments (`executor.py:973`, binding at `:1393-1486`), so an
+`INVALID` run **is** persisted and would fail the `CHECK` on every refused call. The substrate's own
+invariant test caught this, but wave 0's gate never ran it (see *Plugin package tests* below):
+`test_migrations.py::test_each_status_check_equals_its_machines_state_set[runs-machine1]` is red on
+`21c4bb81`, with 1 failure and 225 passing (`plugin-suites-21c4bb81.txt`).
+
+**Decision: widen `runs.status` with a new revision 6. Do not split the runtime set from the
+persisted set.** The citation is the substrate's own rules, in
+`contributor/reference/runtime-persistence-data-model.md`:
+
+- §1.2: "The run machine is `RunStatus` (`_types/enums.py`), adopted as-is; only its state set is
+  derived from that enum rather than declared here, lower-cased, because the lower-cased text is what
+  the store writes."
+  - The persisted set **is** the runtime set by contract, and `test_migrations.py:312` enforces it.
+  - A split would need a second vocabulary and a mapping that hides `invalid` as some other status,
+    which is a contract change to §1.2 that this feature has no mandate for.
+  - It would also make a refused call indistinguishable in run history from whatever it is mapped
+    to, which defeats the point of DC-1 = B.
+- §7: "**Forward-only.** No down migration exists … a rollback is a new forward revision", and
+  "Revision `0001` is the one that creates the schema; every later revision is an ordered upgrade,
+  and the runner **refuses** on a checksum mismatch, a gap in the sequence, or a database ahead of
+  the code". `0001` is therefore not edited: its checksum is in every existing ledger. The change is
+  revision 6, and `0001`–`0005` stay byte-identical.
+
+**The migration contract.**
+
+| item | contract |
+| --- | --- |
+| revision | `6`, `_schema/0006_run_status_invalid.sql`, `SHIPPED_MIGRATIONS += _load(6, "run_status_invalid")` |
+| recipe | SQLite cannot alter a `CHECK`, so the table is rebuilt in seven statements. (1) drop trigger `run_tags_fixed_on_delete`, whose body names `runs`. (2) `CREATE TABLE runs_rebuild`, identical to `0001`'s `runs` with `'invalid'` added to the `CHECK`. (3) `INSERT … SELECT` naming every column. (4) `DROP TABLE runs`. (5) `ALTER TABLE runs_rebuild RENAME TO runs`. (6) the four `runs_*` indexes, with `0001`'s text. (7) the trigger, with `0005`'s text. |
+| foreign keys | The revision is applied with `foreign_keys=OFF`, set **outside** its batch, then `PRAGMA foreign_key_check`, then `ON` again. A violation is a `MigrationRefused` with repair steps. The revision declares the need on its first line (`-- migration: foreign-keys-off`, spelling provisional), and the driver gains that one capability as a separate protocol (`LocalSqliteDriver` is the only `SqlDriver`). A driver without it is refused, never applied with foreign keys on. |
+| partial-state check | `_check_objects` stops expecting a name the same revision renames away (`runs_rebuild`) |
+| ledger | One row, `(6, 'run_status_invalid', sha256(sql))`, written in the same batch as the rebuild, as for every revision. A crash leaves both or neither. |
+| existing databases | Upgraded at boot step 6.5, losslessly: every run, attempt, event, artifact reference and tag is kept. A fresh database goes empty → 6. |
+| downgrade | A revision-5 build meeting a revision-6 database refuses at boot ("ledger ahead of the shipped set", today's rule). Going back means a backup taken before the upgrade. This is recorded in `CHANGELOG.md` (task 11.1). |
+| `_legacy_source.py` | `_ATTEMPT_FOR_RUN["invalid"] = "failed"`, the same projection as `refused`: nothing ran. A legacy document store containing an `invalid` run imports instead of raising `KeyError`. |
+| doc | §7 is updated to revisions `0001` → `0006` and the foreign-keys rule. Its stale "empty → `0004`" (lines 574, 589) is corrected. |
+
+**Why the runner must change, not only the SQL (measured, `rev6-experiment.txt`, `rev6_experiment.py`,
+on a populated revision-5 database built by the plugin's own `migrate()`):**
+
+- **Rebuild with the trigger left in place:** refused by SQLite: `error in trigger
+  run_tags_fixed_on_delete: no such table: main.runs`. Hence steps (1) and (7).
+- **Trigger-aware rebuild with foreign keys ON (how the runner applies every revision today):** it
+  applies **without error**, and then:
+  - `run_attempts`, `run_events`, `artifact_refs` and `run_tags` go from 1 row each to **0**, removed
+    by `ON DELETE CASCADE` when `DROP TABLE runs` runs;
+  - `foreign_key_check` is empty and `integrity_check` is `ok`, so nothing would notice.
+
+  This is silent data loss, and the reason the foreign-key capability is in the contract and not left
+  to the implementer.
+- **Trigger-aware rebuild with foreign keys OFF outside the batch** (SQLite's documented 12-step
+  `ALTER TABLE` procedure): every row is kept, `foreign_key_check` is empty, `invalid` is insertable,
+  and the `run_tags` triggers fire again.
+- **The runner's partial-state regex** (`_CREATED`) on this revision finds `runs_rebuild`, which no
+  longer exists after the rename. Without the subtraction, the **next** boot refuses a correctly
+  migrated database.
+
+**Owner: a new task, 1.2, in wave 1 beside 1.1 — not a reopened 0.2.**
+
+- The fallout is 0.2's, but 0.2 is ticked and accepted, and its `[F]` is `_types/`.
+- The fix is a different package (`plugins/substrates/…`), with its own migration, runner change,
+  driver capability, tests and doc.
+- Folding it into 0.2 would reopen an accepted task to add a persistence change to it. As its own
+  task it has its own `[F]`, and its own gate that runs the substrate suite.
+- Its files are disjoint from 1.1's, so wave 1 stays parallel. Every later wave's plugin loop then
+  includes a green substrate.
+
+### Plugin package tests (decided 2026-11-22, after wave 0)
+
+The root suite does not run plugin tests. `testpaths = ["tests"]` (`pyproject.toml:185`), and one
+invocation cannot collect both the root and a plugin `tests` package:
+`ImportPathMismatchError: ('tests.conftest', '<worktree>/tests/conftest.py', …/functualize-mcp/tests/conftest.py)`,
+measured on `21c4bb81`.
+
+The rule, written into `tasks.md`'s header:
+
+- a task whose `[F]` touches `plugins/<group>/<package>/**` runs that package's tests as **its own**
+  invocation;
+- every wave barrier, and the checkpoint, runs all 12 packages one by one:
+  `for d in plugins/*/*/tests; do uv run pytest "$d" -q || exit 1; done`.
+
+Gates changed: 0.4 (retroactive line, already green), 7.1, 9.3, 10.1, 12.1, and the new 1.2. 7.2 already ran
+`plugins/domains/functualize-ai/tests` on its own.
 
 ## Risks
 

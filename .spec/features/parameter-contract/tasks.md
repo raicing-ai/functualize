@@ -17,6 +17,19 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     `contract.display` where a human needs a type label, and the contract's fields
     (`verdict`, `shape`, `cli`) where behaviour depends on it.
   - Waves 9 and 10 remove what is left, and 10.1 deletes the field.
+- **Plugin package tests run separately (2026-11-22).** The root `tests` package and each plugin's
+  own `tests` package cannot be collected in one pytest invocation (`ImportPathMismatchError`), and
+  the root suite (`testpaths = ["tests"]`) runs none of them. Wave 0's gate therefore covered no
+  plugin test, and missed a substrate failure caused by 0.2. Two rules follow:
+  - a task whose `[F]` touches `plugins/<group>/<package>/**` runs
+    `uv run pytest plugins/<group>/<package>/tests` as **its own invocation** in its gate, never
+    combined with root test paths;
+  - **every wave barrier** runs every plugin package separately, because fallout can be indirect
+    (0.2 changed only `_types/` and broke the substrate):
+    `for d in plugins/*/*/tests; do uv run pytest "$d" -q || exit 1; done`.
+    Measured on `21c4bb81`: 11 of 12 packages green, and the substrate red at
+    `tests/test_migrations.py::test_each_status_check_equals_its_machines_state_set[runs-machine1]`
+    (`matrix/evidence/plugin-suites-21c4bb81.txt`).
 - **Every task's gate also includes** `uv run lint-imports` (baseline "7 kept, 0 broken"), plus
   `uv run ruff check`, `ruff format --check` and `mypy src/` on the files it touches.
 
@@ -121,7 +134,11 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **[F]:** `plugins/adapters/functualize-lambda/src/functualize_lambda/__init__.py`.
 - **Work:** the docstrings describe `{"job": …, "arguments": {…}}`. No code change: the envelope
   already reads `arguments` (`run_request.py:343`).
-- **Gate/evidence:** `rg -n '"kwargs"' plugins/adapters/functualize-lambda/src` → 0 hits (today 4).
+- **Gate/evidence:**
+  - `rg -n '"kwargs"' plugins/adapters/functualize-lambda/src` → 0 hits (today 4);
+  - `uv run pytest plugins/adapters/functualize-lambda/tests` (its own invocation). This line was
+    added 2026-11-22 under the plugin-package rule, after the task was ticked. Run on `21c4bb81`:
+    59 passed (`plugin-suites-21c4bb81.txt`). The tick stands.
 - **Depends on:** none.
 
 ### [x] 0.5 One import environment for every command (F-30)
@@ -168,6 +185,88 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - `wc -l src/functualize/_primitives/parameter_contract.py` ≤ 500;
   - `lint-imports` "Primitives import nothing internal" KEPT.
 - **Depends on:** 0.1, 0.3.
+
+### [ ] 1.2 The SQLite substrate stores `invalid`: revision 6, and a runner that can rebuild a table safely
+
+- **Input:**
+  - `plan.md` § *The substrate status set*;
+  - `matrix/evidence/rev6-experiment.txt`, `matrix/evidence/plugin-suites-21c4bb81.txt`,
+    `matrix/evidence/substrate-version-pins.txt`;
+  - `contributor/reference/runtime-persistence-data-model.md` §1.2 (the run machine is `RunStatus`
+    "adopted as-is") and §7 (migration discipline).
+- **[F]** (all under `plugins/substrates/functualize-substrate-sqlite/` unless stated):
+  - `src/functualize_substrate_sqlite/_schema/0006_run_status_invalid.sql` (new);
+  - `src/functualize_substrate_sqlite/_migrations.py`;
+  - `src/functualize_substrate_sqlite/_driver.py`;
+  - `src/functualize_substrate_sqlite/_legacy_source.py`;
+  - `tests/test_migrations.py`, `tests/test_runtime_store.py`, `tests/test_gate_interactions_sql.py`,
+    `tests/test_legacy_import.py`, `tests/test_driver.py`;
+  - `contributor/reference/runtime-persistence-data-model.md` (repository root).
+- **Work, the recipe** (`plan.md` § *The substrate status set*):
+  - **Revision 6, `0006_run_status_invalid.sql`, contains, in order:**
+    1. `DROP TRIGGER run_tags_fixed_on_delete`. Its body names `runs`, and modern SQLite refuses the
+       rename in step 5 while it exists: `error in trigger run_tags_fixed_on_delete: no such table:
+       main.runs` (measured).
+    2. `CREATE TABLE runs_rebuild (…)`, identical to `0001`'s `runs` except that the status `CHECK`
+       adds `'invalid'`.
+    3. `INSERT INTO runs_rebuild SELECT … FROM runs`, naming every column.
+    4. `DROP TABLE runs`.
+    5. `ALTER TABLE runs_rebuild RENAME TO runs`.
+    6. The four `runs_*` indexes, recreated with `0001`'s exact text.
+    7. `run_tags_fixed_on_delete`, recreated with `0005`'s exact text.
+  - **The revision is applied with foreign keys off.** This is the measured reason: with them on, the
+    same SQL applies **without error** and silently cascades away every `run_attempts`,
+    `run_events`, `artifact_refs` and `run_tags` row. `foreign_key_check` and `integrity_check` then
+    report clean, because the children are gone (`rev6-experiment.txt`).
+    - `PRAGMA foreign_keys` is a no-op inside a transaction, so the runner sets it **outside** the
+      revision's batch. A revision declares the need with a first-line marker,
+      `-- migration: foreign-keys-off` (spelling provisional).
+    - The driver gets one capability for it, as a separate protocol checked by the runner, not a
+      new `SqlDriver` member (`_driver.py:72`). `LocalSqliteDriver` (`_driver.py:90`) is the only
+      implementation. A driver without the capability gets `MigrationRefused` for such a revision,
+      never a silent foreign-keys-on apply. `tests/conformance/sqlite_hooks.py`'s `_FaultingDriver`
+      wraps a store's driver after migration and is unaffected.
+    - After the batch, the runner runs `PRAGMA foreign_key_check`, restores `foreign_keys=ON`, and on
+      any violation raises `MigrationRefused` with repair steps (restore from a backup).
+  - **The partial-state check** (`_check_objects`) subtracts the names a revision renames away
+    (`ALTER TABLE <x> RENAME TO <y>` ⇒ `<x>` is not expected on disk). Otherwise the next boot
+    refuses, because `_CREATED` finds `runs_rebuild` (measured).
+  - **`SHIPPED_MIGRATIONS`** gains `_load(6, "run_status_invalid")`. `0001`–`0005` stay
+    byte-identical, so their checksums still match every existing ledger.
+  - **The legacy import map** `_ATTEMPT_FOR_RUN` gains `"invalid": "failed"`, following the
+    precedent `"refused": "failed"`: nothing ran in either case.
+  - **The data-model doc.** §7 names revisions `0001` → `0006` and the foreign-keys-off rule. Its
+    stale "empty → `0004`" sentences are corrected to the shipped state.
+- **Version pins that move, in this task's tests** (census `substrate-version-pins.txt`, 13 hits):
+  - `migrate(driver) == 5` becomes `== 6` at `test_migrations.py:85,157,217,278,390,438` and
+    `test_gate_interactions_sql.py:182`;
+  - the test names at `test_migrations.py:82` and `test_runtime_store.py:51` (and that test's
+    `[(5,)]`) name version 6 and six ledger rows;
+  - `test_migrations.py:430` (revision 5 additive, revision 4 a rollback target) and `:441`/`:449`
+    (an applied revision 5 whose table is gone) keep testing revision 5, from a ledger stopped at
+    5; only their "migrate to head" expectations move to 6;
+  - the remaining two hits are not version pins and stay: `test_readers.py:294` (a count of views),
+    `test_import_cli.py:120` (an exit code);
+  - the data-model doc's stale "empty → `0004`" (`runtime-persistence-data-model.md:574,589`) is
+    corrected in the same task.
+- **Tests to add** (the doc's "start from every supported historical schema"):
+  - empty → 6, with six ledger rows;
+  - a **populated** revision-5 database → 6, with every run, attempt, event, artifact reference and
+    tag preserved, compared row for row. This is the regression test for the cascade trap;
+  - `invalid` insertable after 6, and `run_tags` triggers still firing;
+  - a revision-6 database whose `runs` lacks `invalid` in its `CHECK` refused as partial state;
+  - `_check_objects` accepting a rename;
+  - the legacy import of an `invalid` run.
+- **Rollback consequence (stated, not hidden):** revision 5 is no longer a rollback target. A
+  revision-5 build meeting a revision-6 database refuses at boot ("ledger ahead of the shipped set",
+  today's rule). `CHANGELOG.md` (task 11.1) records it.
+- **Gate/evidence:**
+  - `uv run pytest plugins/substrates/functualize-substrate-sqlite/tests` (its own invocation) →
+    green, including `test_each_status_check_equals_its_machines_state_set[runs-machine1]`, red today;
+  - `git diff 21c4bb81 -- plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_schema/000[1-5]*.sql`
+    → empty;
+  - the plugin-package loop (wave barrier) → all green.
+- **Depends on:** 0.2 (`RunStatus.INVALID`, committed in `7a610a7d`).
 
 ## Wave 2 — discovery writes contracts; the binder exists
 
@@ -418,7 +517,8 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **Gate/evidence:**
   - `rg -n 'exec\(fn_source' plugins/adapters/functualize-mcp/src` → 0 (today 1);
   - kit: `func mcp serve` starts with G156 present, and every `tools/call` row agrees with HTTP;
-  - `uv run pytest plugins/adapters/functualize-mcp/tests/ tests/plugins/test_mcp_translator.py tests/plugins/test_mcp_translation_properties.py tests/plugins/test_mcp_tools.py`.
+  - `uv run pytest plugins/adapters/functualize-mcp/tests` (its own invocation), then
+    `uv run pytest tests/plugins/test_mcp_translator.py tests/plugins/test_mcp_translation_properties.py tests/plugins/test_mcp_tools.py`.
 - **Depends on:** 6.1.
 
 ### [ ] 7.2 The AI `ToolScope` reads the one schema (spec revision S-1)
@@ -593,7 +693,9 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
   - The two plugin conftests build descriptors with `contract=`.
 - **Gate/evidence:**
   - `rg -n -w type_annotation` over these 7 files → 0;
-  - `uv run pytest tests/cli/test_introspector.py tests/types/ plugins/adapters/functualize-mcp/tests/`.
+  - `uv run pytest tests/cli/test_introspector.py tests/types/`; then, as separate invocations,
+    `uv run pytest plugins/adapters/functualize-mcp/tests` and the plugin-package loop, because
+    `plugins/conftest.py` is shared by every plugin package.
 - **Depends on:** 8.1, 8.2.
 
 ## Wave 10 — `type_annotation` is deleted (SS-3 = B)
@@ -612,7 +714,8 @@ field, and the wave is complete when the whole suite is green with it gone.
   - `rg -n -w type_annotation src plugins -g '*.py' -g '!**/tests/**'` → 0 (today 72 occurrences in
     27 files);
   - after 10.2–10.4: `rg -l -w type_annotation tests plugins -g '*.py'` → 0 (today 53);
-  - `uv run pytest` (the full suite, at the end of the wave).
+  - `uv run pytest` (the root suite, at the end of the wave), **and** the plugin-package loop
+    `for d in plugins/*/*/tests; do uv run pytest "$d" -q || exit 1; done`.
 - **Depends on:** 9.1, 9.2, 9.3.
 
 ### [ ] 10.2 Migrate the CLI test modules
@@ -708,7 +811,8 @@ field, and the wave is complete when the whole suite is green with it gone.
 - **Work:** run every gate in `spec.md` § *Acceptance checks* from `matrix/`, cold and warm, in both
   PEP 563 modes. That includes the coverage census (0 executed statements in deleted symbols:
   vacuous, because they are gone, so the census also confirms their files no longer exist) and the
-  repository's five checks.
+  repository's five checks (`pytest` meaning the root suite **plus** the plugin-package loop
+  `for d in plugins/*/*/tests; do uv run pytest "$d" -q || exit 1; done`).
 - **Gate/evidence:** every AC row's "must show after the change" column, pasted as command plus
   output into the task record.
 - **Depends on:** all earlier tasks.
@@ -730,34 +834,21 @@ field, and the wave is complete when the whole suite is green with it gone.
 
 ```json
 {
-  "waves": [   { "id": 0, "tasks": [   "0.1",   "0.2",   "0.3",   "0.4",   "0.5" ]
-    },
-    { "id": 1, "tasks": [   "1.1" ]
-    },
-    { "id": 2, "tasks": [   "2.1",   "2.2",   "2.3" ]
-    },
-    { "id": 3, "tasks": [   "3.1" ]
-    },
-    { "id": 4, "tasks": [   "4.1",   "4.2",   "4.3" ]
-    },
-    { "id": 5, "tasks": [   "5.1",   "5.2" ]
-    },
-    { "id": 6, "tasks": [   "6.1" ]
-    },
-    { "id": 7, "tasks": [   "7.1",   "7.2",   "7.3" ]
-    },
-    { "id": 8, "tasks": [   "8.1",   "8.2" ]
-    },
-    { "id": 9, "tasks": [   "9.1",   "9.2",   "9.3" ]
-    },
-    { "id": 10, "tasks": [   "10.1",   "10.2",   "10.3",   "10.4" ]
-    },
-    { "id": 11, "tasks": [   "11.1",   "11.2" ]
-    },
-    { "id": 12, "tasks": [   "12.1" ]
-    },
-    { "id": 13, "tasks": [   "13.1" ]
-    }
+  "waves": [
+    {"id": 0, "tasks": ["0.1", "0.2", "0.3", "0.4", "0.5"]},
+    {"id": 1, "tasks": ["1.1", "1.2"]},
+    {"id": 2, "tasks": ["2.1", "2.2", "2.3"]},
+    {"id": 3, "tasks": ["3.1"]},
+    {"id": 4, "tasks": ["4.1", "4.2", "4.3"]},
+    {"id": 5, "tasks": ["5.1", "5.2"]},
+    {"id": 6, "tasks": ["6.1"]},
+    {"id": 7, "tasks": ["7.1", "7.2", "7.3"]},
+    {"id": 8, "tasks": ["8.1", "8.2"]},
+    {"id": 9, "tasks": ["9.1", "9.2", "9.3"]},
+    {"id": 10, "tasks": ["10.1", "10.2", "10.3", "10.4"]},
+    {"id": 11, "tasks": ["11.1", "11.2"]},
+    {"id": 12, "tasks": ["12.1"]},
+    {"id": 13, "tasks": ["13.1"]}
   ]
 }
 ```

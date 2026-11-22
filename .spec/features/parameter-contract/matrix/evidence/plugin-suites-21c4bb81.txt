@@ -1,0 +1,39 @@
+$ git rev-parse --short HEAD
+21c4bb81
+$ for d in plugins/*/*/tests; do echo "=== $d"; uv run pytest "$d" -q -p no:warnings 2>&1 | tail -2; done
+=== plugins/adapters/functualize-flow-viz/tests
+.........................                                                [100%]
+25 passed in 0.30s
+=== plugins/adapters/functualize-http/tests
+...............................................................          [100%]
+63 passed in 0.90s
+=== plugins/adapters/functualize-inline/tests
+..................................................                       [100%]
+50 passed in 0.32s
+=== plugins/adapters/functualize-lambda/tests
+...........................................................              [100%]
+59 passed in 0.74s
+=== plugins/adapters/functualize-mcp/tests
+.................................                                        [100%]
+33 passed in 20.67s
+=== plugins/credentials/functualize-secrets-aws/tests
+........................................................................ [100%]
+72 passed, 1 skipped in 0.47s
+=== plugins/credentials/functualize-secrets-bitwarden/tests
+.....................................................                    [100%]
+125 passed, 1 skipped in 4.52s
+=== plugins/domains/functualize-ai-pydantic/tests
+...........................                                              [100%]
+27 passed in 2.33s
+=== plugins/domains/functualize-ai/tests
+......................                                                   [100%]
+22 passed in 0.27s
+=== plugins/domains/functualize-tasks-local/tests
+...............                                                          [100%]
+15 passed in 0.95s
+=== plugins/domains/functualize-tasks/tests
+...............                                                          [100%]
+15 passed in 0.26s
+=== plugins/substrates/functualize-substrate-sqlite/tests
+FAILED plugins/substrates/functualize-substrate-sqlite/tests/test_migrations.py::test_each_status_check_equals_its_machines_state_set[runs-machine1]
+1 failed, 225 passed in 26.94s
