@@ -94,11 +94,33 @@ class ParameterContract:
 5. **Contracts are built from `resolved_hints()`** (`_types/annotations.py`), so the same module
    compiled with and without `from __future__ import annotations` yields equal contracts (B-6).
 
+6. **Every signature parameter has exactly one contract on its descriptor** *(added 2026-11-23,
+   task 3.2)*.
+   - A parameter that `parameters` lists carries its contract on its `FieldDescriptor`.
+   - A parameter that discovery keeps off `parameters` has its contract in
+     `JobDescriptor.omitted_contracts`. These are the 15 capability types, `FromJob(...)`, and a
+     `GroupOptions` injection point. The contract is the one `build_contracts` already produced.
+   - The two sets are disjoint. Their union is `build_contracts(function)` by name (`self`, `cls`,
+     `*args` and `**kwargs` excluded, as the engine excludes them).
+   - No surface reads `omitted_contracts`. The engine door (task 5.1) is its only reader. So
+     `--help`, completion, `func builtin info schema` and the MCP `inputSchema` are unchanged by it.
+
+```python
+@dataclass
+class JobDescriptor:                       # existing fields unchanged
+    ...
+    omitted_contracts: tuple[ParameterContract, ...] = ()   # contracts of signature parameters `parameters` omits
+```
+
 ## Cache encoding
 
 `FieldDescriptor` gains `contract: ParameterContract | None`. `_field_to_dict` / `_field_from_dict`
 (`_types/descriptors.py:631`, `:685`) encode it as a nested JSON object, and `CACHE_VERSION`
 (`_primitives/cache_format.py:178`, today `25`) is bumped (`pitfalls.md` §5).
+
+`JobDescriptor.omitted_contracts` *(task 3.2)* is encoded by the same contract codec, under the key
+`"omitted_contracts"`, a list in signature order. `CACHE_VERSION` goes from 26 (`cache_format.py:180`)
+to **27**, so a version-26 cache is rebuilt rather than decoded without it.
 
 **SS-3 = B** (member comment `01a201b6`, 2026-11-22T05:24:10Z): `type_annotation` is **removed**
 from `FieldDescriptor`. The codec neither writes nor reads it, nor the legacy `"type"` key

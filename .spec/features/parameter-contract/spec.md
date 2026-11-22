@@ -148,6 +148,27 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
 - **B-9 (DC-1).** A `REJECTED_DISCOVERY` verdict is reported with a warning naming the file, the job,
   the parameter declaration and the remedy, on every boot path (cold and warm, directory mode and
   library mode). What happens to the job itself is DC-1.
+  - **One report per parameter** *(ruled in Execute, wave 2, 2026-11-22)*. A parameter that carries a
+    contract is reported only through its contract: `error_type` `"UnsupportedParameter"`, on cold
+    **and** warm boots. The warm half is F-33's fix. ADR-018's `"UnsatisfiableParameter"` is not
+    emitted for it as well.
+  - **Why.**
+    - B-2 makes availability "the only registry input to any verdict".
+    - 5.1 reads that decision at the door, and "there is no second availability check".
+    - D105 refuses `Annotated[Widget, Option()]`. So ADR-018's old remedy, "annotate the parameter
+      with Arg()/Option()", is now itself refused, and cannot be the error message.
+  - **What still reports `"UnsatisfiableParameter"`** is exactly a DI error that no contract covers
+    (`contract_covers`, `_app/boot.py`):
+    1. an error on a job that has no retained descriptor (`job_registry.get_descriptors()`);
+    2. an error on a parameter whose descriptor carries no contract: the classifier-crash fallback
+       (`_discovery/providers.py:224-228`, logged; the parameter keeps today's fields);
+    3. a factory-resolution error. It names no parameter, and its type is no contract's
+       `provider_type`: a registered factory's own dependency is missing.
+
+    Its remedy reads "Register a provider for the type or correct the declaration." A function
+    registered with `register_dynamic_job` is **not** a survivor: it builds its descriptor through
+    the same extraction and retains it (`_app/impl.py:820`, `:856`). After task 3.2, a contract
+    in `JobDescriptor.omitted_contracts` covers its parameter in the same way.
 
 ### B. Command line
 

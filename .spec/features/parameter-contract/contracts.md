@@ -167,7 +167,19 @@ A warning on every boot path, naming the file, job, parameter and remedy:
 
 **DC-1 = B (decided 2026-11-22, comment `01a2012e`):** the job stays registered, and
 `func builtin info` lists it among discovery failures with `error_type` `"UnsupportedParameter"`
-*(provisional)*, next to ADR-018's `"UnsatisfiableParameter"`. Every call refuses with that message:
+*(provisional)*. That is the **only** report for a parameter that carries a contract, on cold and
+warm boots alike (`spec.md` B-9, *one report per parameter*).
+
+ADR-018's `"UnsatisfiableParameter"` remains only for a DI error no contract covers. B-9 names the
+three cases:
+
+- a job with no retained descriptor;
+- the classifier-crash fallback;
+- a factory's missing dependency.
+
+Its remedy is "Register a provider for the type or correct the declaration." The old
+"annotate … with Arg()/Option()" is retired, because D105 refuses it. Every call to a refused job
+refuses with the `UnsupportedParameter` message:
 CLI and TUI exit 2, HTTP and Lambda 400 with `status` `"Invalid"`, MCP `isError: true`, with the tool
 listed and declaring no inputs. This is identical on cold and warm boots.
 

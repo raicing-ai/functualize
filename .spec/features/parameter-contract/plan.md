@@ -54,6 +54,11 @@
   - **Verified mechanically** with `matrix/anchor_check.py` over every task's `Input:` block: 32
     tasks, 0 inputs outside the new anchor (16 outside the old one). Re-run after task 1.2 was added:
     33 tasks, 0 outside the new anchor (17 outside the old).
+- **The contract gap (2026-11-23, after wave 2):** capability and `FromJob` parameters keep no
+  contract once discovery drops them from `parameters`. They get one on the descriptor, in
+  `JobDescriptor.omitted_contracts`, through new task 3.2 (§*The contract gap*). This is neither
+  "emit them into `parameters`" nor "classify them from the live function at the door". Wave 2 also
+  ruled one availability report per parameter (`spec.md` B-9).
 - **B-2's availability rule (2026-11-22, wave 1):** spec revision S-3 (§*Spec revisions*). Kind
   comes from the declaration. A parameter's own provider decides only between `INJECTED` and
   `REJECTED_DISCOVERY`, through `admit`. The declaration table is corrected for ten rows in task 1.1.
@@ -268,8 +273,13 @@ Every wave's tasks re-run `uv run lint-imports` (the AC-13 gate).
    unit tests over the declaration table, compiled both ways for PEP 563.
 3. **Wave 2 — discovery and the binder.**
    - Discovery writes contracts for signature, config and group fields. A `REJECTED_DISCOVERY`
-     contract becomes a `DiscoveryFailure` (`error_type="UnsupportedParameter"`, next to ADR-018's
-     `UnsatisfiableParameter` at `_app/boot.py`), and the job stays registered.
+     contract becomes a `DiscoveryFailure` (`error_type="UnsupportedParameter"`), and the job stays
+     registered.
+   - **One report per parameter** (`spec.md` B-9). `report_unsupported_parameters` is the only
+     availability report for a parameter that carries a contract, cold and warm. ADR-018's
+     `UnsatisfiableParameter` (`report_unsatisfiable_jobs`, `_app/boot.py`) survives only for a DI
+     error no contract covers: a job with no retained descriptor, the classifier-crash fallback,
+     and a factory's missing dependency.
    - `bind` is written and unit-tested in isolation.
 4. **Wave 3 — CLI, completion, SmartBar, TUI.**
    - One click renderer from contracts: F-04, F-05, F-07 and F-16 close here.
@@ -282,7 +292,9 @@ Every wave's tasks re-run `uv run lint-imports` (the AC-13 gate).
 6. **Wave 5 — the engine door.**
    - `bind` replaces `unexpected_keyword_error` and `ArgValidator` at `executor.py:1393-1486`.
    - DI fills only `INJECTED` parameters, and `build_resolution_plan` reads contracts, not the
-     registry.
+     registry. The contracts are those of `parameters` (admitted, 2.1) together with
+     `JobDescriptor.omitted_contracts` (3.2), so every signature parameter has one
+     (§*The contract gap*).
    - A missing provider refuses before the call on both boot paths (F-33).
    - `BindRefusal` becomes `RunStatus.INVALID`, with a `prelude_refusal` arm (`pitfalls.md` §25).
 7. **Wave 6 — schema and MCP.**
@@ -401,6 +413,53 @@ on a populated revision-5 database built by the plugin's own `migrate()`):**
   task it has its own `[F]`, and its own gate that runs the substrate suite.
 - Its files are disjoint from 1.1's, so wave 1 stays parallel. Every later wave's plugin loop then
   includes a green substrate.
+
+### The contract gap (decided 2026-11-23, after wave 2)
+
+**The finding** (2.1's disclosure, measured on `ea688446`, `contract-gap-ea688446.txt`).
+`extract_parameters_from_signature` builds a contract for every parameter (`providers.py:104`
+`contracts = _parameter_contracts(func)`). It then drops the capability types (`:122`), `FromJob`
+(`:118`) and a `GroupOptions` injection point (`:133`) from `parameters`, and their contracts go
+with them: 30 capability rows, plus E140 and E141. 5.1 says `build_resolution_plan` "reads
+`contract.verdict`", which has no subject for them.
+
+**Decision: keep them off `parameters`, and keep their contracts on the descriptor, in
+`JobDescriptor.omitted_contracts`** (`schema.md` invariant 6), owned by new task 3.2.
+
+The two options put forward are both rejected, by the artifacts:
+
+- **Emit them into `parameters`.** Rejected, because `parameters` is what every surface reads:
+  - `providers.py:125-133` records that "for a convention job with no dedicated config class,
+    `config_fields` falls back to `parameters`, and an injection point left here leaks into every
+    surface that reads config_fields (completion did — the parity harness caught it)";
+  - the readers that would exclude an `INJECTED` entry by verdict land in waves 3 to 7 (3.1, 4.1,
+    6.1, 7.1), and 5.1 sits in wave 5. So until the last of them lands, info, MCP and every
+    `config_fields` reader would see `ctx: RunContext` as an input;
+  - published-surface behaviour would change, against B-17 and B-22, and only to give the engine a
+    record.
+- **Classify them from the live function at the door.** Rejected by B-1: the verdict "is decided
+  once, at discovery, from the declaration, and every surface reads that one decision". A second
+  call to the classifier at the door is a second decision. On a warm boot it would be compared with
+  a cached one, which is the cold/warm drift class (B-7) the feature closes.
+
+**Why `omitted_contracts` is one decision in one place.**
+
+- The skip loop that decides what `parameters` omits returns the omitted contracts too. One function
+  (`extract_signature`) produces both halves, and all seven descriptor construction sites call it
+  (`contract-gap-ea688446.txt`).
+- `extract_parameters_from_signature` remains only as that function's parameters half, for its
+  tests. 3.2's gate leaves it no production caller.
+- The capability names stay named constants read by the one classifier
+  (`_primitives/capability_names.py:49`). The engine branches on `Injection` fields
+  (`capability`, `from_job`, `provider_type`), never on a type name.
+
+**Published surfaces: unchanged**, and 3.2's gate proves it. For every table row, the click params
+and `job_input_schema` built from the descriptor equal those built with `omitted_contracts=()`.
+
+**Cost.** `CACHE_VERSION` goes 26 → 27. Two pins move (`test_descriptor_owner_class.py:40`,
+`test_job_declaration_discovery.py:169`); the poison literal `22` at `test_descriptor_owner_class.py:44`
+stays (`cache-version-pins-ea688446.txt`). Boot's two reports read `omitted_contracts` as well, so
+an omitted parameter is covered for B-9's single-report rule.
 
 ### Plugin package tests (decided 2026-11-22, after wave 0)
 

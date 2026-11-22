@@ -500,6 +500,10 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     before (30 capability rows, plus E140 and E141). Their descriptors carry no contract for them.
     5.1, which "reads `contract.verdict`", must classify them from the live function, or a task must
     start emitting them.
+  - **Decided 2026-11-23 (designer):** neither. Their contracts go on the descriptor, in
+    `JobDescriptor.omitted_contracts`, through new task 3.2 (`plan.md` § *The contract gap*). The
+    single-report ruling is now in `spec.md` B-9, which names the three surviving
+    `UnsatisfiableParameter` cases.
   - **The conflict (resolved by scope repair).** A missing provider was reported twice on a cold
     boot: ADR-018's `UnsatisfiableParameter` from `validate_di_bindings`, and the new
     `UnsupportedParameter`. A warm boot reports only the new one; the old check skips lazy entries
@@ -664,6 +668,77 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   renderer.
 - **Depends on:** 2.1, 2.2.
 
+### [ ] 3.2 Every signature parameter's contract reaches its descriptor, the omitted ones included
+
+- **Input:**
+  - `plan.md` § *The contract gap*;
+  - `schema.md` invariant 6 and § *Cache encoding*;
+  - `contract-gap-ea688446.txt`, `cache-version-pins-ea688446.txt`;
+  - `spec.md` B-1, B-9 (*one report per parameter*);
+  - 2.1's disclosure (*Not emitted, so no contract*).
+- **[F]:**
+  - `src/functualize/_types/descriptors.py`: `JobDescriptor.omitted_contracts` and its codec in
+    `to_dict` / `from_dict`;
+  - `src/functualize/_primitives/cache_format.py`: `CACHE_VERSION` 26 → 27;
+  - `src/functualize/_discovery/providers.py`: `extract_signature`, and its three internal call sites;
+  - `src/functualize/_discovery/registry.py`, `src/functualize/_discovery/sync.py`,
+    `src/functualize/_app/impl.py`: the other four call sites;
+  - `src/functualize/_app/boot.py`: `report_unsupported_parameters` and `contract_covers` read
+    `omitted_contracts` too;
+  - `tests/discovery/test_omitted_contracts.py` (new);
+  - `tests/types/test_descriptor_owner_class.py` (`:40`, 26 → 27);
+  - `tests/discovery/test_job_declaration_discovery.py` (`:169`, 26 → 27).
+- **Work:**
+  - **One function decides both halves.** The skip loop in `extract_parameters_from_signature`
+    (`providers.py:104-135`) returns the `FieldDescriptor`s it emits **and** the contracts of the
+    parameters it omits: capability types (`:122`), `FromJob` (`:118`) and a `GroupOptions`
+    injection point (`:133`).
+    - Each omitted contract is the one `_parameter_contracts` already built (`:104`). No
+      classification is added.
+    - The loop moves into a new `extract_signature(func)` (name provisional), which returns both
+      halves.
+    - All seven production call sites (`contract-gap-ea688446.txt`) call `extract_signature` and set
+      `omitted_contracts` on the descriptor they build.
+    - `extract_parameters_from_signature` stays as `extract_signature(func).parameters`: the
+      parameters half, kept for the `_discovery` export and for 67 test references in 7 files.
+      Renaming it would migrate those tests for no behaviour. Expect it to show as `TESTS_ONLY` in
+      the dead-code delta.
+  - **`JobDescriptor.omitted_contracts: tuple[ParameterContract, ...] = ()`.**
+    - Encode it with 0.1's contract codec under `"omitted_contracts"`, in signature order.
+    - Bump `CACHE_VERSION` to 27.
+    - The two pins move. The poison literal `test_descriptor_owner_class.py:44` (`"version": 22`)
+      stays.
+  - **Boot.** `report_unsupported_parameters` walks `omitted_contracts` as well, so an omitted
+    `REJECTED_DISCOVERY` is reported once (B-9). `contract_covers` counts them as covered.
+    `admit` already leaves capability and `FromJob` contracts unchanged.
+  - **No surface reads `omitted_contracts`.** Its only planned reader is 5.1.
+- **Invariant:** for every descriptor with a live function:
+  - the names of `parameters`' contracts and of `omitted_contracts` are disjoint;
+  - their union equals `build_contracts(function)`'s names;
+  - `parameters` and `config_fields` are unchanged.
+- **Gate/evidence:**
+  - `uv run pytest tests/discovery/test_omitted_contracts.py` covers every table row, cold and warm,
+    in both annotation modes:
+    - the disjoint-union invariant holds;
+    - E108–E137 carry an `INJECTED` contract with `Injection.capability` set, and E140 and E141 with
+      `Injection.from_job` set, all in `omitted_contracts`;
+    - no capability or `FromJob` name appears in `parameters`;
+    - the cold and warm `omitted_contracts` are equal;
+    - **published surfaces are unchanged:** the click params and `job_input_schema` built from each
+      descriptor equal those built from the same descriptor with `omitted_contracts=()`;
+  - `rg -n 'extract_parameters_from_signature\(' src plugins` → 1, its own definition (today 8: the
+    definition and seven production calls);
+  - `rg -n 'extract_signature\(' src` → 8: the definition and the seven sites;
+  - `rg -n 'CACHE_VERSION\s*(==|!=|>=)\s*[0-9]+|"version"\s*:\s*2[0-9]' tests/ plugins/*/*/tests/` →
+    the two pins at 27, plus the `:44` poison literal at 22;
+  - `uv run pytest tests/discovery/test_contract_discovery.py tests/cli/test_parameter_types.py tests/app/test_eager_boot_provider.py tests/integration/test_lazy_true_engine_materialization.py`
+    (2.1's gate and its single-report tests);
+  - the wave barrier: the whole root suite and the plugin-package loop (header rule).
+- **Reachability:** `func <job>` → `DirectoryScanProvider` → the extraction → `JobDescriptor` →
+  `cache.json`. The reader is 5.1 (`build_resolution_plan`). Until 5.1 lands, the field carries
+  `# TRANSITIONAL(parameter-contract/5.1)`.
+- **Depends on:** 2.1.
+
 ## Wave 4 — completion, SmartBar, the TUI door, the pre-boot walk
 
 ### [ ] 4.1 Completion and SmartBar offer exactly the rendered spellings (F-06, F-27)
@@ -735,7 +810,8 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 ### [ ] 5.1 Bind at the door; DI fills only `INJECTED`; kind from the contract
 
 - **Input:**
-  - 2.1 to 2.3, and 0.2;
+  - 2.1 to 2.3, 3.2, and 0.2;
+  - `plan.md` § *The contract gap*; `schema.md` invariant 6;
   - `gates-authoring.txt` `engine-old-binding`: 7 hits (`executor.py` 3, `validation.py` 4);
   - `registry-kind`: 2 hits in `resolution.py`.
 - **[F]:**
@@ -749,6 +825,16 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - DI fills `INJECTED` names only. A caller key for one never arrives, because `bind` refuses it.
   - `build_resolution_plan` reads `contract.verdict`, so `base_type in registered_types` and
     "Optional[T] is always classified as di" go.
+    - **Its input is the job's contracts, not its function.** Those are the admitted contracts of
+      `parameters` (2.1) together with the descriptor's `omitted_contracts` (3.2). Every signature
+      parameter has exactly one (`schema.md` invariant 6).
+    - **The source of each value comes from the `Injection` fields:**
+      - `capability` → the engine's per-invocation capability;
+      - `from_job` → the upstream result;
+      - `provider_type` (with `qualifier`) → DI;
+      - any other verdict → `bind`.
+    - No type name and no annotation is inspected here. The 15 capability names stay named constants
+      read only by the classifier (`_primitives/capability_names.py:49`).
   - A missing provider refuses before the call, on cold and warm alike (F-33). The refusal reads
     2.1's `admit` result for the job; there is no second availability check.
   - `BindRefusal` becomes `JobResult(status=INVALID)`.
@@ -757,6 +843,10 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 - **Gate/evidence:**
   - `rg -n -w -e ArgValidator -e unexpected_keyword_error src` → 0 (today 7);
   - `rg -n 'base_type in registered_types' src/functualize/_engine/resolution.py` → 0 (today 1);
+  - `rg -n 'registered_types|get_type_hints' src/functualize/_engine/resolution.py` → 0 (today 6,
+    `contract-gap-ea688446.txt`);
+  - a test in `tests/engine/test_binding_door.py`: for every table row, each parameter's resolution
+    source equals the one its contract's `Injection` names, cold and warm;
   - `uv run pytest tests/engine/ tests/execution/test_resolution_plan.py tests/test_resolution_plan_properties.py`;
   - kit `str-provider.txt` repro: every `str` job runs;
   - kit `unknown-keys.txt` repro: all five surfaces refuse `zzz`;
@@ -765,7 +855,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `cold_compare.py` → 0 real differences (today F-33 rows C085, C087, E138, H166).
 - **Reachability:** `FunctualizeApp.execute(RunRequest)` → `engine.run` → `_execute_lifecycle` →
   `bind`.
-- **Depends on:** 2.1, 2.2, 2.3, 0.2.
+- **Depends on:** 2.1, 2.2, 2.3, 3.2, 0.2.
 
 ### [ ] 5.2 The CLI renders `INVALID` as a one-line usage error (pitfalls §25)
 
@@ -953,7 +1043,7 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
   - The codec stops writing `type_annotation` and stops reading `type_annotation` **and** the
     legacy `"type"` key. **Decision: no legacy key survives.** Task 0.1 bumped `CACHE_VERSION` from
     25 to 26, so a cache written by an older version is not decoded but rebuilt, once
-    (`pitfalls.md` §5).
+    (`pitfalls.md` §5). Task 3.2 has since moved it to 27; the argument is unchanged.
   - `type_annotation` gets the default `""`, marked `# TRANSITIONAL(10.1): removed once every
     reader and test is off it`.
 - **Gate/evidence:**
@@ -1145,7 +1235,7 @@ field, and the wave is complete when the whole suite is green with it gone.
     {"id": 0, "tasks": ["0.1", "0.2", "0.3", "0.4", "0.5"]},
     {"id": 1, "tasks": ["1.1", "1.2"]},
     {"id": 2, "tasks": ["2.1", "2.2", "2.3"]},
-    {"id": 3, "tasks": ["3.1"]},
+    {"id": 3, "tasks": ["3.1", "3.2"]},
     {"id": 4, "tasks": ["4.1", "4.2", "4.3"]},
     {"id": 5, "tasks": ["5.1", "5.2"]},
     {"id": 6, "tasks": ["6.1"]},
