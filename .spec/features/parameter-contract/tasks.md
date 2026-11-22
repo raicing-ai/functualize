@@ -456,6 +456,11 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     - Replacing the exact-pair predicate with a type-only match, `DIRegistry.has`'s behaviour,
       failed H166 on both boots and both modes and the `QOnly` test (6 failed).
     - Each was restored with `git checkout --`, and the tree was clean.
+  - **Follow-up commit (still 2.1's `[F]`, `boot.py`):** the boot report also walks
+    `descriptor.config_fields`, so the config-field refusals 2.2 creates (F150, F151) are reported on
+    both boots. Each name is decided once, because a convention job's `config_fields` are its
+    `parameters`. 2.2's test exercises this walk. Group fields live in `GroupOptionsSpec`, not on a
+    job descriptor, and are not walked: no table row refuses a group field.
   - **Not emitted, so no contract.** Capability and `FromJob` parameters are kept off `parameters`, as
     before (30 capability rows, plus E140 and E141). Their descriptors carry no contract for them.
     5.1, which "reads `contract.verdict`", must classify them from the live function, or a task must

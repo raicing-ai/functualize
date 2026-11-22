@@ -1946,7 +1946,10 @@ def report_unsupported_parameters(app: Any) -> None:
     for descriptor in app.job_registry.get_descriptors():
         admitted = admitted_by_job.setdefault(descriptor.name, {})
         source = descriptor.source_file or descriptor.module_path or "<unknown>"
-        for field in descriptor.parameters:
+        # A convention job's `config_fields` are its `parameters`; a job with a
+        # config model lists that model's fields, which carry their own
+        # contracts (F-29). Each name is decided once.
+        for field in (*descriptor.parameters, *descriptor.config_fields):
             contract = field.contract
             if contract is None or contract.name in admitted:
                 continue
