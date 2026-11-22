@@ -21,7 +21,8 @@ A feature lives in `.spec/features/<name>/`:
 | `tasks.md` | Atomized tasks, ending in a `## Task Dependency Graph` JSON wave list |
 
 Those are produced by `/agentic-specify` and `/agentic-plan`, and executed by
-`/agentic-execute` against a fixed six-file context anchor. `/agentic-verify`
+`/agentic-execute` against a fixed context anchor: six workflow files plus the feature's own
+`spec.md`, `plan.md`, `schema.md`, `contracts.md` and `matrix/**`, and never another feature's specs. `/agentic-verify`
 closes the feature.
 
 Planning or executing non-trivial work here means producing those artifacts and

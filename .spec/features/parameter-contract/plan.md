@@ -40,6 +40,19 @@
   - **S-2 yes:** B-23 is narrowed to values a surface supplies.
   - **SS-3 B:** `FieldDescriptor.type_annotation` is **removed** in this change (waves 9 and 10).
   - **SS-4 A:** `JobExecutionEngine` is "not grown"; its decomposition remains ADR-020's debt.
+- **Execute context anchor: A** (member comment `01a203b0-55ec-7393-85b3-a3a3c55172f0`,
+  2026-11-22T14:36:57Z, verbatim *"Anchor A"*).
+  - **What changes.** The anchor is widened to the six workflow files plus this feature's own
+    `spec.md`, `plan.md`, `schema.md`, `contracts.md` and `matrix/**`. Another feature's specs, this
+    feature's `research.md`, chat history and unrelated files stay forbidden.
+  - **Where.** All four places that stated it: `.claude/commands/agentic-execute.md`;
+    `.claude/agents/spec-driven-developer.md` (the anchor block, step 1, and the *Critical Rules*
+    line "Execute reads only the 6 anchor files"); and `.claude/rules/spec-workflow.md`.
+  - **Why the six-file anchor was too narrow.** It forbade the feature's own artifacts, which the
+    tasks are written against, while Verify mandates reading two of them (`spec.md` and
+    `contracts.md`, `agentic-verify.md` steps 2 and 2b).
+  - **Verified mechanically** with `matrix/anchor_check.py` over every task's `Input:` block: 32
+    tasks, 0 inputs outside the new anchor (16 outside the old one).
 
 Workflow mode: repository-native (`.claude/rules/spec-workflow.md`). Phase: Plan, steps 1–10. Step 11
 (the task review with the member) follows this file. `.spec/STATE.md` is absent: no work in flight.

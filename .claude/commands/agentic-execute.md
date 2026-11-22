@@ -2,15 +2,28 @@ Execute phase for: $ARGUMENTS
 
 Prerequisite: verify `.spec/features/<name>/tasks.md` exists.
 
-Context anchor — read ONLY these six files, nothing else:
+Context anchor — read ONLY these files, nothing else:
 - `AGENTS.md`
 - `.spec/CONSTITUTION.md`
 - `.spec/ARCHITECTURE.md`
 - `.spec/TESTING.md`
 - `.spec/STATE.md` — if absent, treat as: no work in flight
 - `.spec/features/<name>/tasks.md`
+- **this feature's own confirmed artifacts:** `.spec/features/<name>/spec.md`, `plan.md`,
+  `schema.md` (if present), `contracts.md`, and `matrix/**` (if present: the measurement kit and
+  its recorded evidence)
 
-No chat history. No other specs. No unrelated files.
+Still forbidden:
+- **any other feature's** `spec.md`, `plan.md`, `schema.md` or `contracts.md`;
+- this feature's `research.md`, which is findings, never a gate, and which no task may name as an
+  input;
+- chat history;
+- unrelated files.
+
+**Why the feature's own artifacts are in.** The six-file anchor forbade them, yet tasks are
+written against them, and Verify mandates reading two of them (`spec.md` and `contracts.md`,
+`agentic-verify.md` steps 2 and 2b). An executor could then neither read a task's named inputs nor
+re-derive them without re-deciding design mid-implementation.
 
 **The anchor restricts spec documents, not the codebase.** Reading source and
 running retrieval — `rg`, serena, graphify, zvec-grep — is expected: you cannot

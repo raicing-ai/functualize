@@ -475,9 +475,16 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
 
 - `rg -n '\.type_annotation' src plugins -g '*.py' -g '!**/tests/**'` gives **22 occurrences in
   10 files**.
-- `rg -l -w type_annotation src plugins -g '*.py' -g '!**/tests/**'` gives **26 files**. 17 of them
-  are already in an earlier task's `[F]` and are cleared by the rule above; the other 9 are scoped
-  in 9.2 and 9.3.
+- `rg -l -w type_annotation src plugins -g '*.py' -g '!**/tests/**'` gives **27 files** (re-run on
+  `2058c56b`; the earlier "26" came from a query that left out `plugins/conftest.py`).
+  - **17** are already in a wave 0–8 task's `[F]` and are cleared by the rule above.
+  - **10** are scoped here:
+    - 9.2: `_cli/data/toml_writer.py`, `_cli/tui/panels/config_table.py`,
+      `_cli/tui/settings_panel.py`, `_cli/tui/source_chain_detail.py`;
+    - 9.3: `plugins/conftest.py`, `_cli/introspect.py`, `_cli/tui/preflight_summary.py`,
+      `_cli/tui/source_chain_providers.py`, `_types/flag_grammar.py`, `app/_workflow_view.py`.
+  - 9.2 also edits `_cli/tui/chain_resolution.py`, one of the 17 (task 4.2), for the `FieldDef`
+    rename.
 - Test and fixture files mentioning it: **53**. 8 are in earlier tasks' `[F]`; the other 45 are
   scoped in wave 10.
 
