@@ -422,7 +422,16 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 
 ## Wave 2 — discovery writes contracts; the binder exists
 
-### [x] 2.1 Signature parameters get contracts; refusals are reported, not fatal
+**Barrier audit (2026-11-22).** The root suite's 976 test files were assigned exactly once to
+three bounded `uv run pytest -q -n auto` chunks and eight single-file chunks. Those eight files
+import a temporary module named `_group`; collecting them with other root files can reuse an
+earlier fixture's module and produce false import failures, so each ran in its own process. Final
+root totals: 16,319 passed, 1,726 skipped, **2 failed**. The only reds are
+`tests/cli/test_parameter_types.py::TestAGenuineDependencyStillFails::test_the_reason_is_reported`
+on `func` and `app`, still expecting `UnsatisfiableParameter` for a contract-covered parameter.
+The plugin loop was green: 12 packages, 736 passed, 2 skipped. Wave 2 stays open.
+
+### [ ] 2.1 Signature parameters get contracts; refusals are reported, not fatal
 
 - **Input:** 1.1. ADR-018's `UnsatisfiableParameter` is at `_app/boot.py` (`gates-authoring.txt`
   `unsatisfiable`: 1 hit).
@@ -512,6 +521,11 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   job, parameter and provider-registration remedy. Targeted gate: 4 passed; 2.1 gate: 676 passed,
   2 skipped. Import, type and format gates pass. After committing, removing the covered-parameter
   filter failed all three single-report tests; the committed filter was restored.
+- **Reopened by the whole-root barrier:** `tests/cli/test_parameter_types.py` pins the retired
+  report type in two surface variants. The approved single-report decision applies to this
+  contract-covered dependency, but the file is outside `[F]`; a scope repair must add it before
+  its assertions can move to `UnsupportedParameter`. Keep this box open until that repaired gate
+  and the root barrier are green.
 - **Depends on:** 1.1.
 
 ### [x] 2.2 Config and group fields get contracts; the config-type refusal runs (F-29)
