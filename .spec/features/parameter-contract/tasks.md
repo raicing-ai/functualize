@@ -528,7 +528,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     - Each was restored with `git checkout --`, and the tree was clean.
 - **Depends on:** 1.1.
 
-### [ ] 2.3 `bind`
+### [x] 2.3 `bind`
 
 - **Input:** `schema.md` § *Binding*; `spec.md` B-23 to B-26; 1.1.
 - **[F]:**
@@ -543,6 +543,34 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **Gate/evidence:** `uv run pytest tests/primitives/test_argument_binding.py`. Record the in-process
   timing as `matrix/binder_cost.py` measures it; at authoring time it was ~18 µs per call for 15
   arguments.
+- **Execute evidence (2026-11-22):**
+  - `ArgumentBinder.bind(function, contracts, raw, *, surface)` in
+    `_primitives/argument_binding.py`. It refuses unknown keys, injected keys, config-field keys,
+    missing required arguments, non-converting values, and any call to a job holding a
+    `REJECTED_DISCOVERY` contract (DC-1 = B). Each refusal is `BindRefusal(argument, reason)`.
+  - Defaults are decoded from `default_json`. `None` stays `None`. A default the adapter cannot
+    decode falls back to the signature's own default.
+  - Values are converted by a `TypeAdapter` of the live annotation, cached per `(function, name)` on
+    the instance, so `Field(...)` holds.
+  - On a command-line surface, a missing required `INVOCATION_ONLY` parameter reads "can only be
+    supplied over MCP, HTTP or Lambda" (B-15).
+  - Imports `_types`, `_primitives` and pydantic (lazily). `lint-imports` → 7 kept, 0 broken.
+    `# TRANSITIONAL(parameter-contract/5.1)`: no production caller until the engine door.
+  - Gate `uv run pytest tests/primitives/test_argument_binding.py` → 410 passed. Every
+    caller-supplied row of the table, in both annotation modes, arrives as its declared type
+    (`list` as `list`, `tuple` as `tuple`, `set`, `dict`, `Enum` member, `Path`, `UUID`, ISO
+    `timedelta`). Absent, each gives its signature default, or a refusal naming it when required.
+    Also tested: the B-24 cross-surface identity, the refusals one by one, and `Field(ge=1)`.
+  - **Timing** (load average 3–4, three runs each).
+    - `binder_cost.py` as authored: bind median 16.9 / 17.4 / 19.1 µs, and adapter build 85–97 µs per
+      parameter.
+    - The same 15-argument signature through `ArgumentBinder.bind`: first call 3.3–5.1 ms (it builds
+      the 15 adapters), then median 40.4–41.7 µs per call over 2000 calls.
+    - The difference from the bare adapters is the binder's contract walk and refusal checks. This is
+      the in-process number 5.1 reads (`scratch` script; not kept in the repo).
+  - **Sabotage, after committing the change (before this evidence was amended in):** `_convert`
+    returned the raw value without converting it. 132 failed, 278 passed. `git checkout --`
+    restored the file, and the tree was clean.
 - **Depends on:** 1.1.
 
 ## Wave 3 — the one click renderer
