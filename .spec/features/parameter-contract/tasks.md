@@ -34,7 +34,9 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   when one invocation would exceed the 600-second call cap, partition `tests/` into disjoint
   foreground chunks that cover every root test file exactly once, and report each command and
   result. This catches cross-package fallout that neither a task's narrow gate nor the plugin
-  loop sees. A wave does not complete while any root or plugin chunk is red.
+  loop sees. Eight root test modules use the bare `_group` import name; run each in its own pytest
+  process, outside the large chunks, to avoid import collisions. A wave does not complete while
+  any root or plugin chunk is red.
 - **Every task's gate also includes** `uv run lint-imports` (baseline "7 kept, 0 broken"), plus
   `uv run ruff check`, `ruff format --check` and `mypy src/` on the files it touches.
 
@@ -426,12 +428,12 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 three bounded `uv run pytest -q -n auto` chunks and eight single-file chunks. Those eight files
 import a temporary module named `_group`; collecting them with other root files can reuse an
 earlier fixture's module and produce false import failures, so each ran in its own process. Final
-root totals: 16,319 passed, 1,726 skipped, **2 failed**. The only reds are
-`tests/cli/test_parameter_types.py::TestAGenuineDependencyStillFails::test_the_reason_is_reported`
-on `func` and `app`, still expecting `UnsatisfiableParameter` for a contract-covered parameter.
-The plugin loop was green: 12 packages, 736 passed, 2 skipped. Wave 2 stays open.
+root totals after the 2.1 scope repair: 16,321 passed, 1,726 skipped, **0 failed**. Chunk 2 was
+rerun with its original 323-file manifest; the other ten chunks stand on `23b56c5d` because the
+repair changed only two CLI assertions and this task record. The plugin loop was green: 12
+packages, 736 passed, 2 skipped. Wave 2 is complete.
 
-### [ ] 2.1 Signature parameters get contracts; refusals are reported, not fatal
+### [x] 2.1 Signature parameters get contracts; refusals are reported, not fatal
 
 - **Input:** 1.1. ADR-018's `UnsatisfiableParameter` is at `_app/boot.py` (`gates-authoring.txt`
   `unsatisfiable`: 1 hit).
@@ -441,7 +443,8 @@ The plugin loop was green: 12 packages, 736 passed, 2 skipped. Wave 2 stays open
   - `src/functualize/_app/boot.py`;
   - `tests/discovery/test_contract_discovery.py` (new).
   - `tests/app/test_eager_boot_provider.py` (scope repair: single provider report);
-  - `tests/integration/test_lazy_true_engine_materialization.py` (same, cold and warm).
+  - `tests/integration/test_lazy_true_engine_materialization.py` (same, cold and warm);
+  - `tests/cli/test_parameter_types.py` (scope repair: CLI single-report assertion).
 - **Work:**
   - `extract_parameters_from_signature` sets `contract` on every parameter it emits, and
     `type_annotation` keeps today's value until wave 9, and new readers read `contract.display`
@@ -523,9 +526,17 @@ The plugin loop was green: 12 packages, 736 passed, 2 skipped. Wave 2 stays open
   filter failed all three single-report tests; the committed filter was restored.
 - **Reopened by the whole-root barrier:** `tests/cli/test_parameter_types.py` pins the retired
   report type in two surface variants. The approved single-report decision applies to this
-  contract-covered dependency, but the file is outside `[F]`; a scope repair must add it before
-  its assertions can move to `UnsupportedParameter`. Keep this box open until that repaired gate
-  and the root barrier are green.
+  contract-covered dependency. The file was outside `[F]`, so the box remained open until scope
+  repair added it and the repaired gate and root barrier passed.
+- **Scope repair closed (2026-11-22):** both CLI variants now assert exactly one
+  `UnsupportedParameter` report, including the source file, `deploy`, `db`, and the provider
+  registration remedy. `uv run pytest tests/cli/test_parameter_types.py -q` → 42 passed;
+  `uv run pytest tests/cli tests/app tests/integration -q -n auto` → 2836 passed, 474 skipped;
+  `uv run pytest tests/discovery/test_contract_discovery.py -q` → 627 passed, 2 skipped.
+  Root chunk 2, using the unchanged 323-file manifest, → 5310 passed, 487 skipped (previously
+  5308 passed, 487 skipped, 2 failed). The other ten root chunks stand on `23b56c5d`: this repair
+  changes only the two CLI assertions and this task record; it changes no production code, test
+  imports, or other test files. The prior plugin loop also stands for the same reason.
 - **Depends on:** 1.1.
 
 ### [x] 2.2 Config and group fields get contracts; the config-type refusal runs (F-29)

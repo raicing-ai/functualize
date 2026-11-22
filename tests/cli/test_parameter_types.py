@@ -257,13 +257,14 @@ class TestAGenuineDependencyStillFails:
         result = cli_run(["builtin", "info", "--json"], cwd=root)
 
         report = json.loads(result.stdout)
-        unsatisfiable = [
-            f
-            for f in report["discovery_failures"]
-            if f["error_type"] == "UnsatisfiableParameter"
-        ]
-        assert len(unsatisfiable) == 1
-        assert "deploy" in unsatisfiable[0]["message"]
+        assert len(report["discovery_failures"]) == 1
+        failure = report["discovery_failures"][0]
+        assert failure["error_type"] == "UnsupportedParameter"
+        message = failure["message"]
+        assert ".functualize/jobs/jobs.py" in message
+        assert "job 'deploy'" in message
+        assert "parameter 'db:" in message
+        assert "Register one from a plugin" in message
 
     def test_invoking_it_names_the_job_and_the_parameter(
         self, cli_run, project_tree
