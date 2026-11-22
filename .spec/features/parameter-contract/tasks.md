@@ -287,6 +287,8 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     `tests/test_legacy_import.py`, `tests/test_driver.py`;
   - `tests/test_plugin_selection.py` (added 2026-11-22, scope repair: its `:125` pins the head
     revision, `[(5,)]` → `[(6,)]`);
+  - `tests/conformance/sqlite_hooks.py` (repository root; head revision pin);
+  - `tests/substrate_probe/tier_a.py` (repository root; minimum batch-only driver probe);
   - `contributor/reference/runtime-persistence-data-model.md` (repository root).
 - **Work, the recipe** (`plan.md` § *The substrate status set*):
   - **Revision 6, `0006_run_status_invalid.sql`, contains, in order:**
@@ -363,6 +365,13 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     stay;
   - `test_readers.py:294` and `test_import_cli.py:120` are not revisions;
   - `tests/conformance/sqlite_hooks.py:221` reads `max(version)` without pinning a number.
+- **Execute repair (2026-11-22):** the later root-suite sweep found another head pin at
+  `tests/conformance/sqlite_hooks.py:143`, now 6; its other version reads are derived from
+  `latest_version` or `max(version)`. The batch-only substrate probe keeps its minimum driver
+  interface and migrates only through revision 5. The test asserts that the same driver refuses
+  revision 6 with `MigrationRefused`, leaving its ledger at 5. `uv run pytest tests/conformance
+  tests/substrate_probe -q` → 120 passed, 7 skipped; the separate substrate package gate →
+  230 passed. The reopened task is ticked against these results.
 
   The dispatched glob `plugins/substrates/*/*/tests` matches nothing (the evidence shows the `rg`
   error), so the sweep used `plugins/substrates/*/tests`.
