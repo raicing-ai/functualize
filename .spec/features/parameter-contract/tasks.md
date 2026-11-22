@@ -97,7 +97,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   lands.
 - **Depends on:** none.
 
-### [ ] 0.3 The declaration table
+### [x] 0.3 The declaration table
 
 - **Input:** `matrix/rows.py` (166 rows); `matrix/report.py::proposed` (each row's expected verdict).
 - **[F]:** `tests/_support/parameter_matrix.py` (new).
@@ -108,6 +108,10 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **Invariant:** the table is the single source that 1.1's unit tests, 11.2's parity test and 11.1's
   docs table read (page §5.8).
 - **Gate/evidence:** `uv run python -c "from tests._support.parameter_matrix import ROWS; assert len(ROWS) == 166"`.
+- **Execute evidence (2026-11-22):** 166 rows; all 332 generated modules compile across the two
+  annotation modes; each row has nine surface expectations. The missing-provider rows C085, C087,
+  E138, E139 and H166 are `REJECTED_DISCOVERY`. This is test data, so it has no production call path;
+  its planned consumers are 1.1's contract tests and 11.1/11.2's docs/parity tests.
 - **Depends on:** none.
 
 ### [ ] 0.4 Lambda docstrings name the shared envelope (F-28)
