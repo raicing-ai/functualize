@@ -124,7 +124,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **Gate/evidence:** `rg -n '"kwargs"' plugins/adapters/functualize-lambda/src` → 0 hits (today 4).
 - **Depends on:** none.
 
-### [ ] 0.5 One import environment for every command (F-30)
+### [x] 0.5 One import environment for every command (F-30)
 
 - **Input:** `matrix/evidence/plugin-lib-order.txt`. The candidate mechanism: `cli_app` applies
   `cli_config.import_libs` (`_cli/main.py:300`), while project boots apply
@@ -137,6 +137,11 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **Gate/evidence:** the new test runs the `plugin-lib-order.txt` repro in a subprocess for
   `func h1`, `--help`, `mcp schema`, `builtin info schema` and `builtin shell-init bash`. All 5 must
   show the provider registered. Today 2 of 5 print `registration failed`.
+- **Execute evidence (2026-11-22):** the new test failed 2 of 5 paths before the fix (both
+  builtins), then all 5 passed. With the builtin import-libraries call temporarily removed after
+  commit, the same 2 builtin paths failed again; restored. `uv run pytest
+  tests/cli/test_plugin_import_environment.py tests/cli/test_import_libs.py
+  tests/cli/test_convention_dirs.py` → 24 passed.
 - **Depends on:** none.
 
 ## Wave 1 — the classifier
