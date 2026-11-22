@@ -711,8 +711,8 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
             logger.warning(f"APP_READY hook {hook_name!r} raised: {exc}")
 
     # Validate DI bindings
-    report_unsatisfiable_jobs(app)
     report_unsupported_parameters(app)
+    report_unsatisfiable_jobs(app)
 
     # Freeze DI registry
     app._di_registry.freeze()
@@ -1185,8 +1185,8 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     # 9b. Validate DI bindings
     perf_timeline.mark("boot.di_validation.start")
-    report_unsatisfiable_jobs(app)
     report_unsupported_parameters(app)
+    report_unsatisfiable_jobs(app)
     perf_timeline.mark("boot.di_validation.end")
 
     # 10. Freeze DI registry and emit REGISTRY_FROZEN event
@@ -1861,18 +1861,49 @@ def report_unsatisfiable_jobs(app: Any) -> None:
     because cached jobs register as lazy proxies and validation skips those, so
     it presented as intermittent.
 
-    The failure stays loud and early — it is published in the same list that
-    answers "why is my job missing?" — but it stops being contagious. See
-    ADR-018 for the departure from `CONSTITUTION.md` "Boot & Config".
+    The failure stays loud and early for bindings without a parameter contract.
+    A contract-covered parameter is already reported by
+    ``report_unsupported_parameters`` on cold and warm boots; reporting it here
+    too would make availability depend on a second registry check (B-2, §5.1).
+    See ADR-018 for the departure from `CONSTITUTION.md` "Boot & Config".
 
     **The job is left registered on purpose.** Unregistering it would make the
     cold boot disagree with the warm one, where validation is skipped for lazy
     proxies and the job necessarily still exists; and the error a caller gets
     from invoking it names the job and the parameter, which is more use than
     "no such command". So the guarantee that holds on both paths is *invoking
-    it explains itself*, and the report is the extra the cold boot can offer.
+    it explains itself*. The contract report is available on both boot paths.
     """
     from functualize._types.discovery_report import DiscoveryFailure
+
+    # B-2 supplies the only registry input to a contract verdict; §5.1 forbids
+    # a second availability report. The older validator remains for bindings
+    # with no descriptor contract (for example, directly registered functions
+    # and factory-resolution errors). D105 also makes its old Arg()/Option()
+    # remedy invalid for an unconvertible class, so that wording is retired.
+    covered: dict[str, tuple[Any, ...]] = {
+        descriptor.name: tuple(
+            field.contract
+            for field in (*descriptor.parameters, *descriptor.config_fields)
+            if field.contract is not None
+        )
+        for descriptor in app.job_registry.get_descriptors()
+    }
+
+    def contract_covers(job_name: str, error: Any) -> bool:
+        contracts = covered.get(job_name, ())
+        parameter = getattr(error, "param_name", None)
+        if parameter is not None:
+            return any(contract.name == parameter for contract in contracts)
+        type_ = getattr(error, "type_", None)
+        if type_ is None:
+            return False
+        qualified_type = f"{type_.__module__}.{type_.__qualname__}"
+        return any(
+            contract.injection is not None
+            and contract.injection.provider_type == qualified_type
+            for contract in contracts
+        )
 
     failures = app._execution_engine.validate_di_bindings()
     if not failures:
@@ -1881,13 +1912,15 @@ def report_unsatisfiable_jobs(app: Any) -> None:
     reported: list[DiscoveryFailure] = list(getattr(app, "_unsatisfiable_jobs", []))
     known = {f.message for f in reported}
     for job_name, errors in failures.items():
+        errors = [error for error in errors if not contract_covers(job_name, error)]
+        if not errors:
+            continue
         entry = app.job_registry._registered_jobs.get(job_name)
         module_path = getattr(entry, "module_path", "") or "<unknown>"
         message = (
             f"Job {job_name!r} is registered but cannot run: "
             + "; ".join(str(e) for e in errors)
-            + ". Register a provider for the type, or annotate the parameter "
-            "with Arg()/Option() to take its value from the caller."
+            + ". Register a provider for the type or correct the declaration."
         )
         if message in known:
             continue

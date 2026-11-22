@@ -232,8 +232,12 @@ class TestDeferredDiValidation:
         # boot, and now it is *reported* rather than fatal.
         app = _boot(jobs_dir)
 
-        reported = [f.error_type for f in app._unsatisfiable_jobs]
-        assert reported == ["UnsatisfiableParameter"]
+        (failure,) = app._unsatisfiable_jobs
+        assert failure.error_type == "UnsupportedParameter"
+        assert str(jobs_dir / f"{_MODULE_PREFIX}_baddi.py") in failure.message
+        assert "needs-service" in failure.message
+        assert "svc" in failure.message
+        assert "Register one from a plugin" in failure.message
 
     def test_warm_boot_defers_validation_to_first_invocation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -250,6 +254,10 @@ class TestDeferredDiValidation:
         # Warm boot succeeds: lazy entry, validation deferred
         app = _boot(jobs_dir)
         assert "needs-service" in app._execution_engine._registered_jobs
+        (failure,) = app._unsatisfiable_jobs
+        assert failure.error_type == "UnsupportedParameter"
+        assert str(jobs_dir / f"{_MODULE_PREFIX}_baddi.py") in failure.message
+        assert "Register one from a plugin" in failure.message
 
         # First use surfaces the deferred DI error
         with pytest.raises(DIValidationError):
@@ -268,6 +276,9 @@ class TestDeferredDiValidation:
         # The escape hatch still validates at boot — it imports every module,
         # so there is no proxy to defer behind. What changed is the
         # disposition: reported, not raised.
-        assert [f.error_type for f in app._unsatisfiable_jobs] == [
-            "UnsatisfiableParameter"
-        ]
+        (failure,) = app._unsatisfiable_jobs
+        assert failure.error_type == "UnsupportedParameter"
+        assert str(jobs_dir / f"{_MODULE_PREFIX}_baddi.py") in failure.message
+        assert "needs-service" in failure.message
+        assert "svc" in failure.message
+        assert "Register one from a plugin" in failure.message

@@ -401,7 +401,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 
 ## Wave 2 — discovery writes contracts; the binder exists
 
-### [ ] 2.1 Signature parameters get contracts; refusals are reported, not fatal
+### [x] 2.1 Signature parameters get contracts; refusals are reported, not fatal
 
 - **Input:** 1.1. ADR-018's `UnsatisfiableParameter` is at `_app/boot.py` (`gates-authoring.txt`
   `unsatisfiable`: 1 hit).
@@ -410,6 +410,8 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - `src/functualize/_discovery/registry.py`;
   - `src/functualize/_app/boot.py`;
   - `tests/discovery/test_contract_discovery.py` (new).
+  - `tests/app/test_eager_boot_provider.py` (scope repair: single provider report);
+  - `tests/integration/test_lazy_true_engine_materialization.py` (same, cold and warm).
 - **Work:**
   - `extract_parameters_from_signature` sets `contract` on every parameter it emits, and
     `type_annotation` keeps today's value until wave 9, and new readers read `contract.display`
@@ -465,7 +467,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     before (30 capability rows, plus E140 and E141). Their descriptors carry no contract for them.
     5.1, which "reads `contract.verdict`", must classify them from the live function, or a task must
     start emitting them.
-  - **The conflict (designer decision needed).** A missing provider is now reported twice on a cold
+  - **The conflict (resolved by scope repair).** A missing provider was reported twice on a cold
     boot: ADR-018's `UnsatisfiableParameter` from `validate_di_bindings`, and the new
     `UnsupportedParameter`. A warm boot reports only the new one; the old check skips lazy entries
     (F-33). Three tests outside `[F]` pin exactly one report:
@@ -480,6 +482,15 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     for parameters a contract covers. That also matches the old message's remedy, "annotate with
     Arg()/Option()", which B-8 now refuses for an unconvertible class (D105). Either answer needs
     those three files in `[F]`.
+- **Execute repair:** `report_unsupported_parameters` now runs before the legacy validator and is
+  the sole availability report for a contract-covered parameter on cold and warm boots. The old
+  `UnsatisfiableParameter` report survives for DI errors without a descriptor contract: directly
+  registered functions and factory-resolution failures, plus any uncovered binding the legacy
+  validator finds. The legacy remedy no longer suggests `Arg()/Option()` for an unconvertible
+  class (D105). The three scope-repaired tests assert one `UnsupportedParameter` with source file,
+  job, parameter and provider-registration remedy. Targeted gate: 4 passed; 2.1 gate: 676 passed,
+  2 skipped. Import, type and format gates pass. After committing, removing the covered-parameter
+  filter failed all three single-report tests; the committed filter was restored.
 - **Depends on:** 1.1.
 
 ### [x] 2.2 Config and group fields get contracts; the config-type refusal runs (F-29)
