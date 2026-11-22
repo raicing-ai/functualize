@@ -64,6 +64,7 @@ TERMINAL_STATUSES = [
     RunStatus.CANCELLED,
     RunStatus.TIMEOUT,
     RunStatus.REFUSED,
+    RunStatus.INVALID,
 ]
 
 # Everything else is non-terminal, derived so that a new RunStatus member is

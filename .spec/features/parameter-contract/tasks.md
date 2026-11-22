@@ -95,6 +95,8 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - `src/functualize/_types/http_status.py`;
   - `src/functualize/_types/outcome.py`;
   - `tests/types/test_outcome_invalid.py` (new).
+  - `tests/context/test_runcontext.py` (member-count and terminal-state repair);
+  - `tests/context/test_runcontext_status.py` (terminal-state repair).
 - **Work:** add `INVALID` ("the call could not be bound to the job's declaration — nothing ran").
   Map it once per family: exit `USAGE` (2), HTTP 400, Lambda 400. Make it terminal and not
   resumable.
@@ -108,6 +110,11 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   `tests/discovery/test_job_declaration_discovery.py:169`). 0.2's outcome code is committed
   (`7a610a7d`). The task is ticked when `uv run pytest tests/types/` is green, after 0.1's repair
   lands.
+- **Execute repair (2026-11-22):** the root suite exposed two additional status pins outside the
+  original scope. The member count now includes `INVALID`, and the independent context status
+  table asserts it is terminal and not resumable. `uv run pytest tests/context/test_runcontext.py
+  tests/context/test_runcontext_status.py tests/types/ -q` → 618 passed, 2 skipped. The reopened
+  task is ticked against this gate.
 - **Depends on:** none.
 
 ### [x] 0.3 The declaration table
