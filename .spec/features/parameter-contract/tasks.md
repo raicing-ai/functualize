@@ -270,7 +270,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     - A secret default is never encoded into `default_json`.
 - **Depends on:** 0.1, 0.3.
 
-### [ ] 1.2 The SQLite substrate stores `invalid`: revision 6, and a runner that can rebuild a table safely
+### [x] 1.2 The SQLite substrate stores `invalid`: revision 6, and a runner that can rebuild a table safely
 
 - **Input:**
   - `plan.md` § *The substrate status set*;
@@ -373,6 +373,30 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   Scope repair must add it and move the current-version assertion to 6 before this box is ticked.
   The populated-database test failed under post-commit sabotage that omitted the FK-off scope:
   attempts, events, artifact references and tags were all deleted; the runner was restored.
+- **Execute evidence, scope repair applied (2026-11-22):**
+  - `tests/test_plugin_selection.py:125` moved from `[(5,)]` to `[(6,)]`. That is the only edit in this
+    commit. Revision 6, the runner, the driver capability, the legacy map and §7 are unchanged since
+    the first attempt. They were re-read against the recipe: the trigger is dropped before the rename;
+    all 11 `runs` columns are copied by name; the four `runs_*` indexes and `0005`'s trigger are
+    recreated verbatim; `foreign_key_check` runs before foreign keys are back on; and
+    `_check_objects` subtracts renamed-away names.
+  - `uv run pytest plugins/substrates/functualize-substrate-sqlite/tests -q` (its own invocation) →
+    230 passed. The run includes `test_each_status_check_equals_its_machines_state_set[runs-machine1]`
+    (confirmed with `--co`).
+  - `git diff 21c4bb81 -- …/_schema/000[1-5]*.sql` and `git diff 77ea0292 -- …/_schema/000[1-5]*.sql`
+    are both empty.
+  - `rg -n '\[\(5,\)\]' plugins/substrates/functualize-substrate-sqlite/tests` → exactly one hit,
+    `test_migrations.py:554`.
+  - Wave barrier, each package in its own invocation: 12 of 12 green. The counts are flow-viz 25,
+    http 63, inline 50, lambda 59, mcp 33, secrets-aws 72 (+1 skipped), secrets-bitwarden 125
+    (+1 skipped), ai-pydantic 27, ai 22, tasks-local 15, tasks 15, and substrate-sqlite 230.
+  - **Reachability:** `boot(project, "sqlite:")` → `SqliteRuntimeStore` → `migrate(driver)` →
+    `_apply` applies revision 6. `test_sqlite_configured_selects_the_sqlite_store_migrated` observes
+    it through the public boot, as ledger head 6.
+  - **Sabotage, after committing the change (before this evidence was amended in):**
+    `_load(6, "run_status_invalid")` was removed from `SHIPPED_MIGRATIONS`. All three boot variants of
+    that test failed: `boot_static`, `func-cold` and `func-warm` (3 failed, 16 passed). `git checkout --`
+    restored the file, and the tree was clean.
 - **Depends on:** 0.2 (`RunStatus.INVALID`, committed in `7a610a7d`).
 
 ## Wave 2 — discovery writes contracts; the binder exists
