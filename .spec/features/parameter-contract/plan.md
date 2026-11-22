@@ -32,8 +32,14 @@
   - **DC-1 = B,** page §5.7 v5 amendment: "reported, not unregistered … refuses on every call naming
     the job, the parameter and the remedy". Member comment `01a2012e-723d-7822-9fc6-b4dcc3ab1ec6`,
     2026-11-22T02:55:50Z: "spec confirmed, DC-1 = B".
-- **Spec:** `spec.md`, confirmed with DC-1 = B. It is revised by this plan in two places (§*Spec
-  revisions*), which go back for re-confirmation with the task list.
+- **Spec:** `spec.md`, confirmed with DC-1 = B. It was revised by this plan in two places (§*Spec
+  revisions*), and both revisions are now confirmed.
+- **Step-11 answers (member):** comment `01a201b6-3d91-7eb2-8587-df5f212bf69f`,
+  2026-11-22T05:24:10Z, verbatim: *"plan approved: S-1 yes, S-2 yes, SS-3 B, SS-4 A"*.
+  - **S-1 yes:** the AI tool scope is in scope (task 7.2).
+  - **S-2 yes:** B-23 is narrowed to values a surface supplies.
+  - **SS-3 B:** `FieldDescriptor.type_annotation` is **removed** in this change (waves 9 and 10).
+  - **SS-4 A:** `JobExecutionEngine` is "not grown"; its decomposition remains ADR-020's debt.
 
 Workflow mode: repository-native (`.claude/rules/spec-workflow.md`). Phase: Plan, steps 1–10. Step 11
 (the task review with the member) follows this file. `.spec/STATE.md` is absent: no work in flight.
@@ -45,7 +51,7 @@ Workflow mode: repository-native (`.claude/rules/spec-workflow.md`). Phase: Plan
 | what does the prose say | **zvec-grep** `/usr/local/bin/zg`, index built for this worktree (`zg status`: root = this worktree, 968 files); queries in `matrix/evidence/zg-queries.txt` | `_engine/validation.py:43-47` (caller may supply a DI parameter); `job-config.md:47` (registration-time refusal); `functualize-ai/_tool_scope.py:408` (a seventh schema renderer) |
 | what is in these modules | **serena**, activated by this worktree's absolute path; `get_symbols_overview` on `_types/descriptors.py`, `_discovery/providers.py`, `_primitives/job_schema.py`, `_engine/validation.py`, `_types/flag_grammar.py`; `find_referencing_symbols` on `parse_annotation`, `build_click_params`, `build_click_params_from_fields`, `coerce_kwargs` | `build_click_params` also builds **plugin command callbacks** (`create_callback_click_command`, `click_params.py:1571`); `coerce_kwargs` has **no production caller**, only tests |
 | which way the dependencies point | **graphify** `get_neighbors("FieldDescriptor")` on `graphify-out/graph.json`, built at `2269b8d3`, **60 commits behind HEAD**, so used for shape only | 26 production modules read `FieldDescriptor`, including `app/commands.py` `JobNode.params()` (ADR-004 command nodes) and `_types/flag_grammar.py` |
-| codemaps | `overview.md`, `modules.md`, `dependencies.md`, `data-flow.md`, `entry-points.md` | `data-flow.md` §2 states "Resolution priority … DI > RunContext > Config > Default" — **contradicted by the code** (`executor.py:1432-1434`: the caller wins; F-20). The codemap is corrected in task 8.2. `data-flow.md` §7: the TUI flow runs backwards through `sync.py`'s emitter (`emit(resolve(text)) == text`) |
+| codemaps | `overview.md`, `modules.md`, `dependencies.md`, `data-flow.md`, `entry-points.md` | `data-flow.md` §2 states "Resolution priority … DI > RunContext > Config > Default" — **contradicted by the code** (`executor.py:1432-1434`: the caller wins; F-20). The codemap is corrected in task 11.1. `data-flow.md` §7: the TUI flow runs backwards through `sync.py`'s emitter (`emit(resolve(text)) == text`) |
 | prior art | ADR-004, 010, 018, 020, 033; `pitfalls.md` §4, §5, §19, §23, §25 (`research.md`) | DC-1 resolved by ADR-018; ADR-020 already moved binding into `engine.run(request)` |
 
 ### Measurements this phase added (all in `matrix/evidence/`)
@@ -164,7 +170,7 @@ older.
   `_config` import only `_primitives` and `_types`. The `TypeAdapter` cache is an instance attribute
   of the binder the engine owns, not a module-level singleton.
 
-## Spec revisions found here (step 6; re-confirmed at step 11)
+## Spec revisions found here (step 6; confirmed at step 11, comment `01a201b6`)
 
 - **S-1 · One surface was missing.** `functualize-ai`'s `ToolScope` (`_tool_scope.py:242`
   `to_tool_defs`, `:408` `_fields_to_schema`) publishes job parameters to LLM tool calls through its
@@ -250,10 +256,20 @@ Every wave's tasks re-run `uv run lint-imports` (the AC-13 gate).
 8. **Wave 7 — boot and adapters.** The builtin path applies the same import libs as project paths
    (F-30). The Lambda docstrings say `arguments` (F-28).
 9. **Wave 8 — D7 deletions,** each gated by an `rg` that must return 0.
-10. **Wave 9 — docs, ADR amendments, changelog,** the codemap correction, and the parity test.
-11. **Wave 10 — checkpoint.** The whole kit, cold and warm, both PEP 563 modes, coverage and the
+10. **Wave 9 — stop depending on `type_annotation` (SS-3 = B).**
+    - The descriptor's `type` alias and the codec's `type_annotation` and legacy `"type"` keys go,
+      and no legacy key survives. Wave 0's `CACHE_VERSION` 26 bump means an older cache is rebuilt,
+      not decoded.
+    - The field becomes transitional, with default `""`.
+    - The TUI's own `FieldDef.type_annotation` is renamed `type_label`.
+    - The last 9 production readers move to the contract.
+11. **Wave 10 — delete the field,** with the 45 remaining test and fixture files migrated in three
+    disjoint tasks. The gate is `rg '\.type_annotation' src plugins` → 0; today it gives 22
+    occurrences in 10 production files (`ss3b-counts.txt`).
+12. **Wave 11 — docs, ADR amendments, changelog,** the codemap correction, and the parity test.
+13. **Wave 12 — checkpoint.** The whole kit, cold and warm, both PEP 563 modes, coverage and the
     dead-code delta (AC-1 to AC-13).
-12. **Wave 11 — artifact clearing** (the two-push sequence).
+14. **Wave 13 — artifact clearing** (the two-push sequence).
 
 ### The refusal outcome (page §5.7, left to Plan)
 
@@ -281,13 +297,21 @@ meaning the page's §5.6 examples already used.
 ## Risks
 
 - **R-1 · Visible behaviour changes for existing users,** listed in `spec.md` § *Evidence and
-  constraints*. No shims (constitution), and each is recorded in `CHANGELOG.md` (task 9.1).
-- **R-2 · Breadth.** 26 production files read `FieldDescriptor.type_annotation` (`rg -l -w`). 9 of
-  them contain the 10 gated behaviour sites (7 string reads, 3 injection-by-name reads;
-  `gates-authoring.txt`), and those move to the contract. The other 17 files, which include the
-  writers (`descriptors.py`, `providers.py`, `schema_extractor.py`), were **not audited one by one**.
-  The guard is the gate, not an audit: after task 8.2 the behaviour patterns must return 0 hits.
-  Removing the field outright is surviving smell SS-3.
+  constraints*. No shims (constitution), and each is recorded in `CHANGELOG.md` (task 11.1).
+- **R-2 · Breadth, now including the field's removal (SS-3 = B).** Measured on `6ff7182a`
+  (`ss3b-counts.txt`):
+  - `.type_annotation` attribute reads: **22 occurrences in 10 production files**.
+  - The `type_annotation` token anywhere in production code: **72 occurrences in 27 files**.
+  - Test and fixture files: **53**.
+  - `FieldDescriptor` outside `_types/`: **19 production files**. 3 are constructors
+    (`providers.py`, `schema_extractor.py`, `app/commands.py`), 1 is the public re-export
+    (`types/__init__.py`), and 15 are readers.
+  - The `type` alias property has **no production reader**; serena finds one test reference.
+  - **Public API:** `functualize.types` re-exports `FieldDescriptor`, so removing the field is a
+    public break. The member accepted it with SS-3 = B, and it is recorded in `CHANGELOG.md`
+    (task 11.1).
+  - **Guard:** the gate, not an audit. After task 10.1, `rg '\.type_annotation' src plugins` → 0
+    and `rg -l -w type_annotation tests plugins` → 0.
 - **R-3 · The TUI emitter.** `sync.build_command_line` must keep `emit(resolve(text)) == text`
   (`data-flow.md` §7) once lists repeat. `tests/tui_group_options/test_write_back_contract.py` pins
   it (task 3.4).
@@ -302,11 +326,11 @@ meaning the page's §5.6 examples already used.
   `click_builders`). The three cross-builder parity tests, `tests/adapters/test_cold_warm_parity.py`,
   `tests/config/test_click_builder_agreement.py` and `tests/cli/test_schema_surface_parity.py`,
   assert agreement between things this change makes one. They are folded into the new parity test in
-  task 9.2, not deleted silently.
+  task 11.2, not deleted silently.
 
 ## Verification
 
-AC-1 to AC-13 of `spec.md`, run by the checkpoint (task 10.1). Every end-to-end gate runs twice, cold
+AC-1 to AC-13 of `spec.md`, run by the checkpoint (task 12.1). Every end-to-end gate runs twice, cold
 and warm (`pitfalls.md` §23), and in both PEP 563 modes (§4). Reachability, per the constitution: each
 task names the production call path to its code and proves it by removing the call and watching its
 test fail.
@@ -328,8 +352,8 @@ test fail.
 | --- | --- | --- | --- | --- |
 | SS-1 | **Data Class** | `_types/parameter_contract.ParameterContract` | It is the cache record: the warm path must answer without importing a job module (`modules.md:23`), so the contract has to be inert data read by renderers. Behaviour lives in the builder, renderer and binder functions. | no — it is the shape the page approved (§6 AFTER) |
 | SS-2 | **Shotgun Surgery (residual, 2 sites)** | a new scalar type touches the `Scalar` enum and builder (`_primitives/parameter_contract.py`) and the click type mapping (`app/adapters/click_params.py`) | Click is forbidden in the kernel layers (constitution, *Forbidden Patterns*), so the click mapping cannot live beside the builder. Down from nine sites, and the parity test fails if the two disagree. | no |
-| SS-3 | **Duplicate Code (display string kept beside the contract)** | `FieldDescriptor.type_annotation` kept as a display label, populated from `contract.display` | It has 26 production reader files and 52 test files. 9 production files decide behaviour from it, and those move. Deleting the field is a public API change across all 26 plus the tests, so this plan keeps it derived and never read for behaviour, gated by the behaviour-pattern `rg` returning 0. | **yes — keep it as display-only (this plan), or remove it in this change and widen the scope to the 17 remaining reader files and the test files** |
-| SS-4 | **Pre-existing God Object (not grown)** | `_engine/executor.JobExecutionEngine`, already past the constitution's ~500-LOC cap | Decomposing it is ADR-020's work, not this feature's. This plan replaces code inside it and must leave it no larger (task 5.2's gate). | **yes — confirm that "not grown" is acceptable here, rather than decomposing it in this change** |
+| SS-3 | ~~Duplicate Code (display string kept beside the contract)~~ — **no longer survives** | `FieldDescriptor.type_annotation` | **Answered B** (comment `01a201b6`, 2026-11-22T05:24:10Z): the field, its `type` alias and the codec's `type_annotation` / legacy `"type"` keys are removed (tasks 9.1, 10.1), and every reader takes its label from `contract.display`. The public break is accepted and recorded in the changelog. | answered |
+| SS-4 | **Pre-existing God Object (not grown)** | `_engine/executor.JobExecutionEngine`, already past the constitution's ~500-LOC cap (2,747 lines) | **Answered A** (comment `01a201b6`): "not grown" is accepted, and the decomposition remains ADR-020's debt. This plan replaces code inside it and must leave it no larger (task 5.1's gate: line count ≤ 2,747). | answered |
 
 Nothing on the *Forbidden Patterns* list is introduced. SS-4 is a forbidden pattern **already
 present**: it is listed so it is seen, and the plan's gate prevents it growing.

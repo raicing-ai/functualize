@@ -212,7 +212,7 @@ step 7). Each one's evidence is in `matrix/evidence/`.
   revision S-2.
 - **P-6 · The codemap contradicts the code.** `data-flow.md` §2 says "Resolution priority … DI >
   RunContext > Config > Default". `executor.py:1432-1434` lets the caller win (F-20). It is corrected
-  in task 9.1.
+  in task 11.1.
 - **P-7 · More derivation sites than the page's census listed.**
   - `app/utils.py::coerce_kwargs` and `_resolve_type`: a public export with **no production caller**
     (serena `find_referencing_symbols`: tests only).

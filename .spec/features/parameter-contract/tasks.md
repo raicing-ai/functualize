@@ -10,6 +10,13 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   second, restore third.
 - **Transitional states are labelled in code** with `# TRANSITIONAL(<task>): …` and removed by the
   named task.
+- **SS-3 = B (member, comment `01a201b6-3d91-7eb2-8587-df5f212bf69f`, 2026-11-22T05:24:10Z).**
+  `FieldDescriptor.type_annotation` is removed in this change, not kept as a display label.
+  - No task adds a new read of `type_annotation`.
+  - A task that edits a file which reads it replaces that read with the contract:
+    `contract.display` where a human needs a type label, and the contract's fields
+    (`verdict`, `shape`, `cli`) where behaviour depends on it.
+  - Waves 9 and 10 remove what is left, and 10.1 deletes the field.
 - **Every task's gate also includes** `uv run lint-imports` (baseline "7 kept, 0 broken"), plus
   `uv run ruff check`, `ruff format --check` and `mypy src/` on the files it touches.
 
@@ -25,7 +32,9 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - `tests/types/test_parameter_contract_codec.py` (new).
 - **Work:**
   - Add the frozen dataclasses and enums.
-  - Add `FieldDescriptor.contract` (optional, default `None`).
+  - Add `FieldDescriptor.contract` (optional, default `None`). Do **not** touch
+    `type_annotation`, its `type` alias or the codec's `"type"` key here: their removal is placed in
+    waves 9 and 10 (SS-3 = B).
   - Encode and decode it in `_field_to_dict` / `_field_from_dict` (`descriptors.py:631`, `:685`),
     with `default_json` as JSON-native.
   - Bump `CACHE_VERSION` from 25 to 26 (`cache_format.py:178`).
@@ -64,7 +73,7 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   (spelling, requiredness, delivered type). Proposed verdicts are as on page v5. H166 and the other
   missing-provider rows are `REJECTED_DISCOVERY`, *reported*, per DC-1 = B. Generated module sources
   compile both with and without `from __future__ import annotations`.
-- **Invariant:** the table is the single source that 2.1's unit tests, 8.2's parity test and 8.1's
+- **Invariant:** the table is the single source that 1.1's unit tests, 11.2's parity test and 11.1's
   docs table read (page §5.8).
 - **Gate/evidence:** `uv run python -c "from tests._support.parameter_matrix import ROWS; assert len(ROWS) == 166"`.
 - **Depends on:** none.
@@ -132,7 +141,8 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - `tests/discovery/test_contract_discovery.py` (new).
 - **Work:**
   - `extract_parameters_from_signature` sets `contract` on every parameter it emits, and
-    `type_annotation` comes from `contract.display`.
+    `type_annotation` keeps today's value until wave 9, and new readers read `contract.display`
+    (SS-3 = B).
   - `JobRegistry._extract_descriptors_from_module` (`registry.py:359-551`) does the same, so library
     mode agrees (plan R-5).
   - A `REJECTED_DISCOVERY` parameter records `DiscoveryFailure(error_type="UnsupportedParameter")`
@@ -458,9 +468,156 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - `uv run pytest tests/discovery tests/config`.
 - **Depends on:** 7.3, 5.1, 6.1.
 
-## Wave 9 — documentation and the parity test
+## Wave 9 — stop depending on `type_annotation` (SS-3 = B)
 
-### [ ] 9.1 Docs, changelog, ADR amendments, codemap correction
+Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.txt`,
+`ss3b-remaining.txt`):
+
+- `rg -n '\.type_annotation' src plugins -g '*.py' -g '!**/tests/**'` gives **22 occurrences in
+  10 files**.
+- `rg -l -w type_annotation src plugins -g '*.py' -g '!**/tests/**'` gives **26 files**. 17 of them
+  are already in an earlier task's `[F]` and are cleared by the rule above; the other 9 are scoped
+  in 9.2 and 9.3.
+- Test and fixture files mentioning it: **53**. 8 are in earlier tasks' `[F]`; the other 45 are
+  scoped in wave 10.
+
+### [ ] 9.1 The descriptor stops carrying the string: alias and codec keys go, the field becomes transitional
+
+- **Input:**
+  - `_types/descriptors.py:87-89` (the `type` property, "Backward-compatible alias for
+    type_annotation");
+  - `:636` (the codec writes `"type_annotation"`);
+  - `:700-701` (the decoder accepts `"type_annotation"` or the legacy `"type"`).
+- **[F]:**
+  - `src/functualize/_types/descriptors.py`;
+  - `tests/test_descriptor.py`, `tests/test_property_field_descriptor_extraction.py`.
+- **Work:**
+  - Delete the `type` property. Its only reader is `tests/test_descriptor.py:386` (serena
+    `find_referencing_symbols`). The one production fallback to a `type` attribute,
+    `_tool_scope.py:422`, is rewritten by 7.2.
+  - The codec stops writing `type_annotation` and stops reading `type_annotation` **and** the
+    legacy `"type"` key. **Decision: no legacy key survives.** Task 0.1 bumped `CACHE_VERSION` from
+    25 to 26, so a cache written by an older version is not decoded but rebuilt, once
+    (`pitfalls.md` §5).
+  - `type_annotation` gets the default `""`, marked `# TRANSITIONAL(10.1): removed once every
+    reader and test is off it`.
+- **Gate/evidence:**
+  - `rg -n -F -e 'def type(' -e 'else "type"' src/functualize/_types/descriptors.py` → 0 (today 2: `:87`
+    the alias, `:701` the legacy key);
+  - `uv run pytest tests/test_descriptor.py tests/test_property_field_descriptor_extraction.py tests/discovery/test_cache_manager.py`.
+- **Depends on:** 8.1, 8.2.
+
+### [ ] 9.2 The TUI row model's field is renamed `type_label`
+
+- **Input:** `FieldDef` (`_cli/tui/panels/config_table.py:73`) is a separate TUI view-model class
+  with its own `type_annotation: str = "str"` (`:86`). It is constructed at `chain_resolution.py:156`,
+  `:269`, `settings_panel.py:359` and `source_chain_detail.py:429`, and described in
+  `_cli/data/toml_writer.py:6`, `:60` and `:86`.
+- **[F]:**
+  - `src/functualize/_cli/tui/panels/config_table.py`;
+  - `src/functualize/_cli/tui/chain_resolution.py`;
+  - `src/functualize/_cli/tui/settings_panel.py`;
+  - `src/functualize/_cli/tui/source_chain_detail.py`;
+  - `src/functualize/_cli/data/toml_writer.py`.
+- **Work:**
+  - Rename the field to `type_label`. Job rows fill it from `contract.display`; settings rows fill
+    it from `Setting.type` as today.
+  - **Why rename a field SS-3 did not name:** it is private TUI state, and with the old name the
+    removal gate `rg '\.type_annotation'` could never reach 0 honestly.
+- **Gate/evidence:**
+  - `rg -n -w type_annotation src/functualize/_cli/tui/panels/config_table.py src/functualize/_cli/tui/chain_resolution.py src/functualize/_cli/tui/settings_panel.py src/functualize/_cli/tui/source_chain_detail.py src/functualize/_cli/data/toml_writer.py` → 0;
+  - `uv run pytest tests/cli tests/_cli -k "chain or preflight or settings or toml"`.
+- **Depends on:** 8.1, 8.2.
+
+### [ ] 9.3 The remaining production readers read the contract
+
+- **Input:** `ss3b-remaining.txt`, production files not in an earlier task's `[F]`, minus 9.2's.
+- **[F]:**
+  - `src/functualize/_cli/introspect.py`;
+  - `src/functualize/_cli/tui/preflight_summary.py`;
+  - `src/functualize/_cli/tui/source_chain_providers.py`;
+  - `src/functualize/_types/flag_grammar.py`;
+  - `src/functualize/app/_workflow_view.py`;
+  - `plugins/conftest.py`, `plugins/adapters/functualize-mcp/tests/conftest.py`.
+- **Work:**
+  - Display reads become `contract.display`.
+  - `flag_grammar.py:153`'s `!= "bool"` becomes `contract.shape.scalar is Scalar.BOOL`.
+  - The two plugin conftests build descriptors with `contract=`.
+- **Gate/evidence:**
+  - `rg -n -w type_annotation` over these 7 files → 0;
+  - `uv run pytest tests/cli/test_introspector.py tests/types/ plugins/adapters/functualize-mcp/tests/`.
+- **Depends on:** 8.1, 8.2.
+
+## Wave 10 — `type_annotation` is deleted (SS-3 = B)
+
+The tasks in this wave are independent. Each migrates only its own test files. 10.1 deletes the
+field, and the wave is complete when the whole suite is green with it gone.
+
+### [ ] 10.1 Delete `FieldDescriptor.type_annotation`
+
+- **[F]:** `src/functualize/_types/descriptors.py`.
+- **Work:** remove the field and its `TRANSITIONAL(10.1)` marker. Every constructor already passes
+  `contract=` (2.1, 2.2, 4.3).
+- **Gate/evidence:**
+  - `rg -n '\.type_annotation' src plugins -g '*.py'` → 0 (today 22 occurrences in 10 production
+    files);
+  - `rg -n -w type_annotation src plugins -g '*.py' -g '!**/tests/**'` → 0 (today 72 occurrences in
+    27 files);
+  - after 10.2–10.4: `rg -l -w type_annotation tests plugins -g '*.py'` → 0 (today 53);
+  - `uv run pytest` (the full suite, at the end of the wave).
+- **Depends on:** 9.1, 9.2, 9.3.
+
+### [ ] 10.2 Migrate the CLI test modules
+
+- **[F]:**
+  - `tests/cli/`:
+    - `test_chain_drill_down.py`, `test_chain_kind_aware.py`, `test_cross_panel_sync.py`;
+    - `test_diff_view_wiring.py`, `test_enum_parameter_roundtrip.py`;
+    - `test_introspect_values.py`, `test_introspect_values_unit.py`, `test_introspector.py`;
+    - `test_param_kind.py`, `test_pending_execution_integration.py`;
+    - `test_preflight_compact.py`, `test_preflight_enriched.py`, `test_preflight_truncation.py`.
+  - `tests/_cli/`:
+    - `test_completion_flag_pairs.py`, `test_inline_tui_v2_autocomplete_integration.py`;
+    - `test_orchestrator_handoff.py`, `test_secret_masking_surfaces.py`.
+- **Work:** construct descriptors with `contract=`, and assert `contract.display` where a test
+  checks a type label.
+- **Gate/evidence:** `rg -l -w type_annotation` over these 17 files → 0; `uv run pytest tests/cli tests/_cli`.
+- **Depends on:** 9.1, 9.2, 9.3.
+
+### [ ] 10.3 Migrate the plugin and discovery test modules
+
+- **[F]:**
+  - `tests/plugins/`:
+    - `test_mcp_server.py`, `test_mcp_tools.py`, `test_mcp_translation_properties.py`;
+    - `test_mcp_translator.py`, `test_mcp_visibility_properties.py`;
+    - `test_schema_export.py`, `test_schema_export_properties.py`;
+    - `test_three_doors_agree.py`, `test_tool_scope.py`.
+  - `tests/discovery/`:
+    - `test_di_exclusion_properties.py`, `test_parameter_extraction.py`, `test_schema_extractor.py`;
+    - `test_transform_group_filter_property.py`, `test_transform_identity_property.py`;
+    - `test_transform_namespace_property.py`, `test_transform_rename_property.py`.
+- **Work:** as 10.2.
+- **Gate/evidence:** `rg -l -w type_annotation tests/plugins tests/discovery` → 0;
+  `uv run pytest tests/plugins tests/discovery`.
+- **Depends on:** 9.1, 9.2, 9.3.
+
+### [ ] 10.4 Migrate the remaining test modules
+
+- **[F]:**
+  - `tests/test_schema_extractor_properties.py`;
+  - `tests/config/test_pep563_annotation_sites.py`;
+  - `tests/app/test_dynamic_registration.py`;
+  - `tests/group_options/`:
+    - `test_combination_matrix.py`, `test_group_options_discovery.py`;
+    - `test_group_options_dispatch.py`, `test_tui_group_flags.py`;
+  - `tests/tui_group_options/test_write_back_contract.py`.
+- **Work:** as 10.2.
+- **Gate/evidence:** `rg -l -w type_annotation` over these 8 files → 0; `uv run pytest tests/group_options tests/tui_group_options tests/config tests/app tests/test_schema_extractor_properties.py`.
+- **Depends on:** 9.1, 9.2, 9.3.
+
+## Wave 11 — documentation and the parity test
+
+### [ ] 11.1 Docs, changelog, ADR amendments, codemap correction
 
 - **[F]:**
   - `docs/guides/jobs-discovery.md`, `docs/guides/job-config.md`;
@@ -470,16 +627,18 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **Work:**
   - `jobs-discovery.md` gains *Which parameters are inputs*, rendered from the table.
   - `job-config.md:47-69` now describes the refusal that actually runs.
-  - `CHANGELOG.md` lists every visible change (`spec.md` § *Evidence and constraints*).
+  - `CHANGELOG.md` lists every visible change (`spec.md` § *Evidence and constraints*), including
+    the public API removal of `functualize.types.FieldDescriptor.type_annotation` and its `type`
+    alias (SS-3 = B), with the replacement: `FieldDescriptor.contract`.
   - ADR-010 records that its renderer now reads contracts. ADR-018 records the cold-path fix and
     the `UnsupportedParameter` sibling.
   - `data-flow.md` §2's priority line matches the code: the caller never reaches an `INJECTED`
     parameter.
 - **Gate/evidence:** `uv run mkdocs build --strict` (`mkdocs.yml` is at the repository root), and
-  9.2's docs-table test.
-- **Depends on:** 8.1, 8.2.
+  11.2's docs-table test.
+- **Depends on:** 10.1, 10.2, 10.3, 10.4.
 
-### [ ] 9.2 The parity test (AC-10), with the three cross-builder tests folded in
+### [ ] 11.2 The parity test (AC-10), with the three cross-builder tests folded in
 
 - **[F]:**
   - `tests/surfaces/test_parameter_surface_parity.py` (new), `tests/surfaces/test_parameter_docs_table.py` (new);
@@ -492,11 +651,11 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - Assert the row's verdict on every surface.
 - **Gate/evidence:** green under `uv run pytest tests/surfaces/`, and runnable within the 600 s
   tool-call cap. If not, split it by row group, as the `test-tiers` skill prescribes.
-- **Depends on:** 8.1, 8.2. The docs-table half also depends on 9.1.
+- **Depends on:** 10.1, 10.2, 10.3, 10.4. The docs-table half also depends on 11.1.
 
-## Wave 10 — checkpoint
+## Wave 12 — checkpoint
 
-### [ ] 10.1 Acceptance checkpoint (AC-1 to AC-13)
+### [ ] 12.1 Acceptance checkpoint (AC-1 to AC-13)
 
 - **Work:** run every gate in `spec.md` § *Acceptance checks* from `matrix/`, cold and warm, in both
   PEP 563 modes. That includes the coverage census (0 executed statements in deleted symbols:
@@ -506,36 +665,51 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   output into the task record.
 - **Depends on:** all earlier tasks.
 
-## Wave 11 — artifact clearing
+## Wave 13 — artifact clearing
 
-### [ ] 11.1 Two-push clearing sequence
+### [ ] 13.1 Two-push clearing sequence
 
 - **Work:**
-  - Migrate the durable half (the decision to ADRs, already done in 9.1; the status to
+  - Migrate the durable half (the decision to ADRs, already done in 11.1; the status to
     `.spec/STATUS.md`).
   - Push the feature commits and let validation pass.
   - Then make one deletion-only commit, `git rm -r .spec/features/parameter-contract`, and push it.
 - **Gate/evidence:** `git ls-files .spec/features/parameter-contract` is empty; `git show --stat HEAD`
   shows deletions only; `spec-artifacts-cleared` passes.
-- **Depends on:** 10.1.
+- **Depends on:** 12.1.
 
 ## Task Dependency Graph
 
 ```json
 {
-  "waves": [
-    {"id": 0, "tasks": ["0.1", "0.2", "0.3", "0.4", "0.5"]},
-    {"id": 1, "tasks": ["1.1"]},
-    {"id": 2, "tasks": ["2.1", "2.2", "2.3"]},
-    {"id": 3, "tasks": ["3.1"]},
-    {"id": 4, "tasks": ["4.1", "4.2", "4.3"]},
-    {"id": 5, "tasks": ["5.1", "5.2"]},
-    {"id": 6, "tasks": ["6.1"]},
-    {"id": 7, "tasks": ["7.1", "7.2", "7.3"]},
-    {"id": 8, "tasks": ["8.1", "8.2"]},
-    {"id": 9, "tasks": ["9.1", "9.2"]},
-    {"id": 10, "tasks": ["10.1"]},
-    {"id": 11, "tasks": ["11.1"]}
+  "waves": [   { "id": 0, "tasks": [   "0.1",   "0.2",   "0.3",   "0.4",   "0.5" ]
+    },
+    { "id": 1, "tasks": [   "1.1" ]
+    },
+    { "id": 2, "tasks": [   "2.1",   "2.2",   "2.3" ]
+    },
+    { "id": 3, "tasks": [   "3.1" ]
+    },
+    { "id": 4, "tasks": [   "4.1",   "4.2",   "4.3" ]
+    },
+    { "id": 5, "tasks": [   "5.1",   "5.2" ]
+    },
+    { "id": 6, "tasks": [   "6.1" ]
+    },
+    { "id": 7, "tasks": [   "7.1",   "7.2",   "7.3" ]
+    },
+    { "id": 8, "tasks": [   "8.1",   "8.2" ]
+    },
+    { "id": 9, "tasks": [   "9.1",   "9.2",   "9.3" ]
+    },
+    { "id": 10, "tasks": [   "10.1",   "10.2",   "10.3",   "10.4" ]
+    },
+    { "id": 11, "tasks": [   "11.1",   "11.2" ]
+    },
+    { "id": 12, "tasks": [   "12.1" ]
+    },
+    { "id": 13, "tasks": [   "13.1" ]
+    }
   ]
 }
 ```

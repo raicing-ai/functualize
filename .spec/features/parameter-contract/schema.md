@@ -66,7 +66,7 @@ class ParameterContract:
     json_schema: dict[str, Any] | None     # the published property; None for INJECTED / REJECTED_DISCOVERY
     injection: Injection | None = None
     reject_reason: str | None = None       # REJECTED_DISCOVERY: "<reason>. <remedy>" (§5.7 wording)
-    display: str = ""                      # the human type label — the only role `type_annotation` keeps
+    display: str = ""                      # the human type label; FieldDescriptor.type_annotation is removed (SS-3 = B)
     description: str = ""
 ```
 
@@ -87,9 +87,14 @@ class ParameterContract:
 
 `FieldDescriptor` gains `contract: ParameterContract | None`. `_field_to_dict` / `_field_from_dict`
 (`_types/descriptors.py:631`, `:685`) encode it as a nested JSON object, and `CACHE_VERSION`
-(`_primitives/cache_format.py:178`, today `25`) is bumped (`pitfalls.md` §5). `type_annotation` stays on the
-descriptor and is populated from `contract.display`. It is never read to decide behaviour (spec
-B-33).
+(`_primitives/cache_format.py:178`, today `25`) is bumped (`pitfalls.md` §5).
+
+**SS-3 = B** (member comment `01a201b6`, 2026-11-22T05:24:10Z): `type_annotation` is **removed**
+from `FieldDescriptor`. The codec neither writes nor reads it, nor the legacy `"type"` key
+(`descriptors.py:701`); a cache from an older version is rebuilt rather than decoded, because of the
+version bump. The `type` alias property (`:87-89`) goes with it. A human-readable type label comes
+only from `contract.display`. Sequencing: wave 9 makes the field transitional, and wave 10 deletes
+it (`tasks.md`).
 
 ## Binding (`_primitives/argument_binding.py`)
 

@@ -175,8 +175,10 @@ listed and declaring no inputs. This is identical on cold and warm boots.
 - **`functualize.types.FieldDescriptor`** gains one field carrying the parameter's contract: verdict,
   value shape, requiredness, default, CLI spelling, JSON schema fragment. Field and type names are
   *(provisional)*; `contract: ParameterContract` is the page's working name.
-- **`FieldDescriptor.type_annotation`** remains, as a display string only. No surface derives
-  behaviour from it.
+- **`FieldDescriptor.type_annotation` and its `type` alias property are removed** (SS-3 = B,
+  member comment `01a201b6`, 2026-11-22T05:24:10Z). This is a public break of
+  `functualize.types.FieldDescriptor`, recorded in `CHANGELOG.md`. The type label is
+  `FieldDescriptor.contract.display`.
 - **The descriptor cache** rebuilds once after upgrade (`CACHE_VERSION` bump). No user action is
   needed.
 - **`functualize.types.RunStatus`** gains `INVALID` (§7).

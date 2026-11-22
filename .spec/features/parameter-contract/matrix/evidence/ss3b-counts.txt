@@ -1,0 +1,103 @@
+$ rg -n "\.type_annotation" src plugins -g "*.py" -g "!**/tests/**"
+src/functualize/app/utils.py:614:    Python type indicated by the corresponding FieldDescriptor.type_annotation.
+src/functualize/app/utils.py:636:        type_ann = descriptor.type_annotation
+src/functualize/_types/flag_grammar.py:153:    if (field.type_annotation or "") != "bool":
+src/functualize/app/adapters/click_params.py:272:    if field.type_annotation == "enum" or field.choices:
+src/functualize/app/adapters/click_params.py:274:    return _click_type_for(_resolve_type_string(field.type_annotation))
+src/functualize/app/adapters/click_params.py:357:            if field.type_annotation.strip().startswith("list"):
+src/functualize/_types/descriptors.py:89:        return self.type_annotation
+src/functualize/_types/descriptors.py:636:        "type_annotation": fd.type_annotation,
+src/functualize/_cli/dispatch.py:715:            if field.type_annotation == "bool":
+src/functualize/_cli/tui/smart_bar_autocomplete.py:559:            is_list = field.type_annotation.startswith("list[")
+src/functualize/_cli/tui/smart_bar_autocomplete.py:597:            type_hint = field_desc.type_annotation if field_desc else ""
+src/functualize/_cli/tui/smart_bar_autocomplete.py:669:            type_lower = target_field.type_annotation.lower()
+src/functualize/_cli/tui/smart_bar_autocomplete.py:733:        type_hint = target_field.type_annotation if target_field else "str"
+src/functualize/_cli/tui/source_chain_providers.py:222:                    type_hint=field.type_annotation or "str",
+src/functualize/_cli/tui/source_chain_providers.py:262:            f.name: f.type_annotation
+src/functualize/_cli/tui/source_chain_providers.py:264:            if f.type_annotation and f.name in edits
+src/functualize/_cli/data/toml_writer.py:6:(``FieldDef.type_annotation`` for job config, ``SettingSchema.type`` for TUI
+src/functualize/_cli/data/toml_writer.py:60:    ``FieldDef.type_annotation`` can carry, so an optional int still writes
+src/functualize/_cli/data/toml_writer.py:86:        type_hint: The declared type (``FieldDef.type_annotation`` or
+src/functualize/_cli/tui/chain_resolution.py:576:        f"Type: {field_def.type_annotation} | Required: {req_str} | Choices: {choices_str}"
+src/functualize/_cli/introspect.py:135:                type_str = param.type_annotation or "str"
+src/functualize/_cli/introspect.py:385:        type_ann = target_field.type_annotation.lower()
+# occurrences: 22, files: 10
+
+$ rg -n -w type_annotation src plugins -g "*.py" -g "!**/tests/**"  (every token: attribute, keyword argument, dict key, docstring)
+# occurrences: 72, files: 27
+src/functualize/_cli/tui/type_hint_formatter.py:9
+src/functualize/app/utils.py:8
+src/functualize/_types/descriptors.py:8
+src/functualize/_cli/tui/smart_bar_autocomplete.py:5
+plugins/conftest.py:4
+src/functualize/app/adapters/click_params.py:3
+src/functualize/_discovery/providers.py:3
+src/functualize/_cli/tui/source_chain_providers.py:3
+src/functualize/_cli/tui/chain_resolution.py:3
+src/functualize/_cli/data/toml_writer.py:3
+src/functualize/app/commands.py:2
+src/functualize/_primitives/job_schema.py:2
+src/functualize/_cli/tui/preflight_summary.py:2
+src/functualize/_cli/tui/panels/config_table.py:2
+src/functualize/_cli/introspect.py:2
+plugins/domains/functualize-ai/src/functualize_ai/_tool_scope.py:2
+src/functualize/app/_workflow_view.py:1
+src/functualize/_types/flag_grammar.py:1
+src/functualize/_discovery/schema_extractor.py:1
+src/functualize/_cli/tui/sync.py:1
+src/functualize/_cli/tui/source_chain_detail.py:1
+src/functualize/_cli/tui/settings_panel.py:1
+src/functualize/_cli/tui/bar.py:1
+src/functualize/_cli/tui/app.py:1
+src/functualize/_cli/info.py:1
+src/functualize/_cli/dispatch.py:1
+plugins/adapters/functualize-mcp/src/functualize_mcp/_translator.py:1
+
+$ rg -l -w type_annotation tests plugins/*/*/tests -g "*.py" | wc -l
+52
+
+$ sed -n 84,90p src/functualize/_types/descriptors.py
+    from_config_model: bool = False
+
+    @property
+    def type(self) -> str:
+        """Backward-compatible alias for type_annotation."""
+        return self.type_annotation
+
+$ sed -n 694,706p src/functualize/_types/descriptors.py
+    """
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Expected a dict for FieldDescriptor, got {type(data).__name__}"
+        )
+
+    # Support both new and legacy key names
+    type_key = "type_annotation" if "type_annotation" in data else "type"
+    desc_key = "description" if "description" in data else "help"
+
+    required_keys = {"name", type_key, "choices", "default", "required", desc_key}
+    missing = required_keys - set(data.keys())
+    if missing:
+
+### FieldDescriptor sites outside src/functualize/_types (production), classified
+$ rg -l -w FieldDescriptor src plugins -g "*.py" -g "!**/tests/**" | grep -v "^src/functualize/_types/"
+reader  plugins/adapters/functualize-mcp/src/functualize_mcp/_translator.py  type_annotation-tokens=1
+reader  src/functualize/_cli/info.py  type_annotation-tokens=1
+reader  src/functualize/_cli/introspect.py  type_annotation-tokens=2
+reader  src/functualize/_cli/tui/bar.py  type_annotation-tokens=1
+reader  src/functualize/_cli/tui/cli_arg_parser.py  type_annotation-tokens=0
+reader  src/functualize/_cli/tui/panels/config_table.py  type_annotation-tokens=2
+reader  src/functualize/_cli/tui/smart_bar_autocomplete.py  type_annotation-tokens=5
+reader  src/functualize/_cli/tui/type_hint_formatter.py  type_annotation-tokens=9
+reader  src/functualize/_discovery/group_options_extractor.py  type_annotation-tokens=0
+reader  src/functualize/_discovery/lazy_wrapper.py  type_annotation-tokens=0
+constructor(1)  src/functualize/_discovery/providers.py  type_annotation-tokens=3
+constructor(1)  src/functualize/_discovery/schema_extractor.py  type_annotation-tokens=1
+reader  src/functualize/_primitives/cache_format.py  type_annotation-tokens=0
+reader  src/functualize/_primitives/job_schema.py  type_annotation-tokens=2
+reader  src/functualize/app/adapters/cli.py  type_annotation-tokens=0
+reader  src/functualize/app/adapters/click_params.py  type_annotation-tokens=3
+constructor(2)  src/functualize/app/commands.py  type_annotation-tokens=2
+reader  src/functualize/app/utils.py  type_annotation-tokens=8
+re-export  src/functualize/types/__init__.py  type_annotation-tokens=0
+# files: 19

@@ -1,0 +1,59 @@
+TEST/FIXTURE files mentioning type_annotation: 53
+  already in an earlier task's [F]: 8
+  remaining for the migration tasks: 45
+   T plugins/adapters/functualize-mcp/tests/conftest.py
+   T plugins/conftest.py
+   T tests/_cli/test_completion_flag_pairs.py
+   T tests/_cli/test_inline_tui_v2_autocomplete_integration.py
+   T tests/_cli/test_orchestrator_handoff.py
+   T tests/_cli/test_secret_masking_surfaces.py
+   T tests/app/test_dynamic_registration.py
+   T tests/cli/test_chain_drill_down.py
+   T tests/cli/test_chain_kind_aware.py
+   T tests/cli/test_cross_panel_sync.py
+   T tests/cli/test_diff_view_wiring.py
+   T tests/cli/test_enum_parameter_roundtrip.py
+   T tests/cli/test_introspect_values.py
+   T tests/cli/test_introspect_values_unit.py
+   T tests/cli/test_introspector.py
+   T tests/cli/test_param_kind.py
+   T tests/cli/test_pending_execution_integration.py
+   T tests/cli/test_preflight_compact.py
+   T tests/cli/test_preflight_enriched.py
+   T tests/cli/test_preflight_truncation.py
+   T tests/config/test_pep563_annotation_sites.py
+   T tests/discovery/test_di_exclusion_properties.py
+   T tests/discovery/test_parameter_extraction.py
+   T tests/discovery/test_schema_extractor.py
+   T tests/discovery/test_transform_group_filter_property.py
+   T tests/discovery/test_transform_identity_property.py
+   T tests/discovery/test_transform_namespace_property.py
+   T tests/discovery/test_transform_rename_property.py
+   T tests/group_options/test_combination_matrix.py
+   T tests/group_options/test_group_options_discovery.py
+   T tests/group_options/test_group_options_dispatch.py
+   T tests/group_options/test_tui_group_flags.py
+   T tests/plugins/test_mcp_server.py
+   T tests/plugins/test_mcp_tools.py
+   T tests/plugins/test_mcp_translation_properties.py
+   T tests/plugins/test_mcp_translator.py
+   T tests/plugins/test_mcp_visibility_properties.py
+   T tests/plugins/test_schema_export.py
+   T tests/plugins/test_schema_export_properties.py
+   T tests/plugins/test_three_doors_agree.py
+   T tests/plugins/test_tool_scope.py
+   T tests/test_descriptor.py
+   T tests/test_property_field_descriptor_extraction.py
+   T tests/test_schema_extractor_properties.py
+   T tests/tui_group_options/test_write_back_contract.py
+PRODUCTION files with the token: 26
+  already in an earlier task's [F]: 17 ; remaining: 9
+   P src/functualize/_cli/data/toml_writer.py
+   P src/functualize/_cli/introspect.py
+   P src/functualize/_cli/tui/panels/config_table.py
+   P src/functualize/_cli/tui/preflight_summary.py
+   P src/functualize/_cli/tui/settings_panel.py
+   P src/functualize/_cli/tui/source_chain_detail.py
+   P src/functualize/_cli/tui/source_chain_providers.py
+   P src/functualize/_types/flag_grammar.py
+   P src/functualize/app/_workflow_view.py
