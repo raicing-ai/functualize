@@ -431,6 +431,50 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
 - **Invariant:** cold and warm descriptors compare equal.
 - **Gate/evidence:** `uv run pytest tests/discovery/test_contract_discovery.py tests/discovery/test_discovery_failures.py tests/integration/test_warm_cold_boot.py`. The new test boots each table row cold and warm in a subprocess.
 - **Reachability:** `func <job>` → `DirectoryScanProvider` → `extract_parameters_from_signature`.
+- **Execute finding (2026-11-22): PARTIAL, left `[ ]`.** The code is committed and its own gate is
+  green, but it reddens three tests outside `[F]`. Scope repair and one designer decision are needed.
+  - **What landed.**
+    - `extract_parameters_from_signature` sets `contract` on every parameter it emits.
+      `JobRegistry._extract_descriptors_from_module` calls it (`registry.py:522`), so library mode
+      needed no edit.
+    - `report_unsupported_parameters` runs on both boot paths (`boot.py`), after
+      `report_unsatisfiable_jobs` and before the registry freezes. It builds an exact
+      `(qualified name, qualifier)` set from `available_types()` / `available_qualifiers()`, applies
+      `admit` to each descriptor contract, and keeps the result in `app._admitted_contracts`
+      (`# TRANSITIONAL(parameter-contract/5.1)`). It reports each refusal as `UnsupportedParameter`
+      with a warning. The descriptor and the cache keep the contract from before `admit`.
+  - **Gate:** `uv run pytest tests/discovery/test_contract_discovery.py tests/discovery/test_discovery_failures.py tests/integration/test_warm_cold_boot.py`
+    → 676 passed, 2 skipped. The new test boots the whole table as one project through the real
+    `func`, in a subprocess, cold and then warm, in both annotation modes. Every row's declared and
+    admitted verdicts match the table. Cold and warm contracts are equal, and the warm boot is
+    proven lazy. Every refusal is reported with its file and job, and appears in stderr. A
+    qualified-only provider (`QOnly` under `"x"`) does not satisfy a bare `p: QOnly`. The cache holds
+    no `admit` result. Library mode (`FunctualizeApp(job_sources=…)`) admits identically.
+  - **Sabotage, after committing the change (before this evidence was amended in):**
+    - Replacing both `report_unsupported_parameters(app)` calls with `pass` failed 493 of the new
+      test's cases.
+    - Replacing the exact-pair predicate with a type-only match, `DIRegistry.has`'s behaviour,
+      failed H166 on both boots and both modes and the `QOnly` test (6 failed).
+    - Each was restored with `git checkout --`, and the tree was clean.
+  - **Not emitted, so no contract.** Capability and `FromJob` parameters are kept off `parameters`, as
+    before (30 capability rows, plus E140 and E141). Their descriptors carry no contract for them.
+    5.1, which "reads `contract.verdict`", must classify them from the live function, or a task must
+    start emitting them.
+  - **The conflict (designer decision needed).** A missing provider is now reported twice on a cold
+    boot: ADR-018's `UnsatisfiableParameter` from `validate_di_bindings`, and the new
+    `UnsupportedParameter`. A warm boot reports only the new one; the old check skips lazy entries
+    (F-33). Three tests outside `[F]` pin exactly one report:
+    - `tests/app/test_eager_boot_provider.py::TestTheBootTimePromisesSurvive::test_a_di_error_is_still_found_at_construction`
+      (`assert len(messages) == 1`);
+    - `tests/integration/test_lazy_true_engine_materialization.py::TestDeferredDiValidation::test_cold_boot_still_validates_at_boot`
+      and `::test_lazy_false_escape_hatch_validates_at_boot` (`== ['UnsatisfiableParameter']`).
+
+    All three pass at `7a7b9124` and fail with this change. The plan says "next to ADR-018's
+    `UnsatisfiableParameter`" but does not say what happens when both fire. B-2 ("the only registry
+    input to any verdict") and 5.1 ("no second availability check") point to retiring the old report
+    for parameters a contract covers. That also matches the old message's remedy, "annotate with
+    Arg()/Option()", which B-8 now refuses for an unconvertible class (D105). Either answer needs
+    those three files in `[F]`.
 - **Depends on:** 1.1.
 
 ### [ ] 2.2 Config and group fields get contracts; the config-type refusal runs (F-29)

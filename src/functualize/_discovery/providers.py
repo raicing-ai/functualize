@@ -22,7 +22,7 @@ import types as builtin_types
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Annotated, Any, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 from functualize._discovery.ast_extractor import class_in_source
 from functualize._discovery.collisions import resolve_name_collisions
@@ -32,6 +32,7 @@ from functualize._primitives.entry_points import entry_points
 from functualize._primitives.group_options_detection import (
     is_group_options_subclass,
 )
+from functualize._primitives.parameter_contract import build_contracts
 from functualize._primitives.pre_filter import extract_function_decorators
 from functualize._types import FieldDescriptor, JobDescriptor
 from functualize._types.annotations import resolved_hints
@@ -45,6 +46,9 @@ from functualize._types.from_job import from_job_names
 from functualize._types.naming import normalize_name, normalize_segment
 from functualize._types.redaction import is_secret_annotation
 from functualize._types.workflow import workflow_shape_of
+
+if TYPE_CHECKING:
+    from functualize._types.parameter_contract import ParameterContract
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +101,7 @@ def extract_parameters_from_signature(
     # Resolve string annotations (from `from __future__ import annotations`)
     # to actual type objects for proper Annotated introspection
     hints = resolved_hints(func)
+    contracts = _parameter_contracts(func)
 
     for param_name, param in sig.parameters.items():
         # Skip 'self', 'cls'
@@ -199,10 +204,28 @@ def extract_parameters_from_signature(
                 # declaration masks in a Pydantic model and leaks in a plain
                 # signature.
                 secret=is_secret_annotation(base_annotation),
+                # The one verdict every surface reads (spec B-1). It is the
+                # declaration's verdict, before availability: boot applies
+                # `admit` per boot and never caches its result (B-2, B-7).
+                contract=contracts.get(param_name),
             )
         )
 
     return parameters
+
+
+def _parameter_contracts(func: Callable[..., Any]) -> dict[str, ParameterContract]:
+    """Each parameter's contract by name; empty if the classifier itself fails.
+
+    A classifier crash must not take the job's discovery down with it: the
+    parameters keep today's descriptor fields and no contract, and the failure
+    is logged rather than raised.
+    """
+    try:
+        return {contract.name: contract for contract in build_contracts(func)}
+    except Exception:
+        logger.warning("Could not classify the parameters of %r", func, exc_info=True)
+        return {}
 
 
 def _has_from_job(annotation: Any) -> bool:

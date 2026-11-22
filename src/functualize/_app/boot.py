@@ -712,6 +712,7 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
 
     # Validate DI bindings
     report_unsatisfiable_jobs(app)
+    report_unsupported_parameters(app)
 
     # Freeze DI registry
     app._di_registry.freeze()
@@ -1185,6 +1186,7 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     # 9b. Validate DI bindings
     perf_timeline.mark("boot.di_validation.start")
     report_unsatisfiable_jobs(app)
+    report_unsupported_parameters(app)
     perf_timeline.mark("boot.di_validation.end")
 
     # 10. Freeze DI registry and emit REGISTRY_FROZEN event
@@ -1901,6 +1903,81 @@ def report_unsatisfiable_jobs(app: Any) -> None:
         logger.warning("%s", message)
 
     app._unsatisfiable_jobs = reported
+
+
+def report_unsupported_parameters(app: Any) -> None:
+    """Apply spec B-2's availability rule, and report every refused parameter.
+
+    Each descriptor carries its parameters' contracts as discovery decided them
+    from the declaration (cold) or as the cache kept them (warm) — the same
+    object either way. Here, once per boot and after every plugin has
+    registered its providers, :func:`admit` decides whether each
+    provider-backed ``INJECTED`` parameter has a provider for **exactly** its
+    ``(type, qualifier)``. The result is kept on the app for the engine door
+    and is never written back to the descriptor, so the cache keeps the
+    declaration's contract and availability is re-decided every boot (B-7).
+
+    The predicate is built from the registry's exact entries, never from
+    ``DIRegistry.has(T)``: that answers true for a type registered only under
+    other qualifiers, which ``resolve`` then refuses as ambiguous (F-21).
+
+    A ``REJECTED_DISCOVERY`` contract, for its shape or its missing provider,
+    is reported as ``UnsupportedParameter`` with a warning naming the file, the
+    job, the declaration and the remedy (B-9). The job stays registered
+    (DC-1 = B), on the same channel ``report_unsatisfiable_jobs`` uses.
+    """
+    from functualize._primitives.parameter_contract import admit
+    from functualize._types.discovery_report import DiscoveryFailure
+    from functualize._types.parameter_contract import Verdict
+
+    registry = app._di_registry
+    provided = {
+        (f"{type_.__module__}.{type_.__qualname__}", qualifier)
+        for type_ in registry.available_types()
+        for qualifier in registry.available_qualifiers(type_)
+    }
+
+    def has_provider(provider_type: str, qualifier: str | None) -> bool:
+        return (provider_type, qualifier) in provided
+
+    reported: list[DiscoveryFailure] = list(getattr(app, "_unsatisfiable_jobs", []))
+    known = {failure.message for failure in reported}
+    admitted_by_job: dict[str, dict[str, Any]] = {}
+    for descriptor in app.job_registry.get_descriptors():
+        admitted = admitted_by_job.setdefault(descriptor.name, {})
+        source = descriptor.source_file or descriptor.module_path or "<unknown>"
+        for field in descriptor.parameters:
+            contract = field.contract
+            if contract is None or contract.name in admitted:
+                continue
+            result = admit(contract, has_provider)
+            admitted[contract.name] = result
+            if result.verdict is not Verdict.REJECTED_DISCOVERY:
+                continue
+            declaration = (
+                f"{result.name}: {result.display}" if result.display else result.name
+            )
+            message = (
+                f"{source}: job {descriptor.name!r} parameter {declaration!r} is "
+                f"refused. {result.reject_reason}."
+            )
+            if message in known:
+                continue
+            known.add(message)
+            reported.append(
+                DiscoveryFailure(
+                    module=Path(source).stem if descriptor.source_file else source,
+                    path=source,
+                    error_type="UnsupportedParameter",
+                    message=message,
+                )
+            )
+            logger.warning("%s", message)
+
+    app._unsatisfiable_jobs = reported
+    # TRANSITIONAL(parameter-contract/5.1): written here, read by the engine
+    # door, which refuses a call whose parameter this boot refused.
+    app._admitted_contracts = admitted_by_job
 
 
 #: The ``DiscoveryFailure.error_type`` a contested group path arrives under —
