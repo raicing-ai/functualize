@@ -711,6 +711,14 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - **Boot.** `report_unsupported_parameters` walks `omitted_contracts` as well, so an omitted
     `REJECTED_DISCOVERY` is reported once (B-9). `contract_covers` counts them as covered.
     `admit` already leaves capability and `FromJob` contracts unchanged.
+  - **Retire the stale survivor list** in `report_unsatisfiable_jobs`'s comment
+    (`_app/boot.py:1879-1882`). Its "(for example, directly registered functions and
+    factory-resolution errors)" contradicts B-9: `register_dynamic_job` keeps a descriptor with
+    contracts (`_app/impl.py:820`, `:856`), so its parameters are covered. Replace the parenthetical
+    with a pointer to B-9's three survivors:
+    - a job with no retained descriptor;
+    - the classifier-crash fallback;
+    - a factory's missing dependency.
   - **No surface reads `omitted_contracts`.** Its only planned reader is 5.1.
 - **Invariant:** for every descriptor with a live function:
   - the names of `parameters`' contracts and of `omitted_contracts` are disjoint;
@@ -729,6 +737,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `rg -n 'extract_parameters_from_signature\(' src plugins` → 1, its own definition (today 8: the
     definition and seven production calls);
   - `rg -n 'extract_signature\(' src` → 8: the definition and the seven sites;
+  - `rg -n 'directly registered functions' src` → 0 (today 1, `_app/boot.py:1881`);
   - `rg -n 'CACHE_VERSION\s*(==|!=|>=)\s*[0-9]+|"version"\s*:\s*2[0-9]' tests/ plugins/*/*/tests/` →
     the two pins at 27, plus the `:44` poison literal at 22;
   - `uv run pytest tests/discovery/test_contract_discovery.py tests/cli/test_parameter_types.py tests/app/test_eager_boot_provider.py tests/integration/test_lazy_true_engine_materialization.py`
