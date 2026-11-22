@@ -184,6 +184,12 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     both annotation modes;
   - `wc -l src/functualize/_primitives/parameter_contract.py` ≤ 500;
   - `lint-imports` "Primitives import nothing internal" KEPT.
+- **Execute finding (2026-11-22):** implementation paused before code. `spec.md` B-5 requires
+  `INVOCATION_ONLY` for fixed tuples, `dict[str, T]`, and `set[T]`, while the pinned table expects
+  `REJECTED_DISCOVERY` for C081–C084. Also, B-2 and this task forbid a DI registry lookup, but the
+  table distinguishes E138/E139 and H162–H166 by whether providers are registered. A builder
+  receiving only a declaration cannot reproduce those availability-dependent verdicts. The
+  every-row gate needs a designer correction; no row or requirement was silently reinterpreted.
 - **Depends on:** 0.1, 0.3.
 
 ### [ ] 1.2 The SQLite substrate stores `invalid`: revision 6, and a runner that can rebuild a table safely
@@ -266,6 +272,13 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
   - `git diff 21c4bb81 -- plugins/substrates/functualize-substrate-sqlite/src/functualize_substrate_sqlite/_schema/000[1-5]*.sql`
     → empty;
   - the plugin-package loop (wave barrier) → all green.
+- **Execute finding (2026-11-22):** revision 6 and its runner, driver, legacy map, tests and §7
+  documentation are committed, but the package gate is `227 passed, 3 failed`: all three variants
+  of `test_sqlite_configured_selects_the_sqlite_store_migrated` in
+  `tests/test_plugin_selection.py:125` still pin `[(5,)]`. That file is outside this task's `[F]`.
+  Scope repair must add it and move the current-version assertion to 6 before this box is ticked.
+  The populated-database test failed under post-commit sabotage that omitted the FK-off scope:
+  attempts, events, artifact references and tags were all deleted; the runner was restored.
 - **Depends on:** 0.2 (`RunStatus.INVALID`, committed in `7a610a7d`).
 
 ## Wave 2 — discovery writes contracts; the binder exists

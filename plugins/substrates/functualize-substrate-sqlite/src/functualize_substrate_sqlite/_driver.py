@@ -27,7 +27,7 @@ from __future__ import annotations
 import contextlib
 import sqlite3
 import threading
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -35,6 +35,7 @@ __all__ = [
     "DEFAULT_BUSY_TIMEOUT_S",
     "LocalSqliteDriver",
     "SqlDriver",
+    "ForeignKeyMigrationDriver",
     "SqliteBusyError",
     "Statement",
 ]
@@ -87,6 +88,15 @@ class SqlDriver(Protocol):
         ...
 
 
+@runtime_checkable
+class ForeignKeyMigrationDriver(Protocol):
+    """Optional SQLite capability for a table-rebuilding migration."""
+
+    def foreign_keys_disabled(self) -> contextlib.AbstractContextManager[None]:
+        """Disable FKs outside a batch, then restore them even on failure."""
+        ...
+
+
 class LocalSqliteDriver:
     """`SqlDriver` over one local SQLite file (or `:memory:`, for tests)."""
 
@@ -134,6 +144,28 @@ class LocalSqliteDriver:
                 return list(self._connection().execute(sql, parameters).fetchall())
             except sqlite3.OperationalError as exc:
                 raise self._translate(exc) from exc
+
+    @contextlib.contextmanager
+    def foreign_keys_disabled(self) -> Iterator[None]:
+        """Hold this connection while a migration replaces a referenced table.
+
+        SQLite ignores a foreign_keys change inside BEGIN; the runner enters
+        this scope before its atomic migration batch and checks references
+        before leaving it.
+        """
+        with self._lock:
+            conn = self._connection()
+            if conn.in_transaction:
+                raise sqlite3.OperationalError(
+                    "foreign keys cannot be changed inside a transaction"
+                )
+            conn.execute("PRAGMA foreign_keys=OFF")
+            if conn.execute("PRAGMA foreign_keys").fetchone() != (0,):
+                raise sqlite3.OperationalError("could not disable foreign keys")
+            try:
+                yield
+            finally:
+                conn.execute("PRAGMA foreign_keys=ON")
 
     def close(self) -> None:
         with self._lock:

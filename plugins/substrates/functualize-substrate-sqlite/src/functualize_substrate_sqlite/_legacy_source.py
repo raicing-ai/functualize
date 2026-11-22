@@ -43,6 +43,7 @@ _ATTEMPT_FOR_RUN = {
     "failure": "failed",
     "timeout": "failed",
     "refused": "failed",
+    "invalid": "failed",
     "unknown": "failed",
     "cancelled": "cancelled",
     "skipped": "skipped",
