@@ -101,7 +101,7 @@ def fine() -> None:
 '''
 
 MARKED_UNLISTED_TYPE = '''
-"""An author overruling the type list with an explicit marker."""
+"""An author marking a type the list does not mention."""
 
 from typing import Annotated
 
@@ -117,6 +117,11 @@ def marked(w: Annotated[Widget, Option(help="a widget")]) -> None:
     """Takes a type no list mentions, because the author said so."""
     print(f"{type(w).__name__}:{w.raw}")
 '''
+
+#: B-8's remedy for a CLI marker on a type nothing converts.
+UNCONVERTIBLE_REMEDY = (
+    "Declare a scalar type, or drop the marker and register a provider"
+)
 
 
 @pytest.mark.parametrize(
@@ -203,28 +208,42 @@ class TestAMalformedValueIsAUsageError:
         assert "Traceback" not in combined
 
 
-class TestAnExplicitMarkerOutranksTheTypeList:
-    """A3. The list is a convenience, not a ceiling: an author who says
-    `Option(...)` has stated the intent, and the framework used to overrule
-    them and then report the value they passed as an unexpected argument."""
+class TestAnExplicitMarkerNoLongerOutranksTheTypeList:
+    """The superseded half of A3. A marker still decides the shape and the
+    requiredness of a type that converts (``TestValueTypesRunAndConvert``), but
+    it no longer rescues a type nothing converts: ``Annotated[Widget, Option()]``
+    is on ``spec.md`` B-8's ``REJECTED_DISCOVERY`` list, and every call to a
+    refused job refuses with the ``UnsupportedParameter`` message at CLI exit 2
+    (``contracts.md`` §8). ADR-018's old remedy, "annotate the parameter with
+    ``Arg()``/``Option()``", is therefore itself refused (D105) and cannot be
+    the error message.
 
-    def test_an_unlisted_type_becomes_an_option(self, cli_run, project_tree) -> None:
+    This class used to assert that the list is a convenience, not a ceiling.
+    That rule is deliberately retired by the parameter-contract feature, so the
+    class now records the supersession rather than re-deriving A3.
+    """
+
+    def test_help_offers_no_option_for_it(self, cli_run, project_tree) -> None:
         root = project_tree(jobs={"jobs.py": MARKED_UNLISTED_TYPE})
 
         result = cli_run(["marked", "--help"], cwd=root)
 
         assert result.exit_code == 0
-        assert "--w" in result.stdout
+        assert "--w" not in result.stdout
+        assert "job 'marked'" in result.stderr
+        assert "parameter 'w: Widget' is refused" in result.stderr
+        assert UNCONVERTIBLE_REMEDY in result.stderr
 
-    def test_the_value_reaches_the_job_as_that_type(
+    def test_a_call_is_a_usage_error_and_the_body_never_runs(
         self, cli_run, project_tree
     ) -> None:
         root = project_tree(jobs={"jobs.py": MARKED_UNLISTED_TYPE})
 
         result = cli_run(["marked", "--w", "hello"], cwd=root)
 
-        assert result.exit_code == 0, result.stderr
-        assert "Widget:hello" in result.stdout
+        assert result.exit_code == 2
+        assert "Widget:hello" not in result.stdout + result.stderr
+        assert UNCONVERTIBLE_REMEDY in result.stderr
 
 
 class TestAGenuineDependencyStillFails:
