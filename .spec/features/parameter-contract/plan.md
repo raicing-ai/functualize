@@ -445,6 +445,13 @@ on a populated revision-5 database built by the plugin's own `migrate()`):**
   `register_dynamic_job`, and spec B-2 records "admitted once, at registration".
 - **A hostless engine** (unit tests, embedding) is the one case with no admitted set. It takes
   `build_contracts(function)` once per function, unadmitted, and its DI failures keep today's path.
+- **The leader's seven rulings on the 5.1 draft (R-1 to R-7).**
+  - No per-callable cache is keyed by `id()` (`spec.md` B-7 invariant, `schema.md` invariant 8).
+  - `FromStep` parameters get no contract (B-1); it is a shipped feature the spec had never named.
+  - Capability names match before `unevaluable` (B-6).
+  - `create_job_command` admits through the shared contract loop (B-2).
+  - Six tests are re-homed with only their verdicts changed.
+  - 5.1's pytest gate is the whole root suite.
 - **The importers of the deleted `validation.py`** (second repair, `validation-retire-2eeb5658.txt`).
   Three tests import it. Two retire with their claims carried or reversed by B-24/B-26/B-30, and the
   PEP 563 instrument's `TestArgumentValidation` migrates to the binder. A `**kwargs` job stops

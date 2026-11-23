@@ -1109,6 +1109,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `gates-authoring.txt` `engine-old-binding`: 7 hits (`executor.py` 3, `validation.py` 4);
   - `registry-kind`: 2 hits in `resolution.py`;
   - `door-scope-b2719ab8.txt` (scope repair, 2026-11-23);
+  - `id-keyed-caches-2ccc4cde.txt` and the leader's seven rulings on the 5.1 draft (R-1 to R-7,
+    2026-11-23: draft = `2ccc4cde` + the preserved 18-path stash; the whole root found 46 failures
+    in 11 files, against 16 for the old gate line);
   - `validation-retire-2eeb5658.txt`, `matrix/varkw_probe.py` (second scope repair, 2026-11-23: the importers of the deleted
     `validation.py`).
 - **[F]** (scope repaired 2026-11-23 on the implementer's measured report; each addition says why):
@@ -1136,7 +1139,18 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     instrument and is not touched;
   - `tests/validation/test_arg_validator_properties.py` (**deleted**): it imports `ArgValidator`
     (`:19`);
-  - `tests/engine/test_binding_door.py` (new).
+  - `tests/engine/test_binding_door.py` (new);
+  - **Third scope repair (2026-11-23, rulings R-2 to R-4): 18 → 25 files.**
+    - `src/functualize/_primitives/parameter_contract.py`: R-2 (`FromStep` skipped) and R-3
+      (capability names matched before `unevaluable`);
+    - `tests/config/test_config_injection_pep563.py`,
+      `tests/config/test_missing_config_prompt.py`, `tests/engine/test_class_job_receiver.py`,
+      `tests/workflow/test_launch_validation.py`,
+      `tests/integration/test_declared_capabilities_e2e.py`,
+      `tests/execution/test_tty_live_capabilities.py`: the six R-4 files, which pinned outcomes the
+      spec replaced (*Re-homed claims*, below).
+    - R-1 and R-5 add no production file: `executor.py`, `middleware.py`, `job_middleware.py`,
+      `resolution.py`, `boot.py` and `click_params.py` are already listed.
 - **Work:**
   - At `executor.py:1393-1486`, replace `unexpected_keyword_error` (workflows only) and
     `ArgValidator` with `bind`, before DI resolution and before `PRE_EXECUTE`.
@@ -1159,15 +1173,16 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     - The absent answer is `None`, per the port's own convention (`_types/protocols.py:562`): no
       host, or a job the host never admitted.
     - Only a hostless engine (unit tests, embedding) meets `None` for a registered job. Its door
-      then takes the job's contracts from `build_contracts(function)`, once per function in the
-      existing `id`-keyed plan cache. That is the one classifier, because nothing was discovered
-      to read.
+      then takes the job's contracts from `build_contracts(function)`, once per function, cached
+      by weak reference to the function, **never by `id()`** (R-1, below). That is the one
+      classifier, because nothing was discovered to read.
     - Those contracts are not admitted, so a missing provider surfaces from DI resolution as today.
       The door makes no availability decision of its own.
   - **Middleware** (`_resolve_middleware_kwargs` in `middleware.py` and `job_middleware.py`).
     - A middleware callable is not a job: it has no descriptor and no admit. Its plan is
-      `build_resolution_plan(build_contracts(middleware_fn))`, built once per callable in the same
-      `id`-keyed cache it uses today.
+      `build_resolution_plan(build_contracts(middleware_fn))`, built once per callable. The
+      cache is keyed by weak reference to the callable, **not by `id()` as today** (R-1
+      supersedes the 2026-11-23 instruction to keep that cache's key).
     - Only `INJECTED` contracts resolve:
       - a `RunContext` capability → the run context in `job_middleware.py` (today's `runcontext`
         source), and in `middleware.py` only what `context.capabilities` holds (today it passes
@@ -1223,6 +1238,68 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - A missing provider refuses before the call, on cold and warm alike (F-33). The refusal reads
     the admitted contracts; there is no second availability check.
   - `BindRefusal` becomes `JobResult(status=INVALID)`.
+  - **R-1 · no cache keyed by `id()`** (`spec.md` B-7 invariant; `schema.md` invariant 8).
+    Measured at `2ccc4cde` (`id-keyed-caches-2ccc4cde.txt`), four keys are taken from `id()` of a
+    callable:
+    - `_resolution_plan_cache` (`executor.py:1802`);
+    - `_group_options_cache` (`executor.py:2493`);
+    - the middleware plan caches (`middleware.py:218`, `job_middleware.py:238`);
+    - and the draft adds a fifth, `_hostless_contract_cache`.
+
+    All are keyed on the callable by `weakref.WeakKeyDictionary`. A callable that cannot be weakly
+    referenced is resolved uncached. `ResolutionPlan.function_id` is removed, because the `id()`
+    key was its only purpose. The docstrings that describe id-keying are corrected with them.
+  - **R-2 · `FromStep` parameters are not parameters** (`spec.md` B-1).
+    - `build_contracts` skips a parameter whose `Annotated` metadata holds a `FromStep`, exactly
+      as it skips `self`/`*args`/`**kwargs`. The leader's measured probe shape is acceptable:
+      `_reads_from_step(annotation)`, checked before `build_contract`.
+    - The walk keeps seeding `context.call_kwargs` before the door binds (`_engine/walk_reads.py`,
+      the only supplier).
+    - A caller key naming the step's parameter is refused as unknown (B-26).
+  - **R-3 · a capability named by a string** (`spec.md` B-6).
+    - In `_classify`'s string branch, an annotation string whose stripped text is in
+      `INJECTED_PARAM_TYPE_NAMES` becomes `INJECTED` with `Injection(capability=<name>)` before
+      any evaluation is tried.
+    - Only a string that is neither is refused as `unevaluable`.
+  - **R-5 · the materialised route admits** (`spec.md` B-2, *the routes that admit*).
+    - `admit_job_descriptor`'s contract loop (`_app/boot.py`) is extracted as
+      `admit_contracts(app, job_name, contracts, source)`.
+    - Boot, `register_dynamic_job` and `create_job_command` (`click_params.py`, via
+      `build_job_engine_callback`) all call it. `create_job_command` admits the contracts it
+      already builds.
+    - The 7 failing tests of `tests/config/test_unified_config_integration.py`
+      (`missing 1 required positional argument: 'rc'`) then pass **unchanged**, so that file does
+      not enter `[F]`.
+    - Retiring `create_job_command` is not this ticket: it is a documented embedder entry point,
+      referenced by 11 test files, `_discovery/registry.py` and
+      `contributor/architecture/developer-modes.md`.
+  - **R-4 · re-homed claims.** Each file keeps every claim it makes, and only the verdict the spec
+    replaced changes: never deleted, never a waiver.
+
+    | file | fails on the draft | spec clause | the claim, as it now reads |
+    | --- | --- | --- | --- |
+    | `tests/config/test_config_injection_pep563.py` | 1 | B-9, `unevaluable` | an unevaluable annotation ends `INVALID`, and the refusal names the missing name; it does not end `SUCCESS` |
+    | `tests/config/test_missing_config_prompt.py` | 2 | B-8 (nested config model, F-29) | `INVALID`, and the prompt collector is never asked |
+    | `tests/engine/test_class_job_receiver.py` | 1 | B-25 | `call_kwargs` is `{"force", "opts"}`, because the binder supplies `force`'s default; the `self`-absence assertions stay verbatim |
+    | `tests/workflow/test_launch_validation.py` | 9 | B-26 | the same claims, with `Invalid` plus `BindRefusal` in place of `Failure` plus `TypeError` |
+    | `tests/integration/test_declared_capabilities_e2e.py` | 1 | F-20, B-30 | an explicit value for an injected parameter is **refused**, naming it |
+    | `tests/execution/test_tty_live_capabilities.py` | 2 | plan source vocabulary | the source is `"capability"`, not `"di"`; only `"capability"` reaches the per-invocation branch |
+
+    R-7: two of these refusals stay refusals. The `Missing` case of `test_config_injection_pep563`
+    and the nested-config cases are DC-1 = B working as designed: the job stays listed and refuses
+    with its remedy.
+  - **The `CHANGELOG.md` entries this task carries in its implementation push** (gate 1(c); the
+    designer writes none of them):
+    1. a job declaring `**kwargs` no longer receives unknown keys: they are refused (B-26);
+    2. middleware: a registered `str` provider no longer turns a middleware `str` parameter into
+       DI (F-21);
+    3. a `FromStep` parameter is not a caller input: it is published on no surface, and a caller
+       key naming it is refused (B-1);
+    4. a refused call (unknown, missing, non-converting, or injected key) ends `Invalid`, not
+       `Failure` with a `TypeError`, including at a workflow launch (B-26);
+    5. a job whose config model nests a model or a `dict` is refused at discovery and ends
+       `Invalid` on every call (B-8, F-29);
+    6. an explicit value for an injected parameter is refused (B-30).
   - **The three importers of `validation.py` (second scope repair, 2026-11-23).** Exactly these three
     files outside the earlier `[F]` import the deleted module (`validation-retire-2eeb5658.txt`).
     Four other hits are prose only and are not touched: `test_option_marker_unit.py:208`,
@@ -1303,9 +1380,32 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     - a config-field key reaches the config model, not `bind`;
     - with a `str` provider registered, a middleware `str` parameter is not resolved by DI
       (F-21 for middleware);
-  - `uv run pytest tests/engine/ tests/config/ tests/validation/ tests/execution/test_resolution_plan.py tests/test_resolution_plan_properties.py tests/test_middleware_chain.py tests/test_middleware_chain_properties.py tests/test_facade_loc_limits.py`.
-    `tests/config/` and `tests/validation/` were added 2026-11-23, because two of the three
-    importers live there and were invisible to the earlier gate;
+  - **The pytest gate is the whole root suite and the two plugin packages the door reaches**
+    (R-6, 2026-11-23). It replaces the narrower line, which found 16 of the draft's 46 failures:
+    - `uv run pytest -q` (as `ci.yml:239`; `ci.yml:559` runs it with `-n auto`). It may run in the
+      header rule's disjoint chunks, with the eight `_group` modules isolated, but nothing is
+      excluded;
+    - `uv run pytest -q plugins/adapters/functualize-mcp/tests` and
+      `uv run pytest -q plugins/substrates/functualize-substrate-sqlite/tests`, each package in its
+      own invocation per the header rule;
+    - three known xdist-load flakies are recorded, not waived. They must pass when run
+      sequentially together:
+      `test_timeout_is_lease_expiry::TestTheWalkActuallyRenews::test_a_walk_renews_during_a_blocked_step`,
+      `test_invoke_capture::TestCapture::test_a_timed_out_child_returns_what_it_recorded_by_the_deadline`,
+      `test_run_record_run_tags::test_a_shelled_out_func_is_tagged_and_has_no_parent`
+      (measured on the draft: 8 passed in 19.94s);
+  - `rg -n -e 'id\((function|hints_subject|middleware_fn)\)' src/functualize/_engine` → 0
+    (today 14 at `2ccc4cde`, including the docstrings that describe id-keying and the two in the
+    deleted `validation.py`; `id-keyed-caches-2ccc4cde.txt`);
+  - `tests/engine/test_binding_door.py` also asserts that two distinct functions sharing an address
+    in turn never share contracts or a plan: the first is collected and the second is allocated
+    into its slot. This is R-1's regression test;
+  - `uv run pytest -q tests/integration/test_from_step_reads_e2e.py tests/engine/test_the_walk_on_both_stores.py tests/integration/test_workflow_as_job_e2e.py`
+    → green (72 passed on the leader's probe), and a caller key naming a `FromStep` parameter is
+    refused as unknown;
+  - `uv run pytest -q tests/config/test_unified_config_integration.py` green with that file
+    unchanged (R-5): `git diff 2ccc4cde -- tests/config/test_unified_config_integration.py` →
+    empty;
   - `test ! -e src/functualize/_engine/validation.py && test ! -e tests/engine/test_unexpected_keyword.py && test ! -e tests/validation/test_arg_validator_properties.py`;
   - `rg -n '_engine\.validation|unexpected_keyword_error|ArgValidator|_build_validation_model' tests/config/test_pep563_annotation_sites.py`
     → 0 (today 8: `:173`, `:178`, `:182-183`, `:192`, `:195`, `:204`, `:207`);

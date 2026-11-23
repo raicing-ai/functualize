@@ -95,6 +95,15 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
   `ACCEPTED_FLAG`, `ACCEPTED_POSITIONAL`, `INJECTED`, `CONFIG_FIELD`, `INVOCATION_ONLY`,
   `REJECTED_DISCOVERY`. `REJECTED_USAGE` describes a call, not a parameter. The verdict is decided
   once, at discovery, from the declaration, and every surface reads that one decision.
+  - **Not every name in a signature is a parameter** *(ruled 2026-11-23, task 5.1, R-2)*. `self`,
+    `cls`, `*args` and `**kwargs` are skipped, as the engine skips them. So is a parameter annotated
+    `Annotated[T, FromStep("step")]`. Its value is the named workflow step's recorded result, which
+    the walk seeds before the door binds (`_engine/walk_reads.py`, the only supplier).
+    - It gets no contract, is published on no surface, and a caller key naming it is unknown
+      (B-26).
+    - `FromStep` is a shipped feature (PR #110; `tests/integration/test_from_step_reads_e2e.py`,
+      `tests/engine/test_the_walk_on_both_stores.py`), and this ticket must not regress it. Until
+      this ruling, no line of this spec, the plan or the contracts named it.
 - **B-2** *(revised in Execute, 2026-11-22)*. A parameter's **kind** depends only on its
   declaration: annotation, markers, default, signature kind. Kind means caller-supplied (flag or
   positional), `INVOCATION_ONLY`, `CONFIG_FIELD`, `INJECTED`, or refused for its shape. No DI
@@ -118,6 +127,14 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
       report *(clarified 2026-11-23, task 5.1)*.
   - **What it does not cover.** The 15 capability types and `FromJob(...)` are always `INJECTED`.
     Their values come from the engine and from another job, not from a registered provider.
+  - **The routes that admit** *(R-5, 2026-11-23)*, each through one shared contract loop,
+    `admit_contracts` (extracted from `_app/boot.py`'s per-job admit):
+    1. boot, for every descriptor it knows;
+    2. `register_dynamic_job`, for a job registered after boot;
+    3. `create_job_command`, the embedder route (`app/adapters/click_params.py`). It admits the
+       contracts it already builds for the function it hands the engine.
+
+    No other route builds an engine callback, and none admits by a different rule.
   - The page's source: §5.1 "`INJECTED` … an unmarked class that is not a value type (a provider
     must exist, otherwise `REJECTED_DISCOVERY`)", and the reject list "an unmarked class with no
     registered provider (C085, C087, E138, H166)". Both sit beside "Never from what the DI registry
@@ -162,10 +179,29 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
 - **B-6.** The verdict, and every behaviour below, is identical whether or not the job module uses
   `from __future__ import annotations`. Under PEP 563 the documented-invalid `FromJob[...]` subscript
   form is refused exactly as it is without it (F-32, `research.md` R-4).
+  - **A string hint that does not evaluate is matched by name first** *(R-3, 2026-11-23)*. Before
+    a PEP 563 annotation string that cannot be evaluated is refused as `unevaluable` (B-9), it is
+    compared with the capability names (`INJECTED_PARAM_TYPE_NAMES`).
+    - A match is `INJECTED`, with `Injection(capability=<name>)`.
+    - Only a string that is neither a capability name nor evaluable is `REJECTED_DISCOVERY`.
+    - Why: the set holds **strings** precisely so that a peer layer can match by name without
+      importing the type (`_primitives/capability_names.py:30-31`). So a `RunContext` that is not
+      importable at runtime is still a capability, not a refusal.
 - **B-7.** The verdict, and every behaviour below, is identical on a cold boot (no cache) and a warm
   boot (from cache) (`pitfalls.md` §23). Today two behaviours differ: a missing-provider job explains
   itself only on a warm boot (F-33), and an `Enum` default is published only on a warm boot (F-34)
   (`research.md` R-6).
+  - **Invariant: the door's decisions do not depend on memory addresses** *(R-1, 2026-11-23)*.
+    - No cache of anything derived from a callable's declaration (contracts, resolution plans,
+      `GroupOptions` parameters) is keyed by `id()` of the callable.
+    - `id()` is an address. Once the first callable is collected, a later callable reuses the
+      address and is served the first one's contracts and plan. Measured on a bare engine: a
+      different function inherited a plan naming a parameter it does not declare.
+    - In a long-lived process (`func serve`, a warm Lambda container, the TUI), that is one job's
+      parameters applied to another. In a test run, it makes the failure set depend on collection
+      order.
+    - Such a cache is keyed on the callable itself, by weak reference. A callable that cannot be
+      weakly referenced is not cached.
 - **B-8.** `REJECTED_DISCOVERY` applies to the page's reject list (§5.1):
   - `object`;
   - unions of two non-`None` types;

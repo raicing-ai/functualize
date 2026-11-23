@@ -107,7 +107,8 @@ retired when 5.1's binder converts at the door from the live annotation (§*Bind
      `JobDescriptor.omitted_contracts`. These are the 15 capability types, `FromJob(...)`, and a
      `GroupOptions` injection point. The contract is the one `build_contracts` already produced.
    - The two sets are disjoint. Their union is `build_contracts(function)` by name (`self`, `cls`,
-     `*args` and `**kwargs` excluded, as the engine excludes them).
+     `*args`, `**kwargs` and `FromStep` parameters excluded, as the engine excludes them; `spec.md`
+     B-1).
    - No surface reads `omitted_contracts`. The engine door (task 5.1) is its only reader. So
      `--help`, completion, `func builtin info schema` and the MCP `inputSchema` are unchanged by it.
    - The invariant is about **job descriptors**. A middleware callable, or a job on a hostless
@@ -125,6 +126,12 @@ class JobDescriptor:                       # existing fields unchanged
     ...
     omitted_contracts: tuple[ParameterContract, ...] = ()   # contracts of signature parameters `parameters` omits
 ```
+
+8. **No per-callable cache is keyed by `id()`** *(task 5.1; `spec.md` B-7, R-1)*. Contracts,
+   resolution plans and `GroupOptions` parameter lists cached per callable are keyed on the
+   callable by weak reference (`weakref.WeakKeyDictionary`). A callable that cannot be weakly
+   referenced is not cached. `ResolutionPlan` carries no `function_id`: that field existed only to
+   be the `id()` key.
 
 ## Cache encoding
 
