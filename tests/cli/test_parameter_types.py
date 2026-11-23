@@ -209,9 +209,11 @@ class TestAMalformedValueIsAUsageError:
 
 
 class TestAnExplicitMarkerNoLongerOutranksTheTypeList:
-    """The superseded half of A3. A marker still decides the shape and the
-    requiredness of a type that converts (``TestValueTypesRunAndConvert``), but
-    it no longer rescues a type nothing converts: ``Annotated[Widget, Option()]``
+    """The superseded half of A3. A marker still decides a converted type's
+    shape and requiredness (``test_option_marker_unit.py``,
+    ``test_arg_marker_unit.py``, and ``tests/adapters/test_render_click_params.py``'s
+    ``test_required_marked_option_has_no_null_default``), but it no longer
+    rescues a type nothing converts: ``Annotated[Widget, Option()]``
     is on ``spec.md`` B-8's ``REJECTED_DISCOVERY`` list, and every call to a
     refused job refuses with the ``UnsupportedParameter`` message at CLI exit 2
     (``contracts.md`` §8). ADR-018's old remedy, "annotate the parameter with
