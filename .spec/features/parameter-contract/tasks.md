@@ -636,7 +636,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 
 ## Wave 3 — the one click renderer
 
-### [ ] 3.1 `render_click_params(contracts)` for every click command
+### [x] 3.1 `render_click_params(contracts)` for every click command
 
 - **Input:**
   - 2.1 and 2.2;
@@ -693,6 +693,28 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     and noted.
 - **Reachability:** `func <job>` → `_cli/main._handle_job` → `create_job_click_command` → the
   renderer.
+- **Execute evidence (2026-11-23):** `render_click_params` reads the stored verdict, shape and CLI
+  spelling; the live `build_click_params` wrapper supplies contracts and the one temporary Enum
+  class bridge. Cached fields and group options use the same renderer when their contracts are
+  present; contractless field callers and the non-Click direct callable retain marked legacy
+  adapters until 7.3. The descriptor-only lazy command remains on text for Enum values until 5.1.
+  - `uv run pytest tests/adapters/ tests/cli/test_option_marker_unit.py tests/cli/test_arg_marker_unit.py -q`
+    → 199 passed, 6 skipped. The new tests cover required `Option`, typed duration defaults,
+    repeated list and tuple flags, cached spellings, group options and the live Enum bridge.
+  - `uv run pytest tests/cli/test_enum_parameter_roundtrip.py -q` → 5 passed, 2 skipped;
+    `rg -c 'TRANSITIONAL\(parameter-contract/5\.1\)' src/functualize/app/adapters/click_params.py`
+    → 1.
+  - The matrix `probes.sh` on the generated 166-row project: `a039 --p PT1H` exit 0 with a
+    `timedelta`, `--p 3600` and `--p 1:00:00` exit 2 with a usage error, and no `Traceback`.
+    Separate real `func` calls: `d094` exits 2 with `Missing option '--p'`;
+    `b053 --p a --p b` delivers `('a', 'b')` before 5.1 (permitted intermediate shape).
+  - `uv run mypy src/` → 425 source files clean; `uv run lint-imports` → 7 kept, 0 broken;
+    Ruff check and format check pass on the touched files.
+  - After committing, replacing the renderer's return with `[]` made
+    `tests/cli/test_enum_parameter_roundtrip.py::test_the_cli_delivers_the_member[func]`
+    fail with exit 2, `Got unexpected extra argument (red)`. The committed renderer was restored;
+    the same test returned 1 passed, 1 skipped. This proves the real `func` command reaches the
+    renderer, not only that the renderer's unit tests call it.
 - **Depends on:** 2.1, 2.2.
 
 ### [ ] 3.2 Every signature parameter's contract reaches its descriptor, the omitted ones included

@@ -1,8 +1,8 @@
-"""Click-native command construction from job signatures and config models.
+"""Click-native command construction from cached parameter contracts.
 
-Builds ``click.Parameter`` objects directly from a job's function signature
-(Arg/Option/Stdin markers) and its Pydantic config class, then composes them
-with the engine callback into a ``click.Command``.
+Discovery decides each parameter's kind and shape. This module renders those
+contracts as ``click.Parameter`` objects and composes them with the engine
+callback into a ``click.Command``.
 
 The module imports ``click`` only — never the execution engine at module
 scope — so it preserves the warm/lazy-boot property that
@@ -23,6 +23,7 @@ import datetime as _dt
 import inspect
 import logging
 import sys
+import types
 import typing
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from enum import Enum
@@ -37,6 +38,13 @@ from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
 from functualize._types.outcome import Family, is_failure, raised_by_job, report_line
+from functualize._types.parameter_contract import (
+    Container,
+    ParameterContract,
+    Scalar,
+    ValueShape,
+    Verdict,
+)
 from functualize.types import negative_flag_for
 
 if TYPE_CHECKING:
@@ -274,6 +282,8 @@ def _field_click_type(field: Any) -> tuple[Any, bool, bool]:
     return _click_type_for(_resolve_type_string(field.type_annotation))
 
 
+# TRANSITIONAL(7.3): descriptor callers keep this wrapper until the direct
+# renderer becomes their public seam.
 def build_click_params_from_descriptor(descriptor: Any) -> list[click.Parameter]:
     """Build click parameters from a cached JobDescriptor's field metadata.
 
@@ -288,7 +298,8 @@ def build_click_params_from_descriptor(descriptor: Any) -> list[click.Parameter]
     return build_click_params_from_fields(descriptor.config_fields)
 
 
-def build_click_params_from_fields(
+# TRANSITIONAL(7.3): fields without contracts still use their old metadata.
+def _legacy_build_click_params_from_fields(
     fields: Sequence[Any],
 ) -> list[click.Parameter]:
     """Render a sequence of cached ``FieldDescriptor`` records as click params.
@@ -445,13 +456,156 @@ def build_click_params_from_fields(
     return params
 
 
+def _click_type_for_shape(
+    shape: ValueShape, enum_type: type[Enum] | None = None
+) -> Any:
+    """Choose Click's parser from the discovery contract's value shape."""
+    import decimal
+    import uuid
+    from pathlib import Path
+
+    scalar = shape.scalar
+    # TRANSITIONAL(parameter-contract/5.1): a live Enum needs its member here
+    # until the binding door converts text using the function's annotation.
+    if scalar is Scalar.ENUM and enum_type is not None:
+        return _EnumChoice(enum_type)
+    if scalar is Scalar.ENUM:
+        return click.Choice([str(value) for value in shape.enum_values])
+    if scalar is Scalar.TIMEDELTA:
+        return _DurationParamType()
+    if scalar in {Scalar.DATE, Scalar.DATETIME, Scalar.TIME}:
+        return _ISO_PARAM_TYPES[
+            {
+                Scalar.DATE: _dt.date,
+                Scalar.DATETIME: _dt.datetime,
+                Scalar.TIME: _dt.time,
+            }[scalar]
+        ]
+    py_type = {
+        Scalar.STR: str,
+        Scalar.INT: int,
+        Scalar.FLOAT: float,
+        Scalar.BOOL: bool,
+        Scalar.PATH: Path,
+        Scalar.UUID: uuid.UUID,
+        Scalar.DECIMAL: decimal.Decimal,
+        Scalar.SECRET_STR: str,
+    }.get(scalar, str)
+    return convert_type(py_type)
+
+
+class _DurationParamType(click.ParamType):  # type: ignore[type-arg]
+    name = "timedelta"
+
+    def convert(self, value: Any, param: Any, ctx: Any) -> _dt.timedelta:
+        if isinstance(value, _dt.timedelta):
+            return value
+        from pydantic import TypeAdapter, ValidationError
+
+        if not isinstance(value, str) or not value.startswith("P"):
+            self.fail(f"{value!r} is not a valid ISO-8601 duration", param, ctx)
+        try:
+            return TypeAdapter(_dt.timedelta).validate_python(value)
+        except ValidationError:
+            self.fail(f"{value!r} is not a valid ISO-8601 duration", param, ctx)
+
+
+def render_click_params(
+    contracts: Sequence[ParameterContract],
+    *,
+    config_names: frozenset[str] = frozenset(),
+    enum_types: Mapping[str, type[Enum]] | None = None,
+) -> list[click.Parameter]:
+    """Render every Click command from the cached parameter decisions."""
+    arguments: list[click.Parameter] = []
+    options: list[click.Parameter] = []
+    names = {contract.name for contract in contracts}
+    for contract in contracts:
+        cli = contract.cli
+        shape = contract.shape
+        if cli is None or shape is None:
+            continue
+        if contract.verdict not in {
+            Verdict.ACCEPTED_FLAG,
+            Verdict.ACCEPTED_POSITIONAL,
+            Verdict.CONFIG_FIELD,
+        }:
+            continue
+        click_type = _click_type_for_shape(shape, (enum_types or {}).get(contract.name))
+        is_config = (
+            contract.verdict is Verdict.CONFIG_FIELD or contract.name in config_names
+        )
+        multiple = cli.repeatable or shape.container in {
+            Container.LIST,
+            Container.TUPLE,
+        }
+        is_flag = shape.scalar is Scalar.BOOL and not multiple
+        if cli.positional and not is_config:
+            arguments.append(
+                _make_argument(
+                    contract.name,
+                    click_type,
+                    required=contract.required or cli.variadic,
+                    default=None if contract.required else contract.default_json,
+                    nargs=-1 if cli.variadic else 1,
+                )
+            )
+            continue
+        long = cli.stdin_flag or cli.long or f"--{contract.name.replace('_', '-')}"
+        negative = (
+            cli.negative
+            if is_flag and negative_flag_for(contract.name, names) is not None
+            else None
+        )
+        if cli.short and not _validate_short_flag(cli.short):
+            raise ValueError(f"Invalid short flag {cli.short!r} for {contract.name!r}")
+        decls = [f"{long}/{negative}" if negative else long]
+        if cli.short:
+            decls.append(cli.short)
+        decls.append(contract.name)
+        required = contract.required and not (is_flag or is_config or cli.stdin)
+        default = None if is_config or cli.stdin else contract.default_json
+        if is_flag and contract.required:
+            default = False
+        kwargs: dict[str, Any] = {
+            "type": click_type,
+            "required": required,
+            "is_flag": is_flag,
+            "multiple": multiple,
+            "hidden": cli.hidden,
+            "envvar": cli.envvar,
+            "help": (
+                _config_field_help(
+                    contract.description,
+                    required=contract.required,
+                    default=contract.default_json,
+                )
+                if is_config
+                else contract.description or None
+            ),
+        }
+        if not required:
+            kwargs["default"] = default
+        options.append(click.Option(decls, **kwargs))
+    return arguments + options
+
+
+# TRANSITIONAL(7.3): legacy callers can still pass uncached fields.
+def build_click_params_from_fields(fields: Sequence[Any]) -> list[click.Parameter]:
+    if not all(getattr(field, "contract", None) is not None for field in fields):
+        return _legacy_build_click_params_from_fields(fields)
+    contracts = [field.contract for field in fields]
+    config_names = frozenset(
+        field.name for field in fields if getattr(field, "from_config_model", False)
+    )
+    return render_click_params(contracts, config_names=config_names)
+
+
 # ─── Config model → click options ─────────
 #
-# One rule, two builders. `_config_option_params` reads a live pydantic model
-# (cold boot); `build_click_params_from_fields` reads cached `FieldDescriptor`
-# records (warm boot). They read different inputs and cannot be one function
-# without unifying those two representations — but what they *emit* is one
-# decision, and it lives here so it cannot be made twice.
+# Transitional legacy helpers below still serve contractless descriptors and
+# the direct callable's synthetic inspect signature. Click commands with
+# contracts use `render_click_params` above on cold and warm paths.
 #
 # It was made twice, and the two copies disagreed. The warm copy passed the
 # model's default explicitly, which `_resolve_config_model` pops into
@@ -705,7 +859,8 @@ def _option_from_marker(
     )
 
 
-def build_click_params(
+# TRANSITIONAL(7.3): direct callables still use this signature adapter.
+def _legacy_build_click_params(
     function: Callable[..., Any],
     job_config_class: type[BaseModel] | None,
     *,
@@ -909,6 +1064,70 @@ def build_click_params(
         options.extend(_config_option_params(job_config_class, _signature_names))
 
     return arguments + options, job_config_class, stdin_markers
+
+
+# TRANSITIONAL(7.3): callers keep this signature while every Click path uses
+# render_click_params over the same discovery contracts.
+def _live_enum_types(
+    function: Callable[..., Any], contracts: Sequence[ParameterContract]
+) -> dict[str, type[Enum]]:
+    """Find only the live classes for contracts already classified as choices."""
+    try:
+        hints = typing.get_type_hints(function, include_extras=True)
+    except Exception:
+        hints = {}
+    signature = inspect.signature(function)
+    found: dict[str, type[Enum]] = {}
+    for contract in contracts:
+        if contract.shape is None or contract.shape.scalar is not Scalar.ENUM:
+            continue
+        parameter = signature.parameters.get(contract.name)
+        if parameter is None:
+            continue
+        annotation = hints.get(contract.name, parameter.annotation)
+        while True:
+            origin = typing.get_origin(annotation)
+            args = typing.get_args(annotation)
+            if origin is Annotated or origin in {list, tuple}:
+                annotation = args[0]
+            elif origin in {typing.Union, types.UnionType}:
+                non_none = [arg for arg in args if arg is not type(None)]
+                if len(non_none) != 1:
+                    break
+                annotation = non_none[0]
+            else:
+                break
+        if isinstance(annotation, type) and issubclass(annotation, Enum):
+            found[contract.name] = annotation
+    return found
+
+
+def build_click_params(
+    function: Callable[..., Any],
+    job_config_class: type[BaseModel] | None,
+    *,
+    apply_job_filter: bool = True,
+) -> tuple[list[click.Parameter], type[BaseModel] | None, dict[str, Any]]:
+    from functualize._primitives.parameter_contract import (
+        build_contracts,
+        build_field_contract,
+    )
+
+    if job_config_class is None and apply_job_filter:
+        job_config_class = detect_config_class(function)
+    contracts = list(build_contracts(function))
+    if job_config_class is not None:
+        contracts.extend(
+            build_field_contract(name, field)
+            for name, field in job_config_class.model_fields.items()
+        )
+    return (
+        render_click_params(
+            contracts, enum_types=_live_enum_types(function, contracts)
+        ),
+        job_config_class,
+        {},
+    )
 
 
 def _exit_quietly_on_broken_pipe() -> None:
@@ -1528,7 +1747,9 @@ def create_job_command(
     """
     from functualize._discovery.providers import extract_capability_markers
 
-    params, resolved_config, _stdin_markers = build_click_params(
+    # TRANSITIONAL(7.3): this direct callable exposes an inspect signature,
+    # not a Click command. Its local forward references have no discovery cache.
+    params, resolved_config, _stdin_markers = _legacy_build_click_params(
         function, job_config_class
     )
     markers = extract_capability_markers(function)

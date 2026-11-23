@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — one Click renderer for declared job inputs
+
+Job commands, plugin callbacks and cached group options now render their CLI
+parameters from the contracts recorded at discovery. Required options stay
+required, list and variable-length tuple options accept repeated flags, and
+durations accept ISO 8601 spellings with a usage error for other text. A live
+Enum job still receives its member; conversion moves to the binding door in a
+later change.
+
 ### Fixed — optional job parameters receive CLI flags
 
 Parameters declared as `X | None` or `Optional[X]` now accept the same CLI
