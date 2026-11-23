@@ -54,6 +54,9 @@
   - **Verified mechanically** with `matrix/anchor_check.py` over every task's `Input:` block: 32
     tasks, 0 inputs outside the new anchor (16 outside the old one). Re-run after task 1.2 was added:
     33 tasks, 0 outside the new anchor (17 outside the old).
+- **The door's inputs (2026-11-23, 5.1 scope repair):** one contract-fed plan builder for jobs and
+  middleware. The admitted set reaches the engine through `EngineHost.admitted_contracts` (A), and
+  `register_dynamic_job` admits its job (§*The door's inputs*).
 - **The `Enum` member before 5.1 (2026-11-23, 3.1 finding):** 3.1 keeps `_EnumChoice` over the
   live enum type, marked `TRANSITIONAL(parameter-contract/5.1)`, and 5.1 deletes it. The contract
   carries no Python type identity (§*The `Enum` member before 5.1*).
@@ -421,6 +424,30 @@ on a populated revision-5 database built by the plugin's own `migrate()`):**
   task it has its own `[F]`, and its own gate that runs the substrate suite.
 - Its files are disjoint from 1.1's, so wave 1 stays parallel. Every later wave's plugin loop then
   includes a green substrate.
+
+### The door's inputs (decided 2026-11-23, 5.1 scope repair)
+
+5.1 stopped before any edit, because its `[F]` did not survive contact. It was re-measured at
+`b2719ab8` (`door-scope-b2719ab8.txt`). The decisions:
+
+- **One plan builder from contracts, for jobs and middleware.** `build_resolution_plan` has two more
+  callers, both for plugin middleware callables (`middleware.py:227`, `job_middleware.py:247`).
+  These have no descriptor and classified by `registered_types`, which is F-21's mechanism.
+  - Rejected: keeping a function-based classifier for middleware. That would be a second kind
+    decider, beside the contract.
+  - Chosen: middleware resolves against `build_contracts(callable)`, memoized per callable.
+- **The admit result reaches the engine through the port: option A**, `EngineHost.admitted_contracts`.
+  `RegisteredJob` has four construction sites, and three cannot supply an admitted set, so B needs a
+  fifth source or a cache field. C is a second availability check.
+- **Correction to the premise behind A.** Boot does *not* admit before every registration path.
+  `FunctualizeApp.__init__` boots (`app/core.py:237-239`), so `register_dynamic_job` runs afterwards
+  and admits nothing. 5.1 therefore extracts boot's per-job admit and calls it from
+  `register_dynamic_job`, and spec B-2 records "admitted once, at registration".
+- **A hostless engine** (unit tests, embedding) is the one case with no admitted set. It takes
+  `build_contracts(function)` once per function, unadmitted, and its DI failures keep today's path.
+- **Config-field keys** are partitioned off before `bind`, so `argument_binding.py`'s code is
+  unchanged. Its stale marker is still retired, along with `boot.py`'s and `descriptors.py`'s: four
+  `TRANSITIONAL(parameter-contract/5.1)` markers go to 0.
 
 ### The `Enum` member before 5.1 (decided 2026-11-23, 3.1 Execute finding)
 

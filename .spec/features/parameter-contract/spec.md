@@ -113,6 +113,9 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
     applied once per boot, after plugins have registered their providers, and identically on cold
     and warm boots (B-7). It is never cached, because the cache holds only the declaration-derived
     contract.
+    - A job registered after boot (`register_dynamic_job`; the app boots in its constructor) is
+      admitted once, at its registration, by the same function and predicate, with the same B-9
+      report *(clarified 2026-11-23, task 5.1)*.
   - **What it does not cover.** The 15 capability types and `FromJob(...)` are always `INJECTED`.
     Their values come from the engine and from another job, not from a registered provider.
   - The page's source: §5.1 "`INJECTED` … an unmarked class that is not a value type (a provider

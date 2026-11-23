@@ -857,12 +857,11 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - **2.1's gate** (`test_contract_discovery.py test_parameter_types.py test_eager_boot_provider.py
     test_lazy_true_engine_materialization.py`) → 686 passed, 2 skipped, 4 failed. The 4 were
     `tests/cli/test_parameter_types.py::TestAnExplicitMarkerOutranksTheTypeList::{test_an_unlisted_type_becomes_an_option,test_the_value_reaches_the_job_as_that_type}[func|app]`.
-    They are now `TestAnExplicitMarkerNoLongerOutranksTheTypeList::{test_help_offers_no_option_for_it,test_a_call_is_a_usage_error_and_the_body_never_runs}[func|app]`,
-    which `6686cade` made pass. That is 3.1's scope repair, not 3.2's.
-    They fail identically at base `69a95c99` (detached checkout with its own `src` first on
-    `PYTHONPATH`: 4 failed). The cause is not 3.2: `Annotated[Widget, Option()]` is D105, now
+    They failed identically at base `69a95c99` (detached checkout with its own `src` first on
+    `PYTHONPATH`: 4 failed). The cause was not 3.2: `Annotated[Widget, Option()]` is D105, now
     refused, so `--w` no longer renders and the run reports `UnsupportedParameter`. The file is
-    outside 3.2's `[F]`.
+    outside 3.2's `[F]`; it is in 3.1's, by that task's scope repair. `6686cade` made them pass as
+    `TestAnExplicitMarkerNoLongerOutranksTheTypeList::{test_help_offers_no_option_for_it,test_a_call_is_a_usage_error_and_the_body_never_runs}[func|app]`.
   - Suites this change touches (`tests/types tests/discovery tests/config tests/app
     tests/integration tests/adapters tests/test_descriptor.py`, `-n auto`) → 4542 passed, 233
     skipped. `mypy src/` clean, `ruff` clean, `lint-imports` 7 kept, 0 broken. The wave barrier is
@@ -1105,40 +1104,127 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 ### [ ] 5.1 Bind at the door; DI fills only `INJECTED`; kind from the contract
 
 - **Input:**
-  - 2.1 to 2.3, 3.2, and 0.2;
-  - `plan.md` § *The contract gap*; `schema.md` invariant 6;
+  - 2.1 to 2.3, 3.2, 4.4, and 0.2;
+  - `plan.md` § *The contract gap* and § *The door's inputs*; `schema.md` invariant 6;
   - `gates-authoring.txt` `engine-old-binding`: 7 hits (`executor.py` 3, `validation.py` 4);
-  - `registry-kind`: 2 hits in `resolution.py`.
-- **[F]:**
+  - `registry-kind`: 2 hits in `resolution.py`;
+  - `door-scope-b2719ab8.txt` (scope repair, 2026-11-23).
+- **[F]** (scope repaired 2026-11-23 on the implementer's measured report; each addition says why):
   - `src/functualize/_engine/executor.py`;
   - `src/functualize/_engine/resolution.py`;
   - `src/functualize/_engine/validation.py` (deleted);
+  - `src/functualize/_engine/middleware.py`, `src/functualize/_engine/job_middleware.py`: the other
+    two `build_resolution_plan` callers (`middleware.py:227`, `job_middleware.py:247`);
+  - `src/functualize/_types/protocols.py`: `EngineHost.admitted_contracts` (option A, below);
+  - `src/functualize/app/core.py`: `FunctualizeApp` implements it in one delegating line (budget:
+    see *Work*);
+  - `src/functualize/_app/boot.py`: per-job admit extracted so dynamic registration shares it, and
+    the `:2024` marker retired;
+  - `src/functualize/_app/impl.py`: `register_dynamic_job` admits the job it registers;
+  - `src/functualize/_types/descriptors.py`: the `:291` marker retired; comment text only;
+  - `src/functualize/_primitives/argument_binding.py`: the `:21-22` marker comment retired;
+    **comment lines only, no code change** (see *Config fields*);
   - `src/functualize/app/adapters/click_params.py` (3.1's `Enum` bridge deleted; added 2026-11-23);
+  - `tests/execution/test_resolution_plan.py`, `tests/test_resolution_plan_properties.py`: they
+    call the signature this task removes (15 and 13 calls);
   - `tests/engine/test_binding_door.py` (new).
 - **Work:**
   - At `executor.py:1393-1486`, replace `unexpected_keyword_error` (workflows only) and
     `ArgValidator` with `bind`, before DI resolution and before `PRE_EXECUTE`.
   - DI fills `INJECTED` names only. A caller key for one never arrives, because `bind` refuses it.
-  - `build_resolution_plan` reads `contract.verdict`, so `base_type in registered_types` and
-    "Optional[T] is always classified as di" go.
-    - **Its input is the job's contracts, not its function.** Those are the admitted contracts of
-      `parameters` (2.1) together with the descriptor's `omitted_contracts` (3.2). Every signature
-      parameter has exactly one (`schema.md` invariant 6).
+  - **`build_resolution_plan(contracts)` is the one plan builder,** for jobs and middleware alike.
+    It keeps its name, so `_engine/__init__.py`'s re-export is unchanged. It takes contracts, not a
+    function and not `registered_types`, so `base_type in registered_types` and "Optional[T] is
+    always classified as di" go, and `registered_types` leaves `_engine` entirely.
     - **The source of each value comes from the `Injection` fields:**
-      - `capability` → the engine's per-invocation capability;
+      - `capability` → the engine's per-invocation capability, looked up by name;
       - `from_job` → the upstream result;
       - `provider_type` (with `qualifier`) → DI;
-      - any other verdict → `bind`.
+      - any other verdict → `bind` for a job, and *skip* for middleware.
     - No type name and no annotation is inspected here. The 15 capability names stay named constants
       read only by the classifier (`_primitives/capability_names.py:49`).
+  - **Where a job's contracts come from.** `EngineHost.admitted_contracts(name)` returns the
+    admitted contracts of the job's `parameters`, `config_fields` and `omitted_contracts` (2.1,
+    3.2): exactly what boot's admit wrote (`_app/boot.py:2026`). Every signature parameter has one
+    (`schema.md` invariant 6).
+    - The absent answer is `None`, per the port's own convention (`_types/protocols.py:562`): no
+      host, or a job the host never admitted.
+    - Only a hostless engine (unit tests, embedding) meets `None` for a registered job. Its door
+      then takes the job's contracts from `build_contracts(function)`, once per function in the
+      existing `id`-keyed plan cache. That is the one classifier, because nothing was discovered
+      to read.
+    - Those contracts are not admitted, so a missing provider surfaces from DI resolution as today.
+      The door makes no availability decision of its own.
+  - **Middleware** (`_resolve_middleware_kwargs` in `middleware.py` and `job_middleware.py`).
+    - A middleware callable is not a job: it has no descriptor and no admit. Its plan is
+      `build_resolution_plan(build_contracts(middleware_fn))`, built once per callable in the same
+      `id`-keyed cache it uses today.
+    - Only `INJECTED` contracts resolve:
+      - a `RunContext` capability → the run context in `job_middleware.py` (today's `runcontext`
+        source), and in `middleware.py` only what `context.capabilities` holds (today it passes
+        `runcontext_type=None`);
+      - a provider → DI, with today's failure rule kept: an optional parameter gets `None`, any
+        other is skipped (`middleware.py:259-262`);
+      - every other verdict is *skip*.
+    - If `build_contracts` raises for a callable, the plan is all-*skip*, which is today's direct
+      path.
+    - **The only behaviour change is F-21's:** a registered `str` provider no longer turns a
+      middleware `str` parameter into a DI parameter.
+  - **The admit result reaches the engine through the port: option A** (decided 2026-11-23,
+    `plan.md` § *The door's inputs*).
+    - `EngineHost` gains `admitted_contracts(name) -> Mapping[str, ParameterContract] | None`.
+      `FunctualizeApp` implements it over the store boot writes. `FunctualizeApp` is at 311 of its
+      320 executable-line budget, pinned at line 116 of the facade budget test. One delegating
+      method fits, and that test is in the gate. The test file is not edited.
+    - **B is rejected.** It would make `RegisteredJob` (frozen) carry the admitted set, but three
+      of its four construction sites cannot supply it:
+      - `_discovery/registry.py:429` runs at discovery, before admit exists;
+      - `app/adapters/lazy_command.py:141` materialises from a descriptor that carries only
+        `omitted_contracts`;
+      - `_app/impl.py:792` is the imperative entry;
+      - so B needs a fifth data source, or a new descriptor field and a `CACHE_VERSION` bump.
+    - **C is rejected** by this task's own rule: "there is no second availability check".
+  - **A job registered after boot is admitted once, at registration.** `FunctualizeApp.__init__`
+    boots (`app/core.py:237-239`), so `register_dynamic_job` always runs after boot's admit, and
+    today it admits nothing (`door-scope-b2719ab8.txt`).
+    - The per-job body of `report_unsupported_parameters` is extracted as one function in
+      `_app/boot.py`, called by boot's loop and by `register_dynamic_job`.
+    - It uses the same exact-pair predicate (the registry is frozen after boot, so it is the same
+      answer) and gives the same single B-9 report.
+    - Every app-hosted job, discovered or registered, then has an admitted set (`spec.md` B-2).
+  - **Config fields.** Keys naming a job's `CONFIG_FIELD` contracts (`--city Tokyo` for a job
+    declaring `config: Cfg`) are partitioned off before `bind` and handed to config resolution
+    (`_resolve_config_model`), as today.
+    - So `argument_binding.py`'s code does not change. `ArgumentBinder.bind` refusing a
+      `CONFIG_FIELD` key is correct, and stays.
   - **Delete 3.1's `Enum` bridge.** That is the `ENUM` branch in `click_params.py` marked
-    `# TRANSITIONAL(parameter-contract/5.1)`. The click token reaches the door as text, and the
-    binder converts it to the member through the live annotation's `TypeAdapter`, with 4.4's
-    token → choice mapping. That holds on the live command and on the descriptor-only lazy command
-    alike, which closes the lazy path 3.1 leaves on text.
+    `# TRANSITIONAL(parameter-contract/5.1)`.
+    - The click token reaches the door as text, and the binder converts it to the member through
+      the live annotation's `TypeAdapter`, with 4.4's token → choice mapping.
+    - That holds on the live command and on the descriptor-only lazy command alike, which closes
+      the lazy path 3.1 leaves on text.
+  - **Every `TRANSITIONAL(parameter-contract/5.1)` marker is retired** (constitution, *Transitional
+    Changes*). Four exist today:
+    - `click_params.py:468`: deleted with the bridge;
+    - `argument_binding.py:22` ("no production caller yet"): deleted; the door is its caller;
+    - `boot.py:2024` ("read by the engine door"): replaced by a plain comment naming
+      `EngineHost.admitted_contracts` as the reader;
+    - `descriptors.py:291` ("the engine door is their only reader"): replaced by a plain comment
+      naming `build_resolution_plan` via the door as the reader.
   - A missing provider refuses before the call, on cold and warm alike (F-33). The refusal reads
-    2.1's `admit` result for the job; there is no second availability check.
+    the admitted contracts; there is no second availability check.
   - `BindRefusal` becomes `JobResult(status=INVALID)`.
+  - **The two plan test files migrate to the contract form**,
+    `build_resolution_plan(build_contracts(fn))`.
+    - The tests that pin a kind decided by `registered_types` are rewritten to the declaration
+      rule:
+      - `test_resolution_plan.py`: `test_detect_registered_di_type`,
+        `test_unregistered_type_is_skipped` (an unmarked class is now `INJECTED` and resolves by
+        DI), and `test_optional_unregistered_resolves_to_di`;
+      - `test_resolution_plan_properties.py`: `test_all_registered_type_params_resolved_from_registry`,
+        where kind no longer follows registration.
+    - Every other assertion keeps its meaning: caching by identity, `self`/`cls`/`*args` skipping,
+      qualifiers, `RunContext`, optional-without-provider → `None`, and DI over defaults.
 - **Invariant:** `JobExecutionEngine` does not grow: `ast` line count ≤ 2,747 (`executor.py:213-2959`
   at `da912d76`).
 - **Gate/evidence:**
@@ -1146,21 +1232,34 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `rg -n 'base_type in registered_types' src/functualize/_engine/resolution.py` → 0 (today 1);
   - `rg -n 'registered_types|get_type_hints' src/functualize/_engine/resolution.py` → 0 (today 6,
     `contract-gap-ea688446.txt`);
-  - `rg -n 'TRANSITIONAL\(parameter-contract/5\.1\)' src/functualize/app/adapters/click_params.py`
-    → 0. This is 3.1's `Enum` bridge;
+  - `rg -n registered_types src/functualize/_engine` → 0 (today 12: `executor.py` 3,
+    `middleware.py` 3, `job_middleware.py` 3, `resolution.py` 3; `door-scope-b2719ab8.txt`);
+  - `rg -n 'TRANSITIONAL\(parameter-contract/5\.1\)' src` → 0 (today 4). This covers 3.1's
+    `Enum` bridge and the three markers above;
+  - `git diff b2719ab8 -- src/functualize/_engine/__init__.py` → empty;
+  - `git diff b2719ab8 -- src/functualize/_primitives/argument_binding.py` → only the marker's
+    comment lines removed;
   - `uv run pytest tests/cli/test_enum_parameter_roundtrip.py -q` green through the door, with the
     member delivered by the binder, not by a click type. `tests/engine/test_binding_door.py` adds the
     same `Color.RED` round trip through the descriptor-only lazy command;
-  - a test in `tests/engine/test_binding_door.py`: for every table row, each parameter's resolution
-    source equals the one its contract's `Injection` names, cold and warm;
-  - `uv run pytest tests/engine/ tests/execution/test_resolution_plan.py tests/test_resolution_plan_properties.py`;
+  - `tests/engine/test_binding_door.py` also asserts, cold and warm:
+    - for every table row, each parameter's resolution source equals the one its contract's
+      `Injection` names;
+    - `admitted_contracts(name)` is not `None` for every app-hosted job: discovered cold,
+      discovered warm, and registered by `register_dynamic_job`;
+    - a dynamically registered job with a missing provider is reported once (B-9) and refused as
+      `INVALID` at the door;
+    - a config-field key reaches the config model, not `bind`;
+    - with a `str` provider registered, a middleware `str` parameter is not resolved by DI
+      (F-21 for middleware);
+  - `uv run pytest tests/engine/ tests/execution/test_resolution_plan.py tests/test_resolution_plan_properties.py tests/test_middleware_chain.py tests/test_middleware_chain_properties.py tests/test_facade_loc_limits.py`;
   - kit `str-provider.txt` repro: every `str` job runs;
   - kit `unknown-keys.txt` repro: all five surfaces refuse `zzz`;
   - kit `surf_check.py` W-inject → 0 (today 35), W-crash → 0 (today 50), W-type → 0 (today 49),
     W-default → 0 (today 14);
   - `cold_compare.py` → 0 real differences (today F-33 rows C085, C087, E138, H166).
 - **Reachability:** `FunctualizeApp.execute(RunRequest)` → `engine.run` → `_execute_lifecycle` →
-  `bind`.
+  `bind`; and the engine's middleware chain → `_resolve_middleware_kwargs` → `build_resolution_plan`.
 - **Depends on:** 2.1, 2.2, 2.3, 3.2, 4.4, 0.2.
 
 ## Wave 6 — the one schema

@@ -29,7 +29,7 @@ class ValueShape:
     scalar: Scalar
     container: Container = Container.NONE
     optional: bool = False                 # `T | None` / `Optional[T]`
-    enum_values: tuple[str, ...] | tuple[int, ...] = ()   # typed as declared (B-3 choice sets; task 4.4)      # Scalar.ENUM only, in declaration order
+    enum_values: tuple[str, ...] | tuple[int, ...] = ()   # Scalar.ENUM only, in declaration order; all str or all int (B-3, task 4.4)
     elements: tuple["ValueShape", ...] = ()  # FIXED_TUPLE members; DICT value shape
 
 
@@ -110,6 +110,10 @@ retired when 5.1's binder converts at the door from the live annotation (§*Bind
      `*args` and `**kwargs` excluded, as the engine excludes them).
    - No surface reads `omitted_contracts`. The engine door (task 5.1) is its only reader. So
      `--help`, completion, `func builtin info schema` and the MCP `inputSchema` are unchanged by it.
+   - The invariant is about **job descriptors**. A middleware callable, or a job on a hostless
+     engine, has no descriptor. Its contracts come from `build_contracts(callable)` at first
+     resolution, once per callable: the same classifier, unadmitted. No other source of kind exists
+     (task 5.1).
 7. **A choice set keeps its declared value type** *(task 4.4)*.
    - `enum_values` is all `str` or all `int`, never mixed, and never a stringified `int`.
    - `shape_json_schema` publishes the matching JSON `type`.
