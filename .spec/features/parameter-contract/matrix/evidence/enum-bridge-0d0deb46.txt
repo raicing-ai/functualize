@@ -1,0 +1,34 @@
+$ git -C <worktree> rev-parse --short HEAD
+0d0deb46
+$ cat .functualize/jobs/jobs.py
+import enum
+from functualize.job import job
+
+
+class Color(enum.Enum):
+    RED = "red"
+    BLUE = "blue"
+
+
+@job
+def paint(c: Color = Color.BLUE) -> str:
+    out = f"body={type(c).__name__}:{c!r}"
+    print(out)
+    return out
+$ uv run --project <worktree> --frozen python <worktree>/.spec/features/parameter-contract/matrix/enum_trace.py paint --c red   # cold (cache.json absent)
+TRACE click_params.create_job_click_command
+TRACE _EnumChoice.convert 'red' -> <Color.RED: 'red'>
+body=Color:<Color.RED: 'red'>
+$ uv run --project <worktree> --frozen python <worktree>/.spec/features/parameter-contract/matrix/enum_trace.py paint --c red   # warm (cache.json present)
+TRACE click_params.create_job_click_command
+TRACE _EnumChoice.convert 'red' -> <Color.RED: 'red'>
+body=Color:<Color.RED: 'red'>
+$ rg -n "make_lazy_command\(" src   # the one descriptor-only command (app.cli, lazy entry)
+src/functualize/app/adapters/cli.py:407:        command = make_lazy_command(
+src/functualize/app/adapters/lazy_command.py:32:def make_lazy_command(
+$ sed -n 272,273p src/functualize/app/adapters/click_params.py   # what that command renders for an enum today
+    if field.type_annotation == "enum" or field.choices:
+        return click.Choice(field.choices or []), False, False
+$ uv run pytest tests/cli/test_enum_parameter_roundtrip.py -q
+.s.s...                                                                  [100%]
+5 passed, 2 skipped in 0.72s

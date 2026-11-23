@@ -54,6 +54,9 @@
   - **Verified mechanically** with `matrix/anchor_check.py` over every task's `Input:` block: 32
     tasks, 0 inputs outside the new anchor (16 outside the old one). Re-run after task 1.2 was added:
     33 tasks, 0 outside the new anchor (17 outside the old).
+- **The `Enum` member before 5.1 (2026-11-23, 3.1 finding):** 3.1 keeps `_EnumChoice` over the
+  live enum type, marked `TRANSITIONAL(parameter-contract/5.1)`, and 5.1 deletes it. The contract
+  carries no Python type identity (§*The `Enum` member before 5.1*).
 - **Choice sets and config scalars (2026-11-23, review questions S1/S2):** `spec.md` B-3.
   - `Enum` and `Literal` values keep their type (all `str` or all `int`); any other set is refused.
     New task 4.4 owns it.
@@ -418,6 +421,31 @@ on a populated revision-5 database built by the plugin's own `migrate()`):**
   task it has its own `[F]`, and its own gate that runs the substrate suite.
 - Its files are disjoint from 1.1's, so wave 1 stays parallel. Every later wave's plugin loop then
   includes a green substrate.
+
+### The `Enum` member before 5.1 (decided 2026-11-23, 3.1 Execute finding)
+
+**Finding** (implementer, measured). A click parameter rendered from the contract alone offers the
+`Enum`'s values as a choice, and click returns the `str`. `tests/cli/test_enum_parameter_roundtrip.py`
+went from 5 passed / 2 skipped to 2 failed (`body=str:'red'`).
+
+**Decision: 3.1 keeps the existing `_EnumChoice` for `ENUM` shapes only, over the live enum type
+taken from the function the factory already holds** (`create_job_click_command`,
+`click_params.py:1382-1385`). It is marked `TRANSITIONAL(parameter-contract/5.1)`, and 5.1 deletes
+it. The contract and the cache are unchanged (`schema.md`, *Type identity*).
+
+- **Measured on `0d0deb46`** (`enum-bridge-0d0deb46.txt`): `func <job>` uses that factory with the
+  live function cold **and** warm, so the bridge keeps the member on both.
+- **The descriptor-only lazy command** (`cli.py:407`) has no function. It keeps rendering a plain
+  choice, as it does today (`click_params.py:272-273`); 5.1 converts there.
+- **Rejected: "type identity in the contract".** A JSON cache cannot carry a class without a
+  dotted path the cache must import, or a second conversion site in every consumer.
+- **Rejected: "typed conversion at invocation in 3.1".** That is 5.1's door arriving early.
+- **4.4 does not collide.**
+  - 4.4 types `enum_values` (`str` or `int`) and gives the renderer no class. So it fixes the
+    advertised-schema-versus-binder disagreement, not the member round trip, and folding the two
+    would not help.
+  - Their spellings agree: `_EnumChoice` maps `str(member.value)` → member, which is exactly 4.4's
+    text form `str(value)`.
 
 ### Choice sets and config scalars (decided 2026-11-23, review questions S1 and S2)
 

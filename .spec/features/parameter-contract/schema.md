@@ -71,6 +71,12 @@ class ParameterContract:
     description: str = ""
 ```
 
+**Type identity.** The contract describes shapes and values. It deliberately carries no Python type
+identity: a cached JSON contract cannot hold a class without a dotted path that the cache would have
+to import. So conversion to a declared class needs a live function. The instance is 3.1's `Enum`
+bridge: `_EnumChoice` over the live enum type, marked `TRANSITIONAL(parameter-contract/5.1)`. It is
+retired when 5.1's binder converts at the door from the live annotation (§*Binding*).
+
 ## Invariants (asserted by the contract's own unit tests, task 1.1)
 
 1. **Exactly one verdict per parameter.** `build_contract` decides it from the declaration only and

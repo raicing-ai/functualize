@@ -656,13 +656,37 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - A choice is spelled `str(value)`, never `enum_values` taken as strings. After 4.4 an `int` set
     holds `int`s (`spec.md` B-3, *choice sets*); before it they are already strings, so `str()`
     changes nothing.
+  - **The `Enum` bridge (added 2026-11-23, Execute finding).** Where the factory holds a live
+    function (`create_job_click_command(name, function, …)`, `click_params.py:1382-1385`), an `ENUM`
+    shape whose live annotation is an `Enum` class renders through the existing `_EnumChoice`
+    (`click_params.py:112-167`). Its enum type is taken from that function. It is marked
+    `# TRANSITIONAL(parameter-contract/5.1)`.
+    - **This is the only place a click parameter converts a token.** The contract describes shapes
+      and values and deliberately carries no Python type (`schema.md`, *Type identity*), so turning
+      `'red'` into `Color.RED` needs a live class. 5.1's binder owns that conversion from wave 5 and
+      deletes this branch.
+    - **Every other shape renders from the contract alone.** That includes a `Literal` choice set,
+      whose value is its own value and needs no class.
+    - **The descriptor-only lazy command** (`app.cli` with a lazy entry, `cli.py:407` →
+      `make_lazy_command`) has no live function. It renders the contract's plain choice, as it
+      renders `click.Choice(field.choices)` today (`click_params.py:272-273`). Member conversion
+      on that path arrives with 5.1.
+    - Measured on `0d0deb46` (`enum-bridge-0d0deb46.txt`): `func <job>` builds its command through
+      `create_job_click_command` with the live function on **cold and warm** boots, and
+      `_EnumChoice` converts `'red'` → `Color.RED` on both.
   - Refuse two CLI markers at discovery, not here (F-16 via 1.1).
   - Keep `build_click_params`, `build_click_params_from_fields` and
     `build_click_params_from_descriptor` as delegating wrappers marked `# TRANSITIONAL(7.3)`, so
     their existing callers and tests keep working until wave 7.
 - **Invariant:** the cold and the warm command for one job are built by the same function from equal
   contracts.
-- **Gate/evidence:** `uv run pytest tests/adapters/ tests/cli/test_option_marker_unit.py tests/cli/test_arg_marker_unit.py`. Plus the kit:
+- **Gate/evidence:** `uv run pytest tests/adapters/ tests/cli/test_option_marker_unit.py tests/cli/test_arg_marker_unit.py`.
+  - `uv run pytest tests/cli/test_enum_parameter_roundtrip.py -q` → 5 passed, 2 skipped, the same as
+    on `0d0deb46` (`enum-bridge-0d0deb46.txt`). The contract-only experiment gave 2 failed
+    (`body=str:'red'`), so the bridge cannot land by silently failing it.
+  - `rg -n 'TRANSITIONAL\(parameter-contract/5\.1\)' src/functualize/app/adapters/click_params.py`
+    → exactly 1 hit: the `ENUM` branch.
+  - Plus the kit:
   - `probes.sh`: no `Traceback` for timedelta;
   - `func d094`: exit 2, `Missing option '--p'`;
   - `func b053 --p a --p b`: `p=['a', 'b']` once 5.1 binds; `('a', 'b')` before 5.1 is acceptable
@@ -882,6 +906,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `src/functualize/_engine/executor.py`;
   - `src/functualize/_engine/resolution.py`;
   - `src/functualize/_engine/validation.py` (deleted);
+  - `src/functualize/app/adapters/click_params.py` (3.1's `Enum` bridge deleted; added 2026-11-23);
   - `tests/engine/test_binding_door.py` (new).
 - **Work:**
   - At `executor.py:1393-1486`, replace `unexpected_keyword_error` (workflows only) and
@@ -899,6 +924,11 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
       - any other verdict → `bind`.
     - No type name and no annotation is inspected here. The 15 capability names stay named constants
       read only by the classifier (`_primitives/capability_names.py:49`).
+  - **Delete 3.1's `Enum` bridge.** That is the `ENUM` branch in `click_params.py` marked
+    `# TRANSITIONAL(parameter-contract/5.1)`. The click token reaches the door as text, and the
+    binder converts it to the member through the live annotation's `TypeAdapter`, with 4.4's
+    token → choice mapping. That holds on the live command and on the descriptor-only lazy command
+    alike, which closes the lazy path 3.1 leaves on text.
   - A missing provider refuses before the call, on cold and warm alike (F-33). The refusal reads
     2.1's `admit` result for the job; there is no second availability check.
   - `BindRefusal` becomes `JobResult(status=INVALID)`.
@@ -909,6 +939,11 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `rg -n 'base_type in registered_types' src/functualize/_engine/resolution.py` → 0 (today 1);
   - `rg -n 'registered_types|get_type_hints' src/functualize/_engine/resolution.py` → 0 (today 6,
     `contract-gap-ea688446.txt`);
+  - `rg -n 'TRANSITIONAL\(parameter-contract/5\.1\)' src/functualize/app/adapters/click_params.py`
+    → 0. This is 3.1's `Enum` bridge;
+  - `uv run pytest tests/cli/test_enum_parameter_roundtrip.py -q` green through the door, with the
+    member delivered by the binder, not by a click type. `tests/engine/test_binding_door.py` adds the
+    same `Color.RED` round trip through the descriptor-only lazy command;
   - a test in `tests/engine/test_binding_door.py`: for every table row, each parameter's resolution
     source equals the one its contract's `Injection` names, cold and warm;
   - `uv run pytest tests/engine/ tests/execution/test_resolution_plan.py tests/test_resolution_plan_properties.py`;
@@ -920,18 +955,6 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 - **Reachability:** `FunctualizeApp.execute(RunRequest)` → `engine.run` → `_execute_lifecycle` →
   `bind`.
 - **Depends on:** 2.1, 2.2, 2.3, 3.2, 4.4, 0.2.
-
-### [ ] 5.2 The CLI renders `INVALID` as a one-line usage error (pitfalls §25)
-
-- **Input:** 0.2; `click_params.prelude_refusal`.
-- **[F]:**
-  - `src/functualize/app/adapters/click_params.py`;
-  - `tests/cli/test_invalid_call_rendering.py` (new).
-- **Work:** add an `INVALID` arm to `prelude_refusal` and the result delivery: exit 2, one line, no
-  frames.
-- **Gate/evidence:** the new test runs `func` in a subprocess for a missing, an unknown, an injected
-  and a non-converting argument. It asserts `stderr` contains no `File "` and the exit code is 2.
-- **Depends on:** 0.2. 3.1 has already changed this file (an earlier wave).
 
 ## Wave 6 — the one schema
 
@@ -956,6 +979,21 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     and 19);
   - `uv run pytest tests/cli/test_schema_surface_parity.py tests/app/test_dynamic_registration.py`.
 - **Depends on:** 2.1, 2.2, 4.4.
+
+### [ ] 6.2 The CLI renders `INVALID` as a one-line usage error (pitfalls §25)
+
+- **Input:** 0.2; `click_params.prelude_refusal`.
+- **[F]:**
+  - `src/functualize/app/adapters/click_params.py`;
+  - `tests/cli/test_invalid_call_rendering.py` (new).
+- **Work:** add an `INVALID` arm to `prelude_refusal` and the result delivery: exit 2, one line, no
+  frames.
+- **Gate/evidence:** the new test runs `func` in a subprocess for a missing, an unknown, an injected
+  and a non-converting argument. It asserts `stderr` contains no `File "` and the exit code is 2.
+- **Depends on:** 0.2, 5.1. 3.1 has already changed this file (an earlier wave), and 5.1 deletes 3.1's
+  `Enum` bridge from it.
+- **Moved 2026-11-23** from wave 5 (formerly 5.2) to wave 6: 5.1 now also edits `click_params.py`,
+  and two tasks in one wave may not share a file.
 
 ## Wave 7 — MCP, the AI tool scope, and the wrappers retired
 
@@ -1016,7 +1054,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 - **Gate/evidence:**
   - `rg -n -e TRANSITIONAL\(7.3\) -e _resolve_type_string -e _click_type_for -e _get_list_inner_type src` → 0;
   - `uv run pytest tests/adapters/ tests/cli/ tests/types/ tests/group_options/`.
-- **Depends on:** 3.1, 4.1, 4.2, 4.3, 5.2. This file was last changed in wave 5.
+- **Depends on:** 3.1, 4.1, 4.2, 4.3, 6.2. This file was last changed in wave 6.
 
 ## Wave 8 — D7 deletions
 
@@ -1310,8 +1348,8 @@ field, and the wave is complete when the whole suite is green with it gone.
     {"id": 2, "tasks": ["2.1", "2.2", "2.3"]},
     {"id": 3, "tasks": ["3.1", "3.2"]},
     {"id": 4, "tasks": ["4.1", "4.2", "4.3", "4.4"]},
-    {"id": 5, "tasks": ["5.1", "5.2"]},
-    {"id": 6, "tasks": ["6.1"]},
+    {"id": 5, "tasks": ["5.1"]},
+    {"id": 6, "tasks": ["6.1", "6.2"]},
     {"id": 7, "tasks": ["7.1", "7.2", "7.3"]},
     {"id": 8, "tasks": ["8.1", "8.2"]},
     {"id": 9, "tasks": ["9.1", "9.2", "9.3"]},
