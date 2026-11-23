@@ -445,6 +445,10 @@ on a populated revision-5 database built by the plugin's own `migrate()`):**
   `register_dynamic_job`, and spec B-2 records "admitted once, at registration".
 - **A hostless engine** (unit tests, embedding) is the one case with no admitted set. It takes
   `build_contracts(function)` once per function, unadmitted, and its DI failures keep today's path.
+- **The importers of the deleted `validation.py`** (second repair, `validation-retire-2eeb5658.txt`).
+  Three tests import it. Two retire with their claims carried or reversed by B-24/B-26/B-30, and the
+  PEP 563 instrument's `TestArgumentValidation` migrates to the binder. A `**kwargs` job stops
+  receiving unknown keys (B-26, clarified; measured with `matrix/varkw_probe.py`).
 - **Config-field keys** are partitioned off before `bind`, so `argument_binding.py`'s code is
   unchanged. Its stale marker is still retired, along with `boot.py`'s and `descriptors.py`'s: four
   `TRANSITIONAL(parameter-contract/5.1)` markers go to 0.

@@ -1108,7 +1108,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `plan.md` § *The contract gap* and § *The door's inputs*; `schema.md` invariant 6;
   - `gates-authoring.txt` `engine-old-binding`: 7 hits (`executor.py` 3, `validation.py` 4);
   - `registry-kind`: 2 hits in `resolution.py`;
-  - `door-scope-b2719ab8.txt` (scope repair, 2026-11-23).
+  - `door-scope-b2719ab8.txt` (scope repair, 2026-11-23);
+  - `validation-retire-2eeb5658.txt`, `matrix/varkw_probe.py` (second scope repair, 2026-11-23: the importers of the deleted
+    `validation.py`).
 - **[F]** (scope repaired 2026-11-23 on the implementer's measured report; each addition says why):
   - `src/functualize/_engine/executor.py`;
   - `src/functualize/_engine/resolution.py`;
@@ -1127,6 +1129,13 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `src/functualize/app/adapters/click_params.py` (3.1's `Enum` bridge deleted; added 2026-11-23);
   - `tests/execution/test_resolution_plan.py`, `tests/test_resolution_plan_properties.py`: they
     call the signature this task removes (15 and 13 calls);
+  - `tests/engine/test_unexpected_keyword.py` (**deleted**): it imports `unexpected_keyword_error`
+    (`:18`) from the deleted module;
+  - `tests/config/test_pep563_annotation_sites.py`: **`TestArgumentValidation` only** (`:172-211`,
+    three lazy imports at `:178`, `:192`, `:204`). The rest of the file is the F-32/E142 PEP 563
+    instrument and is not touched;
+  - `tests/validation/test_arg_validator_properties.py` (**deleted**): it imports `ArgValidator`
+    (`:19`);
   - `tests/engine/test_binding_door.py` (new).
 - **Work:**
   - At `executor.py:1393-1486`, replace `unexpected_keyword_error` (workflows only) and
@@ -1214,6 +1223,48 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - A missing provider refuses before the call, on cold and warm alike (F-33). The refusal reads
     the admitted contracts; there is no second availability check.
   - `BindRefusal` becomes `JobResult(status=INVALID)`.
+  - **The three importers of `validation.py` (second scope repair, 2026-11-23).** Exactly these three
+    files outside the earlier `[F]` import the deleted module (`validation-retire-2eeb5658.txt`).
+    Four other hits are prose only and are not touched: `test_option_marker_unit.py:208`,
+    `test_argument_binding.py:254`, `_constrained_functions.py:5` and
+    `test_validation_hooks_property.py:33-34`. Their docstrings describe history, not a live
+    reference.
+    - **`tests/engine/test_unexpected_keyword.py`: retire (delete).** Each of its claims is either
+      carried or reversed:
+      - B1, an unaccepted keyword is refused: carried by `test_argument_binding.py::test_an_unknown_key_is_refused_naming_it`
+        (unit), and by `test_binding_door.py` through the engine for a workflow launch, which is
+        where `unexpected_keyword_error` ran;
+      - B3, a missing DI argument is not a launch error: carried by
+        `test_argument_binding.py::test_injected_parameters_are_left_for_di`;
+      - B6, an accepted keyword passes: carried by `test_a_supplied_value_arrives_as_the_declared_type`;
+      - "a DI parameter may be supplied explicitly" (`:60-67`): **reversed** by B-26 and B-30, and
+        carried by `test_a_value_for_an_injected_parameter_is_refused`;
+      - B5, `**kwargs` accepts anything: **reversed** by B-26 (clarified 2026-11-23). Measured:
+        today's rule accepts `zzz` for `def job(version="1", **kwargs)`, and the binder refuses it
+        with `Unknown argument 'zzz'. This job accepts: version`. The door test pins the refusal,
+        and `CHANGELOG.md` records it in the same push;
+      - `TestTheMessage` (parity with Python's own `TypeError` wording): retired. The refusal now
+        names the argument and what the job accepts (B-26). It is rendered per surface (6.2), not as
+        Python's message.
+    - **`tests/config/test_pep563_annotation_sites.py`: migrate `TestArgumentValidation` to the
+      binder.** It stays in the same file, as the PEP 563 instrument's binding row. Its three tests
+      become `ArgumentBinder().bind(fn, build_contracts(fn), raw, surface=…)` over both module forms:
+      - both forms give equal contracts and bind `count=5` to `5`;
+      - under PEP 563, `count=99` is a `BindRefusal`;
+      - both forms refuse `count=-1`.
+      
+      The guarantee the class exists for, that `Field()` constraints hold under PEP 563, is kept.
+    - **`tests/validation/test_arg_validator_properties.py`: retire (delete).**
+      - Property 4 (validation idempotence) is **carried**. `test_binding_door.py` asserts that, for
+        every table row with a caller verdict, binding `bind`'s output again yields equal values.
+      - Property 5 (only `Field`-constrained parameters are validated; others pass untouched) is
+        **reversed by design**. B-24 converts every supplied value to its declared type, so an
+        unconstrained `UUID` arriving as text is converted, not passed through.
+    - **The constraint refusal `ArgValidator` performed does not vanish.**
+      `test_argument_binding.py::test_field_constraints_hold_at_the_door` proves it in the binder
+      (`Annotated[int, Field(ge=1)]`). `test_binding_door.py` proves it through `engine.run`: a
+      constrained parameter given an out-of-range value ends as `INVALID`, in both annotation modes,
+      with the job body never run.
   - **The two plan test files migrate to the contract form**,
     `build_resolution_plan(build_contracts(fn))`.
     - The tests that pin a kind decided by `registered_types` are rewritten to the declaration
@@ -1252,7 +1303,23 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     - a config-field key reaches the config model, not `bind`;
     - with a `str` provider registered, a middleware `str` parameter is not resolved by DI
       (F-21 for middleware);
-  - `uv run pytest tests/engine/ tests/execution/test_resolution_plan.py tests/test_resolution_plan_properties.py tests/test_middleware_chain.py tests/test_middleware_chain_properties.py tests/test_facade_loc_limits.py`;
+  - `uv run pytest tests/engine/ tests/config/ tests/validation/ tests/execution/test_resolution_plan.py tests/test_resolution_plan_properties.py tests/test_middleware_chain.py tests/test_middleware_chain_properties.py tests/test_facade_loc_limits.py`.
+    `tests/config/` and `tests/validation/` were added 2026-11-23, because two of the three
+    importers live there and were invisible to the earlier gate;
+  - `test ! -e src/functualize/_engine/validation.py && test ! -e tests/engine/test_unexpected_keyword.py && test ! -e tests/validation/test_arg_validator_properties.py`;
+  - `rg -n '_engine\.validation|unexpected_keyword_error|ArgValidator|_build_validation_model' tests/config/test_pep563_annotation_sites.py`
+    → 0 (today 8: `:173`, `:178`, `:182-183`, `:192`, `:195`, `:204`, `:207`);
+  - `rg -n 'from functualize\._engine\.validation|_engine\.validation import' src tests plugins examples`
+    → 0 (today 7: `executor.py:41`, which 5.1 already removes; the three tests' five import lines;
+    and one docstring line in the retired properties file);
+  - `git diff 2eeb5658 -- tests/config/test_pep563_annotation_sites.py` changes only
+    `TestArgumentValidation` (`:172-211` at `2eeb5658`);
+  - `tests/engine/test_binding_door.py` also asserts, through `engine.run`:
+    - a workflow launch with an unknown key ends `INVALID`;
+    - a `**kwargs` job given an unknown key ends `INVALID`;
+    - a `Field(ge=1)` parameter given `0` ends `INVALID` with the body not run, in both annotation
+      modes;
+    - re-binding the bound values is idempotent for every table row with a caller verdict;
   - kit `str-provider.txt` repro: every `str` job runs;
   - kit `unknown-keys.txt` repro: all five surfaces refuse `zzz`;
   - kit `surf_check.py` W-inject → 0 (today 35), W-crash → 0 (today 50), W-type → 0 (today 49),

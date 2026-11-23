@@ -287,7 +287,9 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
   parameters included (F-23).
 - **B-26.** Binding refuses, before the job is called, a call that:
   - is missing a required argument (F-25);
-  - supplies an unknown key (`research.md` R-5);
+  - supplies an unknown key (`research.md` R-5). A key is unknown when no contract names it. That
+    includes a job declaring `**kwargs`, which has no contract *(clarified 2026-11-23, task 5.1)*:
+    such a job is no longer handed arbitrary keys, and `CHANGELOG.md` records the change;
   - supplies a value for an `INJECTED` parameter (F-20; B-30);
   - supplies a value that does not convert.
 
