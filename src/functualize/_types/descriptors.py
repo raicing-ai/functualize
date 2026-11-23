@@ -284,6 +284,13 @@ class JobDescriptor:
     #: The declaring job class, when this descriptor represents one of its
     #: methods. None for plain function jobs.
     owner_class: str | None = None
+    #: The contracts of the signature parameters ``parameters`` omits —
+    #: capability types, ``FromJob`` and a ``GroupOptions`` injection point —
+    #: in signature order, as discovery decided them (before ``admit``). With
+    #: ``parameters``' own contracts they cover the whole signature (B-1), so
+    #: boot can report an omitted refusal once (B-9). No surface reads them.
+    # TRANSITIONAL(parameter-contract/5.1): the engine door is their only reader.
+    omitted_contracts: tuple[ParameterContract, ...] = ()
 
     @property
     def command_path(self) -> CommandPath:
@@ -347,6 +354,10 @@ class JobDescriptor:
             "from_job_deps": list(self.from_job_deps),
             "python_name": self.python_name,
             "owner_class": self.owner_class,
+            # v27 — the contracts of the parameters `parameters` omits.
+            "omitted_contracts": [
+                _contract_to_dict(contract) for contract in self.omitted_contracts
+            ],
             "workflow": (
                 self.workflow.to_dict() if self.workflow is not None else None
             ),
@@ -437,6 +448,22 @@ class JobDescriptor:
             except ValueError as e:
                 raise ValueError(f"Invalid parameters[{i}]: {e}") from e
 
+        # v27 — the contracts of omitted signature parameters, in order.
+        raw_omitted = data.get("omitted_contracts") or []
+        if not isinstance(raw_omitted, list):
+            raise ValueError(
+                "Expected 'omitted_contracts' to be a list, got "
+                f"{type(raw_omitted).__name__}"
+            )
+        omitted_contracts: list[ParameterContract] = []
+        for i, contract_data in enumerate(raw_omitted):
+            if not isinstance(contract_data, dict):
+                raise ValueError(f"Invalid omitted_contracts[{i}]: not a dict")
+            try:
+                omitted_contracts.append(_contract_from_dict(contract_data))
+            except (KeyError, TypeError, ValueError) as e:
+                raise ValueError(f"Invalid omitted_contracts[{i}]: {e}") from e
+
         # Validate dependencies dict values
         for key, value in data["dependencies"].items():
             if not isinstance(key, str):
@@ -507,6 +534,7 @@ class JobDescriptor:
             from_job_deps=tuple(data.get("from_job_deps") or ()),
             python_name=data.get("python_name") or "",
             owner_class=data.get("owner_class") or None,
+            omitted_contracts=tuple(omitted_contracts),
             workflow=workflow,
         )
 

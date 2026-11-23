@@ -1877,15 +1877,19 @@ def report_unsatisfiable_jobs(app: Any) -> None:
     from functualize._types.discovery_report import DiscoveryFailure
 
     # B-2 supplies the only registry input to a contract verdict; §5.1 forbids
-    # a second availability report. The older validator remains for bindings
-    # with no descriptor contract (for example, directly registered functions
-    # and factory-resolution errors). D105 also makes its old Arg()/Option()
-    # remedy invalid for an unconvertible class, so that wording is retired.
+    # a second availability report. The older validator remains only for the DI
+    # errors no contract covers, B-9's three survivors: a job with no retained
+    # descriptor, the classifier-crash fallback, and a factory's missing
+    # dependency. D105 also makes its old Arg()/Option() remedy invalid for an
+    # unconvertible class, so that wording is retired.
     covered: dict[str, tuple[Any, ...]] = {
-        descriptor.name: tuple(
-            field.contract
-            for field in (*descriptor.parameters, *descriptor.config_fields)
-            if field.contract is not None
+        descriptor.name: (
+            *(
+                field.contract
+                for field in (*descriptor.parameters, *descriptor.config_fields)
+                if field.contract is not None
+            ),
+            *descriptor.omitted_contracts,
         )
         for descriptor in app.job_registry.get_descriptors()
     }
@@ -1981,9 +1985,15 @@ def report_unsupported_parameters(app: Any) -> None:
         source = descriptor.source_file or descriptor.module_path or "<unknown>"
         # A convention job's `config_fields` are its `parameters`; a job with a
         # config model lists that model's fields, which carry their own
-        # contracts (F-29). Each name is decided once.
-        for field in (*descriptor.parameters, *descriptor.config_fields):
-            contract = field.contract
+        # contracts (F-29). The omitted signature parameters carry theirs on the
+        # descriptor too (capabilities, FromJob, GroupOptions). Each name is
+        # decided once.
+        declared = (
+            *(field.contract for field in descriptor.parameters),
+            *(field.contract for field in descriptor.config_fields),
+            *descriptor.omitted_contracts,
+        )
+        for contract in declared:
             if contract is None or contract.name in admitted:
                 continue
             result = admit(contract, has_provider)

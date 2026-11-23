@@ -807,7 +807,7 @@ def register_dynamic_job(
     from functualize._discovery.providers import (
         extract_capability_markers,
         extract_ext_metadata,
-        extract_parameters_from_signature,
+        extract_signature,
     )
     from functualize._discovery.schema_extractor import extract_field_descriptors
     from functualize._primitives.config_class_detection import detect_config_class
@@ -817,7 +817,8 @@ def register_dynamic_job(
     # The same extraction directory discovery uses. `parameters` was `[]` here,
     # so the *same function* registered dynamically took different arguments
     # from one discovered from a file.
-    parameters = extract_parameters_from_signature(function)
+    extraction = extract_signature(function)
+    parameters = extraction.parameters
 
     # `config_fields` is the other half, and populating only `parameters` makes
     # the mismatch worse rather than better for a job with a config class:
@@ -841,6 +842,7 @@ def register_dynamic_job(
         function=function,
         docstring=function.__doc__,
         parameters=parameters,
+        omitted_contracts=extraction.omitted_contracts,
         config_fields=config_fields if config_fields else parameters,
         source="<dynamic>",
         metadata=extract_ext_metadata(function),

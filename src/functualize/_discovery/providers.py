@@ -71,9 +71,29 @@ _TTY_TYPE_NAME = "TTY"
 _LIVE_TYPE_NAME = "Live"
 
 
+@dataclass(frozen=True)
+class SignatureExtraction:
+    """Both halves of one signature walk.
+
+    ``parameters`` are the fields a surface may spell. ``omitted_contracts``
+    are the contracts of the parameters the same walk leaves out — capability
+    types, ``FromJob`` and a ``GroupOptions`` injection point — in signature
+    order. One loop decides which half a parameter lands in, so the two can
+    never disagree about it.
+    """
+
+    parameters: list[FieldDescriptor]
+    omitted_contracts: tuple[ParameterContract, ...] = ()
+
+
 def extract_parameters_from_signature(
     func: Callable[..., Any],
 ) -> list[FieldDescriptor]:
+    """The parameters half of :func:`extract_signature`."""
+    return extract_signature(func).parameters
+
+
+def extract_signature(func: Callable[..., Any]) -> SignatureExtraction:
     """Extract FieldDescriptors from a function's signature via introspection.
 
     For each parameter in the function signature:
@@ -88,15 +108,18 @@ def extract_parameters_from_signature(
         func: The callable to inspect.
 
     Returns:
-        A list of FieldDescriptor instances, one per user-facing parameter.
+        One FieldDescriptor per user-facing parameter, and the contracts of the
+        parameters skipped below (the same contracts ``_parameter_contracts``
+        built; nothing is classified twice).
     """
     from typing import Annotated
 
     parameters: list[FieldDescriptor] = []
+    omitted: list[ParameterContract] = []
     try:
         sig = inspect.signature(func)
     except (ValueError, TypeError):
-        return parameters
+        return SignatureExtraction(parameters)
 
     # Resolve string annotations (from `from __future__ import annotations`)
     # to actual type objects for proper Annotated introspection
@@ -116,10 +139,12 @@ def extract_parameters_from_signature(
         # executor the option's *default* and look like a caller-supplied
         # value — silently suppressing the injection it exists for.
         if _has_from_job(annotation):
+            _omit(omitted, contracts, param_name)
             continue
 
         # Skip framework-injected types (RunContext, JobConfigView)
         if _is_excluded_type(annotation):
+            _omit(omitted, contracts, param_name)
             continue
 
         # Skip a `GroupOptions` parameter — the injection point that *receives*
@@ -131,6 +156,7 @@ def extract_parameters_from_signature(
         # surface filtered it downstream; removing it at the source means one
         # exclusion instead of one-per-surface, which is one fewer place to miss.
         if isinstance(annotation, type) and is_group_options_subclass(annotation):
+            _omit(omitted, contracts, param_name)
             continue
 
         # Unwrap Annotated to extract markers and base type
@@ -211,7 +237,17 @@ def extract_parameters_from_signature(
             )
         )
 
-    return parameters
+    return SignatureExtraction(parameters, tuple(omitted))
+
+
+def _omit(
+    omitted: list[ParameterContract],
+    contracts: dict[str, ParameterContract],
+    name: str,
+) -> None:
+    """Keep a skipped parameter's contract; none exists after a classifier crash."""
+    if name in contracts:
+        omitted.append(contracts[name])
 
 
 def _parameter_contracts(func: Callable[..., Any]) -> dict[str, ParameterContract]:
@@ -655,9 +691,9 @@ class DirectoryScanProvider:
             record_discovery_failure(source_file, e)
             return []
 
-    def _extract_parameters(self, func: Callable[..., Any]) -> list[FieldDescriptor]:
-        """Extract FieldDescriptors from function signature via shared introspection."""
-        return extract_parameters_from_signature(func)
+    def _extract_parameters(self, func: Callable[..., Any]) -> SignatureExtraction:
+        """Both halves of the signature, via the shared extraction."""
+        return extract_signature(func)
 
 
 class StaticProvider:
@@ -766,7 +802,7 @@ class StaticProvider:
             group = normalize_name(decl_group)
 
         # Extract parameters from function signature
-        parameters = self._extract_parameters(func)
+        extraction = self._extract_parameters(func)
 
         return JobDescriptor(
             name=name,
@@ -774,7 +810,8 @@ class StaticProvider:
             function=func,
             python_name=func.__name__,
             docstring=getattr(func, "__doc__", None),
-            parameters=parameters,
+            parameters=extraction.parameters,
+            omitted_contracts=extraction.omitted_contracts,
             source="<static>",
             metadata=extract_ext_metadata(func),
             declaration=declaration,
@@ -783,9 +820,9 @@ class StaticProvider:
             **extract_capability_markers(func),
         )
 
-    def _extract_parameters(self, func: Callable[..., Any]) -> list[FieldDescriptor]:
-        """Extract FieldDescriptors from function signature via shared introspection."""
-        return extract_parameters_from_signature(func)
+    def _extract_parameters(self, func: Callable[..., Any]) -> SignatureExtraction:
+        """Both halves of the signature, via the shared extraction."""
+        return extract_signature(func)
 
 
 def _module_source_file(module_path: str) -> Path | None:
@@ -1042,7 +1079,9 @@ class EntryPointProvider:
         func = obj if callable(obj) else lambda: None
 
         # Extract parameters from callable's signature
-        parameters = extract_parameters_from_signature(func) if callable(obj) else []
+        extraction = (
+            extract_signature(func) if callable(obj) else SignatureExtraction([])
+        )
 
         declaration = getattr(func, "__functualize_job__", None)
         workflow_shape = workflow_shape_of(func)
@@ -1056,7 +1095,8 @@ class EntryPointProvider:
             group=effective_group,
             function=func,
             docstring=getattr(obj, "__doc__", None),
-            parameters=parameters,
+            parameters=extraction.parameters,
+            omitted_contracts=extraction.omitted_contracts,
             source=getattr(obj, "__module__", "<entry_point>"),
             metadata=extract_ext_metadata(func),
             declaration=declaration,

@@ -717,7 +717,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     renderer, not only that the renderer's unit tests call it.
 - **Depends on:** 2.1, 2.2.
 
-### [ ] 3.2 Every signature parameter's contract reaches its descriptor, the omitted ones included
+### [x] 3.2 Every signature parameter's contract reaches its descriptor, the omitted ones included
 
 - **Input:**
   - `plan.md` § *The contract gap*;
@@ -795,6 +795,57 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 - **Reachability:** `func <job>` → `DirectoryScanProvider` → the extraction → `JobDescriptor` →
   `cache.json`. The reader is 5.1 (`build_resolution_plan`). Until 5.1 lands, the field carries
   `# TRANSITIONAL(parameter-contract/5.1)`.
+- **Execute evidence (2026-11-23):**
+  - **What landed.**
+    - `extract_signature(func) -> SignatureExtraction(parameters, omitted_contracts)`
+      (`_discovery/providers.py`). The skip loop is unchanged: the three existing `continue`s
+      (`FromJob`, capability type, `GroupOptions`) each first keep the contract that
+      `_parameter_contracts` already built. No condition was added or moved.
+    - `extract_parameters_from_signature` is now `extract_signature(func).parameters`.
+    - The seven sites call `extract_signature`. Five of them build a descriptor and set
+      `omitted_contracts`: `registry.py:522`, `sync.py:277`, `sync.py:739`, the entry-point
+      `_build_descriptor`, and `impl.py:820`. The two `_extract_parameters` methods return the
+      extraction. `StaticProvider`'s caller sets the field from it. `DirectoryScanProvider`'s has no
+      caller in `src`, before or after.
+    - `JobDescriptor.omitted_contracts`, marked `TRANSITIONAL(parameter-contract/5.1)`, is encoded
+      under `"omitted_contracts"` with 0.1's contract codec. `CACHE_VERSION` 27.
+    - `report_unsupported_parameters` and `contract_covers` read `omitted_contracts`. The stale
+      parenthetical is replaced by B-9's three survivors.
+  - **Gate: `tests/discovery/test_omitted_contracts.py` → 676 passed.** It covers all 166 rows,
+    cold and warm, through the real `func`, in both annotation modes:
+    - the halves are disjoint, and their union equals `build_contracts(function)`'s names;
+    - E108–E137 carry `injection.capability` and E140/E141 `injection.from_job`, all omitted and
+      absent from `parameters`;
+    - cold and warm `omitted_contracts` are equal, and the warm boot is proven lazy;
+    - for every descriptor, cold and warm, `build_click_params_from_descriptor` and
+      `job_input_schema` serialise identically with and without `omitted_contracts`;
+    - an extra job, `capmark(p: Annotated[Log, Option()])`, is omitted and refused, and is reported
+      exactly once as `UnsupportedParameter` on both boots;
+    - E142 in eager mode raises at import and has no descriptor; the test asserts that.
+  - **Grep gates:**
+    - `extract_parameters_from_signature\(` in `src plugins` → 1, the definition.
+    - `directly registered functions` in `src` → 0.
+    - Cache pins: the two pins are at 27, and the `:44` poison literal stays at 22.
+    - **`extract_signature\(` in `src` → 9, not 8.** The ninth hit is `providers.py:93`, the
+      `return extract_signature(func).parameters` this task's own Work prescribes for
+      `extract_parameters_from_signature`. The gate's count missed the wrapper. It is not an extra
+      call site, and the code was not bent to fit the number.
+  - **2.1's gate** (`test_contract_discovery.py test_parameter_types.py test_eager_boot_provider.py
+    test_lazy_true_engine_materialization.py`) → 686 passed, 2 skipped, 4 failed. The 4 are
+    `tests/cli/test_parameter_types.py::TestAnExplicitMarkerOutranksTheTypeList::{test_an_unlisted_type_becomes_an_option,test_the_value_reaches_the_job_as_that_type}[func|app]`.
+    They fail identically at base `69a95c99` (detached checkout with its own `src` first on
+    `PYTHONPATH`: 4 failed). The cause is not 3.2: `Annotated[Widget, Option()]` is D105, now
+    refused, so `--w` no longer renders and the run reports `UnsupportedParameter`. The file is
+    outside 3.2's `[F]`.
+  - Suites this change touches (`tests/types tests/discovery tests/config tests/app
+    tests/integration tests/adapters tests/test_descriptor.py`, `-n auto`) → 4542 passed, 233
+    skipped. `mypy src/` clean, `ruff` clean, `lint-imports` 7 kept, 0 broken. The wave barrier is
+    run by the leader.
+  - **Sabotage, after committing the change (before this evidence was amended in):**
+    - `_omit` kept nothing (`if False:`): 144 failed, 532 passed.
+    - Boot ignoring `omitted_contracts`, in both `contract_covers` and the report walk: the four
+      `test_an_omitted_refusal_is_reported_once` cases failed.
+    - Each was restored with `git checkout --`, and the tree was clean.
 - **Depends on:** 2.1.
 
 ## Wave 4 — completion, SmartBar, the TUI door, the pre-boot walk

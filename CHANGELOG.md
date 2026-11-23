@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a refused injected parameter is reported once, on every boot
+
+A parameter the framework fills — a capability such as `Log`, a `FromJob`
+input, or a `GroupOptions` injection point — now keeps its declared contract
+on the job's cached record. A declaration the framework refuses there, such as
+`Annotated[Log, Option()]`, is reported once at boot as
+`UnsupportedParameter`, on cold and warm boots alike. Before, the contract was
+dropped together with the parameter, so boot had nothing to report it from.
+No command line, completion or published schema changes. The discovery cache
+is rebuilt once, because its format version moves to 27.
+
 ### Changed — one Click renderer for declared job inputs
 
 Job commands, plugin callbacks and cached group options now render their CLI

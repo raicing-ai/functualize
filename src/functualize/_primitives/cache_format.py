@@ -177,7 +177,9 @@ from functualize._primitives.project_root import (
 # module states nothing", so the bump forces the one rebuild that records it.
 # v26: parameter contracts are persisted with field descriptors. Rebuild older
 # entries so the warm path sees the same declaration record as the cold path.
-CACHE_VERSION = 26
+# v27: a job descriptor persists `omitted_contracts`, the contracts of the
+# signature parameters `parameters` omits (capabilities, FromJob, GroupOptions).
+CACHE_VERSION = 27
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"
