@@ -1,0 +1,60 @@
+$ git rev-parse --short HEAD
+2c32077e
+$ uv run --frozen python .spec/features/parameter-contract/matrix/literal_probe.py
+s_str    verdict=ACCEPTED_POSITIONAL  schema={"enum": ["low", "high"], "type": "string"}
+         advertised 'low'    -> binder accepted
+         advertised 'high'   -> binder accepted
+         typed      'low'    -> binder accepted
+s_int    verdict=ACCEPTED_POSITIONAL  schema={"enum": ["1", "2"], "type": "string"}
+         advertised '1'      -> binder REFUSED: Input should be 1 or 2 [type=literal_error, input_value='1', input_type=str]
+         advertised '2'      -> binder REFUSED: Input should be 1 or 2 [type=literal_error, input_value='2', input_type=str]
+         typed      1        -> binder accepted
+s_mixed  verdict=ACCEPTED_POSITIONAL  schema={"enum": ["a", "1"], "type": "string"}
+         advertised 'a'      -> binder accepted
+         advertised '1'      -> binder REFUSED: Input should be 'a' or 1 [type=literal_error, input_value='1', input_type=str]
+         typed      'a'      -> binder accepted
+         typed      1        -> binder accepted
+s_bool   verdict=ACCEPTED_POSITIONAL  schema={"const": "True", "type": "string"}
+         typed      True     -> binder accepted
+e_str    verdict=ACCEPTED_POSITIONAL  schema={"enum": ["red", "blue"], "type": "string"}
+         advertised 'red'    -> binder accepted
+         advertised 'blue'   -> binder accepted
+         typed      'red'    -> binder accepted
+e_int    verdict=ACCEPTED_POSITIONAL  schema={"enum": ["1", "2"], "type": "string"}
+         advertised '1'      -> binder REFUSED: Input should be 1 or 2 [type=enum, input_value='1', input_type=str]
+         advertised '2'      -> binder REFUSED: Input should be 1 or 2 [type=enum, input_value='2', input_type=str]
+         typed      1        -> binder accepted
+
+config converter set (_config/job_config.py SUPPORTED_TYPES): ['str', 'int', 'float', 'bool']
+
+### S2: a Path config field today
+resolution path (_coerce_for_field then the model): PosixPath <- what `func` does (resolve_job_config -> config_class(**resolved))
+validate_job_config_types(Cfg): REFUSED: Unsupported type for field 'root': <class 'pathlib._local.Path'>. Supported types are: str, int, float, bool, Enum subclasses, Secret[str], Optional[T] for supported T, and list[T] for supported T.
+build_field_contract(Path field) -> CONFIG_FIELD {"format": "path", "type": "string"}
+
+### S1: what the typed form publishes (pydantic, as shape_json_schema uses it)
+  typing.Literal['low', 'high']    -> {"enum": ["low", "high"], "type": "string"}
+  typing.Literal[1, 2]             -> {"enum": [1, 2], "type": "integer"}
+  list[typing.Literal[1, 2]]       -> {"items": {"enum": [1, 2], "type": "integer"}, "type": "array"}
+
+$ rg -n -w -e SUPPORTED_TYPES -e _is_supported_type -e validate_config_types src plugins   # S2: who reads the narrow set
+src/functualize/_config/job_config.py:26:SUPPORTED_TYPES = (str, int, float, bool)
+src/functualize/_config/job_config.py:315:def _is_supported_type(tp: Any) -> bool:
+src/functualize/_config/job_config.py:324:    if tp in SUPPORTED_TYPES:
+src/functualize/_config/job_config.py:332:        return _is_supported_type(inner)
+src/functualize/_config/job_config.py:336:        return _is_supported_type(inner)
+src/functualize/_config/job_config.py:340:        return inner in SUPPORTED_TYPES or _is_enum_subclass(inner)
+src/functualize/_config/job_config.py:345:def validate_config_types(config_class: type) -> None:
+src/functualize/_config/job_config.py:359:        if field_type is not None and not _is_supported_type(field_type):
+src/functualize/_config/job_config.py:483:        if tp in SUPPORTED_TYPES:
+src/functualize/_config/job_config.py:495:            return inner in SUPPORTED_TYPES or _is_enum(inner)
+$ rg -c -w -e SUPPORTED_TYPES -e _is_supported_type -e validate_config_types tests
+tests/test_schema_extractor_properties.py:3
+$ rg -n 'Literal\[' examples docs -g '*.py' -g '*.md'   # S1: documented Literal use
+examples/standalone/showcase/jobs/ai_jobs.py:170:    severity_threshold: Literal["low", "medium", "high"] = Field(
+examples/standalone/hermetic_router/router.py:42:Route = Literal["deterministic", "cheap_model", "frontier_agent", "human_review"]
+docs/api/types.md:36:RunSurface = Literal[
+docs/guides/workflows.md:261:    route: Literal["billing", "returns", "shipping"]
+$ rg -n 'enum_values' plugins -g '*.py'   # a downstream renderer that quotes every value
+plugins/adapters/functualize-mcp/src/functualize_mcp/_schema_export.py:288:            enum_values = schema["enum"]
+plugins/adapters/functualize-mcp/src/functualize_mcp/_schema_export.py:289:            return " | ".join(f'"{v}"' for v in enum_values)

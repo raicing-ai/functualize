@@ -653,6 +653,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - Never pass `default=None` with `required=True` (F-07; click 8.4.1, `f07-click.txt`).
   - Parse `timedelta` as ISO 8601 (F-05), and leave already-typed defaults alone (F-04).
   - Repeatable options for `list[T]` and `tuple[T, ...]`.
+  - A choice is spelled `str(value)`, never `enum_values` taken as strings. After 4.4 an `int` set
+    holds `int`s (`spec.md` B-3, *choice sets*); before it they are already strings, so `str()`
+    changes nothing.
   - Refuse two CLI markers at discovery, not here (F-16 via 1.1).
   - Keep `build_click_params`, `build_click_params_from_fields` and
     `build_click_params_from_descriptor` as delegating wrappers marked `# TRANSITIONAL(7.3)`, so
@@ -814,6 +817,58 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `uv run pytest tests/cli/tui/test_bar_properties.py tests/cli/test_pre_boot_resolution.py`.
 - **Depends on:** 3.1.
 
+### [ ] 4.4 Choice sets keep their declared value type (spec B-3, review question S1)
+
+- **Input:**
+  - `spec.md` B-3 (*choice sets*) and B-8;
+  - `schema.md` invariant 7 and § *Binding*;
+  - `plan.md` § *Choice sets and config scalars*;
+  - `literal-path-2c32077e.txt`, `matrix/literal_probe.py`.
+- **[F]:**
+  - `src/functualize/_types/parameter_contract.py`: the `enum_values` annotation;
+  - `src/functualize/_primitives/parameter_contract.py`: `_scalar`, `_python_type`, and the refusal
+    reason;
+  - `src/functualize/_primitives/argument_binding.py`: the token-to-choice mapping;
+  - `src/functualize/_primitives/cache_format.py`: `CACHE_VERSION` 27 → 28;
+  - `tests/types/test_descriptor_owner_class.py` (`:40`, 27 → 28);
+  - `tests/discovery/test_job_declaration_discovery.py` (`:169`, 27 → 28);
+  - `tests/primitives/test_choice_sets.py` (new).
+- **Work:**
+  - **Keep each value's type.** `_scalar` keeps `Literal` arguments and `Enum` member values as
+    declared, instead of applying `str(...)` (`parameter_contract.py:330`, `:335`). `_python_type`
+    builds `Literal[...]` from those typed values, so `shape_json_schema` publishes `"type":
+    "integer"` for an `int` set. Pydantic does this unaided (`literal-path-2c32077e.txt`, last
+    section).
+  - **Refuse every other set** as `REJECTED_DISCOVERY`: mixed `str`/`int`, any `bool` (including
+    `Literal[True]`), `float`, `None`, or a non-JSON value. The reason names the declaration, and
+    the remedy reads "use an `Enum` whose values are all `str` or all `int`".
+  - **Binding** (`ArgumentBinder`): for a choice shape whose values are `int`, a `str` value is
+    mapped to the choice whose `str()` equals it before the `TypeAdapter` runs. A `str` set needs no
+    mapping.
+  - **Unchanged:** `display`, and the text spelling `str(value)` that 3.1 and 4.1 render.
+- **Invariant:** for every supported choice set, each value the published schema advertises is
+  accepted by the binder, and so is its `str()` token. Today the binder refuses both for an `int`
+  set.
+- **Gate/evidence:**
+  - `uv run pytest tests/primitives/test_choice_sets.py`, in both annotation modes. It covers
+    `Literal["low", "high"]`, `Literal[1, 2]`, a `str` and an `int` `Enum`, and `list[...]` of
+    each:
+    - the schema's `type` and `enum` are typed;
+    - each advertised value **and** its `str()` token bind to the declared value;
+    - `Literal["a", 1]`, `Literal[True]`, `Literal[1.5]` and a mixed-value `Enum` are
+      `REJECTED_DISCOVERY` with the remedy;
+  - `uv run --frozen python .spec/features/parameter-contract/matrix/literal_probe.py`. Every
+    `advertised` line reads `accepted`. Today 4 `REFUSED` lines remain for the supported sets
+    `s_int` and `e_int`; `s_mixed` and `s_bool` instead become refusals at discovery;
+  - `uv run pytest tests/primitives tests/types tests/discovery/test_contract_discovery.py`;
+  - `python3 .spec/features/parameter-contract/matrix/table_diff.py` → no rows, exit 0. No table
+    row has a non-`str` choice set; A045–A048's `Color` is `str`-valued;
+  - the cache-version census: the two pins at 28, and the `:44` poison literal at 22;
+  - the wave barrier: the whole root suite and the plugin-package loop (header rule).
+- **Reachability:** `func <job>` → discovery → `build_contract` → `shape_json_schema`. The binder
+  mapping has its first production caller in 5.1.
+- **Depends on:** 3.2 (`CACHE_VERSION` 27).
+
 ## Wave 5 — the engine door
 
 ### [ ] 5.1 Bind at the door; DI fills only `INJECTED`; kind from the contract
@@ -864,7 +919,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `cold_compare.py` → 0 real differences (today F-33 rows C085, C087, E138, H166).
 - **Reachability:** `FunctualizeApp.execute(RunRequest)` → `engine.run` → `_execute_lifecycle` →
   `bind`.
-- **Depends on:** 2.1, 2.2, 2.3, 3.2, 0.2.
+- **Depends on:** 2.1, 2.2, 2.3, 3.2, 4.4, 0.2.
 
 ### [ ] 5.2 The CLI renders `INVALID` as a one-line usage error (pitfalls §25)
 
@@ -900,7 +955,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - kit `check.py` predicates `array`, `type`, `identity` and `required` → 0 rows (today 17, 8, 2
     and 19);
   - `uv run pytest tests/cli/test_schema_surface_parity.py tests/app/test_dynamic_registration.py`.
-- **Depends on:** 2.1, 2.2.
+- **Depends on:** 2.1, 2.2, 4.4.
 
 ## Wave 7 — MCP, the AI tool scope, and the wrappers retired
 
@@ -920,6 +975,8 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - A failed run returns `isError: true` with the reason.
   - The schema exports read the one schema. The JSON → TypeScript name map stays: it maps JSON types,
     not Python ones.
+  - An enum value is rendered by its JSON type: `1`, not `"1"`. `_schema_export.py:288-289` quotes
+    every value today (`spec.md` B-3, *choice sets*; 4.4).
 - **Gate/evidence:**
   - `rg -n 'exec\(fn_source' plugins/adapters/functualize-mcp/src` → 0 (today 1);
   - kit: `func mcp serve` starts with G156 present, and every `tools/call` row agrees with HTTP;
@@ -998,16 +1055,23 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `src/functualize/_discovery/schema_extractor.py`;
   - `src/functualize/_config/job_config.py`;
   - `src/functualize/_app/boot.py`;
-  - `tests/test_coerce_kwargs.py`, `tests/test_property_type_coercion_roundtrip.py`.
+  - `tests/test_coerce_kwargs.py`, `tests/test_property_type_coercion_roundtrip.py`;
+  - `tests/test_schema_extractor_properties.py` (it references the deleted names 3 times).
 - **Work:**
   - Delete `coerce_kwargs` and `_resolve_type`, `_annotation_to_type_str` (the display label now
     comes from the contract), `_unwrap_optional` ×4 and `_unwrap_list` ×2 where a contract now
     answers, and `schema_extractor`'s type maps.
   - `validate_job_config_types` and its boot wiring go; 2.2's refusal replaces them.
+  - So do `validate_config_types` (no production caller), `_is_supported_type` and
+    `SUPPORTED_TYPES` (`_config/job_config.py:26`). Their only readers are the two validators, so
+    the config field set is the contract's B-3 set on every boot path (`spec.md` B-3, *config
+    fields*; `literal-path-2c32077e.txt`).
   - Keep any unwrapper still used outside parameter classification, and say which in the task
     record.
 - **Gate/evidence:**
   - `rg -n -w -e coerce_kwargs -e _resolve_type -e _annotation_to_type_str -e _JSON_SCHEMA_TYPE_MAP -e validate_job_config_types src` → 0;
+  - `rg -n -w -e SUPPORTED_TYPES -e _is_supported_type -e validate_config_types src plugins` → 0
+    (today 10 lines, all in `_config/job_config.py`);
   - the behaviour-pattern gate (`job-param-string-reads` plus `injection-by-type-name`) → 0 (today
     7 + 3);
   - `uv run python .github/scripts/dead_code_delta.py origin/master HEAD`, with every finding
@@ -1245,7 +1309,7 @@ field, and the wave is complete when the whole suite is green with it gone.
     {"id": 1, "tasks": ["1.1", "1.2"]},
     {"id": 2, "tasks": ["2.1", "2.2", "2.3"]},
     {"id": 3, "tasks": ["3.1", "3.2"]},
-    {"id": 4, "tasks": ["4.1", "4.2", "4.3"]},
+    {"id": 4, "tasks": ["4.1", "4.2", "4.3", "4.4"]},
     {"id": 5, "tasks": ["5.1", "5.2"]},
     {"id": 6, "tasks": ["6.1"]},
     {"id": 7, "tasks": ["7.1", "7.2", "7.3"]},

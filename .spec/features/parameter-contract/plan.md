@@ -54,6 +54,11 @@
   - **Verified mechanically** with `matrix/anchor_check.py` over every task's `Input:` block: 32
     tasks, 0 inputs outside the new anchor (16 outside the old one). Re-run after task 1.2 was added:
     33 tasks, 0 outside the new anchor (17 outside the old).
+- **Choice sets and config scalars (2026-11-23, review questions S1/S2):** `spec.md` B-3.
+  - `Enum` and `Literal` values keep their type (all `str` or all `int`); any other set is refused.
+    New task 4.4 owns it.
+  - Config fields accept the B-3 scalars; 8.2 deletes the narrow validator set (§*Choice sets and
+    config scalars*).
 - **The contract gap (2026-11-23, after wave 2):** capability and `FromJob` parameters keep no
   contract once discovery drops them from `parameters`. They get one on the descriptor, in
   `JobDescriptor.omitted_contracts`, through new task 3.2 (§*The contract gap*). This is neither
@@ -413,6 +418,49 @@ on a populated revision-5 database built by the plugin's own `migrate()`):**
   task it has its own `[F]`, and its own gate that runs the substrate suite.
 - Its files are disjoint from 1.1's, so wave 1 stays parallel. Every later wave's plugin loop then
   includes a green substrate.
+
+### Choice sets and config scalars (decided 2026-11-23, review questions S1 and S2)
+
+**S1: neither "keep Literal as stringified ENUM" nor "refuse Literal". Choice sets are typed.**
+
+- **Measured** (`literal-path-2c32077e.txt`, `matrix/literal_probe.py`):
+  - the contract stringifies every choice value (`parameter_contract.py:329-330` for `Literal`,
+    `:335` for `Enum`);
+  - `Literal[1, 2]` and an `int`-valued `Enum` therefore publish `"enum": ["1", "2"]`, and the
+    binder, which validates against the live annotation, refuses `'1'` and `'2'`;
+  - `Literal["a", 1]` publishes `"1"`, which is refused the same way;
+  - `Literal[True]` publishes `"const": "True"`.
+- **The defect is not `Literal`-specific.** B-3 already admits "any `Enum`", so refusing `Literal`
+  alone would leave the same disagreement for every `int` enum.
+- **The rule** is in `spec.md` B-3, *choice sets*:
+  - values keep their declared type, all `str` or all `int`, published with that JSON type (pydantic
+    already emits `{"type": "integer", "enum": [1, 2]}` for the typed form);
+  - text surfaces spell `str(value)`, and binding maps a token back;
+  - any other set is refused at discovery.
+
+  That keeps the string `Literal` the repository documents, and fixes the `int` enum B-3 promises.
+- **Why not support every set:** mixed sets have no single JSON type, and their text forms collide
+  (`"1"` vs `1`, `True == 1`, `str(1.0)`). Neither binding nor completion could pick one value from
+  a token.
+- **Owner: new task 4.4, wave 4.** Its first dependants are 5.1 (the binder at the door) and 6.1 (the
+  published schema), and both are later waves.
+  - 3.1 renders text and is written against the settled rule: it spells `str(value)`, which is the
+    same before and after 4.4.
+  - `CACHE_VERSION` goes 27 → 28, because a cached contract written before 4.4 holds `"1"` where a
+    fresh one holds `1` (B-7).
+  - 7.1's TypeScript export renders each enum value by its JSON type (`_schema_export.py:288-289`
+    quotes every value today).
+
+**S2: config fields accept the B-3 scalars.**
+
+- Under `func` a `Path` config field already works: the model converts the text (measured).
+- `SUPPORTED_TYPES` (`_config/job_config.py:26`) is read only by `validate_job_config_types`
+  (library mode only, F-29; it refuses `Path`) and by `validate_config_types` (no production
+  caller).
+- So the contract is right, and the two sets differ only through code that 8.2 already deletes. 8.2
+  now also deletes `validate_config_types`, `_is_supported_type` and `SUPPORTED_TYPES`, with a gate,
+  so directory and library mode admit the same fields.
+- No converter grows, because pydantic is the converter.
 
 ### The contract gap (decided 2026-11-23, after wave 2)
 

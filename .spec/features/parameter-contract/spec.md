@@ -122,6 +122,36 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
 - **B-3.** These types are caller-supplied scalars: `str`, `int`, `float`, `bool`, `Path`, `UUID`,
   `date`, `datetime`, `time`, `timedelta`, `Decimal`, and any `Enum`. Each is also caller-supplied
   when wrapped in `Optional[T]` or `T | None`.
+  - **Choice sets** *(ruled in Execute, 2026-11-23; review question S1)*. A *choice set* is the
+    values of an `Enum`, or the arguments of a `Literal[...]`. `Literal` is admitted beside `Enum`,
+    because the repository documents it as a job input (`docs/guides/workflows.md:261`,
+    `examples/standalone/showcase/jobs/ai_jobs.py:170`).
+    - **Its values keep their declared type.** A set is supported when its values are **all `str`**
+      or **all `int`**, with `bool` excluded.
+    - **Published:** as `{"type": "string", "enum": [...]}` or `{"type": "integer", "enum": [...]}`
+      (B-20).
+    - **Text surfaces** (CLI, TUI, completion, SmartBar) spell each choice as `str(value)`.
+    - **Binding** converts a text token to the choice whose `str()` it equals, then to the declared
+      type. The job receives the `Enum` member or the `Literal` value it declared (B-11, B-24).
+    - **Any other set is refused at discovery (B-8):** mixed types, `bool`, `float`, `None`, or
+      non-JSON values. Its text forms are ambiguous or not canonical: `"1"` names both `"1"` and
+      `1`, `True == 1`, and `str(1.0)` is not JSON's `1`. The remedy is an `Enum` whose values are
+      all `str` or all `int`.
+    - **The defect this closes is measured.** Today every value is stringified
+      (`_primitives/parameter_contract.py:328-330, :335`). `Literal[1, 2]` and an `int`-valued
+      `Enum` publish `"enum": ["1", "2"]`, and the binder refuses exactly those advertised values
+      (`literal-path-2c32077e.txt`).
+  - **Config fields** *(ruled 2026-11-23; review question S2)* accept the same B-3 scalars and B-4
+    lists as signature parameters. A config value is text from a file, the environment or `.env`,
+    and the config model converts it.
+    - Measured under `func`: a `Path` field already arrives as `PosixPath`, through
+      `_coerce_for_field` and the model (`literal-path-2c32077e.txt`).
+    - The narrower set `SUPPORTED_TYPES = (str, int, float, bool)` (`_config/job_config.py:26`) is
+      not a converter. It is read only by the registration-time validators: `validate_job_config_types`,
+      wired only into library mode (F-29), which refuses a `Path` field there today, and
+      `validate_config_types`, which has no production caller.
+    - Both validators and the set are deleted in task 8.2. 2.2's contract refusal replaces them, so
+      directory mode and library mode admit the same config fields.
 - **B-4.** `list[T]` and `tuple[T, ...]` of a supported scalar `T`, in any optional form, are
   caller-supplied **repeatable** inputs (C-extended; F-01).
 - **B-5.** `INVOCATION_ONLY` (D5 = B′) applies to `dict[str, T]`, `set[T]`, and fixed `tuple[A, B, …]`
@@ -144,7 +174,9 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
   - an unmarked class, or an `Annotated[T, Provide("q")]`, with no provider registered for its own
     type and qualifier (B-2's availability rule; page rows C085, C087, E138, H166);
   - config fields of an unsupported type (`dict`, nested model; F-29, the refusal
-    `docs/guides/job-config.md:47` already documents).
+    `docs/guides/job-config.md:47` already documents);
+  - a choice set (`Enum` values or `Literal[...]` arguments) that is not all `str` or all `int`
+    (B-3, *choice sets*).
 - **B-9 (DC-1).** A `REJECTED_DISCOVERY` verdict is reported with a warning naming the file, the job,
   the parameter declaration and the remedy, on every boot path (cold and warm, directory mode and
   library mode). What happens to the job itself is DC-1.

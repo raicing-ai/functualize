@@ -25,7 +25,7 @@ def deploy(
 
 | declaration | verdict | job receives |
 | --- | --- | --- |
-| `T` ∈ {`str`, `int`, `float`, `bool`, `Path`, `UUID`, `date`, `datetime`, `time`, `timedelta`, `Decimal`, `Enum`}, no default | `ACCEPTED_POSITIONAL` (`bool`: `ACCEPTED_FLAG`, default `False`) | `T` |
+| `T` ∈ {`str`, `int`, `float`, `bool`, `Path`, `UUID`, `date`, `datetime`, `time`, `timedelta`, `Decimal`, `Enum`, `Literal[...]`}, no default; an `Enum` or `Literal` only when its values are all `str` or all `int` (`spec.md` B-3) | `ACCEPTED_POSITIONAL` (`bool`: `ACCEPTED_FLAG`, default `False`) | `T` |
 | the same with a default, `Optional[T]`, or `T \| None` | `ACCEPTED_FLAG` | `T`, or the declared default |
 | `list[T]` / `tuple[T, ...]` of the above, any optional form | `ACCEPTED_FLAG`, repeatable | `list[T]` / `tuple[T, ...]`, or the declared default |
 | `Annotated[list[T], Arg()]` | `ACCEPTED_POSITIONAL`, variadic | `list[T]` |
@@ -33,7 +33,7 @@ def deploy(
 | `dict[str, T]`, `set[T]`, fixed `tuple[A, B, …]` of the scalars above | `INVOCATION_ONLY` | `dict` / `set` / `tuple` |
 | one of the 15 capability types (bare or `\| None`), `FromJob(...)`; `Annotated[T, Provide("q")]` or an unmarked class, **with** a provider registered for exactly its type and qualifier (spec B-2) | `INJECTED` | the engine's value, never the caller's |
 | `Annotated[T, Provide("q")]` or an unmarked class with **no** provider for exactly its type and qualifier | `REJECTED_DISCOVERY` (decided per boot; never cached) | — (DC-1) |
-| a field of a `BaseModel` parameter, of a supported type | `CONFIG_FIELD` | resolved CLI → env → file → `.env` → default |
+| a field of a `BaseModel` parameter, of a B-3 scalar or a B-4 list (`Path` included) | `CONFIG_FIELD` | resolved CLI → env → file → `.env` → default |
 | anything on the reject list (`spec.md` B-8) | `REJECTED_DISCOVERY` | — (see §8 and DC-1) |
 
 The same table holds under `from __future__ import annotations`, and on cold and warm boots.
@@ -115,7 +115,9 @@ Byte-identical for every job, group options included. Property types come from t
 - `sh` (`INJECTED`) is absent.
 - Formats: `datetime` → `format: date-time`, `date` → `format: date`, `UUID` → `format: uuid`,
   `timedelta` → `format: duration` *(provisional)*.
-- An `Enum` publishes `enum: [values]`.
+- An `Enum` or a `Literal` publishes its values with their own JSON type: `{"type": "string", "enum": ["low", "high"]}`
+  or `{"type": "integer", "enum": [1, 2]}`, never a stringified `"1"`. Text surfaces spell a choice
+  as `str(value)` (`spec.md` B-3, *choice sets*).
 - `func mcp schema --format markdown|openai|typescript` render from this document.
 - The `functualize-ai` tool scope (`ToolScope.to_tool_defs`) publishes this document as each tool's
   parameters.

@@ -29,7 +29,7 @@ class ValueShape:
     scalar: Scalar
     container: Container = Container.NONE
     optional: bool = False                 # `T | None` / `Optional[T]`
-    enum_values: tuple[str, ...] = ()      # Scalar.ENUM only, in declaration order
+    enum_values: tuple[str, ...] | tuple[int, ...] = ()   # typed as declared (B-3 choice sets; task 4.4)      # Scalar.ENUM only, in declaration order
     elements: tuple["ValueShape", ...] = ()  # FIXED_TUPLE members; DICT value shape
 
 
@@ -104,6 +104,10 @@ class ParameterContract:
      `*args` and `**kwargs` excluded, as the engine excludes them).
    - No surface reads `omitted_contracts`. The engine door (task 5.1) is its only reader. So
      `--help`, completion, `func builtin info schema` and the MCP `inputSchema` are unchanged by it.
+7. **A choice set keeps its declared value type** *(task 4.4)*.
+   - `enum_values` is all `str` or all `int`, never mixed, and never a stringified `int`.
+   - `shape_json_schema` publishes the matching JSON `type`.
+   - Text surfaces spell a choice as `str(value)`, and binding maps such a token back to its value.
 
 ```python
 @dataclass
@@ -143,6 +147,8 @@ def bind(function, contracts: Sequence[ParameterContract], raw: Mapping[str, Any
    annotation, which the engine has because it materialises the job before calling it. The adapter is
    cached per `(function, name)`. `Field(...)` constraints are honoured, which subsumes today's
    `ArgValidator`.
+   - For a choice shape with `int` values, a `str` token is first mapped to the choice whose `str()`
+     it equals (`"1"` → `1`), so a text surface's token converts (invariant 7, task 4.4).
 4. **Result.** The binder returns only caller-supplied and defaulted values. DI then fills `INJECTED`
    names and nothing else.
 
