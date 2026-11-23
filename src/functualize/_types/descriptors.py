@@ -91,7 +91,6 @@ class FieldDescriptor:
     stdin_flag: str | None = None
     secret: bool = False
     from_config_model: bool = False
-    # TRANSITIONAL(2.1): discovery begins populating this record in a later wave.
     contract: ParameterContract | None = None
 
     @property

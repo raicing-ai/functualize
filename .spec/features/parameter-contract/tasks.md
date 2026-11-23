@@ -720,6 +720,17 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     fail with exit 2, `Got unexpected extra argument (red)`. The committed renderer was restored;
     the same test returned 1 passed, 1 skipped. This proves the real `func` command reaches the
     renderer, not only that the renderer's unit tests call it.
+- **Review repair (2026-11-23):** The live config path now consumes
+  `schema_extractor.extract_field_descriptors`' contracts. That extractor reads both `Secret[str]`
+  and `json_schema_extra={"secret": True}` from the model JSON schema and removes secret defaults
+  before caching; the live path no longer has a second secret rule. Two adapter cases compare live
+  and cached option help as exact strings, retain a visible non-secret default, and invoke each
+  job's Click `--help`. The real `func` test checks both markers on cold and warm boots. Before the
+  repair, the schema-marked case leaked in both tests (2 failed); after it, the scoped gate
+  `uv run pytest tests/adapters tests/discovery/test_config_field_contracts.py
+  tests/cli/test_parameter_types.py -q` reports 239 passed, 8 skipped. The completed 2.1
+  transition comments in `_primitives/parameter_contract.py` and `_types/descriptors.py` were
+  retired: production discovery now calls the builder and populates the descriptor contract.
 - **Completed at `6686cade`, not `69a95c99`** (corrected 2026-11-23). The tick at `69a95c99` stood
   on a gate that omitted `tests/cli/test_parameter_types.py`, a file the change itself broke:
   `TestAnExplicitMarkerOutranksTheTypeList` measured 4 passed at `8bd9bf45`, 4 failed at
@@ -977,7 +988,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `src/functualize/app/commands.py` (read-only audit: `JobNode.params` already returns cached
     descriptors with contracts);
   - `tests/cli/tui/test_bar_properties.py` and
-    `tests/group_options/test_group_options_dispatch.py` (arity and repeatability regressions).
+    `tests/group_options/test_group_options_dispatch.py` (arity and repeatability regressions);
+  - `tests/types/test_flag_grammar_consumer_count.py` (the pinned consumer set shrank when
+    SmartBar stopped reading flag grammar; recorded in `427ef3d9`).
 - **Work:**
   - Arity comes from `contract.shape`, not `== "bool"`.
   - `walk_group_path` accumulates repeated group flags into a list for repeatable group fields.

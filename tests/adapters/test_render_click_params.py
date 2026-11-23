@@ -7,9 +7,11 @@ from enum import Enum
 from typing import Annotated
 
 import click
+import pytest
 from click.testing import CliRunner
 from pydantic import BaseModel, Field
 
+from functualize._discovery.schema_extractor import extract_field_descriptors
 from functualize._primitives.parameter_contract import (
     build_contracts,
     build_field_contract,
@@ -21,11 +23,22 @@ from functualize.app.adapters.click_params import (
     render_click_params,
 )
 from functualize.job.markers import Option
+from functualize.types import Secret
 
 
 class Color(Enum):
     RED = "red"
     BLUE = "blue"
+
+
+class TypedSecretConfig(BaseModel):
+    credential: Secret[str] = Secret("typed-key")
+    public: str = "public-key"
+
+
+class MarkedSecretConfig(BaseModel):
+    credential: str = Field(default="marked-key", json_schema_extra={"secret": True})
+    public: str = "public-key"
 
 
 def _by_name(params: list[click.Parameter]) -> dict[str, click.Parameter]:
@@ -108,6 +121,40 @@ def test_cached_fields_and_live_contracts_share_rendered_spellings() -> None:
         assert cold[name].opts == warm[name].opts
         assert cold[name].secondary_opts == warm[name].secondary_opts
         assert cold[name].multiple == warm[name].multiple
+
+
+@pytest.mark.parametrize(
+    ("config_class", "secret_value"),
+    [
+        (TypedSecretConfig, "typed-key"),
+        (MarkedSecretConfig, "marked-key"),
+    ],
+)
+def test_secret_config_help_matches_cached_help_without_exposing_default(
+    config_class: type[BaseModel], secret_value: str
+) -> None:
+    def run() -> None:
+        pass
+
+    live, _, _ = build_click_params(run, config_class)
+    cached = build_click_params_from_fields(extract_field_descriptors(config_class))
+    live_options = _by_name(live)
+    cached_options = _by_name(cached)
+
+    assert live_options["credential"].help == cached_options["credential"].help == ""
+    assert (
+        live_options["public"].help
+        == cached_options["public"].help
+        == r"\[default: public-key]"
+    )
+
+    runner = CliRunner()
+    live_help = runner.invoke(click.Command("run", params=live), ["--help"])
+    cached_help = runner.invoke(click.Command("run", params=cached), ["--help"])
+    assert live_help.exit_code == cached_help.exit_code == 0
+    assert live_help.output == cached_help.output
+    assert secret_value not in live_help.output
+    assert "public-key" in live_help.output
 
 
 def test_live_enum_bridge_keeps_member_until_the_binding_door() -> None:

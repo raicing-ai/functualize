@@ -53,7 +53,6 @@ if TYPE_CHECKING:
 
 __all__ = ["REQUIRED", "admit", "build_contract", "build_contracts"]
 __all__ += ["build_field_contract", "shape_json_schema"]
-# TRANSITIONAL(parameter-contract/2.1): no production caller yet; discovery calls these.
 
 #: ``default_json`` of a parameter with no default: the descriptor codec's own
 #: sentinel, so a contract and its descriptor encode "required" alike.

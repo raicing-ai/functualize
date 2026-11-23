@@ -38,6 +38,8 @@ import json
 
 import pytest
 
+from tests.conftest import surfaces
+
 VALUE_TYPE_JOBS = '''
 """Jobs taking standard-library value types."""
 
@@ -122,6 +124,44 @@ def marked(w: Annotated[Widget, Option(help="a widget")]) -> None:
 UNCONVERTIBLE_REMEDY = (
     "Declare a scalar type, or drop the marker and register a provider"
 )
+
+SECRET_HELP_JOBS = '''
+from pydantic import BaseModel, Field
+from functualize.types import Secret
+
+class TypedSecretConfig(BaseModel):
+    credential: Secret[str] = Secret("typed-key")
+    public: str = "public-key"
+
+class MarkedSecretConfig(BaseModel):
+    credential: str = Field(default="marked-key", json_schema_extra={"secret": True})
+    public: str = "public-key"
+
+def typed(config: TypedSecretConfig) -> None:
+    """A job with a secret type."""
+
+def marked(config: MarkedSecretConfig) -> None:
+    """A job with a schema-marked secret."""
+'''
+
+
+@surfaces("func")
+@pytest.mark.parametrize(
+    ("job_name", "secret_value"),
+    [("typed", "typed-key"), ("marked", "marked-key")],
+)
+def test_secret_config_help_never_shows_default_on_cold_or_warm_boot(
+    cli_run, project_tree, job_name: str, secret_value: str
+) -> None:
+    root = project_tree(jobs={"secrets.py": SECRET_HELP_JOBS})
+
+    cold = cli_run([job_name, "--help"], cwd=root)
+    warm = cli_run([job_name, "--help"], cwd=root)
+
+    assert cold.exit_code == warm.exit_code == 0, (cold.stderr, warm.stderr)
+    assert cold.stdout == warm.stdout
+    assert secret_value not in cold.stdout
+    assert "public-key" in cold.stdout
 
 
 @pytest.mark.parametrize(

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — secret config defaults stay out of command help
+
+The live job command now uses the same sanitized config contracts as cached
+commands. A default marked secret by its type or by JSON schema metadata no
+longer appears in `--help`; non-secret defaults remain visible.
+
 ### Fixed — repeated group flags and SmartBar readiness follow declared arity
 
 Group options declared as repeatable now keep every supplied value before a

@@ -1108,18 +1108,20 @@ def build_click_params(
     *,
     apply_job_filter: bool = True,
 ) -> tuple[list[click.Parameter], type[BaseModel] | None, dict[str, Any]]:
-    from functualize._primitives.parameter_contract import (
-        build_contracts,
-        build_field_contract,
-    )
+    from functualize._discovery.schema_extractor import extract_field_descriptors
+    from functualize._primitives.parameter_contract import build_contracts
 
     if job_config_class is None and apply_job_filter:
         job_config_class = detect_config_class(function)
     contracts = list(build_contracts(function))
     if job_config_class is not None:
+        # Discovery owns the schema's secret decision and clears secret defaults
+        # from cached contracts. The live command must render those same
+        # contracts, or its help leaks a schema-marked secret default.
         contracts.extend(
-            build_field_contract(name, field)
-            for name, field in job_config_class.model_fields.items()
+            descriptor.contract
+            for descriptor in extract_field_descriptors(job_config_class)
+            if descriptor.contract is not None
         )
     return (
         render_click_params(
