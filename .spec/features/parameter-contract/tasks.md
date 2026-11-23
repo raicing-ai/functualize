@@ -865,7 +865,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 
 ## Wave 4 — completion, SmartBar, the TUI door, the pre-boot walk
 
-### [ ] 4.1 Completion and SmartBar offer exactly the rendered spellings (F-06, F-27)
+### [x] 4.1 Completion and SmartBar offer exactly the rendered spellings (F-06, F-27)
 
 - **Input:**
   - 3.1;
@@ -888,6 +888,45 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `rg -n annotation_utils src/functualize/_cli/tui/smart_bar_autocomplete.py` → 0 (today 1);
   - `uv run pytest tests/_cli/test_completion_flag_pairs.py tests/_cli/test_flag_filtering.py`;
   - kit `surf_check.py` W-bar → 0 rows (today 65).
+- **Execute evidence (2026-11-23, after 4.4, so on final choice types):**
+  - **SmartBar.** `_candidates_flag` reads the rendered `click.Option`s (`opts` and
+    `secondary_opts`, hidden excluded) through `_rendered_options`. Each parameter becomes one
+    `FlagDescriptor`:
+    - its primary long spelling;
+    - its short spelling;
+    - `is_list_type` from the contract's `cli.repeatable`, falling back to the rendered
+      `multiple` for a field with no contract;
+    - its other long spellings (`--no-x`), so using either retires the flag.
+  - The positional candidates read the rendered `click.Argument` order.
+  - **Deleted:** the field loop, both `"rc", "run_context", "log"` name skips,
+    `_extract_short_names` with its `annotation_utils` import, the `"list["` test, and the
+    `_injection_type_names` helper, whose only caller was that loop. None was load-bearing
+    elsewhere: `rg -n '_extract_short_names|_injection_type_names' src tests` → 0.
+  - **The type labels** in the two rewritten candidate builders read `contract.display` (SS-3). A
+    contract-less field, a plugin or builtin node, keeps `type_annotation` under
+    `# TRANSITIONAL(parameter-contract/9.3)`.
+  - **Completion data** (`data.py`) skips hidden params. Flag choices come from the rendered
+    `click.Choice`, not the field's own `choices`.
+  - `flag_filtering.FlagDescriptor` gains `other_long_names` and `field_name`.
+  - **Gates:**
+    - `rg -n '"rc", "run_context", "log"' src` → 0;
+    - `rg -n annotation_utils src/functualize/_cli/tui/smart_bar_autocomplete.py` → 0;
+    - `uv run pytest tests/_cli/test_completion_flag_pairs.py tests/_cli/test_flag_filtering.py` →
+      4 passed, 5 skipped;
+    - every test file that names the SmartBar, completion data or flag filtering (15 files) plus
+      `tests/group_options/` → 439 passed, 38 skipped;
+    - kit, regenerated at this change (`gen.py` 255 s, `surfaces.py` 326 s, `surf_check.py`) →
+      `W-bar: 0 rows`.
+  - The other W-predicates are other tasks' gates and are unchanged by this one: W-collapse 34
+    (4.2) and W-inject, W-type, W-default, W-crash (5.1).
+  - **Sabotage, after committing the change (before this evidence was amended in):** the three
+    `[F]` files were restored to their pre-4.1 state, at the same HEAD, and `surfaces.py` was re-run
+    against the same `out.json`. W-bar became 49 rows:
+    - `bar=--p help=∅` 41, positionals and refused parameters offered as flags;
+    - `bar=--p help=--no-p --p` 4, A013–A016, the missing `--no-` half;
+    - `bar=--f help=∅` 2, F150 and F151.
+
+    `git checkout HEAD --` restored the files, and the tree was clean.
 - **Depends on:** 3.1.
 
 ### [ ] 4.2 The TUI bar parses with the CLI grammar (D8, F-26)

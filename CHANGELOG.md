@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — completion and the SmartBar offer exactly the flags `--help` shows
+
+Shell completion and the TUI SmartBar now read a job's flags from the same
+rendered command that parses them. A hidden option is no longer offered, a
+short flag and a `--no-` spelling appear as they parse, and a repeatable flag
+stays on offer after its first use. The SmartBar's positional hints follow the
+command's own argument order.
+
 ### Fixed — integer choices are published and accepted as integers
 
 A job parameter declared as `Literal[1, 2]`, or as an `Enum` whose values are

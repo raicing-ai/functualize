@@ -294,19 +294,6 @@ class SmartBarAutoComplete:
             for _, name, desc, badge in entries[:_MAX_CANDIDATES]
         ]
 
-    def _injection_type_names(self, job_name: str) -> set[str]:
-        """Declared ``GroupOptions`` class names on a job's group path.
-
-        The cached-descriptor equivalent of the live ``issubclass`` test: a
-        parameter typed with one of these is an injection point, never a flag.
-        """
-        from functualize._cli.tui.cli_arg_parser import group_option_specs_on_path
-
-        return {
-            spec.class_name
-            for spec in group_option_specs_on_path(self._group_trie, job_name)
-        }
-
     def _candidates_group_flags(
         self, segments: list[str], partial: str
     ) -> list[object]:
@@ -539,30 +526,33 @@ class SmartBarAutoComplete:
         if job is None:
             return []
 
-        # Build FlagDescriptors from job parameters, extracting short names
+        # The flags `func <job> --help` shows, read off the rendered params:
+        # the same click parameters that parse the bar (B-17, F-06, F-27). A
+        # hidden option and anything the renderer gives no option (an injected
+        # parameter, a positional) is never offered.
         fields = job.config_fields if job.config_fields else job.parameters
-        # The GroupOptions injection parameter is not a flag — it is where the
-        # resolved group instance lands, and the flags it stands for are
-        # offered mid-path. Same exclusion the CLI, MCP and pre-flight apply.
-        injection_types = self._injection_type_names(ctx.job_name)
-        short_names = _extract_short_names(job)
+        options = _rendered_options(fields)
+        by_name = {f.name: f for f in fields}
         all_flags: list[FlagDescriptor] = []
-        for field in fields:
-            # Skip internal parameters
-            if field.name in ("rc", "run_context", "log"):
+        spellings: dict[str, list[str]] = {}
+        for param in options:
+            longs = [o for o in (*param.opts, *param.secondary_opts) if o[:2] == "--"]
+            shorts = [o for o in param.opts if o[:1] == "-" and o[:2] != "--"]
+            if not longs:
                 continue
-            if (getattr(field, "type_annotation", "") or "").strip() in injection_types:
-                continue
-            # Skip positional arguments — they don't use --flag form
-            if getattr(field, "positional", False):
-                continue
-            is_list = field.type_annotation.startswith("list[")
+            name = longs[0][2:]
+            spellings[name] = longs
+            contract = getattr(by_name.get(param.name or ""), "contract", None)
+            cli = getattr(contract, "cli", None)
             all_flags.append(
                 FlagDescriptor(
-                    long_name=field.name,
-                    short_name=short_names.get(field.name)
-                    or getattr(field, "short_flag", None),
-                    is_list_type=is_list,
+                    long_name=name,
+                    short_name=shorts[0][1:] if shorts else None,
+                    # Repeatability is the contract's (B-10); a field with no
+                    # contract keeps what the renderer made of it.
+                    is_list_type=cli.repeatable if cli is not None else param.multiple,
+                    other_long_names=tuple(opt[2:] for opt in longs[1:]),
+                    field_name=param.name or "",
                 )
             )
 
@@ -580,33 +570,29 @@ class SmartBarAutoComplete:
         partial_lower = ctx.partial.lower().lstrip("-")
 
         for flag in available_flags:
-            long_form = f"--{flag.long_name.replace('_', '-')}"
-
             # Normalize short_name: strip any leading dash(es) to get just the letter
             short_letter = flag.short_name.lstrip("-") if flag.short_name else None
-
-            # Display as "-g/--greeting" when short flag is available
-            flag_display = f"-{short_letter}/{long_form}" if short_letter else long_form
-
-            if partial_lower and partial_lower not in flag.long_name.lower():
-                continue
-
-            # Find the corresponding field for description
-            field_desc = next((f for f in fields if f.name == flag.long_name), None)
+            field_desc = by_name.get(flag.field_name)
             desc = field_desc.description if field_desc else ""
-            type_hint = field_desc.type_annotation if field_desc else ""
-
+            type_hint = _type_label(field_desc)
             prefix = f"[dim]{type_hint}[/dim]" if type_hint else ""
-
-            # Display shows "-g/--greeting" but insertion is just "--greeting"
-            candidates.append(
-                _make_dropdown_item(
-                    main=flag_display,
-                    prefix=prefix,
-                    description=desc,
-                    insertion_value=long_form,
+            for position, long_form in enumerate(spellings[flag.long_name]):
+                if partial_lower and partial_lower not in long_form[2:].lower():
+                    continue
+                # Display shows "-g/--greeting"; insertion is just "--greeting".
+                flag_display = (
+                    f"-{short_letter}/{long_form}"
+                    if short_letter and position == 0
+                    else long_form
                 )
-            )
+                candidates.append(
+                    _make_dropdown_item(
+                        main=flag_display,
+                        prefix=prefix,
+                        description=desc,
+                        insertion_value=long_form,
+                    )
+                )
 
         return candidates[:_MAX_CANDIDATES]
 
@@ -715,22 +701,21 @@ class SmartBarAutoComplete:
         partial_lower = ctx.partial.lower()
         idx = ctx.positional_index
 
-        # Find the positional parameter at this index
+        # The positional at this index, in the order the rendered command
+        # takes its arguments: the click parse is the grammar (B-17, D8).
         fields = job.config_fields if job.config_fields else job.parameters
-        positional_fields = [
-            f for f in fields if f.name not in ("rc", "run_context", "log")
-        ]
-
+        by_name = {f.name: f for f in fields}
+        arguments = _rendered_arguments(fields)
         target_field: FieldDescriptor | None = None
-        if idx < len(positional_fields):
-            target_field = positional_fields[idx]
+        if idx < len(arguments):
+            target_field = by_name.get(arguments[idx].name or "")
 
         # 1-based index per requirement 19.3
         display_idx = idx + 1
 
         # Build prefix: [N] param_name  type_hint
         param_name = target_field.name if target_field else f"arg{display_idx}"
-        type_hint = target_field.type_annotation if target_field else "str"
+        type_hint = _type_label(target_field) or "str"
         prefix_badge = (
             f"[bold cyan]\\[{display_idx}][/bold cyan] "
             f"{param_name}  [dim]{type_hint}[/dim]"
@@ -791,72 +776,41 @@ class SmartBarAutoComplete:
 # ─── Helper for creating DropdownItem-compatible objects ─────────────────
 
 
-def _extract_short_names(job: JobDescriptor) -> dict[str, str]:
-    """Extract short flag names from a job's Option markers.
+def _rendered_params(fields: list[Any]) -> list[Any]:
+    """The click parameters ``func <job>`` renders for ``fields``."""
+    from functualize.app.adapters.click_params import build_click_params_from_fields
 
-    Prefers the cached FieldDescriptor metadata (available without a live
-    function on warm boots); falls back to inspecting the live function's
-    type annotations for Option markers (e.g., Option("-t", "--target")).
+    return build_click_params_from_fields(fields)
 
-    Args:
-        job: The JobDescriptor to inspect.
 
-    Returns:
-        A dict mapping parameter name → short flag letter (without dash).
-        Empty dict if no short flags are declared or discoverable.
-    """
-    cached_shorts = {
-        f.name: flag.lstrip("-")
-        for f in (job.config_fields or [])
-        if (flag := getattr(f, "short_flag", None))
-    }
-    if cached_shorts:
-        return cached_shorts
+def _rendered_options(fields: list[Any]) -> list[Any]:
+    """The rendered options a caller may type: every visible ``click.Option``."""
+    import click
 
-    if job.function is None:
-        return {}
+    return [
+        param
+        for param in _rendered_params(fields)
+        if isinstance(param, click.Option) and not param.hidden
+    ]
 
-    import inspect
 
-    try:
-        sig = inspect.signature(job.function)
-    except (ValueError, TypeError):
-        return {}
+def _rendered_arguments(fields: list[Any]) -> list[Any]:
+    """The rendered positionals, in the order the command takes them."""
+    import click
 
-    short_names: dict[str, str] = {}
+    return [p for p in _rendered_params(fields) if isinstance(p, click.Argument)]
 
-    # Resolved, not raw: a job module using PEP 563 stores every annotation as
-    # a string, and unwrap_annotated() finds no metadata in a string, so every
-    # short flag would silently vanish from completion.
-    from functualize.app.utils import resolved_hints
 
-    hints = resolved_hints(job.function)
-
-    for param_name, param in sig.parameters.items():
-        annotation = hints.get(param_name, param.annotation)
-        if annotation is inspect.Parameter.empty:
-            continue
-
-        # Unwrap Annotated[T, ...] to get metadata
-        try:
-            from functualize._cli.annotation_utils import unwrap_annotated
-
-            _, metadata = unwrap_annotated(annotation)
-        except TypeError:
-            # unwrap_annotated() can raise TypeError on malformed/exotic
-            # generic annotations; narrower than Exception since this is
-            # not a query_one lookup and no logger is available at
-            # module scope — skip this parameter's short-flag extraction.
-            continue
-
-        # Look for Option marker in metadata
-        for meta in metadata:
-            if type(meta).__name__ == "Option" and hasattr(meta, "short"):
-                if meta.short and len(meta.short) == 2 and meta.short.startswith("-"):
-                    short_names[param_name] = meta.short[1]
-                break
-
-    return short_names
+def _type_label(field: FieldDescriptor | None) -> str:
+    """The human type label: the contract's, for a field that carries one."""
+    if field is None:
+        return ""
+    contract = getattr(field, "contract", None)
+    if contract is not None:
+        return str(contract.display)
+    # TRANSITIONAL(parameter-contract/9.3): a field with no contract (a plugin
+    # or builtin command node) still has only its type string.
+    return field.type_annotation
 
 
 class _DropdownItemStub:

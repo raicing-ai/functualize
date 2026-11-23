@@ -13,9 +13,15 @@ from dataclasses import dataclass
 class FlagDescriptor:
     """Describes a flag for filtering purposes."""
 
-    long_name: str  # e.g., "region" (without --)
+    long_name: str  # e.g., "region" (without --): the rendered primary spelling
     short_name: str | None = None  # e.g., "r" (without -)
-    is_list_type: bool = False  # True for list[T] typed flags
+    is_list_type: bool = (
+        False  # True for a repeatable flag (the contract's `cli.repeatable`)
+    )
+    #: The parameter's other long spellings, e.g. ``("no-dry-run",)``: using
+    #: one retires the flag as the primary does.
+    other_long_names: tuple[str, ...] = ()
+    field_name: str = ""  # the parameter the flag sets
 
 
 def filter_used_flags(
@@ -33,11 +39,14 @@ def filter_used_flags(
         List-typed flags are always included.
         Single-value flags are excluded if their long or short form appears in used_tokens.
     """
-    # Build short-to-long mapping
+    # Build short-to-long and alias-to-long mappings
     short_to_long: dict[str, str] = {}
+    alias_to_long: dict[str, str] = {}
     for flag in all_flags:
         if flag.short_name:
             short_to_long[flag.short_name] = flag.long_name
+        for alias in flag.other_long_names:
+            alias_to_long[alias] = flag.long_name
 
     # Build set of used flag names (normalized to long form)
     used_long_names: set[str] = set()
@@ -46,7 +55,7 @@ def filter_used_flags(
         if token.startswith("--"):
             # Long form: --region or --region=value
             name = token[2:].split("=", 1)[0]
-            used_long_names.add(name)
+            used_long_names.add(alias_to_long.get(name, name))
         elif (
             token.startswith("-") and len(token) >= 2 and not token[1:].startswith("-")
         ):
