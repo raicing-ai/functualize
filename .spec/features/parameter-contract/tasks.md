@@ -968,13 +968,16 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   `mypy src/` → 0 issues; `lint-imports` → 7 kept, 0 broken; Ruff check and format pass.
 - **Depends on:** 3.1.
 
-### [ ] 4.3 Bar readiness and the pre-boot group walk read the contract (F-10)
+### [x] 4.3 Bar readiness and the pre-boot group walk read the contract (F-10)
 
 - **Input:** 3.1; `job-param-string-reads` hits at `bar.py:294` and `dispatch.py:715`.
 - **[F]:**
   - `src/functualize/_cli/tui/bar.py`;
   - `src/functualize/_cli/dispatch.py`;
-  - `src/functualize/app/commands.py`.
+  - `src/functualize/app/commands.py` (read-only audit: `JobNode.params` already returns cached
+    descriptors with contracts);
+  - `tests/cli/tui/test_bar_properties.py` and
+    `tests/group_options/test_group_options_dispatch.py` (arity and repeatability regressions).
 - **Work:**
   - Arity comes from `contract.shape`, not `== "bool"`.
   - `walk_group_path` accumulates repeated group flags into a list for repeatable group fields.
@@ -983,6 +986,17 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `rg -n -F 'type_annotation == "bool"' src/functualize/_cli/dispatch.py` → 0 (today 1);
   - the kit's `func g160g --p a --p b run` gives `['a', 'b']` (today `['b']`);
   - `uv run pytest tests/cli/tui/test_bar_properties.py tests/cli/test_pre_boot_resolution.py`.
+- **Execute evidence (2026-11-23):** SmartBar readiness uses the job's rendered Click parameters
+  for option spellings and positional order, then `contract.shape` for presence-flag arity.
+  `walk_group_path` uses the cached shape for arity and `contract.cli.repeatable` to append each
+  group value. A contractless legacy group field falls back to its rendered Click parameter.
+  `JobNode.params()` already returns the cached descriptor records without reconstructing them;
+  its implementation was audited and did not need an edit. The two test files above were added to
+  `[F]` to cover boolean arity and repeated group values. `rg -n -F 'type_annotation == "bool"'
+  src/functualize/_cli/dispatch.py` → no hits (exit 1). In the regenerated kit project,
+  `func g160g --p a --p b run` exits 0 and prints `OBS p=['a', 'b'] type=list`. The two named
+  modules → 14 passed, 10 skipped; `tests/group_options/ tests/tui_group_options/` → 336 passed,
+  20 skipped. `mypy src/` → 0 issues; `lint-imports` → 7 kept, 0 broken; Ruff check and format pass.
 - **Depends on:** 3.1.
 
 ### [x] 4.4 Choice sets keep their declared value type (spec B-3, review question S1)

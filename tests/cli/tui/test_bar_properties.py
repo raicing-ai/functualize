@@ -237,6 +237,51 @@ class TestBarReadinessReflectsTokenState:
 # =============================================================================
 
 
+@pytest.mark.parametrize("flag", ["--strict", "--no-strict"])
+def test_boolean_contract_flag_does_not_consume_required_positional(flag: str) -> None:
+    from functualize._types.parameter_contract import (
+        CliSpelling,
+        ParameterContract,
+        Scalar,
+        ValueShape,
+        Verdict,
+    )
+    from functualize.types import FieldDescriptor
+
+    strict = ParameterContract(
+        name="strict",
+        verdict=Verdict.ACCEPTED_FLAG,
+        shape=ValueShape(Scalar.BOOL),
+        required=False,
+        default_json=False,
+        cli=CliSpelling(long="--strict", negative="--no-strict"),
+        json_schema=None,
+    )
+    path = ParameterContract(
+        name="path",
+        verdict=Verdict.ACCEPTED_POSITIONAL,
+        shape=ValueShape(Scalar.STR),
+        required=True,
+        default_json=None,
+        cli=CliSpelling(long=None, positional=True),
+        json_schema=None,
+    )
+    fields = [
+        FieldDescriptor("strict", "bool", False, "", False, contract=strict),
+        FieldDescriptor("path", "str", None, "", True, positional=True, contract=path),
+    ]
+    bar = SmartBar(id="test")
+
+    result = bar.evaluate(
+        ["job", flag, "file"],
+        ["job"],
+        lambda _job: ["path"],
+        get_fields=lambda _job: fields,
+    )
+
+    assert result is BarReadiness.READY
+
+
 class _BarTestApp(App):
     """Minimal test app hosting a SmartBar for async testing."""
 

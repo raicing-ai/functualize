@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — repeated group flags and SmartBar readiness follow declared arity
+
+Group options declared as repeatable now keep every supplied value before a
+job path is reached. The SmartBar reads the rendered command's flag spellings
+and the parameter contract's arity, so a boolean flag no longer consumes the
+following positional argument while checking whether a command is ready.
+
 ### Fixed — TUI commands parse the same arguments as the CLI
 
 The inline TUI now parses a job's arguments with its rendered Click parameters.

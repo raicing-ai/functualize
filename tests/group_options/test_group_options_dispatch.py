@@ -65,6 +65,36 @@ def test_group_flag_is_consumed_and_the_walk_continues() -> None:
     assert walk.bad_flag is None
 
 
+def test_repeated_group_flag_accumulates_the_contracts_list_values() -> None:
+    from dataclasses import replace
+
+    from functualize._types.parameter_contract import (
+        CliSpelling,
+        Container,
+        ParameterContract,
+        Scalar,
+        ValueShape,
+        Verdict,
+    )
+
+    contract = ParameterContract(
+        name="p",
+        verdict=Verdict.CONFIG_FIELD,
+        shape=ValueShape(Scalar.STR, Container.LIST),
+        required=False,
+        default_json=None,
+        cli=CliSpelling(long="--p", repeatable=True),
+        json_schema=None,
+    )
+    field = replace(_field("p", "list[str]"), contract=contract)
+    trie = _trie(deploy=_spec("deploy", field))
+
+    walk = walk_group_path(trie, ["deploy", "--p", "a", "--p", "b", "web", "run"])
+
+    assert walk.node.payload == "deploy.web.run"
+    assert walk.options == {"p": ["a", "b"]}
+
+
 @pytest.mark.parametrize(
     "argv",
     [
