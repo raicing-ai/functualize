@@ -29,7 +29,13 @@ from typing import TYPE_CHECKING, Any
 
 from functualize._primitives.parameter_contract import REQUIRED
 from functualize._types.annotations import resolved_hints
-from functualize._types.parameter_contract import ParameterContract, Verdict
+from functualize._types.parameter_contract import (
+    Container,
+    ParameterContract,
+    Scalar,
+    ValueShape,
+    Verdict,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -142,8 +148,9 @@ class ArgumentBinder:
     ) -> Any:
         from pydantic import ValidationError
 
+        adapter = self._adapter(function, contract.name)
         try:
-            return self._adapter(function, contract.name).validate_python(value)
+            return adapter.validate_python(_choice_tokens(contract.shape, value))
         except ValidationError as exc:
             detail = exc.errors()[0].get("msg", str(exc)) if exc.errors() else str(exc)
             label = contract.display or "the declared type"
@@ -201,6 +208,40 @@ def _signature_default(
 ) -> Any:
     default = inspect.signature(function).parameters[contract.name].default
     return None if default is inspect.Parameter.empty else default
+
+
+def _choice_tokens(shape: ValueShape | None, value: Any) -> Any:
+    """Map a text token to the ``int`` choice it spells, before conversion (B-3).
+
+    A text surface spells a choice as ``str(value)``. For an ``int`` choice set
+    the adapter would refuse ``"1"``, so the token becomes the choice whose
+    ``str()`` it equals. A ``str`` set needs no mapping; anything else is left
+    for the adapter to accept or refuse.
+    """
+    if shape is None:
+        return value
+    if shape.container is Container.DICT and isinstance(value, dict):
+        element = shape.elements[0]
+        return {key: _choice_tokens(element, item) for key, item in value.items()}
+    if shape.container is Container.FIXED_TUPLE and isinstance(value, list | tuple):
+        if len(value) != len(shape.elements):
+            return value  # the adapter refuses the wrong arity; never truncate
+        pairs = zip(shape.elements, value, strict=True)
+        return [_choice_tokens(element, item) for element, item in pairs]
+    if shape.scalar is not Scalar.ENUM or not all(
+        type(choice) is int for choice in shape.enum_values
+    ):
+        return value
+    by_text = {str(choice): choice for choice in shape.enum_values}
+
+    def one(item: Any) -> Any:
+        return by_text.get(item, item) if isinstance(item, str) else item
+
+    if shape.container is Container.NONE:
+        return one(value)
+    if isinstance(value, list | tuple | set | frozenset):
+        return type(value)(one(item) for item in value)
+    return value
 
 
 def _missing(contract: ParameterContract, surface: str) -> str:

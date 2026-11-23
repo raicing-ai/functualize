@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — integer choices are published and accepted as integers
+
+A job parameter declared as `Literal[1, 2]`, or as an `Enum` whose values are
+integers, now publishes `{"type": "integer", "enum": [1, 2]}` in its input
+schema. Before, it advertised the strings `["1", "2"]`, which are not the
+declared values. On a
+command line the choices are still spelled `1` and `2`, and the job receives
+the value or member it declared. A choice set mixing types, or holding a
+`bool`, a `float` or `None`, is refused at discovery with the remedy: use an
+`Enum` whose values are all `str` or all `int`. The discovery cache is rebuilt
+once, because its format version moves to 28.
+
 ### Fixed — a refused injected parameter is reported once, on every boot
 
 A parameter the framework fills — a capability such as `Log`, a `FromJob`

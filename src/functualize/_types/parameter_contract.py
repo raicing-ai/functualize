@@ -47,7 +47,7 @@ class ValueShape:
     scalar: Scalar
     container: Container = Container.NONE
     optional: bool = False
-    enum_values: tuple[str, ...] = ()
+    enum_values: tuple[str | int, ...] = ()  # all str or all int (B-3)
     elements: tuple[ValueShape, ...] = ()
 
 

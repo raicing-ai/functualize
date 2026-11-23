@@ -89,6 +89,7 @@ _REASONS = {
     "element": "'{type}' {what}. Declare a container of a scalar or an Enum",
     "unsupported": "'{type}' is not a supported parameter type. Declare a scalar, an Enum, or a list, tuple, set or dict of one",
     "config": "Config field {name!r} has type '{type}', which no config source or flag can supply. Declare a scalar, an Enum, Secret[str], or list[T] or tuple[T, ...] of a scalar",
+    "choice_set": "'{type}' is a choice set whose values are not all str or all int. Use an Enum whose values are all str or all int",
     "provider": "No provider is registered for {type} {what}. Register one from a plugin, or declare a type the caller supplies",
 }
 
@@ -123,10 +124,7 @@ def build_contracts(func: Callable[..., Any]) -> tuple[ParameterContract, ...]:
 def build_contract(
     parameter: inspect.Parameter, annotation: Any = inspect.Parameter.empty
 ) -> ParameterContract:
-    """One signature parameter's contract; ``annotation`` is its resolved hint.
-
-    A class or ``Provide`` is ``INJECTED`` here; :func:`admit` checks its provider.
-    """
+    """One signature parameter's contract; ``annotation`` is its resolved hint."""
     if annotation is inspect.Parameter.empty:
         annotation = parameter.annotation
     has_default, default = _declared_default(parameter.default)
@@ -139,10 +137,7 @@ def build_contract(
 def build_field_contract(
     name: str, field: FieldInfo, *, group: bool = False
 ) -> ParameterContract:
-    """A config field (``CONFIG_FIELD``) or ``GroupOptions`` field (``ACCEPTED_FLAG``).
-
-    A type no config source can supply (``dict``, a nested model; F-29) is refused.
-    """
+    """A config (``CONFIG_FIELD``) or group field; ``dict``/models refused (F-29)."""
     annotation = field.annotation
     option = next((m for m in field.metadata if isinstance(m, Option)), None)
     has_default = not field.is_required()
@@ -189,10 +184,7 @@ def admit(
 
 
 def shape_json_schema(shape: ValueShape) -> dict[str, Any]:
-    """The one shape-to-JSON-Schema function (D4, B-20).
-
-    Absence is the ``required`` list, not ``null``: ``Optional[int]`` is ``integer``.
-    """
+    """The one shape-to-JSON-Schema function (D4, B-20); absence is ``required``."""
     from pydantic import TypeAdapter
 
     return TypeAdapter(_python_type(shape)).json_schema()
@@ -327,15 +319,23 @@ def _element(outer: Any, tp: Any) -> ValueShape:
 
 def _scalar(tp: Any) -> ValueShape | None:
     if _origin(tp) is Literal:
-        return ValueShape(Scalar.ENUM, enum_values=tuple(str(a) for a in _args(tp)))
+        return _choices(tp, _args(tp))
     if not isinstance(tp, type):
         return None
     if issubclass(tp, enum.Enum):
-        values = tuple(str(member.value) for member in tp)
-        return ValueShape(Scalar.ENUM, enum_values=values) if values else None
+        values = tuple(member.value for member in tp)
+        return _choices(tp, values) if values else None
     if issubclass(tp, pathlib.PurePath):
         return ValueShape(Scalar.PATH)
     return ValueShape(Scalar(tp.__name__)) if tp in _SCALAR_TYPES else None
+
+
+def _choices(tp: Any, values: tuple[Any, ...]) -> ValueShape:
+    """A choice set keeps its values' type; any but all-str or all-int (bool, float,
+    None, mixed) is refused (B-3)."""
+    if {type(value) for value in values} not in ({str}, {int}):
+        raise _RefusalError("choice_set", tp)
+    return ValueShape(Scalar.ENUM, enum_values=values)
 
 
 def _contract(

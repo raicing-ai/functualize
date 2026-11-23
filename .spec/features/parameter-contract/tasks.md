@@ -929,7 +929,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `uv run pytest tests/cli/tui/test_bar_properties.py tests/cli/test_pre_boot_resolution.py`.
 - **Depends on:** 3.1.
 
-### [ ] 4.4 Choice sets keep their declared value type (spec B-3, review question S1)
+### [x] 4.4 Choice sets keep their declared value type (spec B-3, review question S1)
 
 - **Input:**
   - `spec.md` B-3 (*choice sets*) and B-8;
@@ -979,6 +979,42 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - the wave barrier: the whole root suite and the plugin-package loop (header rule).
 - **Reachability:** `func <job>` → discovery → `build_contract` → `shape_json_schema`. The binder
   mapping has its first production caller in 5.1.
+- **Execute evidence (2026-11-23, done first in wave 4 so that 4.1–4.3 land on final types):**
+  - `_scalar` hands `Literal` arguments and `Enum` member values, unconverted, to a new
+    `_choices`. It keeps a set whose value types are exactly `{str}` or `{int}`, which excludes
+    `bool` because `type(True) is bool`. Anything else raises the `choice_set` refusal:
+    "'<declaration>' is a choice set whose values are not all str or all int. Use an Enum whose
+    values are all str or all int".
+  - `_python_type` was unchanged; it already built `Literal[...]` from `enum_values`.
+  - `ValueShape.enum_values` is now `tuple[str | int, ...]`. `CACHE_VERSION` is 28.
+  - `ArgumentBinder` gained `_choice_tokens`. For an `int` set, a `str` token becomes the choice
+    whose `str()` equals it, before the adapter runs: scalar, `list`/`tuple`/`set`, `dict` values
+    and fixed-tuple members. A fixed tuple of the wrong length is passed through unmapped, so the
+    adapter refuses it rather than a truncation being accepted.
+  - `wc -l src/functualize/_primitives/parameter_contract.py` → 499. Three docstrings were
+    shortened to stay under the cap.
+  - `uv run pytest tests/primitives/test_choice_sets.py` → 28 passed, in both modes:
+    - typed `type`/`enum` for scalar and `list[...]`, for `Literal["low", "high"]`,
+      `Literal[1, 2]`, a `str` `Enum` and an `int` `Enum`;
+    - each advertised value and its `str()` token bind to the declared value or member;
+    - `Literal["a", 1]`, `Literal[True]`, `Literal[1.5]`, a mixed `Enum` and `list[Literal["a", 1]]`
+      are `REJECTED_DISCOVERY` with the remedy; the reason names the declaration;
+    - a token outside the set is still refused.
+  - `literal_probe.py`: every `advertised` line reads `accepted`. `s_int` and `e_int` publish
+    `{"enum": [1, 2], "type": "integer"}`. `s_mixed` and `s_bool` are `REJECTED_DISCOVERY` with
+    `schema=null`, so no refused value is advertised.
+  - `table_diff.py` → `0 rows differ`, exit 0. Cache census: the two pins are at 28, and `:44` stays
+    at 22.
+  - `tests/primitives tests/types tests/discovery tests/adapters tests/config` (`-n auto`) → 5690
+    passed, 206 skipped. `plugins/adapters/functualize-mcp/tests` → 33 passed. `mypy src/` clean,
+    `lint-imports` 7 kept, 0 broken.
+  - **Finding outside `[F]`:** `functualize_mcp/_schema_export.py:288-289` renders every `enum`
+    value quoted (`f'"{v}"'`). An `int` set therefore exports to TypeScript as `"1" | "2"`. The
+    exports are B-21's, derived from the one schema in wave 7.
+  - **Sabotage, after committing the change (before this evidence was amended in):**
+    - Restoring `str(...)` in `_scalar` for both `Literal` and `Enum`: 19 failed, 9 passed.
+    - Removing the binder's `_choice_tokens` call: 4 failed, the `int` sets' `str()` tokens.
+    - Each was restored with `git checkout --`, and the tree was clean.
 - **Depends on:** 3.2 (`CACHE_VERSION` 27).
 
 ## Wave 5 — the engine door

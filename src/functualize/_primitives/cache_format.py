@@ -179,7 +179,9 @@ from functualize._primitives.project_root import (
 # entries so the warm path sees the same declaration record as the cold path.
 # v27: a job descriptor persists `omitted_contracts`, the contracts of the
 # signature parameters `parameters` omits (capabilities, FromJob, GroupOptions).
-CACHE_VERSION = 27
+# v28: a choice set's `enum_values` keep their declared type (all str or all
+# int), so an int choice set reads `[1, 2]`, not `["1", "2"]`.
+CACHE_VERSION = 28
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"
