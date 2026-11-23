@@ -34,6 +34,16 @@ could not see. It now imports from ``functualize.types`` like every other
 consumer, and the re-export is deleted: this is a pre-release repository and a
 clean cutover costs nothing (AGENTS.md). Found by adversarial review.
 
+``_cli/tui/bar.py`` used to be a consumer too, and left the other way. The
+SmartBar kept its own short-flag and positional-name tables beside the
+grammar; it now reads the job's rendered click parameters
+(``build_click_params_from_fields``) and takes arity off the contract, so it
+names no spelling at all. The set therefore shrank from seven to six by
+design — the direction this feature intends — and the removal is written here
+rather than left to the list, so a reader can tell "this file stopped reading
+the vocabulary" from "someone edited the list to make a test pass". Growth is
+what still needs a reviewer's attention.
+
 **What this test does and does not prove**, stated plainly because the AC
 overstates it. ``spec.md`` says *"Every ``negative_flag_for`` consumer reads it
 through the grammar module, and a test pins the consumer count so an eighth
@@ -91,7 +101,6 @@ EXPECTED_CONSUMERS = [
     "_cli/completions/data.py",
     "_cli/dispatch.py",
     "_cli/main.py",
-    "_cli/tui/bar.py",
     "_cli/tui/sync.py",
     "app/adapters/cli.py",
     "app/adapters/click_params.py",
