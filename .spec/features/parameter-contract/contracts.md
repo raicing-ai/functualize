@@ -180,7 +180,11 @@ three cases:
 - a factory's missing dependency.
 
 Its remedy is "Register a provider for the type or correct the declaration." The old
-"annotate … with Arg()/Option()" is retired, because D105 refuses it. Every call to a refused job
+"annotate … with Arg()/Option()" is retired, because D105 refuses it.
+
+A CLI marker no longer rescues a type nothing converts. `Annotated[Widget, Option()]` gets this
+section's refusal, CLI exit 2 with no inputs published, while a marker on a type that converts still
+decides shape and requiredness (`spec.md` B-8; `6686cade`). Every call to a refused job
 refuses with the `UnsupportedParameter` message:
 CLI and TUI exit 2, HTTP and Lambda 400 with `status` `"Invalid"`, MCP `isError: true`, with the tool
 listed and declaring no inputs. This is identical on cold and warm boots.

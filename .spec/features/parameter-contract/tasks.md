@@ -646,7 +646,10 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `src/functualize/app/adapters/click_params.py`;
   - `src/functualize/app/adapters/lazy_command.py`;
   - `src/functualize/app/adapters/cli.py`;
-  - `tests/adapters/test_render_click_params.py` (new).
+  - `tests/adapters/test_render_click_params.py` (new);
+  - `tests/cli/test_parameter_types.py` (scope repair, 2026-11-23: routing the CLI through
+    contracts refuses `Annotated[Widget, Option()]` (B-8, D105), and four of its assertions encoded
+    the retired acceptance).
 - **Work:**
   - One renderer from contracts for the live job command, the warm lazy command, plugin command
     callbacks (contracts built on the fly) and group options.
@@ -686,6 +689,8 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     (`body=str:'red'`), so the bridge cannot land by silently failing it.
   - `rg -n 'TRANSITIONAL\(parameter-contract/5\.1\)' src/functualize/app/adapters/click_params.py`
     → exactly 1 hit: the `ENUM` branch.
+  - `uv run pytest tests/cli/test_parameter_types.py -q` (scope repair, 2026-11-23), including
+    `TestAnExplicitMarkerNoLongerOutranksTheTypeList`.
   - Plus the kit:
   - `probes.sh`: no `Traceback` for timedelta;
   - `func d094`: exit 2, `Missing option '--p'`;
@@ -715,6 +720,12 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     fail with exit 2, `Got unexpected extra argument (red)`. The committed renderer was restored;
     the same test returned 1 passed, 1 skipped. This proves the real `func` command reaches the
     renderer, not only that the renderer's unit tests call it.
+- **Completed at `6686cade`, not `69a95c99`** (corrected 2026-11-23). The tick at `69a95c99` stood
+  on a gate that omitted `tests/cli/test_parameter_types.py`, a file the change itself broke:
+  `TestAnExplicitMarkerOutranksTheTypeList` measured 4 passed at `8bd9bf45`, 4 failed at
+  `69a95c99` and at `98d846d0`, and 4 passed at `6686cade`, renamed
+  `TestAnExplicitMarkerNoLongerOutranksTheTypeList` (`spec.md` B-8, *the marker and a type nothing
+  converts*).
 - **Depends on:** 2.1, 2.2.
 
 ### [x] 3.2 Every signature parameter's contract reaches its descriptor, the omitted ones included
@@ -785,7 +796,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
       descriptor equal those built from the same descriptor with `omitted_contracts=()`;
   - `rg -n 'extract_parameters_from_signature\(' src plugins` → 1, its own definition (today 8: the
     definition and seven production calls);
-  - `rg -n 'extract_signature\(' src` → 8: the definition and the seven sites;
+  - `rg -n 'extract_signature\(' src` → 9: the definition, the seven sites, and the
+    `extract_parameters_from_signature` wrapper body `return extract_signature(func).parameters`
+    that this Work prescribes (corrected 2026-11-23; measured 9 at `98d846d0`);
   - `rg -n 'directly registered functions' src` → 0 (today 1, `_app/boot.py:1881`);
   - `rg -n 'CACHE_VERSION\s*(==|!=|>=)\s*[0-9]+|"version"\s*:\s*2[0-9]' tests/ plugins/*/*/tests/` →
     the two pins at 27, plus the `:44` poison literal at 22;
@@ -831,8 +844,10 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
       `extract_parameters_from_signature`. The gate's count missed the wrapper. It is not an extra
       call site, and the code was not bent to fit the number.
   - **2.1's gate** (`test_contract_discovery.py test_parameter_types.py test_eager_boot_provider.py
-    test_lazy_true_engine_materialization.py`) → 686 passed, 2 skipped, 4 failed. The 4 are
+    test_lazy_true_engine_materialization.py`) → 686 passed, 2 skipped, 4 failed. The 4 were
     `tests/cli/test_parameter_types.py::TestAnExplicitMarkerOutranksTheTypeList::{test_an_unlisted_type_becomes_an_option,test_the_value_reaches_the_job_as_that_type}[func|app]`.
+    They are now `TestAnExplicitMarkerNoLongerOutranksTheTypeList::{test_help_offers_no_option_for_it,test_a_call_is_a_usage_error_and_the_body_never_runs}[func|app]`,
+    which `6686cade` made pass. That is 3.1's scope repair, not 3.2's.
     They fail identically at base `69a95c99` (detached checkout with its own `src` first on
     `PYTHONPATH`: 4 failed). The cause is not 3.2: `Annotated[Widget, Option()]` is D105, now
     refused, so `--w` no longer renders and the run reports `UnsupportedParameter`. The file is

@@ -171,6 +171,18 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
   - positional-only parameters;
   - two CLI markers on one parameter;
   - a CLI marker on a type nothing converts;
+    - **This retires half of an older rule** *(recorded 2026-11-23, `6686cade`)*: "an explicit CLI
+      marker outranks the type list" (the earlier A3 acceptance criterion).
+      - **What survives:** the marker still decides shape and requiredness for a type that converts.
+        That is pinned by 3.1's gate: `tests/cli/test_option_marker_unit.py`,
+        `tests/cli/test_arg_marker_unit.py`, and
+        `tests/adapters/test_render_click_params.py::test_required_marked_option_has_no_null_default`.
+      - **What is retired:** the marker no longer rescues a type nothing converts.
+        `Annotated[Widget, Option()]` is `REJECTED_DISCOVERY`. Its job stays listed and refuses every
+        call at CLI exit 2 with no inputs published (`contracts.md` §8). ADR-018's remedy, "annotate
+        with Arg()/Option()", is itself refused (D105, B-9), so it cannot be the error message.
+      - **The test:** `tests/cli/test_parameter_types.py::TestAnExplicitMarkerNoLongerOutranksTheTypeList`
+        pins the retired half (renamed in `6686cade`).
   - an unmarked class, or an `Annotated[T, Provide("q")]`, with no provider registered for its own
     type and qualifier (B-2's availability rule; page rows C085, C087, E138, H166);
   - config fields of an unsupported type (`dict`, nested model; F-29, the refusal
