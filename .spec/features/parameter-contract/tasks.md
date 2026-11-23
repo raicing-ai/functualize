@@ -929,7 +929,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     `git checkout HEAD --` restored the files, and the tree was clean.
 - **Depends on:** 3.1.
 
-### [ ] 4.2 The TUI bar parses with the CLI grammar (D8, F-26)
+### [x] 4.2 The TUI bar parses with the CLI grammar (D8, F-26)
 
 - **Input:** 3.1; `gates-authoring.txt` `tui-parser`: `parse_cli_args_to_kwargs`, 12 hits in 5
   files.
@@ -938,7 +938,14 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `src/functualize/_cli/tui/app.py`;
   - `src/functualize/_cli/inline_tui.py`;
   - `src/functualize/_cli/tui/chain_resolution.py`;
-  - `src/functualize/_cli/tui/sync.py`.
+  - `src/functualize/_cli/tui/sync.py`;
+  - `src/functualize/_cli/tui/job_execution.py` (the TUI run door renders a Click refusal);
+  - `tests/_cli/test_orchestrator_handoff.py`,
+    `tests/_cli/test_preflight_summary_content_pbt.py`,
+    `tests/_cli/test_secret_masking_wiring.py`,
+    `tests/cli/test_pending_execution_integration.py`, and
+    `tests/tui_group_options/test_write_back_contract.py` (the retired parser's callers and the
+    list/choice fixed point).
 - **Work:**
   - Replace `parse_cli_args_to_kwargs` with a parse through the job's rendered click command.
   - The emitter `sync.build_command_line` repeats list flags and reads arity from the contract, and
@@ -949,6 +956,16 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `uv run pytest tests/tui_group_options/test_write_back_contract.py tests/tui/test_command_path_surface.py tests/cli/tui/test_descriptor_fields.py tests/cli/test_pending_execution_integration.py`;
   - kit `tui_extra.py` → 0 rows (today 91), W-collapse → 0 (today 34).
 - **Reachability:** TUI run → `job_execution.run_job` → `app.job_kwargs_for` → the click parse.
+- **Execute evidence (2026-11-23):** The previous quota-limited run's 11-file diff was retained
+  after review: it routes the TUI and inline handoff through the rendered Click parameters, reads
+  the injection verdict, and keeps repeated values as repeated flags. The `[F]` list above records
+  the run door's necessary Click refusal and tests that imported the retired parser. Two explicit
+  fixed-point cases now assert `emit(resolve(text)) == text` for `--p a --p b` and an integer choice.
+  `rg -n -w parse_cli_args_to_kwargs src` → no hits (exit 1). The four named test modules →
+  54 passed. Three touched `_cli` modules → 24 passed, 1 skipped; both group-option suites →
+  335 passed, 20 skipped. The regenerated 166-row kit (`gen.py`, `surfaces.py`) reports
+  `tui_extra.py` → `0 rows`, `surf_check.py` → `W-collapse: 0 rows` and `W-bar: 0 rows`.
+  `mypy src/` → 0 issues; `lint-imports` → 7 kept, 0 broken; Ruff check and format pass.
 - **Depends on:** 3.1.
 
 ### [ ] 4.3 Bar readiness and the pre-boot group walk read the contract (F-10)

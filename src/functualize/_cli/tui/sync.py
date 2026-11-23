@@ -22,12 +22,12 @@ Integration wiring:
 from __future__ import annotations
 
 import shlex
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from functualize._cli.tui.cli_arg_parser import (
     group_option_specs_on_path,
-    parse_cli_args_to_kwargs,
+    parse_job_args,
     resolve_tui_command,
     tokenize_bar_text,
 )
@@ -47,7 +47,8 @@ __all__ = [
 
 def _emit_positional_then_named(
     command_path: list[str],
-    entries: list[tuple[str, str, bool, str | None]],
+    entries: list[tuple[str, Any, bool, str | None]],
+    contracts: Mapping[str, Any] | None = None,
 ) -> str:
     """Join a command path with positional bare tokens then named flag tokens.
 
@@ -63,18 +64,53 @@ def _emit_positional_then_named(
     positional_parts: list[str] = []
     named_parts: list[str] = []
     for name, value, positional, short_flag in entries:
+        contract = (contracts or {}).get(name)
+        cli = getattr(contract, "cli", None)
+        if cli is not None:
+            # The contract knows a positional the descriptor's `positional`
+            # flag (set only by `Arg()`) does not: `service: str` is one (B-1).
+            positional = cli.positional
+        # A repeatable parameter (`list[T]`, `tuple[T, ...]`) is spelled once per
+        # value, as `func` parses it (B-10, F-26). One token would collapse it.
+        if isinstance(value, list | tuple):
+            values = list(value)
+        elif cli is not None and (cli.repeatable or cli.variadic):
+            values = shlex.split(str(value))  # a panel cell: `shlex.join` text
+        else:
+            values = [value]
         if positional:
-            positional_parts.append(_quoted(value))
+            positional_parts.extend(_quoted(str(item)) for item in values)
             continue
         if short_flag:
             flag = short_flag if short_flag.startswith("-") else f"-{short_flag}"
         else:
-            flag = f"--{name}"
-        named_parts.append(flag)
-        # One quoting rule for the job's values and the group's alike — see
-        # `_quoted`. A second, looser copy here is what let `say "hi"` through.
-        named_parts.append(_quoted(value))
+            flag = getattr(cli, "long", None) or f"--{name}"
+        if _is_presence_flag(contract, value):
+            # Arity from the contract: a boolean is a presence flag, never
+            # `--p true`. False is its `--no-` half when it has one.
+            if str(value).lower() == "true":
+                named_parts.append(flag)
+            elif negative := getattr(cli, "negative", None):
+                named_parts.append(negative)
+            continue
+        for item in values:
+            named_parts.append(flag)
+            # One quoting rule for the job's values and the group's alike —
+            # see `_quoted`. A looser copy here is what let `say "hi"` through.
+            named_parts.append(_quoted(str(item)))
     return " ".join([*command_path, *positional_parts, *named_parts])
+
+
+def _is_presence_flag(contract: Any, value: Any) -> bool:
+    """Is this a single boolean flag, by its contract (or, lacking one, its value)?"""
+    shape = getattr(contract, "shape", None)
+    if shape is not None:
+        return bool(
+            shape.scalar.value == "bool"
+            and shape.container.value == "none"
+            and not getattr(contract.cli, "positional", False)
+        )
+    return isinstance(value, bool)
 
 
 def _quoted(value: str) -> str:
@@ -141,9 +177,10 @@ def _group_flag_tokens(
 
 def build_command_line(
     job_name: str,
-    job_overrides: list[tuple[str, str, bool, str | None]],
+    job_overrides: list[tuple[str, Any, bool, str | None]],
     group_values: dict[str, Any],
     trie: Any | None = None,
+    contracts: Mapping[str, Any] | None = None,
 ) -> str:
     """Build the canonical CLI text for a job and the group flags around it.
 
@@ -166,13 +203,16 @@ def build_command_line(
             shape both the walk and the engine's own merge use.
         trie: The group trie. ``None`` degrades to the flat dotted spelling,
             which is what the trie-less resolver reads back.
+        contracts: The job's parameter contracts by name. They give each
+            override its arity (a presence flag, a repeated flag) and its
+            rendered spelling; without them a value is spelled `--name value`.
 
     Returns:
         Bar text whose walk yields back ``job_name``, ``group_values`` and the
         job's own arguments — the fixed point the SmartBar depends on.
     """
     if trie is None:
-        return _emit_positional_then_named([job_name], job_overrides)
+        return _emit_positional_then_named([job_name], job_overrides, contracts)
 
     pending = list(trie.root.children.values())
     segments: tuple[str, ...] = (job_name,)
@@ -207,7 +247,7 @@ def build_command_line(
             )
     path_tokens.append(segments[-1])
 
-    return _emit_positional_then_named(path_tokens, job_overrides)
+    return _emit_positional_then_named(path_tokens, job_overrides, contracts)
 
 
 def sync_overrides_to_bar(
@@ -215,6 +255,7 @@ def sync_overrides_to_bar(
     fields: list[FieldDef],
     group_values: dict[str, Any] | None = None,
     trie: Any | None = None,
+    contracts: Mapping[str, Any] | None = None,
 ) -> str:
     """Rebuild SmartBar text from session overrides.
 
@@ -256,7 +297,7 @@ def sync_overrides_to_bar(
     Returns:
         The formatted bar text string.
     """
-    entries: list[tuple[str, str, bool, str | None]] = []
+    entries: list[tuple[str, Any, bool, str | None]] = []
     panel_group_values: dict[str, Any] = {}
     has_group_rows = False
 
@@ -270,7 +311,7 @@ def sync_overrides_to_bar(
             entries.append((f.name, f.value, f.positional, f.short_flag))
 
     effective = panel_group_values if has_group_rows else (group_values or {})
-    return build_command_line(job_name, entries, effective, trie)
+    return build_command_line(job_name, entries, effective, trie, contracts)
 
 
 def sync_pending_overrides_to_bar(
@@ -298,7 +339,7 @@ def sync_pending_overrides_to_bar(
     Returns:
         The formatted bar text string.
     """
-    entries: list[tuple[str, str, bool, str | None]] = []
+    entries: list[tuple[str, Any, bool, str | None]] = []
     for fd in field_descriptors:
         if fd.name not in pending.overrides:
             continue
@@ -308,14 +349,29 @@ def sync_pending_overrides_to_bar(
         entries.append(
             (
                 fd.name,
-                str(val),
+                # A repeatable value stays a list: the emitter spells it once
+                # per element (B-10), where `str(list)` was one bogus token.
+                val if isinstance(val, list | tuple) else str(val),
                 getattr(fd, "positional", False),
                 getattr(fd, "short_flag", None),
             )
         )
     return build_command_line(
-        pending.job_name, entries, pending.group_option_values, trie
+        pending.job_name,
+        entries,
+        pending.group_option_values,
+        trie,
+        _contracts_by_name(field_descriptors),
     )
+
+
+def _contracts_by_name(field_descriptors: Sequence[Any]) -> dict[str, Any]:
+    """Each descriptor's contract by field name; fields without one are absent."""
+    return {
+        fd.name: fd.contract
+        for fd in field_descriptors
+        if getattr(fd, "contract", None) is not None
+    }
 
 
 def sync_bar_to_overrides(
@@ -323,6 +379,7 @@ def sync_bar_to_overrides(
     fields: list[FieldDef],
     *,
     resolution: TuiCommandResolution | None = None,
+    descriptors: Sequence[Any] | None = None,
 ) -> bool:
     """Parse SmartBar CLI text and apply matching values onto fields.
 
@@ -341,6 +398,9 @@ def sync_bar_to_overrides(
             for an ungrouped project, and for a grouped job it hands the
             parser leading path segments whose first binds to the job's first
             positional.
+        descriptors: The job's field descriptors. The tokens are parsed by the
+            command they render, as `func <job>` would (D8). Without them the
+            panel's own rows are rendered instead.
 
     Returns:
         True if any field was actually changed, False otherwise — callers
@@ -352,11 +412,16 @@ def sync_bar_to_overrides(
 
     if resolution is None:
         resolution = resolve_tui_command(None, tokens)
-    provided = parse_cli_args_to_kwargs(resolution.args, fields=fields)
+    provided = parse_job_args(
+        resolution.args, descriptors if descriptors is not None else fields, raw=True
+    )
     changed = False
     for field in fields:
         if field.name in provided:
-            new_val = provided[field.name]
+            parsed = provided[field.name]
+            # A panel cell holds text: a repeated flag's values are kept as
+            # shell words, which the emitter splits back exactly.
+            new_val = shlex.join(parsed) if isinstance(parsed, list) else parsed
             if new_val != field.value:
                 field.value = new_val
                 field.source = "cli"

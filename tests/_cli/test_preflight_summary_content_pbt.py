@@ -18,7 +18,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize._cli.tui.cli_arg_parser import parse_cli_args_to_kwargs
+from functualize._cli.tui.cli_arg_parser import parse_job_args
 from functualize._cli.tui.preflight_summary import build_preflight_lines
 
 # ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ def render_preflight_summary(
     if not tokens:
         return
     # tokens[0] is the job name; remaining are CLI args
-    provided = parse_cli_args_to_kwargs(tokens[1:] if len(tokens) > 1 else [])
+    provided = parse_job_args(tokens[1:], fields, raw=True)
     for line in build_preflight_lines(fields, provided, avail_width=200):
         log.write(line)
 

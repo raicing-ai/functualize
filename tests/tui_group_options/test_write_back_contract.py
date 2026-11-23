@@ -210,7 +210,13 @@ class TestThePanelTheBuilderActuallyProduces:
                 # contract, not find a defect.
                 is_bool = (field.type_annotation or "") == "bool"
                 probe = "true" if is_bool else "probe-value"
-                expected: object = True if is_bool else "probe-value"
+                # Read back as the bar's own text (the lenient parse the panel
+                # syncs from): a presence flag reads "true", a value its token.
+                # Running is stricter: `--replicas probe-value` is refused there
+                # as `func` refuses it (B-18).
+                expected: object = (
+                    (True if is_bool else probe) if field.group_path else probe
+                )
                 table.apply_value_edit(field, probe)
                 glab_tui._sync_smartbar_from_fields()
                 await pilot.pause()
@@ -225,7 +231,7 @@ class TestThePanelTheBuilderActuallyProduces:
                 where = (
                     resolution.group_values
                     if field.group_path
-                    else glab_tui.job_kwargs_for("deploy.web.run", resolution.args)
+                    else glab_tui.bar_values_for("deploy.web.run", resolution.args)
                 )
                 assert where.get(field.name) == expected, (
                     f"editing {field.name!r} (group={field.group_path!r}) wrote "
@@ -381,9 +387,69 @@ class TestTheFixedPointOverValuesNotJustLines:
                 glab_tui._group_trie,
             )
             resolution = glab_tui.resolve_command(tokenize_bar_text(text))
-            kwargs = glab_tui.job_kwargs_for("deploy.web.run", resolution.args)
+            kwargs = glab_tui.bar_values_for("deploy.web.run", resolution.args)
 
         assert kwargs.get("replicas") == "two words"
+
+    @pytest.mark.parametrize(
+        ("shape", "value", "repeatable", "expected"),
+        [
+            ("list", ["a", "b"], True, ["a", "b"]),
+            ("int-choice", 2, False, 2),
+        ],
+    )
+    def test_contract_values_emit_parse_and_emit_identically(
+        self, shape, value, repeatable, expected
+    ) -> None:
+        from functualize._cli.tui.cli_arg_parser import (
+            parse_job_args,
+            resolve_tui_command,
+        )
+        from functualize._cli.tui.sync import build_command_line
+        from functualize._types.parameter_contract import (
+            CliSpelling,
+            Container,
+            ParameterContract,
+            Scalar,
+            ValueShape,
+            Verdict,
+        )
+        from functualize.types import FieldDescriptor
+
+        value_shape = (
+            ValueShape(Scalar.STR, Container.LIST)
+            if shape == "list"
+            else ValueShape(Scalar.INT, enum_values=(1, 2, 3))
+        )
+        contract = ParameterContract(
+            name="p",
+            verdict=Verdict.ACCEPTED_FLAG,
+            shape=value_shape,
+            required=False,
+            default_json=None,
+            cli=CliSpelling(long="--p", repeatable=repeatable),
+            json_schema=None,
+        )
+        field = FieldDescriptor(
+            name="p",
+            type_annotation=shape,
+            default=None,
+            description="",
+            required=False,
+            contract=contract,
+        )
+        contracts = {"p": contract}
+        text = build_command_line(
+            "job", [("p", value, False, None)], {}, contracts=contracts
+        )
+        resolved = resolve_tui_command(None, tokenize_bar_text(text))
+        parsed = parse_job_args(resolved.args, [field])
+        emitted_again = build_command_line(
+            "job", [("p", parsed["p"], False, None)], {}, contracts=contracts
+        )
+
+        assert parsed == {"p": expected}
+        assert emitted_again == text
 
 
 class TestTheConfigFilesPanelSeesEveryDeclaringGroup:

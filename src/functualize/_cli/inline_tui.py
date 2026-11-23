@@ -154,7 +154,7 @@ def _run_handoff(app: FunctualizeApp, tokens: list[str]) -> None:
 
     from functualize._cli.tui.cli_arg_parser import (
         build_group_option_trie,
-        parse_cli_args_to_kwargs,
+        parse_job_args,
         resolve_tui_command,
     )
     from functualize._cli.tui.shell_mode import SHELL_SIGIL, execute_shell_handoff
@@ -184,6 +184,9 @@ def _run_handoff(app: FunctualizeApp, tokens: list[str]) -> None:
         return
 
     job_name = resolution.job_name or tokens[0]
+    # When the walk names no job, `tokens[0]` is taken as the job, so it is not
+    # one of the job's own arguments.
+    job_args = resolution.args if resolution.job_name else list(tokens[1:])
     descriptor = app.get_job(job_name)
 
     # Not a job the kernel can execute — so ask the one command tree and let
@@ -197,7 +200,16 @@ def _run_handoff(app: FunctualizeApp, tokens: list[str]) -> None:
     # After the command, position makes every flag the job's own (D-d); the
     # group's were consumed mid-path by the walk.
     fields = list(descriptor.config_fields) if descriptor is not None else []
-    kwargs = parse_cli_args_to_kwargs(resolution.args, fields=fields)
+    import click
+
+    try:
+        # The job's rendered click command parses its tokens (D8, B-18): the
+        # same types, and the same refusal text, as `func <job> <tokens>`.
+        kwargs = parse_job_args(job_args, fields)
+    except click.UsageError as exc:
+        print(f"Error: {exc.format_message()}", file=sys.stderr)
+        sys.stdout.write("\033[?25h\033[0m")
+        return
     group_option_values = resolution.group_values
 
     requires_tty = bool(getattr(descriptor, "requires_tty", False))

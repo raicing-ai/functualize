@@ -72,7 +72,9 @@ def test_run_handoff_parses_tokens_and_executes() -> None:
         ]
     )
 
-    _run_handoff(app, ["editor", "--path", "/tmp/f"])
+    # `path` is a required `str`: `func editor` takes it positionally, and the
+    # handoff parses with that same command (B-18).
+    _run_handoff(app, ["editor", "/tmp/f"])
 
     # The door builds one frozen RunRequest and hands it to the facade — the
     # loose (job_name, **kwargs) spelling is gone. Surface names the door: the

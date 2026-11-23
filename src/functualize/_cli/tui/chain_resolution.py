@@ -29,7 +29,7 @@ from functualize._cli.data.resolved_value_compat import ResolvedValueCompat
 from functualize._cli.tui.bar import BarReadiness
 from functualize._cli.tui.cli_arg_parser import (
     group_option_specs_on_path,
-    parse_cli_args_to_kwargs,
+    parse_job_args,
     tokenize_bar_text,
 )
 from functualize._cli.tui.descriptor_fields import get_descriptor_fields
@@ -222,7 +222,7 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     # Parse the job's *own* args — the walk already consumed the path segments
     # and every mid-path group flag, so nothing that belongs to a group can
     # land on a job field here.
-    provided = parse_cli_args_to_kwargs(resolution.args, fields=field_descriptors)
+    provided = _as_text(parse_job_args(resolution.args, field_descriptors, raw=True))
 
     # Kernel's discovered files, fetched once for every field's chain and for
     # the Config Files panel below. Each carries its role and its own values
@@ -496,8 +496,10 @@ def build_pending_execution(
             # `build_command_panels`: the path and the group flags are not
             # this job's arguments.
             tokens = tokenize_bar_text(app._smart_bar.value)
-            provided = parse_cli_args_to_kwargs(
-                app.resolve_command(tokens).args, fields=field_descriptors
+            provided = _as_text(
+                parse_job_args(
+                    app.resolve_command(tokens).args, field_descriptors, raw=True
+                )
             )
 
             # Try to get real resolution from the kernel's ResolutionChain
@@ -614,3 +616,17 @@ def compute_chain_detail_rows(field_def: FieldDef) -> list[str]:
         lines.append("[bold yellow]\\[Edited][/bold yellow]")
 
     return lines
+
+
+def _as_text(provided: dict[str, Any]) -> dict[str, Any]:
+    """Panel text for parsed bar values: a repeated flag's values as shell words.
+
+    The bar parse returns a repeatable parameter as a list of tokens. A chain
+    cell shows text, and ``shlex.join`` is the spelling the emitter splits back.
+    """
+    import shlex
+
+    return {
+        name: shlex.join(value) if isinstance(value, list) else value
+        for name, value in provided.items()
+    }

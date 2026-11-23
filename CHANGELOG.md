@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — TUI commands parse the same arguments as the CLI
+
+The inline TUI now parses a job's arguments with its rendered Click parameters.
+Repeated list flags retain every value, invalid arguments receive the CLI's
+usage error, and the SmartBar writes repeated and typed values back to the same
+command text. Injected parameters are filtered by their contract verdict.
+
 ### Fixed — completion and the SmartBar offer exactly the flags `--help` shows
 
 Shell completion and the TUI SmartBar now read a job's flags from the same
