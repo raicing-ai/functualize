@@ -1610,6 +1610,14 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     - W-accept 23: the 17 TUI rows plus G156 (7.3's), C081–C084 (`INVOCATION_ONLY`, CLI refusal by
       design, 7.1's predicate exemption) and G157 (the kit's argv). The 23 MCP rows 5.1 recorded
       are gone, because MCP now validates against the typed schema.
+  - **Re-measured after 6.2, at the wave head:** `gen.py` → `check.py` reports `array` 0, `type`
+    0, `identity` 0, `required` **0** (D099 now refuses with rc 2 and "Missing"), `complete` 0 and
+    `uncaught` 0 (27 before 6.2). `verdict` 22 is outside this gate.
+  - **Scope note (found by the whole-root gate, own commit):**
+    `tests/discovery/test_group_options_fingerprint.py::test_every_in_tree_reader_passes_one`
+    counts the in-tree readers of `read_group_options_from_cache` so that a new one "arrives with
+    this test in hand". `_cli/info.py`'s reader is the sixth. It passes `discovery_hash=`, which is
+    the invariant that test guards, and the count moves from 5 to 6 with a line saying why.
 - **Depends on:** 2.1, 2.2, 4.4, 5.1 (5.1 leaves `cold_compare` at exactly these 2).
 
 ### [x] 6.2 The CLI renders `INVALID` as a one-line usage error (pitfalls §25)
