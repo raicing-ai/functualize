@@ -2098,6 +2098,13 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   tests/tui_group_options/test_smartbar_roundtrip.py -q`: 54 passed. `mypy src/` succeeds
   on 422 files, `lint-imports` keeps 7 contracts with 0 broken, Ruff check and format pass
   (1,809 files formatted), and `git diff --check` passes.
+  Wave-8 barrier at `adefa8d5`: 973 root test files partitioned into 11 regular chunks and
+  nine `_group`-importing modules run separately, with 17,343 passed, 1,694 skipped, and zero
+  failures. All 12 plugin package suites passed in separate invocations (25, 63, 50, 59, 36,
+  72 plus one skip, 125 plus one skip, 22, 27, 15, 15, 230 passed). Dead-code delta
+  `a327ab2f..adefa8d5`: `NEW_DEAD 0`, `TESTS_ONLY 0`; five `NEIGHBOURHOOD` findings in
+  `_app/boot.py` are pre-existing attributes in changed files, advisory and unchanged by this
+  task.
 
 ## Wave 9 — stop depending on `type_annotation` (SS-3 = B)
 
