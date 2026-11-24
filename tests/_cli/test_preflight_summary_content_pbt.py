@@ -11,6 +11,8 @@ Task: 8.2
 
 from __future__ import annotations
 
+import keyword
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,6 +22,7 @@ from hypothesis import strategies as st
 
 from functualize._cli.tui.cli_arg_parser import parse_job_args
 from functualize._cli.tui.preflight_summary import build_preflight_lines
+from tests._support.declared_fields import with_contract
 
 # ---------------------------------------------------------------------------
 # Fakes / helpers
@@ -30,7 +33,9 @@ from functualize._cli.tui.preflight_summary import build_preflight_lines
 class FakeFieldDescriptor:
     """Minimal field descriptor matching the interface used by build_preflight_lines.
 
-    ``required=True`` is fixed so the real function's three-state indicator
+    These are unmarked required signature fields: discovery leaves the
+    descriptor's ``positional`` flag false while its contract renders a
+    positional Click argument. ``required=True`` is fixed so the three-state indicator
     (filled/required-empty/optional-empty) collapses to the two states
     (filled/empty) this property test exercises — matching this test's
     original intent (Property 2 is about required-field content
@@ -40,6 +45,7 @@ class FakeFieldDescriptor:
     name: str
     default: Any | None
     required: bool = True
+    contract: Any | None = None
 
 
 class FakeRichLog:
@@ -88,7 +94,12 @@ _FIELD_NAME_CHARS = st.characters(
 )
 
 _field_names = st.text(alphabet=_FIELD_NAME_CHARS, min_size=2, max_size=15).filter(
-    lambda s: s[0].isalpha()
+    lambda s: (
+        s[0].isalpha()
+        and s.isidentifier()
+        and not keyword.iskeyword(s)
+        and unicodedata.normalize("NFKC", s) == s
+    )
 )
 
 # Values: non-empty strings without whitespace or leading dashes (valid CLI values)
@@ -106,11 +117,12 @@ _defaults = st.one_of(st.none(), _field_values)
 def field_sets(draw: st.DrawFn) -> tuple[list[FakeFieldDescriptor], dict[str, str]]:
     """Generate 1-5 fields with random names/defaults and a prefix with CLI values.
 
-    The bar parses with the CLI's grammar (spec B-18), and these fakes are
-    required, contractless fields, which ``func <job>`` renders as positionals
-    (``build_click_params_from_fields``: "a required one becomes a
-    positional"). A positional value can only be supplied after every earlier
-    one, so the fields given a CLI value are a prefix of the field order.
+    The bar parses with the CLI's grammar (spec B-18). Each fake describes an
+    unmarked required signature parameter and carries the contract that
+    discovery would attach; the contract renders it as a positional. A
+    positional value can only be supplied after every earlier one, so the
+    fields given a CLI value are a prefix of the field order. Names must be
+    valid declarations because ``with_contract`` classifies Python source.
 
     Returns:
         Tuple of (field_descriptors, cli_provided_values).
@@ -130,7 +142,7 @@ def field_sets(draw: st.DrawFn) -> tuple[list[FakeFieldDescriptor], dict[str, st
     supplied = draw(st.integers(min_value=0, max_value=num_fields))
     for index, name in enumerate(names):
         default = draw(_defaults)
-        fields.append(FakeFieldDescriptor(name=name, default=default))
+        fields.append(with_contract(FakeFieldDescriptor(name=name, default=default)))
         if index < supplied:
             cli_values[name] = draw(_field_values)
 
