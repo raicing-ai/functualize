@@ -1547,7 +1547,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 
 ## Wave 6 — the one schema
 
-### [ ] 6.1 `job_input_schema` reads contracts and merges group options once (D4, F-02, F-13, F-34)
+### [x] 6.1 `job_input_schema` reads contracts and merges group options once (D4, F-02, F-13, F-34)
 
 - **Input:**
   - 2.1 and 2.2;
@@ -1557,6 +1557,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `src/functualize/_primitives/job_schema.py`;
   - `src/functualize/_cli/info.py`;
   - `src/functualize/app/utils.py`.
+  - `matrix/surfaces.py` (one line): the fat Lambda event carries `group_option_values` when the row
+    is a `GROUP:` row (`contracts.md:141`). The kit omits it, so G160/G161 measured the absent call
+    and W-fat read 2 at `6878fe8a`. It is the same class as G157's argv, not a product defect.
 - **Work:**
   - The properties are `contract.json_schema`. `required` is the contracts' requiredness.
   - Group options are merged inside `job_input_schema`, so `info` and MCP are identical by
@@ -1569,6 +1572,44 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `uv run pytest tests/cli/test_schema_surface_parity.py tests/app/test_dynamic_registration.py`;
   - `cold_compare.py` → 0 (2 at 5.1: A046 `info` and `mcp`, where the cold schema loses the `Enum`
     default; F-34, `gate-placement-5.1.txt`).
+  - kit `surf_check.py`: W-fat → 0 (2 at `6878fe8a`: G160/G161, the kit's missing
+    `group_option_values` on the fat envelope). Predicate unchanged;
+- **Execute evidence (2026-11-24, at the 6.1 commit):**
+  - **What landed.**
+    - `job_input_schema` publishes each contract's `json_schema`, `required` from contract
+      requiredness, and the contract's `default_json`. That makes F-34 hold cold.
+    - A field whose contract publishes nothing (`INJECTED`, `REJECTED_DISCOVERY`) is left out
+      entirely. That closes the `info` half of FOSS-147: `func builtin info schema --kind job` now
+      gives `c085 {"type": "object", "properties": {}, "required": []}`.
+    - Group options along the job's path are merged inside `job_input_schema`. A job with no own
+      fields still gets them; before, the function returned before the merge.
+    - `TYPE_MAP` is gone. A private `_CONTRACT_LESS_SCHEMAS` remains for fields with no contract:
+      click command nodes and older caches.
+  - **`_cli/info.py`, two fixes the gate exposed.**
+    - `info schema` built each job's schema with `input_schema(node.params())`, so it never merged
+      group options. It now calls `job_input_schema` for a job node.
+    - `_group_options(app)` read an `app._group_options` attribute this app does not have. It now
+      reads the discovery cache under the app's fingerprint, exactly as the MCP server's
+      `read_cached_group_options` does, memoised per app.
+    - Without these, `identity` stayed at 2 (G160, G161), with an empty `info` schema against MCP's
+      merged one.
+  - `rg -n -w TYPE_MAP src/functualize/_primitives/job_schema.py` → 0.
+  - `uv run pytest tests/cli/test_schema_surface_parity.py tests/app/test_dynamic_registration.py`
+    → 23 passed. Every test file naming the schema builders (30), plus `tests/plugins tests/_cli`,
+    → 3165 passed, 430 skipped.
+  - **Kit, regenerated at this tree.**
+    - `gen.py` → `check.py`: `array` 0, `type` 0, `identity` 0, `complete` 0, `required` 1 (D099).
+      D099 is a refused call rendered as rc 1 with a `BindRefusal` frame where the predicate wants
+      rc 2. That is 6.2's rendering, and it is re-measured there.
+    - `cold.py` in two halves of rows, through `cold.py`'s own `per_row` (a single run exceeded the
+      tool cap at load average about 10) → `cold_compare.py`: 166 rows, 13 fields, **0
+      differences**.
+    - `surfaces.py`, full (probe rc 0, 165 rows) → `surf_check.py`, predicates unchanged:
+      W-inject, W-type, W-crash, **W-fat**, W-bar and W-collapse are all 0.
+    - W-default 1 (B070, `mcp_absent(not delivered)`; it was 10 at 5.1).
+    - W-accept 23: the 17 TUI rows plus G156 (7.3's), C081–C084 (`INVOCATION_ONLY`, CLI refusal by
+      design, 7.1's predicate exemption) and G157 (the kit's argv). The 23 MCP rows 5.1 recorded
+      are gone, because MCP now validates against the typed schema.
 - **Depends on:** 2.1, 2.2, 4.4, 5.1 (5.1 leaves `cold_compare` at exactly these 2).
 
 ### [ ] 6.2 The CLI renders `INVALID` as a one-line usage error (pitfalls §25)

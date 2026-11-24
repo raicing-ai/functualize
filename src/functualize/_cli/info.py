@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import weakref
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -97,9 +98,50 @@ def _parameter(field: Any) -> dict[str, Any]:
     return entry
 
 
+#: One cache read per app: ``job_detail`` asks once per job.
+_GROUP_OPTIONS_BY_APP: weakref.WeakKeyDictionary[Any, dict[str, Any]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _group_options(app: FunctualizeApp) -> dict[str, Any]:
+    """The ``{group path: GroupOptionsSpec}`` declarations this app's jobs inherit.
+
+    Read from the discovery cache under this app's fingerprint, exactly as the
+    MCP server's ``read_cached_group_options`` does, so ``info`` and MCP merge
+    the same options into a job's schema (6.1, F-13). A project with no
+    declarations, or no cache yet, has none.
+    """
+    try:
+        return _GROUP_OPTIONS_BY_APP[app]
+    except (KeyError, TypeError):
+        pass
+    specs: dict[str, Any] = dict(getattr(app, "_group_options", None) or {})
+    if not specs:
+        try:
+            from functualize.app.utils import (
+                discovery_hash_for,
+                read_group_options_from_cache,
+                resolve_cache_path,
+            )
+
+            specs = dict(
+                read_group_options_from_cache(
+                    resolve_cache_path(Path.cwd()),
+                    discovery_hash=discovery_hash_for(app),
+                )
+                or {}
+            )
+        except Exception:
+            specs = {}
+    with contextlib.suppress(TypeError):
+        _GROUP_OPTIONS_BY_APP[app] = specs
+    return specs
+
+
 def _group_options_class_names(app: FunctualizeApp) -> frozenset[str]:
     """Known ``GroupOptions`` class names, if the app exposes any."""
-    specs = getattr(app, "_group_options", None) or {}
+    specs = _group_options(app)
     try:
         return frozenset(
             name
@@ -366,6 +408,7 @@ def job_detail(app: FunctualizeApp, name: str) -> dict[str, Any] | None:
         "inputSchema": job_input_schema(
             descriptor,
             group_options_class_names=_group_options_class_names(app),
+            group_options=_group_options(app),
         ),
     }
     if collisions := collision_projection(app).get(descriptor.name):
@@ -437,7 +480,6 @@ def command_schemas(
         job whose group contains a dot-free name.
     """
     from functualize.app.commands import build_command_tree, command_kind
-    from functualize.app.utils import input_schema
 
     entries: list[dict[str, Any]] = []
     for path, node in _walk_tree(build_command_tree(app)):
@@ -463,7 +505,7 @@ def command_schemas(
                 "kind": entry_kind,
                 "path": list(path),
                 "description": node.help_text or "",
-                "inputSchema": input_schema(node.params()),
+                "inputSchema": _node_schema(app, entry_kind, dotted, node),
             }
         )
 
@@ -841,4 +883,25 @@ def explain_missing_job(
     return (
         f"  ({count} discovery problem{plural} found — "
         f"run 'func builtin info' for details)"
+    )
+
+
+def _node_schema(
+    app: FunctualizeApp, kind: str, name: str, node: Any
+) -> dict[str, Any]:
+    """A command node's input schema: a job's through ``job_input_schema``.
+
+    A job publishes exactly what MCP publishes for it, group options merged by
+    the same function (6.1, F-13). A plugin or builtin node has no job
+    descriptor, so its params render directly.
+    """
+    from functualize.app.utils import input_schema, job_input_schema
+
+    descriptor = app.get_job(name) if kind == "job" else None
+    if descriptor is None:
+        return input_schema(node.params())
+    return job_input_schema(
+        descriptor,
+        group_options_class_names=_group_options_class_names(app),
+        group_options=_group_options(app),
     )

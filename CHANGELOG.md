@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the published input schema is the parameter's contract
+
+`func builtin info schema` and the MCP tool schema now publish each job
+parameter exactly as discovery classified it. Lists are arrays, integers and
+dates carry their real types, and an `Enum` default appears on a cold boot as
+on a warm one. A parameter the framework injects, or one refused at discovery,
+is no longer published as a required string. A job's inherited group options
+appear in `info` as they do over MCP.
+
 ### Changed — every call binds at one door before the job runs
 
 Every surface's values now pass one binding step in the engine, before

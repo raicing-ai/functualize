@@ -1,18 +1,32 @@
-"""JSON Schema for a job's inputs — one renderer, every surface.
+"""Build the JSON Schema for a job's parameters (schema boundary).
 
-A job's published inputs are asked for by more than one consumer: the MCP
-tool's ``inputSchema``, ``func builtin info schema``, and anything else that
-needs to tell a caller what a job accepts. Each of those rendering the schema
-itself is how the surfaces drift — the MCP plugin owned this code alone, and
-it published ``Stdout`` and ``Shell`` as required string arguments while the
-CLI filtered them correctly (see ``_primitives/capability_names.py``).
+The properties are the parameter contracts' own ``json_schema`` (D4: one
+shape-to-JSON-Schema function), so the published type of a parameter is the
+contract's verdict — never a second mapping from annotation spellings. The
+``required`` list is the contracts' requiredness. Together these are what
+makes the four renderings one description: the CLI's parameters come from the
+same contracts (T2), and both this function and the MCP schema builder read
+them (T6 / contracts.md §8).
 
-So the rendering lives here, in a layer both the CLI and a plugin can reach
-through ``functualize.app.utils``, and there is exactly one definition of what
-a job's inputs look like as JSON Schema.
+What remains of a vocabulary here is the *narrow fallback* for a field that
+carries no parameter contract — an ad-hoc command's click params, or a
+descriptor from a cache older than the contracts: the click ``ParamType.name``
+spellings ("text", "integer", "integer range", ...) and a few annotation
+spellings, mapped privately. A fresh descriptor never consults it: its fields
+carry contracts, and the old public, duplicated vocabulary is gone (6.1).
 
-Pure and dependency-free: descriptors in, plain dicts out. No app, no engine,
-no I/O.
+Enumerations are *not* a vocabulary entry, because they are not part of the
+type mapping: an enum contract's ``json_schema`` carries its ``enum`` values
+from the shape (``Literal``), and the fallback adds ``enum`` per field from the
+field's choices.
+
+Group options are merged inside ``job_input_schema`` (6.1): the job's own
+fields win a name clash, a nested group's declaration overrides its parent's,
+and the merged options are never ``required`` — "a group option always has a
+resolved value (default < file < env)", so demanding one from the caller would
+make every call carry it. That is the MCP translator's `_merge_group_options`
+fold, moved into core so ``info`` and MCP describe a job identically by
+construction; the plugin's copy re-folds identically until 7.1 deletes it.
 """
 
 from __future__ import annotations
@@ -20,177 +34,183 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Mapping
 
-    from functualize._types.descriptors import FieldDescriptor
+    from functualize._types.descriptors import FieldDescriptor, JobDescriptor
 
-__all__ = [
-    "TYPE_MAP",
-    "field_property",
-    "input_schema",
-    "job_input_schema",
-]
+__all__ = ["field_property", "input_schema", "job_input_schema"]
 
-#: Type annotation (as written) → JSON Schema fragment.
-#:
-#: **Two vocabularies, one map.** A ``FieldDescriptor`` reaches this renderer
-#: from either of two places, and they spell types differently:
-#:
-#: - a **job signature**, where the annotation is Python source text (``int``,
-#:   ``list[str]``) — text rather than a resolved type because the descriptor
-#:   may have been rebuilt from the discovery cache, where the type object is
-#:   long gone;
-#: - a **click command**, where ``ClickCommandNode.params()`` records click's
-#:   own ``ParamType.name`` (``integer``, ``boolean``, ``choice``).
-#:
-#: Keeping one map rather than one per source is the same rule the protocol
-#: states for the descriptor itself: there is one description of a command's
-#: parameters and every surface reads it. Before this, ``builtin`` flags all
-#: degraded to ``string`` — ``--prune`` advertised as text.
-#:
-#: Anything unrecognized still degrades to ``string``, which stays the honest
-#: answer: the CLI would accept the flag as text too.
-TYPE_MAP: dict[str, dict[str, Any]] = {
-    # Python annotations, from a job signature.
+#: The fallback vocabulary for a field with no parameter contract: click's
+#: ``ParamType.name`` spellings and the annotation spellings an older cached
+#: descriptor carries. Private — the contract is the vocabulary's successor.
+_CONTRACT_LESS_SCHEMAS: dict[str, dict[str, Any]] = {
+    "text": {"type": "string"},
     "str": {"type": "string"},
+    "integer": {"type": "integer"},
     "int": {"type": "integer"},
     "float": {"type": "number"},
-    "bool": {"type": "boolean"},
-    "list": {"type": "array"},
-    "dict": {"type": "object"},
-    "list[str]": {"type": "array", "items": {"type": "string"}},
-    "list[int]": {"type": "array", "items": {"type": "integer"}},
-    "list[float]": {"type": "array", "items": {"type": "number"}},
-    "list[bool]": {"type": "array", "items": {"type": "boolean"}},
-    # click ParamType.name, from a builtin or plugin command.
-    "text": {"type": "string"},
-    "integer": {"type": "integer"},
+    "number": {"type": "number"},
     "boolean": {"type": "boolean"},
+    "bool": {"type": "boolean"},
     "uuid": {"type": "string", "format": "uuid"},
     "datetime": {"type": "string", "format": "date-time"},
+    "date": {"type": "string", "format": "date"},
+    "time": {"type": "string", "format": "time"},
     "integer range": {"type": "integer"},
     "float range": {"type": "number"},
-    # A choice is a string with an ``enum``; ``field_property`` adds the enum
-    # from ``choices``, so the base type is all that is needed here.
     "choice": {"type": "string"},
-    # Paths and filenames are strings on the wire. Left unannotated with a
-    # JSON Schema ``format``: there is no registered format for a filesystem
-    # path, and inventing one would mislead a validator.
     "path": {"type": "string"},
     "file": {"type": "string"},
     "directory": {"type": "string"},
     "filename": {"type": "string"},
+    "secret str": {"type": "string", "writeOnly": True},
+    "list": {"type": "array"},
+    "tuple": {"type": "array"},
+    "list[str]": {"type": "array", "items": {"type": "string"}},
+    "tuple[str, ...]": {"type": "array", "items": {"type": "string"}},
+    "list[int]": {"type": "array", "items": {"type": "integer"}},
+    "tuple[int, ...]": {"type": "array", "items": {"type": "integer"}},
+    "list[float]": {"type": "array", "items": {"type": "number"}},
+    "tuple[float, ...]": {"type": "array", "items": {"type": "number"}},
+    "dict": {"type": "object"},
+    "dict[str, str]": {"type": "object"},
 }
 
+#: ``default_json`` of a parameter with no default (parameter_contract.REQUIRED).
+_REQUIRED = "__REQUIRED__"
 
-def _is_json_native(value: Any) -> bool:
-    """Can this value appear in JSON Schema as written?
 
-    ``None`` is excluded on purpose: it is how both sources spell "no default",
-    and publishing ``"default": null`` would claim the field defaults to null.
+def _is_json_native(default: Any) -> bool:
+    """True when a default belongs in a schema as a literal value.
+
+    This function serves two masters: the schema extractor includes the
+    per-field ``default`` when it is JSON-native, and `field_property` gates a
+    contract's ``default_json`` the same way. ``None`` is excluded on purpose:
+    it is how both sources spell "no default" (the `_REQUIRED_SENTINEL` for a
+    contract, `FieldDescriptor.default`'s `None`).
     """
-    if value is None:
-        return False
-    if isinstance(value, bool | int | float | str):
+    if isinstance(default, str | int | float | bool):
         return True
-    if isinstance(value, list | tuple):
-        return all(_is_json_native(item) for item in value)
-    if isinstance(value, dict):
+    if isinstance(default, list | tuple):
+        return all(_is_json_native(item) for item in default)
+    if isinstance(default, dict):
         return all(
-            isinstance(key, str) and _is_json_native(item)
-            for key, item in value.items()
+            isinstance(key, str) and _is_json_native(value)
+            for key, value in default.items()
         )
     return False
 
 
 def field_property(field: FieldDescriptor) -> dict[str, Any]:
-    """One ``FieldDescriptor`` as a JSON Schema property.
+    """The JSON Schema property for a field (schema boundary).
 
-    Shared by a job's own fields and its inherited group options: they are the
-    same record type, and a group flag describing itself differently from an
-    identical job flag would be a wart a caller has no way to interpret.
+    A property is the field's parameter contract's ``json_schema`` (D4),
+    enriched with the declaration's description and the contract's JSON
+    default. The contract is the cached verdict, so the default survives a
+    cold boot even when the live field's own default does not (F-34). A field
+    with no contract falls back to the narrow vocabulary above, preserving the
+    per-field ``enum`` and default rules.
     """
-    prop: dict[str, Any] = {}
-
-    annotation = getattr(field, "type_annotation", None)
-    prop.update(TYPE_MAP.get(annotation or "", {"type": "string"}))
-
+    contract = getattr(field, "contract", None)
+    if contract is not None and contract.json_schema is not None:
+        prop = dict(contract.json_schema)
+    else:
+        prop = dict(
+            _CONTRACT_LESS_SCHEMAS.get(field.type_annotation, {"type": "string"})
+        )
     if field.description:
         prop["description"] = field.description
-
-    # A default is only meaningful on an optional field; on a required one it
-    # would advertise a value the caller must still supply.
-    #
-    # And only when it is representable. Click marks "no default" with its own
-    # ``Sentinel.UNSET`` rather than ``None``, which is not None, not JSON, and
-    # serialized straight through as the literal string ``"Sentinel.UNSET"`` —
-    # a value no caller could ever pass. A default that cannot be represented
-    # is better omitted than published wrong.
-    if not field.required and _is_json_native(field.default):
+    if contract is not None:
+        if contract.default_json != _REQUIRED and _is_json_native(
+            contract.default_json
+        ):
+            prop["default"] = contract.default_json
+    elif not field.required and _is_json_native(field.default):
         prop["default"] = field.default
-
     if field.choices:
         prop["enum"] = list(field.choices)
-
     return prop
 
 
-def input_schema(fields: Sequence[FieldDescriptor]) -> dict[str, Any]:
-    """A JSON Schema ``object`` over ``fields``.
+def input_schema(fields: Iterable[FieldDescriptor]) -> dict[str, Any]:
+    """A JSON Schema object for a field collection.
 
-    ``required`` is omitted rather than emitted empty: an empty required list
-    is noise, and some consumers treat its presence as meaningful.
+    `required` is the contracts' requiredness — whether the declaration has a
+    default — not the extractor's per-field judgement; a field with no contract
+    keeps its own `required` flag. An empty `required` list is omitted: an empty
+    required list is noise on a schema every consumer must branch on.
     """
     properties: dict[str, Any] = {}
     required: list[str] = []
-
     for field in fields:
+        contract = getattr(field, "contract", None)
+        if contract is not None and contract.json_schema is None:
+            # The contract publishes nothing: an `INJECTED` parameter is filled
+            # by the engine (B-22), and a `REJECTED_DISCOVERY` one is refused at
+            # discovery, so no caller may supply either.
+            continue
         properties[field.name] = field_property(field)
-        if field.required:
+        needed = contract.required if contract is not None else field.required
+        if needed:
             required.append(field.name)
-
     schema: dict[str, Any] = {"type": "object", "properties": properties}
     if required:
         schema["required"] = required
     return schema
 
 
+def _specs_on_path(group: str | None, group_options: Mapping[str, Any]) -> list[Any]:
+    """Every group-options declaration along `group`'s path, outermost first.
+
+    Mirrors `GroupTrie.group_options_on_path` (inheritance by containment) and
+    the MCP translator's `_specs_on_path`: a nested group's declaration wins by
+    being applied last.
+    """
+    if not group or not group_options:
+        return []
+    segments = group.split(".")
+    return [
+        spec
+        for depth in range(1, len(segments) + 1)
+        if (spec := group_options.get(".".join(segments[:depth]))) is not None
+    ]
+
+
 def job_input_schema(
-    descriptor: Any,
+    descriptor: JobDescriptor,
     *,
     group_options_class_names: Iterable[str] = (),
+    group_options: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The published input schema for one job descriptor.
+    """A JSON Schema object for a job (schema boundary).
 
-    Args:
-        descriptor: A ``JobDescriptor``. ``config_fields`` wins over
-            ``parameters`` when populated — a job taking a config model
-            publishes that model's fields, not the single model parameter.
-        group_options_class_names: Class names of known ``GroupOptions``
-            declarations. A parameter annotated with one is the *injection
-            point* for a group's resolved options, not something a caller
-            supplies; the individual flags it stands for are published
-            separately, so exposing it too would offer a bare string a caller
-            might try to fill in.
+    A parameter whose annotation is a known `GroupOptions` class name is the
+    *injection point* for a group's resolved options, not something a caller
+    supplies. `group_options_class_names` excludes it: in a live function the
+    condition can test the annotation directly, but the descriptor is cached,
+    so the equivalent signal is the declared class name.
 
-    Capabilities are already absent: the descriptor's parameters exclude them
-    at extraction (``_primitives/capability_names.py``), which is the single
-    place that decision is made.
+    `group_options` (the `{dotted path: GroupOptionsSpec}` declarations) folds
+    the options the job inherits by its group path into `properties` — inside
+    this function, so `info` and MCP are identical by construction. The job's
+    own fields win a name clash and the merged options are never `required`
+    (see the module docstring).
     """
-    known = frozenset(group_options_class_names)
+    known = frozenset(name for name in group_options_class_names if name)
 
     def is_group_options(field: FieldDescriptor) -> bool:
-        if not known:
-            return False
-        annotation = (getattr(field, "type_annotation", "") or "").strip()
-        return bool(annotation) and annotation in known
+        annotation = getattr(field, "type_annotation", None)
+        return annotation in known
 
-    fields = [
-        f
-        for f in (descriptor.config_fields or descriptor.parameters)
-        if not is_group_options(f)
-    ]
-    if not fields:
-        return {"type": "object", "properties": {}, "required": []}
-
-    return input_schema(fields)
+    fields = descriptor.config_fields or descriptor.parameters
+    kept = [f for f in fields if not is_group_options(f)]
+    schema = input_schema(kept)
+    properties: dict[str, Any] = schema["properties"]
+    for spec in _specs_on_path(getattr(descriptor, "group", None), group_options or {}):
+        for field in spec.fields:
+            if field.name in properties:
+                continue
+            properties[field.name] = field_property(field)
+    if not properties:
+        schema.setdefault("required", [])  # an empty object states it outright
+    return schema
