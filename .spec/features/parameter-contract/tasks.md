@@ -1693,6 +1693,13 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     1,180 tests, 4 skipped. Fresh cold/warm artifacts compare 166 rows on 13 fields with 0
     differences. `check.py`'s uncaught, complete, identity, array, type and required predicates
     are 0; its 22 verdict rows remain outside this gate.
+  - **Review repair barrier (`c072cfbb`):** all 979 root test files ran in 20 disjoint chunks,
+    including eight `_group` importers in separate invocations: 17,409 passed, 1,710 skipped,
+    zero failed. MCP package: 33 passed; SQLite substrate package: 230 passed. `mypy src/`
+    checked 424 files with no issues; `lint-imports` kept all seven contracts; Ruff check passed
+    and format check found 1,814 files formatted. The advisory dead-code delta from `6878fe8a`
+    found one test Enum member (`Number.TWO`, consumed through Pydantic's Enum schema), no
+    production orphan, and one pre-existing neighbourhood finding.
 - **Depends on:** 0.2, 5.1. 3.1 has already changed this file (an earlier wave), and 5.1 deletes 3.1's
   `Enum` bridge from it.
 - **Moved 2026-11-23** from wave 5 (formerly 5.2) to wave 6: 5.1 now also edits `click_params.py`,
