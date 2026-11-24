@@ -173,7 +173,10 @@ class JobToolTranslator:
             for f in spec.fields:
                 if f.name in own_fields:
                     continue
-                properties[f.name] = self._field_property(f)
+                prop = self._field_property(f)
+                if not prop:
+                    continue
+                properties[f.name] = prop
                 added.add(f.name)
 
         # Deliberately never added to `required`: a group option always has a

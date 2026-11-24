@@ -1551,8 +1551,9 @@ def _refused_job_command(
     """A command for a job discovery refused: it refuses, whatever its arguments.
 
     The job stays listed (DC-1 = B), and a call to it answers with its reason
-    before click reads a single token (``contracts.md`` §8). Parsing first would
-    answer ``No such option '--p'`` instead, which is true and beside the point.
+    regardless of its argument set (``contracts.md`` §8). Unknown options and
+    extra arguments are admitted by this command so its callback can render
+    the discovery reason. Click still handles ``--help`` as documentation.
     """
 
     def refuse(**_: Any) -> None:

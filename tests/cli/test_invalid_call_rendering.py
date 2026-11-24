@@ -169,7 +169,20 @@ def test_refused_job_refuses_whatever_its_arguments(args, project_tree, tmp_path
     root = project_tree(jobs=JOBS)
     for result in _both_boots(root, tmp_path / "home-refused", "refused", *args):
         _assert_usage_refusal(result)
+        assert not any(
+            line.startswith(_CLICK_USAGE) for line in result.stderr.splitlines()
+        ), result.stderr
         (line,) = _refusal_lines(result.stderr)
         assert "'refused'" in line, result.stderr
         assert "'p'" in line, result.stderr
         assert "Register one from a plugin" in line, result.stderr
+
+
+def test_refused_job_help_remains_available_on_both_boots(project_tree, tmp_path):
+    root = project_tree(jobs=JOBS)
+    for result in _both_boots(
+        root, tmp_path / "home-refused-help", "refused", "--help"
+    ):
+        assert result.returncode == 0, result.stderr
+        assert "Usage:" in result.stdout
+        assert "Error:" not in result.stderr

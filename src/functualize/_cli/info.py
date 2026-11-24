@@ -98,10 +98,10 @@ def _parameter(field: Any) -> dict[str, Any]:
     return entry
 
 
-#: One cache read per app: ``job_detail`` asks once per job.
-_GROUP_OPTIONS_BY_APP: weakref.WeakKeyDictionary[Any, dict[str, Any]] = (
-    weakref.WeakKeyDictionary()
-)
+#: One cache read per app and discovery fingerprint: ``job_detail`` asks once per job.
+_GROUP_OPTIONS_BY_APP: weakref.WeakKeyDictionary[
+    Any, tuple[str | None, int | None, dict[str, Any]]
+] = weakref.WeakKeyDictionary()
 
 
 def _group_options(app: FunctualizeApp) -> dict[str, Any]:
@@ -112,30 +112,37 @@ def _group_options(app: FunctualizeApp) -> dict[str, Any]:
     the same options into a job's schema (6.1, F-13). A project with no
     declarations, or no cache yet, has none.
     """
-    try:
-        return _GROUP_OPTIONS_BY_APP[app]
-    except (KeyError, TypeError):
-        pass
     specs: dict[str, Any] = dict(getattr(app, "_group_options", None) or {})
-    if not specs:
-        try:
-            from functualize.app.utils import (
-                discovery_hash_for,
-                read_group_options_from_cache,
-                resolve_cache_path,
-            )
+    if specs:
+        return specs
+    try:
+        from functualize.app.utils import (
+            discovery_hash_for,
+            read_group_options_from_cache,
+            resolve_cache_path,
+        )
 
-            specs = dict(
-                read_group_options_from_cache(
-                    resolve_cache_path(Path.cwd()),
-                    discovery_hash=discovery_hash_for(app),
-                )
-                or {}
-            )
-        except Exception:
-            specs = {}
+        fingerprint = discovery_hash_for(app)
+        cache_path = resolve_cache_path(Path.cwd())
+        try:
+            cache_stamp = cache_path.stat().st_mtime_ns
+        except OSError:
+            cache_stamp = None
+        try:
+            old_fingerprint, old_stamp, cached = _GROUP_OPTIONS_BY_APP[app]
+            if (old_fingerprint, old_stamp) == (fingerprint, cache_stamp):
+                return cached
+        except (KeyError, TypeError):
+            pass
+        specs = dict(
+            read_group_options_from_cache(cache_path, discovery_hash=fingerprint) or {}
+        )
+    except Exception:
+        specs = {}
+        fingerprint = None
+        cache_stamp = None
     with contextlib.suppress(TypeError):
-        _GROUP_OPTIONS_BY_APP[app] = specs
+        _GROUP_OPTIONS_BY_APP[app] = (fingerprint, cache_stamp, specs)
     return specs
 
 

@@ -76,9 +76,6 @@ _CONTRACT_LESS_SCHEMAS: dict[str, dict[str, Any]] = {
     "dict[str, str]": {"type": "object"},
 }
 
-#: ``default_json`` of a parameter with no default (parameter_contract.REQUIRED).
-_REQUIRED = "__REQUIRED__"
-
 
 def _is_json_native(default: Any) -> bool:
     """True when a default belongs in a schema as a literal value.
@@ -112,7 +109,9 @@ def field_property(field: FieldDescriptor) -> dict[str, Any]:
     per-field ``enum`` and default rules.
     """
     contract = getattr(field, "contract", None)
-    if contract is not None and contract.json_schema is not None:
+    if contract is not None:
+        if contract.json_schema is None:
+            return {}
         prop = dict(contract.json_schema)
     else:
         prop = dict(
@@ -121,13 +120,11 @@ def field_property(field: FieldDescriptor) -> dict[str, Any]:
     if field.description:
         prop["description"] = field.description
     if contract is not None:
-        if contract.default_json != _REQUIRED and _is_json_native(
-            contract.default_json
-        ):
+        if not contract.required and _is_json_native(contract.default_json):
             prop["default"] = contract.default_json
     elif not field.required and _is_json_native(field.default):
         prop["default"] = field.default
-    if field.choices:
+    if contract is None and field.choices:
         prop["enum"] = list(field.choices)
     return prop
 
@@ -206,11 +203,14 @@ def job_input_schema(
     kept = [f for f in fields if not is_group_options(f)]
     schema = input_schema(kept)
     properties: dict[str, Any] = schema["properties"]
+    own_fields = set(properties)
+    if not properties:
+        schema["required"] = []
     for spec in _specs_on_path(getattr(descriptor, "group", None), group_options or {}):
         for field in spec.fields:
-            if field.name in properties:
+            if field.name in own_fields:
                 continue
-            properties[field.name] = field_property(field)
-    if not properties:
-        schema.setdefault("required", [])  # an empty object states it outright
+            prop = field_property(field)
+            if prop:
+                properties[field.name] = prop
     return schema

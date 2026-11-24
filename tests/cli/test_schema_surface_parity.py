@@ -12,9 +12,17 @@ builder, the two surfaces diverge here rather than in a user's agent.
 
 from __future__ import annotations
 
-import pytest
+from enum import Enum
 
+import pytest
+from pydantic import BaseModel
+
+from functualize._discovery.group_options_extractor import extract_group_options_spec
+from functualize._discovery.schema_extractor import extract_field_descriptors
+from functualize._primitives.parameter_contract import build_contracts
+from functualize._types.descriptors import FieldDescriptor, JobDescriptor
 from functualize.app.utils import field_property, input_schema, job_input_schema
+from functualize.job import GroupOptions
 
 
 class _Field:
@@ -103,6 +111,109 @@ def test_group_options_injection_point_is_not_published():
     )
     schema = job_input_schema(descriptor, group_options_class_names={"DeployOptions"})
     assert set(schema["properties"]) == {"image"}
+
+
+def test_refused_group_option_is_absent_from_core_and_mcp():
+    from functualize_mcp._translator import JobToolTranslator
+
+    class BadOptions(GroupOptions, group="deploy"):
+        bad: dict[str, str] = {}
+
+    specs = {"deploy": extract_group_options_spec(BadOptions)}
+    descriptor = JobDescriptor(name="run", group="deploy")
+    core = job_input_schema(descriptor, group_options=specs)
+    mcp = JobToolTranslator(specs).translate(descriptor).input_schema
+    assert "bad" not in core["properties"]
+    assert "bad" not in mcp["properties"]
+
+
+def test_contract_enum_values_keep_their_integer_type():
+    class Number(Enum):
+        ONE = 1
+        TWO = 2
+
+    class Config(BaseModel):
+        number: Number = Number.ONE
+
+    field = extract_field_descriptors(Config)[0]
+    assert field_property(field) == {"type": "integer", "enum": [1, 2], "default": 1}
+
+
+def test_literal_required_sentinel_is_a_valid_default():
+    def job(value: str = "__REQUIRED__") -> None:
+        pass
+
+    contract = build_contracts(job)[0]
+    field = FieldDescriptor(
+        name="value",
+        type_annotation="str",
+        default="__REQUIRED__",
+        description="",
+        required=False,
+        contract=contract,
+    )
+    assert field_property(field)["default"] == "__REQUIRED__"
+
+
+def test_nested_group_override_and_group_only_shape_match_mcp():
+    from functualize_mcp._translator import JobToolTranslator
+
+    from functualize._cli.info import job_detail
+
+    class Parent(GroupOptions, group="a"):
+        x: str = "parent"
+
+    class Child(GroupOptions, group="a.b"):
+        x: int = 2
+
+    specs = {
+        "a": extract_group_options_spec(Parent),
+        "a.b": extract_group_options_spec(Child),
+    }
+    translator = JobToolTranslator(specs)
+    for group in ("a", "a.b"):
+        descriptor = JobDescriptor(name="run", group=group)
+        core = job_input_schema(descriptor, group_options=specs)
+        mcp = translator.translate(descriptor).input_schema
+
+        class AppLike:
+            _discovery_config = None
+            _group_options = specs
+
+            def __init__(self, job_descriptor):
+                self.job_descriptor = job_descriptor
+
+            def get_jobs(self):
+                return [self.job_descriptor]
+
+        detail = job_detail(AppLike(descriptor), "run")
+        assert detail is not None
+        assert detail["inputSchema"] == mcp
+        assert core == mcp
+        assert core["required"] == []
+    assert (
+        job_input_schema(JobDescriptor(name="run", group="a.b"), group_options=specs)[
+            "properties"
+        ]["x"]["default"]
+        == 2
+    )
+
+
+def test_info_group_options_reader_tracks_app_changes():
+    from functualize._cli.info import _group_options
+
+    class AppLike:
+        _discovery_config = None
+
+        def __init__(self):
+            self._group_options = {"a": object()}
+
+    app = AppLike()
+    first = _group_options(app)
+    app._group_options = {"b": object()}
+    second = _group_options(app)
+    assert set(first) == {"a"}
+    assert set(second) == {"b"}
 
 
 def test_mcp_translator_delegates_to_the_core_renderer():

@@ -188,6 +188,7 @@ decides shape and requiredness (`spec.md` B-8; `6686cade`). Every call to a refu
 refuses with the `UnsupportedParameter` message:
 CLI and TUI exit 2, HTTP and Lambda 400 with `status` `"Invalid"`, MCP `isError: true`, with the tool
 listed and declaring no inputs. This is identical on cold and warm boots.
+``--help`` describes a refused job and exits 0; it is documentation, not a call to the job.
 
 ## 9. Public Python API
 
