@@ -1541,6 +1541,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   165 rows; W-inject/type/crash/bar/collapse: 0, W-default: 10 MCP omissions, W-accept: 46, W-fat:
   2 (G160, G161). `cold_compare.py`: 2 A046 schema differences, owned by 6.1. `mypy src/` clean,
   `lint-imports` 7 kept / 0 broken, Ruff check and format clean.
+  A later paired recapture at `c98dda2b` (both artifacts produced after that commit) compared all
+  166 rows and found **0** cold/warm differences; the earlier wave-6 zero used a stale cold artifact
+  and was withdrawn before this recapture.
 - **Reachability:** `FunctualizeApp.execute(RunRequest)` → `engine.run` → `_execute_lifecycle` →
   `bind`; and the engine's middleware chain → `_resolve_middleware_kwargs` → `build_resolution_plan`.
 - **Depends on:** 2.1, 2.2, 2.3, 3.2, 4.4, 0.2.
@@ -1557,6 +1560,10 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `src/functualize/_primitives/job_schema.py`;
   - `src/functualize/_cli/info.py`;
   - `src/functualize/app/utils.py`.
+  - `tests/cli/test_schema_surface_parity.py` (review repair: verdicts, typed enum, and exact
+    info/MCP group parity);
+  - `plugins/adapters/functualize-mcp/src/functualize_mcp/_translator.py` (review repair: omit a
+    group field whose contract publishes nothing until 7.1 deletes this transitional fold).
   - `matrix/surfaces.py` (one line): the fat Lambda event carries `group_option_values` when the row
     is a `GROUP:` row (`contracts.md:141`). The kit omits it, so G160/G161 measured the absent call
     and W-fat read 2 at `6878fe8a`. It is the same class as G157's argv, not a product defect.
@@ -1602,8 +1609,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
       D099 is a refused call rendered as rc 1 with a `BindRefusal` frame where the predicate wants
       rc 2. That is 6.2's rendering, and it is re-measured there.
     - `cold.py` in two halves of rows, through `cold.py`'s own `per_row` (a single run exceeded the
-      tool cap at load average about 10) → `cold_compare.py`: 166 rows, 13 fields, **0
-      differences**.
+      tool cap at load average about 10). The original zero used a stale cold artifact captured
+      before 6.2. Both sides were recaptured after `c98dda2b`: `cold_compare.py` compared 166
+      rows on 13 fields with **0 differences**.
     - `surfaces.py`, full (probe rc 0, 165 rows) → `surf_check.py`, predicates unchanged:
       W-inject, W-type, W-crash, **W-fat**, W-bar and W-collapse are all 0.
     - W-default 1 (B070, `mcp_absent(not delivered)`; it was 10 at 5.1).
@@ -1618,6 +1626,13 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     counts the in-tree readers of `read_group_options_from_cache` so that a new one "arrives with
     this test in hand". `_cli/info.py`'s reader is the sixth. It passes `discovery_hash=`, which is
     the invariant that test guards, and the count moves from 5 to 6 with a line saying why.
+  - **Review findings 1–3 (`d8166516`):** a present contract with `json_schema=None` now publishes
+    no inherited group field in core or MCP. A typed integer enum is no longer overwritten by
+    stringified `field.choices`. Nested groups override parents while the job's own field wins;
+    group-only schemas retain `required: []`. An exact info/MCP parity test pins both shapes.
+    The literal `"__REQUIRED__"` default is retained by checking `contract.required`, and the
+    info group-options memo refreshes with its fingerprint and cache stamp (or reads a live map).
+    The five focused probes failed on the old head; after repair the focused suite passed 58 tests.
 - **Depends on:** 2.1, 2.2, 4.4, 5.1 (5.1 leaves `cold_compare` at exactly these 2).
 
 ### [x] 6.2 The CLI renders `INVALID` as a one-line usage error (pitfalls §25)
@@ -1625,7 +1640,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 - **Input:** 0.2; `click_params.prelude_refusal`.
 - **[F]:**
   - `src/functualize/app/adapters/click_params.py`;
-  - `tests/cli/test_invalid_call_rendering.py` (new).
+  - `tests/cli/test_invalid_call_rendering.py` (new);
+  - `src/functualize/_primitives/parameter_contract.py` (review repair: keep the provider lookup
+    key qualified while removing a process-local loader id from the human refusal).
 - **Work:** add an `INVALID` arm to `prelude_refusal` and the result delivery: exit 2, one line, no
   frames.
   - **A call to a refused job refuses with its reason, whatever its arguments** (`contracts.md` §8,
@@ -1666,6 +1683,16 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
       frame before);
     - `func c085`, `func c085 --p x` and `func c085 x` → the refusal naming `c085`, `p` and
       "Register one from a plugin", rc 2, 0 frames.
+  - **Review findings 4–5 (`d8166516`):** refused-job tests now forbid Click `Usage:` and `Try`
+    blocks; ordinary Click usage errors still permit them. `--help` remains documentation and
+    exits 0 on both boots, as `contracts.md` §8 now states. The command docstring describes the
+    permissive parse and refusal callback rather than claiming it precedes parsing.
+  - **Paired-capture repair (`c98dda2b`):** the refusal test failed first because the error
+    exposed `_functualize_sync_`'s process-local module id. The message now names stable `Widget`
+    while provider lookup retains its qualified key. Refused-job and contract suites then passed
+    1,180 tests, 4 skipped. Fresh cold/warm artifacts compare 166 rows on 13 fields with 0
+    differences. `check.py`'s uncaught, complete, identity, array, type and required predicates
+    are 0; its 22 verdict rows remain outside this gate.
 - **Depends on:** 0.2, 5.1. 3.1 has already changed this file (an earlier wave), and 5.1 deletes 3.1's
   `Enum` bridge from it.
 - **Moved 2026-11-23** from wave 5 (formerly 5.2) to wave 6: 5.1 now also edits `click_params.py`,
