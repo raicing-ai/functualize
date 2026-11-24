@@ -25,25 +25,36 @@ class ResolutionError(Exception):
     """Base for all DI resolution failures."""
 
 
+def _type_label(type_: object) -> str:
+    """A type's name for a message: a class's ``__name__``, or the name itself.
+
+    The engine resolves a contract's dependency by its qualified type name
+    (``Injection.provider_type``), so the type a resolution error is handed may
+    be that string rather than the class. Reading ``__name__`` off it raised
+    ``AttributeError`` from inside the error meant to explain the failure.
+    """
+    return type_ if isinstance(type_, str) else getattr(type_, "__name__", repr(type_))
+
+
 class MissingProviderError(ResolutionError):
     """No provider registered for the requested type."""
 
     #: Attached by boot-time validation once the owning parameter is known.
     param_name: str | None = None
 
-    def __init__(self, type_: type, job_name: str, available: list[type]) -> None:
+    def __init__(self, type_: type | str, job_name: str, available: list[type]) -> None:
         self.type_ = type_
         self.job_name = job_name
         self.available = available
         super().__init__(self._render())
 
     def _render(self) -> str:
-        available_names = [t.__name__ for t in self.available]
+        available_names = [_type_label(t) for t in self.available]
         where = f"job {self.job_name!r}" if self.job_name else "an unknown job"
         if self.param_name:
             where = f"parameter {self.param_name!r} of {where}"
         return (
-            f"No provider for {self.type_.__name__} ({where}, "
+            f"No provider for {_type_label(self.type_)} ({where}, "
             f"available: {available_names})"
         )
 
@@ -68,13 +79,13 @@ class AmbiguousProviderError(ResolutionError):
     # Attached by boot-time validation once the owning job is known.
     job_name: str | None = None
 
-    def __init__(self, type_: type, qualifiers: list[str]) -> None:
+    def __init__(self, type_: type | str, qualifiers: list[str]) -> None:
         self.type_ = type_
         self.qualifiers = qualifiers
         super().__init__(
-            f"Ambiguous provider for {type_.__name__}: "
+            f"Ambiguous provider for {_type_label(type_)}: "
             f"multiple qualifiers available {qualifiers}. "
-            f"Use Annotated[{type_.__name__}, Provide('qualifier')] to disambiguate."
+            f"Use Annotated[{_type_label(type_)}, Provide('qualifier')] to disambiguate."
         )
 
 

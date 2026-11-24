@@ -394,3 +394,22 @@ class TestProvideMarker:
     def test_inequality_with_other_types(self) -> None:
         assert Provide("redis") != "redis"
         assert Provide("redis") != 42
+
+
+def test_resolution_errors_render_a_type_named_by_string() -> None:
+    """The engine resolves a contract's dependency by its qualified type name.
+
+    Both errors must explain that case rather than raise ``AttributeError``
+    reading ``__name__`` off the string they were handed.
+    """
+    from functualize._primitives.di import AmbiguousProviderError, MissingProviderError
+
+    missing = MissingProviderError("pkg.Widget", "deploy", [int])
+    assert (
+        str(missing) == "No provider for pkg.Widget (job 'deploy', available: ['int'])"
+    )
+    missing.relabel(job_name="deploy", param_name="w")
+    assert "parameter 'w' of job 'deploy'" in str(missing)
+    ambiguous = AmbiguousProviderError("pkg.Widget", ["a"])
+    assert "Ambiguous provider for pkg.Widget" in str(ambiguous)
+    assert "Annotated[pkg.Widget, Provide('qualifier')]" in str(ambiguous)
