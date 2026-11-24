@@ -516,12 +516,9 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     app._hook_registry = HookRegistry()
     app._di_registry = DIRegistry()
 
-    from functualize._config.job_config import validate_job_config_types
-
     app.job_registry = JobRegistry(
         hook_registry=app._hook_registry,
         app=app,
-        config_validator=validate_job_config_types,
     )
     # Empty PluginLoader (no entry-point group to scan)
     app.plugin_loader = PluginLoader("")
@@ -801,12 +798,9 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     app._hook_registry = HookRegistry()
     app._di_registry = DIRegistry()
 
-    from functualize._config.job_config import validate_job_config_types
-
     app.job_registry = JobRegistry(
         hook_registry=app._hook_registry,
         app=app,
-        config_validator=validate_job_config_types,
     )
     app.plugin_loader = PluginLoader(app._plugin_sources.entry_point_group)
 

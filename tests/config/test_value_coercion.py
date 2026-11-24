@@ -154,12 +154,16 @@ class TestTheSecretWrapperIsApplied:
 
 class TestTheTypeGateIsHonestAboutSecret:
     def test_secret_str_is_accepted(self):
-        from functualize._config.job_config import validate_job_config_types
+        from functualize._primitives.parameter_contract import build_field_contract
+        from functualize._types.parameter_contract import Verdict
 
         class Good(BaseModel):
             token: Secret[str]
 
-        validate_job_config_types(Good)
+        assert (
+            build_field_contract("token", Good.model_fields["token"]).verdict
+            is Verdict.CONFIG_FIELD
+        )
 
     def test_secret_of_anything_else_is_refused(self):
         """`Secret` stores `str(value)`, so `Secret[int]` is a claim it cannot keep.
@@ -168,10 +172,12 @@ class TestTheTypeGateIsHonestAboutSecret:
         then received a `Secret` holding `"123"` for a field the model reported
         as `int`.
         """
-        from functualize._config.job_config import validate_job_config_types
+        from functualize._primitives.parameter_contract import build_field_contract
+        from functualize._types.parameter_contract import Verdict
 
         class Bad(BaseModel):
             port: Secret[int]
 
-        with pytest.raises(TypeError, match=r"Secret\[int\]"):
-            validate_job_config_types(Bad)
+        contract = build_field_contract("port", Bad.model_fields["port"])
+        assert contract.verdict is Verdict.REJECTED_DISCOVERY
+        assert "Secret" in (contract.reject_reason or "")

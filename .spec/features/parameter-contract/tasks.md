@@ -2041,7 +2041,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   pass. The carried-over `tests/_support/declared_fields.py` edit was unnecessary and restored
   to the pushed version before this gate.
 
-### [ ] 8.2 Dead and superseded code in `app/utils`, `_discovery`, `_config`, `_app`
+### [x] 8.2 Dead and superseded code in `app/utils`, `_discovery`, `_config`, `_app`
 
 - **Input:**
   - `dead-symbols`: `coerce_kwargs`, `_resolve_type` (`app/utils.py`);
@@ -2056,6 +2056,11 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `src/functualize/_app/boot.py`;
   - `tests/test_coerce_kwargs.py`, `tests/test_property_type_coercion_roundtrip.py`;
   - `tests/test_schema_extractor_properties.py` (it references the deleted names 3 times).
+  - `src/functualize/_cli/tui/sync.py` (scope repair: the 4.2 group-flag emitter still branches
+    on `type_annotation == "bool"`; this task's behavior-pattern gate owns that last read);
+  - `tests/config/test_value_coercion.py`, `tests/validation/test_job_config_properties.py`
+    (scope repair: both directly imported the validator removed here; their supported/refused
+    declaration assertions move to the field contract rather than disappearing).
 - **Work:**
   - Delete `coerce_kwargs` and `_resolve_type`, `_annotation_to_type_str` (the display label now
     comes from the contract), `_unwrap_optional` ×4 and `_unwrap_list` ×2 where a contract now
@@ -2077,6 +2082,22 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     classified;
   - `uv run pytest tests/discovery tests/config`.
 - **Depends on:** 7.3, 5.1, 6.1.
+- **Execute evidence (2026-11-24):** `extract_signature` projects the declaration contract's
+  `display` into the transitional descriptor label; config extraction builds one field contract
+  and projects its `shape` into the descriptor until 10.1 removes that string. The app's two boot
+  paths no longer supply the duplicate config validator to `JobRegistry`. The TUI group flag
+  emitter uses the field contract's scalar shape for boolean arity. Deleted the unused coercion
+  and config type gates and their direct-only tests. Kept `_config/job_config.py`'s
+  `_unwrap_secret`, `_unwrap_optional`, and `_unwrap_list` for `coerce_value`, and
+  `_discovery/providers.py`'s `_unwrap_optional` for capability names and enum choices.
+  Both dead-symbol searches and both behaviour-pattern searches return 0. `uv run pytest
+  tests/discovery tests/config tests/validation/test_job_config_properties.py
+  tests/test_schema_extractor_properties.py -q -n auto`: 3,156 passed, 216 skipped.
+  `uv run pytest tests/tui_group_options/test_write_back_gate.py
+  tests/tui_group_options/test_write_back_contract.py
+  tests/tui_group_options/test_smartbar_roundtrip.py -q`: 54 passed. `mypy src/` succeeds
+  on 422 files, `lint-imports` keeps 7 contracts with 0 broken, Ruff check and format pass
+  (1,809 files formatted), and `git diff --check` passes.
 
 ## Wave 9 — stop depending on `type_annotation` (SS-3 = B)
 

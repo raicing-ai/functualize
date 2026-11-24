@@ -156,7 +156,8 @@ def _group_flag_tokens(
     carries `default=None`.
     """
     flag = f"--{field.name.replace('_', '-')}"
-    if getattr(field, "type_annotation", "") == "bool":
+    shape = getattr(getattr(field, "contract", None), "shape", None)
+    if shape is not None and shape.scalar.value == "bool":
         if value in (None, ""):
             return []
         if value in (False, "false", "False"):

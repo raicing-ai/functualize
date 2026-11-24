@@ -202,8 +202,9 @@ def extract_signature(func: Callable[..., Any]) -> SignatureExtraction:
         else:
             base_annotation = annotation
 
-        # Determine type_annotation string (use unwrapped base type, not Annotated wrapper)
-        type_str = _annotation_to_type_str(base_annotation)
+        # Transitional descriptor label; the contract alone decides its type.
+        contract = contracts.get(param_name)
+        type_str = contract.display if contract is not None else "str"
 
         # Determine default and required
         has_default = param.default is not inspect.Parameter.empty
@@ -233,7 +234,7 @@ def extract_signature(func: Callable[..., Any]) -> SignatureExtraction:
                 # The one verdict every surface reads (spec B-1). It is the
                 # declaration's verdict, before availability: boot applies
                 # `admit` per boot and never caches its result (B-2, B-7).
-                contract=contracts.get(param_name),
+                contract=contract,
             )
         )
 
@@ -402,55 +403,6 @@ def _extract_suppress_live(func: Callable[..., Any]) -> tuple[str, ...]:
         return tuple(str(name) for name in declared)
     except TypeError:
         return ()
-
-
-def _annotation_to_type_str(annotation: Any) -> str:
-    """Convert a type annotation to its string representation.
-
-    Returns "str" for parameters without annotations or unresolvable types.
-    """
-    if annotation is inspect.Parameter.empty:
-        return "str"
-
-    # Handle string annotations
-    if isinstance(annotation, str):
-        return annotation
-
-    # Handle None type
-    if annotation is type(None):
-        return "None"
-
-    # Unwrap Optional[T] / T | None to inner type for display
-    unwrapped = _unwrap_optional(annotation)
-    if unwrapped is not annotation:
-        inner_str = _annotation_to_type_str(unwrapped)
-        return f"{inner_str} | None"
-
-    # Handle generic types like list[str], dict[str, int], etc.
-    origin = get_origin(annotation)
-    if origin is not None:
-        args = get_args(annotation)
-        if origin is list:
-            if args:
-                inner = _annotation_to_type_str(args[0])
-                return f"list[{inner}]"
-            return "list"
-        if origin is dict:
-            if len(args) == 2:
-                k = _annotation_to_type_str(args[0])
-                v = _annotation_to_type_str(args[1])
-                return f"dict[{k}, {v}]"
-            return "dict"
-        # Fallback for other generics
-        return str(annotation)
-
-    # Handle basic types with __name__
-    type_name: str | None = getattr(annotation, "__name__", None)
-    if type_name:
-        return type_name
-
-    # Fallback
-    return str(annotation)
 
 
 def _unwrap_optional(annotation: Any) -> Any:
