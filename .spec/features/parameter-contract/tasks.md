@@ -1544,6 +1544,12 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   A later paired recapture at `c98dda2b` (both artifacts produced after that commit) compared all
   166 rows and found **0** cold/warm differences; the earlier wave-6 zero used a stale cold artifact
   and was withdrawn before this recapture.
+- **Gate correction (2026-11-24):** 5.1 was ticked before the root `--run-slow` suite or
+  `examples/` had ever been run. The fast root chunks skipped the slow tests, so the tick
+  overstated the evidence available at that point. CI later found 13 slow failures and three
+  quickstart failures, all first introduced by `68e6cd62` in the bisected range
+  `da912d76..6878fe8a`. The later repair and full barrier are recorded under 6.2; this note
+  preserves the sequence rather than presenting the original tick as fully gated.
 - **Reachability:** `FunctualizeApp.execute(RunRequest)` → `engine.run` → `_execute_lifecycle` →
   `bind`; and the engine's middleware chain → `_resolve_middleware_kwargs` → `build_resolution_plan`.
 - **Depends on:** 2.1, 2.2, 2.3, 3.2, 4.4, 0.2.
@@ -1700,6 +1706,28 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     and format check found 1,814 files formatted. The advisory dead-code delta from `6878fe8a`
     found one test Enum member (`Number.TWO`, consumed through Pydantic's Enum schema), no
     production orphan, and one pre-existing neighbourhood finding.
+  - **Post-wave CI repair (five commits, `b19e9181..71a2132b`):** the earlier fast barrier
+    omitted `--run-slow` and `examples/`. CI exposed three red jobs: `test-full` (13 slow tests)
+    and `examples` (three quickstart tests) were real regressions first introduced by the
+    bisected `68e6cd62`; `spec-artifacts-cleared` remains expected while this feature tree is
+    tracked and belongs to wave 13. `8f955a31` resolves admitted contracts by any name
+    `get_job` accepts and includes a config model's fields as caller inputs, restoring
+    `--city`/`--days`. `a3992433` renders string-named DI types without accessing `__name__`.
+    `cfeb6e2d` asserts the contract-fed resolution plan and actual engine resolution;
+    `a679bcde` retains the hook-firing invariants while expecting the contracted `INVALID`
+    refusal; `71a2132b` supplies property-test values in the CLI's positional grammar.
+    CI at `71a2132b` passed all three full-test Python legs, examples and both plugin suites;
+    only the wave-13 artifact-clearing check was red. A fresh local slow/examples barrier and
+    matrix capture at this head are recorded below, separate from the earlier measurements.
+  - **Fresh matrix capture at `71a2132b` (2026-11-24 UTC):** `gen.py` wrote `out.json` at
+    16:05:56; two bounded `cold.py` halves were merged into `out_cold.json` at 16:15:16;
+    `surfaces.py` wrote `surfaces.json` at 16:21:04. All three postdate the code head.
+    `cold_compare.py`: 166 rows, 13 fields, **0 differences**. `check.py`: `uncaught`,
+    `complete`, `identity`, `array`, `type`, `required` all 0; `verdict` remains 22 outside
+    this gate. Surface probe rc 0 with 165 rows; `surf_check.py`: W-inject, W-type, W-crash,
+    W-fat, W-bar, W-collapse all 0; W-default 1 (B070 MCP) and W-accept 23 (17 TUI,
+    G156, C081–C084, G157) remain for their later owners. Generated JSON and serve logs
+    are untracked, not part of the branch.
 - **Depends on:** 0.2, 5.1. 3.1 has already changed this file (an earlier wave), and 5.1 deletes 3.1's
   `Enum` bridge from it.
 - **Moved 2026-11-23** from wave 5 (formerly 5.2) to wave 6: 5.1 now also edits `click_params.py`,
