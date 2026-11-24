@@ -187,7 +187,16 @@ def admit(
     what = (
         "without a qualifier" if qualifier is None else f"with qualifier {qualifier!r}"
     )
-    reason = _REASONS["provider"].format(type=injection.provider_type, what=what)
+    provider_type = injection.provider_type
+    # The synchronous loader's module suffix includes a process-local id.
+    # Keep that qualified key for provider lookup, but never put it in the
+    # caller's refusal: cold and warm boots must name the same declaration.
+    display_type = (
+        provider_type.rsplit(".", 1)[-1]
+        if provider_type.startswith("_functualize_sync_.")
+        else provider_type
+    )
+    reason = _REASONS["provider"].format(type=display_type, what=what)
     return dataclasses.replace(
         contract, verdict=Verdict.REJECTED_DISCOVERY, reject_reason=reason
     )

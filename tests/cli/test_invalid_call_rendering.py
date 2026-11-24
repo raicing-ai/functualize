@@ -167,6 +167,7 @@ def test_non_converting_argument_refuses_cleanly(project_tree, tmp_path):
 )
 def test_refused_job_refuses_whatever_its_arguments(args, project_tree, tmp_path):
     root = project_tree(jobs=JOBS)
+    reasons = []
     for result in _both_boots(root, tmp_path / "home-refused", "refused", *args):
         _assert_usage_refusal(result)
         assert not any(
@@ -176,6 +177,9 @@ def test_refused_job_refuses_whatever_its_arguments(args, project_tree, tmp_path
         assert "'refused'" in line, result.stderr
         assert "'p'" in line, result.stderr
         assert "Register one from a plugin" in line, result.stderr
+        assert "_functualize_sync_" not in line, result.stderr
+        reasons.append(line)
+    assert reasons[0] == reasons[1]
 
 
 def test_refused_job_help_remains_available_on_both_boots(project_tree, tmp_path):
