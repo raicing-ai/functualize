@@ -1579,7 +1579,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     - `job_input_schema` publishes each contract's `json_schema`, `required` from contract
       requiredness, and the contract's `default_json`. That makes F-34 hold cold.
     - A field whose contract publishes nothing (`INJECTED`, `REJECTED_DISCOVERY`) is left out
-      entirely. That closes the `info` half of FOSS-147: `func builtin info schema --kind job` now
+      entirely. That closes the `info` half of the reported schema leak: `func builtin info schema --kind job` now
       gives `c085 {"type": "object", "properties": {}, "required": []}`.
     - Group options along the job's path are merged inside `job_input_schema`. A job with no own
       fields still gets them; before, the function returned before the merge.
@@ -1612,7 +1612,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
       are gone, because MCP now validates against the typed schema.
 - **Depends on:** 2.1, 2.2, 4.4, 5.1 (5.1 leaves `cold_compare` at exactly these 2).
 
-### [ ] 6.2 The CLI renders `INVALID` as a one-line usage error (pitfalls §25)
+### [x] 6.2 The CLI renders `INVALID` as a one-line usage error (pitfalls §25)
 
 - **Input:** 0.2; `click_params.prelude_refusal`.
 - **[F]:**
@@ -1629,6 +1629,35 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   and a non-converting argument. It asserts `stderr` contains no `File "` and the exit code is 2.
   It also runs `func c085`, `func c085 --p x` and `func c085 x` on a refused job, on both boots,
   and each prints the refusal naming `c085`, `p` and the remedy, exit 2.
+- **Execute evidence (2026-11-24, at the 6.2 commit):**
+  - **The `INVALID` arm** is at the top of `deliver_job_result`: the binder's reason as one
+    `Error:` line and `exit_code_for_status(INVALID)` (2), before the exception branch that
+    re-raised the `BindRefusal` as a traceback. Both dispatch paths deliver through it.
+  - **A refused job refuses before click parses.** `create_job_click_command` reads the app's
+    admitted contracts (`EngineHost.admitted_contracts`). For a job with a `REJECTED_DISCOVERY`
+    parameter it returns a command that takes any arguments and prints
+    `Error: job '<j>' cannot run: parameter '<p>' was refused at discovery. <reason>.`, exit 2.
+    Every `func` job command, cold and warm, is built there.
+    - **Not covered:** the app's own lazy CLI (`app/adapters/lazy_command.py`, outside `[F]`)
+      builds its command separately. A `FunctualizeApp` script's warm command for a refused job
+      therefore still answers with click's parse error first. The door's `INVALID` refusal is
+      unchanged there.
+  - **The spec test's line count, corrected.** As first written it demanded exactly one stderr
+    line, which no implementation can meet, for two reasons:
+    - B-9 prints a boot warning for every refused parameter in the project on every boot,
+      whichever job is called (this fixture holds two: `injects`, `refused`);
+    - the missing-argument case is click's own usage refusal, whose `Usage:`/`Try` lines are the
+      "neighbours" `pitfalls.md` §25 renders like.
+
+    The test now requires exactly one `Error:` line, and allows beside it only B-9 warnings and
+    click's usage lines. Any other line, a frame included, fails.
+  - Gate: `uv run pytest tests/cli/test_invalid_call_rendering.py` → 7 passed (5 failed, 2 passed
+    on the prior tree). Each case runs cold then warm, exit 2, no `File "`.
+  - **Kit project, both boots:**
+    - `func d099` → `Error: Missing required argument 'p'.`, rc 2 (rc 1 with a `BindRefusal`
+      frame before);
+    - `func c085`, `func c085 --p x` and `func c085 x` → the refusal naming `c085`, `p` and
+      "Register one from a plugin", rc 2, 0 frames.
 - **Depends on:** 0.2, 5.1. 3.1 has already changed this file (an earlier wave), and 5.1 deletes 3.1's
   `Enum` bridge from it.
 - **Moved 2026-11-23** from wave 5 (formerly 5.2) to wave 6: 5.1 now also edits `click_params.py`,

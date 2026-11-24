@@ -1424,6 +1424,13 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
     Returns:
         ``result.return_value`` when the run finished normally.
     """
+    if result.status is RunStatus.INVALID:
+        # The call could not be bound to the job's declaration, and nothing ran
+        # (B-26). It is a usage refusal like click's own: one line, exit 2,
+        # never frames (pitfalls §25).
+        _report_invalid(result.exception)
+        raise SystemExit(exit_code_for_status(result.status)) from result.exception
+
     if result.exception is not None:
         # A downstream reader closing the pipe is not a job failure: the
         # engine catches *every* exception into JobResult, so a
@@ -1520,6 +1527,52 @@ def deliver_job_result(result: Any, name: str, app_ref: Any = None) -> Any:
     raise SystemExit(exit_code_for_status(result.status))
 
 
+def _report_invalid(refusal: Any) -> None:
+    """One ``Error:`` line for a refused call: the binder's reason, as click words it."""
+    reason = getattr(refusal, "reason", None) or str(refusal or "") or "invalid call"
+    click.echo(f"Error: {reason.rstrip('.')}.", err=True)
+
+
+def _refused_parameter(app: Any, name: str) -> Any:
+    """The first parameter discovery refused for this job, or None (DC-1 = B)."""
+    lookup = getattr(app, "admitted_contracts", None)
+    admitted = lookup(name) if callable(lookup) else None
+    if not admitted:
+        return None
+    return next(
+        (c for c in admitted.values() if c.verdict is Verdict.REJECTED_DISCOVERY),
+        None,
+    )
+
+
+def _refused_job_command(
+    command_name: str, name: str, refused: Any, help_text: str | None
+) -> click.Command:
+    """A command for a job discovery refused: it refuses, whatever its arguments.
+
+    The job stays listed (DC-1 = B), and a call to it answers with its reason
+    before click reads a single token (``contracts.md`` §8). Parsing first would
+    answer ``No such option '--p'`` instead, which is true and beside the point.
+    """
+
+    def refuse(**_: Any) -> None:
+        reason = (refused.reject_reason or "").rstrip(".")
+        click.echo(
+            f"Error: job {name!r} cannot run: parameter {refused.name!r} was refused "
+            f"at discovery. {reason}.",
+            err=True,
+        )
+        raise SystemExit(exit_code_for_status(RunStatus.INVALID))
+
+    return click.Command(
+        name=command_name,
+        params=[],
+        callback=refuse,
+        help=help_text,
+        context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+    )
+
+
 def _renders_as_job_error(result: Any) -> bool:
     """Whether the boundary prints ``result``'s exception as one line.
 
@@ -1606,6 +1659,11 @@ def create_job_click_command(
         run_tags: Delivery input, ``None`` when this door did not parse it.
     """
     from functualize._discovery.providers import extract_capability_markers
+
+    if (refused := _refused_parameter(app, name)) is not None:
+        return _refused_job_command(
+            command_name or name, name, refused, inspect.getdoc(function) or None
+        )
 
     params, resolved_config, _stdin_markers = build_click_params(
         function, job_config_class

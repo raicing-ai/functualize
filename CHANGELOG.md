@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — a refused call is one usage line, never a traceback
+
+A call the job's declaration does not admit (a missing, unknown, injected or
+non-converting argument) now ends with one `Error:` line and exit code 2 on
+the command line, on cold and warm boots alike. Calling a job whose parameter
+was refused at discovery prints that refusal, naming the job, the parameter
+and the remedy, whatever arguments were given.
+
 ### Fixed — the published input schema is the parameter's contract
 
 `func builtin info schema` and the MCP tool schema now publish each job
