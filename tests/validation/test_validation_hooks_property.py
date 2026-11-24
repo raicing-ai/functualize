@@ -2,11 +2,18 @@
 
 Tests that for any invalid kwargs violating Field() constraints:
 - PRE_EXECUTE hook is NEVER invoked
-- AFTER_FAILURE hook IS invoked with the ValidationError
+- AFTER_FAILURE hook IS invoked with the refusal
 - The function itself is NEVER called
 
 This proves the engine validates arguments BEFORE dispatching to PRE_EXECUTE
 hooks, ensuring hooks always receive validated data when they do fire.
+
+The validation step is now the binding door (parameter-contract 5.1: ``bind``
+runs "before DI resolution and before PRE_EXECUTE"). Its refusal is a
+``BindRefusal`` naming the argument, never a ``ValidationError`` (B-26), and the
+run's status is ``RunStatus.INVALID``, "the call could not be bound to the
+job's declaration — nothing ran" (contracts.md §7). The hook invariants above
+are unchanged.
 
 # Feature: cli-unix-compatibility, Task 2.4
 """
@@ -19,12 +26,13 @@ from unittest.mock import MagicMock
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from pydantic import Field, ValidationError
+from pydantic import Field
 
 from functualize._engine.executor import JobExecutionEngine
 from functualize._engine.middleware import ExecutionMiddlewareChain
 from functualize._events.hooks import HookEvent, HookRegistry
 from functualize._primitives import DIRegistry
+from functualize._primitives.argument_binding import BindRefusal
 from functualize._types.enums import RunStatus
 from tests._support.engine_run import run_job
 from tests._support.engine_storage import engine_storage
@@ -138,8 +146,8 @@ class TestValidationBeforeHooks:
 
     For any function with Field-annotated parameters and for any invalid kwargs
     that violate Field constraints, the PRE_EXECUTE hook SHALL never be invoked —
-    validation errors fire AFTER_FAILURE instead, ensuring hooks always receive
-    validated data.
+    the binding refusal fires AFTER_FAILURE instead and the run is INVALID,
+    ensuring hooks always receive validated data.
 
     **Validates: Requirements 2.3, 2.6, 2.7**
     """
@@ -163,8 +171,8 @@ class TestValidationBeforeHooks:
 
         result = run_job(engine, "test_job", constrained_fn, kwargs=invalid_kwargs)
 
-        assert result.status == RunStatus.FAILURE, (
-            f"Expected FAILURE for invalid kwargs {invalid_kwargs}, got {result.status}"
+        assert result.status == RunStatus.INVALID, (
+            f"Expected INVALID for invalid kwargs {invalid_kwargs}, got {result.status}"
         )
         assert pre_execute_calls == [], (
             f"PRE_EXECUTE hook was invoked {len(pre_execute_calls)} time(s) "
@@ -175,7 +183,7 @@ class TestValidationBeforeHooks:
     def test_after_failure_fires_with_validation_error(
         self, invalid_kwargs: dict[str, Any]
     ):
-        """AFTER_FAILURE hook fires with ValidationError when kwargs are invalid.
+        """AFTER_FAILURE hook fires with the BindRefusal when kwargs are invalid.
 
         **Validates: Requirements 2.3, 2.6, 2.7**
         """
@@ -190,15 +198,17 @@ class TestValidationBeforeHooks:
 
         result = run_job(engine, "test_job", constrained_fn, kwargs=invalid_kwargs)
 
-        assert result.status == RunStatus.FAILURE
+        assert result.status == RunStatus.INVALID
         assert len(after_failure_calls) == 1, (
             f"Expected exactly 1 AFTER_FAILURE call, got {len(after_failure_calls)} "
             f"for invalid kwargs {invalid_kwargs}"
         )
         _, exc = after_failure_calls[0]
-        assert isinstance(exc, ValidationError), (
-            f"Expected ValidationError, got {type(exc).__name__}: {exc}"
+        assert isinstance(exc, BindRefusal), (
+            f"Expected BindRefusal, got {type(exc).__name__}: {exc}"
         )
+        assert exc.argument in {"name", "count"}
+        assert exc.argument in str(exc)
 
     @given(invalid_kwargs=_invalid_kwargs_for_constrained_fn())
     def test_function_never_executes_on_invalid_kwargs(
@@ -232,7 +242,7 @@ class TestValidationBeforeHooks:
 
         result = run_job(engine, "test_job", tracked_fn, kwargs=invalid_kwargs)
 
-        assert result.status == RunStatus.FAILURE
+        assert result.status == RunStatus.INVALID
         assert function_calls == [], (
             f"Function body was executed with {function_calls} "
             f"despite invalid kwargs {invalid_kwargs}"
@@ -264,7 +274,7 @@ class TestValidationBeforeHooks:
 
         result = run_job(engine, "test_job", constrained_fn, kwargs=invalid_kwargs)
 
-        assert result.status == RunStatus.FAILURE
+        assert result.status == RunStatus.INVALID
         assert "PRE_EXECUTE" not in event_log, (
             f"PRE_EXECUTE appeared in event log {event_log} for invalid kwargs"
         )
