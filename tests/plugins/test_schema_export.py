@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from functualize_mcp._schema_export import SchemaExporter
@@ -395,6 +395,36 @@ class TestExportTypescript:
         )
         result = exporter.export_typescript([desc])
         assert "items: string[];" in result
+
+    def test_choice_values_render_by_their_json_type(
+        self, exporter: SchemaExporter
+    ) -> None:
+        """spec B-3: an int choice set exports as ``1 | 2``, never ``"1" | "2"``."""
+        from functualize_mcp._translator import MCPToolDef
+
+        from functualize._primitives.parameter_contract import build_contracts
+
+        def pick(
+            level: Literal[1, 2],
+            mode: Literal["fast", "slow"],
+            levels: list[Literal[1, 2]],
+        ) -> None: ...
+
+        properties = {c.name: c.json_schema for c in build_contracts(pick)}
+        tool = MCPToolDef(
+            name="pick",
+            description="Pick.",
+            input_schema={
+                "type": "object",
+                "properties": properties,
+                "required": list(properties),
+            },
+        )
+        result = exporter.export_typescript([tool])
+
+        assert "  level: 1 | 2;" in result
+        assert '  mode: "fast" | "slow";' in result
+        assert "  levels: (1 | 2)[];" in result
 
 
 # ===========================================================================

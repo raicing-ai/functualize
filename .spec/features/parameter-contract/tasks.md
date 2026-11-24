@@ -1735,7 +1735,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 
 ## Wave 7 — MCP, the AI tool scope, and the wrappers retired
 
-### [ ] 7.1 MCP registers from the schema, without `exec`, and reports failures (F-12, F-24, F-31)
+### [x] 7.1 MCP registers from the schema, without `exec`, and reports failures (F-12, F-24, F-31)
 
 - **Input:** 6.1; `gates-authoring.txt` `mcp-exec` (1 hit) and `type-maps` (`_server.py` 2,
   `_schema_export.py` 3); fastmcp 4.0.3 `Tool.parameters`, `Tool.run(arguments)`,
@@ -1763,6 +1763,70 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `uv run pytest plugins/adapters/functualize-mcp/tests` (its own invocation), then
     `uv run pytest tests/plugins/test_mcp_translator.py tests/plugins/test_mcp_translation_properties.py tests/plugins/test_mcp_tools.py`.
 - **Depends on:** 6.1.
+- **Execute evidence (2026-11-24, base `2dacd7c0`):**
+  - **Work.** `_server.py`: the generated `async def` and its `exec` are gone. `JobTool`, a
+    fastmcp `Tool` subclass, carries `parameters=tool_def.input_schema` and its `run` funnels
+    through `_execute_job` (`RunRequest`, surface `mcp.tool`). The envelope now carries `error`
+    with the reason for `invalid`, `failure` and `timeout`, and `run` returns `isError: true` for
+    those and for a raised error. A waiting gate's `tool_not_permitted` keeps its own envelope and
+    is not an error. `_translator.py`: the fold is deleted (`_specs_on_path`,
+    `_merge_group_options`, `_field_property`). `translate` passes `group_options` into
+    `job_input_schema` and derives `group_option_names` as the merged schema's properties minus
+    the job's own schema's. `_schema_export.py`: an enum value renders by its JSON type
+    (`json.dumps`), and array items recurse, so an int choice list is `(1 | 2)[]`.
+  - **Not done, by decision:** the reviewer's suggested inline `TRANSITIONAL(7.1)` marker on
+    `_translator.py`'s fold was not added, because this task deletes that fold.
+  - **Gate.**
+    - `rg -n 'exec\(fn_source' plugins/adapters/functualize-mcp/src` → **0** (was 1).
+    - `uv run pytest plugins/adapters/functualize-mcp/tests` → 36 passed. `tests/plugins/ -k mcp
+      --run-slow` → 255 passed, 1 skipped (`test_jev_live`, no credential), including the three
+      named modules. `tests/plugins/test_schema_export.py` → 30 passed. The group-options and
+      surface-parity neighbours → 367 passed, 8 skipped.
+    - `mypy src/` → no issues in 424 files; `lint-imports` 7 kept, 0 broken; Ruff check and
+      format (1,816 files) clean; `git diff --check` clean. mypy on the three plugin files
+      reports one pre-existing unused `type: ignore` at `_schema_export.py:187`
+      (`_translate_descriptors`, untouched).
+  - **Kit, fresh at the working tree of this commit.** `gen.py` rc 0 (258 s), `surfaces.py`
+    rc 0 (244 s; 165 probe rows, 165 HTTP, 165 MCP).
+    - `func mcp serve` with G156 present: rc 0, "Registered 167 per-job tools" (it crashed at
+      5.1).
+    - A live stdio session at that project, G156 included: `g156 {"p":"x"}` succeeds;
+      `g156 {}` → `isError: true`, "Missing required argument 'p'"; `a045 {"p":"green"}` →
+      `isError: true`, "Invalid value for 'p': 'green' is not a valid Color"; `a005 {"p":"seven"}`,
+      `e110 {"p":"x"}` (injected) and `a002 {"zzz":1}` (unknown key) → `isError: true`, each
+      naming its argument.
+    - `surf_check.py`: W-inject, W-type, **W-default 0** (1 before, B070 MCP), W-crash, W-fat and
+      W-bar are all 0. **W-accept 18**, all of them TUI rows that belong to 7.3 (the 17 plus G156).
+      None is MCP's: the 27 MCP rows recorded at 5.1 were already gone after 6.1.
+    - The two kit corrections named in 5.1's gate are applied:
+      - `surf_check.py` does not count the CLI or TUI cell of an `INVOCATION_ONLY` row (C081–C084;
+        B-15);
+      - `rows.py` gives G157's command line `--q a --q b`, as the wire surfaces were given.
+    - The G157 correction exposes one TUI measurement: **W-collapse 1**, G157's repeated `--q` in
+      the TUI. The TUI parses through the contractless field list, which 7.3 retires, so 7.3
+      re-measures it.
+    - `check.py`: uncaught, complete, identity, array, type and required are all 0; `verdict` 22
+      remains outside this gate.
+  - **Reachability.** `func mcp serve` → `MCPServer._register_tools` → `_register_single_tool` →
+    `FastMCP.add_tool(JobTool.for_job(...))`; `tools/call` → `JobTool.run` → `_execute_job` →
+    `app.execute`.
+    - Replacing the `add_tool` call with `return` fails three tests in `test_live_serve.py`
+      (`test_grouped_project_serves_dotted_tools_and_executes`,
+      `test_grouped_typed_schema_survives_to_client`,
+      `test_hostile_description_job_calls_end_to_end`).
+    - Quoting every enum value again fails
+      `test_schema_export.py::test_choice_values_render_by_their_json_type`.
+    - Both were restored from a recorded tree snapshot.
+  - **Files outside `[F]`, each required by this gate.**
+    - The plugin's `tests/test_server.py` imported the deleted codegen. Its F1/F1b guards now
+      assert through `JobTool`, plus group-option routing and the `isError` contract.
+    - `tests/plugins/test_schema_export.py` adds the enum test.
+    - The kit's `surf_check.py` and `rows.py` take the two corrections.
+  - **Residual.**
+    - `_primitives/job_schema.py`'s module docstring still says the plugin's copy "re-folds
+      identically until 7.1 deletes it". That prose is outside `[F]`, so 11.1 corrects it.
+    - The core `run_job` tool (`_tools.py`, outside `[F]`) keeps its own envelope.
+    - The generated JSON and serve logs stay untracked.
 
 ### [ ] 7.2 The AI `ToolScope` reads the one schema (spec revision S-1)
 

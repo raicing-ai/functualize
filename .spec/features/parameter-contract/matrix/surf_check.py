@@ -22,6 +22,11 @@ out = json.loads(Path("out.json").read_text())
 HELP = {r["id"]: r["runs"]["help"]["stdout"] for r in out["rows"]}
 INJECTED_ROWS = {f"E{n:03d}" for n in range(108, 142)} | {"H162", "H163", "H164", "H165"}
 WIRE = ("tui_given", "mcp_given", "http_given", "lambda_given")
+#: `INVOCATION_ONLY` rows (the declaration table's verdict): a command line has
+#: no spelling for them, so the CLI and TUI refusal is by design (spec B-15) and
+#: W-accept does not count those two cells.
+INVOCATION_ONLY_ROWS = {"C081", "C082", "C083", "C084"}
+COMMAND_LINE_CELLS = ("cli_given", "tui_given")
 
 
 def typ(cell: str) -> str | None:
@@ -71,6 +76,8 @@ def main() -> None:
                 add("W-crash", k, rid)
         accepted = {k for k in ("cli_given", *WIRE) if typ(r[k])}
         refused = {k for k in ("cli_given", *WIRE) if r[k].startswith(("refused", "fail", "500", "400"))}
+        if rid in INVOCATION_ONLY_ROWS:
+            refused -= set(COMMAND_LINE_CELLS)
         if accepted and refused:
             add("W-accept", "+".join(sorted(accepted)) + " vs " + "+".join(sorted(refused)), rid)
         fat, absent, given = r["lambda_fat_kwargs"], r["lambda_absent"], r["lambda_given"]

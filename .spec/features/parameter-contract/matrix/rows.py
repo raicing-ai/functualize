@@ -231,7 +231,9 @@ def build() -> list[dict]:
     rows.append(_row(nid("G"), "shape", "*, p: list[str]", flag=["--p", "a", "--p", "b"], pos=["a"]))
     rows.append(_row(nid("G"), "shape", "p: str, /", flag=["--p", "x"], pos=["x"]))
     rows.append(_row(nid("G"), "shape", "q: str = \"d\", *, p: str", flag=["--p", "x"], pos=["x"]))
-    rows.append(_row(nid("G"), "shape", "p: str, q: list[str]", flag=["x"], pos=["x"]))
+    # The wire surfaces are given p and q, so the command line supplies both too.
+    rows.append(_row(nid("G"), "shape", "p: str, q: list[str]",
+                     flag=["x", "--q", "a", "--q", "b"], pos=["x", "--q", "a", "--q", "b"]))
     # class-method job
     rows.append(_row(nid("G"), "shape", "CLASS:p: list[str]", flag=["--p", "a", "--p", "b"],
                      pos=["a"], label="@job class method, p: list[str]"))
