@@ -2001,7 +2001,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 
 ## Wave 8 — D7 deletions
 
-### [ ] 8.1 Dead code in `_cli`
+### [x] 8.1 Dead code in `_cli`
 
 - **Input:** `gates-authoring.txt` `dead-symbols`: 17 hits.
 - **[F]:**
@@ -2012,6 +2012,10 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `src/functualize/_engine/stdin_reader.py` (a docstring that names the deleted module);
   - `tests/cli/test_annotation_utils_properties.py`, `tests/cli/test_cli_compatible_type.py`;
   - `tests/_cli/test_type_hint_formatter.py`, `tests/cli/tui/test_completer_properties.py`.
+  - `tests/cli/test_arg_marker_unit.py` (scope repair: its source-declaration sanity test imports
+    `parse_annotation` after 7.3 retired the production caller);
+  - `tests/spec/test_settings_ratchet.py` (scope repair: the delivery import census still pins
+    two imports from `annotation_utils` that 7.3 removed);
 - **Work:**
   - Delete `SwappableCompleter`, `format_type_hint` and its `_TYPE_MAP`, and
     `parse_annotation`/`AnnotationInfo` (including the write-only `field_metadata`).
@@ -2022,6 +2026,20 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     `_engine/stdin_reader.py:241`, which is updated (today 4 hits);
   - `uv run pytest tests/cli tests/_cli`.
 - **Depends on:** 7.3.
+- **Execute evidence (2026-11-24):** the baseline was 15 `SwappableCompleter` /
+  `format_type_hint` / `field_metadata` hits and one `annotation_utils` prose mention after
+  7.3; both searches now return 0. Removed the dead annotation parser, type hint formatter,
+  mode-swapping completer and their dedicated tests. The 1.1 declaration table already checks
+  the parser tests' meaningful classification claims in both annotation modes; the redundant
+  source-declaration sanity check in `test_arg_marker_unit.py` went with its parser import.
+  `test_settings_ratchet.py` now pins seven actual delivery imports rather than two already
+  retired parser imports. `DropdownItem`, `path_candidates` and `executable_candidates` remain:
+  `_cli/tui/shell_mode.py` still calls the latter two and its test uses the stand-in item.
+  `uv run pytest tests/cli tests/_cli tests/spec/test_settings_ratchet.py -q -n auto`:
+  3,295 passed, 642 skipped (the import census failed on the prior head). Ruff check and
+  format, `mypy src/` (422 files), `lint-imports` (7 kept, 0 broken), and `git diff --check`
+  pass. The carried-over `tests/_support/declared_fields.py` edit was unnecessary and restored
+  to the pushed version before this gate.
 
 ### [ ] 8.2 Dead and superseded code in `app/utils`, `_discovery`, `_config`, `_app`
 
