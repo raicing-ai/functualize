@@ -245,8 +245,9 @@ class ToolScope:
         The job_registry is duck-typed. It must provide:
         - ``get_descriptors() -> list``: returns all job descriptors
         - Each descriptor must have: ``name``, ``docstring``, ``group``,
-          ``metadata`` (with optional ``tags`` attribute), and
-          ``config_fields`` or ``parameters`` (list of field descriptors).
+          ``metadata`` (with optional ``tags`` attribute), and a
+          ``JobDescriptor``'s ``config_fields`` and ``parameters``, which
+          ``job_input_schema`` publishes as the tool's parameters.
 
         Tool names are de-duplicated first-seen-wins for the definition
         itself. Approval is the exception: it combines from **every**
@@ -381,183 +382,41 @@ def _filter_descriptors(descriptors: list[Any], filt: _ScopeFilter) -> list[Any]
 
 
 def _descriptor_to_tool_def(descriptor: Any) -> ToolDef:
-    """Convert a job descriptor to a ToolDef."""
+    """Convert a job descriptor to a ToolDef.
+
+    The parameters are the job's one schema (spec B-21, S-1): the same
+    ``job_input_schema`` that ``func builtin info schema`` and MCP publish, so
+    an LLM tool call is offered exactly the inputs the engine door accepts.
+    """
+    from functualize.app.utils import job_input_schema
+
     name = descriptor.name
     docstring = getattr(descriptor, "docstring", None) or ""
-    # Use config_fields if available, fall back to parameters
-    config_fields = getattr(descriptor, "config_fields", None)
-    if not config_fields:
-        config_fields = getattr(descriptor, "parameters", None) or []
-
-    # Build parameters schema from field descriptors
-    parameters_schema = _fields_to_schema(config_fields)
-
-    # Determine config_class if available
-    config_class = getattr(descriptor, "config_class", None)
-
     return ToolDef(
         name=name,
         description=docstring,
-        parameters_schema=parameters_schema,
+        parameters_schema=job_input_schema(descriptor),
         job_name=name,
         function=None,
-        config_class=config_class,
+        config_class=getattr(descriptor, "config_class", None),
     )
-
-
-def _fields_to_schema(fields: list[Any]) -> dict[str, Any]:
-    """Convert a list of field descriptors to a JSON Schema-like dict.
-
-    Each field descriptor is expected to have: name, type_annotation (or type),
-    description (or help), required, and optionally choices.
-    """
-    if not fields:
-        return {}
-
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-
-    for f in fields:
-        name = f.name
-        type_ann = getattr(f, "type_annotation", None) or getattr(f, "type", "string")
-        description = getattr(f, "description", None) or getattr(f, "help", "")
-        is_required = getattr(f, "required", False)
-        choices = getattr(f, "choices", None)
-
-        prop: dict[str, Any] = {
-            "type": _python_type_to_json_type(type_ann),
-            "description": description,
-        }
-        if choices:
-            prop["enum"] = choices
-
-        properties[name] = prop
-        if is_required:
-            required.append(name)
-
-    schema: dict[str, Any] = {
-        "type": "object",
-        "properties": properties,
-    }
-    if required:
-        schema["required"] = required
-    return schema
-
-
-def _python_type_to_json_type(type_str: str) -> str:
-    """Map a Python type annotation string to a JSON Schema type."""
-    type_lower = type_str.lower().strip()
-    if type_lower in ("str", "string"):
-        return "string"
-    elif type_lower in ("int", "integer"):
-        return "integer"
-    elif type_lower in ("float", "number"):
-        return "number"
-    elif type_lower in ("bool", "boolean"):
-        return "boolean"
-    elif type_lower.startswith("list") or type_lower.startswith("sequence"):
-        return "array"
-    elif type_lower.startswith("dict") or type_lower.startswith("mapping"):
-        return "object"
-    return "string"
 
 
 def _callable_to_tool_def(fn: Callable[..., Any]) -> ToolDef:
     """Convert a plain Python callable to a ToolDef.
 
-    Introspects the function's signature and docstring to produce
-    a provider-agnostic tool definition.
+    Its parameters are classified as a job's would be — the same signature
+    walk and the same contracts — and published through the same schema
+    builder, so a function and a job declaring it describe one input set.
     """
-    name = getattr(fn, "__name__", str(fn))
-    description = inspect.getdoc(fn) or ""
-    parameters_schema = _signature_to_schema(fn)
+    from functualize._discovery import extract_parameters_from_signature
+    from functualize.app.utils import input_schema
 
     return ToolDef(
-        name=name,
-        description=description,
-        parameters_schema=parameters_schema,
+        name=getattr(fn, "__name__", str(fn)),
+        description=inspect.getdoc(fn) or "",
+        parameters_schema=input_schema(extract_parameters_from_signature(fn)),
         job_name=None,
         function=fn,
         config_class=None,
     )
-
-
-def _signature_to_schema(fn: Callable[..., Any]) -> dict[str, Any]:
-    """Build a JSON Schema-like dict from a callable's signature."""
-    try:
-        sig = inspect.signature(fn)
-    except (ValueError, TypeError):
-        return {}
-
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-
-    for param_name, param in sig.parameters.items():
-        # Skip 'self', 'cls', and *args/**kwargs
-        if param_name in ("self", "cls"):
-            continue
-        if param.kind in (
-            inspect.Parameter.VAR_POSITIONAL,
-            inspect.Parameter.VAR_KEYWORD,
-        ):
-            continue
-
-        annotation = param.annotation
-        json_type = "string"  # default
-        if annotation is not inspect.Parameter.empty:
-            json_type = _annotation_to_json_type(annotation)
-
-        prop: dict[str, Any] = {"type": json_type}
-        properties[param_name] = prop
-
-        if param.default is inspect.Parameter.empty:
-            required.append(param_name)
-
-    if not properties:
-        return {}
-
-    schema: dict[str, Any] = {
-        "type": "object",
-        "properties": properties,
-    }
-    if required:
-        schema["required"] = required
-    return schema
-
-
-def _annotation_to_json_type(annotation: Any) -> str:
-    """Convert a Python type annotation to a JSON Schema type string."""
-    if annotation is str:
-        return "string"
-    elif annotation is int:
-        return "integer"
-    elif annotation is float:
-        return "number"
-    elif annotation is bool:
-        return "boolean"
-    elif annotation is list:
-        return "array"
-    elif annotation is dict:
-        return "object"
-
-    # Handle typing generics
-    origin = getattr(annotation, "__origin__", None)
-    if origin is list:
-        return "array"
-    elif origin is dict:
-        return "object"
-
-    # Fallback: try string representation
-    ann_str = str(annotation)
-    if "list" in ann_str.lower():
-        return "array"
-    elif "dict" in ann_str.lower():
-        return "object"
-    elif "int" in ann_str.lower():
-        return "integer"
-    elif "float" in ann_str.lower():
-        return "number"
-    elif "bool" in ann_str.lower():
-        return "boolean"
-
-    return "string"

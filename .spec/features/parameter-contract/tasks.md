@@ -1828,7 +1828,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     - The core `run_job` tool (`_tools.py`, outside `[F]`) keeps its own envelope.
     - The generated JSON and serve logs stay untracked.
 
-### [ ] 7.2 The AI `ToolScope` reads the one schema (spec revision S-1)
+### [x] 7.2 The AI `ToolScope` reads the one schema (spec revision S-1)
 
 - **Input:** 6.1; `type-maps` gate: `_tool_scope.py` 4 hits.
 - **[F]:** `plugins/domains/functualize-ai/src/functualize_ai/_tool_scope.py`.
@@ -1838,6 +1838,44 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `rg -n -e _python_type_to_json_type -e _annotation_to_json_type plugins/domains/functualize-ai/src` → 0 (today 4);
   - `uv run pytest plugins/domains/functualize-ai/tests/`.
 - **Depends on:** 6.1.
+- **Execute evidence (2026-11-24, after `ebc09bdf`):**
+  - **Work.** In `_tool_scope.py`, `_fields_to_schema`, `_python_type_to_json_type`,
+    `_signature_to_schema` and `_annotation_to_json_type` are deleted.
+    - A job's tool takes `parameters_schema=job_input_schema(descriptor)`, the document
+      `info schema` and MCP publish.
+    - A plain callable (`ToolScope.functions`) is classified by the job signature walk
+      (`extract_parameters_from_signature`) and published with `input_schema`, so a function and
+      a job declaring it describe one input set.
+    - Core is imported lazily, as the MCP translator does.
+    - `to_tool_defs` documents the descriptor shape it now needs: a `JobDescriptor`'s
+      `config_fields` and `parameters`.
+  - **Deliberate behaviour changes.**
+    - A job without inputs publishes `{"type": "object", "properties": {}, "required": []}` rather
+      than `{}`.
+    - An injected parameter of a plain callable is no longer offered to the model.
+    - Inherited group options are not published here: this route has no group layer, the same as
+      before.
+  - **Gate.**
+    - `rg -n -e _python_type_to_json_type -e _annotation_to_json_type plugins/domains/functualize-ai/src`
+      → **0** (was 4).
+    - `uv run pytest plugins/domains/functualize-ai/tests/` → 22 passed.
+    - `plugins/domains/functualize-ai-pydantic/tests` → 27 passed.
+    - `tests/plugins/ -k "tool_scope or ai" --run-slow` → 536 passed, 1 skipped, plus
+      `test_ai_events.py` at 27 passed after its fake gained `parameters`.
+    - `mypy src/` clean (424 files); `lint-imports` 7 kept; Ruff check and format clean;
+      `git diff --check` clean.
+    - mypy on `_tool_scope.py` alone reports `no-any-return` at `_get_descriptors` (`:351`,
+      untouched by this task).
+  - **Reachability.** `AI.run(tools=scope, job_registry=...)` → `ToolScope.to_tool_defs` →
+    `_descriptor_to_tool_def` → `job_input_schema`. Replacing that call with `{}` fails
+    `test_tool_scope.py::test_generates_schema_from_the_jobs_contracts` and
+    `::test_a_job_without_inputs_publishes_an_empty_object`. Restored from a recorded snapshot.
+  - **Tests outside `[F]`, each required by this gate.**
+    - `tests/plugins/test_tool_scope.py`: two tests are rewritten. The fields come from a real
+      signature, and the schema is asserted as published.
+    - The fake descriptors in `functualize-ai/tests/test_ai_capability.py` and
+      `tests/plugins/test_ai_events.py` gain the `parameters` list that every `JobDescriptor`
+      has.
 
 ### [ ] 7.3 Retire the transitional click wrappers
 
