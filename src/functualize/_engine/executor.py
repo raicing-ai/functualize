@@ -1397,11 +1397,12 @@ class JobExecutionEngine:
         declaration = getattr(function, "__functualize_workflow__", None)
 
         contracts = self._contracts_for_job(job_name, function)
+        # Model fields are config inputs (contracts.md §1), hostless engines too.
         config_names = {
             contract.name
             for contract in contracts
             if contract.verdict is Verdict.CONFIG_FIELD
-        }
+        } | set(getattr(config_class, "model_fields", None) or ())
         config_values = {
             name: value
             for name, value in context.call_kwargs.items()

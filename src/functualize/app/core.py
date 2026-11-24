@@ -340,8 +340,11 @@ class FunctualizeApp:
             return None
 
     def admitted_contracts(self, name: str) -> Mapping[str, ParameterContract] | None:
-        """The boot-admitted contracts for a job, if it has been admitted."""
-        return getattr(self, "_admitted_contracts", {}).get(name)
+        """The boot-admitted contracts for a job, by any name ``get_job`` resolves."""
+        admitted = getattr(self, "_admitted_contracts", {})
+        if name in admitted or (descriptor := self.get_job(name)) is None:
+            return admitted.get(name)
+        return admitted.get(descriptor.name)
 
     def registered_jobs(self) -> Mapping[str, RegisteredJob]:
         """Every registered job, as a read-only mapping.
