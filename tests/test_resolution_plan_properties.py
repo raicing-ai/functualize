@@ -27,7 +27,7 @@ from functualize._engine.resolution import (
     build_resolution_plan,
 )
 from functualize._primitives.di import DIRegistry, MissingProviderError, Provide
-from functualize._primitives.parameter_contract import build_contracts
+from functualize._primitives.parameter_contract import _qualname, build_contracts
 from functualize.job.capabilities import Invoke, JobContext, Log, Perf, Prompt, State
 from functualize.job.context import RunContext
 from tests._support.engine_storage import engine_storage
@@ -202,11 +202,6 @@ class TestResolutionPlanCachingByFunctionIdentity:
 # =============================================================================
 # Property 10: Engine DI resolution correctness
 # =============================================================================
-
-
-def _qualname(type_: type) -> str:
-    """How a contract names a provider-backed dependency (``Injection.provider_type``)."""
-    return f"{type_.__module__}.{type_.__qualname__}"
 
 
 def _recording_job(annotations: dict, seen: dict):
