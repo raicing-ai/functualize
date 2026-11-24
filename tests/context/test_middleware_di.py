@@ -15,6 +15,7 @@ Requirements validated:
 # Middleware functions with locally-defined type annotations need runtime type objects
 # (not strings) for DI resolution via get_type_hints() to work correctly.
 
+import weakref
 from collections.abc import Generator
 from typing import Any
 
@@ -158,14 +159,21 @@ class TestMiddlewareDIResolution:
 class TestMiddlewareResolutionPlanCaching:
     """Tests that middleware uses same ResolutionPlan caching mechanism."""
 
-    def test_resolution_plan_cached_by_function_id(self) -> None:
-        """The ResolutionPlan for a middleware function is cached by id(function)."""
+    def test_resolution_plan_cached_under_the_callable(self) -> None:
+        """A middleware function's ResolutionPlan is computed once and reused.
+
+        Keyed by the callable itself, never by ``id()``: an address is reused
+        once a function is collected, and the next function would inherit its
+        plan (spec B-7, schema invariant 8).
+        """
 
         def my_middleware(log: Log) -> Generator[None]:
             yield
 
         capabilities: dict[type, Any] = {Log: Log()}
-        cache: dict[int, ResolutionPlan] = {}
+        cache: weakref.WeakKeyDictionary[Any, ResolutionPlan] = (
+            weakref.WeakKeyDictionary()
+        )
 
         entry = MiddlewareEntry(my_middleware, priority=0)
         entry._registration_order = 0
@@ -185,8 +193,8 @@ class TestMiddlewareResolutionPlanCaching:
             resolution_plan_cache=cache,
         )
 
-        assert id(my_middleware) in cache
-        cached_plan = cache[id(my_middleware)]
+        assert my_middleware in cache
+        cached_plan = cache[my_middleware]
 
         # Second call — same plan object should be reused (no re-inspection)
         execute_middleware_chain(
@@ -200,18 +208,24 @@ class TestMiddlewareResolutionPlanCaching:
             resolution_plan_cache=cache,
         )
 
-        assert cache[id(my_middleware)] is cached_plan
+        assert cache[my_middleware] is cached_plan
 
     def test_shared_cache_with_job_functions(self) -> None:
-        """Middleware shares the same cache dict as job functions (passed from engine)."""
+        """Middleware shares the engine's cache with job functions."""
         # Simulate a pre-populated cache (as the engine would have from job resolution)
-        cache: dict[int, ResolutionPlan] = {}
+        cache: weakref.WeakKeyDictionary[Any, ResolutionPlan] = (
+            weakref.WeakKeyDictionary()
+        )
 
         def my_middleware(log: Log) -> Generator[None]:
             yield
 
-        # Pre-populate cache with a fake job entry to verify sharing
-        cache[999] = ResolutionPlan(function_id=999, params=())
+        def some_job() -> None:
+            pass
+
+        # Pre-populate cache with a job's plan to verify sharing
+        job_plan = ResolutionPlan(params=())
+        cache[some_job] = job_plan
 
         capabilities: dict[type, Any] = {Log: Log()}
         entry = MiddlewareEntry(my_middleware, priority=0)
@@ -232,8 +246,8 @@ class TestMiddlewareResolutionPlanCaching:
         )
 
         # Both the pre-existing job entry and new middleware entry are in cache
-        assert 999 in cache
-        assert id(my_middleware) in cache
+        assert cache[some_job] is job_plan
+        assert my_middleware in cache
 
 
 # --- Test: Requirement 21.3 - Shared per-invocation instances ---

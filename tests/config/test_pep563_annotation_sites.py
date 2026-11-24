@@ -170,42 +170,48 @@ class TestFieldDescriptorExtraction:
 
 
 class TestArgumentValidation:
-    """`_build_validation_model` — validation.py. The worst of the five:
-    `Field()` constraints stop being enforced, so out-of-range input is
-    silently accepted rather than rejected."""
+    """The binder enforces ``Field()`` constraints in both annotation modes."""
 
-    def test_both_forms_build_a_validation_model(self) -> None:
-        from functualize._engine.validation import _build_validation_model
+    def test_both_forms_build_equal_contracts_and_bind(self) -> None:
+        from functualize._primitives.argument_binding import ArgumentBinder
+        from functualize._primitives.parameter_contract import build_contracts
 
         live, pep563 = _both_forms(FIELD_JOB, "validate")
-
-        assert _build_validation_model(live.bounded) is not None
-        assert _build_validation_model(pep563.bounded) is not None, (
-            "PEP 563 module produced no validation model — Field() constraints "
-            "would be silently unenforced"
-        )
+        assert build_contracts(live.bounded) == build_contracts(pep563.bounded)
+        binder = ArgumentBinder()
+        for module in (live, pep563):
+            assert binder.bind(
+                module.bounded,
+                build_contracts(module.bounded),
+                {"count": 5},
+                surface="app.execute",
+            ) == {"count": 5}
 
     def test_constraints_are_actually_enforced_under_pep563(self) -> None:
         """Not "a model was built" — that the model rejects bad input."""
-        from pydantic import ValidationError
-
-        from functualize._engine.validation import ArgValidator
+        from functualize._primitives.argument_binding import ArgumentBinder, BindRefusal
+        from functualize._primitives.parameter_contract import build_contracts
 
         _, pep563 = _both_forms(FIELD_JOB, "enforce")
-        validator = ArgValidator()
-
-        assert validator.validate(pep563.bounded, {"count": 5}) == {"count": 5}
-        with pytest.raises(ValidationError):
-            validator.validate(pep563.bounded, {"count": 99})
+        with pytest.raises(BindRefusal):
+            ArgumentBinder().bind(
+                pep563.bounded,
+                build_contracts(pep563.bounded),
+                {"count": 99},
+                surface="app.execute",
+            )
 
     def test_the_two_forms_agree_on_rejection(self) -> None:
-        from pydantic import ValidationError
-
-        from functualize._engine.validation import ArgValidator
+        from functualize._primitives.argument_binding import ArgumentBinder, BindRefusal
+        from functualize._primitives.parameter_contract import build_contracts
 
         live, pep563 = _both_forms(FIELD_JOB, "agree")
-        validator = ArgValidator()
 
         for module in (live, pep563):
-            with pytest.raises(ValidationError):
-                validator.validate(module.bounded, {"count": -1})
+            with pytest.raises(BindRefusal):
+                ArgumentBinder().bind(
+                    module.bounded,
+                    build_contracts(module.bounded),
+                    {"count": -1},
+                    surface="app.execute",
+                )

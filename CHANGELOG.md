@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — every call binds at one door before the job runs
+
+Every surface's values now pass one binding step in the engine, before
+dependency injection and before `PRE_EXECUTE` hooks:
+
+- a job declaring `**kwargs` no longer receives unknown keys: they are refused (B-26);
+- middleware: a registered `str` provider no longer turns a middleware `str` parameter into
+  DI (F-21);
+- a `FromStep` parameter is not a caller input: it is published on no surface, and a caller
+  key naming it is refused (B-1);
+- a refused call (unknown, missing, non-converting, or injected key) ends `Invalid`, not
+  `Failure` with a `TypeError`, including at a workflow launch (B-26);
+- a job whose config model nests a model or a `dict` is refused at discovery and ends
+  `Invalid` on every call (B-8, F-29);
+- an explicit value for an injected parameter is refused (B-30).
+- an unannotated parameter binds as text on every surface, including in-process calls;
+  a non-text value is refused unless the job declares its intended type (B-24).
+
 ### Fixed — secret config defaults stay out of command help
 
 The live job command now uses the same sanitized config contracts as cached

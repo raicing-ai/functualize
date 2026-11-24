@@ -13,6 +13,7 @@ Tests the execution engine's DI resolution mechanisms:
 # for dynamically-created types in local scopes.
 
 import inspect
+import weakref
 from typing import Annotated, Optional
 from unittest.mock import MagicMock, patch
 
@@ -24,9 +25,16 @@ from functualize._engine.resolution import (
     build_resolution_plan,
 )
 from functualize._primitives.di import DIRegistry, MissingProviderError, Provide
+from functualize._primitives.parameter_contract import build_contracts
 from functualize.job.capabilities import Invoke, JobContext, Log, Perf, Prompt, State
 from functualize.job.context import RunContext
 from tests._support.engine_storage import engine_storage
+
+
+def _plan_for(function, *_args, **_kwargs):
+    """Use the declaration contract, regardless of registry contents."""
+    return build_resolution_plan(build_contracts(function))
+
 
 # =============================================================================
 # Strategies
@@ -53,7 +61,7 @@ class TestResolutionPlanCachingByFunctionIdentity:
     """Property 9: ResolutionPlan caching by function identity.
 
     For any function object, the ResolutionPlan computed by the execution engine
-    SHALL be cached such that subsequent lookups by id(function) return the exact
+    SHALL be cached such that subsequent lookups by callable return the exact
     same plan object (by identity) without re-invoking inspect.signature().
 
     **Validates: Requirements 5.4**
@@ -70,19 +78,18 @@ class TestResolutionPlanCachingByFunctionIdentity:
         def my_job(log: Log, state: State) -> None:
             pass
 
-        # Simulate engine caching: build once, store by id(function)
-        cache: dict[int, ResolutionPlan] = {}
+        # Simulate engine caching: build once, store by weak callable reference.
+        cache: weakref.WeakKeyDictionary[object, ResolutionPlan] = (
+            weakref.WeakKeyDictionary()
+        )
         registered_types = {Log, State}
 
-        func_id = id(my_job)
-        plan = build_resolution_plan(
-            my_job, registered_types, runcontext_type=RunContext
-        )
-        cache[func_id] = plan
+        plan = _plan_for(my_job, registered_types, runcontext_type=RunContext)
+        cache[my_job] = plan
 
         # All subsequent lookups should return the same plan object
         for _ in range(num_lookups):
-            cached_plan = cache.get(id(my_job))
+            cached_plan = cache.get(my_job)
             assert cached_plan is plan, (
                 "Cached plan must be the same object (by identity) on every lookup"
             )
@@ -97,7 +104,9 @@ class TestResolutionPlanCachingByFunctionIdentity:
         def sample_job(log: Log, perf: Perf) -> None:
             pass
 
-        cache: dict[int, ResolutionPlan] = {}
+        cache: weakref.WeakKeyDictionary[object, ResolutionPlan] = (
+            weakref.WeakKeyDictionary()
+        )
         registered_types = {Log, Perf}
         signature_call_count = 0
 
@@ -110,26 +119,24 @@ class TestResolutionPlanCachingByFunctionIdentity:
 
         # First call builds the plan (invokes inspect.signature)
         with patch(
-            "functualize._engine.resolution.inspect.signature", counting_signature
+            "functualize._primitives.parameter_contract.inspect.signature",
+            counting_signature,
         ):
-            plan = build_resolution_plan(
-                sample_job, registered_types, runcontext_type=RunContext
-            )
-        cache[id(sample_job)] = plan
+            plan = _plan_for(sample_job, registered_types, runcontext_type=RunContext)
+        cache[sample_job] = plan
         initial_count = signature_call_count
 
         # Subsequent lookups should NOT invoke inspect.signature
         for _ in range(num_lookups):
-            func_id = id(sample_job)
-            if func_id in cache:
-                _ = cache[func_id]
+            if sample_job in cache:
+                _ = cache[sample_job]
             else:
                 # This branch should never be taken
                 with patch(
-                    "functualize._engine.resolution.inspect.signature",
+                    "functualize._primitives.parameter_contract.inspect.signature",
                     counting_signature,
                 ):
-                    cache[func_id] = build_resolution_plan(
+                    cache[sample_job] = _plan_for(
                         sample_job, registered_types, runcontext_type=RunContext
                     )
 
@@ -144,12 +151,14 @@ class TestResolutionPlanCachingByFunctionIdentity:
         **Validates: Requirements 5.4**
         """
         registered_types = {Log, State, Perf}
-        cache: dict[int, ResolutionPlan] = {}
+        cache: weakref.WeakKeyDictionary[object, ResolutionPlan] = (
+            weakref.WeakKeyDictionary()
+        )
 
         # Create multiple distinct functions
         functions = []
         for i in range(num_functions):
-            # Each function has a unique closure to ensure distinct id()
+            # Each function has a unique closure and callable identity.
             def make_fn(idx):
                 def fn(log: Log) -> None:
                     _ = idx
@@ -161,21 +170,19 @@ class TestResolutionPlanCachingByFunctionIdentity:
 
         # Build plans for each function
         for fn in functions:
-            plan = build_resolution_plan(
-                fn, registered_types, runcontext_type=RunContext
-            )
-            cache[id(fn)] = plan
+            plan = _plan_for(fn, registered_types, runcontext_type=RunContext)
+            cache[fn] = plan
 
         # Each function should have its own plan (distinct by identity)
-        plans = [cache[id(fn)] for fn in functions]
+        plans = [cache[fn] for fn in functions]
         plan_ids = [id(p) for p in plans]
         assert len(set(plan_ids)) == num_functions, (
             "Each function should have a distinct plan object"
         )
 
     @given(num_lookups=st.integers(min_value=2, max_value=10))
-    def test_plan_function_id_matches_id_of_function(self, num_lookups: int):
-        """The ResolutionPlan's function_id matches the id() of the function it was built for.
+    def test_plan_has_no_address_based_identity(self, num_lookups: int):
+        """A plan's result depends on the declaration, not its memory address.
 
         **Validates: Requirements 5.4**
         """
@@ -184,13 +191,10 @@ class TestResolutionPlanCachingByFunctionIdentity:
             pass
 
         registered_types = {Invoke}
-        plan = build_resolution_plan(
-            target_job, registered_types, runcontext_type=RunContext
-        )
+        plan = _plan_for(target_job, registered_types, runcontext_type=RunContext)
 
-        assert plan.function_id == id(target_job), (
-            "Plan's function_id must equal id(function)"
-        )
+        for _ in range(num_lookups):
+            assert plan == _plan_for(target_job, registered_types)
 
 
 # =============================================================================
@@ -250,9 +254,7 @@ class TestEngineDIResolutionCorrectness:
         job_func.__annotations__ = annotations
 
         # Build resolution plan
-        plan = build_resolution_plan(
-            job_func, registered_types, runcontext_type=RunContext
-        )
+        plan = _plan_for(job_func, registered_types, runcontext_type=RunContext)
 
         # Verify all params are classified as "di"
         assert len(plan.params) == num_params
@@ -283,9 +285,7 @@ class TestEngineDIResolutionCorrectness:
             pass
 
         registered_types: set[type] = set()
-        plan = build_resolution_plan(
-            job_with_rc, registered_types, runcontext_type=RunContext
-        )
+        plan = _plan_for(job_with_rc, registered_types, runcontext_type=RunContext)
 
         assert len(plan.params) == 1
         assert plan.params[0].source == "runcontext"
@@ -330,9 +330,7 @@ class TestEngineDIResolutionCorrectness:
         job_func = local_ns["job_func"]
         job_func.__annotations__ = annotations
 
-        plan = build_resolution_plan(
-            job_func, registered_types, runcontext_type=RunContext
-        )
+        plan = _plan_for(job_func, registered_types, runcontext_type=RunContext)
 
         # Simulate resolution: unregistered types without defaults should fail
         for binding in plan.params:
@@ -378,7 +376,7 @@ class TestEngineDIResolutionCorrectness:
 
         # UnregisteredService is NOT in registered_types
         registered_types: set[type] = set()
-        plan = build_resolution_plan(
+        plan = _plan_for(
             job_with_optional, registered_types, runcontext_type=RunContext
         )
 
@@ -433,9 +431,7 @@ class TestEngineDIResolutionCorrectness:
         job_func = local_ns["job_func"]
         job_func.__annotations__ = annotations
 
-        plan = build_resolution_plan(
-            job_func, registered_types, runcontext_type=RunContext
-        )
+        plan = _plan_for(job_func, registered_types, runcontext_type=RunContext)
 
         # All params should be resolved as "di" with is_optional=True
         for binding in plan.params:
@@ -474,7 +470,7 @@ class TestEngineDIResolutionCorrectness:
             "return": None,
         }
 
-        plan = build_resolution_plan(
+        plan = _plan_for(
             job_with_qualified, registered_types, runcontext_type=RunContext
         )
 
@@ -507,9 +503,7 @@ class TestEngineDIResolutionCorrectness:
         exec(f"def job_func({params_str}): pass", local_ns)
         job_func = local_ns["job_func"]
 
-        plan = build_resolution_plan(
-            job_func, registered_types, runcontext_type=RunContext
-        )
+        plan = _plan_for(job_func, registered_types, runcontext_type=RunContext)
 
         # First param (log) should be "di", rest should be "skip"
         assert plan.params[0].source == "di"
@@ -529,9 +523,7 @@ class TestEngineDIResolutionCorrectness:
         def job_with_default(log: Log = None) -> None:  # type: ignore[assignment]
             pass
 
-        plan = build_resolution_plan(
-            job_with_default, registered_types, runcontext_type=RunContext
-        )
+        plan = _plan_for(job_with_default, registered_types, runcontext_type=RunContext)
 
         assert len(plan.params) == 1
         binding = plan.params[0]

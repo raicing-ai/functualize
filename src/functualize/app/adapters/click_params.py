@@ -23,7 +23,6 @@ import datetime as _dt
 import inspect
 import logging
 import sys
-import types
 import typing
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from enum import Enum
@@ -456,19 +455,13 @@ def _legacy_build_click_params_from_fields(
     return params
 
 
-def _click_type_for_shape(
-    shape: ValueShape, enum_type: type[Enum] | None = None
-) -> Any:
+def _click_type_for_shape(shape: ValueShape) -> Any:
     """Choose Click's parser from the discovery contract's value shape."""
     import decimal
     import uuid
     from pathlib import Path
 
     scalar = shape.scalar
-    # TRANSITIONAL(parameter-contract/5.1): a live Enum needs its member here
-    # until the binding door converts text using the function's annotation.
-    if scalar is Scalar.ENUM and enum_type is not None:
-        return _EnumChoice(enum_type)
     if scalar is Scalar.ENUM:
         return click.Choice([str(value) for value in shape.enum_values])
     if scalar is Scalar.TIMEDELTA:
@@ -510,11 +503,23 @@ class _DurationParamType(click.ParamType):  # type: ignore[type-arg]
             self.fail(f"{value!r} is not a valid ISO-8601 duration", param, ctx)
 
 
+def _explicit_multiple(ctx: click.Context, param: click.Parameter, value: Any) -> Any:
+    """Pass a repeatable value only when a caller supplied it.
+
+    Click turns an absent repeatable option into ``()`` even when its declared
+    default is ``None``. Leaving it out lets the binding door apply the actual
+    contract default. ``expose_value=False`` prevents Click from adding ``()``
+    after this callback returns.
+    """
+    if ctx.get_parameter_source(param.name) is not click.core.ParameterSource.DEFAULT:
+        ctx.params[param.name] = value
+    return value
+
+
 def render_click_params(
     contracts: Sequence[ParameterContract],
     *,
     config_names: frozenset[str] = frozenset(),
-    enum_types: Mapping[str, type[Enum]] | None = None,
 ) -> list[click.Parameter]:
     """Render every Click command from the cached parameter decisions."""
     arguments: list[click.Parameter] = []
@@ -531,7 +536,7 @@ def render_click_params(
             Verdict.CONFIG_FIELD,
         }:
             continue
-        click_type = _click_type_for_shape(shape, (enum_types or {}).get(contract.name))
+        click_type = _click_type_for_shape(shape)
         is_config = (
             contract.verdict is Verdict.CONFIG_FIELD or contract.name in config_names
         )
@@ -586,6 +591,9 @@ def render_click_params(
         }
         if not required:
             kwargs["default"] = default
+        if multiple:
+            kwargs["expose_value"] = False
+            kwargs["callback"] = _explicit_multiple
         options.append(click.Option(decls, **kwargs))
     return arguments + options
 
@@ -1068,40 +1076,6 @@ def _legacy_build_click_params(
 
 # TRANSITIONAL(7.3): callers keep this signature while every Click path uses
 # render_click_params over the same discovery contracts.
-def _live_enum_types(
-    function: Callable[..., Any], contracts: Sequence[ParameterContract]
-) -> dict[str, type[Enum]]:
-    """Find only the live classes for contracts already classified as choices."""
-    try:
-        hints = typing.get_type_hints(function, include_extras=True)
-    except Exception:
-        hints = {}
-    signature = inspect.signature(function)
-    found: dict[str, type[Enum]] = {}
-    for contract in contracts:
-        if contract.shape is None or contract.shape.scalar is not Scalar.ENUM:
-            continue
-        parameter = signature.parameters.get(contract.name)
-        if parameter is None:
-            continue
-        annotation = hints.get(contract.name, parameter.annotation)
-        while True:
-            origin = typing.get_origin(annotation)
-            args = typing.get_args(annotation)
-            if origin is Annotated or origin in {list, tuple}:
-                annotation = args[0]
-            elif origin in {typing.Union, types.UnionType}:
-                non_none = [arg for arg in args if arg is not type(None)]
-                if len(non_none) != 1:
-                    break
-                annotation = non_none[0]
-            else:
-                break
-        if isinstance(annotation, type) and issubclass(annotation, Enum):
-            found[contract.name] = annotation
-    return found
-
-
 def build_click_params(
     function: Callable[..., Any],
     job_config_class: type[BaseModel] | None,
@@ -1124,9 +1098,7 @@ def build_click_params(
             if descriptor.contract is not None
         )
     return (
-        render_click_params(
-            contracts, enum_types=_live_enum_types(function, contracts)
-        ),
+        render_click_params(contracts),
         job_config_class,
         {},
     )
@@ -1754,6 +1726,19 @@ def create_job_command(
     params, resolved_config, _stdin_markers = _legacy_build_click_params(
         function, job_config_class
     )
+    if app is not None:
+        from functualize._app.boot import admit_contracts
+        from functualize._discovery.schema_extractor import extract_field_descriptors
+        from functualize._primitives.parameter_contract import build_contracts
+
+        contracts = list(build_contracts(function))
+        if resolved_config is not None:
+            contracts.extend(
+                field.contract
+                for field in extract_field_descriptors(resolved_config)
+                if field.contract is not None
+            )
+        admit_contracts(app, name, contracts, function.__module__)
     markers = extract_capability_markers(function)
     callback = build_job_engine_callback(
         name,

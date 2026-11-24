@@ -9,13 +9,15 @@ Only imports from `_types/`, `_primitives/`, `_events/`, and stdlib.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import inspect
 import logging
 import sys
 import time
 import types
-from collections.abc import Callable
+import weakref
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
@@ -38,16 +40,18 @@ from functualize._engine.dependency_runner import DependencyRunner
 from functualize._engine.missing_value import MissingValueError
 from functualize._engine.recording.run_recorder import RunRecorder
 from functualize._engine.resolution import ResolutionPlan, build_resolution_plan
-from functualize._engine.validation import ArgValidator, unexpected_keyword_error
 from functualize._engine.workflow_orchestrator import WorkflowOrchestrator
 from functualize._events import EventBus, HookEvent, HookRegistry
 from functualize._events.run_log import pop_run, push_run
 from functualize._primitives import DIRegistry, MissingProviderError
+from functualize._primitives.argument_binding import ArgumentBinder, BindRefusal
 from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
+from functualize._primitives.parameter_contract import build_contracts
 from functualize._types import AmbiguousJobError, JobResult, RunStatus
 from functualize._types.annotations import resolved_hints
 from functualize._types.functualize_settings import SHELL_PROGRAM, SHELL_SUDO_PASSWORD
 from functualize._types.outcome import RAISED_BY_JOB
+from functualize._types.parameter_contract import Verdict
 from functualize._types.redaction import Secret, redacted_snapshot
 from functualize._types.run_request import SURFACE_POLICY
 
@@ -82,6 +86,24 @@ def _per_invocation_types() -> set[type]:
     from functualize._engine.capabilities.registry import PER_INVOCATION_TYPES
 
     return set(PER_INVOCATION_TYPES)
+
+
+def _injection_annotation(annotation: Any) -> tuple[Any, str | None, bool]:
+    """Unwrap a live annotation for resolving a contract-declared injection."""
+    from functualize._primitives.di import Provide
+
+    optional = False
+    if get_origin(annotation) in (Union, types.UnionType):
+        args = [arg for arg in get_args(annotation) if arg is not NoneType]
+        if len(args) == 1 and len(get_args(annotation)) == 2:
+            annotation, optional = args[0], True
+    qualifier = None
+    if get_origin(annotation) is Annotated:
+        annotation, *metadata = get_args(annotation)
+        qualifier = next(
+            (item.qualifier for item in metadata if isinstance(item, Provide)), None
+        )
+    return annotation, qualifier, optional
 
 
 class _MinimalConfigView:
@@ -290,20 +312,27 @@ class JobExecutionEngine:
         self._agent_step_registry = agent_step_registry
         self._notifier_registry = notifier_registry
         self._registered_jobs: dict[str, RegisteredJob] = {}
-        self._resolution_plan_cache: dict[int, ResolutionPlan] = {}
-        # {id(function): ((param_name, GroupOptions subclass), ...)} — usually
+        self._resolution_plan_cache: weakref.WeakKeyDictionary[
+            Callable[..., Any], ResolutionPlan
+        ] = weakref.WeakKeyDictionary()
+        self._hostless_contract_cache: weakref.WeakKeyDictionary[
+            Callable[..., Any], tuple[Any, ...]
+        ] = weakref.WeakKeyDictionary()
+        # Callable → ((param_name, GroupOptions subclass), ...); usually
         # empty, and the empty answer is what most executions look up (S6a).
         # The class is `Any` because the detection is structural rather than an
         # `issubclass` against the real base (see group_options_detection): the
         # engine must not import `_types.group_options` to answer this.
-        self._group_options_cache: dict[int, tuple[tuple[str, Any], ...]] = {}
+        self._group_options_cache: weakref.WeakKeyDictionary[
+            Callable[..., Any], tuple[tuple[str, Any], ...]
+        ] = weakref.WeakKeyDictionary()
         from functualize._engine.freshness_key import FreshnessKeys
 
         self._freshness_keys = FreshnessKeys(self)
         self._config_view_factory = config_view_factory
         self._config_resolver = config_resolver
         self._settings_resolver = settings_resolver
-        self._arg_validator = ArgValidator()
+        self._argument_binder = ArgumentBinder()
         # The `@workflow` prelude, which is its own subject and was ~150 lines
         # of this class (T6). Constructed here rather than lazily: it holds
         # nothing but a back-reference, so there is nothing to defer.
@@ -513,7 +542,7 @@ class JobExecutionEngine:
         with one carrying the real function and detected config_class
         (never clobbering an explicit config_class), swaps the entry in
         the engine registry and all mirrors, and runs the deferred DI
-        binding validation on the real function.
+        binding validation only when no admitted contracts exist (hostless use).
         """
         function: Any = entry.function
         if not getattr(function, "__functualize_lazy__", False):
@@ -540,10 +569,18 @@ class JobExecutionEngine:
         if self._host is not None:
             self._host.replace_job(entry, new_entry)
 
-        # Deferred DI validation (skipped at boot for lazy entries)
-        errors = self._di_binding_errors(entry.name, real_fn)
-        if errors:
-            raise DIValidationError(errors)
+        # Discovery admitted this job's contracts on both cold and warm boot.
+        # Rechecking the registry here gives a second availability verdict for
+        # a cached job, before its binder can return the admitted refusal.
+        admitted = (
+            self._host.admitted_contracts(entry.name)
+            if self._host is not None
+            else None
+        )
+        if not isinstance(admitted, Mapping):
+            errors = self._di_binding_errors(entry.name, real_fn)
+            if errors:
+                raise DIValidationError(errors)
 
         return new_entry
 
@@ -655,10 +692,6 @@ class JobExecutionEngine:
         """
         from typing import get_type_hints
 
-        from functualize._engine.resolution import (
-            _extract_provide_qualifier,
-            _is_optional_type,
-        )
         from functualize._primitives.di import (
             AmbiguousProviderError,
             MissingProviderError,
@@ -700,18 +733,12 @@ class JobExecutionEngine:
                 continue
 
             # Handle Optional[T]
-            is_optional, inner_type = _is_optional_type(annotation)
+            inner_type, _, is_optional = _injection_annotation(annotation)
             if is_optional:
                 # Optional params always resolve to None if no provider — skip
                 continue
 
-            # Skip `FromJob` parameters — the engine injects these from the
-            # upstream's recorded value, so the DI registry is not supposed to
-            # have a provider for them. Without this, declaring
-            # `Annotated[Report, FromJob("make-report")]` on a *discovered* job
-            # fails boot with "No provider for Report". It went unnoticed
-            # because every existing test annotates a builtin (`str`), and
-            # builtins are skipped two checks below.
+            # FromJob is supplied by the upstream result, never the registry.
             from functualize._types.from_job import FromJob
 
             if any(
@@ -725,20 +752,9 @@ class JobExecutionEngine:
                 continue
 
             # Extract qualifier from Annotated
-            base_type, qualifier = _extract_provide_qualifier(annotation)
+            base_type, qualifier, _ = _injection_annotation(annotation)
 
-            # Skip a parameter the caller supplies rather than the registry.
-            #
-            # This used to be "skip builtins", which is a different question:
-            # `pathlib.Path` is not a builtin, so `def backup(to: Path)` --
-            # about the most ordinary thing a task runner is asked to do --
-            # failed with `No provider for Path`. Because this gate raised for
-            # the whole app, one such job took down *every* command on a cold
-            # boot, including `builtin info`, and an explicit
-            # `Annotated[Path, Option(...)]` did not help either. The
-            # rest of the stack already had it right: parameter extraction
-            # publishes these as CLI parameters and `build_resolution_plan`
-            # never injects them.
+            # Caller values are not registry dependencies.
             if has_explicit_cli_marker(annotation) or is_cli_value_type(annotation):
                 continue
 
@@ -1380,29 +1396,32 @@ class JobExecutionEngine:
 
         declaration = getattr(function, "__functualize_workflow__", None)
 
-        # A `@workflow` job's arguments are bound to its *epilogue*, which runs
-        # after the walk — so a keyword the function cannot accept would
-        # otherwise run the whole graph, block at a gate, wait for a person to
-        # approve it, and only then fail, spending the approval on a run that
-        # was never going to succeed. Refuse it here instead, before the prelude
-        # walks and before any scope record is written.
-        #
-        # Only a workflow needs this. A plain job's TypeError already arrives
-        # from the real call, at the right moment and with hooks fired; checking
-        # it again here would be a second place deciding the same thing.
-        if declaration is not None:
-            # A config model's field names are legitimate launch arguments even
-            # though no parameter is called that: `--city Tokyo` for a job
-            # declaring `config: Cfg` arrives as `city=...`, and
-            # `_resolve_config_model` pops it out of `call_kwargs` later. The
-            # acceptable set and the set that stage consumes are one decision,
-            # and both read `model_fields`.
-            consumed_by_config = getattr(config_class, "model_fields", None) or {}
-            launch_error = unexpected_keyword_error(
-                function, kwargs, also_accepts=set(consumed_by_config)
+        contracts = self._contracts_for_job(job_name, function)
+        config_names = {
+            contract.name
+            for contract in contracts
+            if contract.verdict is Verdict.CONFIG_FIELD
+        }
+        config_values = {
+            name: value
+            for name, value in context.call_kwargs.items()
+            if name in config_names
+        }
+        raw_values = {
+            name: value
+            for name, value in context.call_kwargs.items()
+            if name not in config_names
+        }
+        try:
+            context.call_kwargs = self._argument_binder.bind(
+                function,
+                contracts,
+                raw_values,
+                surface=request.surface if request is not None else "app.execute",
             )
-            if launch_error is not None:
-                return self._failure_before_execution(context, job_name, launch_error)
+            context.call_kwargs.update(config_values)
+        except BindRefusal as refusal:
+            return self._failure_before_execution(context, job_name, refusal)
 
         # The @workflow prelude (§A.7): walk the declared graph first, and run
         # the body only if it reached END. A blocked or failed walk returns
@@ -1425,7 +1444,7 @@ class JobExecutionEngine:
         # Resolve DI parameters
         try:
             di_kwargs, per_invocation_caps = self._resolve_di_parameters(
-                function, context
+                function, context, contracts
             )
             context.capabilities = per_invocation_caps
             # Only inject DI params not already provided by caller
@@ -1466,9 +1485,7 @@ class JobExecutionEngine:
             )
             context.capabilities[RunContext] = rc
 
-        # Resolve config, then validate function arguments against Field()
-        # constraints. Both run BEFORE PRE_EXECUTE hooks, and both raise
-        # ValidationError — so both belong in the same handler. Config
+        # Resolve config before PRE_EXECUTE hooks. Config
         # resolution used to sit outside it, which meant a missing required
         # config field escaped `execute()` as a raised exception instead of a
         # FAILURE result. The CLI renders `result.exception` as a field-level
@@ -1483,10 +1500,6 @@ class JobExecutionEngine:
             # the two never contend for the same parameter.
             self._resolve_group_options(function, context, group_option_values)
 
-            validated_kwargs = self._arg_validator.validate(
-                function, context.call_kwargs
-            )
-            context.call_kwargs = validated_kwargs
             # What the job was *actually* given, after config resolution and
             # coercion — the only honest answer to "why did this step do that",
             # and the thing a workflow step record has to carry. Secrets are
@@ -1716,30 +1729,10 @@ class JobExecutionEngine:
         job_name: str,
         error: BaseException,
     ) -> JobResult:
-        """A `FAILURE` result for a job refused before its body was entered.
+        """Return an early refusal without firing PRE_EXECUTE or running the body.
 
-        Fires `AFTER_FAILURE` and emits `job.execute.end`, and deliberately
-        **not** `PRE_EXECUTE`: those hooks mean "the job is committed to
-        running", and it is not.
-
-        Two callers reach this, and they must not drift. A `@workflow` job
-        refused at launch for an unbindable keyword, and any job whose config
-        model or arguments failed to validate. Both are refusals that happen
-        after a context exists and before the body runs, so both owe the caller
-        the same shape — and, above all, neither may let the exception *escape*.
-        That invariant is what lets the CLI render a field-level failure panel
-        instead of a raw traceback, and it is why config resolution was moved
-        inside the handler that calls this in the first place.
-
-        Args:
-            context: The execution context. Its `capabilities` may be `None` —
-                a launch refusal happens before DI has run — in which case the
-                context itself stands in as the hook's receiver.
-            job_name: The registered name, for hooks and the event payload.
-            error: What refused the job; returned on the result, never raised.
-
-        Returns:
-            The `FAILURE` result the caller should return unchanged.
+        AFTER_FAILURE and job.execute.end still fire. A BindRefusal is INVALID;
+        config resolution errors remain FAILURE. Neither escapes to the caller.
         """
         duration_ms = context.elapsed_ms
 
@@ -1760,16 +1753,19 @@ class JobExecutionEngine:
             exception=error,
         )
 
+        status = (
+            RunStatus.INVALID if isinstance(error, BindRefusal) else RunStatus.FAILURE
+        )
         self._event_bus.emit(
             "job.execute.end",
             resource=job_name,
             job_name=job_name,
             duration_ms=duration_ms,
-            status="failure",
+            status=status.value,
         )
 
         return JobResult(
-            status=RunStatus.FAILURE,
+            status=status,
             return_value=None,
             duration_ms=duration_ms,
             metadata=dict(context.metadata),
@@ -1797,35 +1793,45 @@ class JobExecutionEngine:
         validate_workflow_declarations(registry=self._registered_jobs)
         self._workflows_validated_token = token
 
-    def _get_resolution_plan(self, function: Callable[..., Any]) -> ResolutionPlan:
-        """Get or build a ResolutionPlan for a function (cached by id(function))."""
-        func_id = id(function)
-        if func_id in self._resolution_plan_cache:
-            return self._resolution_plan_cache[func_id]
+    def _contracts_for_job(
+        self, job_name: str, function: Callable[..., Any]
+    ) -> tuple[Any, ...]:
+        """Read admission from the host; classify hostless jobs only once."""
+        if self._host is not None:
+            admitted = self._host.admitted_contracts(job_name)
+            if isinstance(admitted, Mapping):
+                return tuple(admitted.values())
+        try:
+            return self._hostless_contract_cache[function]
+        except KeyError:
+            pass
+        except TypeError:
+            return build_contracts(function)
+        contracts = build_contracts(function)
+        with contextlib.suppress(TypeError):
+            self._hostless_contract_cache[function] = contracts
+        return contracts
 
-        from functualize._engine.capabilities.runcontext import RunContext
-
-        registered_types = set(self._di_registry.available_types())
-        # Per-invocation capability types are always resolvable even when
-        # not explicitly registered in the DI registry
-        _config_view_type = self._config_view_type
-        per_invocation_types = _per_invocation_types()
-        if _config_view_type is not None:
-            per_invocation_types.add(_config_view_type)
-        registered_types |= per_invocation_types
-
-        plan = build_resolution_plan(
-            function,
-            registered_types=registered_types,
-            runcontext_type=RunContext,
-        )
-        self._resolution_plan_cache[func_id] = plan
+    def _get_resolution_plan(
+        self, function: Callable[..., Any], contracts: tuple[Any, ...] | None = None
+    ) -> ResolutionPlan:
+        """Get or build a contract-fed plan, cached by callable identity."""
+        try:
+            return self._resolution_plan_cache[function]
+        except (KeyError, TypeError):
+            pass
+        if contracts is None:
+            contracts = self._contracts_for_job("", function)
+        plan = build_resolution_plan(contracts)
+        with contextlib.suppress(TypeError):
+            self._resolution_plan_cache[function] = plan
         return plan
 
     def _resolve_di_parameters(
         self,
         function: Callable[..., Any],
         context: ExecutionContext,
+        contracts: tuple[Any, ...] | None = None,
     ) -> tuple[dict[str, Any], dict[type, Any]]:
         """Resolve DI-annotated parameters for a job function invocation.
 
@@ -1842,9 +1848,11 @@ class JobExecutionEngine:
         Raises:
             MissingProviderError: If a required parameter type has no provider.
         """
-        plan = self._get_resolution_plan(function)
+        plan = self._get_resolution_plan(function, contracts)
         resolved: dict[str, Any] = {}
         per_invocation_caps: dict[type, Any] = {}
+        hints = resolved_hints(function)
+        signature = inspect.signature(function)
 
         _config_view_type = self._config_view_type
         per_invocation_type_set = _per_invocation_types()
@@ -1896,12 +1904,25 @@ class JobExecutionEngine:
                 per_invocation_caps[RunContext] = rc
                 continue
 
-            if binding.source == "di":
-                # Check if this is a per-invocation capability type
-                if (
-                    binding.annotation in per_invocation_type_set
-                    and binding.qualifier is None
-                ):
+            if binding.source in ("di", "capability"):
+                parameter = signature.parameters.get(binding.name)
+                if parameter is None:
+                    continue
+                annotation, _, is_optional = _injection_annotation(
+                    hints.get(binding.name, parameter.annotation)
+                )
+                if binding.source == "capability":
+                    capability_type = next(
+                        (
+                            type_
+                            for type_ in per_invocation_type_set
+                            if type_.__name__ == binding.annotation
+                        ),
+                        None,
+                    )
+                    if capability_type is None:
+                        continue
+                    annotation = capability_type
                     # An OPTIONAL tty (tty: TTY | None) degrades to None when
                     # terminal ownership cannot be granted, so an adaptive job
                     # (`if tty is not None`) falls through to its live/plain
@@ -1909,7 +1930,7 @@ class JobExecutionEngine:
                     # A required tty (tty: TTY) is always injected — the body
                     # may assume it, and tty.run refuses at the floor. Guarded
                     # on is_optional (rare) to keep the common path import-free.
-                    if binding.is_optional:
+                    if is_optional:
                         from functualize._engine.capabilities.tty import (
                             TTY as _TTY,
                         )
@@ -1917,37 +1938,34 @@ class JobExecutionEngine:
                             terminal_available,
                         )
 
-                        if binding.annotation is _TTY and not terminal_available():
+                        if annotation is _TTY and not terminal_available():
                             resolved[binding.name] = None
                             continue
 
                     # Create fresh per-invocation instance
-                    if binding.annotation not in per_invocation_caps:
+                    if annotation not in per_invocation_caps:
                         instance = self._create_per_invocation_cap(
-                            binding.annotation, context, per_invocation_caps
+                            annotation, context, per_invocation_caps
                         )
-                        per_invocation_caps[binding.annotation] = instance
-                    resolved[binding.name] = per_invocation_caps[binding.annotation]
+                        per_invocation_caps[annotation] = instance
+                    resolved[binding.name] = per_invocation_caps[annotation]
                     continue
 
                 # Per-invocation capabilities take precedence over DI registry
-                if (
-                    binding.annotation in per_invocation_caps
-                    and binding.qualifier is None
-                ):
-                    resolved[binding.name] = per_invocation_caps[binding.annotation]
+                if annotation in per_invocation_caps and binding.qualifier is None:
+                    resolved[binding.name] = per_invocation_caps[annotation]
                     continue
 
                 # Try resolving from the DI registry
                 try:
                     instance = self._di_registry.resolve(
-                        binding.annotation,
+                        annotation,
                         qualifier=binding.qualifier,
                         caps=per_invocation_caps,
                     )
                     resolved[binding.name] = instance
                 except MissingProviderError:
-                    if binding.is_optional:
+                    if is_optional:
                         resolved[binding.name] = None
                     else:
                         raise
@@ -2490,8 +2508,10 @@ class JobExecutionEngine:
         hints_subject = (
             function.func if isinstance(function, functools.partial) else function
         )
-        func_id = id(hints_subject)
-        cached = self._group_options_cache.get(func_id)
+        try:
+            cached = self._group_options_cache.get(hints_subject)
+        except TypeError:
+            cached = None
         if cached is not None:
             return cached
 
@@ -2508,7 +2528,8 @@ class JobExecutionEngine:
                 found.append((param_name, annotation))
 
         result = tuple(found)
-        self._group_options_cache[func_id] = result
+        with contextlib.suppress(TypeError):
+            self._group_options_cache[hints_subject] = result
         return result
 
     def _resolve_group_options(

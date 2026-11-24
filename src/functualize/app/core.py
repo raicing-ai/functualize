@@ -64,6 +64,7 @@ if TYPE_CHECKING:
         RegisteredJob,
     )
     from functualize._types.host import SubstrateOffer
+    from functualize._types.parameter_contract import ParameterContract
     from functualize._types.persistence import RuntimeStore, RuntimeStoreFactory
     from functualize._types.protocols import StoreSubstrate
     from functualize._types.settings import AppSettingsSchema
@@ -337,6 +338,10 @@ class FunctualizeApp:
             return self.job_registry.get_descriptor(name)
         except KeyError:
             return None
+
+    def admitted_contracts(self, name: str) -> Mapping[str, ParameterContract] | None:
+        """The boot-admitted contracts for a job, if it has been admitted."""
+        return getattr(self, "_admitted_contracts", {}).get(name)
 
     def registered_jobs(self) -> Mapping[str, RegisteredJob]:
         """Every registered job, as a read-only mapping.

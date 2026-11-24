@@ -319,6 +319,16 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
 - **B-24.** Binding converts every supplied value to the declared type. A `UUID` arrives as `UUID`,
   `Path` as `Path`, `Enum` as the member, `Secret[str]` (on a config field) as `Secret`, `list` as
   `list`, `tuple` as `tuple` (F-22). The same input produces the same job argument on every surface.
+  - **An unannotated parameter binds exactly as `p: str` does** *(ruled 2026-11-24, task 5.1,
+    R-8)*. Its declared type is `str` (C090, C091; the contract publishes `"type": "string"`), and
+    binding converts every surface's value to it, in-process callers included (B-30: "every
+    `RunSurface`").
+    - A value that is not text is refused as non-converting (B-26), exactly as for `p: str`.
+    - `ArgumentBinder` has bound it this way since task 2.3.
+    - **Not chosen:** admitting the caller's value as given (`Any`). The published schema says
+      `string`, and MCP validates against it while HTTP and Lambda do not. So a JSON `3` would be
+      refused on MCP and delivered as an `int` on HTTP and Lambda: one input, two outcomes, which
+      this clause's last sentence and AC-2's W-accept forbid.
 - **B-25.** Binding applies the declared default to every absent parameter, `Field(...)`-constrained
   parameters included (F-23).
 - **B-26.** Binding refuses, before the job is called, a call that:

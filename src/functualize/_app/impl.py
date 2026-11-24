@@ -856,6 +856,9 @@ def register_dynamic_job(
         **extract_capability_markers(function),
     )
     app.job_registry._job_descriptors.append(descriptor)
+    from functualize._app.boot import admit_job_descriptor
+
+    admit_job_descriptor(app, descriptor)
 
     hook_metadata: dict[str, Any] = {
         "name": name,

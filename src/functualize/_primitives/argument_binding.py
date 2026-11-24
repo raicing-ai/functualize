@@ -19,9 +19,6 @@ The result holds only supplied and defaulted values. DI then fills the
 pydantic is imported lazily, as in the other ``_primitives`` modules that use it.
 """
 
-# TRANSITIONAL(parameter-contract/5.1): no production caller yet; the engine
-# door calls ArgumentBinder.bind before DI resolution and PRE_EXECUTE.
-
 from __future__ import annotations
 
 import inspect
@@ -74,7 +71,9 @@ class ArgumentBinder:
 
     Holds one ``TypeAdapter`` per ``(function, parameter)``, built on first
     use and kept on this instance, not in module state: the engine owns one
-    binder, and an adapter outlives no app that built it.
+    binder, and an adapter outlives no app that built it. Keyed by the callable
+    itself, never by ``id()`` (schema invariant 8); an unhashable callable
+    cannot be a key, so its values are converted uncached rather than refused.
     """
 
     def __init__(self) -> None:
@@ -178,13 +177,15 @@ class ArgumentBinder:
             return _signature_default(function, contract)
 
     def _adapter(self, function: Callable[..., Any], name: str) -> Any:
-        key = (function, name)
-        adapter = self._adapters.get(key)
-        if adapter is None:
-            from pydantic import TypeAdapter
+        from pydantic import TypeAdapter
 
-            adapter = TypeAdapter(_annotation(function, name))
-            self._adapters[key] = adapter
+        key = (function, name)
+        try:
+            adapter = self._adapters.get(key)
+        except TypeError:  # an unhashable callable: convert, but cannot cache
+            return TypeAdapter(_annotation(function, name))
+        if adapter is None:
+            adapter = self._adapters[key] = TypeAdapter(_annotation(function, name))
         return adapter
 
 
@@ -196,7 +197,9 @@ def _annotation(function: Callable[..., Any], name: str) -> Any:
     parameter = inspect.signature(function).parameters[name]
     annotation = parameter.annotation
     if annotation is inspect.Parameter.empty:
-        return str  # an unannotated parameter is text (C090, C091)
+        # No declared type: one door, one rule — the value is text (C090, C091),
+        # so an unannotated parameter is `str` whatever the caller sent.
+        return str
     if isinstance(annotation, str):  # PEP 563, and the whole-function hints failed
         namespace = getattr(inspect.unwrap(function), "__globals__", {})
         return eval(annotation, dict(namespace))

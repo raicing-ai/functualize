@@ -1,0 +1,17 @@
+# func probe surfaces, before and after the kit repair (matrix/plugin_probe.py)
+# code under test: <impl tree> at 194d61f0 + the uncommitted 5.1 tree (35 paths)
+
+## before (the kit as committed): surfaces.json -> probe_cmd
+rc 1
+ImportError: cannot import name 'parse_cli_args_to_kwargs' from 'functualize._cli.tui.cli_arg_parser' (<impl tree>/src/functualize/_cli/tui/cli_arg_parser.py)
+probe rows: 0
+
+$ git log --oneline -1 -S"def parse_cli_args_to_kwargs" -- src/functualize/_cli/tui/cli_arg_parser.py   # the commit that removed the API the probe imported
+f7075882 fix(cli): parse TUI job arguments with rendered parameters
+
+## after: a copy of proj/ with the repaired probe, same probe-spec.json (165 rows)
+$ PYTHONPATH=matrix/pylib uv run --project <impl tree> --frozen func probe surfaces --spec probe-spec.json --out probe-out.json
+pc-probe: 165 rows -> probe-out.json
+rc=0
+rows recorded: 165
+refusal cells (recorded, not aborting): 248 {'MissingParameter': 60, 'NoSuchOption': 78, 'UsageError': 110}

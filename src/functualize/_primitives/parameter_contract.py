@@ -34,7 +34,7 @@ from functualize._primitives.group_options_detection import is_group_options_sub
 from functualize._types.annotations import resolved_hints
 from functualize._types.cli_markers import Arg, Option, Stdin
 from functualize._types.descriptors import _REQUIRED_SENTINEL
-from functualize._types.from_job import FromJob
+from functualize._types.from_job import FromJob, FromStep
 from functualize._types.parameter_contract import (
     CliSpelling,
     Container,
@@ -112,12 +112,23 @@ def build_contracts(func: Callable[..., Any]) -> tuple[ParameterContract, ...]:
             try:
                 annotation = _evaluate(func, annotation)
             except Exception as exc:
+                if annotation.strip() in INJECTED_PARAM_TYPE_NAMES:
+                    contracts.append(build_contract(parameter, annotation))
+                    continue
                 why = _RefusalError("unevaluable", what=annotation, detail=f" ({exc})")
                 has_default, default = _declared_default(parameter.default)
                 contracts.append(_rejected(name, annotation, has_default, default, why))
                 continue
+        if _reads_from_step(annotation):
+            continue
         contracts.append(build_contract(parameter, annotation))
     return tuple(contracts)
+
+
+def _reads_from_step(annotation: Any) -> bool:
+    """A step value is supplied by the walk, outside the caller contract."""
+    _, metadata = _split(annotation)
+    return any(isinstance(item, FromStep) for item in metadata)
 
 
 def build_contract(
@@ -198,6 +209,12 @@ def _classify(
     if annotation is inspect.Parameter.empty:
         annotation = str  # an unannotated parameter is text (C090, C091)
     if isinstance(annotation, str):
+        capability = annotation.strip()
+        if capability in INJECTED_PARAM_TYPE_NAMES:
+            return dataclasses.replace(
+                _contract(name, Verdict.INJECTED, annotation, has_default, default),
+                injection=Injection(capability=capability),
+            )
         raise _RefusalError("unevaluable", what=annotation, detail="")
     base, meta = _split(annotation)
     markers = [m for m in meta if isinstance(m, (Arg, Option, Stdin))]

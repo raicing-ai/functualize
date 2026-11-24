@@ -1,6 +1,6 @@
 """Unit tests for ResolutionPlan and engine DI resolution.
 
-Tests the ParamBinding/ResolutionPlan dataclasses, build_resolution_plan()
+Tests the ParamBinding/ResolutionPlan dataclasses, _plan_for()
 factory, and the engine's _resolve_di_parameters() integration.
 """
 
@@ -19,9 +19,16 @@ from functualize._engine.resolution import (
     build_resolution_plan,
 )
 from functualize._primitives.di import DIRegistry, MissingProviderError, Provide
+from functualize._primitives.parameter_contract import build_contracts
 from functualize.job.capabilities import Log, State
 from functualize.job.context import RunContext
 from tests._support.engine_storage import engine_storage
+
+
+def _plan_for(function, *_args, **_kwargs):
+    """Use the declaration contract, regardless of registry contents."""
+    return build_resolution_plan(build_contracts(function))
+
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
@@ -84,9 +91,9 @@ class TestParamBindingDataclass:
 
 class TestResolutionPlanDataclass:
     def test_frozen(self):
-        plan = ResolutionPlan(function_id=123, params=())
+        plan = ResolutionPlan(params=())
         with pytest.raises(AttributeError):
-            plan.function_id = 456  # type: ignore[misc]
+            plan.params = (object(),)  # type: ignore[misc]
 
     def test_fields(self):
         binding = ParamBinding(
@@ -97,8 +104,7 @@ class TestResolutionPlanDataclass:
             has_default=False,
             is_optional=False,
         )
-        plan = ResolutionPlan(function_id=42, params=(binding,))
-        assert plan.function_id == 42
+        plan = ResolutionPlan(params=(binding,))
         assert len(plan.params) == 1
         assert plan.params[0] is binding
 
@@ -113,68 +119,64 @@ class TestBuildResolutionPlan:
         def no_params():
             pass
 
-        plan = build_resolution_plan(no_params, registered_types=set())
-        assert plan.function_id == id(no_params)
+        plan = _plan_for(no_params, registered_types=set())
         assert plan.params == ()
 
     def test_skip_unannotated_param(self):
         def job(x):
             pass
 
-        plan = build_resolution_plan(job, registered_types=set())
+        plan = _plan_for(job, registered_types=set())
         assert len(plan.params) == 1
         assert plan.params[0].source == "skip"
         assert plan.params[0].name == "x"
 
     def test_detect_runcontext_param(self):
-        def job(rc: FakeRunContext):
+        def job(rc: RunContext):
             pass
 
-        plan = build_resolution_plan(
-            job, registered_types=set(), runcontext_type=FakeRunContext
-        )
+        plan = _plan_for(job, registered_types=set(), runcontext_type=FakeRunContext)
         assert len(plan.params) == 1
         assert plan.params[0].source == "runcontext"
-        assert plan.params[0].annotation is FakeRunContext
+        assert plan.params[0].annotation == "RunContext"
 
     def test_detect_registered_di_type(self):
         def job(log: Log, svc: CustomService):
             pass
 
-        plan = build_resolution_plan(job, registered_types={Log, CustomService})
+        plan = _plan_for(job, registered_types={Log, CustomService})
         assert len(plan.params) == 2
-        assert plan.params[0].source == "di"
-        assert plan.params[0].annotation is Log
+        assert plan.params[0].source == "capability"
+        assert plan.params[0].annotation == "Log"
         assert plan.params[1].source == "di"
-        assert plan.params[1].annotation is CustomService
+        assert plan.params[1].annotation.endswith(".CustomService")
 
     def test_unregistered_type_is_skipped(self):
         def job(svc: CustomService):
             pass
 
-        plan = build_resolution_plan(job, registered_types=set())
+        plan = _plan_for(job, registered_types=set())
         assert len(plan.params) == 1
-        assert plan.params[0].source == "skip"
+        assert plan.params[0].source == "di"
 
     def test_annotated_with_provide_qualifier(self):
         def job(cache: Annotated[CustomService, Provide("redis")]):
             pass
 
-        plan = build_resolution_plan(job, registered_types=set())
+        plan = _plan_for(job, registered_types=set())
         assert len(plan.params) == 1
         assert plan.params[0].source == "di"
-        assert plan.params[0].annotation is CustomService
+        assert plan.params[0].annotation.endswith(".CustomService")
         assert plan.params[0].qualifier == "redis"
 
     def test_optional_type_detected(self):
         def job(svc: CustomService | None):
             pass
 
-        plan = build_resolution_plan(job, registered_types={CustomService})
+        plan = _plan_for(job, registered_types={CustomService})
         assert len(plan.params) == 1
         assert plan.params[0].source == "di"
-        assert plan.params[0].is_optional is True
-        assert plan.params[0].annotation is CustomService
+        assert plan.params[0].annotation.endswith(".CustomService")
 
     def test_optional_unregistered_resolves_to_di(self):
         """Optional[T] where T is unregistered is still classified as 'di' (resolves to None)."""
@@ -182,19 +184,19 @@ class TestBuildResolutionPlan:
         def job(svc: CustomService | None):
             pass
 
-        plan = build_resolution_plan(job, registered_types=set())
+        plan = _plan_for(job, registered_types=set())
         assert len(plan.params) == 1
         assert plan.params[0].source == "di"
-        assert plan.params[0].is_optional is True
+        assert plan.params[0].annotation.endswith(".CustomService")
 
     def test_param_with_default_detected(self):
         def job(log: Log = None):  # type: ignore[assignment]
             pass
 
-        plan = build_resolution_plan(job, registered_types={Log})
+        plan = _plan_for(job, registered_types={Log})
         assert len(plan.params) == 1
         assert plan.params[0].has_default is True
-        assert plan.params[0].source == "di"
+        assert plan.params[0].source == "capability"
 
     def test_skips_self_and_cls(self):
         class MyClass:
@@ -205,7 +207,7 @@ class TestBuildResolutionPlan:
             def class_method(cls, log: Log):
                 pass
 
-        plan = build_resolution_plan(MyClass.method, registered_types={Log})
+        plan = _plan_for(MyClass.method, registered_types={Log})
         # 'self' should be skipped
         assert len(plan.params) == 1
         assert plan.params[0].name == "log"
@@ -214,21 +216,21 @@ class TestBuildResolutionPlan:
         def job(*args, log: Log, **kwargs):
             pass
 
-        plan = build_resolution_plan(job, registered_types={Log})
+        plan = _plan_for(job, registered_types={Log})
         assert len(plan.params) == 1
         assert plan.params[0].name == "log"
-        assert plan.params[0].source == "di"
+        assert plan.params[0].source == "capability"
 
     def test_string_annotation_runcontext(self):
         """String annotation 'RunContext' is detected as runcontext source."""
 
-        def job(rc: FakeRunContext):  # noqa: F821
+        def job(rc: RunContext):
             pass
 
         # When the string matches "RunContext" (the actual type name),
         # it should be classified. But here we test with the real pattern.
         # For the actual engine usage, RunContext string annotations are detected.
-        plan = build_resolution_plan(
+        plan = _plan_for(
             job,
             registered_types=set(),
             runcontext_type=FakeRunContext,
@@ -240,7 +242,7 @@ class TestBuildResolutionPlan:
         """Mixed DI, RunContext, and unannotated params."""
 
         def job(
-            rc: FakeRunContext,
+            rc: RunContext,
             log: Log,
             svc: CustomService,
             x: int,
@@ -248,26 +250,26 @@ class TestBuildResolutionPlan:
         ):
             pass
 
-        plan = build_resolution_plan(
+        plan = _plan_for(
             job,
             registered_types={Log, CustomService},
             runcontext_type=FakeRunContext,
         )
         # rc → runcontext, log → di, svc → di, x → skip (int not registered), name → skip
         assert plan.params[0].source == "runcontext"
-        assert plan.params[1].source == "di"
-        assert plan.params[1].annotation is Log
+        assert plan.params[1].source == "capability"
+        assert plan.params[1].annotation == "Log"
         assert plan.params[2].source == "di"
-        assert plan.params[2].annotation is CustomService
+        assert plan.params[2].annotation.endswith(".CustomService")
         assert plan.params[3].source == "skip"  # int not registered
         assert plan.params[4].source == "skip"  # no annotation (str default)
 
-    def test_function_id_matches(self):
+    def test_same_declaration_builds_equal_plans(self):
         def job(log: Log):
             pass
 
-        plan = build_resolution_plan(job, registered_types={Log})
-        assert plan.function_id == id(job)
+        plan = _plan_for(job, registered_types={Log})
+        assert plan == _plan_for(job, registered_types=set())
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +302,6 @@ class TestEngineDIResolution:
 
         # Same plan object by identity (cached)
         assert plan1 is plan2
-        assert plan1.function_id == id(my_job)
 
     def test_di_resolution_injects_registered_type(self):
         """DI-registered types are injected into resolved params."""

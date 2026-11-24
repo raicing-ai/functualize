@@ -1963,6 +1963,25 @@ def report_unsupported_parameters(app: Any) -> None:
     job, the declaration and the remedy (B-9). The job stays registered
     (DC-1 = B), on the same channel ``report_unsatisfiable_jobs`` uses.
     """
+    # EngineHost.admitted_contracts reads this store at the execution door.
+    app._admitted_contracts = {}
+    for descriptor in app.job_registry.get_descriptors():
+        admit_job_descriptor(app, descriptor)
+
+
+def admit_job_descriptor(app: Any, descriptor: Any) -> None:
+    """Admit the three contract sources of one job descriptor."""
+    source = descriptor.source_file or descriptor.module_path or "<unknown>"
+    declared = (
+        *(field.contract for field in descriptor.parameters),
+        *(field.contract for field in descriptor.config_fields),
+        *descriptor.omitted_contracts,
+    )
+    admit_contracts(app, descriptor.name, declared, source)
+
+
+def admit_contracts(app: Any, job_name: str, contracts: Any, source: str) -> None:
+    """Admit one job's declarations, including materialized commands."""
     from functualize._primitives.parameter_contract import admit
     from functualize._types.discovery_report import DiscoveryFailure
     from functualize._types.parameter_contract import Verdict
@@ -1973,57 +1992,43 @@ def report_unsupported_parameters(app: Any) -> None:
         for type_ in registry.available_types()
         for qualifier in registry.available_qualifiers(type_)
     }
-
-    def has_provider(provider_type: str, qualifier: str | None) -> bool:
-        return (provider_type, qualifier) in provided
-
     reported: list[DiscoveryFailure] = list(getattr(app, "_unsatisfiable_jobs", []))
     known = {failure.message for failure in reported}
-    admitted_by_job: dict[str, dict[str, Any]] = {}
-    for descriptor in app.job_registry.get_descriptors():
-        admitted = admitted_by_job.setdefault(descriptor.name, {})
-        source = descriptor.source_file or descriptor.module_path or "<unknown>"
-        # A convention job's `config_fields` are its `parameters`; a job with a
-        # config model lists that model's fields, which carry their own
-        # contracts (F-29). The omitted signature parameters carry theirs on the
-        # descriptor too (capabilities, FromJob, GroupOptions). Each name is
-        # decided once.
-        declared = (
-            *(field.contract for field in descriptor.parameters),
-            *(field.contract for field in descriptor.config_fields),
-            *descriptor.omitted_contracts,
+    store = getattr(app, "_admitted_contracts", None)
+    if not isinstance(store, dict):
+        store = {}
+        app._admitted_contracts = store
+    admitted = store.setdefault(job_name, {})
+    for contract in contracts:
+        if contract is None or contract.name in admitted:
+            continue
+        result = admit(
+            contract,
+            lambda provider_type, qualifier: (provider_type, qualifier) in provided,
         )
-        for contract in declared:
-            if contract is None or contract.name in admitted:
-                continue
-            result = admit(contract, has_provider)
-            admitted[contract.name] = result
-            if result.verdict is not Verdict.REJECTED_DISCOVERY:
-                continue
-            declaration = (
-                f"{result.name}: {result.display}" if result.display else result.name
+        admitted[result.name] = result
+        if result.verdict is not Verdict.REJECTED_DISCOVERY:
+            continue
+        declaration = (
+            f"{result.name}: {result.display}" if result.display else result.name
+        )
+        message = (
+            f"{source}: job {job_name!r} parameter {declaration!r} is "
+            f"refused. {result.reject_reason}."
+        )
+        if message in known:
+            continue
+        known.add(message)
+        reported.append(
+            DiscoveryFailure(
+                module=Path(source).stem,
+                path=source,
+                error_type="UnsupportedParameter",
+                message=message,
             )
-            message = (
-                f"{source}: job {descriptor.name!r} parameter {declaration!r} is "
-                f"refused. {result.reject_reason}."
-            )
-            if message in known:
-                continue
-            known.add(message)
-            reported.append(
-                DiscoveryFailure(
-                    module=Path(source).stem if descriptor.source_file else source,
-                    path=source,
-                    error_type="UnsupportedParameter",
-                    message=message,
-                )
-            )
-            logger.warning("%s", message)
-
+        )
+        logger.warning("%s", message)
     app._unsatisfiable_jobs = reported
-    # TRANSITIONAL(parameter-contract/5.1): written here, read by the engine
-    # door, which refuses a call whose parameter this boot refused.
-    app._admitted_contracts = admitted_by_job
 
 
 #: The ``DiscoveryFailure.error_type`` a contested group path arrives under —

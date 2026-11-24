@@ -12,6 +12,7 @@ Requirements: 15.1, 15.2, 15.3, 15.4, 15.5
 from __future__ import annotations
 
 import textwrap
+import weakref
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -211,9 +212,10 @@ class TestLayer3AlwaysActive:
         plan1 = engine._get_resolution_plan(deploy)
         plan2 = engine._get_resolution_plan(deploy)
 
-        # Same object (identity) — cached by id(function)
+        # Same object (identity) — cached under the callable itself, never by
+        # id(): a reused address would hand another function this plan (B-7).
         assert plan1 is plan2
-        assert id(deploy) in engine._resolution_plan_cache
+        assert deploy in engine._resolution_plan_cache
 
     def test_resolution_plan_cached_in_standard_wiring(self, tmp_path, monkeypatch):
         """In standard wiring mode, the engine's resolution plan cache is active."""
@@ -323,12 +325,13 @@ class TestStaticWiringBypass:
         app = _make_static_app(deploy)
         engine = app.execution_engine
 
-        # Verify the cache dict exists and is populated on use
-        assert isinstance(engine._resolution_plan_cache, dict)
+        # The cache exists, is keyed weakly by the callable (schema invariant
+        # 8), and is populated on use
+        assert isinstance(engine._resolution_plan_cache, weakref.WeakKeyDictionary)
 
         plan = engine._get_resolution_plan(deploy)
-        assert id(deploy) in engine._resolution_plan_cache
-        assert engine._resolution_plan_cache[id(deploy)] is plan
+        assert deploy in engine._resolution_plan_cache
+        assert engine._resolution_plan_cache[deploy] is plan
 
     def test_static_wiring_get_jobs_returns_correct_list(self):
         """Static wiring app.get_jobs() returns the correct job list."""

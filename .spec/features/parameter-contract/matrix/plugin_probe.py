@@ -74,8 +74,7 @@ class Mch242Probe:
         from functualize._cli.completions.provenance import CompletionProvenanceClassifier
         from functualize._cli.tui.cli_arg_parser import (
             build_group_option_trie,
-            group_option_specs_on_path,
-            parse_cli_args_to_kwargs,
+            parse_job_args,
             resolve_tui_command,
             tokenize_bar_text,
         )
@@ -105,10 +104,12 @@ class Mch242Probe:
                     return {"resolved": None}
                 desc = app.get_job(res.job_name)
                 fields = get_descriptor_fields(desc) or []
-                inject = {s.class_name for s in group_option_specs_on_path(trie, res.job_name)}
-                fields = [f for f in fields
-                          if (getattr(f, "type_annotation", "") or "").strip() not in inject]
-                kwargs = parse_cli_args_to_kwargs(res.args, fields=fields)
+                # The TUI door's own parse (D8): the bar tokens go through the click
+                # parameters `func <job>` renders from the contracts, as
+                # `_cli/tui/app.py` does for a run. A `GroupOptions` injection point is
+                # not in `parameters` (task 3.2), so nothing is filtered here; a call
+                # the CLI refuses raises click.UsageError, recorded as a refusal cell.
+                kwargs = parse_job_args(res.args, fields)
                 req = RunRequest(job_name=res.job_name, surface="tui.inline", kwargs=dict(kwargs),
                                  group_option_values=res.group_values or None)
                 return {"kwargs": kwargs, "group_values": res.group_values,
@@ -118,9 +119,16 @@ class Mch242Probe:
         for row in rows:
             rid, job = row["id"], row["job"]
             r: dict[str, Any] = {}
-            handler = lam.make_handler(job)
+            # One row may not abort the probe: a handler that cannot even be built
+            # (a refused job, a describe-time error) is recorded as each thin cell.
+            made = _guard(lambda job=job: {"handler": lam.make_handler(job)})
+            handler = made.get("handler") if "raised" not in made else None
             for k, ev in row["lambda"].items():
-                r[f"lambda_thin_{k}"] = {"event": ev, **_guard(lambda ev=ev: handler(ev, None))}
+                if handler is None:
+                    r[f"lambda_thin_{k}"] = {"event": ev, **made}
+                else:
+                    r[f"lambda_thin_{k}"] = {"event": ev,
+                                             **_guard(lambda ev=ev: handler(ev, None))}
             r["lambda_fat_kwargs"] = {
                 "event": row["lambda_fat"],
                 **_guard(lambda: lam.run(row["lambda_fat"], None)),

@@ -288,7 +288,7 @@ class JobDescriptor:
     #: in signature order, as discovery decided them (before ``admit``). With
     #: ``parameters``' own contracts they cover the whole signature (B-1), so
     #: boot can report an omitted refusal once (B-9). No surface reads them.
-    # TRANSITIONAL(parameter-contract/5.1): the engine door is their only reader.
+    #: The engine door reads these through ``build_resolution_plan``.
     omitted_contracts: tuple[ParameterContract, ...] = ()
 
     @property

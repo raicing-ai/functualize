@@ -157,12 +157,19 @@ def test_secret_config_help_matches_cached_help_without_exposing_default(
     assert "public-key" in live_help.output
 
 
-def test_live_enum_bridge_keeps_member_until_the_binding_door() -> None:
+def test_the_live_command_hands_a_choice_to_the_door_as_text() -> None:
+    """The click layer offers the spelling; the binding door makes the member.
+
+    3.1 kept the member at the click layer (an ``_EnumChoice`` bridge) until
+    the door existed. The door now converts the text through the live
+    annotation (``tests/engine/test_binding_door.py``'s lazy-command round
+    trip and ``tests/cli/test_enum_parameter_roundtrip.py`` deliver
+    ``Color.RED``), so click hands over exactly what was typed.
+    """
+
     def run(color: Color) -> None:
         pass
 
-    # A contract can offer the spelling, while only a live function supplies
-    # the class that makes the existing command callback receive the member.
     params, _, _ = build_click_params(run, None)
     seen: list[object] = []
     command = click.Command(
@@ -172,7 +179,7 @@ def test_live_enum_bridge_keeps_member_until_the_binding_door() -> None:
     assert result.exit_code == 0, result.output
     second = CliRunner().invoke(command, ["blue"])
     assert second.exit_code == 0, second.output
-    assert seen == [Color.RED, Color.BLUE]
+    assert seen == ["red", "blue"]
 
 
 def test_group_config_field_remains_an_option_without_a_click_default() -> None:

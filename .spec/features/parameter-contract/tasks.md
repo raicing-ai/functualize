@@ -276,7 +276,9 @@ The confirmed `spec.md`, `contracts.md`, `schema.md` and `plan.md` are the input
     - A config-model or `GroupOptions` parameter is `INJECTED` with an empty `Injection()`: the
       engine fills it, and its fields get their own contracts.
     - `*args`, `**kwargs`, `self` and `cls` are skipped, as the engine skips them.
-    - An unannotated parameter is `str` (C090, C091).
+    - An unannotated parameter is `str` (C090, C091). That holds at the door as well as on the
+      published surfaces: binding converts every caller's value to text, in-process callers
+      included, and refuses a non-text value (`spec.md` B-24, R-8, ruled 2026-11-24).
     - `Literal[...]` is an `ENUM` scalar.
     - `Annotated[Iterator[T], Stdin()]` stays a flag, keeping `stdin_reader`'s streaming form.
     - A config field accepts the B-3 scalars, `Secret[str]`, and `list`/`tuple` of a scalar. It
@@ -1127,8 +1129,11 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     the `:2024` marker retired;
   - `src/functualize/_app/impl.py`: `register_dynamic_job` admits the job it registers;
   - `src/functualize/_types/descriptors.py`: the `:291` marker retired; comment text only;
-  - `src/functualize/_primitives/argument_binding.py`: the `:21-22` marker comment retired;
-    **comment lines only, no code change** (see *Config fields*);
+  - `src/functualize/_primitives/argument_binding.py`: the `:21-22` marker comment retired, and
+    `_adapter`'s cache keyed by the callable, with an unhashable callable converted uncached
+    (`schema.md` invariant 8). That is the only code change. `_annotation` keeps returning `str`
+    for an unannotated parameter, as shipped by 2.3 (R-8). *(Corrected 2026-11-24: this said
+    "comment lines only".)*
   - `src/functualize/app/adapters/click_params.py` (3.1's `Enum` bridge deleted; added 2026-11-23);
   - `tests/execution/test_resolution_plan.py`, `tests/test_resolution_plan_properties.py`: they
     call the signature this task removes (15 and 13 calls);
@@ -1151,6 +1156,25 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
       spec replaced (*Re-homed claims*, below).
     - R-1 and R-5 add no production file: `executor.py`, `middleware.py`, `job_middleware.py`,
       `resolution.py`, `boot.py` and `click_params.py` are already listed.
+  - **Fourth scope repair (2026-11-24): 25 → 28 files.**
+    - `tests/context/test_middleware_di.py` and `tests/core/test_three_layer_caching.py`
+      (authorised by the leader on 2026-11-23). They pinned `id()`-keyed caches (`assert id(...)
+      in plan_cache`, `ResolutionPlan(function_id=...)`). They now assert that the plan is
+      reachable under the callable and that the cache is a `WeakKeyDictionary`; the
+      computed-once-and-reused property is kept (R-1).
+    - `tests/execution/test_engine_pre_execute.py` (R-8). Its three jobs `def my_job(value=0)`
+      are called in-process with `{"value": 1}`, an `int` into a parameter whose declared type is
+      `str`. B-24 refuses that call.
+      - The claim the file makes, that a `PRE_EXECUTE` hook's `MODIFY`/`PROCEED` reaches the job,
+        is kept by annotating the test job `value: int = 0`. A hook runs after `bind` (Work,
+        first item), so its result is not re-bound.
+      - Measured by the implementer's A/B on 2026-11-23: with `str`, 5 passed and 3 failed
+        (`TestEnginePreExecuteModify::test_modify_changes_job_kwargs`,
+        `::test_modify_chain_accumulates`, `TestEnginePreExecuteProceed::test_proceed_does_not_alter_kwargs`).
+        With `Any`, 8 passed. The whole root has no other failure from it.
+      - The R-8 refusal itself is asserted in `tests/engine/test_binding_door.py`: an in-process
+        `value=1` into an unannotated parameter ends `INVALID` naming `value`, and `value="1"`
+        arrives as `"1"`.
 - **Work:**
   - At `executor.py:1393-1486`, replace `unexpected_keyword_error` (workflows only) and
     `ArgValidator` with `bind`, before DI resolution and before `PRE_EXECUTE`.
@@ -1219,8 +1243,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - **Config fields.** Keys naming a job's `CONFIG_FIELD` contracts (`--city Tokyo` for a job
     declaring `config: Cfg`) are partitioned off before `bind` and handed to config resolution
     (`_resolve_config_model`), as today.
-    - So `argument_binding.py`'s code does not change. `ArgumentBinder.bind` refusing a
-      `CONFIG_FIELD` key is correct, and stays.
+    - So the config-field partition needs no change in `argument_binding.py`.
+      `ArgumentBinder.bind` refusing a `CONFIG_FIELD` key is correct, and stays. The file's one
+      code change is R-1's cache key, above.
   - **Delete 3.1's `Enum` bridge.** That is the `ENUM` branch in `click_params.py` marked
     `# TRANSITIONAL(parameter-contract/5.1)`.
     - The click token reaches the door as text, and the binder converts it to the member through
@@ -1365,8 +1390,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `rg -n 'TRANSITIONAL\(parameter-contract/5\.1\)' src` → 0 (today 4). This covers 3.1's
     `Enum` bridge and the three markers above;
   - `git diff b2719ab8 -- src/functualize/_engine/__init__.py` → empty;
-  - `git diff b2719ab8 -- src/functualize/_primitives/argument_binding.py` → only the marker's
-    comment lines removed;
+  - `git diff b2719ab8 -- src/functualize/_primitives/argument_binding.py` → the marker's comment
+    lines removed and `_adapter`'s cache key, nothing else. `_annotation`'s `return str` is
+    unchanged;
   - `uv run pytest tests/cli/test_enum_parameter_roundtrip.py -q` green through the door, with the
     member delivered by the binder, not by a click type. `tests/engine/test_binding_door.py` adds the
     same `Color.RED` round trip through the descriptor-only lazy command;
@@ -1422,9 +1448,56 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
     - re-binding the bound values is idempotent for every table row with a caller verdict;
   - kit `str-provider.txt` repro: every `str` job runs;
   - kit `unknown-keys.txt` repro: all five surfaces refuse `zzz`;
-  - kit `surf_check.py` W-inject → 0 (today 35), W-crash → 0 (today 50), W-type → 0 (today 49),
-    W-default → 0 (today 14);
-  - `cold_compare.py` → 0 real differences (today F-33 rows C085, C087, E138, H166).
+  - **The matrix gate, placed by owner** (ruled 2026-11-24; measured on the 5.1 tree,
+    `gate-placement-5.1.txt`). Every predicate is computed with the probe dimension present:
+    `func probe surfaces` rc 0 and `probe` 165 rows, so a zero covers Lambda, the TUI door and the
+    SmartBar as well as HTTP and MCP. Before the kit repair (`probe-repair.txt`) the probe died on
+    an `ImportError` (the API 4.2 removed in `f7075882`), recorded 0 rows, and every probe-backed
+    zero was vacuous.
+    - W-inject → 0, W-type → 0, W-crash → 0 (today 35, 49, 50 on `da912d76`; 0, 0, 0 on the 5.1
+      tree over HTTP and MCP only).
+    - **W-default: 14 today → 10 at 5.1.** The 10 that remain are owned by 7.1.
+      - **5 list rows: the wire is right, the CLI is wrong.** B066, B067, B070, B073 and B074 all
+        declare `= None`. HTTP and MCP deliver `None`, which is B-12/D1's "absent optional list
+        arrives as the declared default"; the CLI delivers `[]`. 5.1 fixes the CLI side in
+        `click_params.py`, which is in `[F]`: an absent repeatable option, whose click parameter
+        source is the default, is not handed to `bind`, so `bind` applies the declared default.
+        **Do not make MCP or HTTP deliver `[]`:** that would break B-12. Gate:
+        `cli_absent` of the five rows is `ok:NoneType=None`; W-default `http_absent` → 0 and the
+        `mcp_absent` value rows → 0.
+      - **10 MCP rows that refuse an omission: 7.1's.** A013, A018, A022, A026, A030, A034, A038,
+        A042, A046 and B070 are `mcp_absent(not delivered)`. MCP's `exec`-generated tool function
+        forwards **every** parameter, an omitted one as `repr(schema.get("default"))`, which is
+        `None` where the schema publishes no default (`_server.py:205-211`, `:233-236`). The door
+        then correctly refuses that explicit `None`. 7.1 deletes that `exec` path; its `Tool.run`
+        forwards only the supplied `arguments`. 5.1's gate records `mcp_absent(not delivered)` =
+        exactly these 10 rows, and 7.1's gate → 0. Patching the `exec`'d function in 5.1 would edit
+        code 7.1 deletes, in a file outside this task's `[F]`.
+    - **`cold_compare.py`: 22 today → 2 at 5.1.** The 2 that remain are owned by 6.1.
+      - **F-33, 20 differences** (C085, C087, E138, H166 × verdict, `k_absent`, `k_flag`,
+        `k_pos`, `usage`): 5.1's, **as equality only** (R-10/R-11, 2026-11-24). Warm fails at
+        materialisation with a second availability check, which must read the admitted contracts
+        instead, so both boots reach the same refusal. The one-line `INVALID` render is **6.2's**
+        (R-9: `click_params.py:1450` re-raises because `_renders_as_job_error` needs
+        `raised_by_job`, which a door refusal never is; `spec.md` B-16 is the invariant). So 5.1
+        reaches `cold_compare` 0 with both boots still printing the traceback; satisfying B-16 is
+        6.2's. Gate: these 20 → 0 differences, and 5.1 introduces no new one.
+      - **F-34, 2 differences** (A046 `info` and `mcp`: the cold schema loses `'default': 'red'`):
+        6.1's (its title names F-34). 5.1's gate records `cold_compare` = exactly these 2, and
+        6.1's gate → 0.
+    - **W-accept: 28 today; owner 7.1, and recorded at 5.1 without regression** (AC-2 requires 0;
+      `spec.md:376`):
+      - **23 rows** (A007…A016, B057…B064, B066–B068, B073, B074, B076, C079, C080, D106) where
+        CLI and HTTP accept and MCP refuses. MCP validates against the `exec`'d function's
+        `_TYPE_MAP` types and today's string-typed schema (F-02, F-24). Fixed by 6.1's schema plus
+        7.1's registration from it;
+      - **4 rows** C081–C084 (`INVOCATION_ONLY`), where HTTP accepts and CLI and MCP refuse. The
+        MCP side is 7.1's. The CLI refusal is by design (B-15), so 7.1 also amends the kit
+        predicate to exempt an `INVOCATION_ONLY` row's CLI cell;
+      - **1 row**, G157, which is **a kit asymmetry, not a product defect**: HTTP and MCP were
+        given `{"p": "x", "q": ["a", "b"]}`, while the CLI row's argv is only `["x"]`
+        (`matrix/rows.py:234`), so the CLI correctly refuses the missing `--q`. The kit row gains
+        `--q a --q b` when 7.1 measures.
 - **Reachability:** `FunctualizeApp.execute(RunRequest)` → `engine.run` → `_execute_lifecycle` →
   `bind`; and the engine's middleware chain → `_resolve_middleware_kwargs` → `build_resolution_plan`.
 - **Depends on:** 2.1, 2.2, 2.3, 3.2, 4.4, 0.2.
@@ -1450,8 +1523,10 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `rg -n -w TYPE_MAP src/functualize/_primitives/job_schema.py` → 0 (today 3);
   - kit `check.py` predicates `array`, `type`, `identity` and `required` → 0 rows (today 17, 8, 2
     and 19);
-  - `uv run pytest tests/cli/test_schema_surface_parity.py tests/app/test_dynamic_registration.py`.
-- **Depends on:** 2.1, 2.2, 4.4.
+  - `uv run pytest tests/cli/test_schema_surface_parity.py tests/app/test_dynamic_registration.py`;
+  - `cold_compare.py` → 0 (2 at 5.1: A046 `info` and `mcp`, where the cold schema loses the `Enum`
+    default; F-34, `gate-placement-5.1.txt`).
+- **Depends on:** 2.1, 2.2, 4.4, 5.1 (5.1 leaves `cold_compare` at exactly these 2).
 
 ### [ ] 6.2 The CLI renders `INVALID` as a one-line usage error (pitfalls §25)
 
@@ -1461,8 +1536,15 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `tests/cli/test_invalid_call_rendering.py` (new).
 - **Work:** add an `INVALID` arm to `prelude_refusal` and the result delivery: exit 2, one line, no
   frames.
+  - **A call to a refused job refuses with its reason, whatever its arguments** (`contracts.md` §8,
+    DC-1 = B; found 2026-11-24). Today `func c085 --p x` prints click's `No such option: --p` on
+    both boots, which is equal cold and warm but is not the refusal §8 promises. The command for a
+    job with a `REJECTED_DISCOVERY` parameter prints the `UnsupportedParameter` reason, exit 2,
+    before click parses its arguments.
 - **Gate/evidence:** the new test runs `func` in a subprocess for a missing, an unknown, an injected
   and a non-converting argument. It asserts `stderr` contains no `File "` and the exit code is 2.
+  It also runs `func c085`, `func c085 --p x` and `func c085 x` on a refused job, on both boots,
+  and each prints the refusal naming `c085`, `p` and the remedy, exit 2.
 - **Depends on:** 0.2, 5.1. 3.1 has already changed this file (an earlier wave), and 5.1 deletes 3.1's
   `Enum` bridge from it.
 - **Moved 2026-11-23** from wave 5 (formerly 5.2) to wave 6: 5.1 now also edits `click_params.py`,
@@ -1491,6 +1573,9 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 - **Gate/evidence:**
   - `rg -n 'exec\(fn_source' plugins/adapters/functualize-mcp/src` → 0 (today 1);
   - kit: `func mcp serve` starts with G156 present, and every `tools/call` row agrees with HTTP;
+  - kit `surf_check.py`: W-default → 0 (10 `mcp_absent(not delivered)` rows at 5.1) and
+    W-accept → 0 (28 at 5.1), with the two kit corrections named in 5.1's gate: the
+    `INVOCATION_ONLY` CLI exemption and G157's argv;
   - `uv run pytest plugins/adapters/functualize-mcp/tests` (its own invocation), then
     `uv run pytest tests/plugins/test_mcp_translator.py tests/plugins/test_mcp_translation_properties.py tests/plugins/test_mcp_tools.py`.
 - **Depends on:** 6.1.
