@@ -104,7 +104,13 @@ _defaults = st.one_of(st.none(), _field_values)
 
 @st.composite
 def field_sets(draw: st.DrawFn) -> tuple[list[FakeFieldDescriptor], dict[str, str]]:
-    """Generate 1-5 fields with random names/defaults and a subset with CLI values.
+    """Generate 1-5 fields with random names/defaults and a prefix with CLI values.
+
+    The bar parses with the CLI's grammar (spec B-18), and these fakes are
+    required, contractless fields, which ``func <job>`` renders as positionals
+    (``build_click_params_from_fields``: "a required one becomes a
+    positional"). A positional value can only be supplied after every earlier
+    one, so the fields given a CLI value are a prefix of the field order.
 
     Returns:
         Tuple of (field_descriptors, cli_provided_values).
@@ -121,12 +127,11 @@ def field_sets(draw: st.DrawFn) -> tuple[list[FakeFieldDescriptor], dict[str, st
     fields: list[FakeFieldDescriptor] = []
     cli_values: dict[str, str] = {}
 
-    for name in names:
+    supplied = draw(st.integers(min_value=0, max_value=num_fields))
+    for index, name in enumerate(names):
         default = draw(_defaults)
         fields.append(FakeFieldDescriptor(name=name, default=default))
-        # Randomly decide if this field has a CLI-provided value
-        has_cli_value = draw(st.booleans())
-        if has_cli_value:
+        if index < supplied:
             cli_values[name] = draw(_field_values)
 
     return fields, cli_values
@@ -160,12 +165,8 @@ class TestPreflightSummaryContentCompleteness:
         """
         fields, cli_values = data
 
-        # Build the SmartBar value: "jobname --field1 val1 --field2 val2 ..."
-        parts = ["testjob"]
-        for name, value in cli_values.items():
-            parts.append(f"--{name}")
-            parts.append(value)
-        smart_bar_value = " ".join(parts)
+        # Build the SmartBar value as ``func <job>`` spells it: "jobname val1 val2 ..."
+        smart_bar_value = " ".join(["testjob", *cli_values.values()])
 
         log = FakeRichLog()
         render_preflight_summary(smart_bar_value, fields, log)
