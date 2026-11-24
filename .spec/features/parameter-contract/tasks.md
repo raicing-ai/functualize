@@ -973,6 +973,11 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   the injection verdict, and keeps repeated values as repeated flags. The `[F]` list above records
   the run door's necessary Click refusal and tests that imported the retired parser. Two explicit
   fixed-point cases now assert `emit(resolve(text)) == text` for `--p a --p b` and an integer choice.
+- **Gate addendum (2026-11-24):** the kit lines above ran on a probe that this task's own commit
+  (`f7075882`) had already killed — `parse_cli_args_to_kwargs` was the parser it removed — so
+  `tui_extra.py` and W-collapse measured nothing at the time. W-collapse is **0** at `68e6cd62`,
+  re-measured on a repaired probe. The TUI divergence those lines could not see — a required
+  parameter rendering positionally — is measured at 18 W-accept rows and is 7.3's to close.
   `rg -n -w parse_cli_args_to_kwargs src` → no hits (exit 1). The four named test modules →
   54 passed. Three touched `_cli` modules → 24 passed, 1 skipped; both group-option suites →
   335 passed, 20 skipped. The regenerated 166-row kit (`gen.py`, `surfaces.py`) reports
@@ -1103,7 +1108,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 
 ## Wave 5 — the engine door
 
-### [ ] 5.1 Bind at the door; DI fills only `INJECTED`; kind from the contract
+### [x] 5.1 Bind at the door; DI fills only `INJECTED`; kind from the contract
 
 - **Input:**
   - 2.1 to 2.3, 3.2, 4.4, and 0.2;
@@ -1175,6 +1180,26 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
       - The R-8 refusal itself is asserted in `tests/engine/test_binding_door.py`: an in-process
         `value=1` into an unannotated parameter ends `INVALID` naming `value`, and `value="1"`
         arrives as `"1"`.
+  - **Fifth scope repair (2026-11-24, R-10): 28 → 30 files.**
+    - `tests/integration/test_lazy_true_engine_materialization.py`. Its
+      `test_warm_boot_defers_validation_to_first_invocation` pinned the second availability check
+      R-10 removes: at `68e6cd62` materialisation no longer raises `DIValidationError`, because the
+      refusal rides the admitted contract (`boot.py:2030` reports file, parameter and remedy). The
+      cold/warm claims stay; the last assertion becomes the new disposition — materialisation
+      succeeds, and an execute of that job ends `INVALID` naming `svc`.
+    - `tests/adapters/test_render_click_params.py`. The enum-bridge change (`8bd9bf45`) the new door
+      needs; it is already in `68e6cd62` and was missing from this list.
+    - Kit `matrix/surfaces.py` (one line): the fat Lambda event is `{"job", "arguments"}`
+      (`contracts.md:157-158`; 0.4 retired `kwargs`). The kit sent `kwargs`, the adapter correctly
+      ignored it, and W-fat measured 141 rows of the kit's own staleness.
+  - **Sixth scope repair (2026-11-24, found by the whole-root gate): 30 → 31 files.**
+    - `tests/execution/test_lazy_materialization.py`. Its `_RecordingHost` test double stands in for
+      `EngineHost` and lacked the member 5.1 added to that port, so
+      `TestEngineMaterialization::test_get_job_materializes_and_swaps_engine_and_host` failed with
+      `AttributeError: '_RecordingHost' object has no attribute 'admitted_contracts'`. Measured: it
+      already failed at `68e6cd62` (`src` and this file unchanged since). The double gains
+      `admitted_contracts(name) -> None`, the port's documented "no admission" answer; the file's
+      claims are unchanged (20 passed).
 - **Work:**
   - At `executor.py:1393-1486`, replace `unexpected_keyword_error` (workflows only) and
     `ArgValidator` with `bind`, before DI resolution and before `PRE_EXECUTE`.
@@ -1485,19 +1510,37 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
       - **F-34, 2 differences** (A046 `info` and `mcp`: the cold schema loses `'default': 'red'`):
         6.1's (its title names F-34). 5.1's gate records `cold_compare` = exactly these 2, and
         6.1's gate → 0.
-    - **W-accept: 28 today; owner 7.1, and recorded at 5.1 without regression** (AC-2 requires 0;
-      `spec.md:376`):
-      - **23 rows** (A007…A016, B057…B064, B066–B068, B073, B074, B076, C079, C080, D106) where
-        CLI and HTTP accept and MCP refuses. MCP validates against the `exec`'d function's
-        `_TYPE_MAP` types and today's string-typed schema (F-02, F-24). Fixed by 6.1's schema plus
-        7.1's registration from it;
-      - **4 rows** C081–C084 (`INVOCATION_ONLY`), where HTTP accepts and CLI and MCP refuse. The
-        MCP side is 7.1's. The CLI refusal is by design (B-15), so 7.1 also amends the kit
-        predicate to exempt an `INVOCATION_ONLY` row's CLI cell;
-      - **1 row**, G157, which is **a kit asymmetry, not a product defect**: HTTP and MCP were
-        given `{"p": "x", "q": ["a", "b"]}`, while the CLI row's argv is only `["x"]`
-        (`matrix/rows.py:234`), so the CLI correctly refuses the missing `--q`. The kit row gains
-        `--q a --q b` when 7.1 measures.
+    - **W-accept: 46 today, recorded at 5.1 without regression** (AC-2 requires 0; `spec.md:376`).
+      The 28 this line used to carry came from a probe that had already died on the `ImportError`
+      `f7075882` introduced, so `spec.md:386`'s baseline of **92** is the number to compare
+      against. Four buckets, each with its owner:
+      - **23 rows** (A007 A008 A011 A012 A015 A016 B057…B064 B066 B067 B068 B073 B074 B076 C079
+        C080 D106), where CLI, HTTP and Lambda accept and MCP refuses — **7.1's**, fixed by 6.1's
+        schema plus 7.1's registration from it;
+      - **18 rows** where every other surface accepts and the **TUI** refuses: A001 A005 A009 A017
+        A021 A025 A029 A033 A037 A041 A045 B077 C090 D092 D093 D101 G153, plus G156 (whose MCP cell
+        is F-12's `server down` and measures nothing). Not a kit artefact — the probe calls
+        `parse_job_args(res.args, get_descriptor_fields(descriptor))`, as `_cli/tui/app.py:2261`
+        does, and the TUI refuses `--p` while `tui_pos` is green: a required parameter renders as a
+        **positional** in the TUI and as an **option** in the CLI, because
+        `get_descriptor_fields` carries no contract and `build_click_params_from_fields` falls into
+        `_legacy_build_click_params_from_fields` (`click_params.py:602-606`). **7.3's**, which
+        retires that deriver;
+      - **4 rows** C081–C084 (`INVOCATION_ONLY`): HTTP and Lambda accept, CLI, MCP and TUI refuse.
+        The MCP side is 7.1's; the CLI refusal is by design (B-15), so 7.1 also exempts an
+        `INVOCATION_ONLY` row's CLI cell in the predicate;
+      - **1 row**, G157 — a kit asymmetry: HTTP, Lambda and MCP were given
+        `{"p": "x", "q": ["a", "b"]}` while the CLI row's argv is only `["x"]`
+        (`matrix/rows.py:234`), so CLI and TUI rightly refuse the missing `--q`.
+  - kit `matrix/surfaces.py` sends the fat event as `{"job", "arguments"}`; `contracts.md:157-158`
+    retired `kwargs` in 0.4 and the adapter rightly ignores it. W-fat is measured live from this
+    head, and AC-2's "W-fat 158" baseline (`spec.md:386`) carries the same staleness.
+- **Execute evidence (2026-11-24):** whole root `uv run pytest -q` in 20 disjoint chunks covering
+  978 files (eight `_group` importers isolated): 17,396 passed, 1,710 skipped, zero failures.
+  MCP package: 33 passed; SQLite substrate package: 230 passed. The fixed probe returned rc 0 and
+  165 rows; W-inject/type/crash/bar/collapse: 0, W-default: 10 MCP omissions, W-accept: 46, W-fat:
+  2 (G160, G161). `cold_compare.py`: 2 A046 schema differences, owned by 6.1. `mypy src/` clean,
+  `lint-imports` 7 kept / 0 broken, Ruff check and format clean.
 - **Reachability:** `FunctualizeApp.execute(RunRequest)` → `engine.run` → `_execute_lifecycle` →
   `bind`; and the engine's middleware chain → `_resolve_middleware_kwargs` → `build_resolution_plan`.
 - **Depends on:** 2.1, 2.2, 2.3, 3.2, 4.4, 0.2.
@@ -1574,7 +1617,8 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `rg -n 'exec\(fn_source' plugins/adapters/functualize-mcp/src` → 0 (today 1);
   - kit: `func mcp serve` starts with G156 present, and every `tools/call` row agrees with HTTP;
   - kit `surf_check.py`: W-default → 0 (10 `mcp_absent(not delivered)` rows at 5.1) and
-    W-accept → 0 (28 at 5.1), with the two kit corrections named in 5.1's gate: the
+    W-accept → 0 (46 at 5.1: 27 of them this task's, 18 the TUI's and 7.3's, 1 the kit's), with the
+    two kit corrections named in 5.1's gate: the
     `INVOCATION_ONLY` CLI exemption and G157's argv;
   - `uv run pytest plugins/adapters/functualize-mcp/tests` (its own invocation), then
     `uv run pytest tests/plugins/test_mcp_translator.py tests/plugins/test_mcp_translation_properties.py tests/plugins/test_mcp_tools.py`.
@@ -1604,6 +1648,12 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `tests/test_lazy_wrapper.py`, `tests/test_lazy_wrapper_properties.py`;
   - `tests/types/test_flag_grammar_roundtrip.py`;
   - `tests/config/test_surface_boot_config_parity.py`.
+  - `src/functualize/_cli/tui/cli_arg_parser.py`, `src/functualize/_cli/tui/descriptor_fields.py`,
+    `src/functualize/_cli/tui/app.py`, `src/functualize/_cli/tui/chain_resolution.py`: the
+    `parse_job_args` call sites and the field lookup. They render through a contractless field list,
+    so a required parameter reaches the TUI as a positional while the CLI renders it as an option;
+    they must pass the admitted contracts, and 4.2's shipped divergence closes with the fallback's
+    deletion.
 - **Work:**
   - Delete the wrappers, `_click_type_for`, `_field_click_type`, `_resolve_type_string`,
     `_option_from_marker` and `_get_list_inner_type`.
@@ -1612,6 +1662,8 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
 - **Gate/evidence:**
   - `rg -n -e TRANSITIONAL\(7.3\) -e _resolve_type_string -e _click_type_for -e _get_list_inner_type src` → 0;
   - `uv run pytest tests/adapters/ tests/cli/ tests/types/ tests/group_options/`.
+  - `python3 matrix/surf_check.py`: the W-accept TUI bucket → 0 (18 rows at 5.1: A001 A005 A009
+    A017 A021 A025 A029 A033 A037 A041 A045 B077 C090 D092 D093 D101 G153, G156).
 - **Depends on:** 3.1, 4.1, 4.2, 4.3, 6.2. This file was last changed in wave 6.
 
 ## Wave 8 — D7 deletions

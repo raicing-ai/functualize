@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-
-import pytest
+from typing import TYPE_CHECKING
 
 from functualize._discovery.lazy_wrapper import LazyJobFunction
-from functualize._primitives.di import DIValidationError
 from functualize.app.config import JobSources
 from functualize.app.core import FunctualizeApp, request_for
+from functualize.types import RunStatus
+
+if TYPE_CHECKING:
+    import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -259,9 +261,16 @@ class TestDeferredDiValidation:
         assert str(jobs_dir / f"{_MODULE_PREFIX}_baddi.py") in failure.message
         assert "Register one from a plugin" in failure.message
 
-        # First use surfaces the deferred DI error
-        with pytest.raises(DIValidationError):
-            app._execution_engine.materialize_job("needs-service")
+        # First use no longer raises a second availability check (R-10): the
+        # refusal rides the admitted contract. Materialisation succeeds, and the
+        # door refuses the call naming the parameter and the remedy; the file is
+        # named by the boot report asserted above.
+        assert app._execution_engine.materialize_job("needs-service") is not None
+        result = app.execute(request_for("needs-service"))
+        assert result.status is RunStatus.INVALID
+        refusal = str(result.exception)
+        assert "svc" in refusal
+        assert "Register one from a plugin" in refusal
 
     def test_lazy_false_escape_hatch_validates_at_boot(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

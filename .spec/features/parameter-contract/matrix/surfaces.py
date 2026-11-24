@@ -94,7 +94,7 @@ def main() -> None:
             lam["given"]["group_option_values"] = gov
         spec.append({
             "id": rid, "job": job, "tui": tui, "lambda": lam,
-            "lambda_fat": {"job": job, "kwargs": given_args},
+            "lambda_fat": {"job": job, "arguments": given_args},
             "smartbar_flag_text": (f"{path[0]} --" if is_group else " ".join(path) + " --"),
             "smartbar_job_text": " ".join(path) + " ",
         })
