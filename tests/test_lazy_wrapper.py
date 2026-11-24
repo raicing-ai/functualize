@@ -4,7 +4,7 @@ Post typer-removal, ``make_lazy_command`` returns a ``click.Command`` built from
 cached ``FieldDescriptor`` metadata via
 ``click_params.build_click_params_from_descriptor``. These tests cover:
 
-- Type mapping from ``FieldDescriptor.type_annotation`` to click types
+- The click type each cached field's contract renders
 - click parameter reconstruction (names, types, defaults, markers, stdin, variadic)
 - Construction does NOT trigger module import
 - Import failure at invocation time exits non-zero with error message
@@ -23,25 +23,16 @@ from pydantic import BaseModel
 
 from functualize._discovery.lazy_wrapper import _detect_config_class
 from functualize._types.descriptors import FieldDescriptor, JobDescriptor
-from functualize.app.adapters.click_params import (
-    _resolve_type_string,
-    build_click_params_from_descriptor,
-)
+from functualize.app.adapters.click_params import build_click_params_from_descriptor
 from functualize.app.adapters.lazy_command import make_lazy_command
 from functualize.types import ExitCode, RunRequest
+from tests._support.declared_fields import with_contract
 
 
 # Module-level Pydantic model for _detect_config_class tests
 class _TestJobConfig(BaseModel):
     name: str = "test"
     count: int = 0
-
-
-def _resolve_type_annotation(fd: FieldDescriptor) -> object:
-    """Reconstruct the old resolver from the new primitives (enum → Choice)."""
-    if fd.type_annotation == "enum" or fd.choices:
-        return click.Choice(fd.choices or [])
-    return _resolve_type_string(fd.type_annotation)
 
 
 def _fd(
@@ -57,17 +48,19 @@ def _fd(
     stdin_flag: str | None = None,
     description: str = "",
 ) -> FieldDescriptor:
-    return FieldDescriptor(
-        name=name,
-        type_annotation=type_annotation,
-        choices=choices,
-        default=default,
-        required=required,
-        description=description,
-        positional=positional,
-        short_flag=short_flag,
-        is_stdin=is_stdin,
-        stdin_flag=stdin_flag,
+    return with_contract(
+        FieldDescriptor(
+            name=name,
+            type_annotation=type_annotation,
+            choices=choices,
+            default=default,
+            required=required,
+            description=description,
+            positional=positional,
+            short_flag=short_flag,
+            is_stdin=is_stdin,
+            stdin_flag=stdin_flag,
+        )
     )
 
 
@@ -117,86 +110,57 @@ def _params(desc: JobDescriptor) -> dict[str, click.Parameter]:
 # --- Type resolution ------------------------------------------------------
 
 
-class TestResolveTypeAnnotation:
-    def test_str_type(self):
-        assert _resolve_type_annotation(_fd(type_annotation="str")) is str
+class TestRenderedTypes:
+    """A cached field renders the click type its contract's shape decides.
 
-    def test_int_type(self):
-        assert _resolve_type_annotation(_fd(type_annotation="int")) is int
+    The cached type string no longer decides anything: the string resolver
+    this class used to test was retired with the transitional wrappers, and
+    the contract a field carries is the one input to the renderer.
+    """
 
-    def test_bool_type(self):
-        assert _resolve_type_annotation(_fd(type_annotation="bool")) is bool
-
-    def test_float_type(self):
-        assert _resolve_type_annotation(_fd(type_annotation="float")) is float
-
-    def test_list_str_type(self):
-        assert _resolve_type_annotation(_fd(type_annotation="list[str]")) == list[str]
-
-    def test_enum_type(self):
-        result = _resolve_type_annotation(
-            _fd(type_annotation="enum", choices=["a", "b", "c"])
+    @pytest.mark.parametrize(
+        ("annotation", "expected"),
+        [
+            ("str", click.STRING),
+            ("int", click.INT),
+            ("float", click.FLOAT),
+            ("bool", click.BOOL),
+            ("list[str]", click.STRING),
+            ("list[int]", click.INT),
+            ("int | None", click.INT),
+        ],
+    )
+    def test_scalar_types(self, annotation: str, expected: object) -> None:
+        fd = _fd(type_annotation=annotation, required=False)
+        (param,) = build_click_params_from_descriptor(
+            JobDescriptor(name="j", group=None, config_fields=[fd])
         )
-        assert isinstance(result, click.Choice)
-        assert list(result.choices) == ["a", "b", "c"]
+        assert param.type == expected
 
-    def test_enum_with_empty_choices_fallback(self):
-        result = _resolve_type_annotation(_fd(type_annotation="enum", choices=None))
-        assert isinstance(result, click.Choice)
-        assert list(result.choices) == []
-
-    def test_unknown_type_falls_back_to_str(self):
-        assert _resolve_type_annotation(_fd(type_annotation="unknown_type")) is str
-
-    def test_path_type(self):
-        from pathlib import Path
-
-        assert _resolve_type_annotation(_fd(type_annotation="Path")) is Path
-
-    def test_list_int_type(self):
-        assert _resolve_type_annotation(_fd(type_annotation="list[int]")) == list[int]
-
-    def test_optional_int_type(self):
-        assert _resolve_type_annotation(_fd(type_annotation="int | None")) == (
-            int | None
+    @pytest.mark.parametrize("annotation", ["Path", "UUID", "Decimal", "datetime"])
+    def test_value_types_keep_their_parser(self, annotation: str) -> None:
+        fd = _fd(type_annotation=annotation, required=False)
+        (param,) = build_click_params_from_descriptor(
+            JobDescriptor(name="j", group=None, config_fields=[fd])
         )
+        assert param.type is not click.STRING
 
-    def test_datetime_resolves_to_datetime(self):
-        """Inverted, not deleted: this pinned `datetime` collapsing to `str`.
-
-        That was the warm-path half of a defect whose cold-path half was
-        louder — the boot gate treated any non-builtin as a dependency, so a
-        job taking a `datetime` failed with `No provider for datetime` and
-        took the whole CLI down with it. Once the parameter is admitted, a
-        warm boot resolving it to `str` would hand the job the wrong class on
-        every run after the first, which is the cold/warm divergence this file
-        exists to catch.
-        """
-        from datetime import datetime
-
-        assert _resolve_type_annotation(_fd(type_annotation="datetime")) is datetime
-
-    def test_uuid_and_decimal_resolve_too(self):
-        """The rest of the value-type list, so the warm path cannot admit one
-        and collapse the others."""
-        from decimal import Decimal
-        from uuid import UUID
-
-        assert _resolve_type_annotation(_fd(type_annotation="UUID")) is UUID
-        assert _resolve_type_annotation(_fd(type_annotation="Decimal")) is Decimal
-
-    def test_dict_collapses_to_str(self):
-        assert _resolve_type_annotation(_fd(type_annotation="dict[str, int]")) is str
-
-    def test_enum_class_name_with_choices_is_choice(self):
-        result = _resolve_type_annotation(
-            _fd(type_annotation="Color", choices=["RED", "GREEN"])
+    def test_a_choice_set_renders_its_values(self) -> None:
+        fd = _fd(choices=["red", "green"], required=False)
+        (param,) = build_click_params_from_descriptor(
+            JobDescriptor(name="j", group=None, config_fields=[fd])
         )
-        assert isinstance(result, click.Choice)
-        assert list(result.choices) == ["RED", "GREEN"]
+        assert isinstance(param.type, click.Choice)
+        assert list(param.type.choices) == ["red", "green"]
 
-
-# --- click parameter construction from descriptors ------------------------
+    def test_a_field_without_a_contract_is_refused(self) -> None:
+        bare = FieldDescriptor(
+            name="x", type_annotation="str", default=None, description="", required=True
+        )
+        with pytest.raises(TypeError, match="No parameter contract"):
+            build_click_params_from_descriptor(
+                JobDescriptor(name="j", group=None, config_fields=[bare])
+            )
 
 
 class TestBuildClickParamsFromDescriptor:
@@ -424,8 +388,8 @@ class TestMarkerFidelity:
             ]
         )
         names = [p.name for p in build_click_params_from_descriptor(desc)]
-        # The positional argument precedes the option in declaration/list order.
-        assert names == ["verbose", "target"]
+        # The positional argument precedes the option (`render_click_params`).
+        assert names == ["target", "verbose"]
         params = _params(desc)
         assert isinstance(params["target"], click.Argument)
         assert isinstance(params["verbose"], click.Option)

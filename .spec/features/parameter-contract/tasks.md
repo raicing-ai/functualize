@@ -1877,7 +1877,7 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
       `tests/plugins/test_ai_events.py` gain the `parameters` list that every `JobDescriptor`
       has.
 
-### [ ] 7.3 Retire the transitional click wrappers
+### [x] 7.3 Retire the transitional click wrappers
 
 - **Input:** 3.1's `# TRANSITIONAL(7.3)` markers; the 13 test modules in `blast-radius.txt`
   `click_builders`.
@@ -1907,6 +1907,97 @@ packages, 736 passed, 2 skipped. Wave 2 is complete.
   - `python3 matrix/surf_check.py`: the W-accept TUI bucket → 0 (18 rows at 5.1: A001 A005 A009
     A017 A021 A025 A029 A033 A037 A041 A045 B077 C090 D092 D093 D101 G153, G156).
 - **Depends on:** 3.1, 4.1, 4.2, 4.3, 6.2. This file was last changed in wave 6.
+- **Execute evidence (2026-11-24, after `ed114048`):**
+  - **Premise re-verified, and false at this head.** The TUI call sites did not need changing.
+    - At this head the descriptor fields the TUI parses already carry their contracts
+      (`get_descriptor_fields` → `FieldDescriptor.contract`, cached by the codec since 3.2).
+      Measured on the matrix project: A001, A045, B077, C090, D092, G153, G156, G157 and F143
+      all carry one.
+    - `func a001 --help` renders `P` as a positional, and `func a001 --p x` exits 2. The TUI
+      gives the same answer, so the two surfaces agree.
+    - The 18 W-accept "TUI" rows were a kit asymmetry. `surf_analyze.table()` let `cli_given`
+      fall back to the positional run when the flag run was refused, but `tui_given` read only
+      the TUI's flag run.
+    - Parsing with descriptor contracts rather than admitted ones changes no rendering:
+      admission only moves `INJECTED` to `REJECTED_DISCOVERY`, and neither verdict renders a
+      click parameter.
+    - `app.py`, `chain_resolution.py`, `descriptor_fields.py` and `cli_arg_parser.py` are
+      therefore unchanged.
+  - **Work (`click_params.py`).**
+    - Deleted: `_click_type_for`, `_field_click_type`, `_resolve_type_string`,
+      `_option_from_marker` and `_get_list_inner_type`, with everything only they reached:
+      `_legacy_build_click_params`, `_legacy_build_click_params_from_fields`,
+      `_config_option_params`, `_config_field_option`, `_short_flag_from_metadata`,
+      `_EnumChoice`, `_is_variadic_arg`, `_has_from_job_marker`, `_SCALAR_TYPES` and the orphaned
+      `_DI_TYPE_NAMES` alias.
+    - `_click_type_for_shape` is renamed `_shape_click_type`, because the gate's
+      `-e _click_type_for` pattern also matched the surviving shape helper.
+    - The six markers are gone. `build_click_params`, `build_click_params_from_descriptor` and
+      `build_click_params_from_fields` remain the public seams, each rendering contracts only.
+      A field without a contract is refused by name (`TypeError`); it is not rendered by a
+      second rule.
+    - `create_job_command` synthesizes its signature from `build_click_params`, in declaration
+      order.
+    - `_cli/main.py`'s `_render_group_option_rows` already called the seam and is unchanged.
+  - **Deliberate behaviour changes.**
+    - A hand-built field without a contract no longer renders.
+    - `create_job_command` drops a parameter whose annotation cannot be resolved, as discovery
+      refuses it. The legacy builder had kept such a parameter as a text option.
+    - The descriptor renderer lists positional arguments first, as 3.1's renderer already did
+      for every contract-bearing field.
+  - **Gate.**
+    - `rg -n -e TRANSITIONAL\(7.3\) -e _resolve_type_string -e _click_type_for -e _get_list_inner_type src`
+      → **0**. `_field_click_type` and `_option_from_marker` in `src` and `tests` → 0.
+    - `uv run pytest tests/adapters/ tests/cli/ tests/types/ tests/group_options/` → 2,858
+      passed, 470 skipped.
+    - `mypy src/` clean (424 files); `lint-imports` 7 kept; Ruff check and format clean;
+      `git diff --check` clean.
+    - Kit, fresh at this commit's tree: `gen.py` rc 0 (284 s), `surfaces.py` rc 0 (269 s,
+      165/165/165). `surf_check.py`: W-inject, W-type, W-default, W-crash, **W-accept**, W-fat,
+      W-bar and **W-collapse** are all **0**. `tui_extra.py` → 0 rows. `check.py`: uncaught,
+      complete, identity, array, type and required are all 0; `verdict` 22 remains outside
+      this gate.
+  - **Kit corrections, each one an asymmetry rather than a product fix.**
+    - `surf_analyze.py`: `tui_given` takes the same positional fallback as `cli_given` (B-18).
+      G156's MCP cell is now labelled as excluded by the kit, which runs MCP without it, instead
+      of "server down".
+    - `surf_check.py`: W-collapse reads the probed parameter's own annotation. 7.1's G157
+      correction had made its list-typed `q` count against the probed `p: str`; the TUI delivered
+      `q=['a', 'b']`.
+  - **Reachability.** `func <job>` (warm) → `make_lazy_command` →
+    `build_click_params_from_descriptor` → `build_click_params_from_fields` →
+    `render_click_params`; the TUI bar → `parse_job_args` → `build_click_params_from_fields`.
+    Returning `[]` from `build_click_params_from_fields` fails
+    `test_pending_execution_integration.py` (3), `test_lazy_wrapper.py::TestRenderedTypes`, and
+    others. Restored from a recorded snapshot.
+  - **Tests.**
+    - In `[F]`:
+      - `test_lazy_wrapper.py`: `TestResolveTypeAnnotation` retires with the resolver it tested.
+        Its claim, that a cached field renders its declared type, moves to `TestRenderedTypes`,
+        which adds a contractless-refusal test.
+      - `test_lazy_wrapper_properties.py`: its strategy draws only declarations discovery could
+        produce, with defaults that fit the type and unique choices. Its order property is the
+        renderer's documented order: positionals first.
+      - `test_group_options_surfaces.py` and `test_flag_grammar_roundtrip.py`: their fakes carry
+        contracts.
+    - Outside `[F]`, with fakes only. `tests/_support/declared_fields.with_contract` gives a
+      hand-built field the contract the real classifier decides for the declaration it stands
+      for; no assertion changed. It is used in:
+      - `test_group_options_dispatch.py`, `test_combination_matrix.py`;
+      - `test_chain_drill_down.py`, `test_pending_execution_integration.py`,
+        `test_preflight_compact.py`, `test_preflight_enriched.py`;
+      - `test_completion_flag_pairs.py`, `test_inline_tui_v2_autocomplete_integration.py`,
+        `test_orchestrator_handoff.py`.
+    - Outside `[F]`, importers of the deleted helpers, carried onto the seams:
+      - `test_click_builder_agreement.py` and `test_job_config_properties.py` use
+        `build_click_params` for the cold builder.
+      - `test_enum_parameter_roundtrip.py` compares the live-signature renderer with the cached
+        field read back through the descriptor codec.
+      - `test_parameter_extraction.py` compares cached choices with `build_click_params`.
+    - `test_cli_di_filtering.py`: `Path` is imported at module level. A local import under
+      PEP 563 is a forward reference no classifier resolves.
+  - **Residual.** `_discovery/providers.py:493` and two test docstrings still mention
+    `_EnumChoice` in prose; 11.1 corrects that prose.
 
 ## Wave 8 — D7 deletions
 

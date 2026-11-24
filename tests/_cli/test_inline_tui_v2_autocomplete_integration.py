@@ -23,6 +23,7 @@ from functualize._cli.tui.smart_bar_autocomplete import SmartBarAutoComplete
 from functualize._primitives.run_store import RunStore
 from functualize.app.core import FunctualizeApp
 from functualize.types import FieldDescriptor, JobDescriptor
+from tests._support.declared_fields import with_contract
 
 if TYPE_CHECKING:
     import pytest
@@ -70,13 +71,15 @@ def _make_field(
     required: bool = False,
     choices: list[str] | None = None,
 ) -> FieldDescriptor:
-    return FieldDescriptor(
-        name=name,
-        type_annotation=type_annotation,
-        default=default,
-        description=description,
-        required=required,
-        choices=choices,
+    return with_contract(
+        FieldDescriptor(
+            name=name,
+            type_annotation=type_annotation,
+            default=default,
+            description=description,
+            required=required,
+            choices=choices,
+        )
     )
 
 

@@ -23,16 +23,13 @@ import datetime as _dt
 import inspect
 import logging
 import sys
-import typing
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Any
 
 import click
 from click.types import convert_type
-from pydantic import BaseModel
 
-from functualize._primitives.capability_names import INJECTED_PARAM_TYPE_NAMES
 from functualize._primitives.config_class_detection import detect_config_class
 from functualize._types.enums import RunStatus
 from functualize._types.exit_codes import ExitCode, exit_code_for_status
@@ -47,14 +44,12 @@ from functualize._types.parameter_contract import (
 from functualize.types import negative_flag_for
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from functualize._types.run_request import RunSurface
     from functualize.app.core import FunctualizeApp
 
 logger = logging.getLogger(__name__)
-
-# DI capability type names stripped from CLI signatures — the one list, not a
-# mirror of it. The mirrors drifted (see _primitives/capability_names).
-_DI_TYPE_NAMES = INJECTED_PARAM_TYPE_NAMES
 
 
 #: The programmatic seam for an embedded host, deliberately kept.
@@ -73,16 +68,7 @@ def _declares_workflow(function: Any) -> bool:
     return getattr(function, "__functualize_workflow__", None) is not None
 
 
-# ─── Small pure helpers (copies of the ones in adapters/cli.py) ──
-
-
-def _has_from_job_marker(annotation: Any) -> bool:
-    """True when ``annotation`` carries a ``FromJob`` marker."""
-    from functualize._types.from_job import FromJob
-
-    if typing.get_origin(annotation) is not Annotated:
-        return False
-    return any(isinstance(m, FromJob) for m in typing.get_args(annotation)[1:])
+# ─── Small pure helpers ──
 
 
 def _validate_short_flag(flag: str) -> bool:
@@ -90,100 +76,6 @@ def _validate_short_flag(flag: str) -> bool:
     if len(flag) != 2 or flag[0] != "-":
         return False
     return flag[1].isascii() and flag[1].isalpha()
-
-
-def _is_variadic_arg(annotation: Any) -> bool:
-    """True for Annotated[list[T], Arg()] — a variadic positional."""
-    from typing import get_origin
-
-    from functualize._cli.annotation_utils import parse_annotation as _parse
-
-    info = _parse(annotation)
-    if not any(type(m).__name__ == "Arg" for m in info.cli_markers):
-        return False
-    base = info.base_type
-    return base is list or get_origin(base) is list
-
-
-def _get_list_inner_type(base_type: Any) -> Any:
-    """Extract T from list[T]; str when not determinable."""
-    from typing import get_args, get_origin
-
-    if get_origin(base_type) is list:
-        args = get_args(base_type)
-        if args:
-            return args[0]
-    return str
-
-
-class _EnumChoice(click.Choice):  # type: ignore[type-arg]
-    """A ``Choice`` of an enum's member values that yields the enum member.
-
-    The inverse of the rendering in :func:`_click_type_for`. An ``Enum``
-    parameter is offered as a ``Choice`` of its member values, and until this
-    existed nothing converted the chosen value back: the job body received
-    ``str`` where its annotation said ``Color``, while the programmatic path
-    passed the member through unchanged — so the two surfaces disagreed about
-    the type of the same parameter (#38).
-
-    The member is found by the **rendered spelling**, not by ``Color(value)``:
-    an int-valued enum renders ``"1"``, which is no member's value. A value that
-    is already a member is returned untouched, so a signature default
-    (``color: Color = Color.RED``) survives click's own choice check instead of
-    failing it.
-    """
-
-    def __init__(self, enum_type: type[Enum]) -> None:
-        self._enum_type = enum_type
-        self._members = {str(member.value): member for member in enum_type}
-        super().__init__(list(self._members))
-
-    def convert(self, value: Any, param: Any, ctx: Any) -> Any:
-        if isinstance(value, self._enum_type):
-            return value
-        # ``Choice.convert`` returns the matched *original* choice — one of the
-        # rendered spellings, which are this mapping's keys.
-        return self._members[super().convert(value, param, ctx)]
-
-
-def _click_type_for(py_type: Any) -> tuple[Any, bool, bool]:
-    """Map a Python type to ``(click_type, is_flag, multiple)``.
-
-    Mirrors Click's conversion so parsing/metavars/choices match:
-    - Optional ``X | None`` is unwrapped to ``X``.
-    - Enum → a ``click.Choice`` of member values that converts back to the
-      member (:class:`_EnumChoice`).
-    - ``list[X]`` → inner ``X`` type with ``multiple=True``.
-    - ``bool`` → ``click.BOOL`` with ``is_flag=True``.
-    - everything else → ``click.types.convert_type(X)``.
-    """
-    from functualize._config.job_config import (
-        _is_enum_subclass,
-        _unwrap_list,
-        _unwrap_optional,
-    )
-
-    inner, _is_opt = _unwrap_optional(py_type)
-
-    list_inner, is_list = _unwrap_list(inner)
-    if is_list:
-        elem_type, _, _ = _click_type_for(list_inner)
-        return elem_type, False, True
-
-    if _is_enum_subclass(inner):
-        return _EnumChoice(inner), False, False
-
-    if inner is bool:
-        return click.BOOL, True, False
-
-    iso = _ISO_PARAM_TYPES.get(inner)
-    if iso is not None:
-        return iso, False, False
-
-    try:
-        return convert_type(inner), False, False
-    except Exception:
-        return click.STRING, False, False
 
 
 class _IsoParamType(click.ParamType):  # type: ignore[type-arg]
@@ -219,243 +111,20 @@ _ISO_PARAM_TYPES: dict[Any, Any] = {
 }
 
 
-# ─── Cached type-string resolution (for the lazy descriptor path) ───────────
-
-_SCALAR_TYPES: dict[str, Any] = {"str": str, "int": int, "bool": bool, "float": float}
+# ─── Contracts → click params: the one renderer ──────────────────────────────
 
 
-def _resolve_type_string(type_str: str) -> Any:
-    """Resolve a cached FieldDescriptor type string to a Python annotation.
-
-    Unrecognized types collapse to ``str`` (never raises — a malformed cache
-    must not break warm boot). Mirrors the old lazy_command resolver.
-    """
-    from pathlib import Path
-
-    s = type_str.strip()
-    try:
-        if s.endswith(" | None"):
-            return _resolve_type_string(s[: -len(" | None")]) | None
-        if s.startswith("list[") and s.endswith("]"):
-            inner = _resolve_type_string(s[len("list[") : -1])
-            return list[inner]  # type: ignore[valid-type]
-        if s == "list":
-            return list[str]
-        scalar = _SCALAR_TYPES.get(s)
-        if scalar is not None:
-            return scalar
-        if s == "Path":
-            return Path
-        # The value types the DI gate stopped claiming. Without these the warm
-        # path collapsed them to `str`, so a `UUID` parameter round-tripped as
-        # a string and the job received the wrong class on the second run --
-        # the cold/warm divergence this file's own history is full of.
-        import datetime as _d
-        import decimal as _dec
-        import uuid as _u
-
-        by_name = {
-            "UUID": _u.UUID,
-            "Decimal": _dec.Decimal,
-            "date": _d.date,
-            "datetime": _d.datetime,
-            "time": _d.time,
-        }
-        resolved = by_name.get(s)
-        if resolved is not None:
-            return resolved
-    except Exception:
-        return str
-    return str
-
-
-def _field_click_type(field: Any) -> tuple[Any, bool, bool]:
-    """Resolve a FieldDescriptor to ``(click_type, is_flag, multiple)``.
-
-    Enum fields (``type == "enum"`` or populated ``choices``) become a
-    ``click.Choice``; everything else routes through the shared
-    ``_click_type_for`` after resolving the cached type string.
-    """
-    if field.type_annotation == "enum" or field.choices:
-        return click.Choice(field.choices or []), False, False
-    return _click_type_for(_resolve_type_string(field.type_annotation))
-
-
-# TRANSITIONAL(7.3): descriptor callers keep this wrapper until the direct
-# renderer becomes their public seam.
 def build_click_params_from_descriptor(descriptor: Any) -> list[click.Parameter]:
-    """Build click parameters from a cached JobDescriptor's field metadata.
+    """The click parameters of a cached ``JobDescriptor``, from its contracts.
 
-    The warm/lazy-boot counterpart to :func:`build_click_params`: it renders
-    the same CLI shape from cached ``FieldDescriptor`` records without importing
-    the job module.
-
-    "The same shape" is now a property that is *asserted* rather than described.
-    It used to be a prose claim next to a second copy of the rules, and the copy
-    had drifted — see the comment above :func:`_config_field_option`.
+    The warm/lazy-boot counterpart to :func:`build_click_params`: the same
+    renderer over the contracts the descriptor's fields carry, so the command
+    has one shape whether or not the job module was imported.
     """
     return build_click_params_from_fields(descriptor.config_fields)
 
 
-# TRANSITIONAL(7.3): fields without contracts still use their old metadata.
-def _legacy_build_click_params_from_fields(
-    fields: Sequence[Any],
-) -> list[click.Parameter]:
-    """Render a sequence of cached ``FieldDescriptor`` records as click params.
-
-    The rendering rules live here rather than in
-    :func:`build_click_params_from_descriptor` because two callers need them
-    (C-D1): a job's own cached fields, and a **group's** declared options
-    (S6a), which are the same record type reached from a different cache
-    section. A second copy of this loop is how the two would drift — a group
-    flag rendering differently from the identical job flag is the bug that
-    would follow.
-
-    **Two rules, and which one applies is carried by the field.** A field
-    marked ``from_config_model`` is rendered by the config rule
-    (:func:`_config_field_option`: always an option, always ``default=None``,
-    the ladder supplies the value). Everything else is a plain signature
-    parameter, which has no ladder, so its default is passed through and a
-    required one becomes a positional.
-
-    The distinction cannot be recovered here from the list alone — a
-    ``JobDescriptor`` holds one ``config_fields`` list for both kinds and does
-    not serialize ``parameters`` — which is why it travels on the field.
-    """
-    # Preserve declaration order (cached config fields need not follow Python's
-    # no-default-first rule, so a required field may legitimately trail optional
-    # ones as a late positional — click parses positionals
-    # by their order among Arguments in this list regardless of interleaving).
-    params: list[click.Parameter] = []
-
-    # Every name on this command, so the negative-form rule sees the whole
-    # collision surface rather than one model's slice of it. Click resolves
-    # `--no-x` across all parameters regardless of which builder emitted them.
-    sibling_names = {field.name for field in fields}
-
-    for field in fields:
-        click_type, is_flag, multiple = _field_click_type(field)
-        negative_flag = (
-            negative_flag_for(field.name, sibling_names) if is_flag else None
-        )
-
-        if getattr(field, "from_config_model", False):
-            # A config field is rendered by the config rule, not the signature
-            # rule — see `_config_field_option`. This branch is what makes the
-            # warm path agree with `_config_option_params`; without it the two
-            # builders of one boundary disagreed on the default *and* on the
-            # parameter class, which is defect D7's shape on the pair this
-            # branch's predecessor did not consolidate.
-            params.append(
-                _config_field_option(
-                    field.name,
-                    click_type=click_type,
-                    is_flag=is_flag,
-                    multiple=multiple,
-                    help_text=_config_field_help(
-                        field.description,
-                        required=field.required,
-                        default=field.default,
-                    ),
-                    short_flag=field.short_flag,
-                    negative_flag=negative_flag,
-                )
-            )
-            continue
-
-        if field.positional:
-            if field.type_annotation.strip().startswith("list"):
-                params.append(
-                    _make_argument(field.name, click_type, required=True, nargs=-1)
-                )
-            else:
-                params.append(
-                    _make_argument(
-                        field.name,
-                        click_type,
-                        required=field.required,
-                        default=None if field.required else field.default,
-                    )
-                )
-            continue
-
-        if field.is_stdin:
-            flag_name = field.stdin_flag or f"--{field.name.replace('_', '-')}"
-            params.append(
-                click.Option(
-                    [flag_name, field.name],
-                    type=click_type,
-                    default=None,
-                    required=False,
-                    help=field.description or None,
-                )
-            )
-            continue
-
-        if field.short_flag:
-            long_flag = f"--{field.name.replace('_', '-')}"
-            short_flag = (
-                field.short_flag
-                if field.short_flag.startswith("-")
-                else f"-{field.short_flag}"
-            )
-            if is_flag:
-                # A short flag no longer costs the negative form: click binds
-                # the short spelling to the positive half of the pair.
-                params.append(
-                    click.Option(
-                        [
-                            f"{long_flag}/{negative_flag}"
-                            if negative_flag
-                            else long_flag,
-                            short_flag,
-                        ],
-                        is_flag=True,
-                        default=field.default if not field.required else False,
-                        help=field.description or None,
-                    )
-                )
-            else:
-                params.append(
-                    click.Option(
-                        [long_flag, short_flag],
-                        type=click_type,
-                        default=None if field.required else field.default,
-                        required=field.required,
-                        multiple=multiple,
-                        help=field.description or None,
-                    )
-                )
-            continue
-
-        # ── Plain field ────────────────────────────────────────────────────
-        hyphen = field.name.replace("_", "-")
-        if is_flag:
-            params.append(
-                click.Option(
-                    [f"--{hyphen}/{negative_flag}" if negative_flag else f"--{hyphen}"],
-                    default=field.default if not field.required else False,
-                    help=field.description or None,
-                )
-            )
-        elif field.required and not multiple:
-            params.append(_make_argument(field.name, click_type, required=True))
-        else:
-            params.append(
-                click.Option(
-                    [f"--{hyphen}"],
-                    type=click_type,
-                    default=None if field.required else field.default,
-                    required=field.required,
-                    multiple=multiple,
-                    help=field.description or None,
-                )
-            )
-
-    return params
-
-
-def _click_type_for_shape(shape: ValueShape) -> Any:
+def _shape_click_type(shape: ValueShape) -> Any:
     """Choose Click's parser from the discovery contract's value shape."""
     import decimal
     import uuid
@@ -536,7 +205,7 @@ def render_click_params(
             Verdict.CONFIG_FIELD,
         }:
             continue
-        click_type = _click_type_for_shape(shape)
+        click_type = _shape_click_type(shape)
         is_config = (
             contract.verdict is Verdict.CONFIG_FIELD or contract.name in config_names
         )
@@ -598,107 +267,24 @@ def render_click_params(
     return arguments + options
 
 
-# TRANSITIONAL(7.3): legacy callers can still pass uncached fields.
 def build_click_params_from_fields(fields: Sequence[Any]) -> list[click.Parameter]:
-    if not all(getattr(field, "contract", None) is not None for field in fields):
-        return _legacy_build_click_params_from_fields(fields)
+    """The click parameters for field records, rendered from their contracts.
+
+    Every caller holds ``FieldDescriptor`` records — a job's fields, a group's
+    declared options, a TUI row copied from either — and each carries the
+    contract discovery decided. A field without one has no rendering: there is
+    no second rule to fall back on (D4), so it is refused by name.
+
+    Raises:
+        TypeError: A field carries no parameter contract.
+    """
+    if missing := [f.name for f in fields if getattr(f, "contract", None) is None]:
+        raise TypeError(f"No parameter contract for field(s) {missing}")
     contracts = [field.contract for field in fields]
     config_names = frozenset(
         field.name for field in fields if getattr(field, "from_config_model", False)
     )
     return render_click_params(contracts, config_names=config_names)
-
-
-# ─── Config model → click options ─────────
-#
-# Transitional legacy helpers below still serve contractless descriptors and
-# the direct callable's synthetic inspect signature. Click commands with
-# contracts use `render_click_params` above on cold and warm paths.
-#
-# It was made twice, and the two copies disagreed. The warm copy passed the
-# model's default explicitly, which `_resolve_config_model` pops into
-# `cli_values` — the top tier of the ladder — so the pydantic default outranked
-# the config file, the environment, and everything else from the second run
-# onward. And it rendered a *required* field as a positional argument where the
-# cold copy renders a non-required option, so an app whose job took a required
-# config field from `config.base.toml` became uninvocable warm:
-# `Error: Missing argument 'TOKEN'`.
-#
-# `tests/config/test_click_builder_agreement.py` asserts they agree, which is
-# the same "prove the registry" discipline `contributor/reference/pitfalls.md`
-# #6 demands and that `app/adapters/surface_gate.py` already applies to one
-# attribute.
-
-
-def _config_field_option(
-    name: str,
-    *,
-    click_type: Any,
-    is_flag: bool,
-    multiple: bool,
-    help_text: str,
-    short_flag: str | None = None,
-    negative_flag: str | None = None,
-) -> click.Option:
-    """The one rule for rendering a config-model field as a click parameter.
-
-    Always an ``Option``, never an ``Argument``, and always ``default=None``.
-
-    A config field is never a positional, because the config file, the
-    environment, a `.env`, a prompt and the CLI can each supply it — click
-    cannot know which, so it must report only what the *user typed*. ``None``
-    is how it says "not provided"; the resolution ladder supplies the rest.
-    Passing the model's default here would mean click reporting a value nobody
-    entered, at the highest precedence there is.
-
-    The rule covers the *decision* — parameter class, ``required``, ``default``
-    — not the spelling. ``short_flag`` and ``negative_flag`` stay per-builder
-    inputs because each builder holds context this function does not: the short
-    form comes from an ``Option`` marker, and the negative form depends on
-    every *other* field on the command (a sibling literally named ``no_x``
-    owns ``--no-x``). Both callers must supply them or the two boot paths
-    diverge — the defect that shipped once for ``short_flag`` alone.
-
-    **A boolean renders as a pair**, ``--x/--no-x``, so a value set ``true`` in
-    a config file can be overridden from the command line like every other
-    field type. ``default=None`` survives the pair: absent still yields ``None``,
-    the positive yields ``True`` and the negative ``False``, so the contract
-    above is unchanged.
-    """
-    long_flag = f"--{name.replace('_', '-')}"
-    decls = [f"{long_flag}/{negative_flag}" if negative_flag else long_flag]
-    if short_flag:
-        decls.append(short_flag if short_flag.startswith("-") else f"-{short_flag}")
-    return click.Option(
-        decls,
-        type=click_type,
-        default=None,
-        required=False,
-        is_flag=is_flag,
-        multiple=multiple,
-        help=help_text or None,
-        show_default=False,
-    )
-
-
-def _short_flag_from_metadata(field_info: Any) -> str | None:
-    """The short flag an ``Option`` marker declares on a config-model field.
-
-    The cold builder reads the live Pydantic model; the warm one reads a cached
-    :class:`FieldDescriptor` whose ``short_flag`` was resolved from this same
-    marker by ``_discovery.group_options_extractor``. Both must arrive at the
-    same answer, or ``-s`` works on a warm boot and is unknown on a cold one —
-    the first run of a project behaving differently from every run after it.
-
-    Matched on the marker instance, not by name, because this module already
-    imports it for the signature path (``_OptionMarker``, ``:591``).
-    """
-    from functualize.job.markers import Option as _OptionMarker
-
-    for meta in getattr(field_info, "metadata", ()) or ():
-        if isinstance(meta, _OptionMarker) and meta.short:
-            return meta.short
-    return None
 
 
 def _config_field_help(description: str, *, required: bool, default: Any) -> str:
@@ -720,68 +306,7 @@ def _config_field_help(description: str, *, required: bool, default: Any) -> str
     )
 
 
-def _config_option_params(
-    job_config_class: type[BaseModel], sibling_names: set[str] | None = None
-) -> list[click.Parameter]:
-    """Build a ``click.Option`` for every field of a Pydantic config model.
-
-    The cold-boot half of the pair described above. Emits through
-    :func:`_config_field_option`, so the rule is stated once.
-    """
-    from pydantic_core import PydanticUndefined
-
-    from functualize._config.job_config import _get_field_type, _is_enum_subclass
-
-    # The whole command's names, not just this model's: click resolves
-    # `--no-x` across every parameter regardless of which builder emitted it.
-    names = set(job_config_class.model_fields) | (sibling_names or set())
-
-    params: list[click.Parameter] = []
-    for field_name, field_info in job_config_class.model_fields.items():
-        help_text = field_info.description or ""
-
-        has_default = field_info.default is not PydanticUndefined or (
-            field_info.default_factory is not None
-        )
-        if not has_default:
-            help_text = f"{help_text} \\[required]" if help_text else "\\[required]"
-        elif field_info.default_factory is not None:
-            pass  # factory default, don't annotate
-        elif field_info.default is None:
-            pass  # Optional with None default
-        elif _is_enum_subclass(type(field_info.default)):
-            default_repr = field_info.default.value
-            help_text = (
-                f"{help_text} \\[default: {default_repr}]"
-                if help_text
-                else f"\\[default: {default_repr}]"
-            )
-        elif field_info.default is not False:
-            default_repr = field_info.default
-            help_text = (
-                f"{help_text} \\[default: {default_repr}]"
-                if help_text
-                else f"\\[default: {default_repr}]"
-            )
-
-        click_type, is_flag, multiple = _click_type_for(_get_field_type(field_info))
-        params.append(
-            _config_field_option(
-                field_name,
-                click_type=click_type,
-                is_flag=is_flag,
-                multiple=multiple,
-                help_text=help_text,
-                short_flag=_short_flag_from_metadata(field_info),
-                negative_flag=(
-                    negative_flag_for(field_name, names) if is_flag else None
-                ),
-            )
-        )
-    return params
-
-
-# ─── Signature → click params (replaces the create_job_command builder) ─────
+# ─── Signature → click params ───────────────────────────────────────────────
 
 
 def _make_argument(
@@ -811,277 +336,19 @@ def _make_argument(
     return click.Argument([name], **kwargs)
 
 
-def _option_from_marker(
-    param: inspect.Parameter,
-    marker: Any,
-    base_type: Any,
-    sibling_names: set[str] | None = None,
-) -> click.Option:
-    """Build a ``click.Option`` from an ``Option()`` marker (short/long flags).
-
-    A boolean marked this way gets the same ``--x/--no-x`` pair every other
-    boolean gets. It is the fifth site that renders a flag, and the one most
-    easily missed: declaring a short form used to route a bool down here and
-    silently cost it the negative spelling.
-    """
-    short_flag: str | None = marker.short
-    long_flag: str | None = marker.long
-
-    if short_flag is not None and not _validate_short_flag(short_flag):
-        raise ValueError(
-            f"Invalid short flag '{short_flag}' for parameter '{param.name}'. "
-            f"Short flags must be a single dash followed by exactly one ASCII letter "
-            f"(e.g., '-v', '-t', '-n')."
-        )
-    if short_flag is not None and long_flag is None:
-        long_flag = f"--{param.name.replace('_', '-')}"
-    if long_flag is None:
-        long_flag = f"--{param.name.replace('_', '-')}"
-
-    click_type, is_flag, multiple = _click_type_for(base_type)
-
-    negative = (
-        negative_flag_for(param.name, sibling_names or set()) if is_flag else None
-    )
-    decls = [f"{long_flag}/{negative}" if negative else long_flag]
-    if short_flag is not None:
-        decls.append(short_flag)
-    # Bind the click param name to the function parameter name — a malformed or
-    # custom flag ("-tt") must not let click infer a different name, or the
-    # engine callback would receive the wrong keyword.
-    decls.append(param.name)
-
-    has_default = param.default is not inspect.Parameter.empty
-    default = param.default if has_default else None
-
-    return click.Option(
-        decls,
-        type=click_type,
-        default=default,
-        required=not has_default and not is_flag,
-        is_flag=is_flag,
-        multiple=multiple,
-        help=marker.help,
-        hidden=marker.hidden,
-        envvar=marker.envvar,
-    )
-
-
-# TRANSITIONAL(7.3): direct callables still use this signature adapter.
-def _legacy_build_click_params(
-    function: Callable[..., Any],
-    job_config_class: type[BaseModel] | None,
-    *,
-    apply_job_filter: bool = True,
-) -> tuple[list[click.Parameter], type[BaseModel] | None, dict[str, Any]]:
-    """Build click parameters for a job function's CLI signature.
-
-    Returns ``(params, resolved_config_class, stdin_markers)``. With
-    ``apply_job_filter`` (the default, for jobs), the DI/config/FromJob/non-CLI
-    stripping matches ``create_job_command`` exactly. With it False (for raw
-    plugin callbacks, which are processed unfiltered) only DI params are
-    dropped, so plain ``X | None`` params survive as options.
-    """
-    from functualize._cli.annotation_utils import parse_annotation as _parse
-    from functualize.job.markers import Arg
-    from functualize.job.markers import Option as _OptionMarker
-    from functualize.job.markers import Stdin as _StdinMarker
-
-    sig = inspect.signature(function)
-    params = list(sig.parameters.values())
-
-    try:
-        resolved_hints = typing.get_type_hints(function, include_extras=True)
-    except Exception:
-        resolved_hints = {}
-    if resolved_hints:
-        params = [
-            p.replace(annotation=resolved_hints[p.name])
-            if p.name in resolved_hints
-            else p
-            for p in params
-        ]
-
-    # Auto-detect config class from signature if not provided — through the
-    # one shared rule, not a local copy of it.
-    #
-    # The local copy this replaced used `_parse(...).base_type`, which
-    # deliberately unwraps `Annotated[...]` so that `Annotated[int, Option()]`
-    # yields `int`. Applied to the detection question that unwrapping is wrong:
-    # `Annotated[Findings, FromJob("audit.check")]` yielded `Findings`, a
-    # BaseModel subclass, so an upstream envelope became the job's config class
-    # and the job died in config resolution before its body ran. The filter
-    # loop 30 lines below already skipped `FromJob` params; the detection loop
-    # above it did not.
-    if job_config_class is None and apply_job_filter:
-        job_config_class = detect_config_class(function)
-
-    # ── Filter to CLI-facing params (identical policy to create_job_command) ─
-    kept: list[inspect.Parameter] = []
-    for param in params:
-        annotation = param.annotation
-        if isinstance(annotation, str) and annotation in _DI_TYPE_NAMES:
-            continue
-        if isinstance(annotation, str):
-            kept.append(param)
-            continue
-        if _has_from_job_marker(annotation):
-            continue
-        info = _parse(annotation)
-        if info.is_di_param:
-            continue
-        if not apply_job_filter:
-            # Raw plugin callback: applies no config/CLI-compat filter.
-            kept.append(param)
-            continue
-        if (
-            info.base_type is not None
-            and isinstance(info.base_type, type)
-            and issubclass(info.base_type, BaseModel)
-            and info.base_type is not BaseModel
-        ):
-            continue
-        if not info.is_cli_compatible and not info.cli_markers:
-            continue
-        kept.append(param)
-
-    # ── Emit click params (Arg → Argument, Option/Stdin/plain → Option) ─────
-    arguments: list[click.Parameter] = []
-    options: list[click.Parameter] = []
-    stdin_markers: dict[str, _StdinMarker] = {}
-
-    # Names visible on this command, for the negative-flag collision rule. The
-    # config builder unions its own model's fields onto this, so a signature
-    # param named `no_cache` still suppresses a config field `cache`.
-    _signature_names = {param.name for param in kept}
-
-    for param in kept:
-        annotation = param.annotation
-        if isinstance(annotation, str) or annotation is inspect.Parameter.empty:
-            # Untyped/forward-ref param. Rule: no default → positional
-            # argument, otherwise a string option.
-            has_default = param.default is not inspect.Parameter.empty
-            if not has_default:
-                arguments.append(
-                    _make_argument(param.name, click.STRING, required=True)
-                )
-            else:
-                options.append(
-                    click.Option(
-                        [f"--{param.name.replace('_', '-')}"],
-                        type=click.STRING,
-                        default=param.default,
-                        required=False,
-                    )
-                )
-            continue
-
-        info = _parse(annotation)
-        base_type = info.base_type if info.base_type is not None else str
-        arg_marker = next((m for m in info.cli_markers if isinstance(m, Arg)), None)
-
-        if arg_marker is not None:
-            if _is_variadic_arg(annotation):
-                inner = _get_list_inner_type(info.base_type)
-                elem_type, _, _ = _click_type_for(inner)
-                arguments.append(
-                    _make_argument(
-                        param.name,
-                        elem_type,
-                        required=True,
-                        nargs=-1,
-                        metavar=arg_marker.metavar,
-                    )
-                )
-            else:
-                has_default = param.default is not inspect.Parameter.empty
-                click_type, _, _ = _click_type_for(base_type)
-                arguments.append(
-                    _make_argument(
-                        param.name,
-                        click_type,
-                        required=not has_default,
-                        default=param.default if has_default else None,
-                        metavar=arg_marker.metavar,
-                    )
-                )
-            continue
-
-        stdin_marker = next(
-            (m for m in info.cli_markers if isinstance(m, _StdinMarker)), None
-        )
-        if stdin_marker is not None:
-            flag_name = stdin_marker.flag or f"--{param.name.replace('_', '-')}"
-            click_type, _, _ = _click_type_for(base_type)
-            # Bind the param name explicitly: a custom Stdin(flag="--data") on a
-            # param named "payload" must still bind the "payload" keyword.
-            options.append(
-                click.Option(
-                    [flag_name, param.name],
-                    type=click_type,
-                    default=None,
-                    required=False,
-                    help=stdin_marker.help,
-                )
-            )
-            stdin_markers[param.name] = stdin_marker
-            continue
-
-        option_marker = next(
-            (m for m in info.cli_markers if isinstance(m, _OptionMarker)), None
-        )
-        if option_marker is not None:
-            options.append(
-                _option_from_marker(param, option_marker, base_type, _signature_names)
-            )
-            continue
-
-        # ── Plain CLI param (no marker): default rules ──────────────
-        hyphen = param.name.replace("_", "-")
-        click_type, is_flag, multiple = _click_type_for(base_type)
-        has_default = param.default is not inspect.Parameter.empty
-        if is_flag:
-            # A plain bool param renders as a --flag/--no-flag pair, unless a
-            # sibling is literally named `no_<x>` and owns that spelling.
-            from functualize.app.utils import unwrap_optional_type
-
-            optional_bool = unwrap_optional_type(base_type) == (bool, True)
-            negative = negative_flag_for(param.name, _signature_names)
-            options.append(
-                click.Option(
-                    [f"--{hyphen}/{negative}" if negative else f"--{hyphen}"],
-                    default=param.default if has_default else False,
-                    is_flag=True if optional_bool else None,
-                )
-            )
-        elif not has_default and not multiple:
-            # No default → positional argument (standard rule for plain params).
-            arguments.append(_make_argument(param.name, click_type, required=True))
-        else:
-            options.append(
-                click.Option(
-                    [f"--{hyphen}"],
-                    type=click_type,
-                    default=param.default if has_default else None,
-                    required=not has_default,
-                    multiple=multiple,
-                )
-            )
-
-    if job_config_class is not None:
-        options.extend(_config_option_params(job_config_class, _signature_names))
-
-    return arguments + options, job_config_class, stdin_markers
-
-
-# TRANSITIONAL(7.3): callers keep this signature while every Click path uses
-# render_click_params over the same discovery contracts.
 def build_click_params(
     function: Callable[..., Any],
     job_config_class: type[BaseModel] | None,
     *,
     apply_job_filter: bool = True,
 ) -> tuple[list[click.Parameter], type[BaseModel] | None, dict[str, Any]]:
+    """A live function's click parameters, rendered from its contracts.
+
+    Returns ``(params, resolved_config_class, stdin_markers)``. The contracts
+    are the ones discovery would cache for the function, its config model's
+    fields included, so the cold command and the warm one render one shape.
+    ``apply_job_filter`` decides only whether a config model is detected.
+    """
     from functualize._discovery.schema_extractor import extract_field_descriptors
     from functualize._primitives.parameter_contract import build_contracts
 
@@ -1780,9 +1047,8 @@ def create_job_command(
     """
     from functualize._discovery.providers import extract_capability_markers
 
-    # TRANSITIONAL(7.3): this direct callable exposes an inspect signature,
-    # not a Click command. Its local forward references have no discovery cache.
-    params, resolved_config, _stdin_markers = _legacy_build_click_params(
+    # The synthesized signature below lists the rendered parameters' names.
+    params, resolved_config, _stdin_markers = build_click_params(
         function, job_config_class
     )
     if app is not None:
@@ -1810,14 +1076,22 @@ def create_job_command(
     )
 
     # Synthesize a signature exposing the CLI param names (DI already stripped),
-    # so callers that introspect the wrapper see the user-facing parameters.
+    # so callers that introspect the wrapper see the user-facing parameters, in
+    # declaration order (click lists arguments before options; config-model
+    # fields follow the signature's own parameters).
+    declared = list(inspect.signature(function).parameters)
     sig_params = [
         inspect.Parameter(
-            p.name,
+            p.name or "",
             inspect.Parameter.KEYWORD_ONLY,
             default=None if p.required else getattr(p, "default", None),
         )
-        for p in params
+        for p in sorted(
+            params,
+            key=lambda p: (
+                declared.index(p.name) if p.name in declared else len(declared)
+            ),
+        )
     ]
     callback.__signature__ = inspect.Signature(sig_params)  # type: ignore[attr-defined]
     callback.__name__ = getattr(function, "__name__", name)

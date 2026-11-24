@@ -23,7 +23,7 @@ from functualize._config.job_config import (
     validate_job_config_types,
 )
 from functualize._config.sources import EnvSource
-from functualize.app.adapters.click_params import _config_option_params
+from functualize.app.adapters.click_params import build_click_params
 
 
 def generate_typer_options(model: type[BaseModel]) -> dict[str, click.Option]:
@@ -32,7 +32,11 @@ def generate_typer_options(model: type[BaseModel]) -> dict[str, click.Option]:
     Kept as a thin ``{name: option}`` view so the Property-13 tests read the same
     while asserting over click parameters instead of the removed typer options.
     """
-    return {opt.name: opt for opt in _config_option_params(model)}  # type: ignore[misc]
+
+    def job() -> None: ...
+
+    params, _, _ = build_click_params(job, model)
+    return {opt.name: opt for opt in params}  # type: ignore[misc]
 
 
 class _FileLikeSource:

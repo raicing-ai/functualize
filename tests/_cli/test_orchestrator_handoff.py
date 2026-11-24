@@ -17,6 +17,7 @@ pytest.importorskip("textual")
 from functualize._cli.inline_tui import _run_handoff  # noqa: E402
 from functualize._cli.tui.job_execution import run_job  # noqa: E402
 from functualize._types.descriptors import FieldDescriptor, JobDescriptor  # noqa: E402
+from tests._support.declared_fields import with_contract  # noqa: E402
 
 
 def _descriptor(name: str, *, requires_tty: bool) -> JobDescriptor:
@@ -62,12 +63,14 @@ def test_run_handoff_parses_tokens_and_executes() -> None:
     app = MagicMock()
     app.get_job.return_value = SimpleNamespace(
         config_fields=[
-            FieldDescriptor(
-                name="path",
-                type_annotation="str",
-                default=None,
-                description="",
-                required=True,
+            with_contract(
+                FieldDescriptor(
+                    name="path",
+                    type_annotation="str",
+                    default=None,
+                    description="",
+                    required=True,
+                )
             )
         ]
     )

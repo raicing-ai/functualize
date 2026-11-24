@@ -124,15 +124,22 @@ def table() -> list[dict]:
         cli_given = row["runs"].get("flag")
         if cli_given is None or cell_cli(cli_given).startswith("refused"):
             cli_given = row["runs"].get("pos") or cli_given
+        # The TUI bar parses with the CLI's grammar (B-18), so its "given" cell
+        # takes the same fallback: the positional spelling when the flag one is
+        # refused, as the CLI's does. Comparing one surface's positional run with
+        # the other's flag run counted agreement as a disagreement.
+        tui_given = pr.get("tui_flag")
+        if cell_exec(tui_given).startswith(("refused", "fail")) and pr.get("tui_pos"):
+            tui_given = pr.get("tui_pos")
         rows.append({
             "id": rid, "label": row["label"].replace("{rid}", rid.lower()),
             "cli_absent": cell_cli(row["runs"].get("absent")),
             "cli_given": cell_cli(cli_given),
             "tui_absent": cell_exec(pr.get("tui_absent")),
-            "tui_given": cell_exec(pr.get("tui_flag")),
+            "tui_given": cell_exec(tui_given),
             "tui_pos": cell_exec(pr.get("tui_pos")),
-            "mcp_absent": cell_mcp(mcp.get("absent")) if rid != "G156" else "server down (F-12)",
-            "mcp_given": cell_mcp(mcp.get("given")) if rid != "G156" else "server down (F-12)",
+            "mcp_absent": cell_mcp(mcp.get("absent")) if rid != "G156" else "server excludes it (kit)",
+            "mcp_given": cell_mcp(mcp.get("given")) if rid != "G156" else "server excludes it (kit)",
             "http_absent": cell_http(http.get("absent")),
             "http_given": cell_http(http.get("given")),
             "lambda_absent": cell_exec(pr.get("lambda_thin_absent")),

@@ -11,17 +11,20 @@ builder produced.
 
 from functualize._cli.completions.data import _flag_opts
 from functualize._types.descriptors import FieldDescriptor
+from tests._support.declared_fields import with_contract
 
 
 def _field(
     name: str, type_annotation: str = "bool", default: object = None
 ) -> FieldDescriptor:
-    return FieldDescriptor(
-        name=name,
-        type_annotation=type_annotation,
-        default=default,
-        description=f"{name} field",
-        required=False,
+    return with_contract(
+        FieldDescriptor(
+            name=name,
+            type_annotation=type_annotation,
+            default=default,
+            description=f"{name} field",
+            required=False,
+        )
     )
 
 

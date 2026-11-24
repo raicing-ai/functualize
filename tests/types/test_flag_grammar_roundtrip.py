@@ -42,6 +42,7 @@ from functualize._types.flag_grammar import (
     negative_flag_for,
 )
 from functualize.app.adapters.click_params import build_click_params_from_fields
+from tests._support.declared_fields import with_contract
 
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
@@ -73,14 +74,16 @@ def _field(
     short_flag: str | None = None,
     from_config_model: bool = False,
 ) -> FieldDescriptor:
-    return FieldDescriptor(
-        name=name,
-        type_annotation=type_annotation,
-        default=default,
-        description=f"{name} field",
-        required=required,
-        short_flag=short_flag,
-        from_config_model=from_config_model,
+    return with_contract(
+        FieldDescriptor(
+            name=name,
+            type_annotation=type_annotation,
+            default=default,
+            description=f"{name} field",
+            required=required,
+            short_flag=short_flag,
+            from_config_model=from_config_model,
+        )
     )
 
 

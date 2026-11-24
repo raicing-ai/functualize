@@ -1,0 +1,133 @@
+"""Give a hand-built ``FieldDescriptor`` the contract discovery would decide.
+
+Discovery has attached a parameter contract to every field since task 3.2, and
+the click renderer reads only the contract: a field without one has no
+rendering (``build_click_params_from_fields`` refuses it). Tests that build
+field records by hand describe a declaration in the record's terms — a type
+string, a default, ``positional``, ``short_flag``, ``from_config_model``.
+:func:`with_contract` writes that declaration as Python, classifies it with the
+real classifier, and attaches the result, so a fake renders exactly as the
+declaration it stands for would after discovery.
+
+- A signature parameter is classified by ``build_contracts`` over a generated
+  function: ``Arg()`` for ``positional``, ``Option("-x")`` for
+  ``short_flag``, ``Stdin(flag=...)`` for ``is_stdin``, ``Literal[...]`` for
+  ``choices``.
+- A config-model field (``from_config_model``) and a group option
+  (``group=True``) are classified by ``build_field_contract`` over a generated
+  pydantic model, as discovery classifies them.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import datetime
+import decimal
+import pathlib
+import types
+import typing
+import uuid
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from functualize._types.descriptors import FieldDescriptor
+
+__all__ = ["with_contract", "with_contracts"]
+
+
+def _namespace() -> dict[str, Any]:
+    from functualize.job.markers import Arg, Option, Stdin
+
+    return {
+        **{name: getattr(typing, name) for name in typing.__all__},
+        "Path": pathlib.Path,
+        "UUID": uuid.UUID,
+        "Decimal": decimal.Decimal,
+        "date": datetime.date,
+        "datetime": datetime.datetime,
+        "time": datetime.time,
+        "timedelta": datetime.timedelta,
+        "Arg": Arg,
+        "Option": Option,
+        "Stdin": Stdin,
+    }
+
+
+def _annotation(field: FieldDescriptor, *, marked: bool) -> str:
+    """The declaration's annotation, as source."""
+    choices = getattr(field, "choices", None)
+    if choices:
+        values = ", ".join(repr(choice) for choice in choices)
+        base = f"Literal[{values}]"
+    else:
+        base = getattr(field, "type_annotation", None) or "str"
+    markers: list[str] = []
+    if marked and getattr(field, "positional", False):
+        markers.append("Arg()")
+    if short := getattr(field, "short_flag", None):
+        markers.append(f"Option({short if short.startswith('-') else '-' + short!r})")
+    if marked and getattr(field, "is_stdin", False):
+        markers.append(f"Stdin(flag={getattr(field, 'stdin_flag', None)!r})")
+    return f"Annotated[{base}, {', '.join(markers)}]" if markers else base
+
+
+def _signature_contract(field: FieldDescriptor) -> Any:
+    from functualize._primitives.parameter_contract import build_contracts
+
+    default = "" if field.required else f" = {field.default!r}"
+    source = (
+        f"def _declared({field.name}: {_annotation(field, marked=True)}{default}):\n"
+        "    pass\n"
+    )
+    namespace = _namespace()
+    exec(source, namespace)  # noqa: S102 - a test's own declaration
+    (contract,) = build_contracts(namespace["_declared"])
+    return contract
+
+
+def _model_contract(field: FieldDescriptor, *, group: bool) -> Any:
+    from pydantic import Field, create_model
+
+    from functualize._primitives.parameter_contract import build_field_contract
+
+    namespace = _namespace()
+    annotation = eval(_annotation(field, marked=False), namespace)  # noqa: S307
+    default = ... if field.required else field.default
+    model = create_model(
+        "_Declared",
+        **{
+            field.name: (
+                annotation,
+                Field(default, description=getattr(field, "description", "") or None),
+            )
+        },
+    )
+    return build_field_contract(field.name, model.model_fields[field.name], group=group)
+
+
+def with_contract(field: FieldDescriptor, *, group: bool = False) -> FieldDescriptor:
+    """``field``, carrying the contract discovery decides for its declaration.
+
+    Args:
+        field: A hand-built record — a ``FieldDescriptor`` or a row with its
+            attributes, such as a ``SimpleNamespace``. A record that already
+            carries a contract is returned unchanged.
+        group: The field is a group option (a ``GroupOptions`` model field).
+    """
+    if getattr(field, "contract", None) is not None or not field.name.isidentifier():
+        # A name no declaration can spell (``db.host``) has no contract to give.
+        return field
+    if group or getattr(field, "from_config_model", False):
+        contract = _model_contract(field, group=group)
+    else:
+        contract = _signature_contract(field)
+    if dataclasses.is_dataclass(field):
+        return dataclasses.replace(field, contract=contract)  # type: ignore[type-var]
+    return types.SimpleNamespace(**{**vars(field), "contract": contract})  # type: ignore[return-value]
+
+
+def with_contracts(
+    fields: typing.Iterable[FieldDescriptor], *, group: bool = False
+) -> list[FieldDescriptor]:
+    """:func:`with_contract` over a field list."""
+    return [with_contract(field, group=group) for field in fields]

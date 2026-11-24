@@ -22,6 +22,7 @@ from functualize._cli.tui.app import FunctualizeInlineTUI
 from functualize._cli.tui.bar import BarReadiness
 from functualize._cli.tui.panels.config_table import ParamKind
 from functualize._cli.tui.preflight_summary import format_preflight_field_line
+from tests._support.declared_fields import with_contract
 
 # =============================================================================
 # Helpers
@@ -41,16 +42,18 @@ def _make_field_descriptor(
     param_kind: ParamKind = ParamKind.CONFIG,
 ) -> SimpleNamespace:
     """Create a mock field descriptor."""
-    return SimpleNamespace(
-        name=name,
-        required=required,
-        default=default,
-        positional=positional,
-        short_flag=short_flag,
-        type_annotation=type_annotation,
-        description=description,
-        choices=choices,
-        param_kind=param_kind,
+    return with_contract(
+        SimpleNamespace(
+            name=name,
+            required=required,
+            default=default,
+            positional=positional,
+            short_flag=short_flag,
+            type_annotation=type_annotation,
+            description=description,
+            choices=choices,
+            param_kind=param_kind,
+        )
     )
 
 

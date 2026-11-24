@@ -23,10 +23,13 @@ from functualize._cli.dispatch import walk_group_path
 from functualize._primitives.pre_filter import GroupOptionsPreFilter
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize.app.utils import build_group_trie
+from tests._support.declared_fields import with_contracts
 
 
 def _spec(group: str, *fields: FieldDescriptor) -> GroupOptionsSpec:
-    return GroupOptionsSpec(group=group, class_name="X", fields=list(fields))
+    return GroupOptionsSpec(
+        group=group, class_name="X", fields=with_contracts(fields, group=True)
+    )
 
 
 def _field(

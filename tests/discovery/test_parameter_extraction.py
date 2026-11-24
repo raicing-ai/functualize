@@ -233,15 +233,16 @@ class TestEnumChoices:
         that have to agree — the cached spellings and the ones the cold path
         hands to click — which is where the defect actually lived.
         """
-        from functualize.app.adapters.click_params import _click_type_for
+        from functualize.app.adapters.click_params import build_click_params
 
         def job(color: Color, priority: Priority) -> None:
             pass
 
         params = extract_parameters_from_signature(job)
-        for param, enum_cls in zip(params, (Color, Priority), strict=True):
-            click_type, _, _ = _click_type_for(enum_cls)
-            assert param.choices == list(click_type.choices)
+        rendered, _, _ = build_click_params(job, None)
+        by_name = {param.name: param for param in rendered}
+        for param in params:
+            assert param.choices == list(by_name[param.name].type.choices)
 
 
 class TestExcludedParameters:

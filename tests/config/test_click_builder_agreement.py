@@ -6,7 +6,7 @@
 against typer's historical output. Nothing compares the two builders that are
 both live *today*:
 
-* `_config_option_params` — cold path, from the live pydantic model;
+* `build_click_params` — cold path, from the live function and its pydantic model;
 * `build_click_params_from_fields` — warm path, from the cached
   `FieldDescriptor`s.
 
@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 
 from functualize._discovery.schema_extractor import extract_field_descriptors
 from functualize.app.adapters.click_params import (
-    _config_option_params,
+    build_click_params,
     build_click_params_from_fields,
 )
 
@@ -61,7 +61,10 @@ def _by_name(params: list) -> dict[str, object]:
 
 
 def _cold() -> dict[str, object]:
-    return _by_name(_config_option_params(WideConfig))
+    def job() -> None: ...
+
+    params, _, _ = build_click_params(job, WideConfig)
+    return _by_name(params)
 
 
 def _warm() -> dict[str, object]:

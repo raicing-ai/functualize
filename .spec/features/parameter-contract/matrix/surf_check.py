@@ -20,6 +20,13 @@ from surf_analyze import table
 
 out = json.loads(Path("out.json").read_text())
 HELP = {r["id"]: r["runs"]["help"]["stdout"] for r in out["rows"]}
+#: The probed parameter's own annotation: W-collapse is about the value the job
+#: is observed receiving, so a row whose *other* parameter is a list (G157's
+#: `q`) is not a collapse of the probed `p: str`.
+PROBE_DECL = {
+    r["id"]: (m.group(1) if (m := re.search(rf"\b{r['probe']}: ([^=]+?)(?:,\s*\w+:|=|$)", r["decl"])) else r["decl"])
+    for r in out["rows"]
+}
 INJECTED_ROWS = {f"E{n:03d}" for n in range(108, 142)} | {"H162", "H163", "H164", "H165"}
 WIRE = ("tui_given", "mcp_given", "http_given", "lambda_given")
 #: `INVOCATION_ONLY` rows (the declaration table's verdict): a command line has
@@ -89,7 +96,7 @@ def main() -> None:
             if not r["id"].startswith("G16") and bar != hf:
                 add("W-bar", f"bar={' '.join(sorted(bar)) or '∅'} help={' '.join(sorted(hf)) or '∅'}", rid)
         tg = r["tui_given"]
-        if re.search(r"(list|tuple)", r["label"]) and (typ(tg) == "str" or re.match(r"ok:list=\['\w+'\]$", tg)):
+        if re.search(r"(list|tuple)", PROBE_DECL.get(rid, r["label"])) and (typ(tg) == "str" or re.match(r"ok:list=\['\w+'\]$", tg)):
             add("W-collapse", "tui", rid)
 
     for pred in ("W-inject", "W-type", "W-default", "W-crash", "W-accept", "W-fat", "W-bar", "W-collapse"):

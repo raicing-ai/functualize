@@ -1,15 +1,15 @@
 """#38 — an enum parameter arrives in the job body as the enum member.
 
-`_click_type_for` renders an `Enum` parameter as a `click.Choice` of its member
-values, and until `_EnumChoice` existed nothing converted the chosen value back:
+The click layer renders an `Enum` parameter as a `click.Choice` of its member
+values, and until the job received the member nothing converted the chosen value back:
 the CLI handed the job the **string** it parsed while the programmatic path
 passed the member through unchanged. The two surfaces therefore disagreed about
 the type of the same parameter — a job that switched on `color` worked standing
 and failed from the command line.
 
 Both halves of that claim are asserted here against the real entry points, not
-against `_click_type_for`: a test of the renderer would have passed before the
-fix.
+against the renderer: a test of the renderer would have passed before the fix.
+The binding door now converts the choice to the member (spec B-3, 5.1).
 """
 
 from __future__ import annotations
@@ -115,29 +115,41 @@ class TestTheWarmPathOffersTheSameSpellings:
     """
 
     @staticmethod
-    def _cold_choices(enum_cls: type) -> list[str]:
-        from functualize.app.adapters.click_params import _click_type_for
+    def _job(enum_cls: type) -> Any:
+        """``def paint(color: <enum_cls>)``, with the annotation resolved."""
 
-        click_type, _, _ = _click_type_for(enum_cls)
-        return list(click_type.choices)
+        def paint(color):  # noqa: ANN001, ANN202
+            """Paint."""
 
-    @staticmethod
-    def _cached_choices(enum_cls: type) -> list[str]:
-        """What discovery would persist for a plain-signature parameter."""
-        import inspect
+        paint.__annotations__ = {"color": enum_cls}
+        return paint
 
-        from functualize._discovery.providers import _extract_enum_choices
+    @classmethod
+    def _cold_choices(cls, enum_cls: type) -> list[str]:
+        """What the live-signature renderer (the eager door) offers."""
+        from functualize.app.adapters.click_params import build_click_params
 
-        sig = inspect.Signature(
-            [
-                inspect.Parameter(
-                    "color",
-                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                    annotation=enum_cls,
-                )
-            ]
+        (param,), _, _ = build_click_params(cls._job(enum_cls), None)
+        return list(param.type.choices)
+
+    @classmethod
+    def _cached_field(cls, enum_cls: type) -> Any:
+        """The field discovery persists, read back through the descriptor cache."""
+        from functualize._discovery import extract_parameters_from_signature
+        from functualize._types.descriptors import _field_from_dict, _field_to_dict
+
+        (field,) = extract_parameters_from_signature(cls._job(enum_cls))
+        return _field_from_dict(_field_to_dict(field))
+
+    @classmethod
+    def _cached_choices(cls, enum_cls: type) -> list[str]:
+        """What the cached-descriptor renderer (every later run) offers."""
+        from functualize.app.adapters.click_params import (
+            build_click_params_from_fields,
         )
-        return list(_extract_enum_choices(sig.parameters["color"].annotation) or [])
+
+        (param,) = build_click_params_from_fields([cls._cached_field(enum_cls)])
+        return list(param.type.choices)
 
     def test_a_string_valued_enum_reads_the_same_both_ways(self) -> None:
         import enum
@@ -162,24 +174,13 @@ class TestTheWarmPathOffersTheSameSpellings:
         assert self._cached_choices(Level) == self._cold_choices(Level)
 
     def test_the_rendered_choice_is_what_the_warm_renderer_offers(self) -> None:
-        """Closes the loop: the cached spellings are the ones the descriptor
-        renderer hands to click, so agreement above is agreement on screen."""
+        """Closes the loop: the cached field's ``choices`` are the spellings the
+        descriptor renderer hands to click, so agreement above is agreement on
+        screen."""
         import enum
-
-        from functualize._types.descriptors import FieldDescriptor
-        from functualize.app.adapters.click_params import _field_click_type
 
         class Color(enum.Enum):
             RED = "red"
             GREEN = "green"
 
-        field = FieldDescriptor(
-            name="color",
-            type_annotation="Color",
-            default=None,
-            description="",
-            required=True,
-            choices=self._cached_choices(Color),
-        )
-        click_type, _, _ = _field_click_type(field)
-        assert list(click_type.choices) == self._cold_choices(Color)
+        assert self._cached_field(Color).choices == self._cached_choices(Color)

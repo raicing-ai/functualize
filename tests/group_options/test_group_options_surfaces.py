@@ -18,34 +18,37 @@ from functualize.app.adapters.click_params import (
     build_click_params_from_descriptor,
     build_click_params_from_fields,
 )
+from tests._support.declared_fields import with_contracts
 
 
 def _fields() -> list[FieldDescriptor]:
     """One of each rendering branch the shared loop has to cover."""
-    return [
-        FieldDescriptor(
-            name="env",
-            type_annotation="str",
-            default="staging",
-            required=False,
-            description="Target environment",
-            short_flag="-e",
-        ),
-        FieldDescriptor(
-            name="dry_run",
-            type_annotation="bool",
-            default=False,
-            required=False,
-            description="Preview only",
-        ),
-        FieldDescriptor(
-            name="replicas",
-            type_annotation="int",
-            default=1,
-            required=False,
-            description="",
-        ),
-    ]
+    return with_contracts(
+        [
+            FieldDescriptor(
+                name="env",
+                type_annotation="str",
+                default="staging",
+                required=False,
+                description="Target environment",
+                short_flag="-e",
+            ),
+            FieldDescriptor(
+                name="dry_run",
+                type_annotation="bool",
+                default=False,
+                required=False,
+                description="Preview only",
+            ),
+            FieldDescriptor(
+                name="replicas",
+                type_annotation="int",
+                default=1,
+                required=False,
+                description="",
+            ),
+        ]
+    )
 
 
 def _shape(params: list) -> list[tuple]:
