@@ -2311,6 +2311,26 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
   - **Reachability.** The gate tool's published schema → `_job_input_schema`. Forcing `"type":
     "string"` fails `tests/plugins/test_gate_tool_narrowing.py::TestPublishedSchema::test_the_unpinned_arguments_survive`.
     Restored from a recorded snapshot.
+  - **Wave 9 barrier (`--run-slow`, 2026-11-25).**
+    - Chunks: 973 root files in 12 disjoint `-n 6` chunks, covering every file exactly once,
+      plus the eight `_group` importers each in its own process.
+      - `cli` 2,228 passed, 198 skipped (re-run at `b7a770fd`);
+      - `_cli` 1,468 / 32; `(root)` 1,886; `discovery` 2,175 / 20; `config` 1,154;
+        `plugins` 1,019 / 9; `context` + `core` 1,356 / 1; `integration` 438 / 4;
+        `workflow` + `engine` 1,235 / 1; `primitives` + `app` + `types` + `pipeline` 3,017 / 13;
+        `spec` … `adapters` 1,217 / 4; the rest 1,413 / 15;
+      - the `_group` files 10, 11, 5, 10, 26 / 7, 10, 13 and 40 / 3, all passed.
+    - The one red was a load-timing flake:
+      `test_scope_state_store.py::test_steady_state_writes_are_at_parity` measured 2.0x against a
+      2x limit (4.28 ms vs 2.11 ms) under 6 workers. It passed 3 of 3 on its own, and nothing
+      under `_primitives/` changed in the wave.
+    - The first `cli` run failed `test_introspect_values_unit.py::test_path_field_returns_directory_entries`,
+      a contractless fake left behind by 9.3; `b7a770fd` gives its fakes contracts.
+    - `examples/` 287 passed. Plugin packages: all 12 passed (listed under 9.3). `mypy src/`,
+      `lint-imports`, Ruff and `git diff --check` are clean.
+    - Dead-code delta `757c82c9..b7a770fd`: `NEW_DEAD 1`, `tests/test_descriptor.py:164
+      json_serializable_defaults` (UNMARKED, orphaned by 9.1's strategy rewrite, advisory), and
+      `TESTS_ONLY 0`. Neighbourhood: 5 pre-existing `InProcessIntrospector` findings.
 
 ## Wave 10 — `type_annotation` is deleted (SS-3 = B)
 
