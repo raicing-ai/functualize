@@ -2337,7 +2337,7 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
 The tasks in this wave are independent. Each migrates only its own test files. 10.1 deletes the
 field, and the wave is complete when the whole suite is green with it gone.
 
-### [ ] 10.1 Delete `FieldDescriptor.type_annotation`
+### [x] 10.1 Delete `FieldDescriptor.type_annotation`
 
 - **[F]:** `src/functualize/_types/descriptors.py` (scope amendment, per the wave-10 dispatch
   ruling of 2026-11-25: the nine residual production sites, named at their pre-edit lines as
@@ -2355,6 +2355,32 @@ field, and the wave is complete when the whole suite is green with it gone.
   - after 10.2–10.4: `rg -l -w type_annotation tests plugins -g '*.py'` → 0 (today 53);
   - `uv run pytest` (the root suite, at the end of the wave), **and** the plugin-package loop
     `for d in plugins/*/*/tests; do uv run pytest "$d" -q || exit 1; done`.
+- **Execute evidence (2026-11-25):** the alias and its `TRANSITIONAL(10.1)` marker are gone from the
+  descriptor; every constructor passes `contract=`. Record gates: `rg -n '\.type_annotation' src
+  plugins -g '*.py'` → 0; `rg -n -w type_annotation src plugins -g '*.py' -g '!**/tests/**'` → 0;
+  after 10.2–10.4 `rg -l -w type_annotation tests plugins -g '*.py'` → 0; `mypy src/` → Success: no
+  issues found in 422 source files; Ruff check/format clean over `src/ tests/ plugins/ examples/`;
+  `lint-imports` → 7 kept, 0 broken. The wave barrier ran to completion, every chunk in a foreground
+  blocking call (`uv run pytest <paths> -q -n 6 --run-slow` unless noted): `tests/cli` 2,228 passed,
+  198 skipped; `tests/_cli` 1,468 / 32; the 87 root files 1,886 passed; `tests/discovery` 2,175 / 20;
+  `tests/config` 1,154 passed; `tests/plugins` 1,019 / 9; `tests/context tests/core` 1,356 / 1;
+  `tests/integration tests/workflow tests/engine` 1,713 / 8; `tests/primitives tests/app tests/types
+  tests/pipeline` 3,018 / 13 (run twice: the venv-binary form surfaced one harness red where the
+  packaging test's spawned `python` was off `PATH`; the canonical `uv run` form is green);
+  `tests/spec tests/hooks tests/scaffold tests/adapters tests/execution` 1,025 / 3; the remaining 23
+  test directories 1,357 / 23; the 21 group-option files each in its own pytest process without `-n`
+  338 / 8; `examples/` 287 passed; the plugin-package loop over `plugins/*/*/tests` (12 packages)
+  739 / 2; the known 2×-limit timing flake
+  `test_scope_state_store.py::TestTheCostDoesNotGrowWithTheProject::test_steady_state_writes_are_at_parity`
+  solo ×3 → 1 passed ×3. Three transitions were found and fixed en route, each in its own commit and
+  all test-side: (1) a generated field named `self`/`cls` collapsed the fixture's synthesized
+  signature to zero contracts (6764b079 extends the reserved-name fallback); (2) the model-contract
+  fixture built its pydantic stand-in under a name pydantic refuses outright or shades, and the
+  plugin property pools drew `dict` into config fields — a declaration F-29 refuses at discovery,
+  one that publishes no property (b5dad999: a pydantic-spelled stand-in, the B-3/B-4 pool; the
+  refusal's assertions live in `tests/discovery`). Disclosed beyond the strict alias removal: ce8e80f0
+  also restored a `ruff format` blank line in `src/functualize/_primitives/job_schema.py`. Dead-code
+  delta `81d7e57a..b5dad999` → NEW_DEAD 0, TESTS_ONLY 0 (5 NEIGHBOURHOOD pre-existing, advisory).
 - **Depends on:** 9.1, 9.2, 9.3.
 
 ### [x] 10.2 Migrate the CLI test modules
