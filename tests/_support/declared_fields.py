@@ -135,7 +135,9 @@ def _signature_contract(field: FieldDescriptor) -> Any:
 
     declared_name = (
         field.name
-        if field.name.isidentifier() and not keyword.iskeyword(field.name)
+        if field.name.isidentifier()
+        and not keyword.iskeyword(field.name)
+        and field.name not in ("self", "cls")
         else "_field"
     )
     default = "" if field.required else f" = {field.default!r}"
