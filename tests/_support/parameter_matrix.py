@@ -3093,7 +3093,7 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         "proposed": "ACCEPTED_POSITIONAL",
         "cli_spelling": ("p",),
         "wire_spelling": ("p",),
-        "required": False,
+        "required": True,  # `*, p: str` has no default; corrected in 11.2
         "delivered_type": "str",
         "hidden": False,
         "flag_argv": ("--p", "x"),

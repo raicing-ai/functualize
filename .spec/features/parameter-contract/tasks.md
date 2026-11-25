@@ -2544,7 +2544,7 @@ field, and the wave is complete when the whole suite is green with it gone.
   - **Scope.** `tests/surfaces/test_parameter_docs_table.py` and `tests/surfaces/__init__.py` are
     11.2's files. They are committed here because this box's gate is that test.
 
-### [ ] 11.2 The parity test (AC-10), with the three cross-builder tests folded in
+### [x] 11.2 The parity test (AC-10), with the three cross-builder tests folded in
 
 - **[F]:**
   - `tests/surfaces/test_parameter_surface_parity.py` (new), `tests/surfaces/test_parameter_docs_table.py` (new);
@@ -2558,6 +2558,92 @@ field, and the wave is complete when the whole suite is green with it gone.
 - **Gate/evidence:** green under `uv run pytest tests/surfaces/`, and runnable within the 600 s
   tool-call cap. If not, split it by row group, as the `test-tiers` skill prescribes.
 - **Depends on:** 10.1, 10.2, 10.3, 10.4. The docs-table half also depends on 11.1.
+- **Execute evidence (2026-11-25, after `a97d5e01`):**
+  - **The parity test.**
+    - `tests/surfaces/test_parameter_surface_parity.py::test_every_surface_follows_the_rows_verdict`
+      writes every matrix row as a job module, in 8 row groups of 21.
+      `_parity_project.write_project` builds the project and adds `provlib` and the probe plugin
+      `_parity_probe.SOURCE`.
+    - Each group boots the real `func` twice in a subprocess, cold then warm (§23), in both
+      PEP 563 modes: 16 items.
+    - Inside each boot, `func parity dump` records ten surfaces per row:
+      - `help`: the parameters of the command `func <job>` builds
+        (`_materialize_for_dispatch`, then `create_job_click_command`);
+      - `bash` and `zsh`: the words of `render_completion_script` over
+        `extract_completion_data`;
+      - `smartbar`: the SmartBar's candidates;
+      - `tui`: the TUI door (tokenize, resolve, `parse_job_args`, run);
+      - `info`: `job_detail`'s `inputSchema`;
+      - `mcp`: the translator's schema and a `JobTool.run` call;
+      - `http`: `HttpServerCore.handle_request`;
+      - `lambda`: the `make_handler` thin handler.
+    - Each surface is driven with a supplied value and with none, and `check_row` states what the
+      row's verdict requires of it:
+      - published, and required, on `info` and MCP;
+      - rendered on `help` as an argument or an option, with its spelling, requiredness and
+        hidden flag;
+      - offered by completion and the SmartBar exactly when it is a visible flag;
+      - a supplied value accepted and delivered as the declared type;
+      - an injected key, or any call to a refused job, refused.
+    - `test_a_refused_call_is_one_error_line_and_exit_2` runs `func <job>` in a subprocess
+      (§25), cold and warm, in both modes, for one row per refusal class. Each exits 2 with
+      exactly one `Error:` line and no traceback:
+      - A001, missing required;
+      - A005, non-converting;
+      - C082, wire-only on the command line;
+      - H163, a flag for an injected parameter;
+      - H166, a job refused at discovery.
+  - **Gate.**
+    - `uv run pytest tests/surfaces/ --run-slow` → 54 passed in 417.6 s serial (421 s wall),
+      inside the 600 s cap.
+    - Without `--run-slow`, 38 passed and 16 skipped in 21 s at `-n 6`.
+    - The 16 matrix items are marked `slow`, so they run in `test-full` on every CI Python
+      version (AC-10) and not in the serial `test-fast` tier, which they would lengthen by
+      about 7 minutes.
+  - **What the first run found.** Every mismatch was test-side, not product behaviour:
+    - the wire value for `Enum` labels (A045–A048, B064) was missing;
+    - the SmartBar shows `-t/--f` as one candidate (D096, F152);
+    - G157's TUI text dropped `q`;
+    - D107's matrix argv probes the `ge=1` refusal;
+    - a `Stdin()` option is never click-required (B-14), so D099 is exempt from that check.
+    One matrix fact was wrong:
+    - G156, `q: str = "d", *, p: str`, has no default for `p`, so it is required. Every surface
+      already treated it so, and the matrix said `required: False`.
+    - The value is corrected in `tests/_support/parameter_matrix.py`, with a comment; that file
+      is outside `[F]`.
+  - **Reachability.** Stopping `ArgumentBinder.bind` from refusing a value for an `INJECTED`
+    parameter makes the parity test report E108, E109 and the rest as accepted on MCP, HTTP and
+    Lambda. Restored from a recorded snapshot.
+  - **The three deleted files: where each assertion now lives** (all in
+    `test_parameter_surface_parity.py`, under a `Folded from` banner, test names unchanged; 33
+    folded items pass):
+    - `tests/adapters/test_cold_warm_parity.py`:
+      - `test_both_builders_render_the_same_opts_for_a_short_flagged_config_field` and
+        `test_the_short_flag_is_actually_present`, folded as they were;
+      - the same property per row: F152 (`Option("-t")` on a config field) is checked on `help`,
+        `bash`, `zsh` and `smartbar`, cold and warm.
+    - `tests/config/test_click_builder_agreement.py`:
+      - `test_the_two_builders_agree_on_the_default[8 fields]` and
+        `test_the_two_builders_agree_on_the_parameter_shape[8 fields]`, folded with `_cold`,
+        `_warm` and `FIELDS` renamed `_wide_*`;
+      - rows F143–F152 check the rendered config option and its `[required]` marking on cold
+        and warm boots.
+    - `tests/cli/test_schema_surface_parity.py`: all 14 tests, folded with `_field` renamed
+      `_schema_field`. That is 15 collected items, because the end-to-end test's project fixture
+      is parametrized twice:
+      - `test_known_types_map_to_json_schema_types`, `test_unknown_type_is_refused_by_the_contract`;
+      - `test_default_is_omitted_on_a_required_field`, `test_choices_become_an_enum`;
+      - `test_required_is_omitted_rather_than_emitted_empty`, `test_config_fields_win_over_parameters`;
+      - `test_group_options_injection_point_is_not_published`,
+        `test_refused_group_option_is_absent_from_core_and_mcp`;
+      - `test_contract_enum_values_keep_their_integer_type`,
+        `test_literal_required_sentinel_is_a_valid_default`;
+      - `test_nested_group_override_and_group_only_shape_match_mcp`,
+        `test_info_group_options_reader_tracks_app_changes`;
+      - `test_mcp_translator_delegates_to_the_core_renderer`,
+        `test_cli_schema_matches_mcp_schema_for_the_same_job`.
+      Beyond them, `info` and the MCP schema are each checked against the verdict for every
+      row, cold and warm, in both modes.
 
 ## Wave 12 — checkpoint
 
