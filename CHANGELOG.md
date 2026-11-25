@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed — `FieldDescriptor.type_annotation` and its `type` alias
+
+**Public API removal.** `functualize.types.FieldDescriptor` no longer has a
+`type_annotation` field or the `type` property that aliased it. Read
+`FieldDescriptor.contract` instead: the `ParameterContract` discovery decided
+for the parameter, whose `display` is the type as declared, `shape` the value
+shape, `verdict` what kind of input it is, and `json_schema` the published
+schema. Construct a `FieldDescriptor` without `type_annotation=`. The discovery
+cache stores each field's type only in its contract and is rebuilt once.
+Pre-release: no deprecation path.
+
+### Changed — every parameter is one kind of input on every surface
+
+Discovery decides once whether a job parameter is a caller input, a
+wire-only input, a config field, something the framework supplies, or refused,
+and the command line, completion, the TUI, `info schema`, MCP, HTTP and Lambda
+all read that one decision, on cold and warm boots and under
+`from __future__ import annotations` alike. See *Which parameters are inputs*
+in `docs/guides/jobs-discovery.md`. Visible consequences:
+
+- an absent optional list arrives as its declared default, `None` for
+  `= None`, where it used to arrive as `()`;
+- a list marked `Option()` or `Arg()` arrives as a `list`, where it used to
+  arrive as a `tuple`; a `tuple[T, ...]` arrives as a `tuple`;
+- a value sent over MCP, HTTP or Lambda is converted to the declared type
+  (`"7"` for an `int` arrives as `7`, a UUID string as a `UUID`), and one that
+  does not convert is refused with the argument's name, where it used to
+  reach the job as sent;
+- a `dict[str, T]`, a `set[T]` or a fixed `tuple[A, B]` parameter is a
+  wire-only input: MCP, HTTP and Lambda accept it, and on a command line a
+  required one is a usage error naming those surfaces;
+- a parameter of a shape nothing can supply — a union, `object`, an unmarked
+  class with no provider, `Secret[str]` as a plain parameter, a
+  positional-only parameter, conflicting CLI markers — refuses its job at
+  discovery instead of misbehaving at call time; the job stays listed and
+  every call is refused with the reason.
+
+### Changed — MCP tools register from the published schema and report failures
+
+Each job's MCP tool now carries the job's published input schema directly; no
+function is generated and compiled for it, so no job or parameter name can
+stop `func mcp serve` from starting. A call that is refused (missing, unknown,
+injected or non-converting argument) or a run that fails returns
+`isError: true` with the reason, where it used to return `isError: false`
+with no reason. `func mcp schema --format typescript` renders a choice by its
+JSON type, so an integer choice set reads `1 | 2`, not `"1" | "2"`.
+
+### Changed — the AI tool scope offers the same inputs as every other surface
+
+`functualize-ai`'s `ToolScope` publishes each job tool's parameters from the
+job's published input schema, and a plain function's from the same signature
+classification a job uses, instead of its own type map. A job without inputs
+publishes an empty object schema rather than `{}`, and a plain function's
+injected parameter is no longer offered to the model.
+
+### Fixed — type labels and gate schemas no longer depend on a cached string
+
+`func builtin info`'s per-parameter `type` is the declared type, so an optional
+or secret config field reads `str | None` or `Secret[str]` rather than `str`.
+A workflow gate tool's argument schema publishes each argument's real JSON
+type after a warm boot, where every argument read as a string. An optional
+boolean group option accepts its `--no-` spelling mid-path, as the command
+line renders it.
+
 ### Fixed — a refused call is one usage line, never a traceback
 
 A call the job's declaration does not admit (a missing, unknown, injected or

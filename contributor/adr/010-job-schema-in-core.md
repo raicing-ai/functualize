@@ -4,6 +4,19 @@
 **Date**: 2026-08-31
 **Deciders**: Core team, with agent-assisted research
 
+**Amended 2026-11-25 — the renderer reads parameter contracts.** `TYPE_MAP`
+and its annotation-string vocabulary are gone. Discovery classifies each
+parameter once into a `ParameterContract`, and the contract carries the
+parameter's JSON Schema; `field_property` publishes it, `input_schema` takes
+`required` from the contract, and `job_input_schema` merges a job's inherited
+group options, so `info schema` and the MCP tool are one document by
+construction (the MCP translator no longer folds group options itself). A
+field with no contract keeps a narrow private fallback. The intent below — one
+renderer, in core — is unchanged; the mechanism in §1 is superseded.
+`FieldDescriptor.type_annotation` and its `type` alias were removed from the
+public `functualize.types.FieldDescriptor`; `FieldDescriptor.contract` replaces
+them.
+
 ## Context
 
 A coding agent's first question in an unfamiliar functualize project is *what

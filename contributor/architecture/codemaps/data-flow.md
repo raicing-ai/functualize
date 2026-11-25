@@ -33,13 +33,16 @@ plugin's `APP_READY` hook at ~480ms — plugin *loading* was 15.6ms of 1320ms.
 All invocation modes (CLI, `rc.invoke()`, `func` standalone, HTTP, Lambda, MCP) converge on one path:
 
 ```
-Trigger → adapter.execute() call
+Trigger → adapter builds RunRequest(job_name, surface, kwargs, …)
   │
   ▼
-JobExecutionEngine.execute(job_name, function, kwargs)
-  1. Get ResolutionPlan (cached by id(function))
+JobExecutionEngine.run(request)
+  0. Bind at the door: ArgumentBinder converts the caller's values from the
+     job's admitted contracts; an unknown, missing, non-converting or
+     injected key is refused → JobResult(status=INVALID), nothing runs
+  1. Get ResolutionPlan (built from the contracts)
   2. Build per-invocation capabilities (Log, Invoke, Prompt, Perf, State)
-  3. Resolve DI params from registry
+  3. Resolve INJECTED params: capabilities, providers (DI), FromJob
   4. Construct RunContext if function declares it
   5. Fire PRE_EXECUTE hooks       (can BLOCK or MODIFY kwargs)
   6. Fire BEFORE_JOB hooks        (observe only)
@@ -51,8 +54,13 @@ JobExecutionEngine.execute(job_name, function, kwargs)
  12. Return JobResult
 ```
 
-**Resolution priority** for function parameters: DI > RunContext > Config > Default value > Skip.
-Resolution plans are computed once (during discovery) and cached by `id(function)` — subsequent calls skip `inspect.signature()`.
+**Resolution** is by verdict, not by priority: a caller-supplied value (flag,
+positional, invocation-only) comes only from the binder; a config field only
+from config resolution (CLI → env → file → `.env` → default); an `INJECTED`
+parameter only from the engine (capability, provider or `FromJob`). The caller
+never reaches an `INJECTED` parameter — a key naming one is refused at the
+door — and DI never fills a caller input. Only an in-process `PRE_EXECUTE`
+hook may still modify kwargs after binding.
 
 **Global `func` CLI routing** (`_cli/main.py`) classifies each invocation *before*
 boot via `detect_mode()` (`.py` file > builtin > job group > job name > alias >

@@ -2488,7 +2488,7 @@ field, and the wave is complete when the whole suite is green with it gone.
 
 ## Wave 11 — documentation and the parity test
 
-### [ ] 11.1 Docs, changelog, ADR amendments, codemap correction
+### [x] 11.1 Docs, changelog, ADR amendments, codemap correction
 
 - **[F]:**
   - `docs/guides/jobs-discovery.md`, `docs/guides/job-config.md`;
@@ -2508,6 +2508,41 @@ field, and the wave is complete when the whole suite is green with it gone.
 - **Gate/evidence:** `uv run mkdocs build --strict` (`mkdocs.yml` is at the repository root), and
   11.2's docs-table test.
 - **Depends on:** 10.1, 10.2, 10.3, 10.4.
+- **Execute evidence (2026-11-25, base `1991efc0`):**
+  - **Work.**
+    - `jobs-discovery.md` gains *Which parameters are inputs*: five kinds of input in prose,
+      plus a 19-row table between `parameter-inputs` markers. The table is rendered by
+      `tests/surfaces/test_parameter_docs_table.render_table()` from rows of
+      `tests/_support/parameter_matrix.py`, and covers every verdict.
+    - `job-config.md`: the `TypeError` admonition is replaced by the refusal that runs now. The
+      job is listed, discovery reports the reason on every boot, and every call exits 2. Both
+      messages are quoted as measured (F150), and a `tuple[T, ...]` row is added to the type
+      table.
+    - `CHANGELOG.md` gains five entries:
+      - the removal of `functualize.types.FieldDescriptor.type_annotation` and its `type` alias,
+        replaced by `FieldDescriptor.contract`;
+      - one kind of input on every surface: D1 `()` → `None`, D2 marked lists as `list`, coerced
+        wire values, D5 wire-only inputs and discovery refusals;
+      - MCP registration and `isError`;
+      - the AI tool scope;
+      - type labels and gate schemas.
+      The binding door, refused injected keys, the TUI grammar, the schema and the click
+      renderer were already recorded by their own tasks.
+    - ADR-010 and ADR-018 carry dated amendments. ADR-010's renderer now reads contracts
+      (`TYPE_MAP` is gone). ADR-018 records the cold-path fix (`admit_contracts` at every boot)
+      and the `UnsupportedParameter` sibling.
+    - `data-flow.md` §2: the lifecycle starts at `run(RunRequest)` with the binding door.
+      "Resolution priority: DI > …" becomes resolution by verdict: the caller never reaches an
+      `INJECTED` parameter, and DI never fills a caller input.
+  - **Gate.**
+    - `uv run --group docs mkdocs build --strict` → rc 0, `Documentation built`, 0 `WARNING` or
+      `ERROR`. The plain `uv run mkdocs` fails here because `mkdocs` is in the `docs` dependency
+      group, which CI syncs.
+    - `uv run pytest tests/surfaces/test_parameter_docs_table.py` → 3 passed.
+    - In the built HTML, the section's table has 20 rows (header included), and its `|`
+      declarations render intact.
+  - **Scope.** `tests/surfaces/test_parameter_docs_table.py` and `tests/surfaces/__init__.py` are
+    11.2's files. They are committed here because this box's gate is that test.
 
 ### [ ] 11.2 The parity test (AC-10), with the three cross-builder tests folded in
 
