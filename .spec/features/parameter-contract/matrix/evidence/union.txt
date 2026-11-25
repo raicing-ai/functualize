@@ -1,5 +1,0 @@
-CLI predicates (check.py): 73 rows
-wire/TUI/SmartBar predicates (surf_check.py + tui_extra.py): 164 rows
-union: 164 of 166 rows fail at least one predicate on at least one surface
-rows passing everywhere: E142 F148
-excluding W-fat (Lambda fat-event spelling): union 158 of 166

@@ -1,4 +1,0 @@
-click 8.4.1
-default omitted: UsageError -> Missing option '--p'.
-   callback got {'p': None}
-default=None passed: no error
