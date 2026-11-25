@@ -84,7 +84,13 @@ def _parameter(field: Any) -> dict[str, Any]:
     """One published parameter, as data rather than as a flag rendering."""
     entry: dict[str, Any] = {
         "name": field.name,
-        "type": getattr(field, "type_annotation", None),
+        # The contract's type label; a cached descriptor no longer stores the
+        # string (9.1). A contractless node (a plugin or builtin) keeps its own.
+        "type": (
+            field.contract.display
+            if getattr(field, "contract", None) is not None
+            else getattr(field, "type_annotation", None)
+        ),
         "required": bool(field.required),
     }
     if field.default is not None:

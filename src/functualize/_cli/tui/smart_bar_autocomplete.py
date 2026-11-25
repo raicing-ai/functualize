@@ -652,7 +652,7 @@ class SmartBarAutoComplete:
 
         # Source 3: Path suggestions (for Path-typed fields)
         if target_field and self._path_scanner:
-            type_lower = target_field.type_annotation.lower()
+            type_lower = _type_label(target_field).lower()
             if "path" in type_lower or "dir" in type_lower:
                 from pathlib import Path
 

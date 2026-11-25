@@ -2126,7 +2126,7 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
 - Test and fixture files mentioning it: **53**. 8 are in earlier tasks' `[F]`; the other 45 are
   scoped in wave 10.
 
-### [ ] 9.1 The descriptor stops carrying the string: alias and codec keys go, the field becomes transitional
+### [x] 9.1 The descriptor stops carrying the string: alias and codec keys go, the field becomes transitional
 
 - **Input:**
   - `_types/descriptors.py:87-89` (the `type` property, "Backward-compatible alias for
@@ -2151,6 +2151,55 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
     the alias, `:701` the legacy key);
   - `uv run pytest tests/test_descriptor.py tests/test_property_field_descriptor_extraction.py tests/discovery/test_cache_manager.py`.
 - **Depends on:** 8.1, 8.2.
+- **Execute evidence (2026-11-25, base `757c82c9`):**
+  - **Work (`_types/descriptors.py`).**
+    - The `type` alias is deleted.
+    - `_field_to_dict` writes no type string. `_field_from_dict` reads neither `type_annotation`
+      nor `type`. `CACHE_VERSION` stays 28: a v28 entry still decodes, and its stray key is
+      ignored.
+    - `type_annotation` is `field(default="", kw_only=True)` under a `TRANSITIONAL(10.1)` marker.
+      It is keyword-only so it can default without reordering the dataclass.
+  - **Two readers outside `[F]`, changed because this task would otherwise regress them on a warm
+    boot**, where the descriptor now holds `""`:
+    - `_cli/info.py:87`, whose job `parameters[].type` now reads `contract.display`;
+    - `_cli/tui/smart_bar_autocomplete.py:655`, the Path-suggestion test, now through the file's
+      own `_type_label`, which prefers `contract.display`.
+    - For all 123 signature parameters in the declaration table, `contract.display` equals the old
+      string.
+    - For config-model fields it is the declared type where the string had flattened it:
+      F146 `str | None`, F147 `list[str] | None`, F148 `Secret[str]`, F150 `dict[str, str]`,
+      F151 `Body`, all previously `str` or `list[str]`. That is a deliberate change in `info`'s
+      `type` for those fields.
+  - **Scope finding for waves 9–10** (not acted on): these production readers or writers of
+    `type_annotation` are in no `[F]` of 9.2, 9.3 or 10.1:
+    - `_primitives/job_schema.py:118` (contractless fallback) and `:199`;
+    - `_cli/tui/cli_arg_parser.py:109`;
+    - `app/commands.py:296`, `:520`;
+    - `_discovery/providers.py:219`, `_discovery/schema_extractor.py:65`;
+    - `smart_bar_autocomplete.py:813`.
+    10.1's gate (`rg -w type_annotation src` → 0) cannot pass from its own `[F]` alone.
+  - **Gate.**
+    - `rg -n -F -e 'def type(' -e 'else "type"' src/functualize/_types/descriptors.py` → **0**
+      (was 2).
+    - `uv run pytest --run-slow tests/test_descriptor.py tests/test_property_field_descriptor_extraction.py tests/discovery/test_cache_manager.py`
+      → 29 passed.
+    - `tests/_cli tests/types tests/cli/tui` → 1,790 passed, 293 skipped.
+    - `mypy src/` clean (422 files); `lint-imports` 7 kept; Ruff check and format clean;
+      `git diff --check` clean.
+  - **Tests.**
+    - `test_descriptor.py`'s round-trip strategy draws cache-shaped records: type-consistent
+      declarations classified by `with_contract`, then `type_annotation=""`. The `.type` check
+      becomes `contract ==`.
+    - A new `TestTheCacheCarriesNoTypeString` pins that no type key is written and that a stray
+      one is not decoded.
+    - Outside `[F]`:
+      - `tests/types/test_parameter_contract_codec.py` builds cache-shaped records, with no type
+        string;
+      - `tests/cli/tui/test_bar_properties.py`'s two positional constructions are keyworded,
+        because a positional call would now bind its arguments one place off.
+  - **Reachability.** The cache write is `JobDescriptor.to_dict` → `_field_to_dict`. Re-adding
+    the `"type_annotation"` key fails `test_no_type_key_is_written`. Restored from a recorded
+    snapshot.
 
 ### [ ] 9.2 The TUI row model's field is renamed `type_label`
 

@@ -1,4 +1,8 @@
-"""The cached field record carries the same contract as a cold descriptor."""
+"""The cached field record carries the same contract as a cold descriptor.
+
+The records here are cache-shaped: the type travels in the contract, and the
+codec stores no type string (9.1), so none is constructed.
+"""
 
 from __future__ import annotations
 
@@ -54,7 +58,11 @@ def test_contract_survives_json_cache_round_trip(verdict: Verdict) -> None:
         description="The colour",
     )
     field = FieldDescriptor(
-        "colour", "tuple[str, int]", None, "The colour", False, contract=contract
+        name="colour",
+        default=None,
+        description="The colour",
+        required=False,
+        contract=contract,
     )
 
     encoded = json.loads(json.dumps(_field_to_dict(field)))
@@ -63,7 +71,7 @@ def test_contract_survives_json_cache_round_trip(verdict: Verdict) -> None:
 
 
 def test_missing_contract_key_decodes_as_none() -> None:
-    field = FieldDescriptor("name", "str", None, "", True)
+    field = FieldDescriptor(name="name", default=None, description="", required=True)
     encoded = _field_to_dict(field)
     del encoded["contract"]
     assert _field_from_dict(encoded) == field
@@ -71,7 +79,13 @@ def test_missing_contract_key_decodes_as_none() -> None:
 
 def test_injected_contract_without_shape_or_cli_round_trips() -> None:
     contract = ParameterContract("log", Verdict.INJECTED, None, False, None, None, None)
-    field = FieldDescriptor("log", "Log", None, "", False, contract=contract)
+    field = FieldDescriptor(
+        name="log",
+        default=None,
+        description="",
+        required=False,
+        contract=contract,
+    )
     assert _field_from_dict(json.loads(json.dumps(_field_to_dict(field)))) == field
 
 
@@ -85,7 +99,13 @@ def test_job_descriptor_cache_path_preserves_contract() -> None:
         CliSpelling("--name"),
         {"type": "string"},
     )
-    field = FieldDescriptor("name", "str", "default", "", False, contract=contract)
+    field = FieldDescriptor(
+        name="name",
+        default="default",
+        description="",
+        required=False,
+        contract=contract,
+    )
     descriptor = JobDescriptor(name="run", group=None, parameters=[field])
 
     warm = JobDescriptor.from_dict(json.loads(json.dumps(descriptor.to_dict())))

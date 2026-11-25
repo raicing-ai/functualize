@@ -10,6 +10,9 @@ Property 18 — Validates: Requirements 17.6
 
 from __future__ import annotations
 
+import dataclasses
+import keyword
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -18,6 +21,7 @@ from functualize._types.descriptors import (
     FieldDescriptor,
     JobDescriptor,
 )
+from tests._support.declared_fields import with_contract
 
 # --- Constants ---
 
@@ -169,35 +173,55 @@ json_serializable_defaults = st.one_of(
 
 @st.composite
 def json_safe_field_descriptors(draw: st.DrawFn) -> FieldDescriptor:
-    """Generate valid FieldDescriptor instances with JSON-serializable defaults.
+    """Generate cached-shape FieldDescriptors: the type lives in the contract.
 
-    For the round-trip property to hold, defaults must be JSON-serializable
-    (non-serializable defaults get converted to None during to_dict).
+    A cached record carries its parameter contract and no type string (the
+    codec stopped storing it, 9.1), so each field is a declaration of one of
+    the allowed types with a default that type can hold, classified by the
+    real classifier, and then given ``type_annotation=""`` as a warm boot
+    sees it.
     """
     type_name = draw(st.sampled_from(ALLOWED_TYPES))
 
     if type_name == "enum":
         choices = draw(
-            st.lists(st.text(min_size=1, max_size=20), min_size=1, max_size=5)
+            st.lists(
+                st.text(min_size=1, max_size=20), min_size=1, max_size=5, unique=True
+            )
         )
     else:
         choices = None
 
-    name = draw(st.from_regex(r"[a-z][a-z0-9_]{0,29}", fullmatch=True))
+    name = draw(
+        st.from_regex(r"[a-z][a-z0-9_]{0,29}", fullmatch=True).filter(
+            lambda n: not keyword.iskeyword(n)
+        )
+    )
     required = draw(st.booleans())
 
-    default = None if required else draw(json_serializable_defaults)
+    by_type = {
+        "str": st.text(max_size=50),
+        "int": st.integers(min_value=-1000, max_value=1000),
+        "bool": st.booleans(),
+        "float": st.floats(allow_nan=False, allow_infinity=False),
+        "list[str]": st.lists(st.text(max_size=20), max_size=5),
+        "enum": st.sampled_from(choices or [""]),
+    }
+    default = None if required else draw(st.none() | by_type[type_name])
 
     help_text = draw(st.text(max_size=100))
 
-    return FieldDescriptor(
-        name=name,
-        type_annotation=type_name,
-        choices=choices,
-        default=default,
-        required=required,
-        description=help_text,
+    declared = with_contract(
+        FieldDescriptor(
+            name=name,
+            type_annotation=type_name,
+            choices=choices,
+            default=default,
+            required=required,
+            description=help_text,
+        )
     )
+    return dataclasses.replace(declared, type_annotation="")
 
 
 @st.composite
@@ -384,7 +408,7 @@ class TestJobDescriptorSerializationRoundTrip:
             descriptor.config_fields, deserialized.config_fields, strict=False
         ):
             assert restored.name == original.name
-            assert restored.type == original.type
+            assert restored.contract == original.contract
             assert restored.choices == original.choices
             assert restored.required == original.required
             assert restored.help == original.help
@@ -523,3 +547,39 @@ class TestMalformedDictDeserialization:
         """
         with pytest.raises(ValueError):
             JobDescriptor.from_dict(non_dict)
+
+
+class TestTheCacheCarriesNoTypeString:
+    """9.1: the type travels in the contract; the codec writes and reads no string.
+
+    ``CACHE_VERSION`` was bumped past the last shape that held it, so an older
+    cache is rebuilt rather than decoded, and no legacy key survives.
+    """
+
+    def _field(self) -> FieldDescriptor:
+        return with_contract(
+            FieldDescriptor(
+                name="rows",
+                type_annotation="int",
+                default=3,
+                description="",
+                required=False,
+            )
+        )
+
+    def test_no_type_key_is_written(self) -> None:
+        from functualize._types.descriptors import _field_to_dict
+
+        encoded = _field_to_dict(self._field())
+        assert "type_annotation" not in encoded
+        assert "type" not in encoded
+        assert encoded["contract"]["display"] == "int"
+
+    def test_a_stray_type_key_is_not_decoded(self) -> None:
+        from functualize._types.descriptors import _field_from_dict, _field_to_dict
+
+        encoded = {**_field_to_dict(self._field()), "type_annotation": "x", "type": "y"}
+        restored = _field_from_dict(encoded)
+        assert restored.type_annotation == ""
+        assert restored.contract is not None
+        assert restored.contract.display == "int"

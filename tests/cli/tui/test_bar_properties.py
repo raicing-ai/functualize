@@ -267,8 +267,23 @@ def test_boolean_contract_flag_does_not_consume_required_positional(flag: str) -
         json_schema=None,
     )
     fields = [
-        FieldDescriptor("strict", "bool", False, "", False, contract=strict),
-        FieldDescriptor("path", "str", None, "", True, positional=True, contract=path),
+        FieldDescriptor(
+            name="strict",
+            type_annotation="bool",
+            default=False,
+            description="",
+            required=False,
+            contract=strict,
+        ),
+        FieldDescriptor(
+            name="path",
+            type_annotation="str",
+            default=None,
+            description="",
+            required=True,
+            positional=True,
+            contract=path,
+        ),
     ]
     bar = SmartBar(id="test")
 

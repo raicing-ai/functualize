@@ -44,7 +44,8 @@ class FieldDescriptor:
 
     Attributes:
         name: Field name.
-        type_annotation: Type string (e.g., "str", "int", "bool", "list[str]").
+        type_annotation: Transitional type string, ``""`` on a cached
+            descriptor; read ``contract.display`` instead.
         default: Default value, or None if required.
         description: Field description text.
         required: True if the field has no default value.
@@ -80,7 +81,11 @@ class FieldDescriptor:
     """
 
     name: str
-    type_annotation: str
+    # TRANSITIONAL(10.1): removed once every reader and test is off it. The
+    # contract carries the type (`contract.display`); the cache no longer
+    # stores this string, so a warm descriptor holds "". Keyword-only, so it
+    # can default without reordering the fields: construct by keyword.
+    type_annotation: str = field(default="", kw_only=True)
     default: Any | None
     description: str
     required: bool
@@ -92,11 +97,6 @@ class FieldDescriptor:
     secret: bool = False
     from_config_model: bool = False
     contract: ParameterContract | None = None
-
-    @property
-    def type(self) -> str:
-        """Backward-compatible alias for type_annotation."""
-        return self.type_annotation
 
     @property
     def help(self) -> str:
@@ -671,7 +671,6 @@ def _field_to_dict(fd: FieldDescriptor) -> dict[str, Any]:
     default = _serialize_default(fd.default, fd.required, secret=fd.secret)
     return {
         "name": fd.name,
-        "type_annotation": fd.type_annotation,
         "choices": fd.choices,
         "default": default,
         "required": fd.required,
@@ -780,9 +779,9 @@ def _serialize_default(default: Any, required: bool, *, secret: bool = False) ->
 def _field_from_dict(data: Any) -> FieldDescriptor:
     """Deserialize a FieldDescriptor from a JSON dict.
 
-    Supports both the new key names (type_annotation, description) and
-    legacy key names (type, help) for backward compatibility with existing
-    cache files.
+    The type travels in the contract. A cache written before the string
+    left the codec is not decoded but rebuilt (``CACHE_VERSION``), so no
+    legacy type key is read. ``help`` is still accepted for ``description``.
 
     Raises:
         ValueError: If required keys are missing or values have wrong types.
@@ -792,11 +791,9 @@ def _field_from_dict(data: Any) -> FieldDescriptor:
             f"Expected a dict for FieldDescriptor, got {type(data).__name__}"
         )
 
-    # Support both new and legacy key names
-    type_key = "type_annotation" if "type_annotation" in data else "type"
     desc_key = "description" if "description" in data else "help"
 
-    required_keys = {"name", type_key, "choices", "default", "required", desc_key}
+    required_keys = {"name", "choices", "default", "required", desc_key}
     missing = required_keys - set(data.keys())
     if missing:
         raise ValueError(
@@ -806,10 +803,6 @@ def _field_from_dict(data: Any) -> FieldDescriptor:
     if not isinstance(data["name"], str):
         raise ValueError(
             f"Expected 'name' to be str, got {type(data['name']).__name__}"
-        )
-    if not isinstance(data[type_key], str):
-        raise ValueError(
-            f"Expected '{type_key}' to be str, got {type(data[type_key]).__name__}"
         )
     if data["choices"] is not None and not isinstance(data["choices"], list):
         raise ValueError(
@@ -830,7 +823,6 @@ def _field_from_dict(data: Any) -> FieldDescriptor:
 
     return FieldDescriptor(
         name=data["name"],
-        type_annotation=data[type_key],
         choices=data["choices"],
         default=default,
         required=data["required"],
