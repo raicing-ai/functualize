@@ -83,9 +83,11 @@ field_names_st = st.text(
     max_size=20,
 ).filter(lambda s: s[0].isalpha() or s[0] == "_")
 
-# Type annotations that map to known JSON Schema types
+# Type annotations a config source can supply (B-3 scalars, B-4 lists). A
+# ``dict`` config field is refused at discovery (F-29), so a discoverable
+# job's fields never carry one; its verdict lives in the discovery tests.
 annotations_st = st.sampled_from(
-    ["str", "int", "float", "bool", "list", "dict", "list[str]", "list[int]"]
+    ["str", "int", "float", "bool", "list", "list[str]", "list[int]"]
 )
 
 # Descriptions for fields (no control chars that would break JSON)

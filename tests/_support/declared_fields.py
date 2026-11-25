@@ -171,16 +171,25 @@ def _model_contract(field: FieldDescriptor, *, group: bool) -> Any:
     namespace = _namespace()
     annotation = eval(_annotation(field, marked=False), namespace)  # noqa: S307
     default = ... if field.required else field.default
+    # pydantic refuses a leading-underscore field name and chokes on a
+    # ``model_``-shaded one, while the contract spells the record's real
+    # name: build the model under a stand-in and hand the real name over.
+    # The stand-in itself must be pydantic-spelled — no leading underscore.
+    model_name = (
+        field.name
+        if field.name.isidentifier() and not field.name.startswith(("_", "model_"))
+        else "field_"
+    )
     model = create_model(
         "_Declared",
         **{
-            field.name: (
+            model_name: (
                 annotation,
                 Field(default, description=getattr(field, "description", "") or None),
             )
         },
     )
-    return build_field_contract(field.name, model.model_fields[field.name], group=group)
+    return build_field_contract(field.name, model.model_fields[model_name], group=group)
 
 
 def with_contract(field: FieldDescriptor, *, group: bool = False) -> FieldDescriptor:
