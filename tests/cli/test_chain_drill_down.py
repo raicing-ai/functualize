@@ -41,7 +41,7 @@ def _make_field_descriptor(
     default: Any = None,
     positional: bool = False,
     short_flag: str | None = None,
-    type_annotation: str = "str",
+    annotation: str = "str",
     description: str = "",
     choices: list[str] | None = None,
 ) -> SimpleNamespace:
@@ -53,7 +53,7 @@ def _make_field_descriptor(
             default=default,
             positional=positional,
             short_flag=short_flag,
-            type_annotation=type_annotation,
+            annotation=annotation,
             description=description,
             choices=choices,
         )

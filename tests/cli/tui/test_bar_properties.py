@@ -269,7 +269,6 @@ def test_boolean_contract_flag_does_not_consume_required_positional(flag: str) -
     fields = [
         FieldDescriptor(
             name="strict",
-            type_annotation="bool",
             default=False,
             description="",
             required=False,
@@ -277,7 +276,6 @@ def test_boolean_contract_flag_does_not_consume_required_positional(flag: str) -
         ),
         FieldDescriptor(
             name="path",
-            type_annotation="str",
             default=None,
             description="",
             required=True,

@@ -15,7 +15,7 @@ import pytest
 
 from functualize._cli.introspect import InProcessIntrospector
 from functualize._types import FieldDescriptor, JobDescriptor
-from tests._support.declared_fields import with_contract
+from tests._support.declared_fields import declared, with_contract
 
 
 def _make_job(
@@ -63,9 +63,9 @@ class TestPathCompletions:
         monkeypatch.setattr(Path, "cwd", staticmethod(lambda: tmp_path))
 
         field = with_contract(
-            FieldDescriptor(
+            declared(
                 name="output",
-                type_annotation="Path",
+                annotation="Path",
                 default=None,
                 description="Output path",
                 required=True,
@@ -94,9 +94,9 @@ class TestPathCompletions:
         monkeypatch.setattr(Path, "cwd", staticmethod(lambda: tmp_path))
 
         field = with_contract(
-            FieldDescriptor(
+            declared(
                 name="input_file",
-                type_annotation="str",
+                annotation="str",
                 default=None,
                 description="Input file to process",
                 required=True,
@@ -125,9 +125,9 @@ class TestPathCompletions:
         monkeypatch.setattr(Path, "cwd", staticmethod(lambda: tmp_path))
 
         field = with_contract(
-            FieldDescriptor(
+            declared(
                 name="config_path",
-                type_annotation="str",
+                annotation="str",
                 default=None,
                 description="Path to config",
                 required=True,
@@ -158,9 +158,9 @@ class TestPathCompletions:
         monkeypatch.setattr(Path, "cwd", staticmethod(lambda: tmp_path))
 
         field = with_contract(
-            FieldDescriptor(
+            declared(
                 name="script_path",
-                type_annotation="Path",
+                annotation="Path",
                 default=None,
                 description="Script to run",
                 required=True,
@@ -192,9 +192,9 @@ class TestNoHistory:
     async def test_no_history_still_returns_choices(self) -> None:
         """With history=None, choices completions are still returned."""
         field = with_contract(
-            FieldDescriptor(
+            declared(
                 name="environment",
-                type_annotation="str",
+                annotation="str",
                 default=None,
                 description="Target environment",
                 required=True,
@@ -217,9 +217,9 @@ class TestNoHistory:
     async def test_no_history_omits_history_completions(self) -> None:
         """With history=None, no history-sourced completions appear."""
         field = with_contract(
-            FieldDescriptor(
+            declared(
                 name="target",
-                type_annotation="str",
+                annotation="str",
                 default=None,
                 description="Deploy target",
                 required=True,
@@ -245,9 +245,9 @@ class TestNoHistory:
         monkeypatch.setattr(Path, "cwd", staticmethod(lambda: tmp_path))
 
         field = with_contract(
-            FieldDescriptor(
+            declared(
                 name="log_file",
-                type_annotation="str",
+                annotation="str",
                 default=None,
                 description="Log file path",
                 required=False,
@@ -292,9 +292,9 @@ class TestUnknownJobField:
     async def test_unknown_field_returns_empty(self) -> None:
         """Requesting completions for a non-existent field returns empty list."""
         field = with_contract(
-            FieldDescriptor(
+            declared(
                 name="target",
-                type_annotation="str",
+                annotation="str",
                 default=None,
                 description="",
                 required=True,

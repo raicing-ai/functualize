@@ -36,7 +36,7 @@ def _make_field_descriptor(
     default: Any = None,
     positional: bool = False,
     short_flag: str | None = None,
-    type_annotation: str = "str",
+    annotation: str = "str",
     description: str = "",
     choices: list[str] | None = None,
     param_kind: ParamKind = ParamKind.CONFIG,
@@ -49,7 +49,7 @@ def _make_field_descriptor(
             default=default,
             positional=positional,
             short_flag=short_flag,
-            type_annotation=type_annotation,
+            annotation=annotation,
             description=description,
             choices=choices,
             param_kind=param_kind,
@@ -338,7 +338,7 @@ class TestDescriptionTruncation:
                 "port",
                 default=8080,
                 description="Port",
-                type_annotation="int",
+                annotation="int",
             )
         ]
         log = _create_tui_and_render(
@@ -356,7 +356,7 @@ class TestDescriptionTruncation:
                 "port",
                 default=8080,
                 description=long_desc,
-                type_annotation="int",
+                annotation="int",
             )
         ]
         log = _create_tui_and_render(
@@ -446,7 +446,7 @@ class TestFormatPreflightFieldLine:
             "region",
             default="us-east-1",
             description="Cloud region",
-            type_annotation="str",
+            annotation="str",
             param_kind=ParamKind.CONFIG,
         )
         line = format_preflight_field_line(fd, {}, avail_width=80)

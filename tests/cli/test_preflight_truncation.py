@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 
 from functualize._cli.tui.app import FunctualizeInlineTUI
 from functualize._cli.tui.panels.config_table import ParamKind
+from tests._support.declared_fields import with_contract
 
 # =============================================================================
 # Helpers
@@ -30,22 +31,24 @@ def _make_field_descriptor(
     default: Any = None,
     positional: bool = False,
     short_flag: str | None = None,
-    type_annotation: str = "str",
+    annotation: str = "str",
     description: str = "",
     choices: list[str] | None = None,
     param_kind: ParamKind = ParamKind.CONFIG,
 ) -> SimpleNamespace:
     """Create a mock field descriptor."""
-    return SimpleNamespace(
-        name=name,
-        required=required,
-        default=default,
-        positional=positional,
-        short_flag=short_flag,
-        type_annotation=type_annotation,
-        description=description,
-        choices=choices,
-        param_kind=param_kind,
+    return with_contract(
+        SimpleNamespace(
+            name=name,
+            required=required,
+            default=default,
+            positional=positional,
+            short_flag=short_flag,
+            annotation=annotation,
+            description=description,
+            choices=choices,
+            param_kind=param_kind,
+        )
     )
 
 

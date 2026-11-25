@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 from functualize._cli.data.pending_execution import PendingExecution
 from functualize._cli.data.resolved_value_compat import ResolvedValueCompat
 from functualize._cli.tui.app import FunctualizeInlineTUI
+from tests._support.declared_fields import with_contract
 
 # =============================================================================
 # Helpers
@@ -33,20 +34,22 @@ def _make_field_descriptor(
     default: Any = None,
     positional: bool = False,
     short_flag: str | None = None,
-    type_annotation: str = "str",
+    annotation: str = "str",
     description: str = "",
     choices: list[str] | None = None,
 ) -> SimpleNamespace:
     """Create a mock field descriptor."""
-    return SimpleNamespace(
-        name=name,
-        required=required,
-        default=default,
-        positional=positional,
-        short_flag=short_flag,
-        type_annotation=type_annotation,
-        description=description,
-        choices=choices,
+    return with_contract(
+        SimpleNamespace(
+            name=name,
+            required=required,
+            default=default,
+            positional=positional,
+            short_flag=short_flag,
+            annotation=annotation,
+            description=description,
+            choices=choices,
+        )
     )
 
 

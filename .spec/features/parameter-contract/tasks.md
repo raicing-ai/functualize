@@ -2352,7 +2352,7 @@ field, and the wave is complete when the whole suite is green with it gone.
     `for d in plugins/*/*/tests; do uv run pytest "$d" -q || exit 1; done`.
 - **Depends on:** 9.1, 9.2, 9.3.
 
-### [ ] 10.2 Migrate the CLI test modules
+### [x] 10.2 Migrate the CLI test modules
 
 - **[F]:**
   - `tests/cli/`:
@@ -2364,10 +2364,31 @@ field, and the wave is complete when the whole suite is green with it gone.
   - `tests/_cli/`:
     - `test_completion_flag_pairs.py`, `test_inline_tui_v2_autocomplete_integration.py`;
     - `test_orchestrator_handoff.py`, `test_secret_masking_surfaces.py`.
+  - `tests/_support/declared_fields.py` (scope amendment: `declared(name, annotation=...)`
+    returns a descriptor with a classifier-built contract; remaining fake compatibility is
+    `TRANSITIONAL(10.4)` until those files migrate);
+  - `tests/cli/test_schema_surface_parity.py`, `tests/cli/tui/test_bar_properties.py`
+    (scope amendment: residual string constructors outside the original hit list);
+  - `tests/test_descriptor.py` (scope amendment: delete the orphaned
+    `json_serializable_defaults` strategy; its other string-bearing tests migrate in 10.4).
 - **Work:** construct descriptors with `contract=`, and assert `contract.display` where a test
   checks a type label.
-- **Gate/evidence:** `rg -l -w type_annotation` over these 17 files → 0; `uv run pytest tests/cli tests/_cli`.
+- **Gate/evidence:** `rg -l -w type_annotation` over the CLI and `_cli` files, including the
+  two added CLI sites, → 0; the shared helper and the remaining descriptor tests clear in
+  10.4; `uv run pytest tests/cli tests/_cli`.
 - **Depends on:** 9.1, 9.2, 9.3.
+- **Execute evidence (2026-11-25):** migrated the CLI and `_cli` test fakes to explicit
+  declaration annotations and contracts. `declared(...)` builds a `FieldDescriptor` with the
+  classifier's verdict; `with_contract` remains for fakes with panel-only attributes, with its
+  old-member input marked `TRANSITIONAL(10.4)` until the remaining test groups move. The
+  contractless schema stand-in now checks refusal for an unresolved type, rather than the
+  superseded fallback-to-string rule. Removed the unused descriptor strategy from the amendment.
+  `rg -n -w type_annotation tests/cli tests/_cli -g '*.py'` → 0. An AST sweep of the touched
+  tests found 0 positional `FieldDescriptor(...)` calls. `uv run pytest tests/cli tests/_cli
+  -q -n auto` → 3,284 passed, 642 skipped. `uv run pytest tests/test_descriptor.py -q` →
+  16 passed after preserving the transitional helper fallback; removing it before 10.4 made
+  the two cache-display assertions red (`'str' != 'int'`). `mypy src/` succeeds on 422 files,
+  `lint-imports` keeps 7 contracts, and Ruff check/format and `git diff --check` pass.
 
 ### [ ] 10.3 Migrate the plugin and discovery test modules
 

@@ -160,16 +160,6 @@ class TestFieldDescriptorEnumChoicesInvariant:
 
 # --- Strategies for Properties 17-18 ---
 
-# JSON-serializable default values (primitives only, to ensure round-trip identity)
-json_serializable_defaults = st.one_of(
-    st.none(),
-    st.booleans(),
-    st.integers(min_value=-1000, max_value=1000),
-    st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
-    st.text(max_size=50),
-    st.lists(st.text(max_size=20), max_size=5),
-)
-
 
 @st.composite
 def json_safe_field_descriptors(draw: st.DrawFn) -> FieldDescriptor:

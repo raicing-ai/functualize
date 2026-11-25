@@ -19,7 +19,7 @@ from functualize._cli.data.pending_execution import PendingExecution
 from functualize._cli.data.resolved_value_compat import ResolvedValueCompat
 from functualize._cli.tui.app import FunctualizeInlineTUI
 from functualize._cli.tui.cli_arg_parser import parse_job_args
-from tests._support.declared_fields import with_contract
+from tests._support.declared_fields import declared, with_contract
 
 # =============================================================================
 # Helpers
@@ -33,17 +33,16 @@ def _make_field_descriptor(
     default: Any = None,
     positional: bool = False,
     short_flag: str | None = None,
-    type_annotation: str = "str",
+    annotation: str = "str",
     description: str = "",
     choices: list[str] | None = None,
 ) -> SimpleNamespace:
     """A real field descriptor: the bar parses through the command it renders."""
-    from functualize.types import FieldDescriptor
 
     return with_contract(
-        FieldDescriptor(  # type: ignore[return-value]
+        declared(  # type: ignore[return-value]
             name=name,
-            type_annotation=type_annotation,
+            annotation=annotation,
             default=default,
             description=description,
             required=required,

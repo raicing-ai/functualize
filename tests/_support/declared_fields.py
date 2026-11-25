@@ -32,7 +32,59 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from functualize._types.descriptors import FieldDescriptor
 
-__all__ = ["with_contract", "with_contracts"]
+__all__ = ["declared", "with_contract", "with_contracts"]
+
+
+def declared(
+    name: str,
+    annotation: str = "str",
+    *,
+    default: Any = None,
+    required: bool = False,
+    positional: bool = False,
+    short_flag: str | None = None,
+    choices: list[str] | None = None,
+    description: str = "",
+    from_config_model: bool = False,
+    group: bool = False,
+    secret: bool = False,
+) -> FieldDescriptor:
+    """Build a field with the contract discovery assigns to its declaration.
+
+    The annotation is an input to the declaration, not a second type label on
+    the resulting descriptor. It remains explicit when the descriptor's old
+    string field is deleted.
+    """
+    from functualize.types import FieldDescriptor
+
+    source = types.SimpleNamespace(
+        name=name,
+        annotation=annotation,
+        default=default,
+        required=required,
+        positional=positional,
+        short_flag=short_flag,
+        choices=choices,
+        description=description,
+        from_config_model=from_config_model,
+    )
+    contract = (
+        _model_contract(source, group=group)
+        if group or from_config_model
+        else _signature_contract(source)
+    )
+    return FieldDescriptor(
+        name=name,
+        default=default,
+        description=description,
+        required=required,
+        choices=choices,
+        positional=positional,
+        short_flag=short_flag,
+        secret=secret,
+        from_config_model=from_config_model,
+        contract=contract,
+    )
 
 
 def _namespace() -> dict[str, Any]:
@@ -60,7 +112,13 @@ def _annotation(field: FieldDescriptor, *, marked: bool) -> str:
         values = ", ".join(repr(choice) for choice in choices)
         base = f"Literal[{values}]"
     else:
-        base = getattr(field, "type_annotation", None) or "str"
+        # TRANSITIONAL(10.4): remaining test fakes still use the old member;
+        # their migration removes this fallback before 10.1 deletes the field.
+        base = (
+            getattr(field, "annotation", None)
+            or getattr(field, "type_annotation", None)
+            or "str"
+        )
     markers: list[str] = []
     if marked and getattr(field, "positional", False):
         markers.append("Arg()")

@@ -23,27 +23,26 @@ from functualize._primitives.parameter_contract import build_contracts
 from functualize._types.descriptors import FieldDescriptor, JobDescriptor
 from functualize.app.utils import field_property, input_schema, job_input_schema
 from functualize.job import GroupOptions
+from tests._support.declared_fields import declared
 
 
-class _Field:
-    """Minimal FieldDescriptor stand-in — only what the renderer reads."""
-
-    def __init__(
-        self,
+def _field(
+    name,
+    annotation="str",
+    default=None,
+    description=None,
+    required=False,
+    choices=None,
+):
+    """A field whose schema comes from its declaration contract."""
+    return declared(
         name,
-        type_annotation="str",
-        default=None,
-        description=None,
-        required=False,
-        choices=None,
-    ):
-        self.name = name
-        self.type_annotation = type_annotation
-        self.default = default
-        self.description = description
-        self.required = required
-        self.choices = choices
-        self.is_stdin = False
+        annotation or "str",
+        default=default,
+        description=description or "",
+        required=required,
+        choices=choices,
+    )
 
 
 class _Descriptor:
@@ -53,46 +52,46 @@ class _Descriptor:
 
 
 def test_known_types_map_to_json_schema_types():
-    assert field_property(_Field("a", "int"))["type"] == "integer"
-    assert field_property(_Field("a", "float"))["type"] == "number"
-    assert field_property(_Field("a", "bool"))["type"] == "boolean"
-    assert field_property(_Field("a", "list[str]")) == {
+    assert field_property(_field("a", "int"))["type"] == "integer"
+    assert field_property(_field("a", "float"))["type"] == "number"
+    assert field_property(_field("a", "bool"))["type"] == "boolean"
+    assert field_property(_field("a", "list[str]")) == {
         "type": "array",
         "items": {"type": "string"},
     }
 
 
-def test_unknown_type_degrades_to_string():
-    """The honest answer: the CLI would take the flag as text too."""
-    assert field_property(_Field("a", "SomeCustomClass"))["type"] == "string"
-    assert field_property(_Field("a", None))["type"] == "string"
+def test_unknown_type_is_refused_by_the_contract():
+    """An unresolved declaration publishes no input schema."""
+    assert field_property(_field("a", "SomeCustomClass")) == {}
+    assert field_property(_field("a", None))["type"] == "string"
 
 
 def test_default_is_omitted_on_a_required_field():
     """A default on a required field advertises a value the caller must supply."""
-    prop = field_property(_Field("a", "int", default=5, required=True))
+    prop = field_property(_field("a", "int", default=5, required=True))
     assert "default" not in prop
-    assert field_property(_Field("a", "int", default=5))["default"] == 5
+    assert field_property(_field("a", "int", default=5))["default"] == 5
 
 
 def test_choices_become_an_enum():
-    assert field_property(_Field("a", "str", choices=["x", "y"]))["enum"] == ["x", "y"]
+    assert field_property(_field("a", "str", choices=["x", "y"]))["enum"] == ["x", "y"]
 
 
 def test_required_is_omitted_rather_than_emitted_empty():
     """An empty `required` is noise, and some consumers read its presence."""
-    schema = input_schema([_Field("a")])
+    schema = input_schema([_field("a")])
     assert "required" not in schema
 
-    schema = input_schema([_Field("a", required=True)])
+    schema = input_schema([_field("a", required=True)])
     assert schema["required"] == ["a"]
 
 
 def test_config_fields_win_over_parameters():
     """A job taking a config model publishes the model's fields, not the model."""
     descriptor = _Descriptor(
-        parameters=[_Field("config", "DeployConfig")],
-        config_fields=[_Field("region", "str", required=True)],
+        parameters=[_field("config", "DeployConfig")],
+        config_fields=[_field("region", "str", required=True)],
     )
     assert set(job_input_schema(descriptor)["properties"]) == {"region"}
 
@@ -105,8 +104,8 @@ def test_group_options_injection_point_is_not_published():
     """
     descriptor = _Descriptor(
         parameters=[
-            _Field("image", "str", required=True),
-            _Field("opts", "DeployOptions"),
+            _field("image", "str", required=True),
+            _field("opts", "DeployOptions"),
         ]
     )
     schema = job_input_schema(descriptor, group_options_class_names={"DeployOptions"})
@@ -146,7 +145,6 @@ def test_literal_required_sentinel_is_a_valid_default():
     contract = build_contracts(job)[0]
     field = FieldDescriptor(
         name="value",
-        type_annotation="str",
         default="__REQUIRED__",
         description="",
         required=False,
