@@ -2718,7 +2718,7 @@ field, and the wave is complete when the whole suite is green with it gone.
 
 ## Wave 12 — checkpoint
 
-### [ ] 12.1 Acceptance checkpoint (AC-1 to AC-13)
+### [x] 12.1 Acceptance checkpoint (AC-1 to AC-13)
 
 - **Work:** run every gate in `spec.md` § *Acceptance checks* from `matrix/`, cold and warm, in both
   PEP 563 modes. That includes the coverage census (0 executed statements in deleted symbols:
