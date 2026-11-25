@@ -2710,6 +2710,11 @@ field, and the wave is complete when the whole suite is green with it gone.
       not new: `WideConfig`'s fields, `Mode.THOROUGH` and the `Number.TWO` test enum member,
       relocated from the deleted files with the folded tests. They are consumed through
       `model_fields` and the enum schema, which vulture cannot see.
+      The remaining fixture members `tests/adapters/test_render_click_params.py::Color.BLUE`
+      and `tests/engine/test_binding_door.py::Color.GREEN` are likewise enumerated through
+      `build_contracts` and `click.Choice`, not named by their member symbols. A rendered
+      `Color` command publishes choices `('red', 'blue')` and `('red', 'green')`, respectively;
+      each contract's JSON schema carries the same `enum` values.
 
 ## Wave 12 — checkpoint
 

@@ -20,9 +20,8 @@ Group options are merged inside ``job_input_schema`` (6.1): the job's own
 fields win a name clash, a nested group's declaration overrides its parent's,
 and the merged options are never ``required`` — "a group option always has a
 resolved value (default < file < env)", so demanding one from the caller would
-make every call carry it. That is the MCP translator's `_merge_group_options`
-fold, moved into core so ``info`` and MCP describe a job identically by
-construction; the plugin's copy re-folds identically until 7.1 deletes it.
+make every call carry it. The core renderer performs this fold for both
+``info`` and MCP, so their properties and requiredness agree by construction.
 """
 
 from __future__ import annotations

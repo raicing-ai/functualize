@@ -221,20 +221,6 @@ class JobConfigView:
 # =============================================================================
 
 
-def _get_field_type(field_info: Any) -> Any:
-    """Extract the type annotation from a Pydantic field info object.
-
-    Handles both Pydantic v1 and v2 field info objects.
-    """
-    # Pydantic v2
-    if hasattr(field_info, "annotation"):
-        return field_info.annotation
-    # Pydantic v1 fallback
-    if hasattr(field_info, "outer_type_"):
-        return field_info.outer_type_
-    return type(None)
-
-
 def _is_enum_subclass(tp: Any) -> bool:
     """Check if a type is an Enum subclass (but not Enum itself)."""
     return isinstance(tp, type) and issubclass(tp, enum.Enum) and tp is not enum.Enum
