@@ -119,6 +119,23 @@ def facts(row, info, mcp, bash, zsh):
 def verdict(row, f) -> str:
     if not f["registered"]:
         return "REJECTED_DISCOVERY"
+    # B-2/B-8 and tests/surfaces/test_parameter_surface_parity.py:284-290:
+    # refused jobs remain listed and answer --help, but every call refuses.
+    # Match this job's call error, not unrelated discovery warnings at boot.
+    calls = [run for name, run in row["runs"].items() if name != "help"]
+    refused = re.compile(
+        rf"^Error: job '{re.escape(row['path'][-1])}' cannot run: parameter .*"
+        r"(?:is refused|was refused at discovery)\.",
+        re.M,
+    )
+    if calls and all(
+        run["rc"] != 0
+        and not obs_of(run)
+        and "Traceback" not in run["stderr"] + run["stdout"]
+        and refused.search(run["stderr"] + run["stdout"])
+        for run in calls
+    ):
+        return "REJECTED_DISCOVERY"
     if not f["loaded"]:
         return "UNRUNNABLE (registered, every call: 'could not be loaded')"
     crashed = any(k.startswith("UNCAUGHT") for k in
