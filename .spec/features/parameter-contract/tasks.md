@@ -2544,7 +2544,14 @@ field, and the wave is complete when the whole suite is green with it gone.
   - **Scope.** `tests/surfaces/test_parameter_docs_table.py` and `tests/surfaces/__init__.py` are
     11.2's files. They are committed here because this box's gate is that test.
 
-### [x] 11.2 The parity test (AC-10), with the three cross-builder tests folded in
+### [ ] 11.2 The parity test (AC-10), with the three cross-builder tests folded in
+
+- **Re-opened 2026-11-25 (gate 2, `CHANGES_REQUIRED` on `2070c308`).** The oracle was insufficient for
+  two required consequences. It never asserted that an omitted `INJECTED` parameter is *accepted*,
+  with the dependency resolved and delivered as its declared type. And it never read `is_error` on
+  an MCP refusal, so a refusal shipped as a successful tool result would pass. Under the
+  constitution's *Transitional Changes* rule a box cannot stay ticked while its gate cannot detect
+  required behaviour, so it stays open until the strengthened oracle is green.
 
 - **[F]:**
   - `tests/surfaces/test_parameter_surface_parity.py` (new), `tests/surfaces/test_parameter_docs_table.py` (new);
