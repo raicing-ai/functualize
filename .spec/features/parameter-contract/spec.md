@@ -176,9 +176,23 @@ Each behaviour cites the page findings it closes. "Every surface" means the elev
   caller-supplied **repeatable** inputs (C-extended; F-01).
 - **B-5.** `INVOCATION_ONLY` (D5 = B′) applies to `dict[str, T]`, `set[T]`, and fixed `tuple[A, B, …]`
   of supported scalars. These are supplied over MCP, HTTP and Lambda only.
-- **B-6.** The verdict, and every behaviour below, is identical whether or not the job module uses
-  `from __future__ import annotations`. Under PEP 563 the documented-invalid `FromJob[...]` subscript
-  form is refused exactly as it is without it (F-32, `research.md` R-4).
+- **B-6** *(corrected 2026-11-25, AC-6 adjudication)*. The verdict, and every behaviour below, is
+  identical whether or not the job module uses `from __future__ import annotations`, **for every
+  module that imports in both modes**.
+  - **The one difference is a declaration whose annotation expression raises when it is
+    evaluated.**
+    - Without PEP 563, Python evaluates the annotation while the `def` runs, inside the module's
+      own import, before discovery or any classifier sees the function. The module does not load,
+      and discovery reports the file with the error's own message; no job exists to list or call.
+    - With PEP 563, the module loads and the classifier refuses the parameter as `unevaluable`.
+      The job is listed and every call refuses (B-9, DC-1).
+    - Neither mode accepts the declaration.
+  - The documented-invalid `FromJob[...]` subscript form (E142) is the product's only instance.
+    `FromJob.__class_getitem__` raises its teaching `TypeError` by design
+    (`_types/from_job.py:127-141`); it is the only subscript in the declaration vocabulary that
+    raises. Under PEP 563 it is refused, and never becomes a caller input (F-32, `research.md` R-4).
+    Any other annotation expression that raises, such as an undefined name, falls in the same
+    class: Python's import, not the contract.
   - **A string hint that does not evaluate is matched by name first** *(R-3, 2026-11-23)*. Before
     a PEP 563 annotation string that cannot be evaluated is refused as `unevaluable` (B-9), it is
     compared with the capability names (`INJECTED_PARAM_TYPE_NAMES`).
@@ -387,7 +401,7 @@ in the kit's `README.md`).
 | AC-3 | `python3 tui_extra.py` | `0 rows` | `91 rows` (`tui-extra.txt`) |
 | AC-4 | `python3 rungs.py "$F" ../rung rungs.json` | identical to `rungs.txt`, except F150/F151, which are refused per B-8 | `rungs.txt` |
 | AC-5 | `./probes.sh "$F" ../proj` | no `Traceback`; `func mcp serve` starts with G156 present; `g160g --p a --p b run` → `['a', 'b']` | 3 tracebacks (timedelta); server `SyntaxError`; `['b']` (`probes.txt`) |
-| AC-6 | `PC_PEP563=1 python3 gen.py "$F" ../proj563 out563.json && python3 pycompare.py out563.json` | 0 differences, provider-list ordering excepted | CLI: 1 row differs, E142; surfaces: 14 E142 cells, the rest ordering (`pep563-cli.txt`, `pep563-surfaces.txt`) |
+| AC-6 | `PC_PEP563=1 python3 gen.py "$F" ../proj563 out563.json && python3 pycompare.py out563.json` | 0 differences, provider-list ordering excepted, apart from B-6's import-time difference: E142's `k_absent`, `k_flag`, `k_pos` and `usage` (eager, `e142.py not loaded` with the `FromJob[...]` teaching message; PEP 563, every call refused), with `verdict` agreeing | CLI: 1 row differs, E142; surfaces: 14 E142 cells, the rest ordering (`pep563-cli.txt`, `pep563-surfaces.txt`) |
 | AC-7 | `python3 cold.py "$F" ../proj_cold out_cold.json && python3 cold_compare.py` | 0 cold/warm differences, apart from provider-list order and the module name inside a `repr` | 25 differences in 8 rows; real: C085, C087, E138, H166 (F-33) and A046 (F-34) (`cold-vs-warm.txt`, `cold-warm-same-project.txt`) |
 | AC-8 | the `str`-provider experiment (`str-provider.txt`) | every `str` job runs as without the provider | 4 of 5 jobs `AmbiguousProviderError` |
 | AC-9 | unknown-key probe (`unknown-keys.txt`) | CLI, TUI, HTTP, Lambda and MCP all refuse naming `zzz`; HTTP and Lambda 4xx | TUI, HTTP and Lambda: raw `TypeError`, 500 |

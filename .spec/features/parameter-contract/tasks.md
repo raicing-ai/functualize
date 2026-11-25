@@ -2722,6 +2722,39 @@ field, and the wave is complete when the whole suite is green with it gone.
   `for d in plugins/*/*/tests; do uv run pytest "$d" -q || exit 1; done`).
 - **Gate/evidence:** every AC row's "must show after the change" column, pasted as command plus
   output into the task record.
+- **Execute finding (2026-11-25): AC-6.** At `51904ec0`, `pycompare.py` on `out563.json` reports
+  `166 rows compared on 15 fields; 4 differences`: `k_absent`, `k_flag`, `k_pos` and `usage`, all
+  on E142; `verdict` agrees.
+  - Eagerly, `e142.py not loaded — FromJob[...] is not a type. Write Annotated[<return type>,
+    FromJob('e142_up')] instead …`, and `func e142 --help` exits 1.
+  - Under PEP 563, `func e142 --help` exits 0, and every call exits 2 with `The annotation
+    'FromJob[e142_up]' cannot be evaluated …`.
+  - `spec.md` B-6 ("every behaviour … identical … refused exactly as it is without it") and AC-6
+    ("0 differences") contradicted the shipped record of E142 as "the one exception" (this file's
+    1.1 evidence; `tests/primitives/test_build_contract.py:13-16`, `:101-106`).
+- **Designer correction (2026-11-25): designed, not a gap; `spec.md` B-6 is corrected, and AC-6
+  cites it.**
+  - **The difference is Python's import, which no product layer can reach.** An eager annotation
+    is evaluated while the `def` runs, inside the job module's own import.
+    - Measured on a module whose annotation names an undefined `Missing`: eagerly, the import raises
+      `NameError: name 'Missing' is not defined`. Under PEP 563 it imports, and `build_contracts`
+      refuses `p` as `REJECTED_DISCOVERY`: "The annotation 'Missing' cannot be evaluated …".
+    - So the class is "an annotation expression that raises when evaluated", and no change to
+      `FromJob` could close it for every declaration. B-6 as written was unsatisfiable, not merely
+      unmet.
+  - **E142 is the only matrix row in the class, and the product's only instance.**
+    - `FromJob.__class_getitem__` (`_types/from_job.py:127-141`, a teaching error shipped before
+      this feature in `49ea19aa`) is the only raising subscript in `src/functualize`.
+      `Secret.__class_getitem__` returns a `GenericAlias`.
+    - `rows.py` has one `FromJob[` row.
+    - The measured differences are on E142 alone.
+  - **Neither mode accepts the declaration,** which is the defect F-32 named: under PEP 563 the
+    subscript form silently became a caller input. B-6's protection is kept.
+  - **No product change and no test change.** `test_build_contract.py:101-106` stays, asserting
+    the eager `TypeError`.
+  - **What AC-6 now measures:** 0 differences, provider-list ordering excepted, apart from exactly
+    E142's four fields, with `verdict` agreeing. Any other row differing is a failure.
+  - 12.1 stays `[ ]` until AC-6 is re-measured against this text.
 - **Depends on:** all earlier tasks.
 
 ## Wave 13 — artifact clearing
