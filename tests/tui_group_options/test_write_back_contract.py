@@ -208,7 +208,7 @@ class TestThePanelTheBuilderActuallyProduces:
                 # A bool is a presence flag on the way out and `True` on the
                 # way back — probing it with a string would assert the wrong
                 # contract, not find a defect.
-                is_bool = (field.type_annotation or "") == "bool"
+                is_bool = (field.type_label or "") == "bool"
                 probe = "true" if is_bool else "probe-value"
                 # Read back as the bar's own text (the lenient parse the panel
                 # syncs from): a presence flag reads "true", a value its token.

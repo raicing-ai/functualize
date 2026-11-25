@@ -454,7 +454,7 @@ class TestDrillDownRequested:
             name="port",
             value="8080",
             source="default",
-            type_annotation="int",
+            type_label="int",
             required=True,
             chain=[
                 ChainEntry(source="CLI", value=""),
@@ -480,7 +480,7 @@ class TestDrillDownRequested:
             name="host",
             value="localhost",
             source="default",
-            type_annotation="str",
+            type_label="str",
             chain=[
                 ChainEntry(source="CLI", value=""),
                 ChainEntry(source="Env", value=""),
@@ -557,7 +557,7 @@ class TestChainDetailRendering:
             name="port",
             value="9090",
             source="cli",
-            type_annotation="int",
+            type_label="int",
             required=True,
             description="The port to listen on",
             chain=[
@@ -616,7 +616,7 @@ class TestChainDetailRendering:
             name="env",
             value="production",
             source="cli",
-            type_annotation="str",
+            type_label="str",
             required=True,
             choices=["dev", "staging", "production"],
             description="The deployment environment",
@@ -635,7 +635,7 @@ class TestChainDetailRendering:
 
         assert req_str == "yes"
         assert choices_str == "dev, staging, production"
-        assert field_def.type_annotation == "str"
+        assert field_def.type_label == "str"
         assert field_def.description == "The deployment environment"
 
     def test_render_chain_detail_session_override_banner(self) -> None:
@@ -682,7 +682,7 @@ class TestChainDetailRendering:
             name="port",
             value="8080",
             source="default",
-            type_annotation="int",
+            type_label="int",
             required=False,
             choices=None,
             chain=[],

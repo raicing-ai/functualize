@@ -83,7 +83,9 @@ class FieldDef:
     description: str = ""
     positional: bool = False
     short_flag: str | None = None
-    type_annotation: str = "str"
+    #: The type as a person reads it: a job row's ``contract.display``, a
+    #: settings row's declared ``Setting.type``.
+    type_label: str = "str"
     chain: list[ChainEntry] = field(default_factory=list)
     edit_origin: EditOrigin = EditOrigin.NONE
     original_value: str = ""
@@ -509,7 +511,7 @@ class ConfigTablePanel(Widget):
         name_display = f"{indicator} {prefix}{display_name}{req_mark}{short}"
 
         # Type column: type annotation + kind indicator
-        type_str = getattr(field, "type_annotation", "str") or "str"
+        type_str = getattr(field, "type_label", "str") or "str"
         if getattr(field, "positional", False):
             type_display = f"{type_str} \\[arg]"
         else:

@@ -219,7 +219,7 @@ class JobConfigChainProvider:
                     name=field.name,
                     chain=chain,
                     description=field.description,
-                    type_hint=field.type_annotation or "str",
+                    type_hint=field.type_label or "str",
                     choices=field.choices,
                     secret=getattr(field, "secret", False),
                 )
@@ -259,9 +259,9 @@ class JobConfigChainProvider:
             raise ValueError(f"Config file is not writable: {scope.path}")
 
         hints = {
-            f.name: f.type_annotation
+            f.name: f.type_label
             for f in self._fields
-            if f.type_annotation and f.name in edits
+            if f.type_label and f.name in edits
         }
         write_toml_section(scope.path, scope.section, edits, removals, hints)
 

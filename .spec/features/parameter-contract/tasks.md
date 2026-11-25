@@ -2211,7 +2211,7 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
       `Optional[bool]` group field now gets the negative pair the renderer already gives it.
     - 9.1's own gate run had not covered `tests/tui_group_options/`.
 
-### [ ] 9.2 The TUI row model's field is renamed `type_label`
+### [x] 9.2 The TUI row model's field is renamed `type_label`
 
 - **Input:** `FieldDef` (`_cli/tui/panels/config_table.py:73`) is a separate TUI view-model class
   with its own `type_annotation: str = "str"` (`:86`). It is constructed at `chain_resolution.py:156`,
@@ -2232,6 +2232,37 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
   - `rg -n -w type_annotation src/functualize/_cli/tui/panels/config_table.py src/functualize/_cli/tui/chain_resolution.py src/functualize/_cli/tui/settings_panel.py src/functualize/_cli/tui/source_chain_detail.py src/functualize/_cli/data/toml_writer.py` → 0;
   - `uv run pytest tests/cli tests/_cli -k "chain or preflight or settings or toml"`.
 - **Depends on:** 8.1, 8.2.
+- **Execute evidence (2026-11-25, after `989348d5`):**
+  - **Work.**
+    - `FieldDef.type_annotation` is renamed `type_label`.
+    - Job and group rows (`chain_resolution.py:165`, `:278`) fill it from the new
+      `_type_label(fd)`: `contract.display`, or `"str"` for an empty label.
+    - Settings rows (`settings_panel.py`) fill it from `Setting.type`, as before, and drill-down
+      rows (`source_chain_detail.py`) from `row.type_hint`.
+    - The table's type column, the chain detail's metadata line and `toml_writer.py`'s three
+      descriptions read `type_label`.
+  - **Two readers moved ahead of 9.3, because the rename breaks them.**
+    - `source_chain_providers.py` iterates `FieldDef` rows, and would raise `AttributeError` at
+      `:222` and `:262`; it now reads `type_label`.
+    - `preflight_summary.py` receives job descriptors and group `FieldDef` rows. It reads a row's
+      `type_label` or a field's `contract.display`, and holds no `type_annotation` read.
+    - Both files are in 9.3's `[F]`; 9.3 has nothing left to do in them.
+  - **Gate.**
+    - `rg -n -w type_annotation` over the five `[F]` files → **0**.
+    - `uv run pytest --run-slow tests/cli tests/_cli -k "chain or preflight or settings or toml"`
+      → 722 passed, 2 skipped.
+    - `tests/cli tests/_cli tests/tui tests/tui_audit tests/tui_group_options tests/ui` → green
+      once the two fixes below landed (`tui_group_options` 71 passed).
+    - `mypy src/` clean; Ruff check and format clean; `git diff --check` clean.
+  - **Tests outside `[F]`, for the rename.** `FieldDef(type_annotation=...)` becomes
+    `type_label=` in `tests/cli/test_chain_drill_down.py` (5 calls and one attribute read),
+    `tests/cli/test_chain_kind_aware.py` (2) and `tests/tui_group_options/test_write_back_contract.py`
+    (one row read). Descriptor fakes in those files still pass `type_annotation`; wave 10
+    migrates them.
+  - **Found by the wider run, and committed separately before this box.**
+    - `fb568b45` fixes 9.1's boolean group-flag regression (see 9.1).
+    - `989348d5` makes `test_group_options_discovery.py` read a cached field's type from its
+      contract.
 
 ### [ ] 9.3 The remaining production readers read the contract
 

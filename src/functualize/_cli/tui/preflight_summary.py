@@ -41,7 +41,8 @@ def format_preflight_field_line(
 
         Args:
             fd: A field descriptor (SimpleNamespace or similar) with name, required,
-                default, positional, short_flag, type_annotation, description, param_kind.
+                default, positional, short_flag, contract (or a row's ``type_label``),
+                description, param_kind.
             provided: Dict of CLI-provided values keyed by field name.
             avail_width: Terminal width for truncation.
             resolved_source: The real resolved source_type for this field
@@ -62,7 +63,14 @@ def format_preflight_field_line(
     required = getattr(fd, "required", False)
     description = getattr(fd, "description", "") or ""
     default = getattr(fd, "default", None)
-    type_ann = getattr(fd, "type_annotation", "str") or "str"
+    # A TUI row (a group option) carries its label; a job's field carries the
+    # contract discovery decided, whose ``display`` is the type as declared.
+    contract = getattr(fd, "contract", None)
+    type_ann = (
+        getattr(fd, "type_label", None)
+        or (contract.display if contract is not None else "")
+        or "str"
+    )
     is_positional = getattr(fd, "positional", False)
     short = getattr(fd, "short_flag", None)
     param_kind = getattr(fd, "param_kind", None)

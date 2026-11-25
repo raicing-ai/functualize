@@ -74,6 +74,16 @@ def file_resolution_disabled(func_app: Any) -> bool:
 _PLAIN_DETAIL_SOURCES = {"CLI", "Default"}
 
 
+def _type_label(fd: Any) -> str:
+    """A field's type as a person reads it: its contract's ``display``.
+
+    Every job and group field carries the contract discovery decided; the
+    cached descriptor holds no type string (9.1).
+    """
+    contract = getattr(fd, "contract", None)
+    return (contract.display if contract is not None else "") or "str"
+
+
 def _scalar_to_display(value: Any) -> str:
     """Render a parsed TOML scalar the way the chain displays it."""
     if isinstance(value, bool):
@@ -162,7 +172,7 @@ def build_group_field_defs(
                     description=getattr(fd, "description", "") or "",
                     positional=False,
                     short_flag=getattr(fd, "short_flag", None),
-                    type_annotation=getattr(fd, "type_annotation", "str") or "str",
+                    type_label=_type_label(fd),
                     param_kind=ParamKind.CONFIG,
                     # A group option is a config field like any other, so it is
                     # a credential like any other. The flag rides in on the
@@ -275,7 +285,7 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
             description=description,
             positional=getattr(fd, "positional", False),
             short_flag=getattr(fd, "short_flag", None),
-            type_annotation=getattr(fd, "type_annotation", "str") or "str",
+            type_label=_type_label(fd),
             param_kind=ParamKind.CONFIG if has_config_class else ParamKind.PLAIN,
             # The descriptor is the cache's copy of the model's answer, so the
             # Config Table and its drill-down mask without importing the config
@@ -575,7 +585,7 @@ def compute_chain_detail_rows(field_def: FieldDef) -> list[str]:
     req_str = "yes" if field_def.required else "no"
     choices_str = ", ".join(field_def.choices) if field_def.choices else "-"
     lines.append(
-        f"Type: {field_def.type_annotation} | Required: {req_str} | Choices: {choices_str}"
+        f"Type: {field_def.type_label} | Required: {req_str} | Choices: {choices_str}"
     )
     lines.append("")
 
