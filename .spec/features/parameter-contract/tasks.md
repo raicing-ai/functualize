@@ -2389,6 +2389,12 @@ field, and the wave is complete when the whole suite is green with it gone.
   16 passed after preserving the transitional helper fallback; removing it before 10.4 made
   the two cache-display assertions red (`'str' != 'int'`). `mypy src/` succeeds on 422 files,
   `lint-imports` keeps 7 contracts, and Ruff check/format and `git diff --check` pass.
+  The end-of-wave `--run-slow` barrier later found six generated field names such as `0`
+  which cannot be written as Python signature parameters by this test helper. The helper now
+  classifies through a valid placeholder and restores the generated field's name and CLI
+  spelling on the resulting contract; the property strategy and assertions are unchanged.
+  `uv run pytest tests/cli/test_introspect_values.py -q --run-slow` → 6 passed (6 failed
+  before the helper repair).
 
 ### [x] 10.3 Migrate the plugin and discovery test modules
 

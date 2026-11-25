@@ -23,6 +23,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import decimal
+import keyword
 import pathlib
 import types
 import typing
@@ -132,14 +133,31 @@ def _annotation(field: FieldDescriptor, *, marked: bool) -> str:
 def _signature_contract(field: FieldDescriptor) -> Any:
     from functualize._primitives.parameter_contract import build_contracts
 
+    declared_name = (
+        field.name
+        if field.name.isidentifier() and not keyword.iskeyword(field.name)
+        else "_field"
+    )
     default = "" if field.required else f" = {field.default!r}"
     source = (
-        f"def _declared({field.name}: {_annotation(field, marked=True)}{default}):\n"
+        f"def _declared({declared_name}: {_annotation(field, marked=True)}{default}):\n"
         "    pass\n"
     )
     namespace = _namespace()
     exec(source, namespace)  # noqa: S102 - a test's own declaration
     (contract,) = build_contracts(namespace["_declared"])
+    if declared_name != field.name:
+        cli = contract.cli
+        if cli is not None:
+            long = f"--{field.name.replace('_', '-')}"
+            cli = dataclasses.replace(
+                cli,
+                long=long if cli.long is not None else None,
+                negative=f"--no-{field.name.replace('_', '-')}"
+                if cli.negative is not None
+                else None,
+            )
+        contract = dataclasses.replace(contract, name=field.name, cli=cli)
     return contract
 
 
