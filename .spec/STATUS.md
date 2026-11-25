@@ -2,6 +2,41 @@
 
 Functualize is pre-release (Alpha). Breaking changes are free until v1.0.0.
 
+## One parameter contract behind every surface
+
+Discovery classifies every job parameter and every config-model field once,
+into a parameter contract that the descriptor cache stores. The contract says
+what kind of input the parameter is: a caller input, a wire-only input, a
+config field, something the framework supplies, or refused. It also carries
+the parameter's value shape, its command-line spelling and its JSON Schema.
+Every surface reads that one decision, on cold and warm boots alike and
+under `from __future__ import annotations`: the click command, completion, the
+SmartBar and the inline TUI, `func builtin info schema`, MCP, HTTP, Lambda,
+and the AI tool scope. Calls bind at one door in the engine before dependency
+injection: a value is converted to the declared type or refused, the caller
+never reaches an injected parameter, and a refused call ends `Invalid` (exit 2,
+HTTP and Lambda 400, MCP `isError`).
+
+A declaration nothing can supply is refused at discovery, not at call time:
+`REJECTED_DISCOVERY` is decided from the declaration, and provider
+availability is admitted at every boot. The answer therefore does not depend
+on which boot path or config source asked. A field no CLI flag, environment
+variable, config file or `.env` can fill is refused for all of them alike. The
+job stays listed, the refusal is reported once per declaration as
+`UnsupportedParameter`, and every call is refused with its reason (ADR-018). A
+config field resolves through the ladder CLI → environment → config file →
+`.env` → default. The click option carries no default of its own, so the
+ladder's precedence holds on every boot.
+
+`job_input_schema` is the one published input schema. `info schema`, the MCP
+tools and their schema exports, and the AI tool scope all publish it, with
+group options merged once (ADR-010). Removing `FieldDescriptor.type_annotation`
+and its `type` alias from `functualize.types` is a free pre-release break:
+`FieldDescriptor.contract` replaces both, and the cache stores the type only
+there. The shipped behaviour is pinned by the parameter parity test, which
+drives ten surfaces from one declaration matrix that also renders the
+*Which parameters are inputs* table in the jobs guide.
+
 ## Scope-targeted walk-log append
 
 The walker's `workflow.*` bus events carry the generation it holds. The
