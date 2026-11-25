@@ -2264,7 +2264,7 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
     - `989348d5` makes `test_group_options_discovery.py` read a cached field's type from its
       contract.
 
-### [ ] 9.3 The remaining production readers read the contract
+### [x] 9.3 The remaining production readers read the contract
 
 - **Input:** `ss3b-remaining.txt`, production files not in an earlier task's `[F]`, minus 9.2's.
 - **[F]:**
@@ -2284,6 +2284,33 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
     `uv run pytest plugins/adapters/functualize-mcp/tests` and the plugin-package loop, because
     `plugins/conftest.py` is shared by every plugin package.
 - **Depends on:** 8.1, 8.2.
+- **Execute evidence (2026-11-25, after `9a76057f`):**
+  - **Work.**
+    - `_cli/introspect.py`: the help listing's type column and the Path-completion test read a
+      new `_type_label`, which is `contract.display`, or `str` without a contract.
+    - `app/_workflow_view.py`: the gate tool's argument schema takes each parameter's JSON type
+      from its contract's `json_schema`, so the `_JSON_TYPES` string map is deleted.
+      - Since 9.1 a warm descriptor had published every argument there as `"string"`.
+      - Which parameters are listed, and every other key, are unchanged.
+    - The two plugin conftests drop `FakeField` and build their fixtures from real signatures
+      with `extract_parameters_from_signature`, so each field carries `contract=`.
+  - **Already landed before this box:**
+    - `_types/flag_grammar.py:153` → `contract.shape.scalar is Scalar.BOOL` with no container,
+      in `fb568b45` (9.1's regression);
+    - `preflight_summary.py` and `source_chain_providers.py`, in 9.2.
+  - **Gate.**
+    - `rg -n -w type_annotation` over the 7 `[F]` files → **0**.
+    - `uv run pytest --run-slow tests/cli/test_introspector.py tests/types/` → 415 passed.
+    - `uv run pytest plugins/adapters/functualize-mcp/tests` → 36 passed.
+    - Plugin-package loop, each package on its own: flow-viz 25, http 63, inline 50, lambda 59,
+      mcp 36, secrets-aws 72 (1 skipped), secrets-bitwarden 125 (1 skipped), ai-pydantic 27,
+      ai 22, tasks-local 15, tasks 15, substrate-sqlite 230 — all passed.
+    - `tests/workflow tests/app tests/integration` → 1,366 passed, 58 skipped.
+    - `mypy src/` clean; `lint-imports` 7 kept; Ruff check and format clean; `git diff --check`
+      clean.
+  - **Reachability.** The gate tool's published schema → `_job_input_schema`. Forcing `"type":
+    "string"` fails `tests/plugins/test_gate_tool_narrowing.py::TestPublishedSchema::test_the_unpinned_arguments_survive`.
+    Restored from a recorded snapshot.
 
 ## Wave 10 — `type_annotation` is deleted (SS-3 = B)
 
