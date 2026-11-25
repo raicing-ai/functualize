@@ -53,7 +53,7 @@ class TestBasicTypedParameters:
         params = extract_parameters_from_signature(job)
         assert len(params) == 1
         assert params[0].name == "name"
-        assert params[0].type_annotation == "str"
+        assert params[0].contract.display == "str"
         assert params[0].required is True
         assert params[0].default is None
         assert params[0].choices is None
@@ -63,28 +63,28 @@ class TestBasicTypedParameters:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "int"
+        assert params[0].contract.display == "int"
 
     def test_float_parameter(self) -> None:
         def job(rate: float) -> None:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "float"
+        assert params[0].contract.display == "float"
 
     def test_bool_parameter(self) -> None:
         def job(verbose: bool) -> None:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "bool"
+        assert params[0].contract.display == "bool"
 
     def test_path_parameter(self) -> None:
         def job(output: Path) -> None:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "Path"
+        assert params[0].contract.display == "Path"
 
     def test_multiple_parameters(self) -> None:
         def job(name: str, count: int, verbose: bool = False) -> None:
@@ -107,7 +107,7 @@ class TestUntypedParameters:
         params = extract_parameters_from_signature(job)
         assert len(params) == 1
         assert params[0].name == "name"
-        assert params[0].type_annotation == "str"
+        assert params[0].contract.display == "str"
         assert params[0].required is True
 
     def test_untyped_with_default(self) -> None:
@@ -115,7 +115,7 @@ class TestUntypedParameters:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "str"
+        assert params[0].contract.display == "str"
         assert params[0].required is False
         assert params[0].default == 5
 
@@ -125,9 +125,9 @@ class TestUntypedParameters:
 
         params = extract_parameters_from_signature(job)
         assert len(params) == 3
-        assert params[0].type_annotation == "str"
-        assert params[1].type_annotation == "str"  # untyped defaults to str
-        assert params[2].type_annotation == "bool"
+        assert params[0].contract.display == "str"
+        assert params[1].contract.display == "str"  # untyped defaults to str
+        assert params[2].contract.display == "bool"
 
 
 class TestDefaultsAndRequired:
@@ -191,7 +191,7 @@ class TestEnumChoices:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "Color"
+        assert params[0].contract.display == "Color"
         assert params[0].choices == ["red", "green", "blue"]
 
     def test_int_enum_populates_choices(self) -> None:
@@ -199,7 +199,7 @@ class TestEnumChoices:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "Priority"
+        assert params[0].contract.display == "Priority"
         assert params[0].choices == ["1", "2", "3"]
 
     def test_enum_with_default(self) -> None:
@@ -299,21 +299,21 @@ class TestGenericTypes:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "list[str]"
+        assert params[0].contract.display == "list[str]"
 
     def test_list_int(self) -> None:
         def job(ids: list[int]) -> None:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "list[int]"
+        assert params[0].contract.display == "list[int]"
 
     def test_dict_str_int(self) -> None:
         def job(data: dict[str, int]) -> None:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "dict[str, int]"
+        assert params[0].contract.display == "dict[str, int]"
 
 
 class TestOptionalTypes:
@@ -324,7 +324,7 @@ class TestOptionalTypes:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "str | None"
+        assert params[0].contract.display == "str | None"
         assert params[0].required is False
 
     def test_int_or_none(self) -> None:
@@ -332,7 +332,7 @@ class TestOptionalTypes:
             pass
 
         params = extract_parameters_from_signature(job)
-        assert params[0].type_annotation == "int | None"
+        assert params[0].contract.display == "int | None"
 
 
 class TestEdgeCases:

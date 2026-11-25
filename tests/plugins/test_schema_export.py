@@ -26,11 +26,25 @@ class FakeField:
     """Minimal config field descriptor for testing."""
 
     name: str
-    type_annotation: str
+    annotation: str
     default: Any | None = None
     description: str = ""
     required: bool = True
     choices: list[str] | None = None
+
+    @property
+    def contract(self):
+        from tests._support.declared_fields import declared
+
+        return declared(
+            self.name,
+            self.annotation,
+            default=self.default,
+            required=self.required,
+            choices=self.choices,
+            description=self.description,
+            from_config_model=True,
+        ).contract
 
 
 @dataclass
@@ -59,13 +73,13 @@ def simple_descriptor() -> FakeDescriptor:
         config_fields=[
             FakeField(
                 name="name",
-                type_annotation="str",
+                annotation="str",
                 required=True,
                 description="The name to greet",
             ),
             FakeField(
                 name="count",
-                type_annotation="int",
+                annotation="int",
                 required=False,
                 default=1,
                 description="Number of greetings",
@@ -90,14 +104,14 @@ def descriptor_with_examples() -> FakeDescriptor:
         config_fields=[
             FakeField(
                 name="env",
-                type_annotation="str",
+                annotation="str",
                 required=True,
                 description="Target environment",
                 choices=["dev", "staging", "prod"],
             ),
             FakeField(
                 name="dry_run",
-                type_annotation="bool",
+                annotation="bool",
                 required=False,
                 default=False,
                 description="Skip actual deployment",
@@ -341,7 +355,7 @@ class TestExportTypescript:
             name="my_complex_job_name",
             docstring="A complex job.",
             config_fields=[
-                FakeField(name="x", type_annotation="str", required=True),
+                FakeField(name="x", annotation="str", required=True),
             ],
             declaration=SimpleNamespace(
                 extra_description=None,
@@ -380,7 +394,7 @@ class TestExportTypescript:
             config_fields=[
                 FakeField(
                     name="items",
-                    type_annotation="list[str]",
+                    annotation="list[str]",
                     required=True,
                     description="Items to process",
                 ),

@@ -47,11 +47,25 @@ class FakeField:
     """Minimal config field descriptor for testing."""
 
     name: str
-    type_annotation: str
+    annotation: str
     default: Any | None = None
     description: str = ""
     required: bool = True
     choices: list[str] | None = None
+
+    @property
+    def contract(self):
+        from tests._support.declared_fields import declared
+
+        return declared(
+            self.name,
+            self.annotation,
+            default=self.default,
+            required=self.required,
+            choices=self.choices,
+            description=self.description,
+            from_config_model=True,
+        ).contract
 
 
 @dataclass
@@ -434,7 +448,7 @@ field_names_st = st.text(
 ).filter(lambda s: (s[0].isalpha() or s[0] == "_") and s not in _RESERVED_NAMES)
 
 # Type annotations
-type_annotations_st = st.sampled_from(["str", "int", "float", "bool"])
+annotations_st = st.sampled_from(["str", "int", "float", "bool"])
 
 
 @st.composite
@@ -456,11 +470,11 @@ def config_fields_st(draw: st.DrawFn) -> list[FakeField]:
 
     # Required fields
     for i in range(num_required):
-        type_ann = draw(type_annotations_st)
+        type_ann = draw(annotations_st)
         fields.append(
             FakeField(
                 name=names[i],
-                type_annotation=type_ann,
+                annotation=type_ann,
                 required=True,
                 description=f"Required field {names[i]}",
             )
@@ -468,12 +482,12 @@ def config_fields_st(draw: st.DrawFn) -> list[FakeField]:
 
     # Optional fields with defaults
     for i in range(num_required, num_required + num_optional):
-        type_ann = draw(type_annotations_st)
+        type_ann = draw(annotations_st)
         default = _default_for_type(type_ann)
         fields.append(
             FakeField(
                 name=names[i],
-                type_annotation=type_ann,
+                annotation=type_ann,
                 required=False,
                 default=default,
                 description=f"Optional field {names[i]}",
@@ -544,7 +558,7 @@ class TestMCPPartialConfigResolutionProperty:
 
         # Build partial config with only required fields
         partial_config = {
-            f.name: _value_for_type(f.type_annotation) for f in fields if f.required
+            f.name: _value_for_type(f.annotation) for f in fields if f.required
         }
 
         result = asyncio.run(registry._run_job(job_name, partial_config))
@@ -582,7 +596,7 @@ class TestMCPPartialConfigResolutionProperty:
         registry = MCPToolRegistry(app, config=MCPConfig())
 
         # Build full config with all fields
-        full_config = {f.name: _value_for_type(f.type_annotation) for f in fields}
+        full_config = {f.name: _value_for_type(f.annotation) for f in fields}
 
         result = asyncio.run(registry._run_job(job_name, full_config))
 
@@ -659,7 +673,7 @@ class TestMCPPartialConfigResolutionProperty:
 
         # Build partial config with only required fields
         partial_config = {
-            f.name: _value_for_type(f.type_annotation) for f in fields if f.required
+            f.name: _value_for_type(f.annotation) for f in fields if f.required
         }
 
         asyncio.run(registry._run_job(job_name, partial_config))
@@ -670,4 +684,4 @@ class TestMCPPartialConfigResolutionProperty:
                 assert f.name in captured_kwargs, (
                     f"Required field '{f.name}' not passed to execute()"
                 )
-                assert captured_kwargs[f.name] == _value_for_type(f.type_annotation)
+                assert captured_kwargs[f.name] == _value_for_type(f.annotation)

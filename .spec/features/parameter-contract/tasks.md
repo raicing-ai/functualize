@@ -2390,7 +2390,7 @@ field, and the wave is complete when the whole suite is green with it gone.
   the two cache-display assertions red (`'str' != 'int'`). `mypy src/` succeeds on 422 files,
   `lint-imports` keeps 7 contracts, and Ruff check/format and `git diff --check` pass.
 
-### [ ] 10.3 Migrate the plugin and discovery test modules
+### [x] 10.3 Migrate the plugin and discovery test modules
 
 - **[F]:**
   - `tests/plugins/`:
@@ -2405,6 +2405,15 @@ field, and the wave is complete when the whole suite is green with it gone.
 - **Work:** as 10.2.
 - **Gate/evidence:** `rg -l -w type_annotation tests/plugins tests/discovery` → 0;
   `uv run pytest tests/plugins tests/discovery`.
+- **Execute evidence (2026-11-25):** plugin fakes now publish classifier-built contracts from
+  their explicit declaration annotations; the group-injection fake carries an explicit
+  `INJECTED` contract. Discovery assertions read `contract.display`, including the optional,
+  enum and list element shapes that the old flattened string obscured. An unsupported dict
+  declaration asserts `REJECTED_DISCOVERY` and no published schema. The scoped search returns
+  0; `uv run pytest tests/plugins tests/discovery -q -n auto` → 2,944 passed, 279 skipped;
+  focused translator/extractor tests → 51 passed. The touched tests have 0 positional
+  `FieldDescriptor(...)` calls. `mypy src/` checked 422 files, `lint-imports` kept 7 contracts,
+  and Ruff check/format plus `git diff --check` pass.
 - **Depends on:** 9.1, 9.2, 9.3.
 
 ### [ ] 10.4 Migrate the remaining test modules

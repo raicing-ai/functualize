@@ -9,6 +9,8 @@ from typing import Any
 from functualize_mcp._config import MCPConfig
 from functualize_mcp._translator import JobToolTranslator
 
+from functualize._types.parameter_contract import Injection, ParameterContract, Verdict
+
 # ---------------------------------------------------------------------------
 # Test helpers — minimal descriptor fakes
 # ---------------------------------------------------------------------------
@@ -17,11 +19,28 @@ from functualize_mcp._translator import JobToolTranslator
 @dataclass(frozen=True)
 class FakeField:
     name: str
-    type_annotation: str
+    annotation: str
     default: Any | None = None
     description: str = ""
     required: bool = True
     choices: list[str] | None = None
+    contract_override: Any = None
+
+    @property
+    def contract(self):
+        from tests._support.declared_fields import declared
+
+        if self.contract_override is not None:
+            return self.contract_override
+        return declared(
+            self.name,
+            self.annotation,
+            default=self.default,
+            required=self.required,
+            choices=self.choices,
+            description=self.description,
+            from_config_model=True,
+        ).contract
 
 
 @dataclass
@@ -111,13 +130,13 @@ class TestTranslateSingle:
             config_fields=[
                 FakeField(
                     name="target",
-                    type_annotation="str",
+                    annotation="str",
                     required=True,
                     description="Deployment target",
                 ),
                 FakeField(
                     name="port",
-                    type_annotation="int",
+                    annotation="int",
                     required=False,
                     default=8080,
                     description="Port number",
@@ -144,7 +163,7 @@ class TestTranslateSingle:
             name="my_job",
             config_fields=[],
             parameters=[
-                FakeField(name="name", type_annotation="str", required=True),
+                FakeField(name="name", annotation="str", required=True),
             ],
         )
         result = translator.translate(desc)
@@ -165,7 +184,7 @@ class TestTranslateSingle:
             config_fields=[
                 FakeField(
                     name="env",
-                    type_annotation="str",
+                    annotation="str",
                     required=True,
                     choices=["dev", "staging", "prod"],
                 ),
@@ -184,9 +203,9 @@ class TestTranslateSingle:
         desc = FakeDescriptor(
             name="my_job",
             config_fields=[
-                FakeField(name="flag", type_annotation="bool", required=True),
-                FakeField(name="ratio", type_annotation="float", required=True),
-                FakeField(name="items", type_annotation="list[str]", required=True),
+                FakeField(name="flag", annotation="bool", required=True),
+                FakeField(name="ratio", annotation="float", required=True),
+                FakeField(name="items", annotation="list[str]", required=True),
             ],
         )
         result = translator.translate(desc)
@@ -449,14 +468,14 @@ _DEPLOY_SPEC = FakeSpec(
     fields=[
         FakeField(
             name="env",
-            type_annotation="str",
+            annotation="str",
             default="staging",
             description="Target environment",
             required=False,
         ),
         FakeField(
             name="dry_run",
-            type_annotation="bool",
+            annotation="bool",
             default=False,
             required=False,
         ),
@@ -467,7 +486,7 @@ _WEB_SPEC = FakeSpec(
     group="deploy.web",
     class_name="WebOptions",
     fields=[
-        FakeField(name="replicas", type_annotation="int", default=1, required=False),
+        FakeField(name="replicas", annotation="int", default=1, required=False),
     ],
 )
 
@@ -484,9 +503,7 @@ class TestGroupOptionsInSchema:
         desc = FakeDescriptor(
             name="run",
             group="deploy.web",
-            parameters=[
-                FakeField(name="image", type_annotation="str", default="nginx")
-            ],
+            parameters=[FakeField(name="image", annotation="str", default="nginx")],
         )
 
         result = self._translator().translate(desc)
@@ -503,7 +520,7 @@ class TestGroupOptionsInSchema:
         desc = FakeDescriptor(
             name="run",
             group="deploy.web",
-            parameters=[FakeField(name="image", type_annotation="str")],
+            parameters=[FakeField(name="image", annotation="str")],
         )
 
         result = self._translator().translate(desc)
@@ -514,7 +531,7 @@ class TestGroupOptionsInSchema:
         desc = FakeDescriptor(
             name="other",
             group="unrelated",
-            parameters=[FakeField(name="image", type_annotation="str")],
+            parameters=[FakeField(name="image", annotation="str")],
         )
 
         result = self._translator().translate(desc)
@@ -524,7 +541,7 @@ class TestGroupOptionsInSchema:
 
     def test_an_ungrouped_job_gets_nothing(self):
         desc = FakeDescriptor(
-            name="loose", parameters=[FakeField(name="image", type_annotation="str")]
+            name="loose", parameters=[FakeField(name="image", annotation="str")]
         )
 
         result = self._translator().translate(desc)
@@ -536,7 +553,7 @@ class TestGroupOptionsInSchema:
         desc = FakeDescriptor(
             name="top",
             group="deploy",
-            parameters=[FakeField(name="image", type_annotation="str")],
+            parameters=[FakeField(name="image", annotation="str")],
         )
 
         result = self._translator().translate(desc)
@@ -553,7 +570,7 @@ class TestGroupOptionsInSchema:
             parameters=[
                 FakeField(
                     name="env",
-                    type_annotation="str",
+                    annotation="str",
                     default="job-default",
                     description="the job's own",
                     required=False,
@@ -571,7 +588,7 @@ class TestGroupOptionsInSchema:
     def test_group_options_are_never_required(self):
         """They always resolve to something (default < file < env), so
         demanding one would make every call carry it."""
-        required_field = FakeField(name="token", type_annotation="str", required=True)
+        required_field = FakeField(name="token", annotation="str", required=True)
         spec = FakeSpec(group="deploy", class_name="D", fields=[required_field])
         desc = FakeDescriptor(name="run", group="deploy")
 
@@ -587,8 +604,22 @@ class TestGroupOptionsInSchema:
             name="run",
             group="deploy",
             parameters=[
-                FakeField(name="image", type_annotation="str"),
-                FakeField(name="opts", type_annotation="DeployOptions"),
+                FakeField(name="image", annotation="str"),
+                FakeField(
+                    name="opts",
+                    annotation="DeployOptions",
+                    contract_override=ParameterContract(
+                        name="opts",
+                        verdict=Verdict.INJECTED,
+                        shape=None,
+                        required=False,
+                        default_json=None,
+                        cli=None,
+                        json_schema=None,
+                        injection=Injection(capability="DeployOptions"),
+                        display="DeployOptions",
+                    ),
+                ),
             ],
         )
 
@@ -602,7 +633,7 @@ class TestGroupOptionsInSchema:
         desc = FakeDescriptor(
             name="run",
             group="deploy.web",
-            parameters=[FakeField(name="image", type_annotation="str")],
+            parameters=[FakeField(name="image", annotation="str")],
         )
 
         result = JobToolTranslator().translate(desc)

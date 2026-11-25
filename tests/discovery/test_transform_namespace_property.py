@@ -13,9 +13,10 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import NamespaceTransform
-from functualize._types.descriptors import FieldDescriptor, JobDescriptor
+from functualize._types.descriptors import JobDescriptor
 from functualize._types.job_declaration import JobDeclaration
 from functualize._types.naming import normalize_name
+from tests._support.declared_fields import declared
 
 # --- Strategies (reused from test_transform_identity_property.py) ---
 
@@ -34,17 +35,17 @@ groups = st.one_of(st.none(), st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=T
 # them). Two prepared values per field give the same discriminating power at O(1).
 field_descriptors = st.sampled_from(
     [
-        FieldDescriptor(
+        declared(
             name="alpha",
-            type_annotation="str",
+            annotation="str",
             choices=None,
             default=None,
             required=False,
             description="",
         ),
-        FieldDescriptor(
+        declared(
             name="beta",
-            type_annotation="int",
+            annotation="int",
             choices=["x", "y"],
             default=3,
             required=True,

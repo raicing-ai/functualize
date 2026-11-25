@@ -39,11 +39,25 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class _Field:
     name: str
-    type_annotation: str = "str"
+    annotation: str = "str"
     default: Any = None
     description: str = ""
     required: bool = False
     choices: Any = None
+
+    @property
+    def contract(self):
+        from tests._support.declared_fields import declared
+
+        return declared(
+            self.name,
+            self.annotation,
+            default=self.default,
+            required=self.required,
+            choices=self.choices,
+            description=self.description,
+            from_config_model=True,
+        ).contract
 
 
 @dataclass
