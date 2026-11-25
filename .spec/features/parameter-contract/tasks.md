@@ -2544,7 +2544,7 @@ field, and the wave is complete when the whole suite is green with it gone.
   - **Scope.** `tests/surfaces/test_parameter_docs_table.py` and `tests/surfaces/__init__.py` are
     11.2's files. They are committed here because this box's gate is that test.
 
-### [ ] 11.2 The parity test (AC-10), with the three cross-builder tests folded in
+### [x] 11.2 The parity test (AC-10), with the three cross-builder tests folded in
 
 - **Re-opened 2026-11-25 (gate 2, `CHANGES_REQUIRED` on `2070c308`).** The oracle was insufficient for
   two required consequences. It never asserted that an omitted `INJECTED` parameter is *accepted*,
@@ -2552,6 +2552,44 @@ field, and the wave is complete when the whole suite is green with it gone.
   an MCP refusal, so a refusal shipped as a successful tool result would pass. Under the
   constitution's *Transitional Changes* rule a box cannot stay ticked while its gate cannot detect
   required behaviour, so it stays open until the strengthened oracle is green.
+- **Repair (2026-11-25, `34daceec..a6035768`), re-ticked on its evidence.**
+  - **P1, `be0ab7fc`.** An omitted `INJECTED` parameter must now be *accepted* on the TUI, MCP,
+    HTTP and Lambda, and the job must receive the declared type (B-29). A supplied value must
+    still be refused, now with the reason "supplied by the framework" (B-30).
+    - A capability may arrive as its wired implementation only where that class implements it:
+      `WiredInvoke` and `WiredPerf` subclass `Invoke` and `Perf`, and `WiredShell`,
+      `WiredStdout` and `_LocalVaultReader` carry the public members of the runtime protocols
+      `Shell`, `Stdout` and `Vault`. This is checked against the classes when the module
+      imports.
+    - One named exception: E133 (`TTY | None`) may resolve to `None` without a terminal.
+      `docs/guides/interactivity.md` (*Adaptive jobs*) and `_engine/capabilities/tty.py`
+      define `tty: TTY | None` as a preference, `None` when the job cannot own the terminal.
+    - Matrix fact corrected: E140's `delivered_type` was the declaration text; it is `str`, the
+      upstream job's return type. The change is disclosed, as G156's was.
+  - **P2, `be0ab7fc`.**
+    - A refusal on MCP requires `is_error is True`, and an accepted MCP call requires it to be
+      `False`.
+    - The explicit refusals check their reason: "Missing required argument" for a required
+      input, "supplied by the framework" for an injected key, "refused at discovery" for a
+      refused job.
+    - The probe records each door's reason: the MCP `error`, the HTTP `error`, the Lambda
+      `error`, and the TUI run's exception.
+  - **P3, `a6035768`.** `test_an_accepted_call_runs_on_the_command_line` runs a real
+    `func <job> <tokens>` for A001 (positional), B053 (repeatable), A045 (choice) and F144
+    (required config option), cold and warm, in both modes. Each exits 0 and delivers the
+    declared type.
+  - **The oracle has teeth (`a6035768`).** Unit tests feed `check_row` a well-formed E110
+    observation, then break it:
+    - an omitted value not resolved → 4 problems;
+    - the wrong injected type → 1;
+    - an MCP refusal without `is_error` → 1;
+    - the wrong refusal reason → 1.
+    The `check_row` pinned at `2070c308` returned `[]` for the first and third.
+  - **No product defect.** Under the stronger oracle, every injected parameter resolves on every
+    door, and every MCP refusal arrives with `isError: true` and its reason.
+  - **Gate.** `uv run pytest tests/surfaces/ -q -n 6 --run-slow` → 61 passed in 121.0 s.
+    `uv run mkdocs build --strict` → rc 0, 0 warnings. Ruff check and format, `mypy src/` and
+    `git diff --check` are clean.
 
 - **[F]:**
   - `tests/surfaces/test_parameter_surface_parity.py` (new), `tests/surfaces/test_parameter_docs_table.py` (new);
