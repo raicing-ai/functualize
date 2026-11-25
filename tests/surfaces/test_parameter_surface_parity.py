@@ -358,6 +358,101 @@ def test_a_refused_call_is_one_error_line_and_exit_2(
             assert "Traceback" not in done.stderr, (phase, rid, done.stderr[-800:])
 
 
+# ─── an accepted call runs on the command line, in a real process ───────────
+
+#: One row per accepted CLI shape: a required positional, a repeatable flag, a
+#: choice converted to its member, and a required config field's option.
+_ACCEPTED = ("A001", "B053", "A045", "F144")
+
+
+@MODES
+def test_an_accepted_call_runs_on_the_command_line(
+    future: bool, tmp_path: Path
+) -> None:
+    """`func <job> <tokens>` runs the job and delivers the declared type.
+
+    The matrix half observes the command's parameters and the TUI door, which
+    shares its click parse; this is the door itself, cold and warm.
+    """
+    by_id = {row["id"]: row for group in GROUPS for row in group}
+    rows = tuple(by_id[rid] for rid in _ACCEPTED)
+    project = write_project(tmp_path / "project", future=future, rows=rows)
+    for phase in ("cold", "warm"):
+        for row in rows:
+            positional = row["expected_verdict"] == "ACCEPTED_POSITIONAL"
+            argv = row["pos_argv"] if positional else row["flag_argv"]
+            if row["id"] == "F144":
+                argv = ("--f", "7")
+            done = func(project, *row["path"], *argv, timeout=120)
+            base = row["delivered_type"].split("[", 1)[0]
+            assert done.returncode == 0, (phase, row["id"], done.stderr[-800:])
+            assert f"type={base}" in done.stdout, (phase, row["id"], done.stdout[-400:])
+
+
+# ─── the oracle has teeth (gate 2 review) ───────────────────────────────────
+
+
+def _injected_observation() -> tuple[dict[str, Any], dict[str, Any]]:
+    """A well-formed observation of E110 (`p: Log`) on every door."""
+    by_id = {row["id"]: row for group in GROUPS for row in group}
+    refusal = "Argument 'p' is supplied by the framework, not the caller."
+    seen: dict[str, Any] = {
+        "registered": True,
+        "help": {"text": "Usage: func e110 [OPTIONS]", "params": []},
+        "bash": [],
+        "zsh": [],
+        "smartbar": [],
+        "info": {"type": "object", "properties": {}},
+        "mcp_schema": {"type": "object", "properties": {}},
+        "tui_given": {"raised": "NoSuchOption: No such option: --p"},
+        "tui_absent": {"status": "success", "reason": "", "type": "Log"},
+        "mcp_given": {"status": "invalid", "is_error": True, "reason": refusal},
+        "mcp_absent": {"status": "success", "is_error": False, "type": "Log"},
+    }
+    for door in ("http", "lambda"):
+        seen[f"{door}_given"] = {"code": 400, "status": "invalid", "reason": refusal}
+        seen[f"{door}_absent"] = {"code": 200, "status": "success", "type": "Log"}
+    return by_id["E110"], seen
+
+
+def test_the_oracle_passes_a_well_formed_observation() -> None:
+    row, seen = _injected_observation()
+    assert check_row(row, seen) == []
+
+
+def test_the_oracle_requires_an_omitted_injection_to_resolve() -> None:
+    row, seen = _injected_observation()
+    for door in ("tui", "mcp", "http", "lambda"):
+        seen[f"{door}_absent"] = {"status": "invalid", "is_error": True, "code": 400}
+    problems = check_row(row, seen)
+    assert len(problems) == 4
+    assert all("an injected parameter was not resolved" in p for p in problems)
+
+
+def test_the_oracle_requires_the_declared_injected_type() -> None:
+    row, seen = _injected_observation()
+    seen["http_absent"]["type"] = "str"
+    assert check_row(row, seen) == ["http: injected str, declared Log"]
+
+
+def test_the_oracle_requires_mcp_to_flag_a_refusal() -> None:
+    row, seen = _injected_observation()
+    seen["mcp_given"]["is_error"] = False
+    problems = check_row(row, seen)
+    assert len(problems) == 1
+    assert problems[0].startswith(
+        "mcp: a value for an injected parameter was not refused"
+    )
+
+
+def test_the_oracle_requires_the_refusal_reason() -> None:
+    row, seen = _injected_observation()
+    seen["lambda_given"]["reason"] = "Missing required argument 'p'"
+    problems = check_row(row, seen)
+    assert len(problems) == 1
+    assert problems[0].startswith("lambda: a value for an injected parameter")
+
+
 # ─── Folded from tests/adapters/test_cold_warm_parity.py — a config field's short flag, cold and warm ───
 
 
