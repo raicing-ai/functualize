@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -42,13 +43,25 @@ CASES = {
 }
 
 
-def run(argv, env_extra):
+def run(argv, env_extra, rid):
     env = dict(os.environ, COLUMNS="200", NO_COLOR="1", TERM="dumb",
                PYTHONPATH=str(Path(__file__).parent / "pylib"))
     env.update(env_extra)
     p = subprocess.run([FUNC, *argv], cwd=PROJ, capture_output=True, text=True, timeout=120,
                        env=env, input="")
-    keep = [ln for ln in (p.stdout + p.stderr).splitlines()
+    foreign_refusal = re.compile(
+        r"/jobs/([a-z]\d+)\.py: job '([^']+)' parameter .* is refused\."
+    )
+    # Keep this row's own refusal and the original stdout/stderr join: a required
+    # field's stdout prefix has no newline before its stderr error message.
+    stderr = "".join(
+        line for line in p.stderr.splitlines(keepends=True)
+        if "e142.py not loaded" not in line and not (
+            (match := foreign_refusal.search(line))
+            and (match.group(1) != rid.lower() or match.group(2) != rid.lower())
+        )
+    )
+    keep = [ln for ln in (p.stdout + stderr).splitlines()
             if "took " not in ln and "e142.py not loaded" not in ln
             and "registered but cannot run" not in ln]
     return {"argv": " ".join(f"{k}={v!r}" for k, v in env_extra.items()) + (" " if env_extra else "")
@@ -73,7 +86,7 @@ def main() -> None:
                 argv = [path[0], *cli, *path[1:]]
             else:
                 argv = [*path, *(cli if with_cli else [])]
-            return rid, run(argv, {ev: evv} if with_env else {})
+            return rid, run(argv, {ev: evv} if with_env else {}, rid)
 
         with ThreadPoolExecutor(max_workers=6) as ex:
             for rid, r in ex.map(one, cases.items()):
