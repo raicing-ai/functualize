@@ -2644,6 +2644,27 @@ field, and the wave is complete when the whole suite is green with it gone.
         `test_cli_schema_matches_mcp_schema_for_the_same_job`.
       Beyond them, `info` and the MCP schema are each checked against the verdict for every
       row, cold and warm, in both modes.
+  - **Wave 11 barrier at `9f337567` (`--run-slow`, foreground, 2026-11-25).**
+    - Affected directories first: `tests/surfaces`, `tests/primitives`,
+      `test_omitted_contracts.py` and `tests/adapters` → 2,871 passed, 4 skipped.
+    - Then 972 root files in 12 disjoint `-n 6` chunks, each file exactly once, with the eight
+      `_group` importers in their own processes:
+      - `cli` 2,213 / 198; `_cli` 1,468 / 32; `(root)` 1,886; `discovery` 2,175 / 20;
+        `config` 1,138; `plugins` 1,019 / 9;
+      - `context` + `core` 1,356 / 1; `integration` 438 / 4; `workflow` + `engine` 1,235 / 1;
+        `primitives` + `app` + `types` + `pipeline` 3,018 / 13; `spec` … `adapters` 1,215 / 4;
+      - the rest, `tests/surfaces` included, 1,467 / 15;
+      - the `_group` files 10, 11, 5, 10, 26 / 7, 10, 13 and 40 / 3.
+      All passed. The known parity flake did not trip.
+    - `examples/` 287 passed. Plugin packages, each on its own, all passed: flow-viz 25, http 63,
+      inline 50, lambda 59, mcp 36, secrets-aws 72, bitwarden 125, ai-pydantic 27, ai 22,
+      tasks-local 15, tasks 15, sqlite 230.
+    - `mypy src/` clean (422 files); `lint-imports` 7 kept; Ruff check and format clean (1,811
+      files); `git diff --check` clean.
+    - Dead-code delta `1991efc0..9f337567`: `NEW_DEAD 9`, `TESTS_ONLY 0`. All nine are moved,
+      not new: `WideConfig`'s fields, `Mode.THOROUGH` and the `Number.TWO` test enum member,
+      relocated from the deleted files with the folded tests. They are consumed through
+      `model_fields` and the enum schema, which vulture cannot see.
 
 ## Wave 12 — checkpoint
 
