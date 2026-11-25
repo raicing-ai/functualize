@@ -2200,6 +2200,16 @@ Counts measured at authoring time on `6ff7182a` (`matrix/evidence/ss3b-counts.tx
   - **Reachability.** The cache write is `JobDescriptor.to_dict` → `_field_to_dict`. Re-adding
     the `"type_annotation"` key fails `test_no_type_key_is_written`. Restored from a recorded
     snapshot.
+  - **Regression found after the tick, and repaired in its own commit.**
+    - `7cac074b` failed five `tests/tui_group_options/` tests. They pass at `757c82c9`; the
+      measurement was from full-tree archives of both heads.
+    - The cause is `_types/flag_grammar.negative_aliases`, which decided a boolean from
+      `type_annotation == "bool"`. A cached group field now holds `""`, so `--no-x` stopped
+      matching and a bool group option lost its negative spelling.
+    - The repair reads `contract.shape`: `Scalar.BOOL` with no container, the click renderer's
+      own flag rule. This is the change 9.3 names for this file, made ahead of its box. An
+      `Optional[bool]` group field now gets the negative pair the renderer already gives it.
+    - 9.1's own gate run had not covered `tests/tui_group_options/`.
 
 ### [ ] 9.2 The TUI row model's field is renamed `type_label`
 
