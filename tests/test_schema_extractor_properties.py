@@ -15,21 +15,23 @@ definitions.
 from __future__ import annotations
 
 import enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_args
 
 from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import BaseModel, Field
 
 from functualize._discovery.schema_extractor import extract_field_descriptors
+from functualize._types.parameter_contract import Scalar, Verdict
 
 if TYPE_CHECKING:
     from functualize._types.descriptors import FieldDescriptor
 
-# --- Supported field types ---
 
-# The supported type strings the schema extractor should produce.
-SUPPORTED_TYPES = ("str", "int", "bool", "float", "enum", "list[str]")
+def _expected_display(spec: FieldSpec) -> str:
+    """The declaration's type name and optionality remain visible in the contract."""
+    base = spec.enum_class.__name__ if spec.enum_class else spec.type_str
+    return f"{base} | None" if type(None) in get_args(spec.annotation) else base
 
 
 # --- Dynamic Enum generation ---
@@ -466,9 +468,9 @@ class TestSchemaExtractionCorrectness:
             assert descriptor.name == spec.name
 
             # Verify type mapping
-            assert descriptor.type_annotation == spec.type_str, (
+            assert descriptor.contract.display == _expected_display(spec), (
                 f"Field '{spec.name}': expected type '{spec.type_str}', "
-                f"got '{descriptor.type_annotation}'"
+                f"got '{descriptor.contract.display}'"
             )
 
             # Verify choices
@@ -534,20 +536,14 @@ class TestSchemaExtractionCorrectness:
                 )
 
     @given(specs=model_field_specs())
-    def test_extracted_types_are_in_supported_set(self, specs: list[FieldSpec]):
-        """All extracted type strings are in the set of supported types.
-
-        # Feature: layered-architecture-lazy-boot, Property 16: Schema extraction correctness
-        **Validates: Requirements 16.2**
-        """
+    def test_extracted_types_publish_config_contracts(self, specs: list[FieldSpec]):
+        """Every supported declaration publishes an input schema."""
         model_class = _build_dynamic_model(specs)
         result = extract_field_descriptors(model_class)
 
         for descriptor in result:
-            assert descriptor.type_annotation in SUPPORTED_TYPES, (
-                f"Field '{descriptor.name}': type '{descriptor.type_annotation}' "
-                f"not in supported types {SUPPORTED_TYPES}"
-            )
+            assert descriptor.contract.verdict is Verdict.CONFIG_FIELD
+            assert descriptor.contract.json_schema is not None
 
     @given(specs=model_field_specs())
     def test_enum_choices_invariant_holds(self, specs: list[FieldSpec]):
@@ -560,7 +556,7 @@ class TestSchemaExtractionCorrectness:
         result = extract_field_descriptors(model_class)
 
         for descriptor in result:
-            if descriptor.type_annotation == "enum":
+            if descriptor.contract.shape.scalar is Scalar.ENUM:
                 assert descriptor.choices is not None
                 assert len(descriptor.choices) > 0
                 assert all(isinstance(c, str) for c in descriptor.choices)
@@ -569,7 +565,7 @@ class TestSchemaExtractionCorrectness:
 
     @given(specs=model_field_specs())
     def test_optional_unwrapping_preserves_inner_type(self, specs: list[FieldSpec]):
-        """Optional[T] and T | None annotations unwrap to inner type T.
+        """Optional[T] and T | None preserve inner type and optionality.
 
         # Feature: layered-architecture-lazy-boot, Property 16: Schema extraction correctness
         **Validates: Requirements 16.6**
@@ -580,9 +576,8 @@ class TestSchemaExtractionCorrectness:
 
         for spec in specs:
             descriptor = result_by_name[spec.name]
-            # The type should match the expected type_str regardless of
-            # whether the annotation was Optional[T] or T
-            assert descriptor.type_annotation == spec.type_str, (
-                f"Field '{spec.name}': Optional unwrapping should yield "
-                f"type '{spec.type_str}', got '{descriptor.type_annotation}'"
+            # The contract retains the declared inner type and optionality.
+            assert descriptor.contract.display == _expected_display(spec), (
+                f"Field '{spec.name}': expected '{_expected_display(spec)}', "
+                f"got '{descriptor.contract.display}'"
             )

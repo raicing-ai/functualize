@@ -23,25 +23,24 @@ from functualize._cli.dispatch import walk_group_path
 from functualize._primitives.pre_filter import GroupOptionsPreFilter
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize.app.utils import build_group_trie
-from tests._support.declared_fields import with_contracts
+from tests._support.declared_fields import declared
 
 
 def _spec(group: str, *fields: FieldDescriptor) -> GroupOptionsSpec:
-    return GroupOptionsSpec(
-        group=group, class_name="X", fields=with_contracts(fields, group=True)
-    )
+    return GroupOptionsSpec(group=group, class_name="X", fields=list(fields))
 
 
 def _field(
-    name: str, type_annotation: str = "str", short: str | None = None
+    name: str, annotation: str = "str", short: str | None = None
 ) -> FieldDescriptor:
-    return FieldDescriptor(
+    return declared(
         name=name,
-        type_annotation=type_annotation,
+        annotation=annotation,
         default=None,
         description="",
         required=False,
         short_flag=short,
+        group=True,
     )
 
 

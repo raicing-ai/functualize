@@ -43,6 +43,8 @@ def declared(
     required: bool = False,
     positional: bool = False,
     short_flag: str | None = None,
+    is_stdin: bool = False,
+    stdin_flag: str | None = None,
     choices: list[str] | None = None,
     description: str = "",
     from_config_model: bool = False,
@@ -64,6 +66,8 @@ def declared(
         required=required,
         positional=positional,
         short_flag=short_flag,
+        is_stdin=is_stdin,
+        stdin_flag=stdin_flag,
         choices=choices,
         description=description,
         from_config_model=from_config_model,
@@ -81,6 +85,8 @@ def declared(
         choices=choices,
         positional=positional,
         short_flag=short_flag,
+        is_stdin=is_stdin,
+        stdin_flag=stdin_flag,
         secret=secret,
         from_config_model=from_config_model,
         contract=contract,
@@ -112,13 +118,7 @@ def _annotation(field: FieldDescriptor, *, marked: bool) -> str:
         values = ", ".join(repr(choice) for choice in choices)
         base = f"Literal[{values}]"
     else:
-        # TRANSITIONAL(10.4): remaining test fakes still use the old member;
-        # their migration removes this fallback before 10.1 deletes the field.
-        base = (
-            getattr(field, "annotation", None)
-            or getattr(field, "type_annotation", None)
-            or "str"
-        )
+        base = getattr(field, "annotation", None) or "str"
     markers: list[str] = []
     if marked and getattr(field, "positional", False):
         markers.append("Arg()")

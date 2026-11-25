@@ -2416,7 +2416,7 @@ field, and the wave is complete when the whole suite is green with it gone.
   and Ruff check/format plus `git diff --check` pass.
 - **Depends on:** 9.1, 9.2, 9.3.
 
-### [ ] 10.4 Migrate the remaining test modules
+### [x] 10.4 Migrate the remaining test modules
 
 - **[F]:**
   - `tests/test_schema_extractor_properties.py`;
@@ -2426,8 +2426,27 @@ field, and the wave is complete when the whole suite is green with it gone.
     - `test_combination_matrix.py`, `test_group_options_discovery.py`;
     - `test_group_options_dispatch.py`, `test_tui_group_flags.py`;
   - `tests/tui_group_options/test_write_back_contract.py`.
+  - `tests/_support/declared_fields.py` (remove the `TRANSITIONAL(10.4)` fake-input fallback
+    after its remaining consumers migrate);
+  - `tests/adapters/test_render_click_params.py`,
+    `tests/group_options/test_group_options_surfaces.py`, `tests/test_descriptor.py`,
+    `tests/test_lazy_wrapper.py`, `tests/test_lazy_wrapper_properties.py`,
+    `tests/test_property_field_descriptor_extraction.py`,
+    `tests/types/test_flag_grammar_roundtrip.py` (scope amendment from the wave dispatch:
+    residual string-bearing tests outside the original eight files).
 - **Work:** as 10.2.
 - **Gate/evidence:** `rg -l -w type_annotation` over these 8 files → 0; `uv run pytest tests/group_options tests/tui_group_options tests/config tests/app tests/test_schema_extractor_properties.py`.
+- **Execute evidence (2026-11-25):** all 15 remaining test files carrying the legacy token
+  migrated; `rg -l -w type_annotation tests plugins -g '*.py'` → 0. Hand-built fields now
+  carry declaration contracts, cached-field assertions read the contract, and the fake helper's
+  old-member fallback is gone. The codec test checks the retained `contract` and ignores a stray
+  legacy `type` key. The seven added test paths are named in the wave dispatch; the shared
+  helper is recorded separately.
+  `uv run pytest tests/group_options tests/tui_group_options tests/config tests/app
+  tests/test_schema_extractor_properties.py -q -n auto` → 1,736 passed, 143 skipped.
+  Focused descriptor/lazy/schema/grammar/group tests → 191 passed, 18 skipped;
+  `tests/adapters/test_render_click_params.py` → 8 passed. `mypy src/` checked 422 files,
+  `lint-imports` kept 7 contracts, and Ruff check/format pass.
 - **Depends on:** 9.1, 9.2, 9.3.
 
 ## Wave 11 — documentation and the parity test

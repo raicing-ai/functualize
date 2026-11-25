@@ -51,12 +51,12 @@ import pytest
 
 from functualize._app.state import AppState
 from functualize._cli.dispatch import walk_group_path
-from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
+from functualize._types.descriptors import GroupOptionsSpec
 from functualize.app.core import FunctualizeApp, request_for
 from functualize.app.utils import build_group_trie
 from functualize.job import RunStatus
 from functualize.types import RunRequest
-from tests._support.declared_fields import with_contracts
+from tests._support.declared_fields import declared
 
 _JOB_MODULE = """
 from typing import Annotated
@@ -242,20 +242,18 @@ def _spec(group: str, *names: str) -> GroupOptionsSpec:
     return GroupOptionsSpec(
         group=group,
         class_name="X",
-        fields=with_contracts(
-            [
-                FieldDescriptor(
-                    name=name,
-                    type_annotation="str",
-                    default=None,
-                    description="",
-                    required=False,
-                    short_flag=None,
-                )
-                for name in names
-            ],
-            group=True,
-        ),
+        fields=[
+            declared(
+                name=name,
+                annotation="str",
+                default=None,
+                description="",
+                required=False,
+                short_flag=None,
+                group=True,
+            )
+            for name in names
+        ],
     )
 
 

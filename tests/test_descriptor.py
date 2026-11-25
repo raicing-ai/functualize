@@ -10,7 +10,6 @@ Property 18 — Validates: Requirements 17.6
 
 from __future__ import annotations
 
-import dataclasses
 import keyword
 
 import pytest
@@ -21,7 +20,8 @@ from functualize._types.descriptors import (
     FieldDescriptor,
     JobDescriptor,
 )
-from tests._support.declared_fields import with_contract
+from functualize._types.parameter_contract import Scalar
+from tests._support.declared_fields import declared
 
 # --- Constants ---
 
@@ -55,9 +55,9 @@ def field_descriptors(draw: st.DrawFn) -> FieldDescriptor:
     default = draw(st.none() | st.text(max_size=50)) if not required else None
     help_text = draw(st.text(max_size=100))
 
-    return FieldDescriptor(
+    return declared(
         name=name,
-        type_annotation=type_name,
+        annotation=type_name,
         choices=choices,
         default=default,
         required=required,
@@ -74,9 +74,9 @@ def enum_field_descriptors(draw: st.DrawFn) -> FieldDescriptor:
     default = draw(st.none() | st.sampled_from(choices)) if not required else None
     help_text = draw(st.text(max_size=100))
 
-    return FieldDescriptor(
+    return declared(
         name=name,
-        type_annotation="enum",
+        annotation="str",
         choices=choices,
         default=default,
         required=required,
@@ -93,9 +93,9 @@ def non_enum_field_descriptors(draw: st.DrawFn) -> FieldDescriptor:
     default = draw(st.none() | st.text(max_size=50)) if not required else None
     help_text = draw(st.text(max_size=100))
 
-    return FieldDescriptor(
+    return declared(
         name=name,
-        type_annotation=type_name,
+        annotation=type_name,
         choices=None,
         default=default,
         required=required,
@@ -124,7 +124,7 @@ class TestFieldDescriptorEnumChoicesInvariant:
         # Feature: layered-architecture-lazy-boot, Property 3: FieldDescriptor enum/choices invariant
         **Validates: Requirements 4.4**
         """
-        if descriptor.type_annotation == "enum":
+        if descriptor.contract.shape.scalar is Scalar.ENUM:
             # choices SHALL be a non-empty list[str]
             assert descriptor.choices is not None
             assert isinstance(descriptor.choices, list)
@@ -141,7 +141,7 @@ class TestFieldDescriptorEnumChoicesInvariant:
         # Feature: layered-architecture-lazy-boot, Property 3: FieldDescriptor enum/choices invariant
         **Validates: Requirements 4.4**
         """
-        assert descriptor.type_annotation == "enum"
+        assert descriptor.contract.shape.scalar is Scalar.ENUM
         assert descriptor.choices is not None
         assert isinstance(descriptor.choices, list)
         assert len(descriptor.choices) > 0
@@ -154,7 +154,7 @@ class TestFieldDescriptorEnumChoicesInvariant:
         # Feature: layered-architecture-lazy-boot, Property 3: FieldDescriptor enum/choices invariant
         **Validates: Requirements 4.4**
         """
-        assert descriptor.type_annotation != "enum"
+        assert descriptor.contract.shape.scalar is not Scalar.ENUM
         assert descriptor.choices is None
 
 
@@ -168,8 +168,7 @@ def json_safe_field_descriptors(draw: st.DrawFn) -> FieldDescriptor:
     A cached record carries its parameter contract and no type string (the
     codec stopped storing it, 9.1), so each field is a declaration of one of
     the allowed types with a default that type can hold, classified by the
-    real classifier, and then given ``type_annotation=""`` as a warm boot
-    sees it.
+    real classifier, as a warm boot sees it.
     """
     type_name = draw(st.sampled_from(ALLOWED_TYPES))
 
@@ -201,17 +200,14 @@ def json_safe_field_descriptors(draw: st.DrawFn) -> FieldDescriptor:
 
     help_text = draw(st.text(max_size=100))
 
-    declared = with_contract(
-        FieldDescriptor(
-            name=name,
-            type_annotation=type_name,
-            choices=choices,
-            default=default,
-            required=required,
-            description=help_text,
-        )
+    return declared(
+        name=name,
+        annotation=type_name,
+        choices=choices,
+        default=default,
+        required=required,
+        description=help_text,
     )
-    return dataclasses.replace(declared, type_annotation="")
 
 
 @st.composite
@@ -547,29 +543,19 @@ class TestTheCacheCarriesNoTypeString:
     """
 
     def _field(self) -> FieldDescriptor:
-        return with_contract(
-            FieldDescriptor(
-                name="rows",
-                type_annotation="int",
-                default=3,
-                description="",
-                required=False,
-            )
-        )
+        return declared("rows", "int", default=3)
 
     def test_no_type_key_is_written(self) -> None:
         from functualize._types.descriptors import _field_to_dict
 
         encoded = _field_to_dict(self._field())
-        assert "type_annotation" not in encoded
         assert "type" not in encoded
         assert encoded["contract"]["display"] == "int"
 
     def test_a_stray_type_key_is_not_decoded(self) -> None:
         from functualize._types.descriptors import _field_from_dict, _field_to_dict
 
-        encoded = {**_field_to_dict(self._field()), "type_annotation": "x", "type": "y"}
+        encoded = {**_field_to_dict(self._field()), "type": "y"}
         restored = _field_from_dict(encoded)
-        assert restored.type_annotation == ""
         assert restored.contract is not None
         assert restored.contract.display == "int"

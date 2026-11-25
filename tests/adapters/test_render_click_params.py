@@ -105,7 +105,6 @@ def test_cached_fields_and_live_contracts_share_rendered_spellings() -> None:
     fields = [
         FieldDescriptor(
             name=contract.name,
-            type_annotation=contract.display,
             default=contract.default_json,
             description=contract.description,
             required=contract.required,
@@ -190,7 +189,6 @@ def test_group_config_field_remains_an_option_without_a_click_default() -> None:
     contract = build_field_contract("target", info, group=True)
     field = FieldDescriptor(
         name="target",
-        type_annotation="str",
         default="staging",
         description=contract.description,
         required=False,

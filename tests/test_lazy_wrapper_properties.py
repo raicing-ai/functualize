@@ -9,7 +9,7 @@ otherwise trigger module loading."
 
 Property 8: "For any valid list of FieldDescriptor instances, the reconstructed
 function signature SHALL have: one parameter per descriptor with matching name;
-type annotation mapped from descriptor.type_annotation; required fields have no default;
+type annotation mapped from descriptor.contract.display; required fields have no default;
 optional fields use descriptor.default."
 
 **Validates: Requirements 9.1, 9.2**
@@ -28,9 +28,10 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._types.descriptors import FieldDescriptor, JobDescriptor
+from functualize._types.parameter_contract import Scalar
 from functualize.app.adapters.click_params import build_click_params_from_descriptor
 from functualize.app.adapters.lazy_command import make_lazy_command
-from tests._support.declared_fields import with_contract
+from tests._support.declared_fields import declared
 
 # --- Constants ---
 
@@ -98,15 +99,13 @@ def field_descriptors(draw: st.DrawFn) -> FieldDescriptor:
 
     help_text = draw(st.text(max_size=50))
 
-    return with_contract(
-        FieldDescriptor(
-            name=name,
-            type_annotation=type_name,
-            choices=choices,
-            default=default,
-            required=required,
-            description=help_text,
-        )
+    return declared(
+        name=name,
+        annotation=type_name,
+        choices=choices,
+        default=default,
+        required=required,
+        description=help_text,
     )
 
 
@@ -216,7 +215,7 @@ class TestSignatureReconstruction:
 
     For any valid list of FieldDescriptor instances, the reconstructed function
     signature SHALL have: one parameter per descriptor with matching name; type
-    annotation mapped from descriptor.type_annotation; required fields have no default;
+    annotation mapped from descriptor.contract.display; required fields have no default;
     optional fields use descriptor.default.
     """
 
@@ -303,20 +302,20 @@ class TestSignatureReconstruction:
 
         for field in fields:
             param = params[field.name]
-            if field.type_annotation == "enum":
+            if field.contract.shape.scalar is Scalar.ENUM:
                 assert isinstance(param.type, click.Choice), (
                     f"Field '{field.name}' with type='enum' should have a "
                     f"click.Choice type, got {param.type}"
                 )
                 assert list(param.type.choices) == (field.choices or [])
             else:
-                expected_type = _EXPECTED_CLICK_TYPE[field.type_annotation]
+                expected_type = _EXPECTED_CLICK_TYPE[field.contract.display]
                 # click's ParamType defines no __eq__, so `==` is identity.
                 # `click.BOOL` is a singleton but the builder constructs a fresh
                 # BoolParamType, which is the same type and behaves identically
                 # while comparing unequal. Compare on what actually matters.
                 assert type(param.type) is type(expected_type), (
-                    f"Field '{field.name}' with type='{field.type_annotation}' should "
+                    f"Field '{field.name}' with type='{field.contract.display}' should "
                     f"have click type {expected_type!r} "
                     f"({type(expected_type).__name__}), got {param.type!r} "
                     f"({type(param.type).__name__})"

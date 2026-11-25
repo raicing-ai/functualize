@@ -432,7 +432,6 @@ class TestTheFixedPointOverValuesNotJustLines:
         )
         field = FieldDescriptor(
             name="p",
-            type_annotation=shape,
             default=None,
             description="",
             required=False,

@@ -26,7 +26,7 @@ from functualize._types.descriptors import FieldDescriptor, JobDescriptor
 from functualize.app.adapters.click_params import build_click_params_from_descriptor
 from functualize.app.adapters.lazy_command import make_lazy_command
 from functualize.types import ExitCode, RunRequest
-from tests._support.declared_fields import with_contract
+from tests._support.declared_fields import declared
 
 
 # Module-level Pydantic model for _detect_config_class tests
@@ -37,7 +37,7 @@ class _TestJobConfig(BaseModel):
 
 def _fd(
     name: str = "x",
-    type_annotation: str = "str",
+    annotation: str = "str",
     *,
     default: object = None,
     required: bool = True,
@@ -48,19 +48,17 @@ def _fd(
     stdin_flag: str | None = None,
     description: str = "",
 ) -> FieldDescriptor:
-    return with_contract(
-        FieldDescriptor(
-            name=name,
-            type_annotation=type_annotation,
-            choices=choices,
-            default=default,
-            required=required,
-            description=description,
-            positional=positional,
-            short_flag=short_flag,
-            is_stdin=is_stdin,
-            stdin_flag=stdin_flag,
-        )
+    return declared(
+        name=name,
+        annotation=annotation,
+        choices=choices,
+        default=default,
+        required=required,
+        description=description,
+        positional=positional,
+        short_flag=short_flag,
+        is_stdin=is_stdin,
+        stdin_flag=stdin_flag,
     )
 
 
@@ -131,7 +129,7 @@ class TestRenderedTypes:
         ],
     )
     def test_scalar_types(self, annotation: str, expected: object) -> None:
-        fd = _fd(type_annotation=annotation, required=False)
+        fd = _fd(annotation=annotation, required=False)
         (param,) = build_click_params_from_descriptor(
             JobDescriptor(name="j", group=None, config_fields=[fd])
         )
@@ -139,7 +137,7 @@ class TestRenderedTypes:
 
     @pytest.mark.parametrize("annotation", ["Path", "UUID", "Decimal", "datetime"])
     def test_value_types_keep_their_parser(self, annotation: str) -> None:
-        fd = _fd(type_annotation=annotation, required=False)
+        fd = _fd(annotation=annotation, required=False)
         (param,) = build_click_params_from_descriptor(
             JobDescriptor(name="j", group=None, config_fields=[fd])
         )
@@ -154,9 +152,7 @@ class TestRenderedTypes:
         assert list(param.type.choices) == ["red", "green"]
 
     def test_a_field_without_a_contract_is_refused(self) -> None:
-        bare = FieldDescriptor(
-            name="x", type_annotation="str", default=None, description="", required=True
-        )
+        bare = FieldDescriptor(name="x", default=None, description="", required=True)
         with pytest.raises(TypeError, match="No parameter contract"):
             build_click_params_from_descriptor(
                 JobDescriptor(name="j", group=None, config_fields=[bare])
@@ -495,7 +491,6 @@ class TestStdinFidelity:
     def test_legacy_field_dict_defaults_stdin_fields(self):
         legacy = {
             "name": "data",
-            "type_annotation": "str",
             "choices": None,
             "default": "__REQUIRED__",
             "required": True,

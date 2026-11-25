@@ -42,7 +42,7 @@ from functualize._types.flag_grammar import (
     negative_flag_for,
 )
 from functualize.app.adapters.click_params import build_click_params_from_fields
-from tests._support.declared_fields import with_contract
+from tests._support.declared_fields import declared
 
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
@@ -68,22 +68,20 @@ def _sample_value(flag: str) -> str:
 
 def _field(
     name: str,
-    type_annotation: str = "str",
+    annotation: str = "str",
     default: object = None,
     required: bool = False,
     short_flag: str | None = None,
     from_config_model: bool = False,
 ) -> FieldDescriptor:
-    return with_contract(
-        FieldDescriptor(
-            name=name,
-            type_annotation=type_annotation,
-            default=default,
-            description=f"{name} field",
-            required=required,
-            short_flag=short_flag,
-            from_config_model=from_config_model,
-        )
+    return declared(
+        name=name,
+        annotation=annotation,
+        default=default,
+        description=f"{name} field",
+        required=required,
+        short_flag=short_flag,
+        from_config_model=from_config_model,
     )
 
 
@@ -219,7 +217,7 @@ def test_builder_renders_the_pair_negative_flag_for_names(name: str) -> None:
     # exactly negative_flag_for's answer. If the builder ever invented its own
     # spelling, the pre-boot matcher would stop recognising what click parses.
     param = build_click_params_from_fields(
-        [_field(name, type_annotation="bool", default=True)]
+        [_field(name, annotation="bool", default=True)]
     )[0]
     assert param.opts == [f"--{name.replace('_', '-')}"]
     assert param.secondary_opts == [negative_flag_for(name, {name})]
@@ -228,7 +226,7 @@ def test_builder_renders_the_pair_negative_flag_for_names(name: str) -> None:
 def test_builder_pair_with_short_flag_and_underscore_name() -> None:
     # The short spelling rides the positive half; the negative half still is
     # negative_flag_for's answer (hyphenated), not an underscore variant.
-    field = _field("dry_run", type_annotation="bool", default=True, short_flag="-n")
+    field = _field("dry_run", annotation="bool", default=True, short_flag="-n")
     param = build_click_params_from_fields([field])[0]
     assert param.opts == ["--dry-run", "-n"]
     assert param.secondary_opts == ["--no-dry-run"]
@@ -239,8 +237,8 @@ def test_sibling_named_no_x_collapses_the_pair_to_the_positive_half() -> None:
     # literally named no_cache owns the --no-cache spelling, so cache renders
     # with no negative half while no_cache renders --no-cache/--no-no-cache.
     fields = [
-        _field("cache", type_annotation="bool", default=True),
-        _field("no_cache", type_annotation="bool", default=True),
+        _field("cache", annotation="bool", default=True),
+        _field("no_cache", annotation="bool", default=True),
     ]
     params = build_click_params_from_fields(fields)
     by_opts = {param.opts[0]: param for param in params}
@@ -253,9 +251,7 @@ def test_sibling_named_no_x_collapses_the_pair_to_the_positive_half() -> None:
 def test_config_model_bool_renders_the_same_pair() -> None:
     # Group options are config-model fields (from_config_model=True) rendered
     # by the config rule — the same negative_flag_for decision must survive.
-    field = _field(
-        "cache", type_annotation="bool", default=True, from_config_model=True
-    )
+    field = _field("cache", annotation="bool", default=True, from_config_model=True)
     param = build_click_params_from_fields([field])[0]
     assert param.opts == ["--cache"]
     assert param.secondary_opts == ["--no-cache"]
@@ -265,7 +261,7 @@ def test_value_field_renders_no_negative_half() -> None:
     # negative_flag_for does not know the field's type; the builder asks it
     # only for flags, so a str field must not grow a --no- half.
     param = build_click_params_from_fields(
-        [_field("env", type_annotation="str", default="dev")]
+        [_field("env", annotation="str", default="dev")]
     )[0]
     assert param.opts == ["--env"]
     assert param.secondary_opts == []
@@ -275,7 +271,7 @@ def test_value_field_renders_no_negative_half() -> None:
 
 
 @pytest.mark.parametrize(
-    "name,type_annotation",
+    "name,annotation",
     [
         ("dry_run", "bool"),
         ("cache", "bool"),
@@ -284,9 +280,9 @@ def test_value_field_renders_no_negative_half() -> None:
     ],
 )
 def test_every_positive_alias_matches_back_to_its_field(
-    name: str, type_annotation: str
+    name: str, annotation: str
 ) -> None:
-    field = _field(name, type_annotation=type_annotation, default=None)
+    field = _field(name, annotation=annotation, default=None)
     spec = GroupOptionsSpec(group="deploy", class_name="DeployOptions", fields=[field])
     for alias in flag_aliases(field):
         matched = match_group_flag(alias, [spec])
@@ -299,7 +295,7 @@ def test_every_positive_alias_matches_back_to_its_field(
 
 @pytest.mark.parametrize("name", ["dry_run", "cache"])
 def test_every_negative_alias_matches_back_as_a_negation(name: str) -> None:
-    field = _field(name, type_annotation="bool", default=True)
+    field = _field(name, annotation="bool", default=True)
     spec = GroupOptionsSpec(group="deploy", class_name="DeployOptions", fields=[field])
     for alias in negative_aliases(field, [field.name]):
         matched = match_group_flag(alias, [spec])
@@ -316,9 +312,9 @@ def test_rendered_pair_spellings_match_back_through_the_group_matcher() -> None:
     # A spelling the builder renders that match_group_flag does not recognise
     # is a flag the CLI accepts after the group name but cannot resolve.
     fields = [
-        _field("cache", type_annotation="bool", default=True),
-        _field("no_cache", type_annotation="bool", default=True),
-        _field("env", type_annotation="str", default="dev"),
+        _field("cache", annotation="bool", default=True),
+        _field("no_cache", annotation="bool", default=True),
+        _field("env", annotation="str", default="dev"),
     ]
     spec = GroupOptionsSpec(group="deploy", class_name="DeployOptions", fields=fields)
     rendered = [

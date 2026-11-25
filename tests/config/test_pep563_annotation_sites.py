@@ -158,11 +158,11 @@ class TestFieldDescriptorExtraction:
         live, pep563 = _both_forms(FIELD_JOB, "params")
 
         live_types = {
-            p.name: p.type_annotation
+            p.name: p.contract.display
             for p in extract_parameters_from_signature(live.bounded)
         }
         pep563_types = {
-            p.name: p.type_annotation
+            p.name: p.contract.display
             for p in extract_parameters_from_signature(pep563.bounded)
         }
 

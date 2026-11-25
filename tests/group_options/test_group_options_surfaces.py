@@ -12,43 +12,44 @@ these tests hold the two entry points against each other.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
-from functualize._types.descriptors import FieldDescriptor
 from functualize.app.adapters.click_params import (
     build_click_params_from_descriptor,
     build_click_params_from_fields,
 )
-from tests._support.declared_fields import with_contracts
+from tests._support.declared_fields import declared
+
+if TYPE_CHECKING:
+    from functualize._types.descriptors import FieldDescriptor
 
 
 def _fields() -> list[FieldDescriptor]:
     """One of each rendering branch the shared loop has to cover."""
-    return with_contracts(
-        [
-            FieldDescriptor(
-                name="env",
-                type_annotation="str",
-                default="staging",
-                required=False,
-                description="Target environment",
-                short_flag="-e",
-            ),
-            FieldDescriptor(
-                name="dry_run",
-                type_annotation="bool",
-                default=False,
-                required=False,
-                description="Preview only",
-            ),
-            FieldDescriptor(
-                name="replicas",
-                type_annotation="int",
-                default=1,
-                required=False,
-                description="",
-            ),
-        ]
-    )
+    return [
+        declared(
+            name="env",
+            annotation="str",
+            default="staging",
+            required=False,
+            description="Target environment",
+            short_flag="-e",
+        ),
+        declared(
+            name="dry_run",
+            annotation="bool",
+            default=False,
+            required=False,
+            description="Preview only",
+        ),
+        declared(
+            name="replicas",
+            annotation="int",
+            default=1,
+            required=False,
+            description="",
+        ),
+    ]
 
 
 def _shape(params: list) -> list[tuple]:
