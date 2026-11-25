@@ -2729,7 +2729,7 @@ _RAW_ROWS: tuple[dict[str, Any], ...] = (
         "cli_spelling": (),
         "wire_spelling": (),
         "required": True,
-        "delivered_type": "Annotated[str, FromJob({rid}_up)]",
+        "delivered_type": "str",  # the upstream job returns `str`; corrected in 11.2
         "hidden": False,
         "flag_argv": ("--p", "x"),
         "pos_argv": ("x",),

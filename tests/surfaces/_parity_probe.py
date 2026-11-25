@@ -41,7 +41,9 @@ def _observed(text):
 def _result(res):
     status = getattr(res, "status", None)
     rv = getattr(res, "return_value", None)
+    exc = getattr(res, "exception", None)
     return {"status": str(getattr(status, "value", status)).lower(),
+            "reason": "" if exc is None else str(exc),
             "type": _observed(rv if isinstance(rv, str) else None)}
 
 
@@ -160,6 +162,7 @@ class ParityProbe:
                     body = res.structured_content or {}
                     return {"status": str(body.get("status", "error")).lower(),
                             "is_error": bool(res.is_error),
+                            "reason": str(body.get("error") or ""),
                             "type": _observed(str(body.get("return_value")))}
                 r[f"mcp_{case}"] = _guard(mcp)
 
@@ -168,6 +171,7 @@ class ParityProbe:
                         "POST", f"/jobs/{job}/execute", json.dumps(envelope).encode()))
                     payload = payload if isinstance(payload, dict) else {}
                     return {"code": code, "status": str(payload.get("status", "")).lower(),
+                            "reason": str(payload.get("error") or payload.get("message") or ""),
                             "type": _observed(str(payload.get("return_value")))}
                 r[f"http_{case}"] = _guard(post)
 
@@ -175,6 +179,7 @@ class ParityProbe:
                     res = lam.make_handler(job)(dict(envelope), None)
                     return {"code": res.get("statusCode"),
                             "status": str(res.get("status", "")).lower(),
+                            "reason": str(res.get("error") or ""),
                             "type": _observed(str(res.get("body")))}
                 r[f"lambda_{case}"] = _guard(thin)
             results[rid] = r

@@ -58,17 +58,25 @@ _DELIVERED_AS = {"Path": {"PosixPath", "WindowsPath", "Path"}}
 # ─── reading a cell ──────────────────────────────────────────────────────────
 
 
-def _accepted(cell: Any) -> bool:
+def _accepted(cell: Any, surface: str = "") -> bool:
+    """The job ran and succeeded; on MCP the tool result says so too."""
     if not isinstance(cell, dict) or "raised" in cell:
         return False
-    if cell.get("is_error"):
+    if surface == "mcp" and cell.get("is_error") is not False:
         return False
     return cell.get("status") == "success" and cell.get("code", 200) == 200
 
 
-def _refused(cell: Any) -> bool:
-    """A refusal before the job ran: a usage error, or ``Invalid`` with a 4xx."""
+def _refused(cell: Any, surface: str = "", reason: str = "") -> bool:
+    """A refusal before the job ran: a usage error, or ``Invalid`` with a 4xx.
+
+    On MCP the client must see the refusal as one: ``isError`` is true
+    (contracts.md §6), whatever the envelope's status says. ``reason``, when
+    given, must appear in the reason the door reports for an ``Invalid`` run.
+    """
     if not isinstance(cell, dict):
+        return False
+    if surface == "mcp" and cell.get("is_error") is not True:
         return False
     if "raised" in cell:
         return cell["raised"].split(":", 1)[0] in {
@@ -80,14 +88,66 @@ def _refused(cell: Any) -> bool:
             "BadArgumentUsage",
         }
     code = cell.get("code", 400)
+    if reason and reason not in str(cell.get("reason", "")):
+        return False
     return cell.get("status") == "invalid" and 400 <= code < 500
+
+
+def _implements(implementation: type, declared: type) -> bool:
+    """``implementation`` is a ``declared``: a subclass, or a runtime protocol
+    whose public members it carries (``issubclass`` refuses protocols with
+    non-method members)."""
+    try:
+        return issubclass(implementation, declared)
+    except TypeError:
+        members = [name for name in dir(declared) if not name.startswith("_")]
+        return all(hasattr(implementation, name) for name in members)
+
+
+def _wired_capabilities() -> dict[str, set[str]]:
+    """Capability name → the class the engine delivers for it.
+
+    A capability is declared by its public type and delivered as its wired
+    implementation (``WiredShell`` for ``Shell``). The pair is accepted only
+    where the implementation really is the declared capability, checked here
+    against the classes themselves, so a different object would not pass.
+    """
+    from functualize._app.vault_reader import _LocalVaultReader
+    from functualize._engine.capabilities.invoke import WiredInvoke
+    from functualize._engine.capabilities.perf import WiredPerf
+    from functualize._engine.capabilities.shell import WiredShell
+    from functualize._engine.capabilities.stdout import WiredStdout
+    from functualize.job import Invoke, Perf, Shell, Stdout, Vault
+
+    pairs = {
+        "Invoke": (WiredInvoke, Invoke),
+        "Perf": (WiredPerf, Perf),
+        "Shell": (WiredShell, Shell),
+        "Stdout": (WiredStdout, Stdout),
+        "Vault": (_LocalVaultReader, Vault),
+    }
+    wired: dict[str, set[str]] = {}
+    for name, (implementation, capability) in pairs.items():
+        assert _implements(implementation, capability), (implementation, capability)
+        wired[name] = {name, implementation.__name__}
+    return wired
+
+
+_WIRED = _wired_capabilities()
+
+#: Rows whose omitted injected value may resolve to ``None``, with the rule:
+#: ``tty: TTY | None`` is a preference, "injected when the job can own the
+#: terminal, ``None`` otherwise" (docs/guides/interactivity.md, *Adaptive
+#: jobs*; ``_engine/capabilities/tty.py``). The probe owns no terminal.
+_MAY_RESOLVE_TO_NONE = {"E133": "TTY | None without a terminal"}
 
 
 def _delivered(expected: str | None, cell: dict[str, Any]) -> bool:
     if not expected:
         return True
     base = expected.split("[", 1)[0]
-    return cell.get("type") in _DELIVERED_AS.get(base, {base})
+    accepted = _DELIVERED_AS.get(base, set()) | _WIRED.get(base, set()) | {base}
+    return cell.get("type") in accepted
 
 
 # ─── what a verdict requires ─────────────────────────────────────────────────
@@ -184,7 +244,7 @@ def check_row(row: dict[str, Any], seen: dict[str, Any]) -> list[str]:
         given, absent = seen.get(f"{surface}_given"), seen.get(f"{surface}_absent")
         on_wire = surface in _WIRE_SURFACES
         if verdict in _CALLER or (verdict == "INVOCATION_ONLY" and on_wire):
-            if not _accepted(given):
+            if not _accepted(given, surface):
                 bad(surface, f"a supplied value was not accepted: {given}")
             elif not _delivered(row["delivered_type"], given):
                 bad(
@@ -195,23 +255,35 @@ def check_row(row: dict[str, Any], seen: dict[str, Any]) -> list[str]:
                 required
                 and not group
                 and verdict != "CONFIG_FIELD"
-                and not _refused(absent)
+                and not _refused(absent, surface, "Missing required argument")
             ):
                 bad(surface, f"a required input absent was not refused: {absent}")
-            if not required and not _accepted(absent):
+            if not required and not _accepted(absent, surface):
                 bad(surface, f"an optional input absent was not accepted: {absent}")
         elif verdict == "INVOCATION_ONLY":  # the TUI has no spelling for it (B-15)
-            if not _refused(given):
+            if not _refused(given, surface):
                 bad(surface, f"a command-line spelling was accepted: {given}")
         elif verdict == "INJECTED":
-            if not _refused(given):
+            # A caller may not supply it (B-30) ...
+            if not _refused(given, surface, "supplied by the framework"):
                 bad(
                     surface,
                     f"a value for an injected parameter was not refused: {given}",
                 )
+            # ... and without one the engine resolves it: the job runs and
+            # receives the declared type (B-29).
+            if not _accepted(absent, surface):
+                bad(surface, f"an injected parameter was not resolved: {absent}")
+            elif row["id"] in _MAY_RESOLVE_TO_NONE and absent.get("type") == "NoneType":
+                pass
+            elif not _delivered(row["delivered_type"], absent):
+                bad(
+                    surface,
+                    f"injected {absent.get('type')}, declared {row['delivered_type']}",
+                )
         else:  # REJECTED_DISCOVERY: listed, and every call refused (DC-1 = B)
             for case, cell in (("given", given), ("absent", absent)):
-                if not _refused(cell):
+                if not _refused(cell, surface, "refused at discovery"):
                     bad(
                         surface,
                         f"a call ({case}) to a refused job was not refused: {cell}",
