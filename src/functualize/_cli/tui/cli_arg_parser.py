@@ -106,7 +106,6 @@ def _descriptor(field: Any) -> Any:
         return field
     return FieldDescriptor(
         name=field.name,
-        type_annotation=getattr(field, "type_annotation", "str") or "str",
         default=getattr(field, "default", None),
         description=getattr(field, "description", "") or "",
         required=bool(getattr(field, "required", False)),

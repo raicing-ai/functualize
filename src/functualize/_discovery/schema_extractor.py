@@ -12,12 +12,12 @@ from typing import TYPE_CHECKING, Any
 
 from functualize._primitives.parameter_contract import build_field_contract
 from functualize._types.descriptors import FieldDescriptor
-from functualize._types.parameter_contract import Container, Scalar
+from functualize._types.parameter_contract import Scalar
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
-    from functualize._types.parameter_contract import ParameterContract, ValueShape
+    from functualize._types.parameter_contract import ParameterContract
 
 
 def extract_field_descriptors(
@@ -45,7 +45,6 @@ def extract_field_descriptors(
         secret = bool(prop.get("secret", False))
         contract = _field_contract(name, model_fields, secret=secret)
         shape = contract.shape if contract is not None else None
-        field_type = _legacy_type_label(shape)
         choices = (
             [str(value) for value in shape.enum_values]
             if shape is not None and shape.scalar is Scalar.ENUM
@@ -62,7 +61,6 @@ def extract_field_descriptors(
         fields.append(
             FieldDescriptor(
                 name=name,
-                type_annotation=field_type,
                 choices=choices,
                 default=default,
                 required=required,
@@ -109,23 +107,6 @@ def without_secret_default(
     if not secret or contract.required:
         return contract
     return dataclasses.replace(contract, default_json=None)
-
-
-def _legacy_type_label(shape: ValueShape | None) -> str:
-    """Project a contract into the descriptor's transitional type label.
-
-    The label survives only until the descriptor string is removed. It is not
-    used to decide whether a field is accepted or how its value is bound.
-    """
-    if shape is None:
-        return "str"
-    if shape.container in (Container.LIST, Container.TUPLE):
-        return "list[str]"
-    if shape.scalar is Scalar.ENUM:
-        return "enum"
-    if shape.scalar in (Scalar.INT, Scalar.FLOAT, Scalar.BOOL):
-        return str(shape.scalar.value)
-    return "str"
 
 
 def _extract_default(config_class: type[BaseModel], field_name: str) -> Any:

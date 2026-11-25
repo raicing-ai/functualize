@@ -8,12 +8,8 @@ makes the four renderings one description: the CLI's parameters come from the
 same contracts (T2), and both this function and the MCP schema builder read
 them (T6 / contracts.md §8).
 
-What remains of a vocabulary here is the *narrow fallback* for a field that
-carries no parameter contract — an ad-hoc command's click params, or a
-descriptor from a cache older than the contracts: the click ``ParamType.name``
-spellings ("text", "integer", "integer range", ...) and a few annotation
-spellings, mapped privately. A fresh descriptor never consults it: its fields
-carry contracts, and the old public, duplicated vocabulary is gone (6.1).
+An ad-hoc contractless field can still publish a string property. Discovered
+job and group fields carry contracts, which own their type and verdict.
 
 Enumerations are *not* a vocabulary entry, because they are not part of the
 type mapping: an enum contract's ``json_schema`` carries its ``enum`` values
@@ -39,42 +35,6 @@ if TYPE_CHECKING:
     from functualize._types.descriptors import FieldDescriptor, JobDescriptor
 
 __all__ = ["field_property", "input_schema", "job_input_schema"]
-
-#: The fallback vocabulary for a field with no parameter contract: click's
-#: ``ParamType.name`` spellings and the annotation spellings an older cached
-#: descriptor carries. Private — the contract is the vocabulary's successor.
-_CONTRACT_LESS_SCHEMAS: dict[str, dict[str, Any]] = {
-    "text": {"type": "string"},
-    "str": {"type": "string"},
-    "integer": {"type": "integer"},
-    "int": {"type": "integer"},
-    "float": {"type": "number"},
-    "number": {"type": "number"},
-    "boolean": {"type": "boolean"},
-    "bool": {"type": "boolean"},
-    "uuid": {"type": "string", "format": "uuid"},
-    "datetime": {"type": "string", "format": "date-time"},
-    "date": {"type": "string", "format": "date"},
-    "time": {"type": "string", "format": "time"},
-    "integer range": {"type": "integer"},
-    "float range": {"type": "number"},
-    "choice": {"type": "string"},
-    "path": {"type": "string"},
-    "file": {"type": "string"},
-    "directory": {"type": "string"},
-    "filename": {"type": "string"},
-    "secret str": {"type": "string", "writeOnly": True},
-    "list": {"type": "array"},
-    "tuple": {"type": "array"},
-    "list[str]": {"type": "array", "items": {"type": "string"}},
-    "tuple[str, ...]": {"type": "array", "items": {"type": "string"}},
-    "list[int]": {"type": "array", "items": {"type": "integer"}},
-    "tuple[int, ...]": {"type": "array", "items": {"type": "integer"}},
-    "list[float]": {"type": "array", "items": {"type": "number"}},
-    "tuple[float, ...]": {"type": "array", "items": {"type": "number"}},
-    "dict": {"type": "object"},
-    "dict[str, str]": {"type": "object"},
-}
 
 
 def _is_json_native(default: Any) -> bool:
@@ -105,8 +65,8 @@ def field_property(field: FieldDescriptor) -> dict[str, Any]:
     enriched with the declaration's description and the contract's JSON
     default. The contract is the cached verdict, so the default survives a
     cold boot even when the live field's own default does not (F-34). A field
-    with no contract falls back to the narrow vocabulary above, preserving the
-    per-field ``enum`` and default rules.
+    with no contract publishes a string property, preserving the per-field
+    ``enum`` and default rules.
     """
     contract = getattr(field, "contract", None)
     if contract is not None:
@@ -114,9 +74,7 @@ def field_property(field: FieldDescriptor) -> dict[str, Any]:
             return {}
         prop = dict(contract.json_schema)
     else:
-        prop = dict(
-            _CONTRACT_LESS_SCHEMAS.get(field.type_annotation, {"type": "string"})
-        )
+        prop = {"type": "string"}
     if field.description:
         prop["description"] = field.description
     if contract is not None:
@@ -181,11 +139,9 @@ def job_input_schema(
 ) -> dict[str, Any]:
     """A JSON Schema object for a job (schema boundary).
 
-    A parameter whose annotation is a known `GroupOptions` class name is the
+    A parameter whose contract names a known `GroupOptions` class is the
     *injection point* for a group's resolved options, not something a caller
-    supplies. `group_options_class_names` excludes it: in a live function the
-    condition can test the annotation directly, but the descriptor is cached,
-    so the equivalent signal is the declared class name.
+    supplies. `group_options_class_names` excludes it on both boots.
 
     `group_options` (the `{dotted path: GroupOptionsSpec}` declarations) folds
     the options the job inherits by its group path into `properties` — inside
@@ -196,8 +152,8 @@ def job_input_schema(
     known = frozenset(name for name in group_options_class_names if name)
 
     def is_group_options(field: FieldDescriptor) -> bool:
-        annotation = getattr(field, "type_annotation", None)
-        return annotation in known
+        contract = getattr(field, "contract", None)
+        return contract is not None and contract.display in known
 
     fields = descriptor.config_fields or descriptor.parameters
     kept = [f for f in fields if not is_group_options(f)]

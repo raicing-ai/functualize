@@ -99,7 +99,7 @@ def extract_signature(func: Callable[..., Any]) -> SignatureExtraction:
     For each parameter in the function signature:
     - Skips 'self' and 'cls' parameters.
     - Skips parameters annotated with RunContext or JobConfigView types.
-    - Defaults to type_annotation="str" when no annotation is present.
+    - An unannotated parameter publishes a string contract.
     - Populates `choices` with enum member names for Enum-typed parameters.
     - Detects Arg() marker for positional arguments.
     - Detects Option() marker for short flag aliases.
@@ -202,9 +202,7 @@ def extract_signature(func: Callable[..., Any]) -> SignatureExtraction:
         else:
             base_annotation = annotation
 
-        # Transitional descriptor label; the contract alone decides its type.
         contract = contracts.get(param_name)
-        type_str = contract.display if contract is not None else "str"
 
         # Determine default and required
         has_default = param.default is not inspect.Parameter.empty
@@ -216,7 +214,6 @@ def extract_signature(func: Callable[..., Any]) -> SignatureExtraction:
         parameters.append(
             FieldDescriptor(
                 name=param_name,
-                type_annotation=type_str,
                 default=default_value,
                 description=description,
                 required=not has_default,

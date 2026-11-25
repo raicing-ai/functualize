@@ -44,8 +44,6 @@ class FieldDescriptor:
 
     Attributes:
         name: Field name.
-        type_annotation: Transitional type string, ``""`` on a cached
-            descriptor; read ``contract.display`` instead.
         default: Default value, or None if required.
         description: Field description text.
         required: True if the field has no default value.
@@ -81,11 +79,6 @@ class FieldDescriptor:
     """
 
     name: str
-    # TRANSITIONAL(10.1): removed once every reader and test is off it. The
-    # contract carries the type (`contract.display`); the cache no longer
-    # stores this string, so a warm descriptor holds "". Keyword-only, so it
-    # can default without reordering the fields: construct by keyword.
-    type_annotation: str = field(default="", kw_only=True)
     default: Any | None
     description: str
     required: bool

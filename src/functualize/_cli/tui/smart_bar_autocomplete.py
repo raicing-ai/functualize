@@ -808,9 +808,7 @@ def _type_label(field: FieldDescriptor | None) -> str:
     contract = getattr(field, "contract", None)
     if contract is not None:
         return str(contract.display)
-    # TRANSITIONAL(parameter-contract/9.3): a field with no contract (a plugin
-    # or builtin command node) still has only its type string.
-    return field.type_annotation
+    return ""
 
 
 class _DropdownItemStub:

@@ -14,7 +14,12 @@ namespace" special-casing.
 
 from __future__ import annotations
 
+import dataclasses
+import inspect
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import click
 
 from functualize._types.naming import BUILTIN_SEGMENT, NodeKind
 from functualize.app.utils import build_group_trie
@@ -24,6 +29,7 @@ if TYPE_CHECKING:
 
     from functualize._types.descriptors import FieldDescriptor, JobDescriptor
     from functualize._types.naming import TrieNode
+    from functualize._types.parameter_contract import ParameterContract
     from functualize.app.core import FunctualizeApp
     from functualize.plugin import CommandNode
 
@@ -216,6 +222,69 @@ class JobCommandProvider:
         ]
 
 
+def _click_param_contract(param: click.Parameter) -> ParameterContract:
+    """Represent a Click-owned command parameter in the shared contract shape."""
+    from functualize._primitives.parameter_contract import build_contract
+    from functualize._types.parameter_contract import Verdict
+
+    param_type = param.type
+    annotation: Any = str
+    if isinstance(param_type, click.types.BoolParamType):
+        annotation = bool
+    elif isinstance(param_type, click.types.IntParamType):
+        annotation = int
+    elif isinstance(param_type, click.types.FloatParamType):
+        annotation = float
+    elif isinstance(param_type, click.types.Path):
+        annotation = Path
+    elif isinstance(param_type, click.types.Choice) and param_type.choices:
+        from typing import Literal
+
+        annotation = Literal[tuple(param_type.choices)]
+    if getattr(param, "multiple", False):
+        annotation = list[annotation]
+
+    declaration = inspect.Parameter(
+        param.name or "value",
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        default=inspect.Parameter.empty if param.required else param.default,
+        annotation=annotation,
+    )
+    contract = build_contract(declaration)
+    cli = contract.cli
+    if cli is not None:
+        if isinstance(param, click.Option):
+            opts = list(param.opts)
+            long = next((opt for opt in opts if opt.startswith("--")), None)
+            short = next(
+                (
+                    opt
+                    for opt in opts
+                    if opt.startswith("-") and not opt.startswith("--")
+                ),
+                None,
+            )
+            cli = dataclasses.replace(
+                cli,
+                long=long or short,
+                short=short if long else None,
+                negative=next(iter(param.secondary_opts), None),
+                repeatable=bool(param.multiple),
+                hidden=bool(param.hidden),
+            )
+        else:
+            cli = dataclasses.replace(cli, long=None, positional=True)
+    return dataclasses.replace(
+        contract,
+        verdict=Verdict.ACCEPTED_FLAG
+        if isinstance(param, click.Option)
+        else Verdict.ACCEPTED_POSITIONAL,
+        cli=cli,
+        display=str(getattr(param_type, "name", "") or contract.display),
+        description=str(getattr(param, "help", "") or ""),
+    )
+
+
 class ClickCommandNode:
     """A :class:`~functualize.plugin.CommandNode` over a ``click`` command.
 
@@ -293,12 +362,12 @@ class ClickCommandNode:
             fields.append(
                 FieldDescriptor(
                     name=name,
-                    type_annotation=getattr(param_type, "name", "str") or "str",
                     default=getattr(param, "default", None),
                     description=(getattr(param, "help", "") or ""),
                     required=bool(getattr(param, "required", False)),
                     choices=list(getattr(param_type, "choices", []) or []) or None,
                     positional=getattr(param, "param_type_name", "") != "option",
+                    contract=_click_param_contract(param),
                 )
             )
         return fields
@@ -517,12 +586,12 @@ class PluginCommandNode:
             fields.append(
                 FieldDescriptor(
                     name=pname,
-                    type_annotation=getattr(param_type, "name", "str") or "str",
                     default=getattr(param, "default", None),
                     description=(getattr(param, "help", "") or ""),
                     required=bool(getattr(param, "required", False)),
                     choices=list(getattr(param_type, "choices", []) or []) or None,
                     positional=getattr(param, "param_type_name", "") != "option",
+                    contract=_click_param_contract(param),
                 )
             )
         return fields

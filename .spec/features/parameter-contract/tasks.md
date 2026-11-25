@@ -2339,7 +2339,12 @@ field, and the wave is complete when the whole suite is green with it gone.
 
 ### [ ] 10.1 Delete `FieldDescriptor.type_annotation`
 
-- **[F]:** `src/functualize/_types/descriptors.py`.
+- **[F]:** `src/functualize/_types/descriptors.py` (scope amendment, per the wave-10 dispatch
+  ruling of 2026-11-25: the nine residual production sites, named at their pre-edit lines as
+  `_cli/tui/cli_arg_parser.py:109`, `_cli/tui/smart_bar_autocomplete.py:813`, `_cli/info.py:92`,
+  `app/commands.py:296` and `:520`, `_discovery/providers.py:219`,
+  `_discovery/schema_extractor.py:65`, `_primitives/job_schema.py:118` and `:199` — the box's
+  gate was always repo-wide while the list named one file).
 - **Work:** remove the field and its `TRANSITIONAL(10.1)` marker. Every constructor already passes
   `contract=` (2.1, 2.2, 4.3).
 - **Gate/evidence:**
