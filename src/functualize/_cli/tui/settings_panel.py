@@ -362,7 +362,7 @@ class SettingsPanel(Widget):
                 source=source,
                 choices=choices,
                 description=setting.description if setting is not None else "",
-                type_annotation=setting.type if setting is not None else "str",
+                type_label=setting.type if setting is not None else "str",
                 original_value=value,
                 original_source=source,
             )

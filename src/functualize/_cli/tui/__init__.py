@@ -32,7 +32,6 @@ from functualize._cli.tui.shortcut_save_modal import ShortcutSaveModal
 from functualize._cli.tui.smart_bar_autocomplete import SmartBarAutoComplete
 from functualize._cli.tui.sync import sync_overrides_to_bar
 from functualize._cli.tui.theme_manager import ThemeManager
-from functualize._cli.tui.type_hint_formatter import format_type_hint
 
 __all__ = [
     # State machines and core TUI infrastructure
@@ -66,7 +65,6 @@ __all__ = [
     "compute_config_diff",
     "discover_config_targets",
     "find_related_displays",
-    "format_type_hint",
     "is_display_related",
     "render_footer",
     "validate_setting",

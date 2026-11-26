@@ -663,9 +663,11 @@ class TestFromJobInjection:
 
         app = _app(build=build, publish=publish)
         app.execute(request_for("build"))
-        app.execute(request_for("publish", art="explicit"))
+        result = app.execute(request_for("publish", art="explicit"))
 
-        assert seen == ["explicit"]
+        assert result.status is RunStatus.INVALID
+        assert "art" in str(result.exception)
+        assert seen == []
 
 
 class TestFromJobRunFalse:

@@ -46,20 +46,22 @@ class TestGroupOptionSpecsOnPath:
     """The path walk that turns a job name into its inherited specs."""
 
     def _trie(self):
-        from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
+        from functualize._types.descriptors import GroupOptionsSpec
         from functualize.app.utils import build_group_trie
+        from tests._support.declared_fields import declared
 
         deploy = GroupOptionsSpec(
             group="deploy",
             class_name="DeployOptions",
             fields=[
-                FieldDescriptor(
+                declared(
                     name="env",
-                    type_annotation="str",
+                    annotation="str",
                     default="staging",
                     required=False,
                     description="",
                     short_flag="-e",
+                    group=True,
                 )
             ],
             source_file="_group.py",
@@ -71,12 +73,13 @@ class TestGroupOptionSpecsOnPath:
             group="deploy.web",
             class_name="WebOptions",
             fields=[
-                FieldDescriptor(
+                declared(
                     name="replicas",
-                    type_annotation="int",
+                    annotation="int",
                     default=1,
                     required=False,
                     description="",
+                    group=True,
                 )
             ],
             source_file="_group.py",

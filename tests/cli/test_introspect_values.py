@@ -16,7 +16,8 @@ from hypothesis import strategies as st
 
 from functualize._cli.data.argument_history import ArgumentHistory
 from functualize._cli.introspect import InProcessIntrospector
-from functualize._types import FieldDescriptor, JobDescriptor
+from functualize._types import JobDescriptor
+from tests._support.declared_fields import declared
 
 # =============================================================================
 # Strategies
@@ -67,9 +68,9 @@ def _make_job_with_choices(
     job_name: str, field_name: str, choices: list[str]
 ) -> JobDescriptor:
     """Create a JobDescriptor with a field that has choices."""
-    field = FieldDescriptor(
+    field = declared(
         name=field_name,
-        type_annotation="str",
+        annotation="str",
         default=None,
         description="Test field with choices",
         required=False,
@@ -88,9 +89,9 @@ def _make_job_with_choices(
 
 def _make_job_with_str_field(job_name: str, field_name: str) -> JobDescriptor:
     """Create a JobDescriptor with a plain string field (no choices)."""
-    field = FieldDescriptor(
+    field = declared(
         name=field_name,
-        type_annotation="str",
+        annotation="str",
         default=None,
         description="Test string field",
         required=False,

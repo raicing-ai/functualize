@@ -13,14 +13,22 @@ from typing import Any
 import pytest
 
 
-@dataclass(frozen=True)
-class FakeField:
-    name: str
-    type_annotation: str
-    default: Any | None = None
-    description: str = ""
-    required: bool = True
-    choices: list[str] | None = None
+def signature_fields(function: Any) -> list[Any]:
+    """The fields discovery records for ``function``, each with its contract.
+
+    A descriptor's fields carry the parameter contract every surface renders
+    from, and no type string, so the fixtures use real records rather than a
+    hand-built stand-in.
+    """
+    from functualize._discovery import extract_parameters_from_signature
+
+    return extract_parameters_from_signature(function)
+
+
+def _greet(name: str) -> None: ...
+
+
+def _deploy(env: str) -> None: ...
 
 
 @dataclass
@@ -28,8 +36,8 @@ class FakeDescriptor:
     name: str
     group: str | None = None
     docstring: str | None = None
-    config_fields: list[FakeField] = field(default_factory=list)
-    parameters: list[FakeField] = field(default_factory=list)
+    config_fields: list[Any] = field(default_factory=list)
+    parameters: list[Any] = field(default_factory=list)
     declaration: Any = field(
         default_factory=lambda: SimpleNamespace(
             tags=[],
@@ -98,9 +106,7 @@ def fake_app() -> FakeApp:
             FakeDescriptor(
                 name="greet",
                 docstring="Greet a user.",
-                config_fields=[
-                    FakeField(name="name", type_annotation="str", required=True),
-                ],
+                config_fields=signature_fields(_greet),
                 declaration=SimpleNamespace(
                     tags=["util"],
                     visibility=None,
@@ -112,9 +118,7 @@ def fake_app() -> FakeApp:
             FakeDescriptor(
                 name="deploy",
                 docstring="Deploy to env.",
-                config_fields=[
-                    FakeField(name="env", type_annotation="str", required=True),
-                ],
+                config_fields=signature_fields(_deploy),
                 declaration=SimpleNamespace(
                     tags=["ops"],
                     visibility=None,

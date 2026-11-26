@@ -1,11 +1,4 @@
-"""SwappableCompleter — strategy pattern for mode-aware autocomplete.
-
-Provides different autocomplete candidates depending on whether the TUI is in
-COMMAND mode (delegating to SmartBarAutoComplete) or edit mode (field-specific
-choices or path completions).
-
-The same AutoComplete widget stays mounted; only the data source returned by
-``get_items()`` changes when mode switches occur.
+"""Filesystem and executable candidates for shell completion.
 
 This module lives in ``_cli/completions/`` and MUST NOT import from ``_cli/tui/``.
 """
@@ -15,7 +8,6 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Protocol
 
 _MAX_CHOICES_CANDIDATES = 50
 _MAX_PATH_CANDIDATES = 20
@@ -47,137 +39,6 @@ class DropdownItem:
 
     def __hash__(self) -> int:
         return hash(self.main)
-
-
-class CommandCompleterCallback(Protocol):
-    """Protocol for command-mode candidate generation callback."""
-
-    def __call__(self, text: str) -> list[object]: ...
-
-
-class SwappableCompleter:
-    """Provides autocomplete candidates based on current mode.
-
-    In COMMAND mode, delegates to a callback (typically the existing
-    SmartBarAutoComplete ``get_candidates`` method). In edit mode, returns
-    field-specific candidates: filtered enum choices or path completions.
-    """
-
-    def __init__(
-        self,
-        command_callback: CommandCompleterCallback | None = None,
-    ) -> None:
-        self._mode: str = "command"
-        self._field_name: str = ""
-        self._choices: list[str] | None = None
-        self._is_path: bool = False
-        self._command_callback: CommandCompleterCallback | None = command_callback
-
-    @property
-    def mode(self) -> str:
-        """Current completer mode: ``'command'`` or ``'edit'``."""
-        return self._mode
-
-    def set_command_mode(self) -> None:
-        """Switch to command/flag/value completions.
-
-        Delegates candidate generation to the existing SmartBarAutoComplete
-        engine (via the command_callback). If no callback is configured,
-        ``get_items()`` returns an empty list in command mode.
-        """
-        self._mode = "command"
-        self._field_name = ""
-        self._choices = None
-        self._is_path = False
-
-    def set_edit_mode(
-        self,
-        field_name: str,
-        choices: list[str] | None = None,
-        is_path: bool = False,
-    ) -> None:
-        """Switch to field-specific completions (enum choices, paths).
-
-        Args:
-            field_name: The name of the field being edited.
-            choices: Optional list of valid enum values for the field.
-            is_path: If True, provide filesystem path completions.
-        """
-        self._mode = "edit"
-        self._field_name = field_name
-        self._choices = choices
-        self._is_path = is_path
-
-    def get_items(self, text: str) -> list[DropdownItem]:
-        """Return candidates for current text and mode.
-
-        In command mode, delegates to the command callback.
-        In edit mode with choices, filters by case-insensitive prefix (max 50).
-        In edit mode with is_path=True, scans filesystem (max 20).
-        Returns empty list when no match or no choices configured.
-        """
-        if self._mode == "command":
-            return self._command_candidates(text)
-        return self._edit_candidates(text)
-
-    # ─── Private helpers ─────────────────────────────────────────────────
-
-    def _command_candidates(self, text: str) -> list[DropdownItem]:
-        """Delegate to the command callback for COMMAND mode candidates."""
-        if self._command_callback is None:
-            return []
-        results = self._command_callback(text)
-        # Wrap raw results into DropdownItem if they aren't already
-        items: list[DropdownItem] = []
-        for item in results:
-            if isinstance(item, DropdownItem):
-                items.append(item)
-            elif hasattr(item, "main"):
-                # Compatible object (e.g. textual_autocomplete.DropdownItem)
-                main_val = item.main
-                # Handle Content/Text objects — extract plain text
-                if hasattr(main_val, "plain"):
-                    main_val = main_val.plain
-                items.append(DropdownItem(main=str(main_val)))
-            else:
-                items.append(DropdownItem(main=str(item)))
-        return items
-
-    def _edit_candidates(self, text: str) -> list[DropdownItem]:
-        """Generate candidates for edit mode (choices or paths)."""
-        if self._is_path:
-            return self._path_candidates(text)
-
-        if not self._choices:
-            return []
-
-        return self._choice_candidates(text)
-
-    def _choice_candidates(self, text: str) -> list[DropdownItem]:
-        """Filter choices by case-insensitive prefix match, max 50."""
-        if not self._choices:
-            return []
-
-        prefix = text.lower()
-        candidates: list[DropdownItem] = []
-
-        for choice in self._choices:
-            if prefix and not choice.lower().startswith(prefix):
-                continue
-            candidates.append(DropdownItem(main=choice))
-            if len(candidates) >= _MAX_CHOICES_CANDIDATES:
-                break
-
-        return candidates
-
-    def _path_candidates(self, text: str) -> list[DropdownItem]:
-        """Scan filesystem for path completion candidates, max 20.
-
-        Thin wrapper over the module-level :func:`path_candidates`, which the
-        ``!`` shell mode needs too. Kept as a method so this class's existing
-        callers and tests are untouched.
-        """
-        return path_candidates(text)
 
 
 def path_candidates(text: str) -> list[DropdownItem]:

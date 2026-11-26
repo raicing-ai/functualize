@@ -62,7 +62,7 @@ class Family(StrEnum):
 # The one place the families disagree, written down instead of commented.
 #
 # Every family treats SUCCESS and SKIPPED as not-a-failure and FAILURE,
-# TIMEOUT, CANCELLED and UNKNOWN as failures. BLOCKED and REFUSED are where
+# TIMEOUT, CANCELLED, UNKNOWN and INVALID as failures. BLOCKED and REFUSED are where
 # they part, and the reason is in the module docstring.
 _NOT_A_FAILURE: dict[Family, frozenset[RunStatus]] = {
     Family.PROCESS: frozenset({RunStatus.SUCCESS, RunStatus.SKIPPED}),

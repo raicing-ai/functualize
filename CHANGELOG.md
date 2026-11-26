@@ -15,6 +15,165 @@ The shipped skills identify as 0.5.0. The live, unmeasured v2 corpus lock now
 records those skill bytes and the release's hermetic comparator identity. The
 measured v1 lock remains byte-identical to its historical record.
 
+### Removed — `FieldDescriptor.type_annotation` and its `type` alias
+
+**Public API removal.** `functualize.types.FieldDescriptor` no longer has a
+`type_annotation` field or the `type` property that aliased it. Read
+`FieldDescriptor.contract` instead: the `ParameterContract` discovery decided
+for the parameter, whose `display` is the type as declared, `shape` the value
+shape, `verdict` what kind of input it is, and `json_schema` the published
+schema. Construct a `FieldDescriptor` without `type_annotation=`. The discovery
+cache stores each field's type only in its contract and is rebuilt once.
+Pre-release: no deprecation path.
+
+### Changed — every parameter is one kind of input on every surface
+
+Discovery decides once whether a job parameter is a caller input, a
+wire-only input, a config field, something the framework supplies, or refused,
+and the command line, completion, the TUI, `info schema`, MCP, HTTP and Lambda
+all read that one decision, on cold and warm boots and under
+`from __future__ import annotations` alike. See *Which parameters are inputs*
+in `docs/guides/jobs-discovery.md`. Visible consequences:
+
+- an absent optional list arrives as its declared default, `None` for
+  `= None`, where it used to arrive as `()`;
+- a list marked `Option()` or `Arg()` arrives as a `list`, where it used to
+  arrive as a `tuple`; a `tuple[T, ...]` arrives as a `tuple`;
+- a value sent over MCP, HTTP or Lambda is converted to the declared type
+  (`"7"` for an `int` arrives as `7`, a UUID string as a `UUID`), and one that
+  does not convert is refused with the argument's name, where it used to
+  reach the job as sent;
+- a `dict[str, T]`, a `set[T]` or a fixed `tuple[A, B]` parameter is a
+  wire-only input: MCP, HTTP and Lambda accept it, and on a command line a
+  required one is a usage error naming those surfaces;
+- a parameter of a shape nothing can supply — a union, `object`, an unmarked
+  class with no provider, `Secret[str]` as a plain parameter, a
+  positional-only parameter, conflicting CLI markers — refuses its job at
+  discovery instead of misbehaving at call time; the job stays listed and
+  every call is refused with the reason.
+
+### Changed — MCP tools register from the published schema and report failures
+
+Each job's MCP tool now carries the job's published input schema directly; no
+function is generated and compiled for it, so no job or parameter name can
+stop `func mcp serve` from starting. A call that is refused (missing, unknown,
+injected or non-converting argument) or a run that fails returns
+`isError: true` with the reason, where it used to return `isError: false`
+with no reason. `func mcp schema --format typescript` renders a choice by its
+JSON type, so an integer choice set reads `1 | 2`, not `"1" | "2"`.
+
+### Changed — the AI tool scope offers the same inputs as every other surface
+
+`functualize-ai`'s `ToolScope` publishes each job tool's parameters from the
+job's published input schema, and a plain function's from the same signature
+classification a job uses, instead of its own type map. A job without inputs
+publishes an empty object schema rather than `{}`, and a plain function's
+injected parameter is no longer offered to the model.
+
+### Fixed — type labels and gate schemas no longer depend on a cached string
+
+`func builtin info`'s per-parameter `type` is the declared type, so an optional
+or secret config field reads `str | None` or `Secret[str]` rather than `str`.
+A workflow gate tool's argument schema publishes each argument's real JSON
+type after a warm boot, where every argument read as a string. An optional
+boolean group option accepts its `--no-` spelling mid-path, as the command
+line renders it.
+
+### Fixed — a refused call is one usage line, never a traceback
+
+A call the job's declaration does not admit (a missing, unknown, injected or
+non-converting argument) now ends with one `Error:` line and exit code 2 on
+the command line, on cold and warm boots alike. Calling a job whose parameter
+was refused at discovery prints that refusal, naming the job, the parameter
+and the remedy, whatever arguments were given.
+
+### Fixed — the published input schema is the parameter's contract
+
+`func builtin info schema` and the MCP tool schema now publish each job
+parameter exactly as discovery classified it. Lists are arrays, integers and
+dates carry their real types, and an `Enum` default appears on a cold boot as
+on a warm one. A parameter the framework injects, or one refused at discovery,
+is no longer published as a required string. A job's inherited group options
+appear in `info` as they do over MCP.
+
+### Changed — every call binds at one door before the job runs
+
+Every surface's values now pass one binding step in the engine, before
+dependency injection and before `PRE_EXECUTE` hooks:
+
+- a job declaring `**kwargs` no longer receives unknown keys: they are refused (B-26);
+- middleware: a registered `str` provider no longer turns a middleware `str` parameter into
+  DI (F-21);
+- a `FromStep` parameter is not a caller input: it is published on no surface, and a caller
+  key naming it is refused (B-1);
+- a refused call (unknown, missing, non-converting, or injected key) ends `Invalid`, not
+  `Failure` with a `TypeError`, including at a workflow launch (B-26);
+- a job whose config model nests a model or a `dict` is refused at discovery and ends
+  `Invalid` on every call (B-8, F-29);
+- an explicit value for an injected parameter is refused (B-30).
+- an unannotated parameter binds as text on every surface, including in-process calls;
+  a non-text value is refused unless the job declares its intended type (B-24).
+
+### Fixed — secret config defaults stay out of command help
+
+The live job command now uses the same sanitized config contracts as cached
+commands. A default marked secret by its type or by JSON schema metadata no
+longer appears in `--help`; non-secret defaults remain visible.
+
+### Fixed — repeated group flags and SmartBar readiness follow declared arity
+
+Group options declared as repeatable now keep every supplied value before a
+job path is reached. The SmartBar reads the rendered command's flag spellings
+and the parameter contract's arity, so a boolean flag no longer consumes the
+following positional argument while checking whether a command is ready.
+
+### Fixed — TUI commands parse the same arguments as the CLI
+
+The inline TUI now parses a job's arguments with its rendered Click parameters.
+Repeated list flags retain every value, invalid arguments receive the CLI's
+usage error, and the SmartBar writes repeated and typed values back to the same
+command text. Injected parameters are filtered by their contract verdict.
+
+### Fixed — completion and the SmartBar offer exactly the flags `--help` shows
+
+Shell completion and the TUI SmartBar now read a job's flags from the same
+rendered command that parses them. A hidden option is no longer offered, a
+short flag and a `--no-` spelling appear as they parse, and a repeatable flag
+stays on offer after its first use. The SmartBar's positional hints follow the
+command's own argument order.
+
+### Fixed — integer choices are published and accepted as integers
+
+A job parameter declared as `Literal[1, 2]`, or as an `Enum` whose values are
+integers, now publishes `{"type": "integer", "enum": [1, 2]}` in its input
+schema. Before, it advertised the strings `["1", "2"]`, which are not the
+declared values. On a
+command line the choices are still spelled `1` and `2`, and the job receives
+the value or member it declared. A choice set mixing types, or holding a
+`bool`, a `float` or `None`, is refused at discovery with the remedy: use an
+`Enum` whose values are all `str` or all `int`. The discovery cache is rebuilt
+once, because its format version moves to 28.
+
+### Fixed — a refused injected parameter is reported once, on every boot
+
+A parameter the framework fills — a capability such as `Log`, a `FromJob`
+input, or a `GroupOptions` injection point — now keeps its declared contract
+on the job's cached record. A declaration the framework refuses there, such as
+`Annotated[Log, Option()]`, is reported once at boot as
+`UnsupportedParameter`, on cold and warm boots alike. Before, the contract was
+dropped together with the parameter, so boot had nothing to report it from.
+No command line, completion or published schema changes. The discovery cache
+is rebuilt once, because its format version moves to 27.
+
+### Changed — one Click renderer for declared job inputs
+
+Job commands, plugin callbacks and cached group options now render their CLI
+parameters from the contracts recorded at discovery. Required options stay
+required, list and variable-length tuple options accept repeated flags, and
+durations accept ISO 8601 spellings with a usage error for other text. A live
+Enum job still receives its member; conversion moves to the binding door in a
+later change.
+
 ### Fixed — optional job parameters receive CLI flags
 
 Parameters declared as `X | None` or `Optional[X]` now accept the same CLI

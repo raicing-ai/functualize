@@ -37,6 +37,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
+import pytest
 from functualize_substrate_sqlite.substrate import SQLiteSubstrate
 
 from functualize._primitives.substrate import JsonFileSubstrate
@@ -361,9 +362,9 @@ def test_the_two_shipping_backends_answer_every_field_from_the_real_thing(
 
 
 def _batch_only_store_factory() -> Callable[[Path], RuntimeStore]:
-    """`make_store` over one batch-only driver per directory, migrated once."""
+    """`make_store` over one batch-only driver per directory, at revision 5."""
     from functualize_substrate_sqlite import SqliteRuntimeStore
-    from functualize_substrate_sqlite._migrations import migrate
+    from functualize_substrate_sqlite._migrations import SHIPPED_MIGRATIONS, migrate
 
     drivers: dict[Path, BatchOnlySqliteDriver] = {}
 
@@ -371,7 +372,9 @@ def _batch_only_store_factory() -> Callable[[Path], RuntimeStore]:
         driver = drivers.get(root)
         if driver is None:
             driver = drivers[root] = BatchOnlySqliteDriver()
-            migrate(driver)
+            # Revision 6 needs a separate FK-off capability. This probe owns
+            # only batch/query/close and deliberately keeps that minimum port.
+            migrate(driver, SHIPPED_MIGRATIONS[:5])
         return SqliteRuntimeStore(driver)
 
     return make_store
@@ -379,6 +382,17 @@ def _batch_only_store_factory() -> Callable[[Path], RuntimeStore]:
 
 def test_baseline_is_green_over_a_batch_only_driver(tmp_path: Path) -> None:
     """AC-5: the SQLite store runs BASELINE with no interactive transaction."""
+    from functualize_substrate_sqlite._migrations import (
+        SHIPPED_MIGRATIONS,
+        MigrationRefused,
+        migrate,
+    )
+
     from functualize.testing.conformance import run_baseline
 
+    driver = BatchOnlySqliteDriver()
+    assert migrate(driver, SHIPPED_MIGRATIONS[:5]) == 5
+    with pytest.raises(MigrationRefused, match="requires foreign keys off"):
+        migrate(driver)
+    assert driver.query("SELECT max(version) FROM schema_migrations") == [(5,)]
     run_baseline(_batch_only_store_factory(), tmp_path)

@@ -66,6 +66,7 @@ _STATUS_HTTP_CODES: dict[RunStatus, int] = {
     # distinct from 500 preserves the same distinction exit code 3 preserves —
     # "I refused" is not "I ran and threw".
     RunStatus.REFUSED: 412,
+    RunStatus.INVALID: 400,
     RunStatus.FAILURE: 500,
     # 504 Gateway Timeout: the run exceeded its budget. Distinguished from a
     # plain 500 because it is the one failure a caller can sensibly retry.

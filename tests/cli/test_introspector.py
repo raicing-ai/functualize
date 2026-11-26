@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from functualize._cli.introspect import InProcessIntrospector
 from functualize._types import FieldDescriptor, JobDescriptor
+from tests._support.declared_fields import declared
 
 
 def _make_job(
@@ -107,17 +108,17 @@ class TestInProcessIntrospector:
                 "deploy",
                 docstring="Deploy the application to production.",
                 parameters=[
-                    FieldDescriptor(
+                    declared(
                         name="target",
-                        type_annotation="str",
+                        annotation="str",
                         default=None,
                         description="Deploy target",
                         required=True,
                         choices=None,
                     ),
-                    FieldDescriptor(
+                    declared(
                         name="dry_run",
-                        type_annotation="bool",
+                        annotation="bool",
                         default=False,
                         description="Simulate without changes",
                         required=False,
@@ -198,9 +199,9 @@ class TestInProcessIntrospector:
             _make_job(
                 "deploy",
                 parameters=[
-                    FieldDescriptor(
+                    declared(
                         name="target",
-                        type_annotation="str",
+                        annotation="str",
                         default=None,
                         description="",
                         required=True,

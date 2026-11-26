@@ -143,6 +143,58 @@ class DataProcessor:  # (4)!
    ([Job classes](job-classes.md)). A bare class with no `@job` contributes
    nothing, exactly as before.
 
+## Which parameters are inputs
+
+Discovery decides, once per parameter, what kind of input it is, and every
+surface reads that one decision: `func <job> --help`, shell completion, the
+inline TUI and its SmartBar, `func builtin info schema`, the MCP tool, the HTTP
+route and the Lambda handler. A cached boot decides exactly as a fresh one, and
+so does a module written with `from __future__ import annotations`.
+
+- **A caller input** is supplied on the command line and on the wire. A
+  required one with a plain scalar type is a positional argument; one with a
+  default is a `--flag`; a `bool` is a `--flag/--no-flag` pair, `False` when
+  it is declared without a default. A list or a `tuple[T, ...]` is a repeatable flag, and the job
+  receives the container it declared.
+- **A wire-only input** (a `dict`, a `set`, a fixed `tuple[A, B]`) has no
+  command-line spelling. MCP, HTTP and Lambda accept it; on a command line a
+  required one is a usage error naming those surfaces.
+- **A config field** is a field of the job's config model, resolved from the
+  command line, the environment and config files (see
+  [JobConfig with Pydantic](job-config.md)).
+- **A parameter supplied by the framework** (a capability such as `Log`, a
+  `FromJob` input, a class a plugin provides) is published on no surface. A
+  call that names it is refused.
+- **A refused parameter** keeps its job listed, so `--help` still describes it,
+  but discovery reports the reason on every boot and every call to the job is
+  refused with that reason and exit code 2.
+
+An unannotated parameter is text: it binds as `p: str` does on every surface.
+
+<!-- parameter-inputs:begin (rendered from tests/_support/parameter_matrix.py) -->
+| Declaration | Kind | `func <job>` | MCP, HTTP, Lambda, `info schema` | The job receives |
+| --- | --- | --- | --- | --- |
+| `p: str` | caller input | positional `P`, required | `p`, required | `str` |
+| `p: str = "d"` | caller input | `--p` | `p` | `str` |
+| `p: Optional[str] = None` | caller input | `--p` | `p` | `str` |
+| `p: bool` | caller input | `--p` | `p` | `bool` |
+| `p: list[str]` | caller input | `--p`, repeatable, required | `p`, required | `list[str]` |
+| `p: Optional[list[str]] = None` | caller input | `--p`, repeatable | `p` | `list[str]` |
+| `p: tuple[str, ...]` | caller input | `--p`, repeatable, required | `p`, required | `tuple[str, ...]` |
+| `p: Annotated[list[str], Arg()]` | caller input | positional `P`, variadic, required | `p`, required | `list[str]` |
+| `p: tuple[str, int]` | caller input, wire only | — | `p`, required | `tuple` |
+| `p: dict[str, str]` | caller input, wire only | — | `p`, required | `dict` |
+| `f: int`, a field of a config model `p: Cfg` | config field | `--f`, required | `f`, required | `int` |
+| <code>p: Log &#124; None = None</code> | supplied by the framework | — | — | `Log` |
+| `p: ProvWidget`, a class a plugin provides | supplied by the framework | — | — | `ProvWidget` |
+| `p: Annotated[ProvWidget, Provide("nope")]`, no provider under that qualifier | refused at discovery | — | — | — (every call is refused) |
+| `p: Widget`, a class nothing provides | refused at discovery | — | — | — (every call is refused) |
+| <code>p: str &#124; int</code> | refused at discovery | — | — | — (every call is refused) |
+| `p: Secret[str]` | refused at discovery | — | — | — (every call is refused) |
+| `p: str, /` | refused at discovery | — | — | — (every call is refused) |
+| `p: Annotated[str, Arg(), Option()]` | refused at discovery | — | — | — (every call is refused) |
+<!-- parameter-inputs:end -->
+
 ## When the built-in filters cannot describe your jobs
 
 The `require_*` settings describe a module by its filename, its imports, a

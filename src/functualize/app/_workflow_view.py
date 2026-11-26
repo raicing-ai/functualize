@@ -76,16 +76,6 @@ WORKFLOW_STATES: tuple[str, ...] = (
     "cancelled",
 )
 
-#: Discovery records parameter types as strings; JSON Schema wants its own.
-_JSON_TYPES = {
-    "int": "integer",
-    "float": "number",
-    "bool": "boolean",
-    "list": "array",
-    "dict": "object",
-    "str": "string",
-}
-
 
 def _lease_has_lapsed(scope: dict[str, Any]) -> bool:
     """Has this scope's runner stopped renewing?
@@ -680,10 +670,12 @@ def _job_input_schema(descriptor: Any) -> dict[str, Any] | None:
         name = getattr(param, "name", None)
         if not isinstance(name, str) or name in properties:
             continue
+        # The contract's own JSON type (D4); a cached descriptor holds no
+        # type string (9.1), and an injected parameter's contract publishes none.
+        contract = getattr(param, "contract", None)
+        json_type = (contract.json_schema or {}).get("type") if contract else None
         entry: dict[str, Any] = {
-            "type": _JSON_TYPES.get(
-                str(getattr(param, "type_annotation", "")), "string"
-            )
+            "type": json_type if isinstance(json_type, str) else "string"
         }
         description = getattr(param, "description", "") or ""
         if description:

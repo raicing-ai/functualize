@@ -283,18 +283,18 @@ class SchemaExporter:
 
     def _json_schema_to_ts_type(self, schema: dict[str, Any]) -> str:
         """Map a JSON Schema property definition to a TypeScript type."""
-        # Handle enum types
+        # A choice set is a union of literals, each rendered by its JSON type:
+        # `1 | 2` for an int set, `"red" | "blue"` for a str set (spec B-3).
         if "enum" in schema:
-            enum_values = schema["enum"]
-            return " | ".join(f'"{v}"' for v in enum_values)
+            return " | ".join(json.dumps(value) for value in schema["enum"])
 
         json_type = schema.get("type", "string")
 
         # Handle array with items
         if json_type == "array":
-            items = schema.get("items", {})
-            item_type = _TS_TYPE_MAP.get(items.get("type", ""), "unknown")
-            return f"{item_type}[]"
+            items = schema.get("items")
+            item_type = self._json_schema_to_ts_type(items) if items else "unknown"
+            return f"({item_type})[]" if " | " in item_type else f"{item_type}[]"
 
         return _TS_TYPE_MAP.get(json_type, "unknown")
 

@@ -13,8 +13,9 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import IdentityTransform
-from functualize._types.descriptors import FieldDescriptor, JobDescriptor
+from functualize._types.descriptors import JobDescriptor
 from functualize._types.job_declaration import JobDeclaration
+from tests._support.declared_fields import declared
 
 # --- Strategies ---
 
@@ -28,11 +29,9 @@ groups = st.one_of(st.none(), st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=T
 
 # Generate FieldDescriptor instances
 field_descriptors = st.builds(
-    FieldDescriptor,
+    declared,
     name=st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True),
-    type_annotation=st.sampled_from(
-        ["str", "int", "bool", "float", "enum", "list[str]"]
-    ),
+    annotation=st.sampled_from(["str", "int", "bool", "float", "enum", "list[str]"]),
     choices=st.one_of(
         st.none(), st.lists(st.text(min_size=1, max_size=10), min_size=1, max_size=5)
     ),

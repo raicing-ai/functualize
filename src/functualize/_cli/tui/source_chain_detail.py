@@ -432,7 +432,7 @@ class SourceChainDetailView(Widget):
                     source=row.label,
                     choices=row.choices,
                     description=row.description,
-                    type_annotation=row.type_hint,
+                    type_label=row.type_hint,
                     original_value=row.value,
                     original_source=row.label,
                 )

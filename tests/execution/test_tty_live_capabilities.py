@@ -174,25 +174,25 @@ class TestPlanClassifiesCapabilities:
     "skip" and never injected (TypeError: missing argument at runtime).
     """
 
-    def test_live_and_tty_params_are_di_not_skip(self) -> None:
+    def test_live_and_tty_params_are_capabilities_not_skip(self) -> None:
         engine = _make_engine()
 
         def job(live: Live, tty: TTY) -> None: ...
 
         plan = engine._get_resolution_plan(job)
         by_name = {b.name: b.source for b in plan.params}
-        assert by_name["live"] == "di"
-        assert by_name["tty"] == "di"
+        assert by_name["live"] == "capability"
+        assert by_name["tty"] == "capability"
 
-    def test_optional_tty_is_di(self) -> None:
+    def test_optional_tty_is_a_capability(self) -> None:
         engine = _make_engine()
 
         def job(live: Live, tty: TTY | None = None) -> None: ...
 
         plan = engine._get_resolution_plan(job)
         by_name = {b.name: b.source for b in plan.params}
-        assert by_name["tty"] == "di"
-        assert by_name["live"] == "di"
+        assert by_name["tty"] == "capability"
+        assert by_name["live"] == "capability"
 
 
 class TestLiveBindsToTheHostsZone:

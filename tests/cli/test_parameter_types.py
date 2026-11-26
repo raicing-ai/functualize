@@ -38,6 +38,8 @@ import json
 
 import pytest
 
+from tests.conftest import surfaces
+
 VALUE_TYPE_JOBS = '''
 """Jobs taking standard-library value types."""
 
@@ -101,7 +103,7 @@ def fine() -> None:
 '''
 
 MARKED_UNLISTED_TYPE = '''
-"""An author overruling the type list with an explicit marker."""
+"""An author marking a type the list does not mention."""
 
 from typing import Annotated
 
@@ -117,6 +119,49 @@ def marked(w: Annotated[Widget, Option(help="a widget")]) -> None:
     """Takes a type no list mentions, because the author said so."""
     print(f"{type(w).__name__}:{w.raw}")
 '''
+
+#: B-8's remedy for a CLI marker on a type nothing converts.
+UNCONVERTIBLE_REMEDY = (
+    "Declare a scalar type, or drop the marker and register a provider"
+)
+
+SECRET_HELP_JOBS = '''
+from pydantic import BaseModel, Field
+from functualize.types import Secret
+
+class TypedSecretConfig(BaseModel):
+    credential: Secret[str] = Secret("typed-key")
+    public: str = "public-key"
+
+class MarkedSecretConfig(BaseModel):
+    credential: str = Field(default="marked-key", json_schema_extra={"secret": True})
+    public: str = "public-key"
+
+def typed(config: TypedSecretConfig) -> None:
+    """A job with a secret type."""
+
+def marked(config: MarkedSecretConfig) -> None:
+    """A job with a schema-marked secret."""
+'''
+
+
+@surfaces("func")
+@pytest.mark.parametrize(
+    ("job_name", "secret_value"),
+    [("typed", "typed-key"), ("marked", "marked-key")],
+)
+def test_secret_config_help_never_shows_default_on_cold_or_warm_boot(
+    cli_run, project_tree, job_name: str, secret_value: str
+) -> None:
+    root = project_tree(jobs={"secrets.py": SECRET_HELP_JOBS})
+
+    cold = cli_run([job_name, "--help"], cwd=root)
+    warm = cli_run([job_name, "--help"], cwd=root)
+
+    assert cold.exit_code == warm.exit_code == 0, (cold.stderr, warm.stderr)
+    assert cold.stdout == warm.stdout
+    assert secret_value not in cold.stdout
+    assert "public-key" in cold.stdout
 
 
 @pytest.mark.parametrize(
@@ -203,28 +248,44 @@ class TestAMalformedValueIsAUsageError:
         assert "Traceback" not in combined
 
 
-class TestAnExplicitMarkerOutranksTheTypeList:
-    """A3. The list is a convenience, not a ceiling: an author who says
-    `Option(...)` has stated the intent, and the framework used to overrule
-    them and then report the value they passed as an unexpected argument."""
+class TestAnExplicitMarkerNoLongerOutranksTheTypeList:
+    """The superseded half of A3. A marker still decides a converted type's
+    shape and requiredness (``test_option_marker_unit.py``,
+    ``test_arg_marker_unit.py``, and ``tests/adapters/test_render_click_params.py``'s
+    ``test_required_marked_option_has_no_null_default``), but it no longer
+    rescues a type nothing converts: ``Annotated[Widget, Option()]``
+    is on ``spec.md`` B-8's ``REJECTED_DISCOVERY`` list, and every call to a
+    refused job refuses with the ``UnsupportedParameter`` message at CLI exit 2
+    (``contracts.md`` §8). ADR-018's old remedy, "annotate the parameter with
+    ``Arg()``/``Option()``", is therefore itself refused (D105) and cannot be
+    the error message.
 
-    def test_an_unlisted_type_becomes_an_option(self, cli_run, project_tree) -> None:
+    This class used to assert that the list is a convenience, not a ceiling.
+    That rule is deliberately retired by the parameter-contract feature, so the
+    class now records the supersession rather than re-deriving A3.
+    """
+
+    def test_help_offers_no_option_for_it(self, cli_run, project_tree) -> None:
         root = project_tree(jobs={"jobs.py": MARKED_UNLISTED_TYPE})
 
         result = cli_run(["marked", "--help"], cwd=root)
 
         assert result.exit_code == 0
-        assert "--w" in result.stdout
+        assert "--w" not in result.stdout
+        assert "job 'marked'" in result.stderr
+        assert "parameter 'w: Widget' is refused" in result.stderr
+        assert UNCONVERTIBLE_REMEDY in result.stderr
 
-    def test_the_value_reaches_the_job_as_that_type(
+    def test_a_call_is_a_usage_error_and_the_body_never_runs(
         self, cli_run, project_tree
     ) -> None:
         root = project_tree(jobs={"jobs.py": MARKED_UNLISTED_TYPE})
 
         result = cli_run(["marked", "--w", "hello"], cwd=root)
 
-        assert result.exit_code == 0, result.stderr
-        assert "Widget:hello" in result.stdout
+        assert result.exit_code == 2
+        assert "Widget:hello" not in result.stdout + result.stderr
+        assert UNCONVERTIBLE_REMEDY in result.stderr
 
 
 class TestAGenuineDependencyStillFails:
@@ -257,13 +318,14 @@ class TestAGenuineDependencyStillFails:
         result = cli_run(["builtin", "info", "--json"], cwd=root)
 
         report = json.loads(result.stdout)
-        unsatisfiable = [
-            f
-            for f in report["discovery_failures"]
-            if f["error_type"] == "UnsatisfiableParameter"
-        ]
-        assert len(unsatisfiable) == 1
-        assert "deploy" in unsatisfiable[0]["message"]
+        assert len(report["discovery_failures"]) == 1
+        failure = report["discovery_failures"][0]
+        assert failure["error_type"] == "UnsupportedParameter"
+        message = failure["message"]
+        assert ".functualize/jobs/jobs.py" in message
+        assert "job 'deploy'" in message
+        assert "parameter 'db:" in message
+        assert "Register one from a plugin" in message
 
     def test_invoking_it_names_the_job_and_the_parameter(
         self, cli_run, project_tree

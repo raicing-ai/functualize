@@ -11,6 +11,8 @@ Task: 8.2
 
 from __future__ import annotations
 
+import keyword
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,8 +20,9 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from functualize._cli.tui.cli_arg_parser import parse_cli_args_to_kwargs
+from functualize._cli.tui.cli_arg_parser import parse_job_args
 from functualize._cli.tui.preflight_summary import build_preflight_lines
+from tests._support.declared_fields import with_contract
 
 # ---------------------------------------------------------------------------
 # Fakes / helpers
@@ -30,7 +33,9 @@ from functualize._cli.tui.preflight_summary import build_preflight_lines
 class FakeFieldDescriptor:
     """Minimal field descriptor matching the interface used by build_preflight_lines.
 
-    ``required=True`` is fixed so the real function's three-state indicator
+    These are unmarked required signature fields: discovery leaves the
+    descriptor's ``positional`` flag false while its contract renders a
+    positional Click argument. ``required=True`` is fixed so the three-state indicator
     (filled/required-empty/optional-empty) collapses to the two states
     (filled/empty) this property test exercises — matching this test's
     original intent (Property 2 is about required-field content
@@ -40,6 +45,7 @@ class FakeFieldDescriptor:
     name: str
     default: Any | None
     required: bool = True
+    contract: Any | None = None
 
 
 class FakeRichLog:
@@ -72,7 +78,7 @@ def render_preflight_summary(
     if not tokens:
         return
     # tokens[0] is the job name; remaining are CLI args
-    provided = parse_cli_args_to_kwargs(tokens[1:] if len(tokens) > 1 else [])
+    provided = parse_job_args(tokens[1:], fields, raw=True)
     for line in build_preflight_lines(fields, provided, avail_width=200):
         log.write(line)
 
@@ -88,7 +94,12 @@ _FIELD_NAME_CHARS = st.characters(
 )
 
 _field_names = st.text(alphabet=_FIELD_NAME_CHARS, min_size=2, max_size=15).filter(
-    lambda s: s[0].isalpha()
+    lambda s: (
+        s[0].isalpha()
+        and s.isidentifier()
+        and not keyword.iskeyword(s)
+        and unicodedata.normalize("NFKC", s) == s
+    )
 )
 
 # Values: non-empty strings without whitespace or leading dashes (valid CLI values)
@@ -104,7 +115,14 @@ _defaults = st.one_of(st.none(), _field_values)
 
 @st.composite
 def field_sets(draw: st.DrawFn) -> tuple[list[FakeFieldDescriptor], dict[str, str]]:
-    """Generate 1-5 fields with random names/defaults and a subset with CLI values.
+    """Generate 1-5 fields with random names/defaults and a prefix with CLI values.
+
+    The bar parses with the CLI's grammar (spec B-18). Each fake describes an
+    unmarked required signature parameter and carries the contract that
+    discovery would attach; the contract renders it as a positional. A
+    positional value can only be supplied after every earlier one, so the
+    fields given a CLI value are a prefix of the field order. Names must be
+    valid declarations because ``with_contract`` classifies Python source.
 
     Returns:
         Tuple of (field_descriptors, cli_provided_values).
@@ -121,12 +139,11 @@ def field_sets(draw: st.DrawFn) -> tuple[list[FakeFieldDescriptor], dict[str, st
     fields: list[FakeFieldDescriptor] = []
     cli_values: dict[str, str] = {}
 
-    for name in names:
+    supplied = draw(st.integers(min_value=0, max_value=num_fields))
+    for index, name in enumerate(names):
         default = draw(_defaults)
-        fields.append(FakeFieldDescriptor(name=name, default=default))
-        # Randomly decide if this field has a CLI-provided value
-        has_cli_value = draw(st.booleans())
-        if has_cli_value:
+        fields.append(with_contract(FakeFieldDescriptor(name=name, default=default)))
+        if index < supplied:
             cli_values[name] = draw(_field_values)
 
     return fields, cli_values
@@ -160,12 +177,8 @@ class TestPreflightSummaryContentCompleteness:
         """
         fields, cli_values = data
 
-        # Build the SmartBar value: "jobname --field1 val1 --field2 val2 ..."
-        parts = ["testjob"]
-        for name, value in cli_values.items():
-            parts.append(f"--{name}")
-            parts.append(value)
-        smart_bar_value = " ".join(parts)
+        # Build the SmartBar value as ``func <job>`` spells it: "jobname val1 val2 ..."
+        smart_bar_value = " ".join(["testjob", *cli_values.values()])
 
         log = FakeRichLog()
         render_preflight_summary(smart_bar_value, fields, log)

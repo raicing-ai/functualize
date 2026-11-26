@@ -60,9 +60,8 @@ def read_cached_group_options(app: PluginHost | None = None) -> dict[str, Any]:
         return {}
 
 
-# Mapping from functualize type_annotation strings to JSON Schema types.
-# The annotation → JSON Schema mapping, the per-field rendering and the
-# object assembly all live in core (`functualize.app.utils`), because
+# The JSON Schema for a job — properties, required list, and the group options
+# it inherits — is built in core (`job_input_schema`), because
 # `func builtin info schema` publishes the same contract. Two copies is how
 # the surfaces drift: this plugin once published `Stdout` and `Shell` as
 # required arguments while the CLI filtered them correctly.
@@ -124,7 +123,10 @@ class JobToolTranslator:
         name = descriptor.name
         description = self._extract_description(descriptor)
         input_schema = self._build_input_schema(descriptor)
-        group_names = self._merge_group_options(descriptor, input_schema)
+        own = self._build_input_schema(descriptor, group_options={})
+        group_names = frozenset(input_schema["properties"]) - frozenset(
+            own["properties"]
+        )
         annotations = self._build_annotations(descriptor)
         return MCPToolDef(
             name=name,
@@ -133,53 +135,6 @@ class JobToolTranslator:
             annotations=annotations,
             group_option_names=group_names,
         )
-
-    def _specs_on_path(self, group: str | None) -> list[Any]:
-        """The group-options specs bound to ``group`` or any ancestor.
-
-        Outermost first, mirroring ``GroupTrie.group_options_on_path`` — the
-        dispatcher's inheritance order, so a nested group's field overrides
-        its parent's here the same way it does on the command line.
-        """
-        if not group:
-            return []
-        segments = group.split(".")
-        specs: list[Any] = []
-        for depth in range(1, len(segments) + 1):
-            spec = self._group_options.get(".".join(segments[:depth]))
-            if spec is not None:
-                specs.append(spec)
-        return specs
-
-    def _merge_group_options(
-        self, descriptor: Any, schema: dict[str, Any]
-    ) -> frozenset[str]:
-        """Fold a job's inherited group options into its input schema.
-
-        The job's own fields win a name clash and are left untouched: over MCP
-        there is one flat argument namespace, and the job's parameter is the
-        nearer declaration — the same rule position encodes on the command
-        line, where a flag after the job name binds to the job (D-d).
-        """
-        specs = self._specs_on_path(getattr(descriptor, "group", None))
-        if not specs:
-            return frozenset()
-
-        properties: dict[str, Any] = schema.setdefault("properties", {})
-        own_fields = set(properties)
-        added: set[str] = set()
-
-        for spec in specs:
-            for f in spec.fields:
-                if f.name in own_fields:
-                    continue
-                properties[f.name] = self._field_property(f)
-                added.add(f.name)
-
-        # Deliberately never added to `required`: a group option always has a
-        # resolved value (default < file < env), so demanding one from the
-        # caller would make every tool call carry it.
-        return frozenset(added)
 
     def translate_all(
         self, descriptors: list[Any], config: MCPConfig
@@ -246,17 +201,24 @@ class JobToolTranslator:
 
         return " ".join(lines)
 
-    def _build_input_schema(self, descriptor: Any) -> dict[str, Any]:
-        """Build a JSON Schema object from the job's config fields.
+    def _build_input_schema(
+        self, descriptor: Any, *, group_options: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """The job's one schema, group options merged (contracts.md §5, 6.1).
 
-        Delegates to core so an MCP tool and ``func builtin info schema``
-        cannot describe the same job differently.
+        Core builds it, so an MCP tool and ``func builtin info schema``
+        cannot describe the same job differently. ``group_options={}`` builds
+        the job's own half, which is how ``translate`` tells the inherited
+        properties apart without folding them a second time here.
         """
         from functualize.app.utils import job_input_schema
 
         return job_input_schema(
             descriptor,
             group_options_class_names=self._group_options_class_names(),
+            group_options=self._group_options
+            if group_options is None
+            else group_options,
         )
 
     def _group_options_class_names(self) -> frozenset[str]:
@@ -275,16 +237,6 @@ class JobToolTranslator:
             for spec in self._group_options.values()
             if (name := getattr(spec, "class_name", None))
         )
-
-    def _field_property(self, f: Any) -> dict[str, Any]:
-        """One ``FieldDescriptor`` as a JSON Schema property.
-
-        Core's renderer, so a group option inherited into a tool and the same
-        field published by ``func builtin info schema`` are byte-identical.
-        """
-        from functualize.app.utils import field_property
-
-        return field_property(f)
 
     def _build_annotations(self, descriptor: Any) -> dict[str, Any]:
         """Build tool annotations from the @job declaration tags and metadata."""

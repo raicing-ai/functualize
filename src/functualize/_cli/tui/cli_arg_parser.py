@@ -1,74 +1,143 @@
-"""CLI-style argument token parsing for the inline TUI.
+"""Bar text → a job's arguments, with the CLI's own grammar (D8).
 
-Parses SmartBar/command-line tokens (--key value, -short value, and bare
-positional tokens) into a kwargs dict, using a job's field metadata to
-resolve positional assignment and short-flag names.
+The SmartBar's tokens are parsed by the click command ``func <job>`` renders
+(:func:`parse_job_args`), so the bar and the command line cannot disagree about
+what a line of text means. The path walk (:func:`resolve_tui_command`) is the
+CLI's ``walk_group_path``.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def parse_cli_args_to_kwargs(
-    args: list[str],
-    fields: list[Any] | None = None,
-) -> dict[str, str]:
-    """Parse CLI-style args (--key value, -short value, and positional) into a kwargs dict.
+def parse_job_args(
+    args: Sequence[str],
+    fields: Sequence[Any],
+    *,
+    raw: bool = False,
+) -> dict[str, Any]:
+    """Parse a job's own bar tokens with the click command ``func <job>`` renders.
+
+    The bar has no grammar of its own (D8, B-18): the tokens go through the same
+    click parameters the CLI builds from the job's fields, so repeated flags
+    accumulate, short flags and ``--no-`` spellings resolve, positionals bind in
+    the command's order, and a stray token is an error, as on the command line.
 
     Args:
-        args: Token list (excluding the job name).
-        fields: Optional list of FieldDescriptor-like objects with .name, .positional,
-            and .short_flag attributes. When provided, enables:
-            - Positional arg assignment (bare tokens → positional fields in order)
-            - Short flag resolution (-g value → field name)
+        args: The job's own tokens, after the walk consumed its path.
+        fields: The job's field descriptors (``get_descriptor_fields``).
+        raw: ``False`` parses as ``func <job>`` does: values arrive with the
+            CLI's types, and a call the CLI refuses raises the same
+            ``click.UsageError``. ``True`` is for a bar that is still being
+            typed: the same grammar over the raw tokens, which never refuses.
+            Unknown options are ignored, a requirement is not enforced, and a
+            trailing token click cannot place yet is set aside. A flag reads
+            ``"true"``/``"false"``, a repeatable parameter a list of tokens.
+
+    Returns:
+        The parameters the tokens supplied, by name. A default fills nothing.
+
+    Raises:
+        click.UsageError: ``raw`` is false and ``func <job>`` would refuse the
+            tokens. The message is click's own, so it reads as the CLI's does.
     """
-    kwargs: dict[str, str] = {}
+    import click
+    from click.core import ParameterSource
 
-    # Build lookup tables from fields
-    positional_names: list[str] = []
-    short_to_name: dict[str, str] = {}
-    if fields:
-        for f in fields:
-            if getattr(f, "positional", False):
-                positional_names.append(f.name)
-            short = getattr(f, "short_flag", None)
-            if short:
-                # Normalize: "-g" → "g"
-                short_to_name[short.lstrip("-")] = f.name
+    from functualize.app.adapters.click_params import build_click_params_from_fields
 
-    positional_idx = 0
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg.startswith("--"):
-            key = arg[2:].replace("-", "_")
-            if "=" in key:
-                k, v = key.split("=", 1)
-                kwargs[k] = v
-            elif i + 1 < len(args) and not args[i + 1].startswith("-"):
-                kwargs[key] = args[i + 1]
-                i += 1
-            else:
-                kwargs[key] = "true"
-        elif arg.startswith("-") and len(arg) >= 2 and not arg[1:].isdigit():
-            # Short flag: -g value
-            flag_char = arg.lstrip("-")
-            field_name = short_to_name.get(flag_char)
-            if field_name and i + 1 < len(args) and not args[i + 1].startswith("-"):
-                kwargs[field_name] = args[i + 1]
-                i += 1
-            elif field_name:
-                kwargs[field_name] = "true"
-        elif positional_idx < len(positional_names):
-            # Bare token → assign to next positional field
-            kwargs[positional_names[positional_idx]] = arg
-            positional_idx += 1
-        i += 1
-    return kwargs
+    descriptors = [_descriptor(f) for f in fields]
+    try:
+        params = build_click_params_from_fields(descriptors)
+    except (TypeError, ValueError):
+        if not raw:
+            raise
+        # Mid-edit, one field click cannot render (a name no option can carry)
+        # must not blank the whole bar: keep every field that does render.
+        params = [p for d in descriptors for p in _renderable([d])]
+    if raw:
+        params = [_raw_param(param) for param in params]
+    command = click.Command(
+        "job",
+        params=params,
+        add_help_option=False,
+        context_settings={"ignore_unknown_options": raw},
+    )
+    tokens = list(args)
+    while True:
+        try:
+            ctx = command.make_context("job", list(tokens), resilient_parsing=raw)
+            break
+        except click.UsageError:
+            if not raw:
+                raise
+            if not tokens:
+                return {}
+            tokens.pop()  # mid-typing: `--p` before its value, say
+    provided: dict[str, Any] = {}
+    for param in params:
+        name = param.name or ""
+        if ctx.get_parameter_source(name) is not ParameterSource.COMMANDLINE:
+            continue
+        value = ctx.params.get(name)
+        if isinstance(value, tuple):
+            value = list(value)
+        if raw and isinstance(value, bool):
+            value = "true" if value else "false"
+        provided[name] = value
+    return provided
+
+
+def _descriptor(field: Any) -> Any:
+    """A ``FieldDescriptor`` for a field-like row (the panel's ``FieldDef``, say).
+
+    The click builder reads the descriptor's whole record. A row that carries
+    only the fields it shows is copied into one, contract included, so every
+    caller parses through the same rendering.
+    """
+    from functualize.types import FieldDescriptor
+
+    if isinstance(field, FieldDescriptor):
+        return field
+    return FieldDescriptor(
+        name=field.name,
+        default=getattr(field, "default", None),
+        description=getattr(field, "description", "") or "",
+        required=bool(getattr(field, "required", False)),
+        choices=getattr(field, "choices", None),
+        positional=bool(getattr(field, "positional", False)),
+        short_flag=getattr(field, "short_flag", None),
+        contract=getattr(field, "contract", None),
+    )
+
+
+def _renderable(fields: list[Any]) -> list[Any]:
+    """The click params for ``fields``, or none if click refuses to build them."""
+    from functualize.app.adapters.click_params import build_click_params_from_fields
+
+    try:
+        return build_click_params_from_fields(fields)
+    except (TypeError, ValueError):
+        return []
+
+
+def _raw_param(param: Any) -> Any:
+    """The same parameter, keeping its token unconverted (flags stay flags)."""
+    import copy
+
+    import click
+
+    if getattr(param, "is_flag", False):
+        return param
+    clone = copy.copy(param)
+    clone.type = click.types.UNPROCESSED
+    clone.callback = None
+    return clone
 
 
 def tokenize_bar_text(text: str) -> list[str]:
@@ -101,7 +170,7 @@ def build_group_option_trie(func_app: Any) -> Any:
     absent group options leave its option map empty.
 
     The heavy imports are function-local so this module stays import-light on
-    the pre-boot path that pulls in ``parse_cli_args_to_kwargs``.
+    the pre-boot path that imports this module.
     """
     try:
         from pathlib import Path

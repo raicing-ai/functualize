@@ -18,7 +18,11 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING, Any
 
-from functualize._discovery.schema_extractor import extract_field_descriptors
+from functualize._discovery.schema_extractor import (
+    extract_field_descriptors,
+    without_secret_default,
+)
+from functualize._primitives.parameter_contract import build_field_contract
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 
 if TYPE_CHECKING:
@@ -56,9 +60,22 @@ def extract_group_options_fields(
             if getattr(meta, "help", None) and not description:
                 description = meta.help
 
+        # A group field is a group-level flag, not a config field: its
+        # contract says so (`ACCEPTED_FLAG`), or refuses its type.
+        contract = (
+            without_secret_default(
+                build_field_contract(descriptor.name, info, group=True),
+                secret=descriptor.secret,
+            )
+            if info is not None
+            else descriptor.contract
+        )
         resolved.append(
             dataclasses.replace(
-                descriptor, short_flag=short_flag, description=description
+                descriptor,
+                short_flag=short_flag,
+                description=description,
+                contract=contract,
             )
         )
 

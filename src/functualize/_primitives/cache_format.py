@@ -175,7 +175,13 @@ from functualize._primitives.project_root import (
 # nowhere after it — the finding vanished while the jobs beside it stayed listed.
 # A v24 cache has no such section and its absence is indistinguishable from "this
 # module states nothing", so the bump forces the one rebuild that records it.
-CACHE_VERSION = 25
+# v26: parameter contracts are persisted with field descriptors. Rebuild older
+# entries so the warm path sees the same declaration record as the cold path.
+# v27: a job descriptor persists `omitted_contracts`, the contracts of the
+# signature parameters `parameters` omits (capabilities, FromJob, GroupOptions).
+# v28: a choice set's `enum_values` keep their declared type (all str or all
+# int), so an int choice set reads `[1, 2]`, not `["1", "2"]`.
+CACHE_VERSION = 28
 
 # Cache file name within the resolved cache directory.
 CACHE_FILENAME = "cache.json"

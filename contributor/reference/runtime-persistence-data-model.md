@@ -570,8 +570,13 @@ whose `tests/test_migrations.py` is the evidence for each refusal below:
 - Run during boot step 6.5, **before any job can execute** — which is possible because selection now
   happens before engine construction (ADR-027, landed).
 - A partially applied revision is a **boot refusal with repair steps**, never a silent continue.
+- A revision that rebuilds a referenced table declares `-- migration: foreign-keys-off` on its
+  first line. The runner requires a driver with the separate foreign-key migration capability:
+  it disables enforcement outside the revision batch, checks `PRAGMA foreign_key_check` after the
+  batch, and restores enforcement even on failure. Applying such a revision with foreign keys on
+  can silently cascade away child rows while both SQLite integrity checks pass.
 - Tests start from every supported historical schema, not only an empty database — today that is
-  empty → `0004` (four ledger rows), a version-1 file upgraded through `0002` to `0004` with
+  empty → `0006` (six ledger rows), a version-1 file upgraded through `0002` to `0006` with
   defaulted step metadata, a legacy documents-only file, and one **unsupported-by-design**
   historical: a pre-merge database whose revision 3 is the gate-interactions SQL (the branch-only
   spelling before the renumbering that settled step_attempt at 3 and gate_interactions at 4).
@@ -586,8 +591,9 @@ whose `tests/test_migrations.py` is the evidence for each refusal below:
   code — it never repairs by guessing.
 
 **Landed.** The runner exists in the relational provider (`sqlite-runtime-provider`): revisions
-`0001` → `0004` (`_schema/0001_runtime_schema.sql`, `0002_step_record_metadata.sql`,
-`0003_step_attempt.sql`, `0004_gate_interactions.sql`, each frozen and checksummed) create and
+`0001` → `0006` (`_schema/0001_runtime_schema.sql`, `0002_step_record_metadata.sql`,
+`0003_step_attempt.sql`, `0004_gate_interactions.sql`, `0005_run_tags.sql`,
+`0006_run_status_invalid.sql`, each frozen and checksummed) create and
 upgrade the schema, `migrate()`
 applies them in order during boot step 6.5 before the store is built or a job can run, and it
 refuses on a checksum mismatch, a gap in the sequence, a database ahead of the code, runtime tables

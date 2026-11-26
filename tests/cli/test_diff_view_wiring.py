@@ -21,6 +21,7 @@ from functualize._cli.data.pending_execution import PendingExecution
 from functualize._cli.data.resolved_value_compat import ResolvedValueCompat
 from functualize._cli.tui.diff_view_widget import DiffViewWidget
 from functualize._cli.tui.focus import FocusState
+from tests._support.declared_fields import declared
 
 # =============================================================================
 # Helpers
@@ -93,7 +94,7 @@ def _make_tui_for_build():
     field.description = "Port number"
     field.positional = False
     field.short_flag = None
-    field.type_annotation = "int"
+    field.contract = declared("port", "int", default="8080").contract
     descriptor.config_fields = [field]
     descriptor.parameters = None
     tui._find_job_descriptor = MagicMock(return_value=descriptor)

@@ -29,7 +29,7 @@ from functualize._cli.data.resolved_value_compat import ResolvedValueCompat
 from functualize._cli.tui.bar import BarReadiness
 from functualize._cli.tui.cli_arg_parser import (
     group_option_specs_on_path,
-    parse_cli_args_to_kwargs,
+    parse_job_args,
     tokenize_bar_text,
 )
 from functualize._cli.tui.descriptor_fields import get_descriptor_fields
@@ -72,6 +72,16 @@ def file_resolution_disabled(func_app: Any) -> bool:
 # Sources shown for PLAIN params (R5-AC2, R5-AC3) — CONFIG params show all
 # ChainEntry sources instead.
 _PLAIN_DETAIL_SOURCES = {"CLI", "Default"}
+
+
+def _type_label(fd: Any) -> str:
+    """A field's type as a person reads it: its contract's ``display``.
+
+    Every job and group field carries the contract discovery decided; the
+    cached descriptor holds no type string (9.1).
+    """
+    contract = getattr(fd, "contract", None)
+    return (contract.display if contract is not None else "") or "str"
 
 
 def _scalar_to_display(value: Any) -> str:
@@ -162,7 +172,7 @@ def build_group_field_defs(
                     description=getattr(fd, "description", "") or "",
                     positional=False,
                     short_flag=getattr(fd, "short_flag", None),
-                    type_annotation=getattr(fd, "type_annotation", "str") or "str",
+                    type_label=_type_label(fd),
                     param_kind=ParamKind.CONFIG,
                     # A group option is a config field like any other, so it is
                     # a credential like any other. The flag rides in on the
@@ -222,7 +232,7 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
     # Parse the job's *own* args — the walk already consumed the path segments
     # and every mid-path group flag, so nothing that belongs to a group can
     # land on a job field here.
-    provided = parse_cli_args_to_kwargs(resolution.args, fields=field_descriptors)
+    provided = _as_text(parse_job_args(resolution.args, field_descriptors, raw=True))
 
     # Kernel's discovered files, fetched once for every field's chain and for
     # the Config Files panel below. Each carries its role and its own values
@@ -275,7 +285,7 @@ def build_command_panels(app: FunctualizeInlineTUI) -> list[tuple[str, Any]]:
             description=description,
             positional=getattr(fd, "positional", False),
             short_flag=getattr(fd, "short_flag", None),
-            type_annotation=getattr(fd, "type_annotation", "str") or "str",
+            type_label=_type_label(fd),
             param_kind=ParamKind.CONFIG if has_config_class else ParamKind.PLAIN,
             # The descriptor is the cache's copy of the model's answer, so the
             # Config Table and its drill-down mask without importing the config
@@ -496,8 +506,10 @@ def build_pending_execution(
             # `build_command_panels`: the path and the group flags are not
             # this job's arguments.
             tokens = tokenize_bar_text(app._smart_bar.value)
-            provided = parse_cli_args_to_kwargs(
-                app.resolve_command(tokens).args, fields=field_descriptors
+            provided = _as_text(
+                parse_job_args(
+                    app.resolve_command(tokens).args, field_descriptors, raw=True
+                )
             )
 
             # Try to get real resolution from the kernel's ResolutionChain
@@ -573,7 +585,7 @@ def compute_chain_detail_rows(field_def: FieldDef) -> list[str]:
     req_str = "yes" if field_def.required else "no"
     choices_str = ", ".join(field_def.choices) if field_def.choices else "-"
     lines.append(
-        f"Type: {field_def.type_annotation} | Required: {req_str} | Choices: {choices_str}"
+        f"Type: {field_def.type_label} | Required: {req_str} | Choices: {choices_str}"
     )
     lines.append("")
 
@@ -614,3 +626,17 @@ def compute_chain_detail_rows(field_def: FieldDef) -> list[str]:
         lines.append("[bold yellow]\\[Edited][/bold yellow]")
 
     return lines
+
+
+def _as_text(provided: dict[str, Any]) -> dict[str, Any]:
+    """Panel text for parsed bar values: a repeated flag's values as shell words.
+
+    The bar parse returns a repeatable parameter as a list of tokens. A chain
+    cell shows text, and ``shlex.join`` is the spelling the emitter splits back.
+    """
+    import shlex
+
+    return {
+        name: shlex.join(value) if isinstance(value, list) else value
+        for name, value in provided.items()
+    }

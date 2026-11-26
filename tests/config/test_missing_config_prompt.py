@@ -232,7 +232,7 @@ class TestWhatIsNotWorthAsking:
 
         result = _app(NeedsNested, collector=collector).execute(request_for("report"))
 
-        assert result.status is RunStatus.FAILURE
+        assert result.status is RunStatus.INVALID
         assert collector.requests == []
 
     def test_a_field_inside_a_sub_model_is_never_prompted(self) -> None:
@@ -245,7 +245,7 @@ class TestWhatIsNotWorthAsking:
             request_for("report", db={})
         )
 
-        assert result.status is RunStatus.FAILURE
+        assert result.status is RunStatus.INVALID
         assert collector.requests == []
 
     def test_a_list_field_is_never_prompted(self) -> None:

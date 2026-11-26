@@ -32,7 +32,7 @@ from functualize._cli.tui.chain_resolution import (
 from functualize._cli.tui.cli_arg_parser import (
     build_group_option_trie,
     group_option_specs_on_path,
-    parse_cli_args_to_kwargs,
+    parse_job_args,
     resolve_tui_command,
     tokenize_bar_text,
 )
@@ -563,7 +563,7 @@ class FunctualizeInlineTUI(App[int]):
                 self._pending.job_name
             )
 
-            provided = self.job_kwargs_for(self._pending.job_name, _resolution.args)
+            provided = self.bar_values_for(self._pending.job_name, _resolution.args)
             # Sync: add/update overrides for provided tokens, remove stale ones
             current_override_keys = set(self._pending.overrides.keys())
             for key, val in provided.items():
@@ -1588,7 +1588,7 @@ class FunctualizeInlineTUI(App[int]):
         job_name = resolution.job_name
         if job_name is None:
             return
-        kwargs = parse_cli_args_to_kwargs(resolution.args)
+        kwargs = self.bar_values_for(job_name, resolution.args)
         modal = ShortcutSaveModal(job_name=job_name, kwargs=kwargs)
         self.push_screen(modal, callback=self._on_shortcut_save_dismissed)
 
@@ -1877,6 +1877,11 @@ class FunctualizeInlineTUI(App[int]):
             panel.fields,
             resolution.group_values,
             self._group_trie,
+            {
+                field.name: field.contract
+                for field in self._get_job_fields(resolution.job_name)
+                if getattr(field, "contract", None) is not None
+            },
         )
 
     def _sync_config_table_from_smartbar(self) -> None:
@@ -1897,7 +1902,14 @@ class FunctualizeInlineTUI(App[int]):
         # first positional.
         text = self._smart_bar.value
         resolution = self.resolve_command(tokenize_bar_text(text))
-        if sync_bar_to_overrides(text, panel.fields, resolution=resolution):
+        descriptors = (
+            self._get_job_fields(resolution.job_name)
+            if resolution.job_name is not None
+            else None
+        )
+        if sync_bar_to_overrides(
+            text, panel.fields, resolution=resolution, descriptors=descriptors or None
+        ):
             panel.reload_table()
 
     def action_select_choice(self) -> None:
@@ -2240,10 +2252,29 @@ class FunctualizeInlineTUI(App[int]):
         return resolve_tui_command(self._group_trie, tokens)
 
     def job_kwargs_for(self, job_name: str, args: list[str]) -> dict[str, Any]:
-        """Parse a resolved job's own argument tokens into kwargs."""
-        return dict(
-            parse_cli_args_to_kwargs(args, fields=self._get_job_fields(job_name))
-        )
+        """Parse a resolved job's own tokens to run it, as ``func <job>`` would.
+
+        The job's rendered click command parses them (D8, B-18): values arrive
+        with the CLI's types, a repeated flag as a list, and tokens the CLI
+        refuses raise the same ``click.UsageError``, for the caller to render.
+        """
+        return parse_job_args(args, self._get_job_fields(job_name))
+
+    def bar_values_for(self, job_name: str, args: list[str]) -> dict[str, Any]:
+        """What the bar's tokens supply so far, as text, while it is being typed.
+
+        The same grammar as :meth:`job_kwargs_for`, without refusing: the bar is
+        mid-edit, so an unknown or incomplete token is set aside rather than
+        reported. A repeated flag's values read as shell words, which the
+        emitter splits back exactly.
+        """
+        import shlex
+
+        provided = parse_job_args(args, self._get_job_fields(job_name), raw=True)
+        return {
+            name: shlex.join(value) if isinstance(value, list) else value
+            for name, value in provided.items()
+        }
 
     def _get_job_fields(self, job_name: str) -> list[Any]:
         """A job's **settable** fields (for parsing, preview and the field table).
@@ -2264,16 +2295,9 @@ class FunctualizeInlineTUI(App[int]):
             fields = get_descriptor_fields(descriptor)
             if not fields:
                 return []
-            injection_types = {
-                spec.class_name
-                for spec in group_option_specs_on_path(self._group_trie, job_name)
-            }
-            return [
-                field
-                for field in fields
-                if (getattr(field, "type_annotation", "") or "").strip()
-                not in injection_types
-            ]
+            # The verdict says what a caller may set (B-1): an injected
+            # parameter is filled by the engine, never typed into the bar.
+            return [field for field in fields if not _is_injected(field)]
         except Exception as exc:
             # _find_job_descriptor()/get_descriptor_fields() are domain
             # calls, not query_one lookups — log so field-resolution
@@ -2452,7 +2476,7 @@ class FunctualizeInlineTUI(App[int]):
             # The job's own argument tokens — the walk already consumed any
             # mid-path group flag, so the field table shows the job's fields
             # and never a group flag misparsed as one (S6b).
-            provided = self.job_kwargs_for(job_name, _preflight_resolution.args)
+            provided = self.bar_values_for(job_name, _preflight_resolution.args)
 
             # Thread real resolved source_type from PendingExecution so unfilled
             # config params show (env)/(file)/... rather than a blind (default).
@@ -2841,3 +2865,10 @@ class FunctualizeInlineTUI(App[int]):
                 bc.update(title)
         except NoMatches:
             pass
+
+
+def _is_injected(field: Any) -> bool:
+    """Does the field's contract say the engine fills it? (by value: `_cli`
+    reads the public descriptor, and the verdict enum is internal)."""
+    verdict = getattr(getattr(field, "contract", None), "verdict", None)
+    return getattr(verdict, "value", None) == "injected"

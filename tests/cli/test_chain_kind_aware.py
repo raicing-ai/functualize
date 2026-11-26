@@ -37,7 +37,7 @@ def _make_config_field(name: str = "region", value: str = "us-east-1") -> FieldD
         source="File",
         required=True,
         description="AWS region",
-        type_annotation="str",
+        type_label="str",
         param_kind=ParamKind.CONFIG,
         chain=[
             ChainEntry(source="CLI", value=""),
@@ -58,7 +58,7 @@ def _make_plain_field(name: str = "target", value: str = "prod") -> FieldDef:
         required=True,
         positional=True,
         description="Deployment target",
-        type_annotation="str",
+        type_label="str",
         param_kind=ParamKind.PLAIN,
         chain=[
             ChainEntry(source="CLI", value=value),

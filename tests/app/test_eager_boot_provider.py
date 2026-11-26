@@ -352,10 +352,12 @@ class TestTheBootTimePromisesSurvive:
             "e", job_sources=JobSources(directories=[str(jobs_dir)], lazy=False)
         )
 
-        messages = [f.message for f in app._unsatisfiable_jobs]
-        assert len(messages) == 1
-        assert "No provider for Unprovided" in messages[0]
-        assert "'dep'" in messages[0]
+        (failure,) = app._unsatisfiable_jobs
+        assert failure.error_type == "UnsupportedParameter"
+        assert str(jobs_dir / "bad.py") in failure.message
+        assert "needs-it" in failure.message
+        assert "dep" in failure.message
+        assert "Register one from a plugin" in failure.message
 
     def test_descriptors_carry_a_live_function(self, tmp_path: Path) -> None:
         """The mechanism behind the criterion above, asserted directly so a

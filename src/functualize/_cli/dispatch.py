@@ -712,7 +712,25 @@ def walk_group_path(trie: GroupTrie, args: Sequence[str]) -> GroupWalk:
                     bad_flag=token,
                 )
             field, inline, negated = matched
-            if field.type_annotation == "bool":
+            contract = field.contract
+            shape = getattr(contract, "shape", None)
+            if shape is not None:
+                # The cached contract is the pre-boot arity decision (B-1).
+                presence_flag = (
+                    shape.scalar.value == "bool" and shape.container.value == "none"
+                )
+            else:
+                # Transitional fields without contracts still use the same
+                # rendered Click parameter that the command itself accepts.
+                from functualize.app.adapters.click_params import (
+                    build_click_params_from_fields,
+                )
+
+                presence_flag = any(
+                    getattr(param, "is_flag", False)
+                    for param in build_click_params_from_fields([field])
+                )
+            if presence_flag:
                 # A boolean is a presence flag: it never eats the next token,
                 # which would otherwise swallow the following path segment.
                 #
@@ -736,22 +754,32 @@ def walk_group_path(trie: GroupTrie, args: Sequence[str]) -> GroupWalk:
                     )
                 options[field.name] = not negated
                 index += 1
-            elif inline is not None:
-                options[field.name] = inline
-                index += 1
             else:
-                if index + 1 >= len(args):
-                    # Missing value — stop and let the caller report it the
-                    # same way an unknown flag is reported.
-                    return GroupWalk(
-                        node=node,
-                        consumed=tuple(consumed),
-                        remaining=tuple(args[index:]),
-                        options=options,
-                        bad_flag=token,
-                    )
-                options[field.name] = args[index + 1]
-                index += 2
+                if inline is None:
+                    if index + 1 >= len(args):
+                        # Missing value — stop and let the caller report it the
+                        # same way an unknown flag is reported.
+                        return GroupWalk(
+                            node=node,
+                            consumed=tuple(consumed),
+                            remaining=tuple(args[index:]),
+                            options=options,
+                            bad_flag=token,
+                        )
+                    value = args[index + 1]
+                    index += 2
+                else:
+                    value = inline
+                    index += 1
+                cli = getattr(contract, "cli", None)
+                if cli is not None and cli.repeatable:
+                    previous = options.get(field.name)
+                    if isinstance(previous, list):
+                        previous.append(value)
+                    else:
+                        options[field.name] = [value]
+                else:
+                    options[field.name] = value
             continue
 
         # A dot can belong to one leaf name. Prefer that exact edge before

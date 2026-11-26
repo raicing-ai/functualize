@@ -13,9 +13,12 @@ Tests the execution engine's DI resolution mechanisms:
 # for dynamically-created types in local scopes.
 
 import inspect
-from typing import Annotated, Optional
+import types
+import weakref
+from typing import Annotated, Union, get_origin
 from unittest.mock import MagicMock, patch
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -24,9 +27,16 @@ from functualize._engine.resolution import (
     build_resolution_plan,
 )
 from functualize._primitives.di import DIRegistry, MissingProviderError, Provide
+from functualize._primitives.parameter_contract import _qualname, build_contracts
 from functualize.job.capabilities import Invoke, JobContext, Log, Perf, Prompt, State
 from functualize.job.context import RunContext
 from tests._support.engine_storage import engine_storage
+
+
+def _plan_for(function, *_args, **_kwargs):
+    """Use the declaration contract, regardless of registry contents."""
+    return build_resolution_plan(build_contracts(function))
+
 
 # =============================================================================
 # Strategies
@@ -53,7 +63,7 @@ class TestResolutionPlanCachingByFunctionIdentity:
     """Property 9: ResolutionPlan caching by function identity.
 
     For any function object, the ResolutionPlan computed by the execution engine
-    SHALL be cached such that subsequent lookups by id(function) return the exact
+    SHALL be cached such that subsequent lookups by callable return the exact
     same plan object (by identity) without re-invoking inspect.signature().
 
     **Validates: Requirements 5.4**
@@ -70,19 +80,18 @@ class TestResolutionPlanCachingByFunctionIdentity:
         def my_job(log: Log, state: State) -> None:
             pass
 
-        # Simulate engine caching: build once, store by id(function)
-        cache: dict[int, ResolutionPlan] = {}
+        # Simulate engine caching: build once, store by weak callable reference.
+        cache: weakref.WeakKeyDictionary[object, ResolutionPlan] = (
+            weakref.WeakKeyDictionary()
+        )
         registered_types = {Log, State}
 
-        func_id = id(my_job)
-        plan = build_resolution_plan(
-            my_job, registered_types, runcontext_type=RunContext
-        )
-        cache[func_id] = plan
+        plan = _plan_for(my_job, registered_types, runcontext_type=RunContext)
+        cache[my_job] = plan
 
         # All subsequent lookups should return the same plan object
         for _ in range(num_lookups):
-            cached_plan = cache.get(id(my_job))
+            cached_plan = cache.get(my_job)
             assert cached_plan is plan, (
                 "Cached plan must be the same object (by identity) on every lookup"
             )
@@ -97,7 +106,9 @@ class TestResolutionPlanCachingByFunctionIdentity:
         def sample_job(log: Log, perf: Perf) -> None:
             pass
 
-        cache: dict[int, ResolutionPlan] = {}
+        cache: weakref.WeakKeyDictionary[object, ResolutionPlan] = (
+            weakref.WeakKeyDictionary()
+        )
         registered_types = {Log, Perf}
         signature_call_count = 0
 
@@ -110,26 +121,24 @@ class TestResolutionPlanCachingByFunctionIdentity:
 
         # First call builds the plan (invokes inspect.signature)
         with patch(
-            "functualize._engine.resolution.inspect.signature", counting_signature
+            "functualize._primitives.parameter_contract.inspect.signature",
+            counting_signature,
         ):
-            plan = build_resolution_plan(
-                sample_job, registered_types, runcontext_type=RunContext
-            )
-        cache[id(sample_job)] = plan
+            plan = _plan_for(sample_job, registered_types, runcontext_type=RunContext)
+        cache[sample_job] = plan
         initial_count = signature_call_count
 
         # Subsequent lookups should NOT invoke inspect.signature
         for _ in range(num_lookups):
-            func_id = id(sample_job)
-            if func_id in cache:
-                _ = cache[func_id]
+            if sample_job in cache:
+                _ = cache[sample_job]
             else:
                 # This branch should never be taken
                 with patch(
-                    "functualize._engine.resolution.inspect.signature",
+                    "functualize._primitives.parameter_contract.inspect.signature",
                     counting_signature,
                 ):
-                    cache[func_id] = build_resolution_plan(
+                    cache[sample_job] = _plan_for(
                         sample_job, registered_types, runcontext_type=RunContext
                     )
 
@@ -144,12 +153,14 @@ class TestResolutionPlanCachingByFunctionIdentity:
         **Validates: Requirements 5.4**
         """
         registered_types = {Log, State, Perf}
-        cache: dict[int, ResolutionPlan] = {}
+        cache: weakref.WeakKeyDictionary[object, ResolutionPlan] = (
+            weakref.WeakKeyDictionary()
+        )
 
         # Create multiple distinct functions
         functions = []
         for i in range(num_functions):
-            # Each function has a unique closure to ensure distinct id()
+            # Each function has a unique closure and callable identity.
             def make_fn(idx):
                 def fn(log: Log) -> None:
                     _ = idx
@@ -161,21 +172,19 @@ class TestResolutionPlanCachingByFunctionIdentity:
 
         # Build plans for each function
         for fn in functions:
-            plan = build_resolution_plan(
-                fn, registered_types, runcontext_type=RunContext
-            )
-            cache[id(fn)] = plan
+            plan = _plan_for(fn, registered_types, runcontext_type=RunContext)
+            cache[fn] = plan
 
         # Each function should have its own plan (distinct by identity)
-        plans = [cache[id(fn)] for fn in functions]
+        plans = [cache[fn] for fn in functions]
         plan_ids = [id(p) for p in plans]
         assert len(set(plan_ids)) == num_functions, (
             "Each function should have a distinct plan object"
         )
 
     @given(num_lookups=st.integers(min_value=2, max_value=10))
-    def test_plan_function_id_matches_id_of_function(self, num_lookups: int):
-        """The ResolutionPlan's function_id matches the id() of the function it was built for.
+    def test_plan_has_no_address_based_identity(self, num_lookups: int):
+        """A plan's result depends on the declaration, not its memory address.
 
         **Validates: Requirements 5.4**
         """
@@ -184,13 +193,10 @@ class TestResolutionPlanCachingByFunctionIdentity:
             pass
 
         registered_types = {Invoke}
-        plan = build_resolution_plan(
-            target_job, registered_types, runcontext_type=RunContext
-        )
+        plan = _plan_for(target_job, registered_types, runcontext_type=RunContext)
 
-        assert plan.function_id == id(target_job), (
-            "Plan's function_id must equal id(function)"
-        )
+        for _ in range(num_lookups):
+            assert plan == _plan_for(target_job, registered_types)
 
 
 # =============================================================================
@@ -198,98 +204,97 @@ class TestResolutionPlanCachingByFunctionIdentity:
 # =============================================================================
 
 
-class TestEngineDIResolutionCorrectness:
-    """Property 10: Engine DI resolution correctness.
+def _recording_job(annotations: dict, seen: dict):
+    """A job whose parameters carry ``annotations`` and that records what it got."""
+    names = [name for name in annotations if name != "return"]
+    local_ns: dict = {"seen": seen}
+    params = ", ".join(f"{name}=None" for name in names)
+    body = "; ".join(f"seen[{name!r}] = {name}" for name in names) or "pass"
+    exec(f"def job_func({params}):\n    {body}", local_ns)
+    job_func = local_ns["job_func"]
+    for name in names:  # required unless the declaration is Optional
+        if get_origin(annotations[name]) not in (Union, types.UnionType):
+            job_func.__defaults__ = None
+    job_func.__annotations__ = annotations
+    return job_func
 
-    For any job function with N type-annotated parameters where each annotation
-    matches a type registered in the DIRegistry, the execution engine SHALL
-    resolve all N parameters from the registry and pass them as keyword arguments.
-    Parameters annotated as RunContext SHALL receive a RunContext facade.
-    Parameters with unregistered types and no default SHALL trigger
-    MissingProviderError. Parameters annotated as Optional[T] with no provider
-    SHALL resolve to None.
+
+def _run_hostless(registry: DIRegistry, function) -> object:
+    """Run ``function`` through a bare engine's door: no host, so no admission."""
+    from functualize._engine.executor import JobExecutionEngine
+    from tests._support.engine_run import run_job
+
+    chain = MagicMock()
+    chain.has_middleware = False  # the job body runs, not a mock's return value
+    engine = JobExecutionEngine(
+        di_registry=registry,
+        event_bus=MagicMock(),
+        hook_registry=MagicMock(),
+        middleware_chain=chain,
+        **engine_storage(),
+    )
+    return run_job(engine, "job_func", function, kwargs={})
+
+
+class TestEngineDIResolutionCorrectness:
+    """Property 10: Engine DI resolution correctness, from the job's contracts.
+
+    The plan is projected from each parameter's contract (5.1 Work, schema
+    invariant 6): its ``source`` is the ``Injection`` field that names the value
+    (``capability`` → the engine's per-invocation capability, ``RunContext``
+    included; ``provider_type`` with ``qualifier`` → DI), and its ``annotation``
+    is that name, never a type object — "no type name and no annotation is
+    inspected here". The type is read from the live annotation where the value
+    is resolved, so resolution is asserted through ``engine.run`` rather than
+    simulated with ``registry.resolve(binding.annotation)``.
 
     **Validates: Requirements 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 18.3, 18.6**
     """
 
     @given(num_params=st.integers(min_value=1, max_value=6))
     def test_all_registered_type_params_resolved_from_registry(self, num_params: int):
-        """All N type-annotated params matching registered types are resolved.
-
-        **Validates: Requirements 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 18.3, 18.6**
-        """
-        # Create N unique types and register them
-        types_and_instances: list[tuple[type, object]] = []
+        """All N provider-backed params are planned as DI and receive their instances."""
+        registry = DIRegistry()
+        annotations: dict = {"return": None}
+        instances: dict[str, object] = {}
         for i in range(num_params):
             t = _make_type(f"Service{i}")
-            instance = t()
-            types_and_instances.append((t, instance))
+            instances[f"param{i}"] = t()
+            registry.provide(t, instances[f"param{i}"])
+            annotations[f"param{i}"] = t
 
-        registry = DIRegistry()
-        registered_types: set[type] = set()
-        for t, inst in types_and_instances:
-            registry.provide(t, inst)
-            registered_types.add(t)
+        seen: dict = {}
+        job_func = _recording_job(annotations, seen)
+        plan = _plan_for(job_func)
 
-        # Build a function dynamically with those type annotations
-        param_names = [f"param{i}" for i in range(num_params)]
-        annotations = {
-            param_names[i]: types_and_instances[i][0] for i in range(num_params)
-        }
-        annotations["return"] = None
-
-        # Create the function with exec to have proper annotations
-        params_str = ", ".join(f"{name}: annotations['{name}']" for name in param_names)
-        local_ns: dict = {"annotations": annotations}
-        exec(
-            f"def job_func({params_str}) -> None: pass",
-            local_ns,
-        )
-        job_func = local_ns["job_func"]
-        # Manually set __annotations__ since exec doesn't resolve our dynamic types
-        job_func.__annotations__ = annotations
-
-        # Build resolution plan
-        plan = build_resolution_plan(
-            job_func, registered_types, runcontext_type=RunContext
-        )
-
-        # Verify all params are classified as "di"
         assert len(plan.params) == num_params
         for binding in plan.params:
-            assert binding.source == "di", (
-                f"Parameter {binding.name} should be resolved via DI, got {binding.source}"
-            )
+            assert binding.source == "di"
+            assert binding.annotation == _qualname(annotations[binding.name])
 
-        # Simulate resolution from registry
-        resolved: dict[str, object] = {}
-        for binding in plan.params:
-            if binding.source == "di":
-                resolved[binding.name] = registry.resolve(binding.annotation)
-
-        # All params resolved to their registered instances
-        for i, name in enumerate(param_names):
-            assert resolved[name] is types_and_instances[i][1], (
-                f"Parameter {name} should resolve to its registered instance"
-            )
+        result = _run_hostless(registry, job_func)
+        assert result.status.value == "Success", result
+        for name, instance in instances.items():
+            assert seen[name] is instance
 
     def test_runcontext_annotated_param_receives_runcontext(self):
-        """Parameters annotated as RunContext SHALL receive a RunContext facade.
-
-        **Validates: Requirements 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 18.3, 18.6**
-        """
+        """``RunContext`` is named by its capability and receives the facade."""
 
         def job_with_rc(ctx: RunContext) -> None:
             pass
 
-        registered_types: set[type] = set()
-        plan = build_resolution_plan(
-            job_with_rc, registered_types, runcontext_type=RunContext
-        )
+        plan = _plan_for(job_with_rc)
 
         assert len(plan.params) == 1
         assert plan.params[0].source == "runcontext"
-        assert plan.params[0].annotation is RunContext
+        assert plan.params[0].annotation == "RunContext"
+
+        seen: dict = {}
+        result = _run_hostless(
+            DIRegistry(), _recording_job({"ctx": RunContext, "return": None}, seen)
+        )
+        assert result.status.value == "Success", result
+        assert isinstance(seen["ctx"], RunContext)
 
     @given(
         num_registered=st.integers(min_value=1, max_value=3),
@@ -298,247 +303,140 @@ class TestEngineDIResolutionCorrectness:
     def test_unregistered_types_without_default_trigger_missing_provider(
         self, num_registered: int, num_unregistered: int
     ):
-        """Parameters with unregistered types and no default trigger MissingProviderError.
+        """A required provider-backed parameter with no provider is refused.
 
-        **Validates: Requirements 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 18.3, 18.6**
+        Kind comes from the declaration (B-2), so a registered and an unregistered
+        class are both planned as DI; the missing provider surfaces when the value
+        is resolved, never as a silent ``None``.
         """
-        # Create registered types
-        registered_types: set[type] = set()
         registry = DIRegistry()
+        annotations: dict = {"return": None}
         for i in range(num_registered):
             t = _make_type(f"Registered{i}")
             registry.provide(t, t())
-            registered_types.add(t)
-
-        # Create unregistered types
-        unregistered_types: list[type] = []
+            annotations[f"p{i}"] = t
         for i in range(num_unregistered):
-            t = _make_type(f"Unregistered{i}")
-            unregistered_types.append(t)
+            annotations[f"q{i}"] = _make_type(f"Unregistered{i}")
 
-        # Build function with both registered and unregistered type params
-        all_types = list(registered_types) + unregistered_types
-        param_names = [f"p{i}" for i in range(len(all_types))]
-        annotations: dict[str, type] = {}
-        for i, name in enumerate(param_names):
-            annotations[name] = all_types[i]
-        annotations["return"] = None
+        job_func = _recording_job(annotations, {})
+        plan = _plan_for(job_func)
+        assert all(binding.source == "di" for binding in plan.params)
 
-        local_ns: dict = {"annotations": annotations}
-        params_str = ", ".join(f"{name}: annotations['{name}']" for name in param_names)
-        exec(f"def job_func({params_str}) -> None: pass", local_ns)
-        job_func = local_ns["job_func"]
-        job_func.__annotations__ = annotations
-
-        plan = build_resolution_plan(
-            job_func, registered_types, runcontext_type=RunContext
-        )
-
-        # Simulate resolution: unregistered types without defaults should fail
-        for binding in plan.params:
-            if binding.annotation in unregistered_types:
-                # These should be classified as "skip" (unregistered)
-                assert binding.source == "skip", (
-                    f"Unregistered type {binding.annotation.__name__} "
-                    f"should be 'skip', got {binding.source}"
-                )
-
-        # When the engine tries to resolve, unregistered non-skip params
-        # with source="di" would trigger MissingProviderError
-        # Verify that unregistered types with source="di" (if any) actually
-        # raise MissingProviderError from the registry
-        for binding in plan.params:
-            if (
-                binding.source == "di"
-                and not binding.is_optional
-                and not registry.has(binding.annotation)
-            ):
-                try:
-                    registry.resolve(binding.annotation)
-                    raise AssertionError("Should have raised MissingProviderError")
-                except MissingProviderError:
-                    pass
+        # A missing provider is one of the paths ``engine.run`` raises, not a
+        # FAILURE result (executor: ``except MissingProviderError: raise``).
+        with pytest.raises(MissingProviderError, match="Unregistered"):
+            _run_hostless(registry, job_func)
 
     def test_optional_param_with_no_provider_resolves_to_none(self):
-        """Parameters annotated as Optional[T] with no provider resolve to None.
+        """``Optional[T]`` with no provider receives ``None`` on a hostless engine.
 
-        **Validates: Requirements 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 18.3, 18.6**
+        Optionality is read at resolution from the live annotation: an injected
+        contract carries no value shape (``schema.md``: ``shape`` is ``None`` for
+        ``INJECTED``), so the plan's ``is_optional`` is ``False``. An app-hosted
+        job is refused at discovery instead (row C086, B-2's availability rule).
         """
         unregistered_service = _make_type("UnregisteredService")
+        annotations = {"svc": unregistered_service | None, "return": None}
+        seen: dict = {}
+        job_func = _recording_job(annotations, seen)
 
-        # Build function with explicit __annotations__ to avoid PEP 563 string issues
-        def job_with_optional(svc=None) -> None:
-            pass
-
-        # Set annotations explicitly with real type objects
-        job_with_optional.__annotations__ = {
-            "svc": unregistered_service | None,
-            "return": None,
-        }
-
-        # UnregisteredService is NOT in registered_types
-        registered_types: set[type] = set()
-        plan = build_resolution_plan(
-            job_with_optional, registered_types, runcontext_type=RunContext
-        )
-
+        plan = _plan_for(job_func)
         assert len(plan.params) == 1
         binding = plan.params[0]
         assert binding.source == "di"
-        assert binding.is_optional is True
-        assert binding.annotation is unregistered_service
+        assert binding.annotation == _qualname(unregistered_service)
 
-        # When resolving: Optional[T] with no provider → None
-        registry = DIRegistry()
-        try:
-            registry.resolve(unregistered_service)
-            raise AssertionError("Should have raised MissingProviderError")
-        except MissingProviderError:
-            # The engine resolves Optional[T] to None in this case
-            resolved_value = None
+        result = _run_hostless(DIRegistry(), job_func)
+        assert result.status.value == "Success", result
+        assert seen["svc"] is None
 
-        assert resolved_value is None
-
-    @given(
-        num_params=st.integers(min_value=1, max_value=4),
-    )
+    @given(num_params=st.integers(min_value=1, max_value=4))
     def test_optional_params_with_registered_provider_resolve_normally(
         self, num_params: int
     ):
-        """Optional[T] with a registered provider resolves from the registry normally.
-
-        **Validates: Requirements 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 18.3, 18.6**
-        """
-        # Create types and register them
-        types_and_instances: list[tuple[type, object]] = []
-        registered_types: set[type] = set()
+        """``Optional[T]`` with a registered provider receives the instance, not None."""
         registry = DIRegistry()
-
+        annotations: dict = {"return": None}
+        instances: dict[str, object] = {}
         for i in range(num_params):
             t = _make_type(f"OptService{i}")
-            instance = t()
-            registry.provide(t, instance)
-            registered_types.add(t)
-            types_and_instances.append((t, instance))
+            instances[f"opt{i}"] = t()
+            registry.provide(t, instances[f"opt{i}"])
+            annotations[f"opt{i}"] = t | None
 
-        # Build function with Optional[T] annotations where T is registered
-        param_names = [f"opt{i}" for i in range(num_params)]
-        annotations: dict = {"return": None}
-        for i, name in enumerate(param_names):
-            annotations[name] = types_and_instances[i][0] | None
+        seen: dict = {}
+        job_func = _recording_job(annotations, seen)
+        plan = _plan_for(job_func)
+        assert all(binding.source == "di" for binding in plan.params)
 
-        local_ns: dict = {"annotations": annotations, "Optional": Optional}
-        params_str = ", ".join(f"{name}: annotations['{name}']" for name in param_names)
-        exec(f"def job_func({params_str}) -> None: pass", local_ns)
-        job_func = local_ns["job_func"]
-        job_func.__annotations__ = annotations
-
-        plan = build_resolution_plan(
-            job_func, registered_types, runcontext_type=RunContext
-        )
-
-        # All params should be resolved as "di" with is_optional=True
-        for binding in plan.params:
-            assert binding.source == "di"
-            assert binding.is_optional is True
-
-        # Resolve should return the registered instances (not None)
-        for binding in plan.params:
-            resolved = registry.resolve(binding.annotation)
-            # Find the matching expected instance
-            for t, inst in types_and_instances:
-                if t is binding.annotation:
-                    assert resolved is inst
-                    break
+        result = _run_hostless(registry, job_func)
+        assert result.status.value == "Success", result
+        for name, instance in instances.items():
+            assert seen[name] is instance
 
     def test_qualified_annotated_param_resolved_with_qualifier(self):
-        """Parameters with Annotated[T, Provide("qualifier")] resolve using qualifier.
-
-        **Validates: Requirements 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 18.3, 18.6**
-        """
+        """``Annotated[T, Provide("q")]`` is planned with its qualifier and gets that provider."""
         cache_service = _make_type("CacheService")
         redis_instance = cache_service()
-        memcache_instance = cache_service()
-
         registry = DIRegistry()
         registry.provide(cache_service, redis_instance, qualifier="redis")
-        registry.provide(cache_service, memcache_instance, qualifier="memcache")
-        registered_types = {cache_service}
+        registry.provide(cache_service, cache_service(), qualifier="memcache")
 
-        # Build function with explicit __annotations__ to avoid resolution issues
-        def job_with_qualified(cache=None) -> None:
-            pass
-
-        job_with_qualified.__annotations__ = {
-            "cache": Annotated[cache_service, Provide("redis")],
-            "return": None,
-        }
-
-        plan = build_resolution_plan(
-            job_with_qualified, registered_types, runcontext_type=RunContext
+        seen: dict = {}
+        job_func = _recording_job(
+            {"cache": Annotated[cache_service, Provide("redis")], "return": None}, seen
         )
+        plan = _plan_for(job_func)
 
         assert len(plan.params) == 1
         binding = plan.params[0]
         assert binding.source == "di"
         assert binding.qualifier == "redis"
-        assert binding.annotation is cache_service
+        assert binding.annotation == _qualname(cache_service)
 
-        # Resolution with qualifier
-        resolved = registry.resolve(cache_service, qualifier="redis")
-        assert resolved is redis_instance
+        result = _run_hostless(registry, job_func)
+        assert result.status.value == "Success", result
+        assert seen["cache"] is redis_instance
 
     @given(num_skip_params=st.integers(min_value=1, max_value=4))
     def test_params_without_annotations_are_skipped(self, num_skip_params: int):
-        """Parameters without type annotations are skipped during DI resolution.
+        """An unannotated parameter is a caller input (C090), so DI skips it.
 
-        **Validates: Requirements 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 18.3, 18.6**
+        ``Log`` is one of the 15 capabilities, so its source is ``capability``
+        (5.1 Work), named ``"Log"``.
         """
-        registered_types = {Log}
-
-        # Build a function with mixed annotated and non-annotated params
-        # We'll do this with exec since we need params without annotations
-        param_parts = ["log: Log"]
-        for i in range(num_skip_params):
-            param_parts.append(f"arg{i}")
-
-        params_str = ", ".join(param_parts)
+        param_parts = ["log: Log", *(f"arg{i}" for i in range(num_skip_params))]
         local_ns: dict = {"Log": Log}
-        exec(f"def job_func({params_str}): pass", local_ns)
-        job_func = local_ns["job_func"]
+        exec(f"def job_func({', '.join(param_parts)}): pass", local_ns)
+        plan = _plan_for(local_ns["job_func"])
 
-        plan = build_resolution_plan(
-            job_func, registered_types, runcontext_type=RunContext
-        )
-
-        # First param (log) should be "di", rest should be "skip"
-        assert plan.params[0].source == "di"
+        assert plan.params[0].source == "capability"
+        assert plan.params[0].annotation == "Log"
         assert plan.params[0].name == "log"
-
         for i in range(num_skip_params):
             assert plan.params[i + 1].source == "skip"
             assert plan.params[i + 1].name == f"arg{i}"
 
     def test_di_takes_precedence_over_default_values(self):
-        """DI-resolved instances take precedence over default values.
-
-        **Validates: Requirements 5.1, 5.2, 5.3, 5.6, 5.7, 5.8, 18.3, 18.6**
-        """
-        registered_types = {Log}
+        """An injected parameter with a default is still injected, not defaulted."""
 
         def job_with_default(log: Log = None) -> None:  # type: ignore[assignment]
             pass
 
-        plan = build_resolution_plan(
-            job_with_default, registered_types, runcontext_type=RunContext
-        )
+        plan = _plan_for(job_with_default)
 
         assert len(plan.params) == 1
         binding = plan.params[0]
-        # Even though there's a default, the param should still be resolved via DI
-        assert binding.source == "di"
+        assert binding.source == "capability"
         assert binding.has_default is True
-        assert binding.annotation is Log
+        assert binding.annotation == "Log"
+
+        seen: dict = {}
+        result = _run_hostless(
+            DIRegistry(), _recording_job({"log": Log | None, "return": None}, seen)
+        )
+        assert result.status.value == "Success", result
+        assert isinstance(seen["log"], Log)
 
 
 # =============================================================================

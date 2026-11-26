@@ -2428,5 +2428,10 @@ def _run_cli() -> None:
     # family name is one level deeper, which a group callback cannot see. Here
     # the effective args are in hand, and the block wraps the whole invocation,
     # so it is still in force when `FunctualizeApp.__init__` boots inside it.
+    # Builtins boot that app too. Give their plugins the same resolved import
+    # directories as job modes, including the convention .functualize/lib/.
+    # `cli_app`'s own resolver sees configured libraries but not this
+    # convention directory; without it, provider imports fail only here.
+    _apply_import_libs(effective[IMPORT_LIBS.key])
     with _diagnostic_scope(effective_args):
         cli_app()

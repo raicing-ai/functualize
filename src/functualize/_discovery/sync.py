@@ -271,10 +271,11 @@ def extract_module(source_file: str, project_root: Path) -> ModuleExtraction:
         from functualize._discovery.providers import (
             extract_capability_markers,
             extract_ext_metadata,
-            extract_parameters_from_signature,
+            extract_signature,
         )
 
-        parameters = extract_parameters_from_signature(job_func)
+        extraction = extract_signature(job_func)
+        parameters = extraction.parameters
 
         # Extract config_fields from Pydantic BaseModel if present
         config_fields: list[Any] = []
@@ -310,6 +311,7 @@ def extract_module(source_file: str, project_root: Path) -> ModuleExtraction:
                 function=job_func,
                 docstring=job_func.__doc__,
                 parameters=parameters,
+                omitted_contracts=extraction.omitted_contracts,
                 source=source_file,
                 metadata=extract_ext_metadata(job_func),
                 module_path=dotted_module_path,
@@ -632,7 +634,7 @@ def class_job_descriptors(
     from functualize._discovery.providers import (
         extract_capability_markers,
         extract_ext_metadata,
-        extract_parameters_from_signature,
+        extract_signature,
     )
 
     abstract_methods: frozenset[str] = getattr(
@@ -734,7 +736,8 @@ def class_job_descriptors(
         )
 
         proxy = ClassJobMethod(job_class, method_name, declaration=effective)
-        parameters = extract_parameters_from_signature(proxy)
+        method_extraction = extract_signature(proxy)
+        parameters = method_extraction.parameters
         try:
             config_fields = extract_field_descriptors(job_class) or parameters
         except Exception as exc:
@@ -755,6 +758,7 @@ def class_job_descriptors(
                 function=proxy,
                 docstring=method.__doc__,
                 parameters=parameters,
+                omitted_contracts=method_extraction.omitted_contracts,
                 source=source_file,
                 module_path=module_name,
                 source_file=source_file,

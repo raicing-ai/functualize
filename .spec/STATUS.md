@@ -2,6 +2,48 @@
 
 Functualize is pre-release (Alpha). Breaking changes are free until v1.0.0.
 
+## One parameter contract behind every surface
+
+Discovery classifies every job parameter and every config-model field once,
+into a parameter contract that the descriptor cache stores. The contract says
+what kind of input the parameter is: a caller input, a wire-only input, a
+config field, something the framework supplies, or refused. It also carries
+the parameter's value shape, its command-line spelling and its JSON Schema.
+Every surface reads that one decision, on cold and warm boots alike and
+under `from __future__ import annotations`: the click command, completion, the
+SmartBar and the inline TUI, `func builtin info schema`, MCP, HTTP, Lambda,
+and the AI tool scope. Calls bind at one door in the engine before dependency
+injection: a value is converted to the declared type or refused, the caller
+never reaches an injected parameter, and a refused call ends `Invalid` (exit 2,
+HTTP and Lambda 400, MCP `isError`).
+
+A declaration nothing can supply is refused at discovery, not at call time:
+`REJECTED_DISCOVERY` is decided from the declaration, and provider
+availability is admitted at every boot. The answer therefore does not depend
+on which boot path or config source asked. A field no CLI flag, environment
+variable, config file or `.env` can fill is refused for all of them alike. The
+job stays listed, the refusal is reported once per declaration as
+`UnsupportedParameter`, and every call is refused with its reason (ADR-018). A
+config field resolves through the ladder CLI → environment → config file →
+default. A `.env` file is loaded into the process environment at boot without
+overriding variables already set, so its values take the environment rung and
+outrank the config file. The click option carries no default of its own, so
+the ladder's precedence holds on every boot.
+
+`info schema`, the MCP tools and their schema exports publish
+`job_input_schema`, with group options merged once
+([ADR-010](../contributor/adr/010-job-schema-in-core.md)). The AI tool scope
+publishes the same contract-derived schema but does not merge group options:
+for a job whose options come from a group class, it offers fewer inputs than
+the job accepts. Removing `FieldDescriptor.type_annotation` and its `type`
+alias from `functualize.types` is a free pre-release break:
+`FieldDescriptor.contract` replaces both, and the cache stores the type only
+there. The parameter parity test pins the shipped behaviour on ten surfaces:
+`--help`, bash and zsh completion, the SmartBar, the inline TUI, `info`, the
+MCP schema and MCP call, HTTP and Lambda. It does not cover the AI tool scope.
+Its declaration matrix also renders the *Which parameters are inputs* table in
+the jobs guide.
+
 ## Scope-targeted walk-log append
 
 The walker's `workflow.*` bus events carry the generation it holds. The

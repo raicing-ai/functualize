@@ -16,8 +16,9 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from functualize._discovery.transforms import RenameTransform
-from functualize._types.descriptors import FieldDescriptor, JobDescriptor
+from functualize._types.descriptors import JobDescriptor
 from functualize._types.job_declaration import JobDeclaration
+from tests._support.declared_fields import declared
 
 # --- Strategies ---
 
@@ -37,17 +38,17 @@ groups = st.one_of(st.none(), st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=T
 # field at O(1) draw cost.
 field_descriptors = st.sampled_from(
     [
-        FieldDescriptor(
+        declared(
             name="alpha",
-            type_annotation="str",
+            annotation="str",
             choices=None,
             default=None,
             required=False,
             description="",
         ),
-        FieldDescriptor(
+        declared(
             name="beta",
-            type_annotation="int",
+            annotation="int",
             choices=["x", "y"],
             default=3,
             required=True,

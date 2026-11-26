@@ -20,10 +20,9 @@ from functualize._config.chain import ResolutionChain
 from functualize._config.job_config import (
     JobConfigView,
     resolve_job_config,
-    validate_job_config_types,
 )
 from functualize._config.sources import EnvSource
-from functualize.app.adapters.click_params import _config_option_params
+from functualize.app.adapters.click_params import build_click_params
 
 
 def generate_typer_options(model: type[BaseModel]) -> dict[str, click.Option]:
@@ -32,7 +31,11 @@ def generate_typer_options(model: type[BaseModel]) -> dict[str, click.Option]:
     Kept as a thin ``{name: option}`` view so the Property-13 tests read the same
     while asserting over click parameters instead of the removed typer options.
     """
-    return {opt.name: opt for opt in _config_option_params(model)}  # type: ignore[misc]
+
+    def job() -> None: ...
+
+    params, _, _ = build_click_params(job, model)
+    return {opt.name: opt for opt in params}  # type: ignore[misc]
 
 
 class _FileLikeSource:
@@ -235,18 +238,16 @@ class TestJobConfigTyperOptionGeneration:
     @given(st.data())
     def test_unsupported_types_raise_at_registration(self, data):
         # Feature: functualize, Property 13: JobConfig Typer Option Generation
-        """For any field with an unsupported type, validate_job_config_types raises
-        TypeError at registration time."""
+        """An unsupported config field receives the one discovery refusal."""
+        from functualize._primitives.parameter_contract import build_field_contract
+        from functualize._types.parameter_contract import Verdict
 
         class BadConfig(BaseModel):
             nested: dict[str, str] = Field(default_factory=dict)
 
-        try:
-            validate_job_config_types(BadConfig)
-            raise AssertionError("Should have raised TypeError")
-        except TypeError as e:
-            assert "nested" in str(e)
-            assert "Unsupported type" in str(e)
+        contract = build_field_contract("nested", BadConfig.model_fields["nested"])
+        assert contract.verdict is Verdict.REJECTED_DISCOVERY
+        assert "nested" in (contract.reject_reason or "")
 
 
 # --- Property 14: JobConfig Resolution Precedence ---

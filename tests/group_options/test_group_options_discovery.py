@@ -110,11 +110,12 @@ def test_cached_spec_carries_flags_types_and_marker_help(tmp_path: Path) -> None
     assert specs is not None
     fields = {f.name: f for f in specs["deploy"].fields}
 
-    assert fields["env"].type_annotation == "str"
+    # The cache carries each field's type in its contract (9.1).
+    assert fields["env"].contract.display == "str"
     assert fields["env"].default == "staging"
     assert fields["env"].short_flag == "-e"
     assert fields["env"].description == "Target environment"
-    assert fields["dry_run"].type_annotation == "bool"
+    assert fields["dry_run"].contract.display == "bool"
     assert fields["dry_run"].default is False
 
 

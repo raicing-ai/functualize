@@ -75,6 +75,10 @@ def _flag_opts(fields: list[Any]) -> list[str]:
 
     opts: list[str] = []
     for param in build_click_params_from_fields(fields):
+        # A hidden option parses but is not offered: `--help` omits it, so
+        # completion does too (F-06).
+        if getattr(param, "hidden", False):
+            continue
         # Positive spellings first, then the negative half of any `--x/--no-x`
         # pair — a negative reads naturally after its positive.
         for opt in (*getattr(param, "opts", ()), *getattr(param, "secondary_opts", ())):
@@ -84,19 +88,23 @@ def _flag_opts(fields: list[Any]) -> list[str]:
 
 
 def _field_choices(fields: list[Any]) -> dict[str, list[str]]:
-    """``{--flag: [choice, …]}`` for the enum-valued fields in ``fields``."""
+    """``{--flag: [choice, …]}`` for the rendered choice options in ``fields``.
+
+    Read off the rendered parameter's ``click.Choice``, the spellings the parser
+    accepts, rather than the field's own ``choices``: the rendered type is what
+    a typed choice set (B-3) spells as ``str(value)``.
+    """
+    import click
+
     from functualize.app.adapters.click_params import build_click_params_from_fields
 
-    params = {p.name: p for p in build_click_params_from_fields(fields)}
     choices: dict[str, list[str]] = {}
-    for f in fields:
-        values = getattr(f, "choices", None)
-        if not values:
+    for param in build_click_params_from_fields(fields):
+        if getattr(param, "hidden", False) or not isinstance(param.type, click.Choice):
             continue
-        param = params.get(f.name)
-        long_opts = [o for o in getattr(param, "opts", ()) if o.startswith("--")]
+        long_opts = [o for o in param.opts if o.startswith("--")]
         if long_opts:
-            choices[long_opts[0]] = list(values)
+            choices[long_opts[0]] = [str(choice) for choice in param.type.choices]
     return choices
 
 

@@ -11,17 +11,20 @@ builder produced.
 
 from functualize._cli.completions.data import _flag_opts
 from functualize._types.descriptors import FieldDescriptor
+from tests._support.declared_fields import declared, with_contract
 
 
 def _field(
-    name: str, type_annotation: str = "bool", default: object = None
+    name: str, annotation: str = "bool", default: object = None
 ) -> FieldDescriptor:
-    return FieldDescriptor(
-        name=name,
-        type_annotation=type_annotation,
-        default=default,
-        description=f"{name} field",
-        required=False,
+    return with_contract(
+        declared(
+            name=name,
+            annotation=annotation,
+            default=default,
+            description=f"{name} field",
+            required=False,
+        )
     )
 
 
@@ -44,9 +47,7 @@ def test_bool_with_sibling_named_no_cache_gets_no_invented_negative() -> None:
 
 def test_non_boolean_field_is_unchanged() -> None:
     # A value-taking option is not a flag pair: no spurious negative appears.
-    assert _flag_opts([_field("env", type_annotation="str", default="dev")]) == [
-        "--env"
-    ]
+    assert _flag_opts([_field("env", annotation="str", default="dev")]) == ["--env"]
 
 
 def test_completion_list_agrees_with_what_click_accepts() -> None:
@@ -55,8 +56,8 @@ def test_completion_list_agrees_with_what_click_accepts() -> None:
     fields = [
         _field("cache", default=True),
         _field("no_cache", default=True),
-        _field("env", type_annotation="str", default="dev"),
-        _field("retries", type_annotation="int", default=3),
+        _field("env", annotation="str", default="dev"),
+        _field("retries", annotation="int", default=3),
     ]
     # The complete partition click will actually parse: every param's positive
     # and negative spellings, in declaration order.

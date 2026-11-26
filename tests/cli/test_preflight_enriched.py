@@ -17,6 +17,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from functualize._cli.tui.app import FunctualizeInlineTUI
+from tests._support.declared_fields import with_contract
 
 # =============================================================================
 # Helpers
@@ -30,20 +31,22 @@ def _make_field_descriptor(
     default: Any = None,
     positional: bool = False,
     short_flag: str | None = None,
-    type_annotation: str = "str",
+    annotation: str = "str",
     description: str = "",
     choices: list[str] | None = None,
 ) -> SimpleNamespace:
     """Create a mock field descriptor."""
-    return SimpleNamespace(
-        name=name,
-        required=required,
-        default=default,
-        positional=positional,
-        short_flag=short_flag,
-        type_annotation=type_annotation,
-        description=description,
-        choices=choices,
+    return with_contract(
+        SimpleNamespace(
+            name=name,
+            required=required,
+            default=default,
+            positional=positional,
+            short_flag=short_flag,
+            annotation=annotation,
+            description=description,
+            choices=choices,
+        )
     )
 
 
@@ -284,7 +287,7 @@ class TestChoicesDisplay:
                 "env",
                 choices=["dev", "staging", "prod"],
                 default="dev",
-                type_annotation="str",
+                annotation="str",
             )
         ]
         log = _create_tui_and_render("deploy", fields, docstring="Deploy")
@@ -294,9 +297,9 @@ class TestChoicesDisplay:
         ]
         assert len(type_only_lines) == 0
 
-    def test_type_annotation_inline_with_field(self) -> None:
+    def test_annotation_inline_with_field(self) -> None:
         """Type annotation appears inline on the same line as the field."""
-        fields = [_make_field_descriptor("port", default=8080, type_annotation="int")]
+        fields = [_make_field_descriptor("port", default=8080, annotation="int")]
         log = _create_tui_and_render("serve", fields, docstring="Serve")
         field_line = next(ln for ln in log.lines if "port" in ln)
         assert "int" in field_line
@@ -362,7 +365,7 @@ class TestFieldNameCliSpelling:
             _make_field_descriptor(
                 "dry_run",
                 default=False,
-                type_annotation="bool",
+                annotation="bool",
                 description="Preview without applying",
             )
         ]

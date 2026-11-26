@@ -22,22 +22,25 @@ import pytest
 
 from functualize._cli.tui.preflight_summary import format_preflight_field_line
 from functualize.app.utils import MASK
+from tests._support.declared_fields import with_contract
 
 REAL = "hunter2-real-credential-value"
 
 
 def _fd(name: str, *, secret: bool = False, default=None, required: bool = False):
     """A field descriptor stand-in carrying only what the formatter reads."""
-    return SimpleNamespace(
-        name=name,
-        secret=secret,
-        default=default,
-        required=required,
-        description="",
-        type_annotation="str",
-        positional=False,
-        short_flag=None,
-        param_kind=None,
+    return with_contract(
+        SimpleNamespace(
+            name=name,
+            secret=secret,
+            default=default,
+            required=required,
+            description="",
+            annotation="str",
+            positional=False,
+            short_flag=None,
+            param_kind=None,
+        )
     )
 
 

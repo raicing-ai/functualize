@@ -279,7 +279,7 @@ def _make_function(param_specs: list[tuple[str, Any, Any]]) -> callable:
 
 
 def _expected_type_str(annotation: Any) -> str:
-    """Compute the expected type_annotation string for a given annotation.
+    """Compute the expected contract display string for a given annotation.
 
     Mirrors the logic of _annotation_to_type_str in providers.py.
     """
@@ -323,7 +323,7 @@ class TestFieldDescriptorExtractionProperty:
     combinations of required params, optional params with defaults, list[T]
     types, bool flags, and Enum choices as member values), the resulting JobDescriptor.parameters
     SHALL contain a FieldDescriptor for each parameter with: correct name,
-    type_annotation matching the annotation string, required=True iff no default
+    contract display matching the annotation string, required=True iff no default
     exists, correct default value, and choices populated for Enum types.
 
     **Validates: Requirements 8.1**
@@ -359,10 +359,10 @@ class TestFieldDescriptorExtractionProperty:
             assert result[i].name == name
 
     @given(param_specs=_params_list_strategy())
-    def test_correct_type_annotations(
+    def test_correct_contract_displays(
         self, param_specs: list[tuple[str, Any, Any]]
     ) -> None:
-        """Each FieldDescriptor.type_annotation matches the expected string for the annotation.
+        """Each FieldDescriptor.contract.display matches the expected string for the annotation.
 
         **Validates: Requirements 8.1**
         """
@@ -371,9 +371,9 @@ class TestFieldDescriptorExtractionProperty:
 
         for i, (_, annotation, _) in enumerate(param_specs):
             expected = _expected_type_str(annotation)
-            assert result[i].type_annotation == expected, (
+            assert result[i].contract.display == expected, (
                 f"Parameter '{param_specs[i][0]}': "
-                f"expected type_annotation='{expected}', got '{result[i].type_annotation}'"
+                f"expected contract display='{expected}', got '{result[i].contract.display}'"
             )
 
     @given(param_specs=_params_list_strategy())
@@ -453,7 +453,7 @@ class TestFieldDescriptorExtractionProperty:
     ) -> None:
         """All FieldDescriptor properties hold together for any generated function signature.
 
-        This is the combined property test that verifies name, type_annotation,
+        This is the combined property test that verifies name, contract display,
         required, default, and choices all in one pass.
 
         **Validates: Requirements 8.1**
@@ -469,9 +469,9 @@ class TestFieldDescriptorExtractionProperty:
             # Correct name
             assert fd.name == name
 
-            # Correct type_annotation
+            # Correct contract display
             expected_type = _expected_type_str(annotation)
-            assert fd.type_annotation == expected_type
+            assert fd.contract.display == expected_type
 
             # Correct required
             has_default = default is not inspect.Parameter.empty

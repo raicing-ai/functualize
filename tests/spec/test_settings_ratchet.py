@@ -21,7 +21,8 @@ from functualize.plugin import FUNCTUALIZE_SETTINGS
 SOURCE = Path(__file__).parents[2] / "src" / "functualize"
 
 # These are delivery seams retained for the later architecture pass. The
-# original pin had 15 sites; six settings/surface sites moved in this feature.
+# original pin had 15 sites; six settings/surface sites and two annotation
+# parsing sites moved in this feature.
 DELIVERY_IMPORTS = Counter(
     {
         ("app/commands.py", "functualize._cli.builtins", "get_builtin"): 1,
@@ -35,11 +36,6 @@ DELIVERY_IMPORTS = Counter(
         ("app/adapters/cli.py", "functualize._cli.info", "install_facts"): 1,
         ("app/adapters/cli.py", "functualize._cli.info", "discovery_failures"): 1,
         ("app/adapters/tui.py", "functualize._cli.inline_tui", "launch_inline_tui"): 1,
-        (
-            "app/adapters/click_params.py",
-            "functualize._cli.annotation_utils",
-            "_parse",
-        ): 2,
     }
 )
 
@@ -64,7 +60,7 @@ class _RuntimeImports(ast.NodeVisitor):
             )
 
 
-def test_public_delivery_imports_are_the_nine_retained_sites() -> None:
+def test_public_delivery_imports_are_the_seven_retained_sites() -> None:
     actual: Counter[tuple[str, str, str]] = Counter()
     for folder in ("app", "job", "types", "plugin", "workflow"):
         for path in (SOURCE / folder).rglob("*.py"):
@@ -76,7 +72,7 @@ def test_public_delivery_imports_are_the_nine_retained_sites() -> None:
             )
 
     assert actual == DELIVERY_IMPORTS
-    assert sum(actual.values()) == 9
+    assert sum(actual.values()) == 7
     assert not [
         module
         for _, module, _ in actual

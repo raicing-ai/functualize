@@ -192,10 +192,13 @@ def test_every_in_tree_reader_passes_one(project_tree) -> None:
         )
         if "read_group_options_from_cache(" in line and "def read_group" not in line
     ]
-    # Five readers: four in core, one in the MCP plugin. The count is asserted
-    # so a sixth arrives with this test in hand rather than silently.
-    assert len(sites) == 5, (
-        f"expected 5 in-tree readers, found {len(sites)}:\n" + "\n".join(sites)
+    # Six readers: five in core, one in the MCP plugin. The count is asserted
+    # so a seventh arrives with this test in hand rather than silently. The
+    # sixth is `_cli/info.py`'s: `info` merges a job's inherited group options
+    # into its schema exactly as the MCP server does, so it reads the same
+    # section under the same fingerprint.
+    assert len(sites) == 6, (
+        f"expected 6 in-tree readers, found {len(sites)}:\n" + "\n".join(sites)
     )
 
 

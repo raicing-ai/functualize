@@ -27,6 +27,8 @@ from datetime import UTC, datetime
 from importlib import resources
 from typing import TYPE_CHECKING
 
+from functualize_substrate_sqlite._driver import ForeignKeyMigrationDriver
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -110,12 +112,14 @@ def _load(version: int, name: str) -> Migration:
 #: release carried the branch-only numbering, so nothing but pre-merge branch
 #: databases ever held it.
 #: Revision 5 adds the `run_tags` table and its lookup index, nothing else.
+#: Revision 6 rebuilds `runs` to admit the `invalid` outcome.
 SHIPPED_MIGRATIONS: tuple[Migration, ...] = (
     _load(1, "runtime_schema"),
     _load(2, "step_record_metadata"),
     _load(3, "step_attempt"),
     _load(4, "gate_interactions"),
     _load(5, "run_tags"),
+    _load(6, "run_status_invalid"),
 )
 
 
@@ -138,6 +142,16 @@ _ADDED = re.compile(
     r"ADD\s+(?:COLUMN\s+)?[\"'`\[]?([A-Za-z_][A-Za-z0-9_]*)",
     re.IGNORECASE,
 )
+_RENAMED = re.compile(
+    r"ALTER\s+TABLE\s+[\"'`\[]?([A-Za-z_][A-Za-z0-9_]*)[\"'`\]]?\s+"
+    r"RENAME\s+TO\s+[\"'`\[]?([A-Za-z_][A-Za-z0-9_]*)",
+    re.IGNORECASE,
+)
+_STATUS_CHECK = re.compile(
+    r"status\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(status\s+IN\s*\(([^)]*)\)\)",
+    re.IGNORECASE,
+)
+_FK_OFF_MARKER = "-- migration: foreign-keys-off"
 
 
 def migrate(
@@ -258,7 +272,30 @@ def _check_objects(
     columns: dict[str, set[str]] = {}
     for version in sorted(ledger):
         sql = shipped[version].sql
-        missing = sorted(name for name in _CREATED.findall(sql) if name not in present)
+        renames = _RENAMED.findall(sql)
+        renamed_away = {source for source, _ in renames}
+        missing = sorted(
+            name
+            for name in _CREATED.findall(sql)
+            if name not in present and name not in renamed_away
+        )
+        for _, target in renames:
+            if target not in present:
+                missing.append(target)
+                continue
+            # The rebuilt table's status CHECK is part of this revision's
+            # on-disk contract, not just the presence of a table named runs.
+            expected = _STATUS_CHECK.search(sql)
+            if expected is not None:
+                rows = driver.query(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                    (target,),
+                )
+                actual = _STATUS_CHECK.search(str(rows[0][0])) if rows else None
+                if actual is None or set(re.findall(r"'([^']+)'", expected[1])) != set(
+                    re.findall(r"'([^']+)'", actual[1])
+                ):
+                    missing.append(f"{target}.status CHECK")
         for table, column in _ADDED.findall(sql):
             if table not in columns:
                 columns[table] = {
@@ -291,7 +328,28 @@ def _apply(driver: SqlDriver, migration: Migration) -> None:
         )
     )
     try:
-        driver.batch(statements)
+        if migration.sql.startswith(_FK_OFF_MARKER):
+            if not isinstance(driver, ForeignKeyMigrationDriver):
+                raise MigrationRefused(
+                    f"Revision {migration.version} requires foreign keys off, "
+                    "but the driver has no safe migration capability.",
+                    version=migration.version,
+                    repair="use a driver that supports foreign-key-safe table rebuilds; "
+                    "do not apply this revision with foreign keys on.",
+                )
+            with driver.foreign_keys_disabled():
+                driver.batch(statements)
+                violations = driver.query("PRAGMA foreign_key_check")
+            if violations:
+                raise MigrationRefused(
+                    f"Revision {migration.version} left foreign-key violations: "
+                    f"{violations!r}.",
+                    version=migration.version,
+                    repair="restore the database from a backup taken before the "
+                    "upgrade; do not continue against inconsistent references.",
+                )
+        else:
+            driver.batch(statements)
     except sqlite3.DatabaseError:
         # Another process may have applied the same revision between our read
         # and our batch. Its record, with the same checksum, is success; any

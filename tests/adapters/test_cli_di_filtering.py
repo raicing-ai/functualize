@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -100,8 +101,12 @@ class TestDICapabilityFiltering:
         assert len(sig.parameters) == 0
 
     def test_primitive_types_preserved(self) -> None:
-        """str, int, float, bool, Path params are kept."""
-        from pathlib import Path
+        """str, int, float, bool, Path params are kept.
+
+        ``Path`` is imported at module level: under PEP 563 a local import is a
+        forward reference no classifier can resolve, and such a parameter is
+        refused, as discovery refuses it for any job.
+        """
 
         def run(name: str, count: int, rate: float, dry: bool, out: Path) -> None:
             pass

@@ -22,9 +22,6 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
-# Base types supported for config validation and coercion
-SUPPORTED_TYPES = (str, int, float, bool)
-
 
 def _env_token(section: str, key: str) -> str:
     """Build the ``SECTION_KEY`` token used for env and override lookup.
@@ -224,20 +221,6 @@ class JobConfigView:
 # =============================================================================
 
 
-def _get_field_type(field_info: Any) -> Any:
-    """Extract the type annotation from a Pydantic field info object.
-
-    Handles both Pydantic v1 and v2 field info objects.
-    """
-    # Pydantic v2
-    if hasattr(field_info, "annotation"):
-        return field_info.annotation
-    # Pydantic v1 fallback
-    if hasattr(field_info, "outer_type_"):
-        return field_info.outer_type_
-    return type(None)
-
-
 def _is_enum_subclass(tp: Any) -> bool:
     """Check if a type is an Enum subclass (but not Enum itself)."""
     return isinstance(tp, type) and issubclass(tp, enum.Enum) and tp is not enum.Enum
@@ -270,98 +253,14 @@ def _unwrap_list(tp: Any) -> tuple[Any, bool]:
 def _unwrap_secret(tp: Any) -> tuple[Any, bool]:
     """Unwrap ``Secret`` / ``Secret[str]`` to ``(str, True)``, else ``(tp, False)``.
 
-    Without this the type gate rejects the framework's own public secret type —
-    a second, independent refusal sitting behind Pydantic's, so giving
-    ``Secret`` a core schema alone is not enough to make it usable.
-
-    The unwrapped type is always ``str``, never the parameter. ``Secret``
-    stores ``str(value)`` and ``get_secret_value()`` returns ``str``, so it is
-    string-only by construction, and its core schema validates from
-    ``str_schema()`` whatever the parameter says. Reading ``T`` here would let
-    ``Secret[int]`` through the gate and then hand the job a ``Secret`` holding
-    ``"123"`` — a type the model claims not to have. ``_reject_non_str_secret``
-    turns that into an error at registration instead.
+    This helper is used only when coercing an accepted config value. Admission
+    of a ``Secret[T]`` declaration is decided by its field contract.
     """
     from functualize._types.redaction import Secret
 
     if tp is Secret or get_origin(tp) is Secret:
         return str, True
     return tp, False
-
-
-def _reject_non_str_secret(tp: Any, field_name: str) -> None:
-    """Raise when a field is annotated ``Secret[T]`` for a non-``str`` ``T``.
-
-    ``Secret`` wraps a string and nothing else. Accepting ``Secret[int]``
-    silently would be worse than rejecting it: the field would validate, the
-    model would report ``int``, and the job would receive a ``Secret`` holding
-    a string.
-    """
-    from functualize._types.redaction import Secret
-
-    if get_origin(tp) is not Secret:
-        return
-    args = get_args(tp)
-    if args and args[0] is not str:
-        inner = getattr(args[0], "__name__", args[0])
-        raise TypeError(
-            f"Field '{field_name}': Secret[{inner}] is not supported. "
-            f"Secret wraps a string — it stores str(value) and "
-            f"get_secret_value() returns str. Use Secret[str], and convert at "
-            f"the point of use."
-        )
-
-
-def _is_supported_type(tp: Any) -> bool:
-    """Check if a type is supported for configuration.
-
-    Supported types:
-    - str, int, float, bool
-    - Enum subclasses
-    - Optional[T] where T is a supported type
-    - list[T] where T is a supported base type or Enum
-    """
-    if tp in SUPPORTED_TYPES:
-        return True
-
-    if _is_enum_subclass(tp):
-        return True
-
-    inner, is_secret = _unwrap_secret(tp)
-    if is_secret:
-        return _is_supported_type(inner)
-
-    inner, is_optional = _unwrap_optional(tp)
-    if is_optional:
-        return _is_supported_type(inner)
-
-    inner, is_list = _unwrap_list(tp)
-    if is_list:
-        return inner in SUPPORTED_TYPES or _is_enum_subclass(inner)
-
-    return False
-
-
-def validate_config_types(config_class: type) -> None:
-    """Validate that all fields in a config model have supported types.
-
-    Raises TypeError at registration time for unsupported field types.
-
-    Args:
-        config_class: A Pydantic model class to validate.
-
-    Raises:
-        TypeError: If any field has an unsupported type.
-    """
-    model_fields = getattr(config_class, "model_fields", {})
-    for field_name, field_info in model_fields.items():
-        field_type = getattr(field_info, "annotation", None)
-        if field_type is not None and not _is_supported_type(field_type):
-            raise TypeError(
-                f"Unsupported type for field '{field_name}': {field_type}. "
-                f"Supported types are: str, int, float, bool, Enum subclasses, "
-                f"Optional[T] for supported T, and list[T] for supported T."
-            )
 
 
 def coerce_value(value: Any, target_type: Any) -> Any:
@@ -434,80 +333,6 @@ def coerce_value(value: Any, target_type: Any) -> Any:
         return target_type(value)
 
     return value
-
-
-def validate_job_config_types(job_config_class: type) -> None:
-    """Validate that all fields in a JobConfig model have supported types.
-
-    Raises TypeError at registration time for unsupported field types.
-
-    Args:
-        job_config_class: The Pydantic model class to validate.
-
-    Raises:
-        TypeError: If any field has an unsupported type.
-    """
-    from pydantic import BaseModel
-
-    if not (
-        isinstance(job_config_class, type) and issubclass(job_config_class, BaseModel)
-    ):
-        return
-
-    import enum
-    import types as _types
-    from typing import Union, get_args, get_origin
-
-    def _is_enum(tp: Any) -> bool:
-        return (
-            isinstance(tp, type) and issubclass(tp, enum.Enum) and tp is not enum.Enum
-        )
-
-    def _unwrap_optional(tp: Any) -> tuple[Any, bool]:
-        origin = get_origin(tp)
-        args = get_args(tp)
-        if origin is Union or origin is _types.UnionType:
-            non_none = [a for a in args if a is not type(None)]
-            if len(non_none) == 1 and type(None) in args:
-                return non_none[0], True
-        return tp, False
-
-    def _unwrap_list(tp: Any) -> tuple[Any, bool]:
-        if get_origin(tp) is list:
-            args = get_args(tp)
-            if args:
-                return args[0], True
-        return tp, False
-
-    def _is_supported(tp: Any) -> bool:
-        if tp in SUPPORTED_TYPES:
-            return True
-        if _is_enum(tp):
-            return True
-        inner, is_secret = _unwrap_secret(tp)
-        if is_secret:
-            return _is_supported(inner)
-        inner, is_opt = _unwrap_optional(tp)
-        if is_opt:
-            return _is_supported(inner)
-        inner, is_list = _unwrap_list(tp)
-        if is_list:
-            return inner in SUPPORTED_TYPES or _is_enum(inner)
-        return False
-
-    for field_name, field_info in job_config_class.model_fields.items():
-        field_type = field_info.annotation
-        # Before the general check: `Secret[int]` *would* pass it (the wrapper
-        # unwraps to str), so a bare "unsupported type" refusal would never
-        # fire and the mismatch would reach the job instead.
-        _reject_non_str_secret(field_type, field_name)
-        if not _is_supported(field_type):
-            raise TypeError(
-                f"Unsupported type for field '{field_name}': {field_type}. "
-                f"Supported types are: str, int, float, bool, Enum subclasses, "
-                f"Secret[str], Optional[T] for supported T, and list[T] for "
-                f"supported T."
-            )
 
 
 def resolve_job_config(

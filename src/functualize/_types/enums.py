@@ -48,6 +48,8 @@ class RunStatus(Enum):
     #: something that is not there" and exits 3. Collapsing them is how a
     #: stage certifies success having verified nothing.
     REFUSED = "Refused"
+    #: The call could not be bound to the job's declaration; the body did not run.
+    INVALID = "Invalid"
 
     @property
     def resumable(self) -> bool:
@@ -91,6 +93,7 @@ class RunStatus(Enum):
             RunStatus.CANCELLED,
             RunStatus.TIMEOUT,
             RunStatus.REFUSED,
+            RunStatus.INVALID,
         }
 
     @property

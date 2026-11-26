@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from functualize._cli.builtins import builtin_descriptions
 
@@ -132,7 +132,7 @@ class InProcessIntrospector:
         if fields:
             lines.append("Options:")
             for param in fields:
-                type_str = param.type_annotation or "str"
+                type_str = _type_label(param)
                 default_str = ""
                 if param.default is not None:
                     default_str = f"  [default: {param.default}]"
@@ -382,7 +382,7 @@ class InProcessIntrospector:
                 )
 
         # Source 3: path completions for Path-typed fields
-        type_ann = target_field.type_annotation.lower()
+        type_ann = _type_label(target_field).lower()
         name_lower = field_name.lower()
         if "path" in type_ann or "path" in name_lower or "file" in name_lower:
             try:
@@ -414,3 +414,13 @@ class InProcessIntrospector:
 # Known builtin command descriptions — derived from the single registry
 # in _cli/builtins.py so they cannot drift.
 _BUILTIN_DESCRIPTIONS: dict[str, str] = builtin_descriptions()
+
+
+def _type_label(field: Any) -> str:
+    """A field's type as a person reads it: its contract's ``display``.
+
+    A cached descriptor holds no type string (9.1); a field without a contract
+    reads as ``str``, the declared type of an unannotated parameter.
+    """
+    contract = getattr(field, "contract", None)
+    return (contract.display if contract is not None else "") or "str"
