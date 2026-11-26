@@ -18,7 +18,8 @@ from unittest.mock import MagicMock, patch
 from functualize._cli.data.pending_execution import PendingExecution
 from functualize._cli.data.resolved_value_compat import ResolvedValueCompat
 from functualize._cli.tui.app import FunctualizeInlineTUI
-from functualize._cli.tui.cli_arg_parser import parse_cli_args_to_kwargs
+from functualize._cli.tui.cli_arg_parser import parse_job_args
+from tests._support.declared_fields import declared, with_contract
 
 # =============================================================================
 # Helpers
@@ -32,20 +33,23 @@ def _make_field_descriptor(
     default: Any = None,
     positional: bool = False,
     short_flag: str | None = None,
-    type_annotation: str = "str",
+    annotation: str = "str",
     description: str = "",
     choices: list[str] | None = None,
 ) -> SimpleNamespace:
-    """Create a mock field descriptor matching the JobDescriptor.parameters interface."""
-    return SimpleNamespace(
-        name=name,
-        required=required,
-        default=default,
-        positional=positional,
-        short_flag=short_flag,
-        type_annotation=type_annotation,
-        description=description,
-        choices=choices,
+    """A real field descriptor: the bar parses through the command it renders."""
+
+    return with_contract(
+        declared(  # type: ignore[return-value]
+            name=name,
+            annotation=annotation,
+            default=default,
+            description=description,
+            required=required,
+            choices=choices,
+            positional=positional,
+            short_flag=short_flag,
+        )
     )
 
 
@@ -225,7 +229,7 @@ class TestOverridesSyncWithTokens:
         )
 
         tokens = ["serve", "--port", "9090"]
-        provided = parse_cli_args_to_kwargs(tokens[1:], fields=fields)
+        provided = parse_job_args(tokens[1:], fields, raw=True)
 
         # Simulate the sync logic from on_input_changed
         for key, val in provided.items():
@@ -253,7 +257,7 @@ class TestOverridesSyncWithTokens:
             _make_field_descriptor("port", default=8080),
             _make_field_descriptor("host", default="localhost"),
         ]
-        provided = parse_cli_args_to_kwargs(tokens[1:], fields=fields)
+        provided = parse_job_args(tokens[1:], fields, raw=True)
 
         # Simulate the sync logic (GAP-1): clear overrides not in provided,
         # unconditionally — a value has no life apart from its bar token.
@@ -290,7 +294,7 @@ class TestOverridesSyncWithTokens:
             _make_field_descriptor("port", default=8080),
             _make_field_descriptor("host", default="localhost"),
         ]
-        provided = parse_cli_args_to_kwargs(tokens[1:], fields=fields)
+        provided = parse_job_args(tokens[1:], fields, raw=True)
 
         current_override_keys = set(pending.overrides.keys())
         for key, val in provided.items():

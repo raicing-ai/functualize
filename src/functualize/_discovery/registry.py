@@ -516,10 +516,11 @@ class JobRegistry:
                 from functualize._discovery.providers import (
                     extract_capability_markers,
                     extract_ext_metadata,
-                    extract_parameters_from_signature,
+                    extract_signature,
                 )
 
-                parameters = extract_parameters_from_signature(attr)
+                extraction = extract_signature(attr)
+                parameters = extraction.parameters
 
                 descriptor = JobDescriptor(
                     name=registry_key,
@@ -527,6 +528,7 @@ class JobRegistry:
                     function=attr,
                     docstring=attr.__doc__,
                     parameters=parameters,
+                    omitted_contracts=extraction.omitted_contracts,
                     source=str(source_file_path),
                     metadata=extract_ext_metadata(attr),
                     module_path=module.__name__,

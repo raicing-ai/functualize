@@ -137,8 +137,8 @@ class TestUnresolvableAnnotations:
 
         result = app.execute(request_for("report"))
 
-        assert result.status is RunStatus.SUCCESS
-        assert result.return_value == "ran"
+        assert result.status is RunStatus.INVALID
+        assert "Missing" in str(result.exception)
 
 
 class TestRegressionGuard:

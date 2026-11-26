@@ -212,114 +212,83 @@ class SmartBar(Input):
         # Command recognized — check required fields
         required = get_required_fields(command)
 
-        # Build field metadata for positional/short-flag detection
+        # Read the same rendered parameters that parse `func <job>`. Their
+        # spellings include short and negative flags, and their argument order
+        # is the order in which bare tokens are consumed (B-17, F-10).
         fields = get_fields(command) if get_fields else []
-        positional_names: list[str] = [
-            f.name for f in fields if getattr(f, "positional", False)
-        ]
-        short_to_name: dict[str, str] = {}
-        for f in fields:
-            short = getattr(f, "short_flag", None)
-            if short:
-                short_to_name[short.lstrip("-")] = f.name
+        rendered: list[Any] = []
+        if fields:
+            import click
 
-        # Extract provided field names from the job's own arguments. Walking
-        # the whole line instead would count path segments as positionals —
-        # `web` filling `image` — and mid-path group flags as job flags.
+            from functualize.app.adapters.click_params import (
+                build_click_params_from_fields,
+            )
+
+            rendered = build_click_params_from_fields(fields)
+            options = [p for p in rendered if isinstance(p, click.Option)]
+            positional_names = [
+                p.name for p in rendered if isinstance(p, click.Argument) and p.name
+            ]
+        else:
+            options = []
+            positional_names = []
+
+        # `fields` empty is a builtin or a caller without field metadata. It
+        # cannot validate flags, but can still count a long spelling as supplied.
         provided_names: set[str] = set()
         positional_idx = 0
         i = 0
         while i < len(args):
             tok = args[i]
-            if tok.startswith("--") and len(tok) > 2:
-                provided_names.add(tok[2:].replace("-", "_"))
-                # Skip the value token if present
-                i += 2
-            elif tok.startswith("-") and len(tok) >= 2 and not tok[1:].isdigit():
-                # Short flag: -g value
-                flag_char = tok.lstrip("-")
-                field_name = short_to_name.get(flag_char)
-                if field_name:
-                    provided_names.add(field_name)
-                    # Skip the value token
-                    if i + 1 < len(args) and not args[i + 1].startswith("-"):
-                        i += 2
+            is_option = tok.startswith("-") and not _is_negative_number(tok)
+            if is_option and len(tok) > 1:
+                spelling = tok.split("=", 1)[0]
+                param = next(
+                    (
+                        option
+                        for option in options
+                        if spelling in (*option.opts, *option.secondary_opts)
+                    ),
+                    None,
+                )
+                if param is None and fields:
+                    reason = f"Unknown flag: {spelling}"
+                    self._validity_reason = reason
+                    self.placeholder = reason
+                    self._set_readiness(BarReadiness.GREY)
+                    return BarReadiness.GREY
+                if param is None:
+                    if tok.startswith("--"):
+                        provided_names.add(spelling[2:].replace("-", "_"))
+                        i += 1 if "=" in tok else 2
                     else:
                         i += 1
-                else:
-                    i += 1
-            else:
-                # Bare token → assign to next positional field
-                if positional_idx < len(positional_names):
-                    provided_names.add(positional_names[positional_idx])
-                    positional_idx += 1
-                i += 1
-
-        # A flag the job does not declare is not a missing field — it is a
-        # command that will not run. This is where a group's flag written
-        # *after* the job surfaces: position is what separates a group flag
-        # from the job's own, so `deploy web run --env prod` is a job flag
-        # called `env`, and there is no such thing. Reporting READY there sent
-        # the user to a click error they had no warning of.
-        # The set is built from the same rules the click param builder applies
-        # (`app/adapters/click_params.py`), field by field, rather than from
-        # field *names*: what click accepts as `--x` is not "every field named
-        # x". Two of its rules bite.
-        #
-        #   * A **positional** field becomes a `click.Argument`, which has no
-        #     flag spelling at all — `deploy web run --image v1.2` is refused
-        #     by click even though `image` is a real field.
-        #   * A boolean's negative half is decided by `negative_flag_for`, the
-        #     same rule the click builders render from. It used to be allowed
-        #     only for a bool *without* a short flag, mirroring a builder that
-        #     dropped the pair in that case; both now emit it, and a sibling
-        #     literally named `no_x` still suppresses it.
-        from functualize.app.utils import negative_flag_for
-
-        known: set[str] = set()
-        known_short: set[str] = set()
-        field_names = {f.name for f in fields}
-        for f in fields:
-            if getattr(f, "positional", False):
-                # Argument, not Option: given by being typed, never by name.
-                continue
-            stdin_flag = getattr(f, "stdin_flag", None)
-            if getattr(f, "is_stdin", False) and stdin_flag:
-                known.add(stdin_flag.lstrip("-").replace("-", "_"))
-                continue
-            known.add(f.name)
-            short = getattr(f, "short_flag", None)
-            if short:
-                known_short.add(short.lstrip("-"))
-            if (getattr(f, "type_annotation", "") or "") == "bool":
-                negative = negative_flag_for(f.name, field_names)
-                if negative:
-                    known.add(negative[2:].replace("-", "_"))
-
-        # `fields` empty means "nothing known about this command" (a builtin,
-        # or a get_fields callback that was not supplied) — not "no flag is
-        # valid". Skip rather than grey out everything.
-        if fields:
-            for tok in args:
-                if tok.startswith("--"):
-                    if len(tok) <= 2:
-                        continue
-                    spelled = tok[2:].split("=", 1)[0]
-                    if spelled.replace("-", "_") in known:
-                        continue
-                elif tok.startswith("-") and len(tok) >= 2:
-                    if _is_negative_number(tok):
-                        continue
-                    spelled = tok[1:].split("=", 1)[0]
-                    if spelled in known_short:
-                        continue
-                else:
                     continue
-                reason = f"Unknown flag: {tok.split('=', 1)[0]}"
-                self._validity_reason = reason
-                self.placeholder = reason
-                self._set_readiness(BarReadiness.GREY)
-                return BarReadiness.GREY
+
+                name = param.name or ""
+                provided_names.add(name)
+                field = next((f for f in fields if f.name == name), None)
+                shape = getattr(getattr(field, "contract", None), "shape", None)
+                # The contract decides arity. A contractless builtin or plugin
+                # uses the rendered parameter's own flag bit.
+                presence_flag = (
+                    shape.scalar.value == "bool" and shape.container.value == "none"
+                    if shape is not None
+                    else param.is_flag
+                )
+                if presence_flag and "=" in tok:
+                    reason = f"Flag takes no value: {spelling}"
+                    self._validity_reason = reason
+                    self.placeholder = reason
+                    self._set_readiness(BarReadiness.GREY)
+                    return BarReadiness.GREY
+                i += 1 if presence_flag or "=" in tok else 2
+                continue
+
+            if positional_idx < len(positional_names):
+                provided_names.add(positional_names[positional_idx])
+                positional_idx += 1
+            i += 1
 
         missing = [f for f in required if f not in provided_names]
 

@@ -79,10 +79,10 @@ def _names(driver: LocalSqliteDriver, kind: str) -> set[str]:
     return {name for (name,) in rows if not name.startswith("sqlite_")}
 
 
-def test_an_empty_database_becomes_version_5_with_five_ledger_rows(
+def test_an_empty_database_becomes_version_6_with_six_ledger_rows(
     driver: LocalSqliteDriver,
 ) -> None:
-    assert migrate(driver) == 5
+    assert migrate(driver) == 6
 
     rows = driver.query("SELECT version, name, checksum FROM schema_migrations")
     assert rows == [
@@ -91,6 +91,7 @@ def test_an_empty_database_becomes_version_5_with_five_ledger_rows(
         (3, "step_attempt", SHIPPED_MIGRATIONS[2].checksum),
         (4, "gate_interactions", SHIPPED_MIGRATIONS[3].checksum),
         (5, "run_tags", SHIPPED_MIGRATIONS[4].checksum),
+        (6, "run_status_invalid", SHIPPED_MIGRATIONS[5].checksum),
     ]
     columns = {row[1]: row for row in driver.query("PRAGMA table_info(workflow_steps)")}
     assert columns["attempt"][2:5] == ("INTEGER", 1, "0")  # type, NOT NULL, default
@@ -117,7 +118,7 @@ def test_prepare_upgrades_a_version_1_file_and_defaults_step_metadata(
     try:
         driver = LocalSqliteDriver(path)
         try:
-            assert driver.query("SELECT max(version) FROM schema_migrations") == [(5,)]
+            assert driver.query("SELECT max(version) FROM schema_migrations") == [(6,)]
             columns = {
                 row[1]: row for row in driver.query("PRAGMA table_info(workflow_steps)")
             }
@@ -154,7 +155,7 @@ def test_a_populated_version_2_database_upgrades_with_attempt_0(
         ]
     )
 
-    assert migrate(driver) == 5
+    assert migrate(driver) == 6
     assert driver.query(
         "SELECT step_key, status, effecting, attempt, started_at FROM workflow_steps"
     ) == [("charge::", "success", 1, 0, "2026-10-01T00:00:00")]
@@ -214,8 +215,8 @@ def test_a_second_run_is_a_no_op(driver: LocalSqliteDriver) -> None:
     migrate(driver)
     schema = driver.query("SELECT sql FROM sqlite_master ORDER BY name")
 
-    assert migrate(driver) == 5
-    assert driver.query("SELECT count(*) FROM schema_migrations") == [(5,)]
+    assert migrate(driver) == 6
+    assert driver.query("SELECT count(*) FROM schema_migrations") == [(6,)]
     assert driver.query("SELECT sql FROM sqlite_master ORDER BY name") == schema
 
 
@@ -237,7 +238,7 @@ def test_a_ledger_ahead_of_the_shipped_set_is_refused(
 ) -> None:
     migrate(driver)
     driver.batch(
-        [("INSERT INTO schema_migrations VALUES (6, 'future', 'x', 'now')", ())]
+        [("INSERT INTO schema_migrations VALUES (7, 'future', 'x', 'now')", ())]
     )
 
     with pytest.raises(MigrationRefused, match="newer than this code"):
@@ -275,7 +276,7 @@ def test_a_legacy_documents_table_alone_is_migrated(driver: LocalSqliteDriver) -
         ]
     )
 
-    assert migrate(driver) == 5
+    assert migrate(driver) == 6
 
 
 def test_a_failing_revision_leaves_neither_schema_nor_ledger(
@@ -387,7 +388,7 @@ def test_a_populated_version_4_database_migrates_to_5_and_gains_run_tags(
                 ),
             ]
         )
-        assert migrate(driver) == 5
+        assert migrate(driver) == 6
         assert "run_tags" in _names(driver, "table")
         assert "run_tags_lookup" in _names(driver, "index")
         assert driver.query("SELECT id FROM runs") == [("r-old",)]
@@ -435,7 +436,8 @@ def test_revision_5_is_additive_and_revision_4_stays_a_rollback_target(
     assert "DROP " not in sql and "ALTER " not in sql
     assert migrate(driver, SHIPPED_MIGRATIONS[:4]) == 4
     assert _names(driver, "table") == TABLES - {"run_tags"}
-    assert migrate(driver) == 5
+    assert migrate(driver, SHIPPED_MIGRATIONS[:5]) == 5
+    assert migrate(driver) == 6
 
 
 def test_an_applied_revision_5_whose_table_is_gone_is_refused(
@@ -483,3 +485,88 @@ def test_run_tags_refuse_every_change_but_the_cascade(
 
     driver.batch([("DELETE FROM runs WHERE id = 'r1'", ())])
     assert driver.query("SELECT count(*) FROM run_tags") == [(0,)]
+
+
+def test_revision_6_preserves_a_populated_revision_5_database(
+    driver: LocalSqliteDriver,
+) -> None:
+    assert migrate(driver, SHIPPED_MIGRATIONS[:5]) == 5
+    driver.batch(
+        [
+            ("INSERT INTO namespaces VALUES ('ns', 'project', 'now')", ()),
+            (
+                "INSERT INTO runs (namespace_id, id, job, status, started_at) "
+                "VALUES ('ns', 'r1', 'job', 'success', 'now')",
+                (),
+            ),
+            ("INSERT INTO run_tags VALUES ('ns', 'r1', 'kind', 'test')", ()),
+            (
+                "INSERT INTO run_attempts (id, namespace_id, run_id, attempt_no, "
+                "status, started_at) VALUES ('a1', 'ns', 'r1', 1, 'succeeded', 'now')",
+                (),
+            ),
+            ("INSERT INTO run_events VALUES ('ns', 'r1', 1, 'done', NULL, 'now')", ()),
+            (
+                "INSERT INTO artifact_refs (id, namespace_id, run_id, kind, uri, created_at) "
+                "VALUES ('ref', 'ns', 'r1', 'result', 'file:///result', 'now')",
+                (),
+            ),
+        ]
+    )
+    tables = ("runs", "run_attempts", "run_events", "artifact_refs", "run_tags")
+    before = {table: driver.query(f"SELECT * FROM {table}") for table in tables}
+
+    assert migrate(driver) == 6
+    assert {table: driver.query(f"SELECT * FROM {table}") for table in tables} == before
+    assert driver.query("PRAGMA foreign_key_check") == []
+    assert driver.query("PRAGMA foreign_keys") == [(1,)]
+    assert migrate(driver) == 6  # a warm boot accepts the renamed table
+    driver.batch(
+        [
+            (
+                "INSERT INTO runs (namespace_id, id, job, status, started_at) "
+                "VALUES ('ns', 'r2', 'job', 'invalid', 'now')",
+                (),
+            )
+        ]
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="fixed when the run opens"):
+        driver.batch([("DELETE FROM run_tags WHERE run_id = 'r1'", ())])
+
+
+def test_revision_6_refuses_a_driver_without_fk_migration_capability(
+    driver: LocalSqliteDriver,
+) -> None:
+    assert migrate(driver, SHIPPED_MIGRATIONS[:5]) == 5
+
+    class BatchAndQueryOnly:
+        def batch(self, statements: object) -> object:
+            return driver.batch(statements)  # type: ignore[arg-type]
+
+        def query(self, sql: str, parameters: object = ()) -> object:
+            return driver.query(sql, parameters)  # type: ignore[arg-type]
+
+        def close(self) -> None:
+            driver.close()
+
+    with pytest.raises(MigrationRefused, match="foreign keys off"):
+        migrate(BatchAndQueryOnly())  # type: ignore[arg-type]
+    assert driver.query("SELECT max(version) FROM schema_migrations") == [(5,)]
+
+
+def test_revision_6_ledger_without_its_status_check_is_refused(
+    driver: LocalSqliteDriver,
+) -> None:
+    assert migrate(driver, SHIPPED_MIGRATIONS[:5]) == 5
+    revision = SHIPPED_MIGRATIONS[5]
+    driver.batch(
+        [
+            (
+                "INSERT INTO schema_migrations VALUES (?, ?, ?, 'now')",
+                (revision.version, revision.name, revision.checksum),
+            )
+        ]
+    )
+    with pytest.raises(MigrationRefused, match="runs.status CHECK") as refused:
+        migrate(driver)
+    assert refused.value.version == 6

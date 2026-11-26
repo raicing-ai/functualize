@@ -20,16 +20,22 @@ from functualize.types import RunStatus
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class FakeField:
-    """Minimal field descriptor for testing."""
+def signature_fields(function: Any) -> list[Any]:
+    """The fields discovery records for ``function``, each with its contract.
 
-    name: str
-    type_annotation: str
-    default: Any | None = None
-    description: str = ""
-    required: bool = True
-    choices: list[str] | None = None
+    A descriptor's fields carry the parameter contract every surface renders
+    from, and no type string, so the fixtures use real records rather than a
+    hand-built stand-in.
+    """
+    from functualize._discovery import extract_parameters_from_signature
+
+    return extract_parameters_from_signature(function)
+
+
+def _greet(name: str) -> None: ...
+
+
+def _deploy(env: str, dry_run: bool = False) -> None: ...
 
 
 @dataclass
@@ -39,8 +45,8 @@ class FakeDescriptor:
     name: str
     group: str | None = None
     docstring: str | None = None
-    config_fields: list[FakeField] = field(default_factory=list)
-    parameters: list[FakeField] = field(default_factory=list)
+    config_fields: list[Any] = field(default_factory=list)
+    parameters: list[Any] = field(default_factory=list)
     metadata: Any = field(
         default_factory=lambda: SimpleNamespace(
             tags=[],
@@ -118,9 +124,7 @@ def sample_descriptors() -> list[FakeDescriptor]:
         FakeDescriptor(
             name="greet",
             docstring="Greet someone by name.",
-            config_fields=[
-                FakeField(name="name", type_annotation="str", required=True),
-            ],
+            config_fields=signature_fields(_greet),
             metadata=SimpleNamespace(
                 tags=["util"],
                 visibility=None,
@@ -132,15 +136,7 @@ def sample_descriptors() -> list[FakeDescriptor]:
         FakeDescriptor(
             name="deploy",
             docstring="Deploy to an environment.",
-            config_fields=[
-                FakeField(name="env", type_annotation="str", required=True),
-                FakeField(
-                    name="dry_run",
-                    type_annotation="bool",
-                    default=False,
-                    required=False,
-                ),
-            ],
+            config_fields=signature_fields(_deploy),
             metadata=SimpleNamespace(
                 tags=["ops"],
                 visibility=None,

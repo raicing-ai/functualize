@@ -10,7 +10,7 @@ from functualize._cli.completions.cursor_context import (
     CursorContext,
     parse_cursor_context,
 )
-from functualize._cli.completions.engine import DropdownItem, SwappableCompleter
+from functualize._cli.completions.engine import DropdownItem
 from functualize._cli.completions.flag_filtering import (
     FlagDescriptor,
     filter_used_flags,
@@ -30,7 +30,6 @@ __all__: list[str] = [
     "DropdownItem",
     "FlagDescriptor",
     "ProvenanceInfo",
-    "SwappableCompleter",
     "filter_used_flags",
     "parse_cursor_context",
     "quote_for_insertion",

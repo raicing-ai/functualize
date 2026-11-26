@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from functualize_mcp._schema_export import SchemaExporter
@@ -26,11 +26,25 @@ class FakeField:
     """Minimal config field descriptor for testing."""
 
     name: str
-    type_annotation: str
+    annotation: str
     default: Any | None = None
     description: str = ""
     required: bool = True
     choices: list[str] | None = None
+
+    @property
+    def contract(self):
+        from tests._support.declared_fields import declared
+
+        return declared(
+            self.name,
+            self.annotation,
+            default=self.default,
+            required=self.required,
+            choices=self.choices,
+            description=self.description,
+            from_config_model=True,
+        ).contract
 
 
 @dataclass
@@ -59,13 +73,13 @@ def simple_descriptor() -> FakeDescriptor:
         config_fields=[
             FakeField(
                 name="name",
-                type_annotation="str",
+                annotation="str",
                 required=True,
                 description="The name to greet",
             ),
             FakeField(
                 name="count",
-                type_annotation="int",
+                annotation="int",
                 required=False,
                 default=1,
                 description="Number of greetings",
@@ -90,14 +104,14 @@ def descriptor_with_examples() -> FakeDescriptor:
         config_fields=[
             FakeField(
                 name="env",
-                type_annotation="str",
+                annotation="str",
                 required=True,
                 description="Target environment",
                 choices=["dev", "staging", "prod"],
             ),
             FakeField(
                 name="dry_run",
-                type_annotation="bool",
+                annotation="bool",
                 required=False,
                 default=False,
                 description="Skip actual deployment",
@@ -341,7 +355,7 @@ class TestExportTypescript:
             name="my_complex_job_name",
             docstring="A complex job.",
             config_fields=[
-                FakeField(name="x", type_annotation="str", required=True),
+                FakeField(name="x", annotation="str", required=True),
             ],
             declaration=SimpleNamespace(
                 extra_description=None,
@@ -380,7 +394,7 @@ class TestExportTypescript:
             config_fields=[
                 FakeField(
                     name="items",
-                    type_annotation="list[str]",
+                    annotation="list[str]",
                     required=True,
                     description="Items to process",
                 ),
@@ -395,6 +409,36 @@ class TestExportTypescript:
         )
         result = exporter.export_typescript([desc])
         assert "items: string[];" in result
+
+    def test_choice_values_render_by_their_json_type(
+        self, exporter: SchemaExporter
+    ) -> None:
+        """spec B-3: an int choice set exports as ``1 | 2``, never ``"1" | "2"``."""
+        from functualize_mcp._translator import MCPToolDef
+
+        from functualize._primitives.parameter_contract import build_contracts
+
+        def pick(
+            level: Literal[1, 2],
+            mode: Literal["fast", "slow"],
+            levels: list[Literal[1, 2]],
+        ) -> None: ...
+
+        properties = {c.name: c.json_schema for c in build_contracts(pick)}
+        tool = MCPToolDef(
+            name="pick",
+            description="Pick.",
+            input_schema={
+                "type": "object",
+                "properties": properties,
+                "required": list(properties),
+            },
+        )
+        result = exporter.export_typescript([tool])
+
+        assert "  level: 1 | 2;" in result
+        assert '  mode: "fast" | "slow";' in result
+        assert "  levels: (1 | 2)[];" in result
 
 
 # ===========================================================================

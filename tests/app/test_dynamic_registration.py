@@ -90,7 +90,7 @@ class TestTheDescriptor:
         discovered = _descriptor(_discovered_twin(tmp_path), "dynamic-target")
 
         def shape(fields: Any) -> list[tuple[Any, ...]]:
-            return [(f.name, f.type_annotation, f.required, f.default) for f in fields]
+            return [(f.name, f.contract.display, f.required, f.default) for f in fields]
 
         assert shape(dynamic.parameters) == shape(discovered.parameters)
 

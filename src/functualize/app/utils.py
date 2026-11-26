@@ -18,8 +18,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import TypeAdapter, ValidationError
-
 from functualize._config.job_config import _unwrap_optional as unwrap_optional_type
 from functualize._config.merge import merge_config_layers
 from functualize._config.project_dirs import (
@@ -242,7 +240,6 @@ __all__ = [
     "build_group_trie",
     "build_job_filter",
     "BUILTIN_SEGMENT",
-    "coerce_kwargs",
     "deposit_gate_input",
     "WORKFLOW_STATES",
     "GateToolPolicy",
@@ -547,108 +544,6 @@ def list_project_config_files(cwd: Path) -> list[tuple[Path, Path]]:
 # =============================================================================
 # Type coercion and import utilities
 # =============================================================================
-
-
-def _resolve_type(type_annotation: str) -> type:
-    """Resolve a type annotation string to a Python type object.
-
-    Supports built-in types (str, int, float, bool), pathlib.Path,
-    and generic forms like list[str], list[int], etc.
-
-    Args:
-        type_annotation: The type annotation string (e.g., "int", "list[str]", "Path").
-
-    Returns:
-        The resolved Python type.
-    """
-    # Mapping of simple type names to their Python type objects.
-    #
-    # Click calls these on the raw string, so each entry must accept one
-    # positional string and raise on a bad value — which is what turns a
-    # malformed `--when notadate` into a usage error naming the parameter
-    # rather than a traceback inside the job.
-    #
-    # `date`/`datetime` go through `fromisoformat` rather than the class
-    # itself: `datetime("2026-09-07")` is a TypeError about missing arguments,
-    # which would reach the user as an internal-looking message.
-    from datetime import date as _date
-    from datetime import datetime as _datetime
-    from decimal import Decimal as _Decimal
-    from uuid import UUID as _UUID
-
-    simple_types: dict[str, type] = {
-        "str": str,
-        "int": int,
-        "float": float,
-        "bool": bool,
-        "Path": Path,
-        "UUID": _UUID,
-        "Decimal": _Decimal,
-        "date": _date.fromisoformat,  # type: ignore[dict-item]
-        "datetime": _datetime.fromisoformat,  # type: ignore[dict-item]
-    }
-
-    # Handle simple types
-    if type_annotation in simple_types:
-        return simple_types[type_annotation]
-
-    # Handle generic types like list[str], list[int], etc.
-    if type_annotation.startswith("list[") and type_annotation.endswith("]"):
-        inner = type_annotation[5:-1]
-        if inner in simple_types:
-            return list[simple_types[inner]]  # type: ignore[valid-type]
-        # Fallback to list[str] for unknown inner types
-        return list[str]
-
-    # Fallback: treat as str
-    return str
-
-
-def coerce_kwargs(
-    raw: dict[str, str],
-    parameters: list[FieldDescriptor],
-) -> dict[str, Any]:
-    """Convert CLI string values to Python types using Pydantic TypeAdapter.
-
-    Uses Pydantic TypeAdapter internally to convert each string value to the
-    Python type indicated by the corresponding FieldDescriptor.type_annotation.
-
-    Args:
-        raw: Dictionary of raw string key-value pairs from CLI input.
-        parameters: List of FieldDescriptor instances describing expected types.
-
-    Returns:
-        Dictionary with values coerced to their target Python types.
-
-    Raises:
-        ValueError: If a value cannot be coerced to the target type.
-            The message includes the parameter name and expected type.
-    """
-    param_map = {p.name: p for p in parameters}
-    result: dict[str, Any] = {}
-
-    for key, value in raw.items():
-        if key not in param_map:
-            result[key] = value
-            continue
-
-        descriptor = param_map[key]
-        type_ann = descriptor.type_annotation
-        target_type = _resolve_type(type_ann)
-        adapter: TypeAdapter[Any] = TypeAdapter(target_type)
-
-        try:
-            # For list types, the raw value is a JSON string — use validate_json
-            if type_ann.startswith("list["):
-                result[key] = adapter.validate_json(value)
-            else:
-                result[key] = adapter.validate_python(value)
-        except (ValidationError, ValueError) as exc:
-            raise ValueError(
-                f"Parameter '{key}': cannot convert '{value}' to {type_ann}"
-            ) from exc
-
-    return result
 
 
 def import_job(

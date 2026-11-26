@@ -7,6 +7,22 @@
 are loud and early: `MissingProviderError` / `AmbiguousProviderError` at boot
 or first invocation, never silent `None`"
 
+**Amended 2026-11-25 — the guarantee now holds cold, and refused shapes
+report beside it.** Availability is decided from each parameter's contract at
+every boot, cold and warm alike: after plugins register their providers,
+`admit_contracts` (`_app/boot.py`) admits each provider-backed parameter
+against the registry's exact `(type, qualifier)` entries. A parameter with no
+such provider becomes `REJECTED_DISCOVERY`, so the same job fails the same way
+on a cold boot as on a warm one, where a cold boot used to end in a
+`TypeError` or a traceback. A parameter discovery refuses for its *shape* — a
+union, `object`, `Secret[int]`, a config field nothing can supply — is
+reported by the same route, as a sibling `DiscoveryFailure` with
+`error_type="UnsupportedParameter"`, once per declaration. Either way the job
+stays registered, publishes no inputs, and every call on every surface is
+refused before it runs, naming the job, the parameter and the remedy (CLI and
+TUI exit 2, HTTP and Lambda 400, MCP `isError`). `UnsatisfiableParameter`
+still reports what `validate_di_bindings` finds for a live function.
+
 ## Context
 
 `validate_di_bindings` walked every registered job at boot, collected every

@@ -32,11 +32,25 @@ class FakeField:
     """Minimal config field descriptor for testing."""
 
     name: str
-    type_annotation: str
+    annotation: str
     default: Any | None = None
     description: str = ""
     required: bool = True
     choices: list[str] | None = None
+
+    @property
+    def contract(self):
+        from tests._support.declared_fields import declared
+
+        return declared(
+            self.name,
+            self.annotation,
+            default=self.default,
+            required=self.required,
+            choices=self.choices,
+            description=self.description,
+            from_config_model=True,
+        ).contract
 
 
 @dataclass
@@ -69,9 +83,11 @@ field_names_st = st.text(
     max_size=20,
 ).filter(lambda s: s[0].isalpha() or s[0] == "_")
 
-# Type annotations that map to known JSON Schema types
-type_annotations_st = st.sampled_from(
-    ["str", "int", "float", "bool", "list", "dict", "list[str]", "list[int]"]
+# Type annotations a config source can supply (B-3 scalars, B-4 lists). A
+# ``dict`` config field is refused at discovery (F-29), so a discoverable
+# job's fields never carry one; its verdict lives in the discovery tests.
+annotations_st = st.sampled_from(
+    ["str", "int", "float", "bool", "list", "list[str]", "list[int]"]
 )
 
 # Descriptions for fields (no control chars that would break JSON)
@@ -110,13 +126,13 @@ docstring_st = st.lists(paragraph_line_st, min_size=1, max_size=3).map(
 def fake_field_st(draw: st.DrawFn) -> FakeField:
     """Generate a fake config field."""
     name = draw(field_names_st)
-    type_annotation = draw(type_annotations_st)
+    annotation = draw(annotations_st)
     required = draw(st.booleans())
     description = draw(field_descriptions_st)
     default = None if required else draw(st.text(min_size=1, max_size=20))
     return FakeField(
         name=name,
-        type_annotation=type_annotation,
+        annotation=annotation,
         required=required,
         description=description,
         default=default,

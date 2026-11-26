@@ -296,10 +296,9 @@ class TestTheReceiver:
         assert "self" not in capture.context.call_kwargs
         assert "self" not in capture.context.injected
         # Injection is unchanged by the rebind: the receiver is passed
-        # positionally, so the only keyword the run carries is the group
-        # option, and no config parameter is injected — a class job's receiver
-        # *is* its config.
-        assert set(capture.context.call_kwargs) == {"opts"}
+        # positionally. The binder supplies the declared `force` default;
+        # only the group option is injected.
+        assert set(capture.context.call_kwargs) == {"force", "opts"}
         assert set(capture.context.injected) == {"opts"}
         assert "self" not in inspect.signature(capture.context.function).parameters
         assert list(inspect.signature(capture.context.function).parameters) == [
@@ -390,12 +389,10 @@ class TestFreshnessKey:
     def test_the_cache_is_keyed_on_callables_that_outlive_the_run(
         self, tmp_path: Path
     ) -> None:
-        """Each run's partial is a temporary; its id must not become a key.
+        """Each run's partial is temporary; the cache keeps stable callables.
 
-        Keyed on the partial, every run filed a new entry under an id the
-        interpreter is free to reuse for another job's callable. The keys must
-        be the ids of things still alive after the run: the registered proxy
-        and the method the class holds.
+        The registered proxy and class method outlive each run. A temporary
+        partial must not become a cache key.
         """
         engine, descriptors = _setup(tmp_path)
         proxy = next(job.function for job in descriptors if job.name == "pg.start")
@@ -412,6 +409,6 @@ class TestFreshnessKey:
 
         method = partials[0].func
         assert partials[1].func is method
-        stable = {id(proxy), id(method)}
+        stable = {proxy, method}
         assert set(engine._group_options_cache) <= stable  # noqa: SLF001
         assert not {id(p) for p in partials} & set(engine._group_options_cache)  # noqa: SLF001

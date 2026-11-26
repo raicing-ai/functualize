@@ -16,7 +16,8 @@ pytest.importorskip("textual")
 
 from functualize._cli.inline_tui import _run_handoff  # noqa: E402
 from functualize._cli.tui.job_execution import run_job  # noqa: E402
-from functualize._types.descriptors import FieldDescriptor, JobDescriptor  # noqa: E402
+from functualize._types.descriptors import JobDescriptor  # noqa: E402
+from tests._support.declared_fields import declared, with_contract  # noqa: E402
 
 
 def _descriptor(name: str, *, requires_tty: bool) -> JobDescriptor:
@@ -62,17 +63,21 @@ def test_run_handoff_parses_tokens_and_executes() -> None:
     app = MagicMock()
     app.get_job.return_value = SimpleNamespace(
         config_fields=[
-            FieldDescriptor(
-                name="path",
-                type_annotation="str",
-                default=None,
-                description="",
-                required=True,
+            with_contract(
+                declared(
+                    name="path",
+                    annotation="str",
+                    default=None,
+                    description="",
+                    required=True,
+                )
             )
         ]
     )
 
-    _run_handoff(app, ["editor", "--path", "/tmp/f"])
+    # `path` is a required `str`: `func editor` takes it positionally, and the
+    # handoff parses with that same command (B-18).
+    _run_handoff(app, ["editor", "/tmp/f"])
 
     # The door builds one frozen RunRequest and hands it to the facade — the
     # loose (job_name, **kwargs) spelling is gone. Surface names the door: the

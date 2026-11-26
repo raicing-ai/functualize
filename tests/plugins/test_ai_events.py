@@ -173,6 +173,7 @@ class TestAICallStartedEvent:
                 self.group = ""
                 self.metadata = {}
                 self.config_fields = []
+                self.parameters = []
 
         class FakeRegistry:
             def get_descriptors(self):

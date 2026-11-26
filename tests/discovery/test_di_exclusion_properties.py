@@ -152,14 +152,14 @@ def test_property_9_di_params_excluded_from_descriptor(
     assert not leaked_di_params, (
         f"DI parameters leaked into JobDescriptor.parameters: {leaked_di_params}. "
         f"DI types used: {[(n, t.__name__) for n, t in di_params]}. "
-        f"All extracted: {[(p.name, p.type_annotation) for p in extracted]}"
+        f"All extracted: {[(p.name, p.contract.display) for p in extracted]}"
     )
 
-    # Property: no extracted parameter has a type_annotation matching a DI type name
+    # Property: no extracted parameter has a type label matching a DI type name
     for param in extracted:
-        assert param.type_annotation not in _EXCLUDED_PARAM_TYPE_NAMES, (
+        assert param.contract.display not in _EXCLUDED_PARAM_TYPE_NAMES, (
             f"Extracted parameter '{param.name}' has DI type annotation "
-            f"'{param.type_annotation}' which should have been excluded"
+            f"'{param.contract.display}' which should have been excluded"
         )
 
     # Property: all CLI params appear in the extracted parameters
@@ -194,13 +194,13 @@ def test_property_9_string_annotations_excluded(
     extracted_names = {p.name for p in extracted}
     assert "injected" not in extracted_names, (
         f"String-annotated DI parameter 'injected' (annotation='{di_type_name}') "
-        f"leaked into parameters. Extracted: {[(p.name, p.type_annotation) for p in extracted]}"
+        f"leaked into parameters. Extracted: {[(p.name, p.contract.display) for p in extracted]}"
     )
 
     # Property: the CLI param "name" remains
     assert "name" in extracted_names, (
         f"CLI parameter 'name' was incorrectly excluded. "
-        f"Extracted: {[(p.name, p.type_annotation) for p in extracted]}"
+        f"Extracted: {[(p.name, p.contract.display) for p in extracted]}"
     )
 
 
@@ -228,6 +228,6 @@ def test_property_9_all_di_types_only_yields_empty_params(
     assert extracted == [], (
         f"Expected empty parameters when all params are DI types, "
         f"but got {len(extracted)} parameters: "
-        f"{[(p.name, p.type_annotation) for p in extracted]}. "
+        f"{[(p.name, p.contract.display) for p in extracted]}. "
         f"DI types used: {di_type_names_chosen}"
     )

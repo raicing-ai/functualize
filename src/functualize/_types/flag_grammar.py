@@ -20,6 +20,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING
 
+from functualize._types.parameter_contract import Container, Scalar
+
 if TYPE_CHECKING:
     from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 
@@ -150,7 +152,12 @@ def negative_aliases(
     independently, ``--no-cache`` would mean different things depending on how
     the program was invoked.
     """
-    if (field.type_annotation or "") != "bool":
+    contract = field.contract
+    if contract is None or contract.shape is None:
+        return ()
+    if contract.shape.scalar is not Scalar.BOOL or contract.shape.container is not (
+        Container.NONE
+    ):
         return ()
 
     negative = negative_flag_for(field.name, siblings)

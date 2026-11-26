@@ -67,6 +67,7 @@ if TYPE_CHECKING:
 
     from functualize._types.descriptors import JobDescriptor, RegisteredJob
     from functualize._types.host import PluginHost
+    from functualize._types.parameter_contract import ParameterContract
     from functualize._types.redaction import Secret
     from functualize._types.run_request import RunRequest
     from functualize._types.workflow import Notification
@@ -586,6 +587,10 @@ class EngineHost(Protocol):
     event bus, the gate registry, the config factories. A port lists what must
     come *from outside*, not what it was handed at birth.
     """
+
+    def admitted_contracts(self, name: str) -> Mapping[str, ParameterContract] | None:
+        """Contracts admitted for a registered job, or None without admission."""
+        ...
 
     def get_descriptor(self, name: str) -> JobDescriptor | None:
         """The descriptor for ``name``, or None when nothing is registered.

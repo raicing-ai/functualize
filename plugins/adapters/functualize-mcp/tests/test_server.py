@@ -1,4 +1,4 @@
-"""Unit + registration tests for the MCP tool-function codegen.
+"""Unit + registration tests for the per-job MCP tool.
 
 Regression guards for probe findings F1 and F1b
 (research/nooa-functualize-integration/01-probe-transcript.md):
@@ -8,21 +8,23 @@ Regression guards for probe findings F1 and F1b
   killing ``func mcp serve`` for every grouped job with parameters.
 - F1b: the tool description was interpolated into that same source inside
   triple quotes, so a description containing ``'''`` broke compilation too.
-  Descriptions are now attached as ``__doc__`` after exec.
 
-Both tests fail against the pre-fix codegen (``exec`` raises
-``SyntaxError: expected '('``).
+No source is generated any more: a job is a ``JobTool`` whose ``parameters``
+is the job's published schema (contracts.md §6), so neither name nor
+description reaches a compiler. The guards stay, because they are the cases
+that broke ``func mcp serve`` before.
 """
 
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastmcp import FastMCP
 from functualize_mcp._config import MCPConfig
-from functualize_mcp._server import MCPServer, _build_tool_function
+from functualize_mcp._server import JobTool, MCPServer
 from functualize_mcp._translator import MCPToolDef
 
 from functualize._primitives.run_store import RunStore
@@ -33,6 +35,11 @@ from tests.conftest import (  # type: ignore[import-not-found]
 )
 
 HOSTILE_DESCRIPTION = "Triple ''' quote and backslash \\\\ and a newline\ninside."
+
+
+def _call(tool: JobTool, **arguments: Any) -> Any:
+    """Run ``tool`` as FastMCP does and return its result."""
+    return asyncio.run(tool.run(arguments))
 
 
 def test_generated_mcp_run_tool_records_project_defaults(
@@ -48,14 +55,13 @@ def test_generated_mcp_run_tool_records_project_defaults(
         return "hello"
 
     app.register_dynamic_job("greet", greet)
-    tool = _build_tool_function(
-        "greet",
-        _tool_def("greet", "Greet.", {"type": "object", "properties": {}}),
-        app,
+    tool = JobTool.for_job(
+        _tool_def("greet", "Greet.", {"type": "object", "properties": {}}), app
     )
-    result = asyncio.run(tool())
+    result = _call(tool)
 
-    assert result["status"] == "success"
+    assert result.is_error is False
+    assert result.structured_content["status"] == "success"
     store = RunStore(app.execution_engine._state_store().substrate)
     records = [store.get_run(run_id) for run_id in store.run_ids()]
     assert [record["run_tags"] for record in records if record] == [{"door": "mcp"}]
@@ -94,7 +100,7 @@ class RecordingApp(FakeApp):
 
 
 def test_grouped_name_with_params_builds_and_executes() -> None:
-    """Dotted grouped name + typed param: builds, keeps dotted name, runs."""
+    """Dotted grouped name + typed param: registers under the dotted name, runs."""
     app = RecordingApp()
     tool_def = _tool_def(
         "probe.echo",
@@ -106,26 +112,41 @@ def test_grouped_name_with_params_builds_and_executes() -> None:
         },
     )
 
-    fn = _build_tool_function("probe.echo", tool_def, app)
+    tool = JobTool.for_job(tool_def, app)
 
-    assert fn.__name__ == "probe.echo"
-    assert fn.__qualname__ == "probe.echo"
-    result = asyncio.run(fn(text="hello"))
+    assert tool.name == "probe.echo"
+    result = _call(tool, text="hello").structured_content
     # Envelope contract on the served surface (master post-#35): status,
     # return_value, duration_ms. Assert the stable keys, not incidental
     # extra fields (upstream added metadata without breaking anything).
     assert result["status"] == "success"
     assert result["return_value"] == "executed probe.echo"
     assert result["duration_ms"] == 42.0
-    # The job's own argument, and nothing else, in `kwargs`. Master asserted
-    # `{"group_option_values": None, "text": "hello"}` because its facade
-    # flattened both into one dict; here the group options have their own field
-    # and the job cannot receive one as an argument by accident.
+    # The job's own argument, and nothing else, in `kwargs`; group options
+    # have their own field, so the job cannot receive one by accident.
     assert app.calls == [("probe.echo", {"text": "hello"}, None)]
 
 
+def test_group_options_route_to_their_own_field() -> None:
+    """A property the translator marked as inherited travels as a group layer."""
+    app = RecordingApp()
+    tool_def = MCPToolDef(
+        name="probe.echo",
+        description="Echo.",
+        input_schema={
+            "type": "object",
+            "properties": {"text": {"type": "string"}, "env": {"type": "string"}},
+        },
+        group_option_names=frozenset({"env"}),
+    )
+
+    _call(JobTool.for_job(tool_def, app), text="hi", env="prod")
+
+    assert app.calls == [("probe.echo", {"text": "hi"}, {"env": "prod"})]
+
+
 def test_grouped_name_without_params_still_builds() -> None:
-    """No-params branch (real closure) keeps working for grouped names."""
+    """A job with no parameters registers and runs under a grouped name."""
     app = FakeApp()
     tool_def = _tool_def(
         "probe.ping",
@@ -133,15 +154,14 @@ def test_grouped_name_without_params_still_builds() -> None:
         {"type": "object", "properties": {}, "required": []},
     )
 
-    fn = _build_tool_function("probe.ping", tool_def, app)
+    tool = JobTool.for_job(tool_def, app)
 
-    assert fn.__name__ == "probe.ping"
-    result = asyncio.run(fn())
-    assert result["return_value"] == "executed probe.ping"
+    assert tool.name == "probe.ping"
+    assert _call(tool).structured_content["return_value"] == "executed probe.ping"
 
 
-def test_sanitized_identifier_handles_leading_digit() -> None:
-    """A job name starting with a digit gets a valid identifier prefix."""
+def test_a_leading_digit_name_registers() -> None:
+    """A job name starting with a digit needs no identifier: nothing is compiled."""
     app = FakeApp()
     tool_def = _tool_def(
         "1job",
@@ -153,15 +173,15 @@ def test_sanitized_identifier_handles_leading_digit() -> None:
         },
     )
 
-    fn = _build_tool_function("1job", tool_def, app)
+    tool = JobTool.for_job(tool_def, app)
 
-    assert fn.__name__ == "1job"
-    assert asyncio.run(fn(x=1))["status"] == "success"
+    assert tool.name == "1job"
+    assert _call(tool, x=1).structured_content["status"] == "success"
 
 
 @pytest.mark.parametrize("description", [HOSTILE_DESCRIPTION, "Ordinary."])
-def test_hostile_description_does_not_break_codegen(description: str) -> None:
-    """F1b: descriptions attach as __doc__, never interpolate into source."""
+def test_hostile_description_is_carried_verbatim(description: str) -> None:
+    """F1b: the description is data on the tool, never source."""
     app = FakeApp()
     tool_def = _tool_def(
         "probe.quote",
@@ -173,57 +193,70 @@ def test_hostile_description_does_not_break_codegen(description: str) -> None:
         },
     )
 
-    fn = _build_tool_function("probe.quote", tool_def, app)
+    tool = JobTool.for_job(tool_def, app)
 
-    assert fn.__doc__ == description
-    assert asyncio.run(fn(text="x"))["status"] == "success"
+    assert tool.description == description
+    assert _call(tool, text="x").structured_content["status"] == "success"
 
 
-def test_registration_exposes_dotted_tool_name() -> None:
-    """FastMCP registers the tool under fn.__name__: the dotted job name."""
+def test_registration_publishes_the_schema_as_given() -> None:
+    """FastMCP lists the tool under the dotted job name with the job's schema."""
     app = FakeApp()
-    tool_def = _tool_def(
-        "probe.echo",
-        "Echo text back.",
-        {
-            "type": "object",
-            "properties": {"text": {"type": "string"}},
-            "required": ["text"],
+    schema = {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "level": {"type": "integer", "enum": [1, 2]},
+            "tags": {"type": "array", "items": {"type": "string"}},
         },
-    )
-    fn = _build_tool_function("probe.echo", tool_def, app)
-
+        "required": ["text"],
+    }
     server = FastMCP(name="test-server")
-    server.add_tool(fn)
+    server.add_tool(
+        JobTool.for_job(_tool_def("probe.echo", "Echo text back.", schema), app)
+    )
 
     tools = asyncio.run(server.list_tools())
-    names = [t.name for t in tools]
-    assert "probe.echo" in names
     tool = next(t for t in tools if t.name == "probe.echo")
     assert tool.description == "Echo text back."
-    props = tool.parameters.get("properties", {})
-    assert props.get("text") == {"type": "string"}
-    assert "text" in tool.parameters.get("required", [])
+    assert tool.parameters == schema
 
 
-def test_internal_visibility_metadata_never_reaches_function() -> None:
-    """Visibility filtering happens upstream; codegen ignores annotations."""
-    app = FakeApp()
-    tool_def = _tool_def(
-        "probe.secret",
-        "Hidden.",
-        {
-            "type": "object",
-            "properties": {"x": {"type": "string"}},
-            "required": [],
-        },
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [("invalid", "Missing required argument 'text'"), ("failure", "boom")],
+)
+def test_a_refused_or_failed_run_is_an_error_with_its_reason(
+    status: str, error: str
+) -> None:
+    """contracts.md §6: a refused call and a failed run are ``isError: true``."""
+
+    class Refusing(FakeApp):
+        def execute(self, request: object) -> FakeJobResult:
+            result = FakeJobResult(status=status)
+            result.exception = RuntimeError(error)  # type: ignore[attr-defined]
+            return result
+
+    tool = JobTool.for_job(
+        _tool_def("probe.echo", "Echo.", {"type": "object", "properties": {}}),
+        Refusing(),
     )
+    result = _call(tool)
 
-    fn = _build_tool_function("probe.secret", tool_def, app)
+    assert result.is_error is True
+    assert result.structured_content["error"] == error
+    assert error in result.content[0].text
 
-    # Codegen is annotation-agnostic — the translator filters internal jobs
-    # before this function is ever called. Build must simply not raise.
-    assert fn.__name__ == "probe.secret"
+
+def test_an_accepted_call_is_not_an_error() -> None:
+    tool = JobTool.for_job(
+        _tool_def("probe.ping", "Ping.", {"type": "object", "properties": {}}),
+        FakeApp(),
+    )
+    result = _call(tool)
+
+    assert result.is_error is False
+    assert "error" not in result.structured_content
 
 
 # ── F2: FastMCP update check + banner defaults ──────────────────────────

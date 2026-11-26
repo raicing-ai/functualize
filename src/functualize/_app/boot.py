@@ -516,12 +516,9 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
     app._hook_registry = HookRegistry()
     app._di_registry = DIRegistry()
 
-    from functualize._config.job_config import validate_job_config_types
-
     app.job_registry = JobRegistry(
         hook_registry=app._hook_registry,
         app=app,
-        config_validator=validate_job_config_types,
     )
     # Empty PluginLoader (no entry-point group to scan)
     app.plugin_loader = PluginLoader("")
@@ -711,6 +708,7 @@ def boot_static(app: Any, perf_timeline: Any) -> None:
             logger.warning(f"APP_READY hook {hook_name!r} raised: {exc}")
 
     # Validate DI bindings
+    report_unsupported_parameters(app)
     report_unsatisfiable_jobs(app)
 
     # Freeze DI registry
@@ -800,12 +798,9 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
     app._hook_registry = HookRegistry()
     app._di_registry = DIRegistry()
 
-    from functualize._config.job_config import validate_job_config_types
-
     app.job_registry = JobRegistry(
         hook_registry=app._hook_registry,
         app=app,
-        config_validator=validate_job_config_types,
     )
     app.plugin_loader = PluginLoader(app._plugin_sources.entry_point_group)
 
@@ -1184,6 +1179,7 @@ def boot_standard(app: Any, perf_timeline: Any) -> None:
 
     # 9b. Validate DI bindings
     perf_timeline.mark("boot.di_validation.start")
+    report_unsupported_parameters(app)
     report_unsatisfiable_jobs(app)
     perf_timeline.mark("boot.di_validation.end")
 
@@ -1859,18 +1855,53 @@ def report_unsatisfiable_jobs(app: Any) -> None:
     because cached jobs register as lazy proxies and validation skips those, so
     it presented as intermittent.
 
-    The failure stays loud and early — it is published in the same list that
-    answers "why is my job missing?" — but it stops being contagious. See
-    ADR-018 for the departure from `CONSTITUTION.md` "Boot & Config".
+    The failure stays loud and early for bindings without a parameter contract.
+    A contract-covered parameter is already reported by
+    ``report_unsupported_parameters`` on cold and warm boots; reporting it here
+    too would make availability depend on a second registry check (B-2, §5.1).
+    See ADR-018 for the departure from `CONSTITUTION.md` "Boot & Config".
 
     **The job is left registered on purpose.** Unregistering it would make the
     cold boot disagree with the warm one, where validation is skipped for lazy
     proxies and the job necessarily still exists; and the error a caller gets
     from invoking it names the job and the parameter, which is more use than
     "no such command". So the guarantee that holds on both paths is *invoking
-    it explains itself*, and the report is the extra the cold boot can offer.
+    it explains itself*. The contract report is available on both boot paths.
     """
     from functualize._types.discovery_report import DiscoveryFailure
+
+    # B-2 supplies the only registry input to a contract verdict; §5.1 forbids
+    # a second availability report. The older validator remains only for the DI
+    # errors no contract covers, B-9's three survivors: a job with no retained
+    # descriptor, the classifier-crash fallback, and a factory's missing
+    # dependency. D105 also makes its old Arg()/Option() remedy invalid for an
+    # unconvertible class, so that wording is retired.
+    covered: dict[str, tuple[Any, ...]] = {
+        descriptor.name: (
+            *(
+                field.contract
+                for field in (*descriptor.parameters, *descriptor.config_fields)
+                if field.contract is not None
+            ),
+            *descriptor.omitted_contracts,
+        )
+        for descriptor in app.job_registry.get_descriptors()
+    }
+
+    def contract_covers(job_name: str, error: Any) -> bool:
+        contracts = covered.get(job_name, ())
+        parameter = getattr(error, "param_name", None)
+        if parameter is not None:
+            return any(contract.name == parameter for contract in contracts)
+        type_ = getattr(error, "type_", None)
+        if type_ is None:
+            return False
+        qualified_type = f"{type_.__module__}.{type_.__qualname__}"
+        return any(
+            contract.injection is not None
+            and contract.injection.provider_type == qualified_type
+            for contract in contracts
+        )
 
     failures = app._execution_engine.validate_di_bindings()
     if not failures:
@@ -1879,13 +1910,15 @@ def report_unsatisfiable_jobs(app: Any) -> None:
     reported: list[DiscoveryFailure] = list(getattr(app, "_unsatisfiable_jobs", []))
     known = {f.message for f in reported}
     for job_name, errors in failures.items():
+        errors = [error for error in errors if not contract_covers(job_name, error)]
+        if not errors:
+            continue
         entry = app.job_registry._registered_jobs.get(job_name)
         module_path = getattr(entry, "module_path", "") or "<unknown>"
         message = (
             f"Job {job_name!r} is registered but cannot run: "
             + "; ".join(str(e) for e in errors)
-            + ". Register a provider for the type, or annotate the parameter "
-            "with Arg()/Option() to take its value from the caller."
+            + ". Register a provider for the type or correct the declaration."
         )
         if message in known:
             continue
@@ -1900,6 +1933,95 @@ def report_unsatisfiable_jobs(app: Any) -> None:
         )
         logger.warning("%s", message)
 
+    app._unsatisfiable_jobs = reported
+
+
+def report_unsupported_parameters(app: Any) -> None:
+    """Apply spec B-2's availability rule, and report every refused parameter.
+
+    Each descriptor carries its parameters' contracts as discovery decided them
+    from the declaration (cold) or as the cache kept them (warm) — the same
+    object either way. Here, once per boot and after every plugin has
+    registered its providers, :func:`admit` decides whether each
+    provider-backed ``INJECTED`` parameter has a provider for **exactly** its
+    ``(type, qualifier)``. The result is kept on the app for the engine door
+    and is never written back to the descriptor, so the cache keeps the
+    declaration's contract and availability is re-decided every boot (B-7).
+
+    The predicate is built from the registry's exact entries, never from
+    ``DIRegistry.has(T)``: that answers true for a type registered only under
+    other qualifiers, which ``resolve`` then refuses as ambiguous (F-21).
+
+    A ``REJECTED_DISCOVERY`` contract, for its shape or its missing provider,
+    is reported as ``UnsupportedParameter`` with a warning naming the file, the
+    job, the declaration and the remedy (B-9). The job stays registered
+    (DC-1 = B), on the same channel ``report_unsatisfiable_jobs`` uses.
+    """
+    # EngineHost.admitted_contracts reads this store at the execution door.
+    app._admitted_contracts = {}
+    for descriptor in app.job_registry.get_descriptors():
+        admit_job_descriptor(app, descriptor)
+
+
+def admit_job_descriptor(app: Any, descriptor: Any) -> None:
+    """Admit the three contract sources of one job descriptor."""
+    source = descriptor.source_file or descriptor.module_path or "<unknown>"
+    declared = (
+        *(field.contract for field in descriptor.parameters),
+        *(field.contract for field in descriptor.config_fields),
+        *descriptor.omitted_contracts,
+    )
+    admit_contracts(app, descriptor.name, declared, source)
+
+
+def admit_contracts(app: Any, job_name: str, contracts: Any, source: str) -> None:
+    """Admit one job's declarations, including materialized commands."""
+    from functualize._primitives.parameter_contract import admit
+    from functualize._types.discovery_report import DiscoveryFailure
+    from functualize._types.parameter_contract import Verdict
+
+    registry = app._di_registry
+    provided = {
+        (f"{type_.__module__}.{type_.__qualname__}", qualifier)
+        for type_ in registry.available_types()
+        for qualifier in registry.available_qualifiers(type_)
+    }
+    reported: list[DiscoveryFailure] = list(getattr(app, "_unsatisfiable_jobs", []))
+    known = {failure.message for failure in reported}
+    store = getattr(app, "_admitted_contracts", None)
+    if not isinstance(store, dict):
+        store = {}
+        app._admitted_contracts = store
+    admitted = store.setdefault(job_name, {})
+    for contract in contracts:
+        if contract is None or contract.name in admitted:
+            continue
+        result = admit(
+            contract,
+            lambda provider_type, qualifier: (provider_type, qualifier) in provided,
+        )
+        admitted[result.name] = result
+        if result.verdict is not Verdict.REJECTED_DISCOVERY:
+            continue
+        declaration = (
+            f"{result.name}: {result.display}" if result.display else result.name
+        )
+        message = (
+            f"{source}: job {job_name!r} parameter {declaration!r} is "
+            f"refused. {result.reject_reason}."
+        )
+        if message in known:
+            continue
+        known.add(message)
+        reported.append(
+            DiscoveryFailure(
+                module=Path(source).stem,
+                path=source,
+                error_type="UnsupportedParameter",
+                message=message,
+            )
+        )
+        logger.warning("%s", message)
     app._unsatisfiable_jobs = reported
 
 

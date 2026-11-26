@@ -288,12 +288,21 @@ AGENTS.md
 .spec/TESTING.md
 .spec/STATE.md
 .spec/features/<name>/tasks.md
+.spec/features/<name>/spec.md        # this feature's own confirmed artifacts
+.spec/features/<name>/plan.md
+.spec/features/<name>/schema.md      # if present
+.spec/features/<name>/contracts.md
+.spec/features/<name>/matrix/**      # if present: measurement kit and recorded evidence
 ```
+
+Still forbidden: any **other** feature's `spec.md`, `plan.md`, `schema.md` or `contracts.md`;
+this feature's `research.md` (findings, never a gate, never a task input); chat history;
+unrelated files.
 
 `.spec/STATE.md` is gitignored and may be absent — if so, treat as: no work in
 flight. Every other anchor file is committed and must exist.
 
-1. Read context anchor (above only — no chat history, no other specs).
+1. Read context anchor (above only — no chat history, no other feature's specs).
    **The anchor restricts spec documents, not the codebase.** Reading source and
    running retrieval (`rg`, serena, graphify, zvec-grep) is expected — you cannot
    implement or run a reachability check without it.
@@ -355,7 +364,7 @@ Trigger: all tasks `[x]`.
 
 ## Critical Rules
 
-- Context isolation is non-negotiable: Execute reads only the 6 anchor files
+- Context isolation is non-negotiable: Execute reads only the context anchor — the six workflow files plus this feature's own `spec.md`, `plan.md`, `schema.md`, `contracts.md` and `matrix/**`, never another feature's specs
 - Specs precede code: never write implementation before `spec.md` is confirmed
 - STATE.md must stay current: update after every Execute session
 - CONSTITUTION.md references, not copies: point to CLAUDE.md rather than duplicate

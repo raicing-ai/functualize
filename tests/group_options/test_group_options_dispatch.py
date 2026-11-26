@@ -23,6 +23,7 @@ from functualize._cli.dispatch import walk_group_path
 from functualize._primitives.pre_filter import GroupOptionsPreFilter
 from functualize._types.descriptors import FieldDescriptor, GroupOptionsSpec
 from functualize.app.utils import build_group_trie
+from tests._support.declared_fields import declared
 
 
 def _spec(group: str, *fields: FieldDescriptor) -> GroupOptionsSpec:
@@ -30,15 +31,16 @@ def _spec(group: str, *fields: FieldDescriptor) -> GroupOptionsSpec:
 
 
 def _field(
-    name: str, type_annotation: str = "str", short: str | None = None
+    name: str, annotation: str = "str", short: str | None = None
 ) -> FieldDescriptor:
-    return FieldDescriptor(
+    return declared(
         name=name,
-        type_annotation=type_annotation,
+        annotation=annotation,
         default=None,
         description="",
         required=False,
         short_flag=short,
+        group=True,
     )
 
 
@@ -63,6 +65,36 @@ def test_group_flag_is_consumed_and_the_walk_continues() -> None:
     assert walk.options == {"env": "prod"}
     assert walk.remaining == ()
     assert walk.bad_flag is None
+
+
+def test_repeated_group_flag_accumulates_the_contracts_list_values() -> None:
+    from dataclasses import replace
+
+    from functualize._types.parameter_contract import (
+        CliSpelling,
+        Container,
+        ParameterContract,
+        Scalar,
+        ValueShape,
+        Verdict,
+    )
+
+    contract = ParameterContract(
+        name="p",
+        verdict=Verdict.CONFIG_FIELD,
+        shape=ValueShape(Scalar.STR, Container.LIST),
+        required=False,
+        default_json=None,
+        cli=CliSpelling(long="--p", repeatable=True),
+        json_schema=None,
+    )
+    field = replace(_field("p", "list[str]"), contract=contract)
+    trie = _trie(deploy=_spec("deploy", field))
+
+    walk = walk_group_path(trie, ["deploy", "--p", "a", "--p", "b", "web", "run"])
+
+    assert walk.node.payload == "deploy.web.run"
+    assert walk.options == {"p": ["a", "b"]}
 
 
 @pytest.mark.parametrize(

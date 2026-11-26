@@ -35,6 +35,7 @@ JobConfig supports the following field types:
 | `Enum` subclass | Enumeration values | `env: Environment` |
 | `Optional[T]` | Nullable variant of any supported type | `tag: Optional[str]` |
 | `list[T]` | List of any supported base type or Enum | `targets: list[str]` |
+| `tuple[T, ...]` | Variable-length tuple of a supported base type; the job receives a `tuple` | `ports: tuple[int, ...]` |
 | `Secret[str]` | A credential — masked on every surface that renders config | `token: Secret[str]` |
 
 `Secret[str]` resolves exactly like a `str` — same section, same environment
@@ -44,8 +45,13 @@ config table, and not in the bar while you type it. Reach for it whenever a
 field holds a credential. See [Credentials](configuration.md#credentials) for
 the full story, including how to find out which variable sets it.
 
-!!! warning "Unsupported types raise TypeError"
-    If you use a type not listed above, Functualize raises a `TypeError` at **job registration time** (when the application starts), not at runtime. This ensures you catch type errors early.
+!!! warning "An unsupported type refuses the job, it does not crash the boot"
+    A field whose type no config source or flag can supply — a `dict`, a nested
+    model, `Secret[T]` for any `T` other than `str` — is refused at
+    **discovery**. The application still starts and the job is still listed,
+    so `func <job> --help` describes it, but discovery reports the refusal on
+    every boot, cold or warm, and every call to the job is refused with the
+    same reason and exit code 2. Nothing runs.
 
     `Secret[T]` for any `T` other than `str` is refused the same way. `Secret`
     stores `str(value)` and `get_secret_value()` returns `str`, so
@@ -53,21 +59,32 @@ the full story, including how to find out which variable sets it.
     convert at the point of use.
 
     ```python
-    from pydantic import BaseModel
+    from pydantic import BaseModel, Field
 
     class BadConfig(BaseModel):
-        data: dict[str, str]  # (1)!
+        data: dict[str, str] = Field(default_factory=dict)  # (1)!
     ```
 
-    1. `dict` is not a supported type — this raises `TypeError` when the job is registered.
+    1. `dict` is not a supported config type, so the job taking `BadConfig` is refused.
 
-    The error message indicates the unsupported type and lists all supported alternatives:
+    Discovery names the job, the parameter and the remedy:
 
     ```
-    TypeError: Unsupported type for field 'data': dict[str, str].
-    Supported types are: str, int, float, bool, Enum subclasses,
-    Optional[T] for supported T, and list[T] for supported T.
+    jobs/report.py: job 'report' parameter 'data: dict[str, str]' is refused.
+    Config field 'data' has type 'dict[str, str]', which no config source or
+    flag can supply. Declare a scalar, an Enum, Secret[str], or list[T] or
+    tuple[T, ...] of a scalar.
     ```
+
+    and a call to the job prints one usage line and exits 2:
+
+    ```
+    Error: job 'report' cannot run: parameter 'data' was refused at discovery.
+    Config field 'data' has type 'dict[str, str]', ...
+    ```
+
+    The same declaration is refused the same way whether the job is found by
+    directory discovery or registered in library mode.
 
 ## CLI Option Conversion
 

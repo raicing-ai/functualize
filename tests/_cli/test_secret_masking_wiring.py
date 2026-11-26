@@ -187,7 +187,10 @@ class TestTheRenderedCells:
     def test_a_plain_cell_shows_its_value(self, name):
         """Without this the masking above could be 'mask everything'."""
         typed = "typed-plain-value"
-        tui = _tui_for(_descriptors_through_the_cache(), f"sync --{name} {typed}")
+        # The flag as `func sync --help` spells it: the bar parses with the
+        # CLI's grammar (B-18), which renders `sort_key` as `--sort-key`.
+        flag = f"--{name.replace('_', '-')}"
+        tui = _tui_for(_descriptors_through_the_cache(), f"sync {flag} {typed}")
         panels = build_command_panels(tui)
         panel = panels[0][1]
         field = _fields_by_name(panels)[name]

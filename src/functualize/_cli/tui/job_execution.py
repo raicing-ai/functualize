@@ -611,7 +611,18 @@ def run_job(app: FunctualizeInlineTUI, tokens: list[str]) -> None:
 
     # After the command, position makes every flag the job's own (D-d) — the
     # group's were already consumed mid-path by the walk above.
-    job_kwargs = app.job_kwargs_for(job_name, resolution.args)
+    import click
+
+    try:
+        job_kwargs = app.job_kwargs_for(job_name, resolution.args)
+    except click.UsageError as exc:
+        # The bar parses with the CLI's grammar, so it refuses what `func`
+        # refuses, in the same words (B-18), instead of dropping the token.
+        output_log.add_class("visible")
+        from rich.markup import escape
+
+        output_log.write(f"[red]Error: {escape(exc.format_message())}[/red]")
+        return
     group_values = resolution.group_values
 
     # Record invocation history for each provided argument (job + group).

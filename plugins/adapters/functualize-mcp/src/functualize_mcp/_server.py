@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from typing import TYPE_CHECKING, Any
 
 import fastmcp
 from fastmcp import FastMCP
+from fastmcp.tools import Tool, ToolResult
+from pydantic import PrivateAttr
 
 from functualize._types.errors import ScopeCancelledError
 from functualize.types import RunRequest
@@ -31,19 +32,9 @@ if TYPE_CHECKING:
     from functualize.plugin import PluginHost
     from functualize_mcp._config import MCPConfig
 
-__all__ = ["MCPServer"]
+__all__ = ["JobTool", "MCPServer"]
 
 logger = logging.getLogger(__name__)
-
-# Mapping from JSON Schema type strings to Python type annotations
-_TYPE_MAP: dict[str, str] = {
-    "string": "str",
-    "integer": "int",
-    "number": "float",
-    "boolean": "bool",
-    "array": "list",
-    "object": "dict",
-}
 
 
 class MCPServer:
@@ -128,17 +119,13 @@ class MCPServer:
     def _register_single_tool(self, tool_def: MCPToolDef) -> None:
         """Register a single job as an MCP tool with FastMCP.
 
-        Dynamically creates a typed function matching the tool's input schema
-        and registers it with FastMCP. The function executes the job via
-        the app's execute method.
+        The tool's parameters are the job's published schema; a call executes
+        the job through the app (``JobTool.run``).
 
         Args:
             tool_def: The MCPToolDef with name, description, and schema.
         """
-        job_name = tool_def.name
-        app = self._app
-        fn = _build_tool_function(job_name, tool_def, app, self._gate_tool_policy)
-        self._mcp.add_tool(fn)
+        self._mcp.add_tool(JobTool.for_job(tool_def, self._app, self._gate_tool_policy))
 
     def start_stdio(self) -> None:
         """Start the MCP server using stdio transport.
@@ -167,98 +154,69 @@ class MCPServer:
         self._mcp.run(transport="sse", host=host, port=port)
 
 
-def _build_tool_function(
-    job_name: str, tool_def: MCPToolDef, app: PluginHost, policy: Any = None
-) -> Any:
-    """Build a dynamically-typed async function for a job tool.
+class JobTool(Tool):
+    """One job as an MCP tool, registered from its one schema (contracts.md §6).
 
-    Creates a function whose signature matches the tool's input schema,
-    allowing FastMCP to expose properly typed parameters to MCP clients.
-    Jobs with no parameters get a no-argument function.
-
-    Args:
-        job_name: The functualize job name.
-        tool_def: The MCPToolDef containing the input schema.
-        app: The FunctualizeApp for executing jobs.
-
-    Returns:
-        An async callable suitable for FastMCP.add_tool().
+    ``parameters`` is the translator's ``input_schema`` — ``job_input_schema``
+    with the group options merged — so the tool advertises exactly what
+    ``func builtin info schema`` publishes, for every legal Python signature:
+    no function is generated, so no parameter name, job name or description
+    can fail to compile. FastMCP hands ``run`` the caller's arguments as sent;
+    converting them is the binding door's job, as on every other surface
+    (spec B-23), and a value it refuses comes back as ``isError: true``.
     """
-    schema = tool_def.input_schema
-    properties = schema.get("properties", {})
-    required_fields = set(schema.get("required", []))
 
-    if not properties:
-        # No parameters — simple wrapper
-        async def _no_params_handler() -> dict[str, Any]:
-            return _execute_job(app, job_name, {}, policy)
+    _app: Any = PrivateAttr()
+    _policy: Any = PrivateAttr(default=None)
+    _group_option_names: frozenset[str] = PrivateAttr(default=frozenset())
 
-        _no_params_handler.__name__ = job_name
-        _no_params_handler.__qualname__ = job_name
-        _no_params_handler.__doc__ = (
-            tool_def.description or f"Execute the {job_name} job."
+    @classmethod
+    def for_job(
+        cls, tool_def: MCPToolDef, app: PluginHost, policy: Any = None
+    ) -> JobTool:
+        """The tool for ``tool_def``, executing through ``app``."""
+        tool = cls(
+            name=tool_def.name,
+            description=tool_def.description or f"Execute the {tool_def.name} job.",
+            parameters=tool_def.input_schema or {"type": "object", "properties": {}},
         )
-        return _no_params_handler
+        tool._app = app
+        tool._policy = policy
+        tool._group_option_names = tool_def.group_option_names
+        return tool
 
-    # Build typed parameters for the function
-    param_parts: list[str] = []
-    for field_name, field_schema in properties.items():
-        py_type = _TYPE_MAP.get(field_schema.get("type", ""), "Any")
-        if field_name in required_fields:
-            param_parts.append(f"{field_name}: {py_type}")
-        else:
-            default_val = repr(field_schema.get("default"))
-            param_parts.append(f"{field_name}: {py_type} = {default_val}")
+    async def run(self, arguments: dict[str, Any]) -> ToolResult:
+        """Run the job; a refused or failed run is ``isError: true`` with its reason."""
+        outcome = _execute_job(
+            self._app,
+            self.name,
+            dict(arguments or {}),
+            self._policy,
+            self._group_option_names,
+        )
+        if _is_error(outcome):
+            return ToolResult(
+                content=str(outcome.get("error") or outcome.get("status")),
+                structured_content=outcome,
+                is_error=True,
+            )
+        return self.convert_result(outcome)
 
-    params_str = ", ".join(param_parts)
 
-    # The exec'd function needs a *Python identifier*, but the MCP tool name
-    # is the full functualize job name — dotted for grouped jobs
-    # ("probe.echo"). Compiling `async def probe.echo(...)` is a SyntaxError
-    # that killed the whole server on any grouped job with parameters. Compile
-    # under a sanitized identifier and restore the dotted name on the function
-    # object afterwards — the same shape the no-parameters branch uses above —
-    # because FastMCP derives the registered tool name from ``fn.__name__``
-    # and the MCP spec (SEP-986) permits dots in tool names. Each call owns
-    # its own ``exec_ns``, so two job names mapping to one sanitized
-    # identifier cannot collide.
-    safe_name = re.sub(r"[^0-9A-Za-z_]", "_", job_name)
-    if not safe_name or safe_name[0].isdigit():
-        safe_name = f"_{safe_name}"
+#: Run statuses a tool call reports as an error (contracts.md §6): the call was
+#: refused at the binding door (``invalid``), or the run failed after starting.
+_ERROR_STATUSES = frozenset({"invalid", "failure", "timeout"})
 
-    # Build the function source. The docstring is deliberately NOT
-    # interpolated here: a description containing ''' would break compilation.
-    # It is attached as ``__doc__`` after exec, like the no-parameters branch.
-    fn_source = (
-        f"async def {safe_name}({params_str}) -> dict:\n"
-        f"    import inspect as _inspect\n"
-        f"    _frame = _inspect.currentframe()\n"
-        f"    _kwargs = {{k: v for k, v in _frame.f_locals.items() if not k.startswith('_')}}\n"
-        f"    return _execute(_app, _job_name, _kwargs, _policy, _group_names)\n"
-    )
 
-    # Execution namespace with closure references
-    exec_ns: dict[str, Any] = {
-        "_app": app,
-        "_job_name": job_name,
-        "_policy": policy,
-        "_group_names": tool_def.group_option_names,
-        "_execute": _execute_job,
-        "str": str,
-        "int": int,
-        "float": float,
-        "bool": bool,
-        "list": list,
-        "dict": dict,
-        "Any": Any,
-    }
+def _is_error(outcome: dict[str, Any]) -> bool:
+    """Whether ``_execute_job``'s envelope is a refusal or a failure.
 
-    exec(fn_source, exec_ns)  # noqa: S102
-    fn = exec_ns[safe_name]
-    fn.__name__ = job_name
-    fn.__qualname__ = job_name
-    fn.__doc__ = tool_def.description or f"Execute the {job_name} job."
-    return fn
+    A gate's ``tool_not_permitted`` refusal is not: it is the documented
+    answer to a call made while a workflow waits, and carries its own code.
+    """
+    if outcome.get("error") == "tool_not_permitted":
+        return False
+    return "error" in outcome or outcome.get("status") in _ERROR_STATUSES
 
 
 def _execute_job(
@@ -315,12 +273,18 @@ def _execute_job(
                 group_option_values=group_values or None,
             )
         )
-        return {
+        envelope: dict[str, Any] = {
             "status": wire_status(result.status),
             "return_value": result.return_value,
             "duration_ms": result.duration_ms,
             "metadata": wire_metadata(result),
         }
+        # A refused or failed run carries its reason (F-31): the binding
+        # door's refusal names the argument, a failure carries the error.
+        exception = getattr(result, "exception", None)
+        if envelope["status"] in _ERROR_STATUSES and exception is not None:
+            envelope["error"] = str(exception)
+        return envelope
     except ScopeCancelledError as e:
         # Same refusal, same code, as `run_job` — one error table, both doors.
         return {"error": "scope_cancelled", "message": str(e), "job_name": job_name}

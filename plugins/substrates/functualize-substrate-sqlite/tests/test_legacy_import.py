@@ -207,6 +207,22 @@ def test_a_legal_fixture_imports_and_verifies(db: Path) -> None:
     assert SQLiteSubstrate(db).read("fresh") is not None
 
 
+def test_an_invalid_legacy_run_imports_as_a_failed_attempt(db: Path) -> None:
+    substrate = SQLiteSubstrate(db)
+    stored = substrate.read("runs")
+    assert stored is not None
+    document = stored.data
+    [run] = document["runs"].values()
+    run["status"] = "invalid"
+    run["attempts"][0]["status"] = "invalid"
+    substrate.write("runs", document, expect=stored.revision)
+
+    report = import_legacy(db)
+    assert report.outcome is Outcome.IMPORTED, report.text()
+    assert _rows(db, "SELECT status FROM runs") == [("invalid",)]
+    assert _rows(db, "SELECT status FROM run_attempts") == [("failed",)]
+
+
 def test_a_second_run_is_a_no_op(db: Path) -> None:
     first = import_legacy(db)
     tables = (

@@ -411,44 +411,38 @@ class TestToolScopeApprovalRequired:
 class TestToolScopeToToolDefs:
     """Tests for ToolScope.to_tool_defs() resolution."""
 
-    def test_generates_schema_from_config_fields(self) -> None:
-        fields = [
-            SimpleNamespace(
-                name="target",
-                type_annotation="str",
-                description="Deployment target",
-                required=True,
-                choices=None,
-            ),
-            SimpleNamespace(
-                name="dry_run",
-                type_annotation="bool",
-                description="Dry run mode",
-                required=False,
-                choices=None,
-            ),
-        ]
-        desc = _make_descriptor("deploy", config_fields=fields)
-        registry = MockRegistry([desc])
+    def test_generates_schema_from_the_jobs_contracts(self) -> None:
+        """The tool's parameters are the job's one schema (spec B-21, S-1)."""
+        from functualize._discovery import extract_parameters_from_signature
 
-        scope = ToolScope.only(["deploy"])
-        defs = scope.to_tool_defs(registry)
-        schema = defs[0].parameters_schema
+        def deploy(target: str, dry_run: bool = False) -> None: ...
 
-        assert schema["type"] == "object"
-        assert "target" in schema["properties"]
-        assert schema["properties"]["target"]["type"] == "string"
-        assert schema["properties"]["dry_run"]["type"] == "boolean"
-        assert "target" in schema["required"]
-        assert "dry_run" not in schema.get("required", [])
+        desc = _make_descriptor(
+            "deploy", config_fields=extract_parameters_from_signature(deploy)
+        )
+        defs = ToolScope.only(["deploy"]).to_tool_defs(MockRegistry([desc]))
 
-    def test_empty_config_fields_empty_schema(self) -> None:
+        assert defs[0].parameters_schema == {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string"},
+                "dry_run": {"type": "boolean", "default": False},
+            },
+            "required": ["target"],
+        }
+
+    def test_a_job_without_inputs_publishes_an_empty_object(self) -> None:
+        """No inputs is the same document ``info schema`` and MCP publish."""
         desc = _make_descriptor("simple")
         registry = MockRegistry([desc])
 
         scope = ToolScope.only(["simple"])
         defs = scope.to_tool_defs(registry)
-        assert defs[0].parameters_schema == {}
+        assert defs[0].parameters_schema == {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        }
 
     def test_metadata_with_dict_tags(self) -> None:
         """Test that descriptors with dict-style metadata also work."""

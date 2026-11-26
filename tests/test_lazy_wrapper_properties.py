@@ -9,7 +9,7 @@ otherwise trigger module loading."
 
 Property 8: "For any valid list of FieldDescriptor instances, the reconstructed
 function signature SHALL have: one parameter per descriptor with matching name;
-type annotation mapped from descriptor.type_annotation; required fields have no default;
+type annotation mapped from descriptor.contract.display; required fields have no default;
 optional fields use descriptor.default."
 
 **Validates: Requirements 9.1, 9.2**
@@ -28,8 +28,10 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from functualize._types.descriptors import FieldDescriptor, JobDescriptor
+from functualize._types.parameter_contract import Scalar
 from functualize.app.adapters.click_params import build_click_params_from_descriptor
 from functualize.app.adapters.lazy_command import make_lazy_command
+from tests._support.declared_fields import declared
 
 # --- Constants ---
 
@@ -65,7 +67,9 @@ def field_descriptors(draw: st.DrawFn) -> FieldDescriptor:
 
     if type_name == "enum":
         choices = draw(
-            st.lists(st.text(min_size=1, max_size=20), min_size=1, max_size=10)
+            st.lists(
+                st.text(min_size=1, max_size=20), min_size=1, max_size=10, unique=True
+            )
         )
     else:
         choices = None
@@ -81,26 +85,23 @@ def field_descriptors(draw: st.DrawFn) -> FieldDescriptor:
     )
     required = draw(st.booleans())
 
-    # Optional fields get a default value; required fields have no default
-    if required:
-        default = None
-    else:
-        # Generate JSON-serializable defaults appropriate to the type
-        default = draw(
-            st.one_of(
-                st.none(),
-                st.text(max_size=30),
-                st.integers(min_value=-1000, max_value=1000),
-                st.booleans(),
-                st.floats(allow_nan=False, allow_infinity=False),
-            )
-        )
+    # A default a declaration of this type can carry (discovery never records a
+    # text default on an `int`); required fields have none.
+    by_type = {
+        "str": st.text(max_size=30),
+        "int": st.integers(min_value=-1000, max_value=1000),
+        "bool": st.booleans(),
+        "float": st.floats(allow_nan=False, allow_infinity=False),
+        "list[str]": st.lists(st.text(max_size=10), max_size=3),
+        "enum": st.sampled_from(choices or [""]),
+    }
+    default = None if required else draw(st.none() | by_type[type_name])
 
     help_text = draw(st.text(max_size=50))
 
-    return FieldDescriptor(
+    return declared(
         name=name,
-        type_annotation=type_name,
+        annotation=type_name,
         choices=choices,
         default=default,
         required=required,
@@ -214,7 +215,7 @@ class TestSignatureReconstruction:
 
     For any valid list of FieldDescriptor instances, the reconstructed function
     signature SHALL have: one parameter per descriptor with matching name; type
-    annotation mapped from descriptor.type_annotation; required fields have no default;
+    annotation mapped from descriptor.contract.display; required fields have no default;
     optional fields use descriptor.default.
     """
 
@@ -247,7 +248,7 @@ class TestSignatureReconstruction:
         self, fields: list[FieldDescriptor]
     ) -> None:
         """Each parameter name in the signature matches the corresponding
-        FieldDescriptor's name, preserving order.
+        FieldDescriptor's name: positional arguments first, each in order.
 
         # Feature: layered-architecture-lazy-boot, Property 8: Signature reconstruction from FieldDescriptors
         **Validates: Requirements 9.2**
@@ -266,7 +267,12 @@ class TestSignatureReconstruction:
 
         params = build_click_params_from_descriptor(descriptor)
         param_names = [p.name for p in params]
-        expected_names = [f.name for f in fields]
+        # The contract renderer lists positional arguments first, each group in
+        # declaration order (`render_click_params`, task 3.1).
+        positional = {f.name for f in fields if f.contract.cli.positional}
+        expected_names = [f.name for f in fields if f.name in positional] + [
+            f.name for f in fields if f.name not in positional
+        ]
         assert param_names == expected_names
 
     @given(fields=field_descriptor_lists())
@@ -296,20 +302,20 @@ class TestSignatureReconstruction:
 
         for field in fields:
             param = params[field.name]
-            if field.type_annotation == "enum":
+            if field.contract.shape.scalar is Scalar.ENUM:
                 assert isinstance(param.type, click.Choice), (
                     f"Field '{field.name}' with type='enum' should have a "
                     f"click.Choice type, got {param.type}"
                 )
                 assert list(param.type.choices) == (field.choices or [])
             else:
-                expected_type = _EXPECTED_CLICK_TYPE[field.type_annotation]
+                expected_type = _EXPECTED_CLICK_TYPE[field.contract.display]
                 # click's ParamType defines no __eq__, so `==` is identity.
                 # `click.BOOL` is a singleton but the builder constructs a fresh
                 # BoolParamType, which is the same type and behaves identically
                 # while comparing unequal. Compare on what actually matters.
                 assert type(param.type) is type(expected_type), (
-                    f"Field '{field.name}' with type='{field.type_annotation}' should "
+                    f"Field '{field.name}' with type='{field.contract.display}' should "
                     f"have click type {expected_type!r} "
                     f"({type(expected_type).__name__}), got {param.type!r} "
                     f"({type(param.type).__name__})"

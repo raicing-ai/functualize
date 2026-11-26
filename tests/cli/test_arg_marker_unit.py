@@ -10,7 +10,6 @@ Requirements: 3.1, 3.3, 3.6
 
 from __future__ import annotations
 
-from typing import get_origin
 from unittest.mock import MagicMock
 
 import click
@@ -183,15 +182,3 @@ class TestMissingRequiredPositional:
         cmd = _command("deploy_env", positional_with_default, app=_make_app_mock())
         result = runner.invoke(cmd, [])
         assert result.exit_code == 0, f"CLI failed: {result.output}"
-
-
-def test_variadic_annotation_inner_type_is_list_origin():
-    """Sanity: the subject really declares a list positional."""
-    import inspect
-
-    sig = inspect.signature(variadic_positional)
-    ann = sig.parameters["files"].annotation
-    # Annotated[list[str], Arg()] — unwrap to the list origin.
-    from functualize._cli.annotation_utils import parse_annotation
-
-    assert get_origin(parse_annotation(ann).base_type) is list

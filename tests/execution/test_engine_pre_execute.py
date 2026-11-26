@@ -140,7 +140,7 @@ class TestEnginePreExecuteModify:
 
         received = []
 
-        def my_job(value=0):
+        def my_job(value: int = 0):
             received.append(value)
 
         run_job(engine, "my_job", my_job, kwargs={"value": 1})
@@ -169,7 +169,7 @@ class TestEnginePreExecuteModify:
 
         received = []
 
-        def my_job(value=0):
+        def my_job(value: int = 0):
             received.append(value)
 
         run_job(engine, "my_job", my_job, kwargs={"value": 1})
@@ -198,7 +198,7 @@ class TestEnginePreExecuteProceed:
 
         received = []
 
-        def my_job(value=0):
+        def my_job(value: int = 0):
             received.append(value)
 
         run_job(engine, "my_job", my_job, kwargs={"value": 7})

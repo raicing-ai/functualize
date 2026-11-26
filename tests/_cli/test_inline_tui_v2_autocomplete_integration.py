@@ -23,6 +23,7 @@ from functualize._cli.tui.smart_bar_autocomplete import SmartBarAutoComplete
 from functualize._primitives.run_store import RunStore
 from functualize.app.core import FunctualizeApp
 from functualize.types import FieldDescriptor, JobDescriptor
+from tests._support.declared_fields import declared, with_contract
 
 if TYPE_CHECKING:
     import pytest
@@ -64,19 +65,21 @@ async def test_inline_tui_records_selected_project_tags(
 
 def _make_field(
     name: str,
-    type_annotation: str = "str",
+    annotation: str = "str",
     default: Any = None,
     description: str = "",
     required: bool = False,
     choices: list[str] | None = None,
 ) -> FieldDescriptor:
-    return FieldDescriptor(
-        name=name,
-        type_annotation=type_annotation,
-        default=default,
-        description=description,
-        required=required,
-        choices=choices,
+    return with_contract(
+        declared(
+            name=name,
+            annotation=annotation,
+            default=default,
+            description=description,
+            required=required,
+            choices=choices,
+        )
     )
 
 
@@ -275,9 +278,7 @@ class TestSmartBarAutoCompleteFlagMode:
         """get_candidates returns flag candidates after a recognized job."""
         fields = [
             _make_field("region", description="AWS region"),
-            _make_field(
-                "timeout", type_annotation="int", description="Timeout in seconds"
-            ),
+            _make_field("timeout", annotation="int", description="Timeout in seconds"),
         ]
         jobs = [_make_job("deploy", fields=fields)]
         app = _make_app_mock(jobs)
@@ -296,8 +297,8 @@ class TestSmartBarAutoCompleteFlagMode:
         """Already-used flags are excluded from candidates."""
         fields = [
             _make_field("region", description="AWS region"),
-            _make_field("timeout", type_annotation="int", description="Timeout"),
-            _make_field("verbose", type_annotation="bool", description="Verbose"),
+            _make_field("timeout", annotation="int", description="Timeout"),
+            _make_field("verbose", annotation="bool", description="Verbose"),
         ]
         jobs = [_make_job("deploy", fields=fields)]
         app = _make_app_mock(jobs)
@@ -316,7 +317,7 @@ class TestSmartBarAutoCompleteFlagMode:
     def test_list_flags_remain_available(self):
         """List-typed flags remain available even after use."""
         fields = [
-            _make_field("tags", type_annotation="list[str]", description="Tags"),
+            _make_field("tags", annotation="list[str]", description="Tags"),
             _make_field("region", description="Region"),
         ]
         jobs = [_make_job("deploy", fields=fields)]

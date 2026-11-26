@@ -251,6 +251,7 @@ class _FakeDescriptor:
         self.group = group
         self.metadata: dict[str, Any] = {}
         self.config_fields: list[Any] = []
+        self.parameters: list[Any] = []
 
 
 class _FakeJobRegistry:

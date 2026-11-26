@@ -238,7 +238,7 @@ def stdin_markers_for(function: Callable[..., Any]) -> dict[str, Stdin]:
     Re-derived from the signature rather than handed in, because the engine is
     now the only place that resolves stdin (run-request/T11) and it is reached
     from surfaces that never built click parameters. The click builder finds
-    the same markers through ``_cli/annotation_utils.py``; both are asking the
+    the same markers through the admitted parameter contracts; both are asking the
     one question "is there a ``Stdin`` instance in this parameter's
     ``Annotated`` metadata", so the answers agree by construction.
 

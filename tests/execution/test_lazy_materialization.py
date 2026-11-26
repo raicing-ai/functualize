@@ -56,6 +56,10 @@ class _RecordingHost:
         if self.jobs.get(current.name) is current:
             self.jobs[current.name] = replacement
 
+    def admitted_contracts(self, name: str) -> None:
+        """No boot ran here, so nothing was admitted (``EngineHost``'s None)."""
+        return None
+
 
 def _make_engine(host: object | None = None) -> JobExecutionEngine:
     return JobExecutionEngine(

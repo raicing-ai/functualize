@@ -31,11 +31,25 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class FakeField:
     name: str
-    type_annotation: str
+    annotation: str
     default: Any | None = None
     description: str = ""
     required: bool = True
     choices: list[str] | None = None
+
+    @property
+    def contract(self):
+        from tests._support.declared_fields import declared
+
+        return declared(
+            self.name,
+            self.annotation,
+            default=self.default,
+            required=self.required,
+            choices=self.choices,
+            description=self.description,
+            from_config_model=True,
+        ).contract
 
 
 @dataclass
@@ -112,7 +126,7 @@ def basic_descriptors() -> list[FakeDescriptor]:
             config_fields=[
                 FakeField(
                     name="name",
-                    type_annotation="str",
+                    annotation="str",
                     required=True,
                     description="Person name",
                 ),
@@ -131,13 +145,13 @@ def basic_descriptors() -> list[FakeDescriptor]:
             config_fields=[
                 FakeField(
                     name="env",
-                    type_annotation="str",
+                    annotation="str",
                     required=True,
                     description="Environment",
                 ),
                 FakeField(
                     name="dry_run",
-                    type_annotation="bool",
+                    annotation="bool",
                     default=False,
                     required=False,
                     description="Dry run",

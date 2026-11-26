@@ -3,7 +3,7 @@
 The TUI edits every value as text, but TOML is typed: writing a port back as
 ``port = "9090"`` silently changes an integer setting into a string. This
 module renders each edited value using the type the field declares
-(``FieldDef.type_annotation`` for job config, ``SettingSchema.type`` for TUI
+(``FieldDef.type_label`` for job config, ``SettingSchema.type`` for TUI
 settings) so a round-trip through the TUI preserves the file's types.
 
 Writes go through a tempfile in the target directory followed by
@@ -57,7 +57,7 @@ def _normalize_hint(type_hint: str | None) -> str:
     """Reduce a type annotation to a lowercase bare name.
 
     Handles the ``Optional[int]`` / ``int | None`` shapes that
-    ``FieldDef.type_annotation`` can carry, so an optional int still writes
+    ``FieldDef.type_label`` can carry, so an optional int still writes
     as a bare integer.
     """
     if not type_hint:
@@ -83,7 +83,7 @@ def format_toml_value(raw: str, type_hint: str | None = None) -> str:
 
     Args:
         raw: The value as edited in the TUI.
-        type_hint: The declared type (``FieldDef.type_annotation`` or
+        type_hint: The declared type (``FieldDef.type_label`` or
             ``SettingSchema.type``). ``None`` means "unknown" — quote it.
 
     Returns:

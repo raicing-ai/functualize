@@ -10,10 +10,14 @@ Only imports from `_types/`, `_primitives/`, `_events/`, and stdlib.
 from __future__ import annotations
 
 import contextlib
+import weakref
 from collections.abc import Callable, Generator
-from typing import TYPE_CHECKING, Any
+from types import UnionType
+from typing import TYPE_CHECKING, Annotated, Any, Union, get_args, get_origin
 
 from functualize._engine.resolution import ResolutionPlan, build_resolution_plan
+from functualize._primitives.parameter_contract import build_contracts
+from functualize._types.annotations import resolved_hints
 
 if TYPE_CHECKING:
     from functualize._engine.context import ExecutionContext
@@ -102,7 +106,10 @@ class ExecutionMiddlewareChain:
         job_fn: Callable[..., Any],
         *,
         di_registry: DIRegistry | None = None,
-        resolution_plan_cache: dict[int, ResolutionPlan] | None = None,
+        resolution_plan_cache: weakref.WeakKeyDictionary[
+            Callable[..., Any], ResolutionPlan
+        ]
+        | None = None,
     ) -> Any:
         """Execute the middleware chain around a job function.
 
@@ -192,11 +199,12 @@ def _resolve_middleware_kwargs(
     *,
     context: ExecutionContext,
     di_registry: DIRegistry | None,
-    resolution_plan_cache: dict[int, ResolutionPlan] | None,
+    resolution_plan_cache: weakref.WeakKeyDictionary[Callable[..., Any], ResolutionPlan]
+    | None,
 ) -> dict[str, Any] | None:
     """Resolve DI parameters for a middleware function.
 
-    Uses ResolutionPlan caching keyed by id(function). Per-invocation
+    Uses ResolutionPlan caching keyed by callable reference. Per-invocation
     capability instances from the context are shared between middleware
     and the job in the same invocation.
 
@@ -215,24 +223,18 @@ def _resolve_middleware_kwargs(
     if resolution_plan_cache is None:
         return None
 
-    func_id = id(middleware_fn)
-    if func_id in resolution_plan_cache:
-        plan = resolution_plan_cache[func_id]
-    else:
-        # Build the set of registered types for plan construction
-        registered_types: set[type] = set(context.capabilities.keys())
-        if di_registry is not None:
-            registered_types.update(di_registry.available_types())
-
-        plan = build_resolution_plan(
-            middleware_fn,
-            registered_types=registered_types,
-            runcontext_type=None,  # Middleware doesn't get RunContext via DI here
-        )
-        resolution_plan_cache[func_id] = plan
+    try:
+        plan = resolution_plan_cache[middleware_fn]
+    except (KeyError, TypeError):
+        try:
+            plan = build_resolution_plan(build_contracts(middleware_fn))
+        except Exception:
+            plan = build_resolution_plan(())
+        with contextlib.suppress(TypeError):
+            resolution_plan_cache[middleware_fn] = plan
 
     # If the plan has no resolvable params, fall back to direct context path
-    has_resolvable = any(b.source == "di" for b in plan.params)
+    has_resolvable = any(b.source in ("di", "capability") for b in plan.params)
     if not has_resolvable:
         return None
 
@@ -241,29 +243,49 @@ def _resolve_middleware_kwargs(
         if binding.source == "skip":
             continue
 
-        if binding.source == "di":
+        if binding.source in ("di", "capability"):
+            annotation, optional = _runtime_injection_type(middleware_fn, binding.name)
             # Per-invocation capabilities take precedence
-            if binding.annotation in context.capabilities and binding.qualifier is None:
-                resolved[binding.name] = context.capabilities[binding.annotation]
+            if annotation in context.capabilities and binding.qualifier is None:
+                resolved[binding.name] = context.capabilities[annotation]
                 continue
 
             # Try resolving from the DI registry
-            if di_registry is not None:
+            if binding.source == "di" and di_registry is not None:
                 try:
                     instance = di_registry.resolve(
-                        binding.annotation,
+                        annotation,
                         qualifier=binding.qualifier,
                         caps=context.capabilities,
                     )
                     resolved[binding.name] = instance
                 except Exception:
-                    if binding.is_optional:
+                    if optional:
                         resolved[binding.name] = None
                     continue
-            elif binding.is_optional:
+            elif optional:
                 resolved[binding.name] = None
 
     return resolved if resolved else None
+
+
+def _runtime_injection_type(
+    function: Callable[..., Any], name: str
+) -> tuple[Any, bool]:
+    """Resolve the declared runtime type after the contract chose its source."""
+    import inspect
+
+    parameter = inspect.signature(function).parameters[name]
+    annotation = resolved_hints(function).get(name, parameter.annotation)
+    optional = False
+    if get_origin(annotation) in (Union, UnionType):
+        args = get_args(annotation)
+        non_none = [arg for arg in args if arg is not type(None)]
+        if len(non_none) == 1 and len(args) == 2:
+            annotation, optional = non_none[0], True
+    if get_origin(annotation) is Annotated:
+        annotation = get_args(annotation)[0]
+    return annotation, optional
 
 
 def _resume_generators(

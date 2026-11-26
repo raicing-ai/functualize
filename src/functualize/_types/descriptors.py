@@ -18,6 +18,15 @@ from functualize._types.enums import ConfigFileRole
 from functualize._types.errors import JobFailedError
 from functualize._types.naming import CommandPath
 from functualize._types.outcome import Family, is_failure
+from functualize._types.parameter_contract import (
+    CliSpelling,
+    Container,
+    Injection,
+    ParameterContract,
+    Scalar,
+    ValueShape,
+    Verdict,
+)
 
 if TYPE_CHECKING:
     from functualize._types.enums import RunStatus
@@ -35,7 +44,6 @@ class FieldDescriptor:
 
     Attributes:
         name: Field name.
-        type_annotation: Type string (e.g., "str", "int", "bool", "list[str]").
         default: Default value, or None if required.
         description: Field description text.
         required: True if the field has no default value.
@@ -71,7 +79,6 @@ class FieldDescriptor:
     """
 
     name: str
-    type_annotation: str
     default: Any | None
     description: str
     required: bool
@@ -82,11 +89,7 @@ class FieldDescriptor:
     stdin_flag: str | None = None
     secret: bool = False
     from_config_model: bool = False
-
-    @property
-    def type(self) -> str:
-        """Backward-compatible alias for type_annotation."""
-        return self.type_annotation
+    contract: ParameterContract | None = None
 
     @property
     def help(self) -> str:
@@ -273,6 +276,13 @@ class JobDescriptor:
     #: The declaring job class, when this descriptor represents one of its
     #: methods. None for plain function jobs.
     owner_class: str | None = None
+    #: The contracts of the signature parameters ``parameters`` omits —
+    #: capability types, ``FromJob`` and a ``GroupOptions`` injection point —
+    #: in signature order, as discovery decided them (before ``admit``). With
+    #: ``parameters``' own contracts they cover the whole signature (B-1), so
+    #: boot can report an omitted refusal once (B-9). No surface reads them.
+    #: The engine door reads these through ``build_resolution_plan``.
+    omitted_contracts: tuple[ParameterContract, ...] = ()
 
     @property
     def command_path(self) -> CommandPath:
@@ -336,6 +346,10 @@ class JobDescriptor:
             "from_job_deps": list(self.from_job_deps),
             "python_name": self.python_name,
             "owner_class": self.owner_class,
+            # v27 — the contracts of the parameters `parameters` omits.
+            "omitted_contracts": [
+                _contract_to_dict(contract) for contract in self.omitted_contracts
+            ],
             "workflow": (
                 self.workflow.to_dict() if self.workflow is not None else None
             ),
@@ -426,6 +440,22 @@ class JobDescriptor:
             except ValueError as e:
                 raise ValueError(f"Invalid parameters[{i}]: {e}") from e
 
+        # v27 — the contracts of omitted signature parameters, in order.
+        raw_omitted = data.get("omitted_contracts") or []
+        if not isinstance(raw_omitted, list):
+            raise ValueError(
+                "Expected 'omitted_contracts' to be a list, got "
+                f"{type(raw_omitted).__name__}"
+            )
+        omitted_contracts: list[ParameterContract] = []
+        for i, contract_data in enumerate(raw_omitted):
+            if not isinstance(contract_data, dict):
+                raise ValueError(f"Invalid omitted_contracts[{i}]: not a dict")
+            try:
+                omitted_contracts.append(_contract_from_dict(contract_data))
+            except (KeyError, TypeError, ValueError) as e:
+                raise ValueError(f"Invalid omitted_contracts[{i}]: {e}") from e
+
         # Validate dependencies dict values
         for key, value in data["dependencies"].items():
             if not isinstance(key, str):
@@ -496,6 +526,7 @@ class JobDescriptor:
             from_job_deps=tuple(data.get("from_job_deps") or ()),
             python_name=data.get("python_name") or "",
             owner_class=data.get("owner_class") or None,
+            omitted_contracts=tuple(omitted_contracts),
             workflow=workflow,
         )
 
@@ -633,7 +664,6 @@ def _field_to_dict(fd: FieldDescriptor) -> dict[str, Any]:
     default = _serialize_default(fd.default, fd.required, secret=fd.secret)
     return {
         "name": fd.name,
-        "type_annotation": fd.type_annotation,
         "choices": fd.choices,
         "default": default,
         "required": fd.required,
@@ -644,7 +674,64 @@ def _field_to_dict(fd: FieldDescriptor) -> dict[str, Any]:
         "stdin_flag": fd.stdin_flag,
         "secret": fd.secret,
         "from_config_model": fd.from_config_model,
+        "contract": _contract_to_dict(fd.contract) if fd.contract is not None else None,
     }
+
+
+def _shape_to_dict(shape: ValueShape) -> dict[str, Any]:
+    return {
+        "scalar": shape.scalar.value,
+        "container": shape.container.value,
+        "optional": shape.optional,
+        "enum_values": list(shape.enum_values),
+        "elements": [_shape_to_dict(element) for element in shape.elements],
+    }
+
+
+def _shape_from_dict(data: dict[str, Any]) -> ValueShape:
+    return ValueShape(
+        scalar=Scalar(data["scalar"]),
+        container=Container(data["container"]),
+        optional=data["optional"],
+        enum_values=tuple(data["enum_values"]),
+        elements=tuple(_shape_from_dict(element) for element in data["elements"]),
+    )
+
+
+def _contract_to_dict(contract: ParameterContract) -> dict[str, Any]:
+    return {
+        "name": contract.name,
+        "verdict": contract.verdict.value,
+        "shape": _shape_to_dict(contract.shape) if contract.shape is not None else None,
+        "required": contract.required,
+        "default_json": contract.default_json,
+        "cli": vars(contract.cli) if contract.cli is not None else None,
+        "json_schema": contract.json_schema,
+        "injection": vars(contract.injection)
+        if contract.injection is not None
+        else None,
+        "reject_reason": contract.reject_reason,
+        "display": contract.display,
+        "description": contract.description,
+    }
+
+
+def _contract_from_dict(data: dict[str, Any]) -> ParameterContract:
+    return ParameterContract(
+        name=data["name"],
+        verdict=Verdict(data["verdict"]),
+        shape=_shape_from_dict(data["shape"]) if data["shape"] is not None else None,
+        required=data["required"],
+        default_json=data["default_json"],
+        cli=CliSpelling(**data["cli"]) if data["cli"] is not None else None,
+        json_schema=data["json_schema"],
+        injection=Injection(**data["injection"])
+        if data["injection"] is not None
+        else None,
+        reject_reason=data["reject_reason"],
+        display=data["display"],
+        description=data["description"],
+    )
 
 
 def _serialize_default(default: Any, required: bool, *, secret: bool = False) -> Any:
@@ -685,9 +772,9 @@ def _serialize_default(default: Any, required: bool, *, secret: bool = False) ->
 def _field_from_dict(data: Any) -> FieldDescriptor:
     """Deserialize a FieldDescriptor from a JSON dict.
 
-    Supports both the new key names (type_annotation, description) and
-    legacy key names (type, help) for backward compatibility with existing
-    cache files.
+    The type travels in the contract. A cache written before the string
+    left the codec is not decoded but rebuilt (``CACHE_VERSION``), so no
+    legacy type key is read. ``help`` is still accepted for ``description``.
 
     Raises:
         ValueError: If required keys are missing or values have wrong types.
@@ -697,11 +784,9 @@ def _field_from_dict(data: Any) -> FieldDescriptor:
             f"Expected a dict for FieldDescriptor, got {type(data).__name__}"
         )
 
-    # Support both new and legacy key names
-    type_key = "type_annotation" if "type_annotation" in data else "type"
     desc_key = "description" if "description" in data else "help"
 
-    required_keys = {"name", type_key, "choices", "default", "required", desc_key}
+    required_keys = {"name", "choices", "default", "required", desc_key}
     missing = required_keys - set(data.keys())
     if missing:
         raise ValueError(
@@ -711,10 +796,6 @@ def _field_from_dict(data: Any) -> FieldDescriptor:
     if not isinstance(data["name"], str):
         raise ValueError(
             f"Expected 'name' to be str, got {type(data['name']).__name__}"
-        )
-    if not isinstance(data[type_key], str):
-        raise ValueError(
-            f"Expected '{type_key}' to be str, got {type(data[type_key]).__name__}"
         )
     if data["choices"] is not None and not isinstance(data["choices"], list):
         raise ValueError(
@@ -735,7 +816,6 @@ def _field_from_dict(data: Any) -> FieldDescriptor:
 
     return FieldDescriptor(
         name=data["name"],
-        type_annotation=data[type_key],
         choices=data["choices"],
         default=default,
         required=data["required"],
@@ -749,4 +829,7 @@ def _field_from_dict(data: Any) -> FieldDescriptor:
         # "render this the way a plain signature parameter is rendered", which
         # is what every pre-v19 entry was rendered as anyway.
         from_config_model=bool(data.get("from_config_model", False)),
+        contract=_contract_from_dict(data["contract"])
+        if data.get("contract") is not None
+        else None,
     )

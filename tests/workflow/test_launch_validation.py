@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from functualize._primitives.argument_binding import BindRefusal
 from functualize._primitives.scope_store import ScopeStore
 from functualize._types.enums import RunStatus
 from functualize.app.core import request_for
@@ -136,7 +137,7 @@ class TestTheGraphDoesNotRun:
             )
         )  # type: ignore[attr-defined]
 
-        assert result.status is RunStatus.FAILURE
+        assert result.status is RunStatus.INVALID
 
         scope = _scope(root, "a1")
         assert not scope.get("steps"), "a step ran; the graph was walked"
@@ -190,11 +191,11 @@ class TestParityWithAPlainJob:
         )  # type: ignore[attr-defined]
         from_plain = app.execute(request_for("alpha", zzz_nonsense=1))  # type: ignore[attr-defined]
 
-        assert from_workflow.status is from_plain.status is RunStatus.FAILURE
-        assert type(from_workflow.exception) is type(from_plain.exception) is TypeError
+        assert from_workflow.status is from_plain.status is RunStatus.INVALID
+        assert (
+            type(from_workflow.exception) is type(from_plain.exception) is BindRefusal
+        )
 
-        assert "walk()" in str(from_workflow.exception)
-        assert "alpha()" in str(from_plain.exception)
         for result in (from_workflow, from_plain):
             assert "zzz_nonsense" in str(result.exception)
 
@@ -218,7 +219,7 @@ class TestParityWithAPlainJob:
         warm_error = warm.execute(request_for("walk", zzz_nonsense=1)).exception
 
         assert str(cold_error) == str(warm_error)
-        assert "walk()" in str(warm_error)
+        assert "zzz_nonsense" in str(warm_error)
         assert not _scope(root, "unused")
 
     def test_neither_raises(self, project: tuple[object, Path]) -> None:
@@ -265,7 +266,7 @@ class TestARefusedResumeDisturbsNothing:
         )  # type: ignore[attr-defined]
         after = _scope(root, "a4")
 
-        assert result.status is RunStatus.FAILURE
+        assert result.status is RunStatus.INVALID
         assert after == before, "a refused resume advanced the run"
 
     def test_the_scope_is_still_resumable_afterwards(
@@ -296,10 +297,10 @@ class TestARefusedResumeDisturbsNothing:
         assert resumed.return_value == "done"
 
 
-class TestVarKeywordIsHonoured:
-    """A5 — Python's rule is the rule; only its timing changed."""
+class TestVarKeywordIsRefused:
+    """A5 — unknown keys have no contract even when the callable has **kwargs."""
 
-    def test_a_workflow_declaring_kwargs_accepts_anything(
+    def test_a_workflow_declaring_kwargs_refuses_unknown_keys(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         jobs = tmp_path / "jobs"
@@ -321,8 +322,9 @@ class TestVarKeywordIsHonoured:
             )
         )
 
-        assert result.status is RunStatus.BLOCKED
-        assert _scope(tmp_path, "a5").get("position") == "pause"
+        assert result.status is RunStatus.INVALID
+        assert "anything_at_all" in str(result.exception)
+        assert not _scope(tmp_path, "a5").get("steps")
 
 
 _NESTED = (
@@ -377,7 +379,7 @@ class TestANestedWorkflowIsUnaffected:
             )
         )  # type: ignore[attr-defined]
 
-        assert result.status is RunStatus.FAILURE
+        assert result.status is RunStatus.INVALID
         assert not _scope(root, "rk4").get("steps")
 
     def test_a_clean_nested_walk_still_blocks_and_resumes(
@@ -534,7 +536,7 @@ class TestConfigModelFieldsAreLegitimate:
             )
         )  # type: ignore[attr-defined]
 
-        assert result.status is RunStatus.FAILURE
+        assert result.status is RunStatus.INVALID
         assert "nonsense" in str(result.exception)
         assert not _scope(root, "cfg2").get("steps")
 
@@ -553,7 +555,7 @@ class TestConfigModelFieldsAreLegitimate:
             is RunStatus.SUCCESS
         )  # type: ignore[attr-defined]
         assert (
-            app.execute(request_for("forecast", nonsense=1)).status is RunStatus.FAILURE
+            app.execute(request_for("forecast", nonsense=1)).status is RunStatus.INVALID
         )  # type: ignore[attr-defined]
 
 
@@ -590,7 +592,7 @@ class TestTheOtherDeclaredEntryPoints:
         )
 
         assert result.status is RunStatus.SUCCESS, result.exception
-        assert result.return_value == "Failure:TypeError", (
+        assert result.return_value == "Invalid:BindRefusal", (
             f"the inner workflow launch was not refused: {result.return_value}"
         )
         assert not _scope(root, "invoke-probe").get("steps"), (
