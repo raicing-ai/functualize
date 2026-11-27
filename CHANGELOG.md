@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — app-injected AI offers scoped jobs with inherited group options
+
+An app-injected `ai.run(prompt, tools=scope)` now offers matching app jobs
+without requiring `job_registry=`. When the app's discovery cache contains
+group declarations, each job tool includes inherited group options as optional
+inputs, matching `func builtin info schema` and MCP. Explicit
+`job_registry=[]` still selects no job tools. Directly constructed AI and
+contextless `ToolScope.to_tool_defs(registry)` retain descriptor-only schemas.
+
 ### Removed — `FieldDescriptor.type_annotation` and its `type` alias
 
 **Public API removal.** `functualize.types.FieldDescriptor` no longer has a

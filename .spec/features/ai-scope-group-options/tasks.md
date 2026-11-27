@@ -18,7 +18,7 @@ Only an unchecked task in the lowest incomplete wave may start. Each task is che
 
 ## Wave 2 — public explanation
 
-- [ ] **3.1 — Document the restored app-injected call shape.**
+- [x] **3.1 — Document the restored app-injected call shape.**
   - Scope: `CHANGELOG.md`; `docs/guides/ai.md`.
   - Behavior: state that app-injected `ai.run(prompt, tools=scope)` now offers the scope's jobs without `job_registry=`, and that directly constructed AI and contextless scope resolution remain descriptor-only. Use the guide's existing `ai.run` example as the anchor.
   - Gate: `rg -n 'ai.run\(|ToolScope.only' docs/guides/ai.md` identifies the guide's call site; `git diff --check` and `uv run ruff format --check src/ tests/ plugins/ examples/` stay green. Documentation needs no code sabotage.
