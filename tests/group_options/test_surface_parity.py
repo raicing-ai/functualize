@@ -117,6 +117,26 @@ def run(
     return result
 '''
 
+_G160_GROUP = """\
+from functualize.job import GroupOptions
+
+
+class G_g160(GroupOptions, group="g160g"):
+    p: list[str] = []
+"""
+
+_G160_JOB = """\
+from functualize.job import job
+from _group import G_g160
+
+JOB_GROUP = "g160g"
+
+
+@job
+def run(opts: G_g160 = None):
+    print(opts.p)
+"""
+
 # The declaration, named once. Every assertion references these, so the fixture
 # is the single source of truth and the tests need no parallel bookkeeping.
 JOB_PATH = ["deploy", "web", "run"]
@@ -173,7 +193,7 @@ def _app_wired_ai(project: Path, monkeypatch):
     from functualize_ai import AI
     from functualize_ai_pydantic import PydanticAIPlugin
 
-    from functualize.app.config import JobSources, PluginSources
+    from functualize.app.config import DiscoveryConfig, JobSources, PluginSources
     from functualize.app.core import FunctualizeApp
 
     plugin = PydanticAIPlugin()
@@ -184,6 +204,7 @@ def _app_wired_ai(project: Path, monkeypatch):
             directories=[str(project / ".functualize" / "jobs")], lazy=False
         ),
         plugin_sources=PluginSources(entry_point_group="", explicit_plugins=[plugin]),
+        discovery_config=DiscoveryConfig(),
     )
     app.get_jobs()
     ai = app._di_registry.resolve(AI)
@@ -433,7 +454,7 @@ def _shell_init_settable(project: Path, monkeypatch) -> set[str]:
     return _collapse_negatives(names)
 
 
-def _mcp_tool(cli_run, project: Path) -> dict:
+def _mcp_tool(cli_run, project: Path, qualified_name: str | None = None) -> dict:
     """The job's MCP tool definition, as ``func mcp schema`` emits it.
 
     Driven through the real command rather than a hand-built translator: this
@@ -447,7 +468,8 @@ def _mcp_tool(cli_run, project: Path) -> dict:
     result = cli_run(["mcp", "schema"], cwd=project)
     assert result.exit_code == 0, result.stderr
     tools = json.loads(result.stdout)
-    matching = [t for t in tools if t["name"] == ".".join(JOB_PATH)]
+    name = qualified_name or ".".join(JOB_PATH)
+    matching = [t for t in tools if t["name"] == name]
     assert matching, f"job not in schema: {[t['name'] for t in tools]}"
     return matching[0]
 
@@ -459,11 +481,12 @@ class TestSurfaceParity:
     """One project, every surface, asserted against the declaration."""
 
     def test_app_wired_ai_run_uses_the_registered_jobs(
-        self, project, monkeypatch
+        self, cli_run, project, monkeypatch
     ) -> None:
         """The app's documented AI.run call offers its scoped job."""
         from functualize_ai import AI, AIResult, TokenUsage, ToolScope
 
+        mcp_schema = _mcp_tool(cli_run, project)["inputSchema"]
         app, ai = _app_wired_ai(project, monkeypatch)
         provider = MagicMock()
         provider.run.return_value = AIResult(
@@ -479,6 +502,18 @@ class TestSurfaceParity:
         offered = provider.run.call_args.kwargs["tools"]
         assert [tool.name for tool in offered] == [".".join(JOB_PATH)]
 
+        import json
+
+        info = cli_run(["builtin", "info", "schema", ".".join(JOB_PATH)], cwd=project)
+        assert info.exit_code == 0, info.stderr
+        info_schema = json.loads(info.stdout)["inputSchema"]
+        ai_schema = offered[0].parameters_schema
+        assert ai_schema == info_schema == mcp_schema
+        assert set(ai_schema["properties"]) == JOB_ARGUMENTS | GROUP_OPTIONS
+        assert not GROUP_OPTIONS.intersection(ai_schema.get("required", []))
+        assert not INJECTION_PARAMS.intersection(ai_schema["properties"])
+        assert ai._resolve_tool_defs(scope)[0].parameters_schema == ai_schema
+
         ai.run("inspect", tools=scope, job_registry=[])
         assert provider.run.call_args.kwargs["tools"] == []
 
@@ -488,6 +523,40 @@ class TestSurfaceParity:
             provider.run.call_args.kwargs["tools"][0].parameters_schema
             == scope.to_tool_defs(app.job_registry)[0].parameters_schema
         )
+
+    def test_app_wired_g160_list_option_matches_info_and_mcp(
+        self, cli_run, project_tree, monkeypatch
+    ) -> None:
+        """A list inherited from GroupOptions is offered to the model."""
+        import json
+
+        from functualize_ai import AIResult, TokenUsage, ToolScope
+
+        project = project_tree(jobs={"_group.py": _G160_GROUP, "g160.py": _G160_JOB})
+        cli = cli_run(["g160g", "--p", "a", "--p", "b", "run"], cwd=project)
+        assert cli.exit_code == 0, cli.stderr
+
+        _, ai = _app_wired_ai(project, monkeypatch)
+        provider = MagicMock()
+        provider.run.return_value = AIResult(
+            output="ok",
+            tool_calls=[],
+            usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            duration_ms=1.0,
+        )
+        ai._provider = provider
+        scope = ToolScope.only(["g160g.run"])
+        ai.run("inspect", tools=scope)
+        tool = provider.run.call_args.kwargs["tools"][0]
+        info = cli_run(["builtin", "info", "schema", "g160g.run"], cwd=project)
+        assert info.exit_code == 0, info.stderr
+        info_schema = json.loads(info.stdout)["inputSchema"]
+        mcp_schema = _mcp_tool(cli_run, project, "g160g.run")["inputSchema"]
+
+        assert tool.parameters_schema == info_schema == mcp_schema
+        assert "p" in tool.parameters_schema["properties"]
+        assert "p" not in tool.parameters_schema["required"]
+        assert "opts" not in tool.parameters_schema["properties"]
 
     def test_job_help_shows_exactly_the_job_arguments(self, cli_run, project) -> None:
         """Leaks 2 and 3, from the CLI side: a group option or an injection

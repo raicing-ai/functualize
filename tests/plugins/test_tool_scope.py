@@ -411,6 +411,33 @@ class TestToolScopeApprovalRequired:
 class TestToolScopeToToolDefs:
     """Tests for ToolScope.to_tool_defs() resolution."""
 
+    def test_group_context_keeps_job_field_on_collision(self) -> None:
+        from tests._support.declared_fields import declared
+
+        own = declared("env", default="own", from_config_model=True)
+        group_env = declared("env", default="group", group=True)
+        group_replicas = declared("replicas", "int", default=1, group=True)
+        descriptor = _make_descriptor(
+            "deploy.web.run", group="deploy.web", config_fields=[own]
+        )
+        scope = ToolScope.only([descriptor.name])
+        registry = MockRegistry([descriptor])
+        context = {
+            "deploy": SimpleNamespace(
+                class_name="DeployOptions", fields=[group_env, group_replicas]
+            )
+        }
+
+        without_context = scope.to_tool_defs(registry)[0].parameters_schema
+        with_context = scope.to_tool_defs(registry, group_context=context)[
+            0
+        ].parameters_schema
+
+        assert set(without_context["properties"]) == {"env"}
+        assert set(with_context["properties"]) == {"env", "replicas"}
+        assert with_context["properties"]["env"] == without_context["properties"]["env"]
+        assert "replicas" not in with_context.get("required", [])
+
     def test_generates_schema_from_the_jobs_contracts(self) -> None:
         """The tool's parameters are the job's one schema (spec B-21, S-1)."""
         from functualize._discovery import extract_parameters_from_signature

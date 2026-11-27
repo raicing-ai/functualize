@@ -10,10 +10,16 @@ Registered via entry point `functualize.ai_providers` with name "pydantic".
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from functualize_ai import AI, AIConfig
 
+from functualize.app.utils import (
+    discovery_hash_for,
+    read_group_options_from_cache,
+    resolve_cache_path,
+)
 from functualize_ai_pydantic._provider import PydanticAIProvider
 
 if TYPE_CHECKING:
@@ -87,6 +93,13 @@ class PydanticAIPlugin:
 
             # Get job registry for ToolScope resolution
             job_registry = getattr(app, "job_registry", None)
+            group_context = (
+                read_group_options_from_cache(
+                    resolve_cache_path(Path.cwd()),
+                    discovery_hash=discovery_hash_for(app),
+                )
+                or {}
+            )
 
             self._pydantic_ai = PydanticAI(
                 _provider=self._provider,
@@ -94,6 +107,7 @@ class PydanticAIPlugin:
                 _state_ns=state_ns,
                 _model=config.model,
                 _job_registry=job_registry,
+                _group_context=group_context,
             )
 
             # Register the generic AI type with DI

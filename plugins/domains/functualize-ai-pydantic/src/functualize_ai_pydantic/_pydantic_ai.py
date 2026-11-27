@@ -49,12 +49,14 @@ class PydanticAI(AI):
         _state_ns: Any | None = None,
         _model: str = "claude-sonnet-4-20250514",
         _job_registry: Any | None = None,
+        _group_context: Any | None = None,
     ) -> None:
         super().__init__(
             _provider=_provider,
             _event_bus=_event_bus,
             _state_ns=_state_ns,
             _job_registry=_job_registry,
+            _group_context=_group_context,
         )
         self._model = _model
         self._translator = ToolScopeTranslator()

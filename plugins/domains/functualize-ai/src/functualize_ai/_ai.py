@@ -12,7 +12,7 @@ The EventBus and StateNamespace are duck-typed:
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from functualize_ai._approval import is_tool_refusal, unwrap_gate_failure
@@ -54,6 +54,7 @@ class AI:
         _event_bus: An optional event bus (duck-typed with ``emit()``).
         _state_ns: An optional StateNamespace (duck-typed with ``get``/``set``).
         _job_registry: Optional app registry for resolving job tools.
+        _group_context: Optional cached group declarations for job schemas.
     """
 
     def __init__(
@@ -63,11 +64,13 @@ class AI:
         _event_bus: Any | None = None,
         _state_ns: Any | None = None,
         _job_registry: Any | None = None,
+        _group_context: Mapping[str, Any] | None = None,
     ) -> None:
         self._provider = _provider
         self._event_bus = _event_bus
         self._state_ns = _state_ns
         self._job_registry = _job_registry
+        self._group_context = _group_context
 
     def _resolve_scope_tool_defs(
         self, tools: ToolScope, caller_job_registry: Any | None = None
@@ -78,8 +81,7 @@ class AI:
             if caller_job_registry is not None
             else (self._job_registry or [])
         )
-        # TRANSITIONAL(2.1): app jobs are offered without inherited group fields.
-        return tools.to_tool_defs(registry)
+        return tools.to_tool_defs(registry, group_context=self._group_context)
 
     def _emit(self, event_name: str, **payload: Any) -> None:
         """Emit an event if an event bus is available."""
