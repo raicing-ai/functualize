@@ -4,7 +4,7 @@ Only an unchecked task in the lowest incomplete wave may start. Each task is che
 
 ## Wave 0 — app-injected registry fallback
 
-- [ ] **1.1 — Offer app jobs through inherited `AI.run` without a caller registry.**
+- [x] **1.1 — Offer app jobs through inherited `AI.run` without a caller registry.**
   - Scope: `plugins/domains/functualize-ai/src/functualize_ai/_ai.py`; `plugins/domains/functualize-ai-pydantic/src/functualize_ai_pydantic/_pydantic_ai.py`; `tests/group_options/test_surface_parity.py`.
   - Behavior: store the registry once on base `AI`; Pydantic forwards it and delegates registry resolution. Explicit `job_registry=[]` wins. Directly constructed AI and contextless calls keep their current result. This is transitional: app-injected `AI.run` now offers descriptor-only jobs, but their inherited group fields remain absent until 2.1. Mark that site `# TRANSITIONAL(2.1): ...` in code and remove the marker when 2.1 lands; do not claim group parity at this checkpoint.
   - Gate: in the real app fixture, the injected capability's `AI.run(prompt, tools=scope)` sends the scoped job to a provider recorder without `job_registry=`; explicit `[]` sends no job tool; the standalone case stays descriptor-only. Run `timeout 570 uv run pytest --run-slow -n auto -q --no-header tests/group_options/test_surface_parity.py` and, in a separate process, `timeout 570 uv run pytest -q --no-header plugins/domains/functualize-ai-pydantic/tests/test_pydantic_provider.py` (both paths exist). Production path: app APP_READY -> plugin constructs PydanticAI with registry -> inherited AI.run -> ToolScope -> provider. Commit first, break the base registry fallback, see this test fail, restore, then tick.
