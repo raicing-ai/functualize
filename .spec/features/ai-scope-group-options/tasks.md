@@ -25,7 +25,7 @@ Only an unchecked task in the lowest incomplete wave may start. Each task is che
 
 ## Wave 3 — checkpoint
 
-- [ ] **4.1 — Verify the final branch and prepare the review handoff.**
+- [x] **4.1 — Verify the final branch and prepare the review handoff.**
   - Scope: task-state artifacts only; no product change expected.
   - Gate: `uv run ruff check src/ tests/ plugins/ examples/`, `uv run ruff format --check src/ tests/ plugins/ examples/`, `uv run mypy src/`, `uv run lint-imports`, and one bounded root selection: `timeout 570 uv run pytest --run-slow -n auto -q --no-header tests/group_options/test_surface_parity.py tests/surfaces/test_parameter_surface_parity.py tests/plugins/test_tool_scope.py tests/plugins/test_tool_scope_properties.py tests/plugins/test_tool_scope_translation_properties.py`. The pre-change serial root selection passed 180 tests with 7 skips in 537.91 seconds; xdist supplies headroom for new cases. The plugin package suites are separately gated in tasks 1.1 and 2.1 because combined collection failed in both default and importlib modes. Inspect the changed source with Serena references for orphaned branches and record before/after output, sabotage evidence, and dead-code delta. Push the feature artifacts with the code and open one PR against `master`; CI runs the full suite. Do not clear `.spec/features/` before review and independent verification.
 
