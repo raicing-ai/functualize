@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -165,6 +166,29 @@ def _evict_stale_job_modules() -> None:
 @pytest.fixture()
 def project(project_tree) -> Path:
     return project_tree(jobs={"_group.py": _GROUP_MODULE, "web.py": _WEB_JOB})
+
+
+def _app_wired_ai(project: Path, monkeypatch):
+    """The capability registered by a real app's Pydantic provider hook."""
+    from functualize_ai import AI
+    from functualize_ai_pydantic import PydanticAIPlugin
+
+    from functualize.app.config import JobSources, PluginSources
+    from functualize.app.core import FunctualizeApp
+
+    plugin = PydanticAIPlugin()
+    monkeypatch.chdir(project)
+    app = FunctualizeApp(
+        name="parity-ai",
+        job_sources=JobSources(
+            directories=[str(project / ".functualize" / "jobs")], lazy=False
+        ),
+        plugin_sources=PluginSources(entry_point_group="", explicit_plugins=[plugin]),
+    )
+    app.get_jobs()
+    ai = app._di_registry.resolve(AI)
+    assert ai is plugin._pydantic_ai
+    return app, ai
 
 
 # ── Per-surface probes: "what does surface S say is settable, and as what?" ──
@@ -433,6 +457,37 @@ def _mcp_tool(cli_run, project: Path) -> dict:
 
 class TestSurfaceParity:
     """One project, every surface, asserted against the declaration."""
+
+    def test_app_wired_ai_run_uses_the_registered_jobs(
+        self, project, monkeypatch
+    ) -> None:
+        """The app's documented AI.run call offers its scoped job."""
+        from functualize_ai import AI, AIResult, TokenUsage, ToolScope
+
+        app, ai = _app_wired_ai(project, monkeypatch)
+        provider = MagicMock()
+        provider.run.return_value = AIResult(
+            output="ok",
+            tool_calls=[],
+            usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            duration_ms=1.0,
+        )
+        ai._provider = provider
+        scope = ToolScope.only([".".join(JOB_PATH)])
+
+        ai.run("inspect", tools=scope)
+        offered = provider.run.call_args.kwargs["tools"]
+        assert [tool.name for tool in offered] == [".".join(JOB_PATH)]
+
+        ai.run("inspect", tools=scope, job_registry=[])
+        assert provider.run.call_args.kwargs["tools"] == []
+
+        standalone = AI(_provider=provider)
+        standalone.run("inspect", tools=scope, job_registry=app.job_registry)
+        assert (
+            provider.run.call_args.kwargs["tools"][0].parameters_schema
+            == scope.to_tool_defs(app.job_registry)[0].parameters_schema
+        )
 
     def test_job_help_shows_exactly_the_job_arguments(self, cli_run, project) -> None:
         """Leaks 2 and 3, from the CLI side: a group option or an injection

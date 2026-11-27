@@ -53,6 +53,7 @@ class AI:
         _provider: The AIProvider implementation to delegate to, or None.
         _event_bus: An optional event bus (duck-typed with ``emit()``).
         _state_ns: An optional StateNamespace (duck-typed with ``get``/``set``).
+        _job_registry: Optional app registry for resolving job tools.
     """
 
     def __init__(
@@ -61,10 +62,24 @@ class AI:
         _provider: AIProvider | None = None,
         _event_bus: Any | None = None,
         _state_ns: Any | None = None,
+        _job_registry: Any | None = None,
     ) -> None:
         self._provider = _provider
         self._event_bus = _event_bus
         self._state_ns = _state_ns
+        self._job_registry = _job_registry
+
+    def _resolve_scope_tool_defs(
+        self, tools: ToolScope, caller_job_registry: Any | None = None
+    ) -> list[ToolDef]:
+        """Resolve a scope with an explicit caller registry or the app registry."""
+        registry = (
+            caller_job_registry
+            if caller_job_registry is not None
+            else (self._job_registry or [])
+        )
+        # TRANSITIONAL(2.1): app jobs are offered without inherited group fields.
+        return tools.to_tool_defs(registry)
 
     def _emit(self, event_name: str, **payload: Any) -> None:
         """Emit an event if an event bus is available."""
@@ -202,12 +217,8 @@ class AI:
         # Resolve ToolScope to tool definitions
         tool_defs: list[ToolDef] | None = None
         if tools is not None:
-            # Use kwargs job_registry if provided, otherwise pass empty list
             job_registry = kwargs.pop("job_registry", None)
-            if job_registry is not None:
-                tool_defs = tools.to_tool_defs(job_registry)
-            else:
-                tool_defs = tools.to_tool_defs([])
+            tool_defs = self._resolve_scope_tool_defs(tools, job_registry)
 
         tools_count = len(tool_defs) if tool_defs else 0
         model_name = kwargs.get("model", "unknown")
