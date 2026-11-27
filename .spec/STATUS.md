@@ -30,6 +30,13 @@ overriding variables already set, so its values take the environment rung and
 outrank the config file. The click option carries no default of its own, so
 the ladder's precedence holds on every boot.
 
+An app-script command for a refused lazy job returns the shared refusing
+command before Click parses arguments. Every non-help call exits 2 with one
+`Error:` line naming the job, parameter and remedy, without a traceback. The
+shape gate is SD/30310404 v4 (`Authority: Approved`). The branch artifacts
+remain recoverable after merge from the parent of the cleanup head:
+`git fetch origin refs/pull/144/head && git show FETCH_HEAD^:.spec/features/refused-lazy-app-command/spec.md`.
+
 `info schema`, the MCP tools and their schema exports publish
 `job_input_schema`, with group options merged once
 ([ADR-010](../contributor/adr/010-job-schema-in-core.md)). The AI tool scope
