@@ -1298,6 +1298,30 @@ who wrote it got neither an error nor an expansion.
 
 ## Completed
 
+### The Usage Modes guide documents the HTTP route the server serves (2026-11-28, docs only)
+
+**The decision worth keeping.** *A request the docs print is a request someone
+sent.* `docs/guides/modes.md` printed `POST /jobs/deploy/run` with a flat body,
+a route `HttpServerCore.handle_request` never served (`404`). The guide now
+prints `POST /jobs/<name>/execute`, the name rule (`GET /jobs` lists it;
+`<group>.<job>` for a grouped job) and the `request_from_envelope` envelope
+(`arguments`, `group_option_values`, `scope_id`, `force`). Each request it
+prints was sent to a live `HttpAdapter` and answered as printed. Docs only.
+
+**Open, for the plugin's docs and wiring work:**
+
+- `HttpServerPlugin` registers `serve`, but the `functualize.plugins` entry
+  point loads `HttpAdapter`, so `func serve` is `Unknown command` with the
+  plugin installed. The guide says HTTP is started from Python. Wiring or
+  deleting the class is a maintainer decision.
+- The plugin README still documents `HttpServerPlugin` as a CLI plugin, and
+  `examples/http_service/README.md` sends a flat body to `/execute` (its keys
+  are not arguments).
+- No doc-verify scenario covers HTTP, so nothing stops this page drifting again.
+- The `/execute` response carries `status`, `duration_ms`, `return_value` and
+  `error`, but not the run's metadata, so a caller cannot read back the scope
+  id of a gated workflow it started without naming one.
+
 ### `root = true` ends the project for every walk (2026-10-28, `sdd/project-root-bounds-sources`)
 
 **The decision worth keeping.** *A project file that declares `root = true`

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the Usage Modes guide documents the HTTP route the server serves
+
+`docs/guides/modes.md` told readers to `POST /jobs/deploy/run` with the job's
+parameters as the whole body; the HTTP adapter answers that with `404`. The
+guide now shows the route it serves, `POST /jobs/<name>/execute`, where
+`<name>` is the job's name as `GET /jobs` lists it (`deploy.run` for a grouped
+job), and the request envelope: the job's parameters under `arguments`, beside
+`group_option_values`, `scope_id` and `force`. It also says that the HTTP
+adapter is started from Python: installing `functualize-http` adds no
+`func serve` command. No code changed.
+
 ### Fixed — app-injected AI offers scoped jobs with inherited group options
 
 An app-injected `ai.run(prompt, tools=scope)` now offers matching app jobs
