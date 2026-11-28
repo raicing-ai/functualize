@@ -5,7 +5,7 @@ checked only after its gate passes.
 
 ## Wave 0 — the marker reaches the wheel
 
-- [ ] **1.1 — Add `py.typed` to the package.**
+- [x] **1.1 — Add `py.typed` to the package.**
   - Scope: `plugins/credentials/functualize-secrets-aws/src/functualize_secrets_aws/py.typed`.
   - Gate: `uv build --package functualize-secrets-aws`, then `unzip -l` on the
     wheel lists `functualize_secrets_aws/py.typed` (AC-1); mypy on a consumer
@@ -18,7 +18,7 @@ checked only after its gate passes.
 
 ## Wave 1 — record and verify
 
-- [ ] **2.1 — Changelog and gates.**
+- [x] **2.1 — Changelog and gates.**
   - Scope: `CHANGELOG.md`.
   - Gate: `[Unreleased]` entry present (AC-3); `uv run ruff check src/ tests/ plugins/ examples/`,
     `uv run ruff format --check src/ tests/ plugins/ examples/`, `uv run mypy src/`,
