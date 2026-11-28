@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from functualize.app.adapters.click_params import (
+    _refused_job_command,
+    _refused_parameter,
     build_click_params_from_descriptor,
 )
 
@@ -61,6 +63,14 @@ def make_lazy_command(
         A ``click.Command`` whose callback materializes and runs the job on
         first invocation.
     """
+
+    if (refused := _refused_parameter(app, descriptor.name)) is not None:
+        return _refused_job_command(
+            command_name or descriptor.name,
+            descriptor.name,
+            refused,
+            descriptor.docstring or None,
+        )
 
     def lazy_wrapper(**kwargs: Any) -> Any:
         """Lazy command: materializes via the engine on first invocation."""
