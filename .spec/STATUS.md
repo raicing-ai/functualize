@@ -4793,3 +4793,19 @@ mypy, and all seven import contracts; the dead-code delta reported no new
 findings.
 
 Checked invocation and captured child output are recorded in [ADR-036](../contributor/adr/036-checked-invocation-and-capture.md).
+
+## tasks-local-substrate-example — completed on the PR branch 2026-11-28
+
+The `functualize-tasks-local` to-do example and README Quick Start now build
+`LocalTaskProvider(lambda: app.substrate)`. The example runs one command per
+process and keeps the list in one `tasks` document; on the default filesystem
+substrate, that is `.functualize/tasks.json`. Its tests exercise persistence
+across processes, read the document back through a fresh `FunctualizeApp`, and
+pin the README's Python block to the runnable example.
+
+This demonstrates [ADR-022](../contributor/adr/022-storage-is-a-substrate-not-a-key-value-domain.md):
+storage is selected once for the app, and the task provider uses that selected
+substrate rather than installing a separate state backend. The retired
+`functualize_state` package no longer exists. No import of it remains in this
+plugin; repository-wide mentions include historical prose, the distinct
+`functualize_state_memory` example, and scaffold fixtures.

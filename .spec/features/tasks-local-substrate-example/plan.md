@@ -10,16 +10,43 @@ surface change; no shape file was raised for it.
 
 ## Architecture gate
 
-Region: one example directory and one README. Mapped by reading the live
-sources (`_provider.py`, `_plugin.py`, `functualize/app/core.py`
-`substrate`, `_primitives/substrate.py` `JsonFileSubstrate.for_project`,
-`_primitives/fresh_format.py` `resolve_fresh_location`) and by `git grep`
-for every reference to `functualize_state`, `functualize-state` and the
-plugin's names. zvec-grep, serena and graphify were not run: the change
-touches no module another module imports, so there is no dependency direction
-or reference set to measure. The import-linter contracts govern `src/`; the
-example imports only public packages (`functualize.app`,
-`functualize_tasks`, `functualize_tasks_local`).
+Region: one example directory and one README. Retrieval run at
+`8bd07003cbe61388f021af3c1f9967f2e8c494c3`:
+
+- **zvec-grep** — Query: "Why was functualize-state retired in ADR-022,
+  and how should tasks-local persist tasks via the app substrate?" The fresh
+  repository index returned `contributor/adr/022-storage-is-a-substrate-not-a-key-value-domain.md`
+  (Decision), `docs/examples/plugins/custom-state-backend.md` (why the old
+  `StateBackend` was retired), and this plugin's README. They confirm one
+  storage choice per app: the old backend seam could split a scope's steps
+  from its variables, while the provider now writes a `tasks` document to
+  the selected substrate. This confirms the substrate premise.
+- **Serena** — `get_symbols_overview` on `examples/todo_local/todo_local.py`
+  returned `open_list` and `main`; on `_provider.py` it returned
+  `LocalTaskProvider`. `find_symbol(LocalTaskProvider/__init__)` shows a
+  `Callable[[], StoreSubstrate]` and `key=TASKS_KEY`, not a `backend=`
+  argument. `find_referencing_symbols(LocalTaskProvider)` found the plugin's
+  `_on_app_ready`, which constructs `LocalTaskProvider(lambda: app.substrate)`
+  and provides `TaskProvider`. `find_referencing_symbols(FunctualizeApp/substrate)`
+  found the example's `open_list` and its read-back test; the property returns
+  `execution_engine.substrate`. This confirms the current public call path.
+- **Graphify** — `get_neighbors("LocalTaskProvider")` returned an extracted
+  incoming `_on_app_ready` call and outgoing provider methods. But this
+  checkout's `graphify-out/graph.json` is stale: it locates the plugin at
+  `plugins/functualize-tasks-local/...` and `_on_app_ready` has an old
+  `TaskDocument` edge. The current files are under `plugins/domains/`, and
+  `git grep -n "LocalTaskProvider(lambda: app.substrate)" --
+  plugins/domains/functualize-tasks-local` finds the example, README, and
+  plugin registration. Current source and Serena, rather than the stale edge,
+  establish the dependency direction here.
+
+`git grep functualize_state -- plugins/domains/functualize-tasks-local` is
+empty. The repository-wide grep is not empty: history, this feature's spec,
+the distinct live `functualize_state_memory` example, and scaffold fixtures
+still contain the string. The gate is deliberately plugin-scoped; no history
+is removed. The import-linter contracts govern `src/`; the example imports
+only public packages (`functualize.app`, `functualize_tasks`,
+`functualize_tasks_local`).
 
 BEFORE:
 
