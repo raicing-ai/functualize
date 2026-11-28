@@ -222,8 +222,9 @@ The Level column is the plugin-to-plugin level from
 
 All ten Tier 1 entries were verified against the Tier 1 checklist: each has a
 `py.typed` marker, a README of 59–114 lines, and an `examples/` directory.
-`functualize-secrets-aws` and `functualize-secrets-bitwarden` have tests and READMEs but no
-`py.typed` marker and no `examples/` directory, so they sit at Tier 2.
+`functualize-secrets-aws` has tests and a README but no `py.typed` marker and no
+`examples/` directory; `functualize-secrets-bitwarden` has tests, a README and a
+`py.typed` marker but no `examples/` directory. Both sit at Tier 2.
 `functualize-decision-jev` has a `py.typed` marker but no `examples/` directory and
 no tests under its own plugin directory (its tests live in `tests/plugins/`).
 

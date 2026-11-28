@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Bitwarden package typing marker
+
+The `functualize-secrets-bitwarden` wheel now includes `py.typed`, so type
+checkers can use its annotations after installation as its `Typing :: Typed`
+classifier promises.
+
 ### Fixed — app-injected AI offers scoped jobs with inherited group options
 
 An app-injected `ai.run(prompt, tools=scope)` now offers matching app jobs
