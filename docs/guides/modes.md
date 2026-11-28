@@ -310,13 +310,57 @@ adapter(app)
 adapter.run(host="0.0.0.0", port=8080)
 ```
 
-Jobs are exposed as HTTP endpoints:
+Start it with `uv run python src/my_tool/server.py`. The HTTP adapter is started
+from Python, as above: installing `functualize-http` does not add a `func serve`
+command.
+
+The server answers three routes:
+
+| Route | Does |
+|---|---|
+| `GET /health` | `{"status": "healthy"}` |
+| `GET /jobs` | the jobs it serves, each with its `name`, `group` and `docstring` |
+| `POST /jobs/<name>/execute` | runs the job called `<name>` |
+
+`<name>` is the job's name as `GET /jobs` lists it. A grouped job is
+`<group>.<job>`, so the `run` job in the `deploy` group from the
+[directory mode example](#example) is `deploy.run`:
 
 ```bash
-curl -X POST http://localhost:8080/jobs/deploy/run \
+curl -X POST http://localhost:8080/jobs/deploy.run/execute \
   -H "Content-Type: application/json" \
-  -d '{"target": "production", "env": "prod"}'
+  -d '{"arguments": {"target": "production", "env": "prod"}}'
 ```
+
+```json
+{"status": "Success", "duration_ms": 86.86360499996226, "return_value": null}
+```
+
+The body is an envelope. The job's own parameters go under `arguments`, and
+the control inputs sit beside it:
+
+```json
+{
+  "arguments": {"target": "production", "env": "prod"},
+  "group_option_values": {"region": "eu-west-1"},
+  "scope_id": "release-42",
+  "force": true
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `arguments` | the job's parameters, by name |
+| `group_option_values` | the group options a CLI caller would type between the group and the job |
+| `scope_id` | the workflow scope a `@workflow` job runs in |
+| `force` | run even when the job's fingerprint says it is fresh |
+
+Every field is optional, though a job with a required parameter still needs it
+in `arguments`. Keys outside `arguments` are never job arguments, so a flat body
+such as `{"target": "production"}` leaves the job's parameters unset. The HTTP
+status code follows the run's outcome, so a failed run is not answered `200`.
+The [HTTP service example](../examples/project/http-service.md) is a complete
+project.
 
 ### Lambda Adapter
 
