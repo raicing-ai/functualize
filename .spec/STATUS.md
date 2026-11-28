@@ -112,6 +112,36 @@ standalone binary bakes `[all]`, so it does not include the `aws-sm://` and
 `func builtin plugin install functualize-secrets-aws`. An optional `[aws]`
 extra remains undecided.
 
+The `functualize-secrets-bitwarden` package declared `Typing :: Typed` while its
+eleven-file wheel omitted `functualize_secrets_bitwarden/py.typed`, so a
+consumer's mypy reported `[import-untyped]` and typed the API as `Any`. The
+0-byte marker now lives inside the package at
+`plugins/credentials/functualize-secrets-bitwarden/src/functualize_secrets_bitwarden/py.typed`,
+where every other plugin and core keep theirs, and there is none at the plugin
+root. The package's `pyproject.toml` wheel target is
+`packages = ["src/functualize_secrets_bitwarden"]` with no
+`[tool.hatch.build.targets.wheel.force-include]` table: an earlier placement
+mapped a root-level marker through one, the only `force-include` in any
+`plugins/*/*/pyproject.toml`, and ADR-009 sanctions that escape hatch only where
+a second consumer needs the canonical file at the repository root. No public
+API changes; no module, symbol, signature, entry point or dependency moved. The
+distribution layout is the whole surface, and all three forms carry the marker
+at the same package path: the 12-file wheel lists
+`functualize_secrets_bitwarden/py.typed` at 0 bytes in `RECORD`
+(byte-identical to the `force-include` build), the sdist lists
+`functualize_secrets_bitwarden-0.4.0/src/functualize_secrets_bitwarden/py.typed`
+and nothing at its root, and the editable install from `uv sync --all-packages`
+resolves to a package directory that contains the marker. `plugins/PUBLISHING.md`'s
+`test -f plugins/<name>/src/<package_name>/py.typed` check passes for it. With
+the wheel installed, mypy reveals
+`def () -> functualize_secrets_bitwarden.PasswordManagerProvider`; projects
+importing the package may see type errors previously hidden by `Any`, as the
+`[Unreleased]` changelog entry states. `plugins/PUBLISHING.md` keeps the plugin
+at Tier 2 because it has no `examples/` directory, no longer because of a
+missing marker. No test yet pins the marker in the built wheel. The feature
+artifacts remain recoverable from the cleanup head's parent with
+`git fetch origin refs/pull/149/head && git show FETCH_HEAD^:.spec/features/secrets-bitwarden-py-typed/spec.md`.
+
 ## Next Cut — 0.1.1
 
 A patch cut. Scope is one correctness bug found while reviewing an examples
