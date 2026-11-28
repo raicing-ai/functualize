@@ -112,6 +112,17 @@ standalone binary bakes `[all]`, so it does not include the `aws-sm://` and
 `func builtin plugin install functualize-secrets-aws`. An optional `[aws]`
 extra remains undecided.
 
+The `functualize-secrets-aws` package declared `Typing :: Typed` while its
+nine-file wheel omitted `functualize_secrets_aws/py.typed`. Its wheel and source
+distribution now carry the 0-byte marker. Removing that marker restores the
+nine-file build and makes a consumer's mypy report `[import-untyped]` and treat
+the API as `Any`; with it present, projects importing the package may see type
+errors previously hidden by `Any`. `functualize-secrets-bitwarden` still lacks
+the marker, and `plugins/PUBLISHING.md` still describes both credential plugins
+as unmarked; that shared statement is corrected once both fixes are published.
+The feature artifacts remain recoverable from the cleanup head's parent with
+`git fetch origin refs/pull/148/head && git show FETCH_HEAD^:.spec/features/secrets-aws-py-typed/spec.md`.
+
 ## Next Cut — 0.1.1
 
 A patch cut. Scope is one correctness bug found while reviewing an examples
