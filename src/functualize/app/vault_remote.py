@@ -78,7 +78,7 @@ __all__ = [
 
 #: The public FuncCloud vault. Any host implementing contracts v1 is a valid
 #: origin; this is only the default the CLI falls back to.
-DEFAULT_ORIGIN = "https://funccloud-vault.raicing-ai.workers.dev"
+DEFAULT_ORIGIN = "https://vault.cloud.functualize.com"
 
 #: Wire caps frozen in contracts v1. Enforced here so a doomed request never
 #: leaves the machine — same reasons as validating a vault path before

@@ -1015,13 +1015,16 @@ Phase 4 of the decision-layer experiment. The instrument is
 corpus replayed through one five-option selection gate against four comparators,
 five agent tasks run under three skill-loading arms, and a computed verdict. The
 method and the commands are `contributor/reference/skill-router-evaluation.md`.
-Corpus `v1` (`tests/skill_router_eval/corpus/v1/`, 40 scenarios) is frozen at
-digest `e04e65ed0c6111806ba58d5b6a90f9496b89164badc87daf994c8c3fd0e27a58` over
-catalog `47b1ea9b1535d2a0ccb50cb7d93ece6dcf84be1f31e19aaae7b2ce4a224be3b9`.
-The results, ledgers and verdict are the `SD` page *Skill Router — Corpus v1
-Results*; the computed verdict is a recommendation. Still open: its disposition
-is the maintainer's, Phase 5, and two-skill requests (`TWO_SKILL.md`), which the
-single-skill label set does not score.
+Corpus `v1` (`tests/skill_router_eval/corpus/v1/`, 40 scenarios) is a
+byte-pinned historical record. Its results, ledgers and verdict are the `SD`
+page *Skill Router — Corpus v1 Results*; the computed verdict is a
+recommendation. Corpus `v2` (`tests/skill_router_eval/corpus/v2/`, 40 scenarios)
+is the live corpus. Its lock records the shipped skill catalog and comparator
+identities, with declared thresholds but no measured results. Release 0.5.0
+ships all four skills at `metadata.version: "0.5.0"`, matching the package.
+Still open: disposition of the v1 verdict is the maintainer's, Phase 5, and
+two-skill requests (`TWO_SKILL.md`), which the single-skill label set does not
+score.
 
 ### Gate-name resolution — delivered
 

@@ -11,7 +11,7 @@ Sharing 3 entries:
   prod: --group deploy --field token
   prod: --group deploy --job app --field api_key
   prod: --group deploy.infra --field region_key
-https://funccloud-vault.raicing-ai.workers.dev/s/<id>#k1.<key>
+https://vault.cloud.functualize.com/s/<id>#k1.<key>
 Anyone with this complete link can redeem it. …
 
 # receiver, in their clone of the same project
@@ -203,8 +203,9 @@ refusals exit `3`.
 ## Origin
 
 Resolution order: `--origin` → `$FUNC_VAULT_ORIGIN` → the public FuncCloud
-vault (`https://funccloud-vault.raicing-ai.workers.dev`). Any host
+vault (`https://vault.cloud.functualize.com`). Any host
 implementing the same contract is a valid origin, which is what self-hosting
 and tests use. Redeeming a link whose origin differs from the configured one
 prints a note (the share id does travel there; the values still decrypt
-locally).
+locally). The former `https://funccloud-vault.raicing-ai.workers.dev` host is
+closed.

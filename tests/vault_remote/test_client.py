@@ -385,4 +385,4 @@ class TestMockConformance:
         assert payload == {"error": {"code": "share_id_conflict"}}
 
     def test_the_default_origin_is_the_public_vault(self) -> None:
-        assert DEFAULT_ORIGIN == ("https://funccloud-vault.raicing-ai.workers.dev")
+        assert DEFAULT_ORIGIN == ("https://vault.cloud.functualize.com")
