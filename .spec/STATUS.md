@@ -4809,3 +4809,32 @@ substrate rather than installing a separate state backend. The retired
 `functualize_state` package no longer exists. No import of it remains in this
 plugin; repository-wide mentions include historical prose, the distinct
 `functualize_state_memory` example, and scaffold fixtures.
+
+The feature's contract clauses, kept here in full because the feature tree is
+cleared:
+
+**No public API added, removed or changed.** The example consumes existing
+public surface only:
+
+| Symbol | From | Used as |
+|---|---|---|
+| `FunctualizeApp(name)` | `functualize.app` | boots the app in the current directory |
+| `FunctualizeApp.substrate` | `functualize.app` | the storage boot selected |
+| `LocalTaskProvider(substrate_source, key="tasks")` | `functualize_tasks_local` | the provider `LocalTasksPlugin` registers |
+| `TaskStatus` | `functualize_tasks` | status filter and update |
+
+**Example command line.** `python todo_local.py add TITLE` adds a pending
+task and prints the list; `python todo_local.py done TITLE-PART` marks pending
+tasks whose title contains it done, and prints the list; `python todo_local.py
+list` prints the list (also the default). Each printed line is
+`[<status>] <title>`, in insertion order. Any other command prints a usage
+line to stderr and exits 2.
+
+**Storage shape.** One substrate key, `tasks`, holding
+`{"tasks": {<id>: {<fields>}}}`. In a project with `.functualize/`, the
+default substrate writes `.functualize/tasks.json` (and its
+`.functualize/tasks.json.lock`).
+
+Full feature record (spec, contracts, plan, tasks) archived in Confluence
+before this clearing:
+https://raicing-ai.atlassian.net/wiki/spaces/SD/pages/30310516 (PR #147).
