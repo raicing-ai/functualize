@@ -49,14 +49,16 @@ class PydanticAI(AI):
         _state_ns: Any | None = None,
         _model: str = "claude-sonnet-4-20250514",
         _job_registry: Any | None = None,
+        _group_context: Any | None = None,
     ) -> None:
         super().__init__(
             _provider=_provider,
             _event_bus=_event_bus,
             _state_ns=_state_ns,
+            _job_registry=_job_registry,
+            _group_context=_group_context,
         )
         self._model = _model
-        self._job_registry = _job_registry
         self._translator = ToolScopeTranslator()
 
     def run_agent_loop(
@@ -238,8 +240,7 @@ class PydanticAI(AI):
         """Resolve a ToolScope into a list of ToolDef instances."""
         if tools is None:
             return []
-        registry = self._job_registry if self._job_registry is not None else []
-        return tools.to_tool_defs(registry)
+        return self._resolve_scope_tool_defs(tools)
 
     async def _run_agent_loop_async(
         self,

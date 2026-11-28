@@ -15,7 +15,7 @@ Zero dependencies on any AI implementation plugin.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -239,7 +239,9 @@ class ToolScope:
     # Resolution
     # ------------------------------------------------------------------
 
-    def to_tool_defs(self, job_registry: Any) -> list[ToolDef]:
+    def to_tool_defs(
+        self, job_registry: Any, *, group_context: Mapping[str, Any] | None = None
+    ) -> list[ToolDef]:
         """Resolve this scope against a job registry into provider-agnostic ToolDefs.
 
         The job_registry is duck-typed. It must provide:
@@ -258,6 +260,7 @@ class ToolScope:
 
         Args:
             job_registry: A duck-typed registry providing job descriptors.
+            group_context: Optional cached declarations for inherited group options.
 
         Returns:
             A list of ToolDef instances representing the resolved tools.
@@ -273,7 +276,7 @@ class ToolScope:
             else:
                 descriptors = _get_descriptors(job_registry)
                 matched = [
-                    _descriptor_to_tool_def(desc)
+                    _descriptor_to_tool_def(desc, group_context=group_context)
                     for desc in _filter_descriptors(descriptors, filt)
                 ]
             for tool_def in matched:
@@ -381,12 +384,14 @@ def _filter_descriptors(descriptors: list[Any], filt: _ScopeFilter) -> list[Any]
     return []
 
 
-def _descriptor_to_tool_def(descriptor: Any) -> ToolDef:
+def _descriptor_to_tool_def(
+    descriptor: Any, *, group_context: Mapping[str, Any] | None = None
+) -> ToolDef:
     """Convert a job descriptor to a ToolDef.
 
-    The parameters are the job's one schema (spec B-21, S-1): the same
-    ``job_input_schema`` that ``func builtin info schema`` and MCP publish, so
-    an LLM tool call is offered exactly the inputs the engine door accepts.
+    With app group context, the parameters are the same ``job_input_schema``
+    that ``func builtin info schema`` and MCP publish. Without context,
+    direct library callers retain the descriptor-only schema.
     """
     from functualize.app.utils import job_input_schema
 
@@ -395,7 +400,15 @@ def _descriptor_to_tool_def(descriptor: Any) -> ToolDef:
     return ToolDef(
         name=name,
         description=docstring,
-        parameters_schema=job_input_schema(descriptor),
+        parameters_schema=job_input_schema(
+            descriptor,
+            group_options_class_names=(
+                spec.class_name
+                for spec in (group_context or {}).values()
+                if getattr(spec, "class_name", None)
+            ),
+            group_options=group_context,
+        ),
         job_name=name,
         function=None,
         config_class=getattr(descriptor, "config_class", None),

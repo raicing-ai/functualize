@@ -37,19 +37,48 @@ shape gate is SD/30310404 v4 (`Authority: Approved`). The branch artifacts
 remain recoverable after merge from the parent of the cleanup head:
 `git fetch origin refs/pull/144/head && git show FETCH_HEAD^:.spec/features/refused-lazy-app-command/spec.md`.
 
-`info schema`, the MCP tools and their schema exports publish
-`job_input_schema`, with group options merged once
+`info schema`, the MCP tools and their schema exports, and the app-wired AI
+tool scope publish `job_input_schema`, with cached group options merged once
 ([ADR-010](../contributor/adr/010-job-schema-in-core.md)). The AI tool scope
-publishes the same contract-derived schema but does not merge group options:
-for a job whose options come from a group class, it offers fewer inputs than
-the job accepts. Removing `FieldDescriptor.type_annotation` and its `type`
+now offers a job's inherited group inputs when the app has their declarations;
+its published schema matches `func builtin info schema` and MCP `tools/list`
+for that job. Removing `FieldDescriptor.type_annotation` and its `type`
 alias from `functualize.types` is a free pre-release break:
 `FieldDescriptor.contract` replaces both, and the cache stores the type only
 there. The parameter parity test pins the shipped behaviour on ten surfaces:
 `--help`, bash and zsh completion, the SmartBar, the inline TUI, `info`, the
-MCP schema and MCP call, HTTP and Lambda. It does not cover the AI tool scope.
-Its declaration matrix also renders the *Which parameters are inputs* table in
-the jobs guide.
+MCP schema and MCP call, HTTP and Lambda. It does not cover the AI tool scope;
+the group-options surface parity suite covers that cell. Its declaration matrix
+also renders the *Which parameters are inputs* table in the jobs guide.
+
+The app-injected `AI` keeps the app's job registry and group declarations as
+optional values on the base class, their single owner; `PydanticAI` forwards
+both to it. At app readiness, the provider plugin supplies that registry and
+reads the group declarations from the app-fingerprinted discovery cache through
+public core functions. An app-injected `ai.run(prompt, tools=scope)` therefore
+offers matching app jobs without a caller `job_registry=` argument.
+
+`ToolScope.to_tool_defs(job_registry, *, group_context=None) -> list[ToolDef]`
+accepts those cached declarations without a new required argument or a
+missing-context error. With context, it passes the declaration map and its
+group-options class names to the core `job_input_schema` renderer. Without
+context, job schemas remain descriptor-only and function tools retain their
+existing behavior; `to_tool_defs([])` offers no job tools. A directly
+constructed `AI` with neither optional value set retains that result.
+
+`AI.run(prompt, *, tools=scope, job_registry=registry)` gives an explicitly
+supplied registry priority, including `[]`; otherwise it resolves against its
+stored app registry or `[]`. It always passes its stored group context to
+scope resolution. `PydanticAI._resolve_tool_defs(scope)` uses the same pair
+through the base resolution path. Standalone
+`AI.run(..., job_registry=registry)` remains valid and descriptor-only without
+group context. For app-wired jobs with cached inherited `GroupOptions`, the AI
+`ToolDef.parameters_schema` equals the `inputSchema` from
+`func builtin info schema` and MCP `tools/list`: inherited fields appear in
+`properties`, never in `required`; injected group-instance parameters are
+excluded; and a job's own field wins a name collision. The core renderer
+determines the exact JSON Schema fragments. The AI guide and changelog record
+the restored call shape.
 
 ## Scope-targeted walk-log append
 

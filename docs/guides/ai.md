@@ -50,6 +50,14 @@ result = ai.run("Find and summarize the README", tools=scope)
 # result is an AIResult with output, tool_calls, token_usage, duration
 ```
 
+When an AI provider plugin injects `ai` into a job, this call offers matching
+jobs from the app without a `job_registry=` argument. Each job tool includes
+its inherited group options when the app's discovery cache contains them;
+these options are optional inputs in the published schema. An explicit
+`job_registry=[]` selects no job tools. A directly constructed `AI` and a
+`ToolScope.to_tool_defs(registry)` call without group context retain their
+descriptor-only behavior.
+
 ### `ai.stream(prompt)`
 
 Streaming response as an iterator:
