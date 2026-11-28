@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `functualize-secrets-aws` ships its type information
+
+The `functualize-secrets-aws` wheel now carries the PEP 561 `py.typed`
+marker that its `Typing :: Typed` classifier already promised. Type checkers
+used to skip the installed package (mypy: `import-untyped`) and treat
+`SecretsManagerProvider`, `ParameterStoreProvider` and the rest of its API as
+`Any`; they now check code against its annotations, so a project that imports
+it may see type errors that were hidden before.
+
 ### Fixed — app-injected AI offers scoped jobs with inherited group options
 
 An app-injected `ai.run(prompt, tools=scope)` now offers matching app jobs
