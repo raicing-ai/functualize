@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `functualize-tasks-local`'s example and Quick Start run again
+
+The plugin's `examples/todo_local` example and its README Quick Start imported
+`functualize_state`, the package ADR-022 retired, so the example failed at
+collection and the Quick Start raised `ModuleNotFoundError`. Both now use the
+app's own substrate: a small to-do script builds `LocalTaskProvider` over
+`FunctualizeApp(...).substrate`, runs one process per command, and the list
+persists between them in the `tasks` document (`.functualize/tasks.json` on
+the default filesystem substrate). The README prints that script unchanged, and
+the example's test fails if the two drift. The README no longer claims a
+dependency on `functualize-state` or a `tasks:` key prefix; the provider stores
+every task in one document.
+
 ### Fixed — app-injected AI offers scoped jobs with inherited group options
 
 An app-injected `ai.run(prompt, tools=scope)` now offers matching app jobs
