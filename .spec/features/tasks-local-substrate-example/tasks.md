@@ -6,7 +6,7 @@ sabotage pass, run after a commit and restored.
 
 ## Wave 0 — the example on the substrate
 
-- [ ] **1.1 — Rewrite `todo_local` against `FunctualizeApp(...).substrate`.**
+- [x] **1.1 — Rewrite `todo_local` against `FunctualizeApp(...).substrate`.**
   - Scope: `plugins/domains/functualize-tasks-local/examples/todo_local/todo_local.py`;
     `plugins/domains/functualize-tasks-local/examples/todo_local/test_todo_local.py`.
   - Gate: `uv run pytest plugins/domains/functualize-tasks-local/examples -v`
@@ -18,7 +18,7 @@ sabotage pass, run after a commit and restored.
 
 ## Wave 1 — the README prints the example
 
-- [ ] **2.1 — Rewrite the README Quick Start and storage claims.**
+- [x] **2.1 — Rewrite the README Quick Start and storage claims.**
   - Scope: `plugins/domains/functualize-tasks-local/README.md`;
     `plugins/domains/functualize-tasks-local/examples/README.md`.
   - Gate: `test_the_readme_quick_start_is_this_example` passes (AC-4); the
@@ -29,7 +29,7 @@ sabotage pass, run after a commit and restored.
 
 ## Wave 2 — record and verify
 
-- [ ] **3.1 — Changelog and gates.**
+- [x] **3.1 — Changelog and gates.**
   - Scope: `CHANGELOG.md`.
   - Gate: `[Unreleased]` entry present (AC-7); `uv run ruff check src/ tests/ plugins/ examples/`,
     `uv run ruff format --check src/ tests/ plugins/ examples/`, `uv run mypy src/`,
